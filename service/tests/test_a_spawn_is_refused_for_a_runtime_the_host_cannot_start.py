@@ -108,6 +108,36 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         self.assertIn("pi-aify", response.text,
                       "the refusal did not carry the host's diagnostic, which is its whole value")
 
+    def test_a_spawn_with_no_live_BRIDGE_is_refused_rather_than_queued_for_ever(self):
+        """FOUND ON THE DEPLOYED SYSTEM, not by reading. `comms_spawn` was accepted, the request sat
+        `queued`, and nothing claimed it -- for as long as anyone cared to wait, with no error. It went
+        `running` the instant an environment bridge was started.
+
+        aify-env heartbeats this row to describe the host, which keeps `last_seen` fresh and the
+        status `online`; the thing that CLAIMS a spawn is the bridge. Before the cutover only a bridge
+        wrote `last_seen`, so `online` implied a claimer. Now it does not, and the gate has to ask the
+        question it actually depends on."""
+        stale = "2026-08-30T00:00:00Z"
+        self.client.post("/api/v1/environments/heartbeat", json={
+            "id": self.ENV, "kind": "windows", "os": "windows", "machineId": "win32:spawn-host",
+            "runtimes": [{"runtime": "pi", "available": True}],
+            "metadata": {"bridgeLastSeen": stale},
+        })
+        response = self._spawn("pi")
+        self.assertEqual(response.status_code, 409, response.text)
+        # The phrase in full, because `test_every_refusal_is_exercised.py` matches a refusal's whole
+        # message against the test tree -- a fragment leaves it counted as untested.
+        self.assertIn('" is described by aify-env but has no live environment bridge, and only a '
+                      'bridge claims a spawn. Run `aify-comms` on that host, then retry.', response.text)
+        self.assertIn("aify-comms", response.text, "the refusal must say how to start one")
+
+    def test_a_row_with_no_bridgeLastSeen_at_all_still_spawns(self):
+        """Every environment registered before that field existed is this shape. Reading absent as
+        'no bridge' would refuse every spawn on every host until each one's bridge restarted -- a
+        far worse failure than the one being fixed."""
+        self._environment([{"runtime": "pi", "available": True}])
+        self.assertIn(self._spawn("pi").status_code, (200, 201))
+
     def test_the_same_spawn_is_ACCEPTED_when_the_host_says_the_runtime_is_there(self):
         # The control. Without it this file passes just as well on a gate that refuses everything,
         # and "spawning is broken" would be indistinguishable from "the gate works".

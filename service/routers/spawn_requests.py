@@ -51,6 +51,7 @@ from service.api_core.runtime import (
     _runtime_unlaunchable_reason,
 )
 from service.api_core.records import _environment_record_to_dict
+from service.env_status import environment_has_live_bridge as _environment_has_live_bridge
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -200,6 +201,21 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         environment = _environment_record_to_dict(env_row)
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{req.environmentId}" is {environment.get("status") or "unknown"}; restart its bridge before spawning.')
+        # ONLINE IS NOT THE SAME AS CLAIMABLE since aify-env began heartbeating this row. It describes
+        # the host, which keeps `last_seen` fresh and the status `online`, while the thing that CLAIMS
+        # a spawn request is the environment bridge. With no bridge the request was accepted and sat
+        # `queued` for ever, with no error anywhere -- measured on the deployed system, and it went
+        # `running` the instant a bridge started.
+        # The same window the status check one line up used: `_environment_record_to_dict` was called
+        # with its default, and reading settings here would add a query to a path that already knows
+        # the answer it needs.
+        if not _environment_has_live_bridge(environment):
+            raise HTTPException(
+                409,
+                f'Environment "{req.environmentId}" is described by aify-env but has no live '
+                f'environment bridge, and only a bridge claims a spawn. Run `aify-comms` on that host, '
+                f'then retry.',
+            )
         runtime_capability = _runtime_capability_for_environment(environment, normalized_runtime)
         if not runtime_capability:
             raise HTTPException(400, f'Environment "{req.environmentId}" does not advertise runtime "{normalized_runtime}"')

@@ -126,7 +126,31 @@ def _derived_environment_id(kind: Any, hostname: Any) -> str:
 #: DERIVED FROM ITS READERS, not guessed: `bridgeStartedAt` is read by `_bridge_started_at` here and
 #: by `environment_claim.py`, and nothing else in the service reads a `bridge*` metadata key. A
 #: second one belongs in this tuple the day it gets a reader.
-BRIDGE_OWNED_METADATA = ("bridgeStartedAt",)
+#: The metadata keys only a BRIDGE can answer for, DERIVED by prefix rather than listed.
+#:
+#: A list of two was here, and it was one short: `bridgeBuild` rides in the same blob, `next_metadata`
+#: replaces the blob, and aify-env's advertisement beats every 30s -- so a bridge's reported build was
+#: erased within half a minute of being written, and `bridge-current` went back to reporting no
+#: evidence. That check exists to answer "is a running bridge executing old code", which nothing else
+#: can, and the cutover silently disabled it.
+#:
+#: `bridge*` is the honest rule: aify-env is not a bridge and sends no key by that name, so a prefix
+#: match cannot over-claim, and a key added to the bridge's payload later is covered without anyone
+#: remembering this line. `BRIDGE_OWNED_METADATA` stays as the explicit floor for the two that must be
+#: preserved even if the prefix convention is ever broken.
+BRIDGE_OWNED_METADATA = ("bridgeStartedAt", "bridgeLastSeen", "bridgeBuild")
+
+
+def _bridge_owned_metadata_keys(existing_metadata) -> tuple:
+    """Every key in the stored metadata that only a bridge could have written.
+
+    Prefix-derived, with the named floor unioned in so a rename upstream cannot silently drop one.
+    """
+    stored = tuple(
+        key for key in (existing_metadata or {})
+        if isinstance(key, str) and key.startswith("bridge")
+    )
+    return tuple(dict.fromkeys(BRIDGE_OWNED_METADATA + stored))
 
 #: What only the HOST can answer, and therefore what a caller describing no host must not erase.
 #:
@@ -257,8 +281,14 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
             existing_metadata.get("advertisedCwdRoots", []) if existing else []
         )
         next_metadata = {**metadata, "advertisedCwdRoots": advertised_roots}
+        # WHEN A BRIDGE LAST SPOKE, which is a different question from when this ROW was last written.
+        # Only a bridge sends a `bridgeId`, so only a bridge sets this; an advertisement from aify-env
+        # preserves it below rather than refreshing it. Without the split, a host with no bridge reads
+        # `online` off aify-env's beat and accepts spawns nothing can claim.
+        if str(req.bridgeId or "").strip():
+            next_metadata["bridgeLastSeen"] = now
         if not str(req.bridgeId or "").strip():
-            for bridge_key in BRIDGE_OWNED_METADATA:
+            for bridge_key in _bridge_owned_metadata_keys(existing_metadata):
                 if bridge_key in existing_metadata and bridge_key not in next_metadata:
                     next_metadata[bridge_key] = existing_metadata[bridge_key]
         # And the host's own answers, for a caller that described no host. Keyed on the request field

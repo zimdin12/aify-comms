@@ -133,6 +133,34 @@ class TwoTiersDescribeOneEnvironmentTests(FastApiTestCase):
         after = self._beat({**ENVIRONMENT_BEAT, "terminalRuntimes": ["codex"]})
         self.assertEqual(["codex"], after["terminalRuntimes"])
 
+    def test_an_advertisement_keeps_every_bridge_metadata_key(self):
+        """THE REGRESSION THIS CUTOVER CAUSED, and the reason it was findable at all.
+
+        `bridgeBuild` is how `bridge-current` answers "is a running bridge executing old code" -- the
+        question `bridge-installed` cannot, because a process keeps what it loaded at boot. It rides
+        in `metadata`, `next_metadata` replaces the blob, and aify-env beats every 30s: a bridge's
+        reported build was erased within half a minute of being written. Measured on the deployed
+        system -- a freshly started bridge on current code, and doctor still saying no bridge reports
+        its build.
+
+        The preserved set is now derived from the `bridge` prefix, so a key added to the bridge's
+        payload later survives without anyone remembering. This drives ALL of them, including one
+        invented here, because a test naming only today's three would not have caught tomorrow's."""
+        bridge = {**BRIDGE_BEAT_STOOD_DOWN, "metadata": {
+            "bridgeStartedAt": "2026-08-30T10:00:00Z",
+            "bridgeBuild": "6035d5a3",
+            "bridgeLastSeen": "2026-08-30T10:00:05Z",
+            "bridgeSomethingAddedLater": "future",
+            "pid": 1234,
+        }}
+        self._beat(bridge)
+        after = self._beat(ENVIRONMENT_BEAT)
+        metadata = after.get("metadata") or {}
+        for key in ("bridgeStartedAt", "bridgeBuild", "bridgeLastSeen", "bridgeSomethingAddedLater"):
+            self.assertIn(key, metadata, f"the advertisement erased {key}, which only a bridge can send")
+        self.assertEqual("6035d5a3", metadata["bridgeBuild"],
+                         "bridge-current is blind again: the build a bridge reported was replaced")
+
     def test_a_bridge_that_did_NOT_stand_down_still_works(self):
         """A host without aify-env, or with an older one that cannot report `advertising`. The bridge
         keeps sending host facts and they are believed -- standing down is the exception."""

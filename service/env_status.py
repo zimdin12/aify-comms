@@ -36,6 +36,36 @@ ENVIRONMENT_REGISTRABLE_STATUSES = frozenset({"online", "degraded", "offline"})
 _ENVIRONMENT_HEARTBEAT_STATUSES = {"online", "degraded"}
 
 
+def environment_has_live_bridge(environment, *, offline_seconds: int = 90) -> bool:
+    """Has a BRIDGE spoken for this environment recently?
+
+    A DIFFERENT QUESTION FROM `environment_effective_status`, and they were the same one until
+    2026-08-30. That function ages on `last_seen`, which only a bridge used to write; aify-env now
+    heartbeats the same row to describe the host, so a fresh `last_seen` no longer implies anything
+    can start a process here. A spawn was accepted against exactly that and queued for ever.
+
+    Reads `metadata.bridgeLastSeen`, which is written only by a beat carrying a `bridgeId` and
+    preserved -- never refreshed -- by one that is not.
+
+    ABSENT MEANS UNKNOWN, AND UNKNOWN MEANS YES. Every environment registered before this field
+    existed has no `bridgeLastSeen`, and reading that as "no bridge" would refuse every spawn on every
+    host until each one's bridge restarted. A missing field is not evidence of absence; the freshness
+    check applies only once there is something to check.
+
+    @param environment  an `_environment_record_to_dict` result
+    """
+    metadata = environment.get("metadata") if isinstance(environment, dict) else None
+    stamp = str((metadata or {}).get("bridgeLastSeen") or "").strip()
+    if not stamp:
+        return True
+    try:
+        last = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except Exception:
+        # Unparseable is the same as absent: it is not evidence that no bridge is there.
+        return True
+    return datetime.now(timezone.utc) - last <= timedelta(seconds=max(15, int(offline_seconds or 90)))
+
+
 def environment_effective_status(row, *, offline_seconds: int = 90) -> str:
     """Derive an environment's status, ageing a silent bridge to `offline`.
 
