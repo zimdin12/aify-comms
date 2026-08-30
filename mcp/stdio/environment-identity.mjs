@@ -118,7 +118,10 @@ export function launcherStateFrom(env = {}) {
  *
  * @param {{terminalSupported?: boolean}} [override]
  */
-export function environmentHeartbeatPayload({ terminalSupported: override, terminalReason = "", unknownProcesses = null } = {}) {
+export function environmentHeartbeatPayload({
+  terminalSupported: override, terminalReason = "", unknownProcesses = null,
+  hostDescribedByEnvironment = false,
+} = {}) {
   const hostname = (() => {
     try { return os.hostname() || "unknown-host"; } catch { return "unknown-host"; }
   })();
@@ -135,10 +138,17 @@ export function environmentHeartbeatPayload({ terminalSupported: override, termi
     bridgeVersion: BRIDGE_VERSION,
     ...launcherStateFrom(process.env),
     cwdRoots: cwdRootsForEnvironment(),
-    runtimes: advertisedEnvironmentRuntimes(),
-    terminal: terminalSupported,
-    pty: terminalSupported,
-    terminalRuntimes: advertisedTerminalRuntimes({ terminalSupported }),
+    // OMITTED WHEN aify-env IS DESCRIBING THIS HOST. These four are last-writer-wins and the two
+    // tiers compute them differently -- this one lists five runtimes with capability flags from its
+    // own table, aify-env lists the wrappers actually installed -- so both writing makes the row
+    // change on every beat. Omitting no longer erases: the service preserves a field its caller did
+    // not mention (`service/api_core/environment_registration.py`).
+    ...(hostDescribedByEnvironment ? {} : {
+      runtimes: advertisedEnvironmentRuntimes(),
+      terminal: terminalSupported,
+      pty: terminalSupported,
+      terminalRuntimes: advertisedTerminalRuntimes({ terminalSupported }),
+    }),
     metadata: {
       pid: process.pid,
       platform: process.platform,

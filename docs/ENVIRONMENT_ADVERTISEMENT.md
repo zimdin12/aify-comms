@@ -233,9 +233,41 @@ bridge probes runtimes its own way and asks aify-env only about terminal health,
 answer from contract markers and aify-wrapper's detectors. Two writers of one fact, disagreeing, at
 the interval of whichever beat lands last. The row would flap and the dashboard would flap with it.
 
-**The cutover is the answer, not an overlap.** aify-env starts advertising and the bridge stops — and
-on this host that is already the state, because the bridge is down and the operator has confirmed it
-is not in use. So the transition costs nothing here.
+**The cutover is the answer, not an overlap.** aify-env starts advertising and the bridge stops.
+
+### SHIPPED 2026-08-30, and it needed two things this section did not predict
+
+The rule is not "the bridge stops" but **"the bridge stands down when something else has taken over"**,
+decided from a fact rather than from a flag on each side. aify-env reports `advertising` in the
+`/health` the bridge already fetches on every beat, so the question costs no extra call, and it means
+*I am posting host facts to at least one service* — armed AND with a target. A daemon that cannot read
+its registry reports `false`, because standing down for nobody leaves a host described by no one, and
+that is worse than two describing it.
+
+Standing down requires a positive `true`. Absent, false, unreadable, an older daemon, delegation off:
+all of them leave the bridge doing the job. `AIFY_ADVERTISE=0` hands it back explicitly.
+
+**What each tier sends, after the split:**
+
+| field | sent by | why not the other |
+|---|---|---|
+| `runtimes`, `terminalRuntimes`, `terminal`, `pty` | aify-env | it owns processes and reads the wrappers actually installed |
+| `id`, `machineId`, `os`, `kind` | both | identity, and a cross-repo agreement test drives both builders over the same inputs |
+| `label`, `cwdRoots` | the bridge | the operator's chosen name and the service's policy — aify-env sends neither, so nothing else would set them |
+| `bridgeId`, `bridgeVersion`, launcher state, `bridgeStartedAt` | the bridge | supersession is arbitrated on these and aify-env is not a bridge |
+
+**The two things building it exposed.**
+
+*`terminal`, `pty` and `terminalRuntimes` are not columns.* They ride inside `metadata`, and
+`next_metadata` replaces the blob — so the preservation rule the nine columns got did not reach them,
+and a bridge standing down emptied the terminal answer instead of leaving it to the tier that owns it.
+Found by an alternating-beat test going red on `terminalRuntimes` becoming `[]`, not by reading.
+`HOST_OWNED_METADATA` is the symmetric partner of `BRIDGE_OWNED_METADATA`, which was already there.
+
+*The service was not normalising runtime names on write.* This document says "send client names, let
+the service normalise", and aify-env does send `claude`. The service stored it raw. Nothing broke —
+both readers normalise both sides before comparing — but the row read `claude` in `runtimes` and
+`claude-code` in `terminalRuntimes`, two lists on one row disagreeing about the same host.
 
 **If an overlap is ever needed**, the rule that resolves it is already implied by the fix above: a
 heartbeat carrying no `bridgeId` is the TIER speaking about the host, and one carrying a `bridgeId`

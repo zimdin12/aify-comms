@@ -129,11 +129,35 @@ test("aify-env answering NO is distinct from not answering", async () => {
   assert.equal((await probeEnvTerminal(delegationWith({ ok: true, handle: { terminals: { available: false } } }))).terminal, false);
 });
 
+test("the probe also reports WHO IS DESCRIBING the host", async () => {
+  // The bridge stands down on this, so it has to come off the same body the terminal answer does --
+  // one loopback GET already being made every beat, not a second call.
+  const yes = await probeEnvTerminal(delegationWith({ ok: true, handle: { advertising: true } }));
+  assert.equal(yes.advertising, true);
+});
+
+test("and it FAILS CLOSED on every shape that is not a literal yes", async () => {
+  // Standing down for a daemon that is not advertising leaves the host described by nobody, so
+  // absent, false, a refusal, delegation off and a truthy-but-not-true value must all keep the
+  // bridge doing the job.
+  const shapes = [
+    ["absent", delegationWith({ ok: true, handle: {} })],
+    ["explicit false", delegationWith({ ok: true, handle: { advertising: false } })],
+    ["a string", delegationWith({ ok: true, handle: { advertising: "true" } })],
+    ["a refusal", delegationWith({ ok: false, error: "unreachable" })],
+    ["delegation off", delegationWith({ ok: true, handle: { advertising: true } }, { enabled: false })],
+  ];
+  for (const [label, delegation] of shapes) {
+    assert.equal((await probeEnvTerminal(delegation)).advertising, false,
+      `${label} was read as a claim on this host`);
+  }
+});
+
 test("with delegation off nothing is asked", async () => {
   // A probe against an endpoint nobody serves spends a timeout every heartbeat.
   let asked = false;
   const delegation = { isEnabled: () => false, client: { health: async () => { asked = true; return {}; } } };
-  assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null });
+  assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null, advertising: false });
   assert.equal(asked, false, "the probe called out with delegation off");
 });
 
@@ -141,12 +165,12 @@ test("a client that throws is no answer rather than a crash", async () => {
   // This runs inside the heartbeat. A throw here would stop the environment reporting at all, which
   // is a worse failure than the one being fixed.
   const delegation = { isEnabled: () => true, client: { health: async () => { throw new Error("boom"); } } };
-  assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null });
+  assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null, advertising: false });
 });
 
 test("a missing or malformed delegation is no answer", async () => {
   for (const delegation of [null, undefined, {}, { isEnabled: () => true }]) {
-    assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null },
+    assert.deepEqual(await probeEnvTerminal(delegation), { terminal: null, processes: null, advertising: false },
       `threw or answered for ${JSON.stringify(delegation)}`);
   }
 });

@@ -59,9 +59,11 @@ export function advertisedEnvironmentState({
  * @param {boolean|null} input.envHealthy    aify-env's terminal answer; null = it did not answer
  * @param {object[]|null} input.envProcesses aify-env's process list; null = could not ask
  * @param {boolean} input.localTerminal      did node-pty load in this process
+ * @param {boolean} input.envAdvertising     is aify-env describing this host; false unless it says so
  */
 export function buildEnvironmentPayload({
   terminalManager, envHealthy = null, envProcesses = null, localTerminal = false,
+  envAdvertising = false,
 } = {}) {
   const state = advertisedEnvironmentState({
     delegationEnabled: terminalManager?.envDelegation?.isEnabled?.() === true,
@@ -74,5 +76,8 @@ export function buildEnvironmentPayload({
     terminalSupported: state.terminal,
     terminalReason: state.reason,
     unknownProcesses: state.unknownProcesses,
+    // Standing down needs a POSITIVE answer from the tier taking the job over. Everything else --
+    // no answer, an old daemon, a false -- leaves this bridge describing the host.
+    hostDescribedByEnvironment: envAdvertising === true,
   });
 }

@@ -749,6 +749,10 @@ const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSwee
 // and it accounts for no processes rather than for zero of them.
 let lastEnvTerminalHealth = null;
 let lastEnvProcesses = null;
+//: FALSE, not null, and for a different reason from the two above. Those distinguish "no answer" from
+//: a value; this one does not need to, because every no-answer path leads where false does: this
+//: bridge keeps describing the host.
+let lastEnvAdvertising = false;
 
 /** The registration this bridge would send now. The DECISION is environment-advertisement.mjs's. */
 function environmentPayloadNow() {
@@ -756,6 +760,7 @@ function environmentPayloadNow() {
     terminalManager: TERMINAL_MANAGER,
     envHealthy: lastEnvTerminalHealth,
     envProcesses: lastEnvProcesses,
+    envAdvertising: lastEnvAdvertising,
     localTerminal: bridgeTerminalSupported(),
   });
 }
@@ -772,6 +777,7 @@ async function heartbeatEnvironment({ syncManaged = true } = {}) {
     // before spawning moved out of this process.
     const envHealth = await probeEnvTerminal(TERMINAL_MANAGER.envDelegation);
     lastEnvTerminalHealth = envHealth.terminal;
+    lastEnvAdvertising = envHealth.advertising === true;
     lastEnvProcesses = envHealth.processes;
     const response = await httpCall(
       "POST",

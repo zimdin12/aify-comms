@@ -59,6 +59,34 @@ router = domain_router()
 # it travelled with the drain that was its only reader.
 
 
+def _canonical_runtimes(rows: Any) -> list:
+    """Runtime rows with their names put through the shared vocabulary.
+
+    THE SERVICE OWNS THE VOCABULARY, and this is the half it was not doing. A host sends the names it
+    can see on disk -- `claude`, `omp` -- because `service/contracts/vocabulary.json` already maps them
+    in both languages with an agreement test per side, and a second copy of that map in the environment
+    tier is exactly the drift the contract exists to prevent.
+
+    NOT A CORRECTNESS FIX. Both readers of these rows normalise both sides already, so a stored
+    `claude` matches a lookup for `claude-code`. What it fixes is a row that reads `claude` while every
+    agent on it reads `claude-code` -- two screens that agree only if you know the alias table.
+
+    Idempotent: `claude-code` maps to itself, so a bridge sending canonical names is unaffected. A row
+    that is not a dict is passed through rather than dropped, because inventing a shape is worse than
+    storing an odd one, and the readers all use `.get`.
+    """
+    if not isinstance(rows, list):
+        return rows
+    canonical = []
+    for row in rows:
+        if not isinstance(row, dict):
+            canonical.append(row)
+            continue
+        name = _normalize_runtime(row.get("runtime"))
+        canonical.append({**row, "runtime": name} if name else row)
+    return canonical
+
+
 def _derived_environment_id(kind: Any, hostname: Any) -> str:
     """`kind:hostname:default`, the id a caller may omit.
 
@@ -99,6 +127,22 @@ def _derived_environment_id(kind: Any, hostname: Any) -> str:
 #: by `environment_claim.py`, and nothing else in the service reads a `bridge*` metadata key. A
 #: second one belongs in this tuple the day it gets a reader.
 BRIDGE_OWNED_METADATA = ("bridgeStartedAt",)
+
+#: What only the HOST can answer, and therefore what a caller describing no host must not erase.
+#:
+#: These three ride inside `metadata` rather than in columns, and `next_metadata` replaces the blob --
+#: so the preservation rule the nine columns got did not reach them. Since the 2026-08-30 cutover the
+#: aify-comms bridge stands down from describing a host whenever aify-env is advertising it, and its
+#: beat carries none of the three; without this, standing down empties the terminal answer instead of
+#: leaving it to the tier that owns it.
+#:
+#: Each is paired with the REQUEST FIELD that produces it, because "the caller said nothing about the
+#: terminal" is the condition, and the metadata key is only where the answer is kept.
+HOST_OWNED_METADATA = (
+    ("terminal", "terminal"),
+    ("pty", "pty"),
+    ("terminalRuntimes", "terminalRuntimes"),
+)
 
 
 def _bridge_started_at(metadata: Any) -> str:
@@ -154,7 +198,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
     #: claims, and `or []` collapsed them -- so a heartbeat that omitted either field erased it. The
     #: stored value is restored below, once `existing` has been read.
     cwd_roots = _normalize_roots(req.cwdRoots) if req.cwdRoots is not None else None
-    runtimes = req.runtimes if req.runtimes is not None else None
+    runtimes = _canonical_runtimes(req.runtimes) if req.runtimes is not None else None
     metadata = req.metadata or {}
     if req.terminal is not None:
         metadata["terminal"] = bool(req.terminal)
@@ -217,6 +261,11 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
             for bridge_key in BRIDGE_OWNED_METADATA:
                 if bridge_key in existing_metadata and bridge_key not in next_metadata:
                     next_metadata[bridge_key] = existing_metadata[bridge_key]
+        # And the host's own answers, for a caller that described no host. Keyed on the request field
+        # being absent: a caller that sent `terminal: false` is making a claim and is believed.
+        for request_field, metadata_key in HOST_OWNED_METADATA:
+            if getattr(req, request_field, None) is None and metadata_key in existing_metadata:
+                next_metadata.setdefault(metadata_key, existing_metadata[metadata_key])
         if manual_roots:
             next_metadata.update({
                 "manualRoots": True,

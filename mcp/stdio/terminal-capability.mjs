@@ -103,7 +103,9 @@ export function envTerminalHealth(health) {
  *   is off or aify-env did not answer -- and `processes: null` is "could not ask", never "none".
  */
 export async function probeEnvTerminal(delegation) {
-  const nothing = { terminal: null, processes: null };
+  //: `advertising: false` on every no-answer path, NOT null. The bridge stands down only on a
+  //: positive yes, so "could not ask" and "said no" lead to the same place: keep advertising.
+  const nothing = { terminal: null, processes: null, advertising: false };
   // Nothing to ask when this bridge is the spawner, and asking would spend a timeout every beat
   // against an endpoint nobody is serving.
   if (delegation?.isEnabled?.() !== true) return nothing;
@@ -119,6 +121,10 @@ export async function probeEnvTerminal(delegation) {
       // not read would report every terminal as unknown to this bridge. Through the SHARED reader,
       // because this unwrap was written by hand in three places and one of the three had it wrong.
       processes: envListing(body).processes,
+      // WHO DESCRIBES THIS HOST. True only when that daemon is posting host facts to a service; see
+      // aify-env `lib/advertise.mjs#isAdvertising`. Anything else -- absent, false, a body we could
+      // not read -- leaves this bridge doing the advertising.
+      advertising: body?.advertising === true,
     };
   } catch {
     return nothing;

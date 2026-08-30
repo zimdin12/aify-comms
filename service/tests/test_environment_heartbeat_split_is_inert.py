@@ -94,7 +94,20 @@ def _module_constants(path: Path) -> set[str]:
 #: the pre-split baseline survives.
 EDITED_SINCE = [
     (
-        '    #: `is None`, NOT falsiness. For a list, "said nothing" and "said there are none" are different\n    #: claims, and `or []` collapsed them -- so a heartbeat that omitted either field erased it. The\n    #: stored value is restored below, once `existing` has been read.\n    cwd_roots = _normalize_roots(req.cwdRoots) if req.cwdRoots is not None else None\n    runtimes = req.runtimes if req.runtimes is not None else None',
+        # ADDED, declared as a deletion for the same reason as the entry below it: it sits
+        # between two lines a later entry declares as adjacent.
+        "        # And the host's own answers, for a caller that described no host. Keyed on the request field\n        # being absent: a caller that sent `terminal: false` is making a claim and is believed.\n        for request_field, metadata_key in HOST_OWNED_METADATA:\n            if getattr(req, request_field, None) is None and metadata_key in existing_metadata:\n                next_metadata.setdefault(metadata_key, existing_metadata[metadata_key])\n",
+        '',
+    ),
+    (
+        # ADDED, so declared as a deletion: the reconstruction removes it to recover the file the
+        # fixture recorded. It sits between two lines a later entry declares as adjacent, which is
+        # why it needs its own entry and why that entry has to come first.
+        'def _canonical_runtimes(rows: Any) -> list:\n    """Runtime rows with their names put through the shared vocabulary.\n\n    THE SERVICE OWNS THE VOCABULARY, and this is the half it was not doing. A host sends the names it\n    can see on disk -- `claude`, `omp` -- because `service/contracts/vocabulary.json` already maps them\n    in both languages with an agreement test per side, and a second copy of that map in the environment\n    tier is exactly the drift the contract exists to prevent.\n\n    NOT A CORRECTNESS FIX. Both readers of these rows normalise both sides already, so a stored\n    `claude` matches a lookup for `claude-code`. What it fixes is a row that reads `claude` while every\n    agent on it reads `claude-code` -- two screens that agree only if you know the alias table.\n\n    Idempotent: `claude-code` maps to itself, so a bridge sending canonical names is unaffected. A row\n    that is not a dict is passed through rather than dropped, because inventing a shape is worse than\n    storing an odd one, and the readers all use `.get`.\n    """\n    if not isinstance(rows, list):\n        return rows\n    canonical = []\n    for row in rows:\n        if not isinstance(row, dict):\n            canonical.append(row)\n            continue\n        name = _normalize_runtime(row.get("runtime"))\n        canonical.append({**row, "runtime": name} if name else row)\n    return canonical\n\n\n',
+        '',
+    ),
+    (
+        '    #: `is None`, NOT falsiness. For a list, "said nothing" and "said there are none" are different\n    #: claims, and `or []` collapsed them -- so a heartbeat that omitted either field erased it. The\n    #: stored value is restored below, once `existing` has been read.\n    cwd_roots = _normalize_roots(req.cwdRoots) if req.cwdRoots is not None else None\n    runtimes = _canonical_runtimes(req.runtimes) if req.runtimes is not None else None',
         '    cwd_roots = _normalize_roots(req.cwdRoots or [])\n    runtimes = req.runtimes or []',
     ),
     (
