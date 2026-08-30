@@ -25,8 +25,15 @@ HOST = "aify.local:8800"
 ALLOWED = ["https://named.example"]
 
 
+#: `aify.local` is TRUSTED in these cases on purpose. The same-host shortcut now requires it: two
+#: client-supplied values agreeing is not evidence, because under DNS rebinding Origin and Host are
+#: both the attacker's name. Cases that need an UNTRUSTED host pass `trusted_hosts=[]` explicitly.
+TRUSTED = ["aify.local"]
+
+
 def allowed(**over) -> bool:
-    return browser_request_is_allowed(**{"host": HOST, "allowed_origins": ALLOWED, **over})
+    return browser_request_is_allowed(**{
+        "host": HOST, "allowed_origins": ALLOWED, "trusted_hosts": TRUSTED, **over})
 
 
 class TheOriginIsReadFirstAndIsConclusiveTests(unittest.TestCase):
@@ -90,13 +97,27 @@ class WithNoOriginFetchMetadataIsAllThereIsTests(unittest.TestCase):
             with self.subTest(method=method):
                 self.assertFalse(allowed(sec_fetch_site="same-site", method=method))
 
-    def test_same_site_NAVIGATION_still_works_or_the_operator_loses_a_real_link(self):
-        """Clicking through from Dashboard Next to the classic UI is a same-site navigation with no
-        Origin. Refusing it would break a real flow to stop nothing, so the rule is scoped to
-        methods that can change state."""
-        for method in sorted(SAFE_METHODS):
-            with self.subTest(method=method):
-                self.assertTrue(allowed(sec_fetch_site="same-site", method=method))
+    def test_same_site_NAVIGATION_to_the_NON_MUTATING_surface_still_works(self):
+        """Clicking through from Dashboard Next to the classic UI must keep working. It is scoped to
+        a positive top-level navigation AND to paths that do not mutate -- not to "any safe method",
+        which was wrong here: `GET /messages/inbox/{agent}` settles read receipts and completes
+        stranded dispatch runs."""
+        for path in ("/", "/health", "/api/v1/dashboard"):
+            with self.subTest(path=path):
+                self.assertTrue(allowed(
+                    sec_fetch_site="same-site", method="GET",
+                    sec_fetch_dest="document", path=path))
+
+    def test_a_same_site_request_that_is_NOT_a_navigation_is_refused(self):
+        """A page-initiated fetch is not a navigation, whatever its method."""
+        self.assertFalse(allowed(
+            sec_fetch_site="same-site", method="GET", sec_fetch_dest="empty", path="/"))
+
+    def test_a_same_site_navigation_to_a_MUTATING_path_is_refused(self):
+        """The hole this closes. A sibling subdomain could navigate to an API GET that writes."""
+        self.assertFalse(allowed(
+            sec_fetch_site="same-site", method="GET", sec_fetch_dest="document",
+            path="/api/v1/messages/inbox/somebody"))
 
     def test_same_origin_and_none_are_allowed(self):
         self.assertTrue(allowed(sec_fetch_site="same-origin", method="POST"))
@@ -159,11 +180,23 @@ class BothDoorsAskTheSamePolicyTests(unittest.TestCase):
         """A bridge, a CLI, a curl. Refusing these would protect nobody and break everything."""
         self.assertReachedTheApp(self._client().get("/api/v1/agents"))
 
-    def test_a_same_site_NAVIGATION_is_still_served(self):
-        """The operator's own link from one dashboard to the other, which a blanket same-site
-        refusal would break."""
-        self.assertReachedTheApp(
-            self._client().get("/api/v1/agents", headers={"Sec-Fetch-Site": "same-site"}))
+    def test_a_same_site_NAVIGATION_to_the_DASHBOARD_is_still_served(self):
+        """The operator's own link from one dashboard to the other must keep working -- but only to
+        the surface that does not mutate."""
+        # `/health` rather than the dashboard itself: the dashboard route REDIRECTS, and a redirect
+        # chase is not what this test is about. Both are in the navigable set; this one answers.
+        self.assertReachedTheApp(self._client().get(
+            "/health", headers={"Sec-Fetch-Site": "same-site", "Sec-Fetch-Dest": "document"}))
+
+    def test_a_same_site_GET_to_the_API_is_REFUSED_even_though_it_is_a_GET(self):
+        """"GET is safe" is the general rule and it is FALSE here. `GET /messages/inbox/{agent}`
+        settles read receipts, completes dispatch runs stranded by a dead bridge, and refreshes
+        agent status. A blanket same-site GET allowance let a sibling subdomain mutate through the
+        arm called safe."""
+        response = self._client().get(
+            "/api/v1/messages/inbox/somebody",
+            headers={"Sec-Fetch-Site": "same-site", "Sec-Fetch-Dest": "empty"})
+        self.assertEqual(response.status_code, 403, response.text)
 
     def test_the_WEBSOCKET_door_asks_the_same_policy(self):
         """It already compared by host; the point is that it now shares the DECISION rather than
@@ -171,11 +204,15 @@ class BothDoorsAskTheSamePolicyTests(unittest.TestCase):
         from service import main as service_main
 
         self.assertFalse(service_main.websocket_origin_is_allowed(
-            "https://evil.example", HOST, ALLOWED))
+            "https://evil.example", HOST, ALLOWED, TRUSTED))
         self.assertTrue(service_main.websocket_origin_is_allowed(
-            "http://aify.local:8801", HOST, ALLOWED))
-        self.assertTrue(service_main.websocket_origin_is_allowed("", HOST, ALLOWED),
+            "http://aify.local:8801", HOST, ALLOWED, TRUSTED))
+        self.assertTrue(service_main.websocket_origin_is_allowed("", HOST, ALLOWED, TRUSTED),
                         "a program opening the stream must still be served")
+        # ...and the rebinding case reaches the WebSocket door too.
+        self.assertFalse(service_main.websocket_origin_is_allowed(
+            "http://aify.local:8801", HOST, ALLOWED, []),
+            "an untrusted Host must not be vouched for by an Origin that matches it")
 
 
 class AOneTimeQueryCredentialMustNotSTAYInTheURLTests(unittest.TestCase):
@@ -254,3 +291,48 @@ class AOneTimeQueryCredentialMustNotSTAYInTheURLTests(unittest.TestCase):
             headers={"Sec-Fetch-Dest": "document", "Sec-Fetch-Site": "none"},
         )
         self.assertEqual(response.status_code, 401, response.text)
+
+
+class BothDoorsGetTheSAMEConfigTests(unittest.TestCase):
+    """A shared policy is only shared if both call sites hand it the same inputs.
+
+    THE GAP THIS PINS, which I shipped once in this very change: the HTTP middleware was given
+    `config.trusted_hosts` and the WebSocket call site was not, so it fell back to loopback-only.
+    An operator who named a LAN host would have found the dashboard working and the live console
+    refusing, with nothing saying why. One policy, two callers, one of them under-informed -- the
+    same shape as the two guards this change exists to merge.
+    """
+
+    def test_the_websocket_call_site_passes_the_configured_trusted_hosts(self):
+        """SCOPED TO THE CALL, not to the file. My first version grepped all of `create_app` for
+        `config.trusted_hosts` -- which the MIDDLEWARE line also contains, so deleting it from the
+        websocket call left the test green. A mutation caught that; the assertion now reads the
+        websocket call's own arguments."""
+        import inspect
+        from service import main as service_main
+
+        lines = inspect.getsource(service_main.create_app).splitlines()
+        at = next((i for i, line in enumerate(lines) if "websocket_origin_is_allowed(" in line), -1)
+        self.assertGreaterEqual(at, 0, "no websocket_origin_is_allowed call found in create_app")
+        # The call spans a few lines; take them. A REGEX WAS WRONG HERE: `\((.*?)\)` is non-greedy
+        # and stopped at the first `)`, which belongs to `ws.headers.get("origin", "")` -- so it
+        # captured a fragment and failed on correct code.
+        call = " ".join(lines[at:at + 4])
+
+        self.assertIn("config.trusted_hosts", call,
+                      "the websocket door does not receive the operator's trusted hosts, so a "
+                      "named LAN host would work over HTTP and be refused on the live stream")
+        # POSITIVE CONTROL: the same slice finds the sibling argument, so a miss above is a real
+        # absence rather than a window that landed on the wrong lines.
+        self.assertIn("config.cors_origins", call)
+
+    def test_the_http_middleware_reads_the_field_DIRECTLY(self):
+        """`getattr(config, 'trusted_hosts', [])` hid the read from `test_every_config_knob_does
+        _something`, which exists precisely to catch a declared field nothing consumes. The default
+        was pointless too -- the field is declared, so it is always present."""
+        import inspect
+        from service import main as service_main
+
+        source = inspect.getsource(service_main.create_app)
+        self.assertIn("trusted_hosts=config.trusted_hosts", source)
+        self.assertNotIn("getattr(config, 'trusted_hosts'", source)

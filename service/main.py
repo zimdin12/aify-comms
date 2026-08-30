@@ -110,8 +110,12 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
     on absence would refuse every bridge, every CLI and every `curl` this service exists to serve.
     """
 
-    def __init__(self, app, allowed_origins: list[str] | None = None):
+    def __init__(self, app, allowed_origins: list[str] | None = None,
+                 trusted_hosts: list[str] | None = None):
         super().__init__(app)
+        #: Which `Host` values a same-host origin claim may be believed on. Empty means loopback
+        #: only, which is the safe default: a rebound DNS name is never loopback.
+        self.trusted_hosts = [str(h).strip() for h in (trusted_hosts or []) if str(h).strip()]
         # `*` is deliberately NOT an exemption. A wildcard is the absence of a decision about who may
         # drive this service from a browser, and reading it as "everyone" would make the guard a no-op
         # in exactly the default configuration it exists to protect.
@@ -129,10 +133,13 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
         # disagreeing, is how the weaker one becomes the way in.
         if browser_request_is_allowed(
             method=request.method,
+            path=request.url.path,
             sec_fetch_site=request.headers.get("sec-fetch-site", ""),
+            sec_fetch_dest=request.headers.get("sec-fetch-dest", ""),
             origin=request.headers.get("origin", ""),
             host=request.headers.get("host", ""),
             allowed_origins=self.allowed_origins,
+            trusted_hosts=self.trusted_hosts,
         ):
             return await call_next(request)
         return Response(
@@ -267,7 +274,7 @@ async def _periodic_dispatch_reconcile() -> None:
             logger.error(f"Periodic dispatch reconcile skipped: {e}")
 
 
-def websocket_origin_is_allowed(origin: str, host: str, allowed_origins) -> bool:
+def websocket_origin_is_allowed(origin: str, host: str, allowed_origins, trusted_hosts=None) -> bool:
     """May a WebSocket handshake carrying this `Origin` be accepted?
 
     DELEGATES to `browser_request_is_allowed`, which is the same decision the HTTP door asks. This
@@ -281,7 +288,9 @@ def websocket_origin_is_allowed(origin: str, host: str, allowed_origins) -> bool
     are what this endpoint exists to serve.
     """
     return browser_request_is_allowed(
-        method="GET", sec_fetch_site="", origin=origin, host=host, allowed_origins=allowed_origins,
+        method="GET", path="/ws", sec_fetch_site="", sec_fetch_dest="",
+        origin=origin, host=host, allowed_origins=allowed_origins,
+        trusted_hosts=trusted_hosts,
     )
 
 
@@ -469,7 +478,8 @@ def create_app() -> FastAPI:
     #
     # ALWAYS ON. Unlike the key and the bind address, this costs an operator nothing: no program sends
     # `Sec-Fetch-Site`, and both dashboards are same-origin or same-site.
-    app.add_middleware(CrossSiteBrowserMiddleware, allowed_origins=config.cors_origins)
+    app.add_middleware(CrossSiteBrowserMiddleware, allowed_origins=config.cors_origins,
+                       trusted_hosts=config.trusted_hosts)
 
     app.add_middleware(RequestTimingMiddleware)
 
@@ -485,7 +495,8 @@ def create_app() -> FastAPI:
         # not subject to CORS, so a page on any site could open this stream and read fleet activity
         # with no key configured, which is the default.
         if not websocket_origin_is_allowed(
-            ws.headers.get("origin", ""), ws.headers.get("host", ""), config.cors_origins
+            ws.headers.get("origin", ""), ws.headers.get("host", ""), config.cors_origins,
+            config.trusted_hosts
         ):
             await ws.close(code=1008)
             return

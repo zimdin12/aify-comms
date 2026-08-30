@@ -104,10 +104,18 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         asyncio.run(_run())
 
     def _environment(self, runtimes):
+        # BEATS AS A BRIDGE, which is what a host with a claimer actually looks like. These tests
+        # are about the OTHER refusals -- an unlaunchable runtime, an unadvertised one -- and they
+        # used to reach them through an environment with no bridge at all, which only worked while
+        # a missing `bridgeLastSeen` was read as "assume one is there". Now that an absent stamp is
+        # resolved against `bridge_instances` instead of assumed, an environment with no bridge is
+        # correctly refused before those checks are reached, so the fixture has to describe a host
+        # that could actually run something.
         response = self.client.post("/api/v1/environments/heartbeat", json={
             "id": self.ENV, "kind": "windows", "os": "windows",
             "machineId": "win32:spawn-host", "runtimes": runtimes,
             "terminal": True, "pty": True,
+            "bridgeId": "bridge-spawn-host",
             "terminalRuntimes": [r["runtime"] for r in runtimes if r.get("available") is not False],
         })
         self.assertEqual(response.status_code, 200, response.text)
@@ -128,6 +136,116 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         self.assertIn(" cannot launch runtime ", response.text)
         self.assertIn("pi-aify", response.text,
                       "the refusal did not carry the host's diagnostic, which is its whole value")
+
+    def _legacy_environment_with_a_live_bridge(self, bridge_id="bridge-legacy"):
+        """A row from BEFORE `bridgeLastSeen` existed, whose bridge is genuinely alive.
+
+        The only shape that exercises the authority lookup: no stamp to classify, and a real
+        `bridge_instances` row to resolve the absence against. Every other fixture here beats WITH a
+        bridgeId, which stamps the row fresh and never consults the authority at all -- a mutation
+        removing the lookup left all of them green.
+        """
+        import asyncio, json
+        from service.clock import now as _now
+        from service.db import get_db
+
+        self.client.post("/api/v1/environments/heartbeat", json={
+            "id": self.ENV, "kind": "windows", "os": "windows", "machineId": "win32:spawn-host",
+            "runtimes": [{"runtime": "pi", "available": True}],
+            "terminal": True, "pty": True, "terminalRuntimes": ["pi"],
+        })
+
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(
+                    "INSERT INTO bridge_instances (id, agent_id, last_seen, registered_at) "
+                    "VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen",
+                    (bridge_id, "legacy-owner", _now(), _now()))
+                # The row names its bridge, exactly as a registration would; the METADATA stamp is
+                # what a legacy row lacks.
+                await db.execute(
+                    "UPDATE environments SET bridge_id = ?, metadata = ? WHERE id = ?",
+                    (bridge_id, json.dumps({}), self.ENV))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
+    def test_a_LEGACY_row_with_a_LIVE_bridge_is_accepted_on_the_authority(self):
+        """The whole reason absence is resolved rather than assumed. Refusing every unstamped row
+        would refuse every environment registered before the field existed, on a host that is
+        perfectly capable of claiming the spawn."""
+        self._legacy_environment_with_a_live_bridge()
+        response = self._spawn("pi")
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_a_LEGACY_row_whose_bridge_is_GONE_is_refused(self):
+        """The other direction, and the one the fail-open got wrong: no stamp and no live bridge is
+        no claimer, however fresh aify-env keeps `last_seen`."""
+        import asyncio
+        from service.db import get_db
+
+        self._legacy_environment_with_a_live_bridge(bridge_id="bridge-departed")
+
+        async def _kill():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ? WHERE id = ?",
+                    ("2020-01-01T00:00:00Z", "bridge-departed"))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_kill())
+        response = self._spawn("pi")
+        self.assertEqual(response.status_code, 409, response.text)
+
+    def test_a_LEGACY_row_whose_bridge_is_WILDLY_FUTURE_DATED_is_refused(self):
+        """A stamp hours ahead satisfies `> now - stale` for ever, so one bad write would let a dead
+        bridge authorize spawns permanently."""
+        import asyncio
+        from service.db import get_db
+
+        self._legacy_environment_with_a_live_bridge(bridge_id="bridge-future")
+
+        async def _skew():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ? WHERE id = ?",
+                    ("2099-01-01T00:00:00Z", "bridge-future"))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_skew())
+        self.assertEqual(self._spawn("pi").status_code, 409, "a future-dated bridge authorized a spawn")
+
+    def test_a_LEGACY_row_whose_bridge_was_SUPERSEDED_is_refused(self):
+        """A superseded bridge keeps heartbeating -- supersession is a server-side fact it is never
+        told about -- so freshness alone would accept a replaced owner."""
+        import asyncio
+        from service.db import get_db
+
+        self._legacy_environment_with_a_live_bridge(bridge_id="bridge-replaced")
+
+        async def _supersede():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE bridge_instances SET superseded_by = ? WHERE id = ?",
+                    ("bridge-newer", "bridge-replaced"))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_supersede())
+        response = self._spawn("pi")
+        self.assertEqual(response.status_code, 409, response.text)
 
     def test_a_spawn_with_no_live_BRIDGE_is_refused_rather_than_queued_for_ever(self):
         """FOUND ON THE DEPLOYED SYSTEM, not by reading. `comms_spawn` was accepted, the request sat
@@ -251,3 +369,84 @@ class TheColdStartRefusalCarriesTheReasonTests(unittest.TestCase):
         ], "pi")
         self.assertIn("first reason", reason)
         self.assertNotIn("second reason", reason)
+
+
+class AnAbsentStampIsResolvedAgainstTheAuthorityTests(unittest.TestCase):
+    """Q1. `bridgeLastSeen` missing is a QUESTION, not an answer, and the first version answered yes.
+
+    THE FAIL-OPEN. `environment_has_live_bridge` read ABSENT as "unknown, and unknown means yes".
+    Every environment registered before that field existed has no stamp, so each was treated as
+    having a live bridge FOR EVER -- and an aify-env advertisement keeps such a row `online`
+    indefinitely with nothing able to claim a spawn. That is the queued-for-ever strand this gate
+    was added to prevent, reintroduced through the gate itself. Unparseable was read as absent too,
+    so invalid data became authorization.
+
+    THE FIX IS EVIDENCE, NOT A GRACE PERIOD. `bridge_instances` is the authority on whether a bridge
+    is alive, and it is the same table the turn lease consults. Asking it means there is no window
+    to expire and no doctor row to add for one.
+    """
+
+    def _env(self, **metadata):
+        return {"id": "windows:h:default", "bridgeId": "bridge-1", "metadata": dict(metadata)}
+
+    def test_a_FRESH_stamp_is_live(self):
+        from service.clock import now as _now
+        from service.env_status import environment_has_live_bridge
+        self.assertTrue(environment_has_live_bridge(self._env(bridgeLastSeen=_now())))
+
+    def test_a_STALE_stamp_is_NOT_live_however_the_authority_answers(self):
+        """A bridge that stopped beating is gone. The authority is not consulted for a stamped row,
+        so a stale stamp cannot be overridden by a stray row."""
+        from service.env_status import environment_has_live_bridge
+        env = self._env(bridgeLastSeen="2020-01-01T00:00:00Z")
+        self.assertFalse(environment_has_live_bridge(env))
+        self.assertFalse(environment_has_live_bridge(env, bridge_rows_say_live=True))
+
+    def test_an_INVALID_stamp_is_NEVER_live(self):
+        """Invalid data must not become authorization. The previous reading -- 'unparseable is the
+        same as absent' -- meant a corrupt write authorized a spawn."""
+        from service.env_status import environment_has_live_bridge
+        for junk in ("not-a-timestamp", "2026-08-30T", "", "   "):
+            with self.subTest(stamp=junk):
+                env = self._env(bridgeLastSeen=junk)
+                # blank/whitespace are ABSENT rather than INVALID, and absent without an authority
+                # answer is also not live -- both directions are covered here.
+                self.assertFalse(environment_has_live_bridge(env))
+
+    def test_a_FAR_FUTURE_stamp_is_invalid_rather_than_permanently_fresh(self):
+        """`age <= window` is satisfied for ever by a stamp hours ahead."""
+        from service.env_status import environment_has_live_bridge
+        self.assertFalse(environment_has_live_bridge(self._env(bridgeLastSeen="2099-01-01T00:00:00Z")))
+
+    def test_ORDINARY_CLOCK_SKEW_is_still_fresh(self):
+        """The control against reproducing doctor's false red: it once called every environment dead
+        because the container clock ran 4.1s ahead of the host."""
+        from datetime import datetime, timedelta, timezone
+        from service.env_status import environment_has_live_bridge
+        soon = (datetime.now(timezone.utc) + timedelta(seconds=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertTrue(environment_has_live_bridge(self._env(bridgeLastSeen=soon)))
+
+    def test_an_ABSENT_stamp_follows_the_AUTHORITY_in_both_directions(self):
+        from service.env_status import environment_has_live_bridge
+        env = self._env()
+        self.assertTrue(environment_has_live_bridge(env, bridge_rows_say_live=True))
+        self.assertFalse(environment_has_live_bridge(env, bridge_rows_say_live=False))
+
+    def test_NOT_ASKING_is_not_evidence(self):
+        """THE CORRECTION ITSELF. `None` means the caller did not consult the authority, and the old
+        code returned True there -- making 'we never checked' indistinguishable from 'yes'."""
+        from service.env_status import environment_has_live_bridge
+        self.assertFalse(environment_has_live_bridge(self._env(), bridge_rows_say_live=None))
+
+    def test_the_four_states_are_distinguishable(self):
+        """The boolean collapsed them and got the collapse backwards. Each is named now, so a caller
+        can tell 'no bridge' from 'corrupt data' and report the difference."""
+        from service.clock import now as _now
+        from service.env_status import (
+            BRIDGE_STAMP_ABSENT, BRIDGE_STAMP_FRESH, BRIDGE_STAMP_INVALID, BRIDGE_STAMP_STALE,
+            bridge_stamp_state,
+        )
+        self.assertEqual(bridge_stamp_state(self._env(bridgeLastSeen=_now())), BRIDGE_STAMP_FRESH)
+        self.assertEqual(bridge_stamp_state(self._env(bridgeLastSeen="2020-01-01T00:00:00Z")), BRIDGE_STAMP_STALE)
+        self.assertEqual(bridge_stamp_state(self._env()), BRIDGE_STAMP_ABSENT)
+        self.assertEqual(bridge_stamp_state(self._env(bridgeLastSeen="nonsense")), BRIDGE_STAMP_INVALID)

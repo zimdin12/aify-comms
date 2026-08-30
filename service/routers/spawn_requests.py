@@ -52,6 +52,8 @@ from service.api_core.runtime import (
 )
 from service.api_core.records import _environment_record_to_dict
 from service.env_status import environment_has_live_bridge as _environment_has_live_bridge
+from service.env_status import BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS
+from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -66,6 +68,52 @@ from service.api_core.spawn_requests_io import (
 )
 
 logger = logging.getLogger("aify_comms.routers.spawn_requests")
+
+
+async def _a_live_bridge_row_exists(db, bridge_id: str) -> bool:
+    """Is the bridge that registered this environment still live?
+
+    THE AUTHORITY for "could anything here claim a spawn". `environments.bridge_id` names that
+    bridge, which is the same identity `metadata.bridgeLastSeen` tracks -- so this asks the same
+    question the stamp answers, of the table that cannot be written by a host advertiser.
+
+    The predicate is the one the turn lease and the dead-bridge sweep already share: the row must
+    exist, must NOT be superseded (a replaced bridge keeps heartbeating, because supersession is a
+    server-side fact it is never told about), and must have beaten inside
+    `ACTIVE_RUN_BRIDGE_STALE_SECONDS`.
+
+    FAILS CLOSED. An empty `bridge_id` or an unreadable table is not evidence that a bridge is
+    there, so the caller refuses the spawn with a diagnostic rather than accepting one nothing can
+    claim -- which is the strand this whole gate exists to prevent.
+    """
+    owner = str(bridge_id or "").strip()
+    if not owner:
+        return False
+    try:
+        row = await (await db.execute(
+            """
+            SELECT 1 FROM bridge_instances
+            WHERE id = ?
+              AND COALESCE(superseded_by, '') = ''
+              AND datetime(last_seen) > datetime('now', ?)
+              -- ...and not WILDLY ahead of us. `> now - stale` is satisfied for ever by a stamp
+              -- hours in the future, so one bad write would make a dead bridge authorize spawns
+              -- permanently. The tolerance is not zero: a strict no-future rule is what made
+              -- doctor call every environment dead over a 4.1s container clock offset.
+              AND datetime(last_seen) <= datetime('now', ?)
+            LIMIT 1
+            """,
+            (
+                owner,
+                f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds",
+                f"+{BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS} seconds",
+            ),
+        )).fetchone()
+    except Exception:
+        return False
+    return row is not None
+
+
 
 router = domain_router()
 
@@ -209,7 +257,16 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         # The same window the status check one line up used: `_environment_record_to_dict` was called
         # with its default, and reading settings here would add a query to a path that already knows
         # the answer it needs.
-        if not _environment_has_live_bridge(environment):
+        #
+        # AN ABSENT STAMP IS RESOLVED AGAINST THE AUTHORITY, not assumed. Every row registered
+        # before `bridgeLastSeen` existed has none, and the first version of this gate read that as
+        # "unknown, and unknown means yes" -- so a legacy row was treated as having a live bridge for
+        # ever, which is the queued-for-ever strand this gate exists to prevent, reintroduced through
+        # the gate itself. `bridge_instances` is the authority (the same table the turn lease
+        # consults), so the question is answered with evidence rather than with a grace period that
+        # would need an expiry and a doctor row of its own.
+        bridge_rows_say_live = await _a_live_bridge_row_exists(db, environment.get("bridgeId"))
+        if not _environment_has_live_bridge(environment, bridge_rows_say_live=bridge_rows_say_live):
             raise HTTPException(
                 409,
                 f'Environment "{req.environmentId}" is described by aify-env but has no live '

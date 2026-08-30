@@ -78,6 +78,13 @@ class ServiceConfig:
     # privilege at all — see service/api_core/operator_authz.py for why that fails closed.
     operator_key: str = ""
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    #: Hosts a BROWSER may claim to be reaching this service on. Empty means loopback only.
+    #:
+    #: Not the same question as `cors_origins`, which names who may CALL from another origin. This
+    #: names which `Host` values a same-host claim may be believed on -- and it exists because
+    #: comparing Origin to Host compares two client-supplied values, which agree perfectly under DNS
+    #: rebinding. Add a LAN name or dashboard hostname here to reach the service on it from a browser.
+    trusted_hosts: list[str] = field(default_factory=list)
 
     # Logging
     log_level: str = "info"
@@ -166,6 +173,7 @@ class ServiceConfig:
             "API_KEY": "api_key",
             "OPERATOR_KEY": "operator_key",
             "CORS_ORIGINS": ("cors_origins", lambda v: [s.strip() for s in v.split(",")]),
+            "TRUSTED_HOSTS": ("trusted_hosts", lambda v: [s.strip() for s in v.split(",") if s.strip()]),
             "LOG_LEVEL": "log_level",
             "LOG_FORMAT": "log_format",
         }

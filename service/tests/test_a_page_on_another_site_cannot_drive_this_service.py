@@ -38,9 +38,14 @@ from service.main import CrossSiteBrowserMiddleware
 CROSS = {"sec-fetch-site": "cross-site", "origin": "https://evil.example"}
 
 
-def _app(allowed_origins=None) -> FastAPI:
+def _app(allowed_origins=None, trusted_hosts=None) -> FastAPI:
     app = FastAPI()
-    app.add_middleware(CrossSiteBrowserMiddleware, allowed_origins=allowed_origins)
+    # `testserver` is what TestClient sends as Host. It has to be TRUSTED for a same-host origin
+    # claim to be believed, because Origin and Host both come from the client and agree perfectly
+    # under DNS rebinding -- so the shortcut is gated on a host we independently accept.
+    app.add_middleware(
+        CrossSiteBrowserMiddleware, allowed_origins=allowed_origins,
+        trusted_hosts=trusted_hosts if trusted_hosts is not None else ["testserver"])
 
     @app.get("/api/v1/agents")
     async def _read():
@@ -86,11 +91,27 @@ class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_both_dashboards_keep_working(self):
-        for site in ("same-origin", "same-site"):
-            with self.subTest(site=site):
-                response = self.client.get("/api/v1/agents", headers={"sec-fetch-site": site})
-                self.assertEqual(response.status_code, 200,
-                                 f"a {site} dashboard was refused")
+        """SAME-ORIGIN is served without an Origin; the SECOND dashboard is served BY its Origin.
+
+        This used to assert that a bare `same-site` API GET was served, which described neither
+        dashboard: Dashboard Next answers on another port, so its fetches are CROSS-ORIGIN and
+        carry an `Origin` header -- they are allowed on that, by host. Nothing legitimate reaches
+        an API path same-site with no Origin at all, and allowing it let a sibling subdomain call
+        endpoints that mutate on GET.
+        """
+        same_origin = self.client.get("/api/v1/agents", headers={"sec-fetch-site": "same-origin"})
+        self.assertEqual(same_origin.status_code, 200, "a same-origin dashboard was refused")
+
+        second_dashboard = self.client.get("/api/v1/agents", headers={
+            "sec-fetch-site": "same-site", "origin": "http://testserver:8801"})
+        self.assertEqual(second_dashboard.status_code, 200,
+                         "Dashboard Next on another port was refused")
+
+    def test_a_same_site_API_GET_with_no_origin_is_now_REFUSED(self):
+        """The hole: `GET /messages/inbox/{agent}` settles read receipts and completes stranded
+        dispatch runs, so "GET is safe" is false here and a sibling subdomain could use it."""
+        response = self.client.get("/api/v1/agents", headers={"sec-fetch-site": "same-site"})
+        self.assertEqual(response.status_code, 403, response.text)
 
     def test_a_browser_navigation_still_reaches_the_service(self):
         # `none` is someone typing the URL. Refusing it would stop an operator opening their own

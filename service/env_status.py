@@ -36,7 +36,60 @@ ENVIRONMENT_REGISTRABLE_STATUSES = frozenset({"online", "degraded", "offline"})
 _ENVIRONMENT_HEARTBEAT_STATUSES = {"online", "degraded"}
 
 
-def environment_has_live_bridge(environment, *, offline_seconds: int = 90) -> bool:
+#: What `metadata.bridgeLastSeen` says, as four DISTINGUISHABLE answers rather than one boolean.
+#:
+#: The boolean collapsed two of them and got the collapse backwards. It read ABSENT as "unknown, and
+#: unknown means yes", so an environment that never had a bridge stamp -- which is every row
+#: registered before the field existed -- was treated as having a live one for ever. An aify-env
+#: advertisement keeps such a row `online` indefinitely with nothing able to claim a spawn, which is
+#: the queued-for-ever strand the gate was added to prevent, reintroduced through the gate itself.
+#: It also read UNPARSEABLE as absent, so invalid data became authorization.
+BRIDGE_STAMP_FRESH = "fresh"
+BRIDGE_STAMP_STALE = "stale"
+BRIDGE_STAMP_ABSENT = "absent"
+BRIDGE_STAMP_INVALID = "invalid"
+
+
+def bridge_stamp_state(environment, *, offline_seconds: int = 90) -> str:
+    """Classify `metadata.bridgeLastSeen`. PURE -- the caller resolves ABSENT against the authority.
+
+    ABSENT IS NOT AN ANSWER, it is a question the caller has to take elsewhere. `bridge_instances` is
+    the authority on whether a bridge is alive for an environment, and it is the same table the turn
+    lease consults; asking it turns "we have no stamp" into evidence rather than into a guess, which
+    is why there is no timed grace here to expire and no doctor row for one.
+
+    INVALID IS NEVER LIVE. A malformed stamp is corrupt data, not a heartbeat, and the previous
+    reading -- "unparseable is the same as absent" -- let a bad write authorize a spawn.
+    """
+    metadata = environment.get("metadata") if isinstance(environment, dict) else None
+    stamp = str((metadata or {}).get("bridgeLastSeen") or "").strip()
+    if not stamp:
+        return BRIDGE_STAMP_ABSENT
+    try:
+        last = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except Exception:
+        return BRIDGE_STAMP_INVALID
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    window = timedelta(seconds=max(15, int(offline_seconds or 90)))
+    age = datetime.now(timezone.utc) - last
+    # A FUTURE stamp is not fresh. `age <= window` is satisfied for ever by one hours ahead, so a
+    # clock-skewed or forged write would read live permanently -- the same asymmetry the turn ceiling
+    # had to close. Ordinary skew is tolerated; a stamp beyond it is corrupt, not early.
+    if age < -timedelta(seconds=BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS):
+        return BRIDGE_STAMP_INVALID
+    return BRIDGE_STAMP_FRESH if age <= window else BRIDGE_STAMP_STALE
+
+
+#: How far ahead of us a bridge stamp may be and still count. NOT ZERO: `aify-comms doctor` once
+#: called every environment dead because the container clock ran 4.1s ahead of the host, and a
+#: strict no-future rule reproduces exactly that. Two minutes separates skew from a bogus stamp.
+BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS = 120
+
+
+def environment_has_live_bridge(
+    environment, *, offline_seconds: int = 90, bridge_rows_say_live: bool | None = None,
+) -> bool:
     """Has a BRIDGE spoken for this environment recently?
 
     A DIFFERENT QUESTION FROM `environment_effective_status`, and they were the same one until
@@ -44,26 +97,19 @@ def environment_has_live_bridge(environment, *, offline_seconds: int = 90) -> bo
     heartbeats the same row to describe the host, so a fresh `last_seen` no longer implies anything
     can start a process here. A spawn was accepted against exactly that and queued for ever.
 
-    Reads `metadata.bridgeLastSeen`, which is written only by a beat carrying a `bridgeId` and
-    preserved -- never refreshed -- by one that is not.
-
-    ABSENT MEANS UNKNOWN, AND UNKNOWN MEANS YES. Every environment registered before this field
-    existed has no `bridgeLastSeen`, and reading that as "no bridge" would refuse every spawn on every
-    host until each one's bridge restarted. A missing field is not evidence of absence; the freshness
-    check applies only once there is something to check.
-
-    @param environment  an `_environment_record_to_dict` result
+    `bridge_rows_say_live` IS THE AUTHORITY'S ANSWER for a row with no stamp, supplied by the caller
+    so this stays pure. `None` means the caller did not ask -- and not asking is not evidence, so an
+    unstamped row without an answer is NOT live. That direction is the whole correction: the previous
+    version returned True there, which made "we never checked" indistinguishable from "yes".
     """
-    metadata = environment.get("metadata") if isinstance(environment, dict) else None
-    stamp = str((metadata or {}).get("bridgeLastSeen") or "").strip()
-    if not stamp:
+    state = bridge_stamp_state(environment, offline_seconds=offline_seconds)
+    if state == BRIDGE_STAMP_FRESH:
         return True
-    try:
-        last = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-    except Exception:
-        # Unparseable is the same as absent: it is not evidence that no bridge is there.
-        return True
-    return datetime.now(timezone.utc) - last <= timedelta(seconds=max(15, int(offline_seconds or 90)))
+    if state == BRIDGE_STAMP_ABSENT:
+        return bridge_rows_say_live is True
+    # STALE and INVALID are both no. Stale is a bridge that stopped; invalid is data that cannot
+    # support a claim. Neither is a live claimer, and neither may authorize a spawn.
+    return False
 
 
 def environment_effective_status(row, *, offline_seconds: int = 90) -> str:

@@ -44,16 +44,35 @@ class TheWebSocketChecksItsOriginTests(unittest.TestCase):
         self.assertTrue(allowed("http://localhost:8800", "localhost:8800", []))
 
     def test_a_second_dashboard_on_ANOTHER_PORT_is_allowed(self):
-        """Dashboard Next answers on :8801. Ports do not make a different site, and refusing on a port
-        difference would break the second dashboard while stopping nothing -- an attacker cannot serve
-        from the operator's own hostname."""
+        """Dashboard Next answers on :8801. Ports do not make a different site, so a port difference
+        must not refuse it."""
         self.assertTrue(allowed("http://localhost:8801", "localhost:8800", []))
-        self.assertTrue(allowed("http://stevenz-l:3000", "stevenz-l:8800", []))
 
-    def test_a_LAN_host_reached_by_its_own_name_is_allowed(self):
-        # The service binds 0.0.0.0 and is reached by address as well as by name.
-        self.assertTrue(allowed("http://192.168.1.10", "192.168.1.10:8800", []))
-        self.assertFalse(allowed("http://192.168.1.11", "192.168.1.10:8800", []))
+    def test_a_LAN_HOST_MUST_BE_NAMED_now_and_this_is_a_real_change(self):
+        """THE SENTENCE THAT USED TO STAND HERE WAS WRONG. It said a port difference could be
+        ignored because "an attacker cannot serve from the operator's own hostname" -- which is
+        exactly what DNS REBINDING defeats. Under a rebind the attacker's page is served from
+        `evil.example`, that name re-resolves to this service, and the browser sends
+        `Origin: http://evil.example` WITH `Host: evil.example`. They agree perfectly. Both values
+        come from the client, so their agreement was never evidence of anything.
+
+        The same-host shortcut now applies only on a host we independently trust: loopback, plus
+        whatever the operator names in `trusted_hosts`. A rebound name is neither.
+
+        THIS HAS AN OPERATOR COST and it is deliberate: reaching the dashboard over a LAN name or
+        address from a browser now requires that name in `trusted_hosts`. Loopback keeps working
+        untouched, which is the default deployment.
+        """
+        # Not named: refused, however well Origin and Host agree with each other.
+        self.assertFalse(allowed("http://192.168.1.10", "192.168.1.10:8800", []))
+        self.assertFalse(allowed("http://evil.example", "evil.example:8800", []),
+                         "a rebound host agreeing with itself is not a same-origin request")
+
+        # Named by the operator: allowed, including a second dashboard on another port of it.
+        self.assertTrue(allowed("http://192.168.1.10", "192.168.1.10:8800", [], ["192.168.1.10"]))
+        self.assertTrue(allowed("http://stevenz-l:3000", "stevenz-l:8800", [], ["stevenz-l"]))
+        # ...and a DIFFERENT host is still refused even when one is named.
+        self.assertFalse(allowed("http://192.168.1.11", "192.168.1.10:8800", [], ["192.168.1.10"]))
 
     def test_an_origin_named_in_cors_origins_is_allowed(self):
         self.assertTrue(allowed("https://dash.example", "localhost:8800", ["https://dash.example"]))

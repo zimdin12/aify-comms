@@ -33,6 +33,53 @@ from urllib.parse import urlsplit
 #: Next on :8801 through to :8800 is a same-site navigation that carries no `Origin` at all, and
 #: refusing it would break a real flow to stop nothing. An unsafe method from the same position is a
 #: different matter, and is refused below.
+#: Hosts this service will believe it is being reached on, when a BROWSER is asking.
+#:
+#: WHY SELF-AGREEMENT IS NOT EVIDENCE. Comparing the Origin's host to the `Host` header looks like a
+#: same-origin check and is not one: both values come from the CLIENT. Under DNS rebinding an
+#: attacker's page is served from `evil.example`, that name is re-resolved to this service, and the
+#: browser then sends `Origin: http://evil.example` AND `Host: evil.example`. They match perfectly,
+#: and the request is not same-origin at all. DNS rebinding is the threat the 2026-06-28 audit named
+#: and the one this guard kept claiming to close.
+#:
+#: So the same-host shortcut only applies on a host we independently trust. Loopback is trusted
+#: because a rebound name is never one of these; anything else the operator adds is a decision.
+DEFAULT_TRUSTED_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+#: Paths a browser may NAVIGATE to from a same-site page without an accepted Origin.
+#:
+#: EXPLICIT, BECAUSE "GET IS SAFE" IS FALSE HERE. That assumption is the general rule and this
+#: service breaks it: `GET /messages/inbox/{agent}` settles read receipts, completes dispatch runs
+#: stranded by a dead bridge, and refreshes the caller's status -- unless `peek` is set. A blanket
+#: same-site GET allowance therefore let a sibling subdomain MUTATE through the arm called safe.
+#:
+#: What remains is the surface a browser genuinely navigates to: the dashboard, the redirect that
+#: reaches it, and the static/meta paths that carry no state. Everything else -- the whole API --
+#: needs an accepted Origin, whatever its method.
+NAVIGABLE_PATHS = (
+    "/api/v1/dashboard",
+    "/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json", "/favicon",
+)
+
+
+def host_is_trusted(host: str, trusted_hosts=None) -> bool:
+    """Is `Host` one this service accepts a same-host claim on?"""
+    name = _hostname_of(host)
+    if not name:
+        return False
+    named = {str(entry).strip().lower() for entry in (trusted_hosts or []) if str(entry).strip()}
+    return name in (named or set()) or name in DEFAULT_TRUSTED_HOSTS
+
+
+def path_is_navigable(path: str) -> bool:
+    """A path a same-site navigation may reach without an accepted Origin."""
+    text = str(path or "").strip()
+    if text in ("", "/"):
+        return True
+    return any(text == p or text.startswith(p.rstrip("/") + "/") or text.startswith(p)
+               for p in NAVIGABLE_PATHS)
+
+
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -96,8 +143,8 @@ def url_without_api_key(url: str) -> str:
 
 
 def browser_request_is_allowed(
-    *, method: str = "GET", sec_fetch_site: str = "", origin: str = "",
-    host: str = "", allowed_origins=None,
+    *, method: str = "GET", path: str = "/", sec_fetch_site: str = "", sec_fetch_dest: str = "",
+    origin: str = "", host: str = "", allowed_origins=None, trusted_hosts=None,
 ) -> bool:
     """The whole decision, in the order the evidence deserves.
 
@@ -124,13 +171,27 @@ def browser_request_is_allowed(
     site = str(sec_fetch_site or "").strip().lower()
 
     if origin:
+        # An origin the OPERATOR named is a decision, and it stands whatever the Host says.
         if origin.lower() in _named_origins(allowed_origins):
             return True
+        # THE SAME-HOST SHORTCUT REQUIRES A TRUSTED HOST. Origin and Host both come from the client,
+        # so their agreeing proves nothing on its own: under DNS rebinding both are the attacker's
+        # name, re-resolved to this service. Requiring the Host to be independently trusted is what
+        # actually closes it -- a rebound name is not loopback and is not in the operator's list.
+        if not host_is_trusted(host, trusted_hosts):
+            return False
         origin_host = _hostname_of(origin)
         return bool(origin_host) and origin_host == _hostname_of(host)
 
     if site == "cross-site":
         return False
-    if site == "same-site" and str(method or "GET").strip().upper() not in SAFE_METHODS:
-        return False
+    if site == "same-site":
+        # NOT "any safe method". `GET /messages/inbox/{agent}` settles read receipts, completes
+        # stranded dispatch runs and refreshes agent status, so a blanket same-site GET allowance
+        # let a sibling subdomain mutate through the arm called safe. Only a positive top-level
+        # NAVIGATION to the non-mutating surface is allowed; the API needs an accepted Origin.
+        return (
+            is_browser_navigation(sec_fetch_dest, method)
+            and path_is_navigable(path)
+        )
     return True
