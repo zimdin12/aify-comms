@@ -20,16 +20,36 @@ belongs and what is still in the way is [docs/TARGET_ARCHITECTURE.md](docs/TARGE
 
 ## Quick start
 
+**If you have a coding agent, point it at this repo and ask it to install aify-comms.** It will find
+`.claude/skills/aify-comms-install`, read what this machine already has, and ask you only what the
+machine cannot answer for itself. That is the intended path and the shortest one.
+
+By hand:
+
 ```bash
 git clone <this repo> && cd aify-comms
-./setup.sh                        # generates .env + config from the examples
+bash scripts/install-state.sh     # what this machine already has; run it first
+
+./setup.sh                        # service host only: generates .env + config
 docker compose up -d --build      # service :8800 (API), Dashboard Next :8801
 curl http://localhost:8800/health # {"status":"healthy"}
-bash install.sh --client claude http://localhost:8800 --with-hook   # per coding-agent client
-aify-comms                        # start an environment bridge in each execution environment
+
+bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
+npm install -g github:zimdin12/aify-env && aify-env                 # agent hosts only
 ```
 
-Then open `http://localhost:8801`, spawn a managed agent into a workspace, and message it. Legacy `:8800/api/v1/dashboard` bookmarks redirect to Dashboard Next. Details: [Setup](#setup) below and the per-client install guides.
+Then open `http://localhost:8801`, spawn a managed agent into a workspace, and message it. Legacy
+`:8800/api/v1/dashboard` bookmarks redirect to Dashboard Next.
+
+`install.sh` is the client install: it writes the launcher, registers the MCP servers, installs the
+notification hook and copies the skills out. `aify-wrapper-install` from the table above renders
+launchers only, and is for a machine that wants those without the rest.
+
+> **Never run a bare `aify-comms` to check that something works.** It starts the environment bridge,
+> supersedes the one already serving this host, and that bridge's managed workers are reaped — nine of
+> them, once, from a four-second run meant only to confirm the launcher still started. `aify-comms`
+> with no arguments is how you START a bridge on a host that has none. To CHECK one, use
+> `aify-comms --check` or `aify-comms doctor`.
 
 ## Agent playbooks — install / update, and how to VERIFY it took effect
 

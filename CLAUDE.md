@@ -212,7 +212,11 @@ seam is only verified by having aify-env present.
 
 ```bash
 cd ~/projects/aify-wrapper && node --test tests/*.test.js   # 158 tests
-cd ~/projects/aify-env    && node --test tests/*.test.js    # 486 tests, 1 skipped
+cd ~/projects/aify-env    && npm test                          # 496 tests, 1 skipped; `npm test`
+                                                           # NOT a bare `node --test`: the script
+                                                           # carries --test-timeout=60000, and a
+                                                           # hang there once left a test process
+                                                           # and two daemons alive for 2.5 hours
 ```
 
 PROVEN ON 2026-08-26, and it cost the operator's fleet three times before it was understood: an

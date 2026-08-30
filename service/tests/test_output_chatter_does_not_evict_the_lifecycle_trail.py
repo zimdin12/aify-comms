@@ -27,6 +27,7 @@ almost nothing today and cannot be starved tomorrow.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 from service.api_core.tuning import (
     TERMINAL_EVENTS_KEPT_PER_TERMINAL,
@@ -37,6 +38,18 @@ from service.reconcilers.terminal_history import _prune_terminal_history
 from service.tests._base import FastApiTestCase
 
 TERMINAL = "term-starve-probe"
+
+#: RELATIVE, because the subject of this file deletes rows older than a TTL.
+#:
+#: This fixture was a hardcoded `2026-08-29T00:00:00Z`, and on 2026-08-30 it aged past
+#: `terminal_event_ttl_hours` mid-session: three suite runs green, the fourth red, nothing between
+#: them touching the code. The TTL pass runs BEFORE the per-terminal cap, so every row was deleted
+#: first and the pruner reported zero capped -- which reads as "the pruner did not run" and sends the
+#: next reader into the pruner rather than into the fixture.
+#:
+#: Age is incidental here: what is under test is which rows survive when a terminal exceeds the CAP.
+#: The rows only ever needed to be recent, so they are anchored to now.
+RECENT = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class OutputChatterDoesNotEvictTheLifecycleTrail(FastApiTestCase):
@@ -104,7 +117,7 @@ class OutputChatterDoesNotEvictTheLifecycleTrail(FastApiTestCase):
                     await db.executemany(
                         "INSERT INTO terminal_events (terminal_id, event_type, body, created_at)"
                         " VALUES (?,?,?,?)",
-                        [(TERMINAL, event_type, f"{event_type}-{index}", "2026-08-29T00:00:00Z")
+                        [(TERMINAL, event_type, f"{event_type}-{index}", RECENT)
                          for index in range(count)],
                     )
                 await db.commit()
@@ -184,6 +197,17 @@ class OutputChatterDoesNotEvictTheLifecycleTrail(FastApiTestCase):
         self._events([("terminal_output", 12), ("terminal_input_requested", 3)])
         self._prune()
         self.assertEqual(self._counts(), (12, 3))
+
+    def test_the_fixture_is_still_INSIDE_the_TTL_window(self):
+        """A guard on the guard. The TTL pass runs before the cap, so a fixture that has aged out
+        deletes itself and every assertion below then blames the pruner for it -- which is exactly
+        what happened when this file carried a hardcoded date, on the day it turned 24 hours old."""
+        self._events([("terminal_output", 3)])
+        self._prune()
+        output, _ = self._counts()
+        self.assertEqual(output, 3,
+                         "the fixture aged past terminal_event_ttl_hours; it is the FIXTURE that is "
+                         "stale, not the pruner that is broken")
 
     def test_THE_PRUNER_ACTUALLY_RAN(self):
         """POSITIVE CONTROL. Every assertion above is a count after a call; a `_prune_terminal_history`

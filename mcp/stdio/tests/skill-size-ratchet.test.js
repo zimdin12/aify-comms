@@ -46,9 +46,19 @@ const CEILINGS = {
   "aify-comms/references/leading-a-team.md": 19_462,
   "aify-comms/references/operations.md": 11_550,
   "aify-comms/references/teamwork.md": 15_981,
+  // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
+  // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
+  // to the machine in front of you. Most of that is a question about the HOST, and
+  // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
+  // read rather than skimmed.
+  "aify-comms-install/SKILL.md": 4_850,
   "aify-comms-debug/SKILL.md": 3_117,
   "aify-comms-debug/references/codex.md": 14_114,
-  "aify-comms-debug/references/dashboard-console.md": 18_454,
+  // 18_454 -> 18_426 on 2026-08-30. It went DOWN while gaining a correction, so record why: the
+  // `terminalRuntimes` paragraph named the bridge as the advertiser, which is now only true when
+  // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
+  // paragraph above it already said.
+  "aify-comms-debug/references/dashboard-console.md": 18_426,
   "aify-comms-debug/references/dispatch-bridges.md": 25917,
   "aify-comms-debug/references/dispatch-delivery.md": 26_577,
   // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
