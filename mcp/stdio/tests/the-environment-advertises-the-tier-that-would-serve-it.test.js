@@ -129,23 +129,35 @@ test("aify-env answering NO is distinct from not answering", async () => {
   assert.equal((await probeEnvTerminal(delegationWith({ ok: true, handle: { terminals: { available: false } } }))).terminal, false);
 });
 
-test("the probe also reports WHO IS DESCRIBING the host", async () => {
-  // The bridge stands down on this, so it has to come off the same body the terminal answer does --
-  // one loopback GET already being made every beat, not a second call.
-  const yes = await probeEnvTerminal(delegationWith({ ok: true, handle: { advertising: true } }));
-  assert.equal(yes.advertising, true);
+test("the probe reports whether THIS SERVICE is being described", async () => {
+  // The bridge stands down on this, so it comes off the same body the terminal answer does -- one
+  // loopback GET already made every beat, not a second call. It is keyed by OUR registry name
+  // because aify-env may be describing this host to several services and telling one is not
+  // telling another.
+  const told = { advertisingTo: { "aify-comms": { fresh: true, acceptedAt: 1 } } };
+  assert.equal((await probeEnvTerminal(delegationWith({ ok: true, handle: told }))).advertising, true);
 });
 
-test("and it FAILS CLOSED on every shape that is not a literal yes", async () => {
-  // Standing down for a daemon that is not advertising leaves the host described by nobody, so
-  // absent, false, a refusal, delegation off and a truthy-but-not-true value must all keep the
-  // bridge doing the job.
+test("and it FAILS CLOSED on every shape that is not a literal yes FOR US", async () => {
+  // Standing down for a daemon that is not describing THIS service leaves the host described by
+  // nobody, so every one of these must keep the bridge doing the job.
   const shapes = [
     ["absent", delegationWith({ ok: true, handle: {} })],
-    ["explicit false", delegationWith({ ok: true, handle: { advertising: false } })],
-    ["a string", delegationWith({ ok: true, handle: { advertising: "true" } })],
     ["a refusal", delegationWith({ ok: false, error: "unreachable" })],
-    ["delegation off", delegationWith({ ok: true, handle: { advertising: true } }, { enabled: false })],
+    ["delegation off", delegationWith(
+      { ok: true, handle: { advertisingTo: { "aify-comms": { fresh: true } } } }, { enabled: false })],
+
+    // THE CASE THAT MADE THIS CHANGE NECESSARY. `advertising` was `enabled && targets.length > 0`
+    // in aify-env and consulted no result at all, so it stayed true while every beat to this
+    // service came back 401. On its own it is no longer evidence of anything.
+    ["the old daemon-wide flag alone", delegationWith({ ok: true, handle: { advertising: true } })],
+
+    ["told, but not us", delegationWith(
+      { ok: true, handle: { advertisingTo: { "other-service": { fresh: true } } } })],
+    ["our entry is stale", delegationWith(
+      { ok: true, handle: { advertisingTo: { "aify-comms": { fresh: false, acceptedAt: 1 } } } })],
+    ["fresh is a string", delegationWith(
+      { ok: true, handle: { advertisingTo: { "aify-comms": { fresh: "true" } } } })],
   ];
   for (const [label, delegation] of shapes) {
     assert.equal((await probeEnvTerminal(delegation)).advertising, false,

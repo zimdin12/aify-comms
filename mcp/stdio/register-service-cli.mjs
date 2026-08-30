@@ -16,10 +16,10 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { API_KEY_ENV_NAMES, ENDPOINT_ENV_NAMES } from "./aify-service-endpoint.mjs";
-import { upsertService } from "./service-registry.mjs";
+import { SERVICE_NAME, upsertService } from "./service-registry.mjs";
 
 const EXIT_CONFIG = 78;
-const SERVICE_NAME = "aify-comms";
+// SERVICE_NAME is imported from service-registry.mjs, which owns the registry concept.
 
 const [, , registryPath, endpoint, bridgeDir] = process.argv;
 

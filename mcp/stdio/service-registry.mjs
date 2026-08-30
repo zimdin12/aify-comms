@@ -31,6 +31,15 @@ const isPlainObject = (value) => typeof value === "object" && value !== null && 
 // silently skipping the check.
 import { parseRegistry } from "aify-wrapper/lib/registry.mjs";
 
+/**
+ * The registry key THIS service owns, and the name it is known by to anyone reading the registry.
+ *
+ * One owner. It was a bare const in `register-service-cli.mjs`, which was fine while exactly one
+ * file needed it; the bridge now has to ask aify-env "are you advertising to ME?", and a second
+ * hand-typed copy of an identity is how two files come to disagree about who you are.
+ */
+export const SERVICE_NAME = "aify-comms";
+
 export function upsertService(existingText, serviceName, entry) {
   const errors = [];
   if (!serviceName || typeof serviceName !== "string") errors.push("serviceName is required");

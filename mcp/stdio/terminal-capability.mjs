@@ -26,6 +26,7 @@
 // while withholding one we could open costs a queued send that the next heartbeat releases.
 
 import { envListing } from "./env-listing.mjs";
+import { SERVICE_NAME } from "./service-registry.mjs";
 
 /**
  * @typedef {{terminal: boolean, reason: string}} TerminalCapability
@@ -121,10 +122,20 @@ export async function probeEnvTerminal(delegation) {
       // not read would report every terminal as unknown to this bridge. Through the SHARED reader,
       // because this unwrap was written by hand in three places and one of the three had it wrong.
       processes: envListing(body).processes,
-      // WHO DESCRIBES THIS HOST. True only when that daemon is posting host facts to a service; see
-      // aify-env `lib/advertise.mjs#isAdvertising`. Anything else -- absent, false, a body we could
-      // not read -- leaves this bridge doing the advertising.
-      advertising: body?.advertising === true,
+      // WHO DESCRIBES THIS HOST -- and specifically, IS ANYONE DESCRIBING IT TO US.
+      //
+      // This read `body.advertising`, a daemon-wide flag that was `enabled && targets.length > 0`
+      // and consulted no result at all. So aify-env reported it while every beat to this service
+      // came back 401 or 500, and this bridge stood down for advertisements the service never
+      // received -- leaving the host described by nobody while both tiers reported healthy. A
+      // success to some OTHER registered service counted just the same.
+      //
+      // `advertisingTo` is keyed by registry name and records the last ACCEPTED beat, so the
+      // question asked here is the one that matters: was OUR service told, recently. Every other
+      // answer -- an older daemon with no such field, a name we do not appear under, a body we
+      // could not read -- is false, and false means this bridge keeps the job. Absence is not
+      // evidence that we were told.
+      advertising: body?.advertisingTo?.[SERVICE_NAME]?.fresh === true,
     };
   } catch {
     return nothing;
