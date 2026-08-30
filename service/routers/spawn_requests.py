@@ -52,8 +52,10 @@ from service.api_core.runtime import (
 )
 from service.api_core.records import _environment_record_to_dict
 from service.env_status import environment_has_live_bridge as _environment_has_live_bridge
-from service.env_status import BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS
-from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+from service.env_status import (
+    BRIDGE_STAMP_INVALID, BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS, SPAWN_CLAIMER_FRESH_SECONDS,
+    bridge_stamp_state as _bridge_stamp_state,
+)
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -80,7 +82,9 @@ async def _a_live_bridge_row_exists(db, bridge_id: str) -> bool:
     The predicate is the one the turn lease and the dead-bridge sweep already share: the row must
     exist, must NOT be superseded (a replaced bridge keeps heartbeating, because supersession is a
     server-side fact it is never told about), and must have beaten inside
-    `ACTIVE_RUN_BRIDGE_STALE_SECONDS`.
+    `SPAWN_CLAIMER_FRESH_SECONDS` -- the SAME window the stamped arm ages against. They used to
+    differ (90 against 120), so one bridge at age 100s was live before it gained a stamp and dead
+    after, with nothing about the bridge having changed.
 
     FAILS CLOSED. An empty `bridge_id` or an unreadable table is not evidence that a bridge is
     there, so the caller refuses the spawn with a diagnostic rather than accepting one nothing can
@@ -105,7 +109,7 @@ async def _a_live_bridge_row_exists(db, bridge_id: str) -> bool:
             """,
             (
                 owner,
-                f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds",
+                f"-{SPAWN_CLAIMER_FRESH_SECONDS} seconds",
                 f"+{BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS} seconds",
             ),
         )).fetchone()
@@ -267,6 +271,19 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         # would need an expiry and a doctor row of its own.
         bridge_rows_say_live = await _a_live_bridge_row_exists(db, environment.get("bridgeId"))
         if not _environment_has_live_bridge(environment, bridge_rows_say_live=bridge_rows_say_live):
+            # WHY, not just NO. The three refusals send an operator to three different places, and a
+            # single message would send them to the wrong two thirds of the time: a stale stamp means
+            # start the bridge, an absent one with no bridge row means the same, and an UNPARSEABLE
+            # stamp means the row is corrupt and starting a bridge will not fix it.
+            state = _bridge_stamp_state(environment)
+            if state == BRIDGE_STAMP_INVALID:
+                raise HTTPException(
+                    409,
+                    f'Environment "{req.environmentId}" has an unreadable bridge timestamp, so this '
+                    f'service cannot tell whether a bridge is live. That is corrupt row data rather '
+                    f'than a missing bridge -- starting one will not clear it. Re-register the '
+                    f'environment, or check `metadata.bridgeLastSeen` on that row.',
+                )
             raise HTTPException(
                 409,
                 f'Environment "{req.environmentId}" is described by aify-env but has no live '

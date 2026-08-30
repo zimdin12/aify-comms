@@ -36,6 +36,18 @@ ENVIRONMENT_REGISTRABLE_STATUSES = frozenset({"online", "degraded", "offline"})
 _ENVIRONMENT_HEARTBEAT_STATUSES = {"online", "degraded"}
 
 
+#: HOW FRESH A BRIDGE MUST BE TO CLAIM A SPAWN. One window, both arms.
+#:
+#: The two arms disagreed. A STAMPED row aged against the environment's own `offline_seconds`
+#: default of 90; an ABSENT one was resolved against `bridge_instances` using
+#: `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, which is 120. So the SAME bridge at age 100s was live before
+#: it gained a stamp and dead after -- a migration flipping a liveness answer with nothing about the
+#: bridge having changed. Two numbers for one question is the shape that produced the original
+#: strand: `last_seen` and `bridgeLastSeen` answering "is there a claimer" differently.
+#:
+#: Named here rather than borrowed from either side, so neither can drift without the other.
+SPAWN_CLAIMER_FRESH_SECONDS = 90
+
 #: What `metadata.bridgeLastSeen` says, as four DISTINGUISHABLE answers rather than one boolean.
 #:
 #: The boolean collapsed two of them and got the collapse backwards. It read ABSENT as "unknown, and
@@ -50,7 +62,7 @@ BRIDGE_STAMP_ABSENT = "absent"
 BRIDGE_STAMP_INVALID = "invalid"
 
 
-def bridge_stamp_state(environment, *, offline_seconds: int = 90) -> str:
+def bridge_stamp_state(environment, *, offline_seconds: int = SPAWN_CLAIMER_FRESH_SECONDS) -> str:
     """Classify `metadata.bridgeLastSeen`. PURE -- the caller resolves ABSENT against the authority.
 
     ABSENT IS NOT AN ANSWER, it is a question the caller has to take elsewhere. `bridge_instances` is
@@ -85,10 +97,9 @@ def bridge_stamp_state(environment, *, offline_seconds: int = 90) -> str:
 #: called every environment dead because the container clock ran 4.1s ahead of the host, and a
 #: strict no-future rule reproduces exactly that. Two minutes separates skew from a bogus stamp.
 BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS = 120
-
-
 def environment_has_live_bridge(
-    environment, *, offline_seconds: int = 90, bridge_rows_say_live: bool | None = None,
+    environment, *, offline_seconds: int = SPAWN_CLAIMER_FRESH_SECONDS,
+    bridge_rows_say_live: bool | None = None,
 ) -> bool:
     """Has a BRIDGE spoken for this environment recently?
 

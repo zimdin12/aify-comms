@@ -76,8 +76,11 @@ def path_is_navigable(path: str) -> bool:
     text = str(path or "").strip()
     if text in ("", "/"):
         return True
-    return any(text == p or text.startswith(p.rstrip("/") + "/") or text.startswith(p)
-               for p in NAVIGABLE_PATHS)
+    # EXACT, OR A REAL CHILD. The bare `startswith(p)` that used to be here matched far more than
+    # the routes it named: `/health-evil`, `/docsanything` and `/api/v1/dashboard-evil` were all
+    # navigable, so a same-site navigation reached any route whose path merely BEGAN with a safe
+    # one. A path boundary is a `/`, not a character count.
+    return any(text == p or text.startswith(p.rstrip("/") + "/") for p in NAVIGABLE_PATHS)
 
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -169,6 +172,24 @@ def browser_request_is_allowed(
     """
     origin = str(origin or "").strip().rstrip("/")
     site = str(sec_fetch_site or "").strip().lower()
+    dest = str(sec_fetch_dest or "").strip().lower()
+
+    # A BROWSER MUST REACH US ON A TRUSTED HOST, whichever arm it would otherwise take.
+    #
+    # The Host check used to live INSIDE the Origin branch, and that left the rebinding fix
+    # walk-aroundable by simply not sending the header it keyed on: under a rebind the browser
+    # regards the rebound attacker name as SAME-ORIGIN -- it is the origin, once the name resolves
+    # here -- and a GET may omit `Origin` entirely. Executed by review:
+    #   GET /api/v1/messages/inbox/x, Sec-Fetch-Site: same-origin, no Origin,
+    #   Host: evil.example (untrusted)  =>  ALLOWED.
+    # And that GET settles read receipts and completes stranded dispatch runs.
+    #
+    # An operator-NAMED origin is still honoured below whatever the Host: that is an explicit
+    # decision about a specific third party, not a shortcut inferred from self-agreement.
+    browser_identified = bool(site) or bool(dest)
+    if browser_identified and origin.lower() not in _named_origins(allowed_origins):
+        if not host_is_trusted(host, trusted_hosts):
+            return False
 
     if origin:
         # An origin the OPERATOR named is a decision, and it stands whatever the Host says.

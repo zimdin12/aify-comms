@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import unittest
 
-from service.api_core.browser_origin import SAFE_METHODS, browser_request_is_allowed
+from service.api_core.browser_origin import (
+    SAFE_METHODS, browser_request_is_allowed, path_is_navigable,
+)
 
 HOST = "aify.local:8800"
 ALLOWED = ["https://named.example"]
@@ -144,7 +146,11 @@ class BothDoorsAskTheSamePolicyTests(unittest.TestCase):
         from unittest import mock
         from service.config import get_config
         from service.main import create_app
-        patched = dataclasses.replace(get_config(), api_key=api_key)
+        # `testserver` is the Host TestClient sends, and a browser-identified request must arrive
+        # on a TRUSTED host now -- otherwise the rebinding fix is walk-aroundable by omitting
+        # `Origin`. In a real deployment this is loopback; here it is TestClient's stand-in.
+        patched = dataclasses.replace(
+            get_config(), api_key=api_key, trusted_hosts=["testserver"])
         with mock.patch("service.main.get_config", return_value=patched):
             return create_app()
 
@@ -236,7 +242,11 @@ class AOneTimeQueryCredentialMustNotSTAYInTheURLTests(unittest.TestCase):
         from unittest import mock
         from service.config import get_config
         from service.main import create_app
-        patched = dataclasses.replace(get_config(), api_key=api_key)
+        # `testserver` is the Host TestClient sends, and a browser-identified request must arrive
+        # on a TRUSTED host now -- otherwise the rebinding fix is walk-aroundable by omitting
+        # `Origin`. In a real deployment this is loopback; here it is TestClient's stand-in.
+        patched = dataclasses.replace(
+            get_config(), api_key=api_key, trusted_hosts=["testserver"])
         with mock.patch("service.main.get_config", return_value=patched):
             return create_app()
 
@@ -336,3 +346,64 @@ class BothDoorsGetTheSAMEConfigTests(unittest.TestCase):
         source = inspect.getsource(service_main.create_app)
         self.assertIn("trusted_hosts=config.trusted_hosts", source)
         self.assertNotIn("getattr(config, 'trusted_hosts'", source)
+
+
+class RebindingReachesTheNoOriginArmTooTests(unittest.TestCase):
+    """The trusted-Host check guarded the Origin branch and NOTHING ELSE.
+
+    EXECUTED BY REVIEW, not reasoned: `GET /api/v1/messages/inbox/x` with
+    `Sec-Fetch-Site: same-origin`, no Origin, and `Host: evil.example` was ALLOWED. Under DNS
+    rebinding the browser genuinely regards the rebound attacker name as same-origin -- it IS the
+    origin, once the name resolves here -- and a GET may omit `Origin` entirely. So the whole
+    rebinding fix could be walked around by simply not sending the header it keyed on. And the GET
+    it reaches settles read receipts and completes stranded dispatch runs.
+
+    The rule is now: ANY browser-identified request (Fetch Metadata present at all) must arrive on a
+    trusted Host before any same-origin or same-site shortcut applies. A program sending neither
+    header is untouched, which is every bridge, CLI and curl.
+    """
+
+    def test_a_no_origin_same_origin_GET_on_an_UNTRUSTED_host_is_refused(self):
+        self.assertFalse(browser_request_is_allowed(
+            method="GET", path="/api/v1/messages/inbox/x", sec_fetch_site="same-origin",
+            origin="", host="evil.example", allowed_origins=[], trusted_hosts=["aify.local"]))
+
+    def test_the_same_request_on_a_TRUSTED_host_is_allowed(self):
+        """The control. Without it the rule above could be satisfied by refusing everything."""
+        self.assertTrue(browser_request_is_allowed(
+            method="GET", path="/api/v1/messages/inbox/x", sec_fetch_site="same-origin",
+            origin="", host="aify.local:8800", allowed_origins=[], trusted_hosts=["aify.local"]))
+
+    def test_a_browser_identified_by_DEST_ALONE_is_also_host_checked(self):
+        """`Sec-Fetch-Dest` identifies a browser just as well; keying only on `Sec-Fetch-Site` would
+        leave the same walk-around one header along."""
+        self.assertFalse(browser_request_is_allowed(
+            method="GET", path="/", sec_fetch_site="", sec_fetch_dest="document",
+            origin="", host="evil.example", allowed_origins=[], trusted_hosts=["aify.local"]))
+
+    def test_a_PROGRAM_on_ANY_host_is_still_served(self):
+        """Both headers absent is not a browser. Refusing on Host here would break every bridge
+        reaching the service by a container name, and protect nobody: a program can send any Host
+        it likes, so the check buys nothing against one."""
+        self.assertTrue(browser_request_is_allowed(
+            method="POST", path="/api/v1/agents", sec_fetch_site="", sec_fetch_dest="",
+            origin="", host="anything-at-all", allowed_origins=[], trusted_hosts=["aify.local"]))
+
+
+class ANavigablePathMustNotBEAPREFIXTests(unittest.TestCase):
+    """`startswith` matched far more than the routes it named.
+
+    EXECUTED BY REVIEW: `/health-evil`, `/docsanything` and `/api/v1/dashboard-evil` were all
+    navigable, so a same-site navigation reached any route whose path merely BEGAN with a safe one.
+    """
+
+    def test_a_path_that_merely_STARTS_WITH_a_navigable_one_is_not_navigable(self):
+        for path in ("/health-evil", "/docsanything", "/api/v1/dashboard-evil"):
+            with self.subTest(path=path):
+                self.assertFalse(path_is_navigable(path))
+
+    def test_the_real_navigable_paths_and_their_children_still_are(self):
+        """The control: an exact match and a genuine sub-path both remain reachable."""
+        for path in ("/", "/health", "/api/v1/dashboard", "/api/v1/dashboard/index.html"):
+            with self.subTest(path=path):
+                self.assertTrue(path_is_navigable(path))

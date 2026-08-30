@@ -204,6 +204,81 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         response = self._spawn("pi")
         self.assertEqual(response.status_code, 409, response.text)
 
+    def test_the_ABSENT_arm_AGES_the_same_as_the_stamped_one(self):
+        """BEHAVIOURAL, because the source check was decorative.
+
+        My first version asserted that `_a_live_bridge_row_exists`'s SOURCE contained
+        `SPAWN_CLAIMER_FRESH_SECONDS` -- and it does, in the DOCSTRING. So a mutation setting the
+        query back to a literal 120 left the test green: it was reading prose, not behaviour. The
+        fourth decorative test of the night, and the fourth caught by mutation rather than by me.
+
+        A bridge aged 100s is dead under the 90s window and alive under the old 120s one. That is
+        the exact gap where the two arms disagreed, so it is the age worth driving.
+        """
+        import asyncio
+        from service.db import get_db
+        from service.env_status import SPAWN_CLAIMER_FRESH_SECONDS
+        import time
+
+        self.assertLess(SPAWN_CLAIMER_FRESH_SECONDS, 120,
+                        "this case only discriminates while the window is below the old 120s")
+
+        self._legacy_environment_with_a_live_bridge(bridge_id="bridge-in-the-gap")
+
+        async def _age():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE bridge_instances SET last_seen = ? WHERE id = ?",
+                    (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 100)),
+                     "bridge-in-the-gap"))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_age())
+        self.assertEqual(
+            self._spawn("pi").status_code, 409,
+            "a bridge 100s old was accepted through the ABSENT arm while the STAMPED arm calls it "
+            "dead at 90s -- the same bridge, two answers, decided by whether a stamp exists",
+        )
+
+    def test_an_UNREADABLE_stamp_refuses_with_its_OWN_reason(self):
+        """"Typed refusal" is only a real claim if the operator can see the type.
+
+        The three refusals send an operator to three different places. A corrupt timestamp is not a
+        missing bridge, and telling someone to start one will not clear it -- so a single shared
+        message would misdirect them.
+        """
+        import asyncio, json
+        from service.db import get_db
+
+        self._environment([{"runtime": "pi", "available": True}])
+
+        async def _corrupt():
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE environments SET metadata = ? WHERE id = ?",
+                    (json.dumps({"bridgeLastSeen": "not-a-timestamp"}), self.ENV))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_corrupt())
+        response = self._spawn("pi")
+        self.assertEqual(response.status_code, 409, response.text)
+        # The message's LONGEST STATIC FRAGMENT, in full. `test_every_refusal_is_exercised.py`
+        # searches the test tree for exactly that, and a short substring leaves the refusal counted
+        # as untested -- which is the gate doing its job: a refusal nobody asserts is one nobody has
+        # read, and its whole product is the sentence an operator sees.
+        self.assertIn(
+            '" has an unreadable bridge timestamp, so this service cannot tell whether a bridge is live. That is corrupt row data rather than a missing bridge -- starting one will not clear it. Re-register the environment, or check `metadata.bridgeLastSeen` on that row.',
+            response.text)
+        self.assertNotIn("Run `aify-comms` on that host", response.text,
+                         "a corrupt row was reported as a missing bridge, which sends the operator "
+                         "to start something that will not fix it")
+
     def test_a_LEGACY_row_whose_bridge_is_WILDLY_FUTURE_DATED_is_refused(self):
         """A stamp hours ahead satisfies `> now - stale` for ever, so one bad write would let a dead
         bridge authorize spawns permanently."""
@@ -450,3 +525,33 @@ class AnAbsentStampIsResolvedAgainstTheAuthorityTests(unittest.TestCase):
         self.assertEqual(bridge_stamp_state(self._env(bridgeLastSeen="2020-01-01T00:00:00Z")), BRIDGE_STAMP_STALE)
         self.assertEqual(bridge_stamp_state(self._env()), BRIDGE_STAMP_ABSENT)
         self.assertEqual(bridge_stamp_state(self._env(bridgeLastSeen="nonsense")), BRIDGE_STAMP_INVALID)
+
+
+class ONEFreshnessWindowGovernsBOTHArmsTests(unittest.TestCase):
+    """A migration must not flip a liveness answer.
+
+    THE SPLIT. The STAMPED arm aged against the environment's `offline_seconds` default of 90; the
+    ABSENT arm resolved against `bridge_instances` using `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, which is
+    120. So the same bridge at age 100s was LIVE before it gained a stamp and DEAD after -- the
+    answer changing because of a migration rather than because of the bridge.
+
+    Two numbers for one question is the shape that produced the original strand in the first place:
+    `last_seen` and `bridgeLastSeen` answering "is there a claimer" differently.
+    """
+
+    def _env_stamped(self, age_seconds):
+        import time
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age_seconds))
+        return {"id": "windows:h:default", "bridgeId": "b", "metadata": {"bridgeLastSeen": stamp}}
+
+    def test_the_boundary_is_the_named_window_and_it_is_ONE_number(self):
+        from service.env_status import SPAWN_CLAIMER_FRESH_SECONDS, environment_has_live_bridge
+        w = SPAWN_CLAIMER_FRESH_SECONDS
+        self.assertTrue(environment_has_live_bridge(self._env_stamped(w - 1)), f"{w-1}s must be live")
+        self.assertFalse(environment_has_live_bridge(self._env_stamped(w + 1)), f"{w+1}s must be dead")
+        # THE EXACT BOUNDARY SECOND IS NOT ASSERTED, deliberately. These stamps have second
+        # granularity and the comparison is against a live wall clock, so age at `w` straddles the
+        # rounding: it is `w` or a fraction over, depending on where in the second the test lands.
+        # A test that passes on that is a flake waiting for a slow machine. What matters is that ONE
+        # number governs, and that is asserted either side of it and by the constant itself.
+        self.assertEqual(w, 90, "the window moved; both arms and this bound must move together")
