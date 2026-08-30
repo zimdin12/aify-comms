@@ -54,6 +54,16 @@ from service.models import DispatchClaimRequest
 #: an UNVERIFIED claim and wants to be short, this one bounds a verified one and wants to be long.
 TURN_LEASE_ABSOLUTE_MAX_SECONDS = 4 * 60 * 60
 
+#: How far ahead of us a bridge's `last_seen` may be and still count as a live heartbeat.
+#:
+#: NOT ZERO, deliberately. `aify-comms doctor`'s `env-bridge` check once reported every environment
+#: dead because the CONTAINER clock ran 4.1 seconds ahead of the host, so every fresh heartbeat
+#: looked future-dated -- a false RED produced by exactly the "reject anything in the future" rule
+#: that looks obviously correct. The real defect a bound is needed for is a WILDLY wrong stamp: a
+#: `last_seen` hours ahead satisfies `> now - stale` for ever, so a dead bridge would renew a lease
+#: permanently. Two minutes separates ordinary skew from a stamp nothing legitimate produces.
+BRIDGE_CLOCK_SKEW_TOLERANCE_SECONDS = 120
+
 
 
 
@@ -303,9 +313,23 @@ async def _turn_lease_is_renewable(db, agent_id: str, bridge_id: str) -> bool:
             """
             SELECT 1 FROM bridge_instances
             WHERE id = ? AND COALESCE(agent_id, '') = ?
+              -- SUPERSEDED IS NOT AN OWNER, and a superseded bridge can still be beating:
+              -- supersession is a server-side fact and a replaced bridge is never told it lost, so
+              -- it keeps heartbeating and re-stamping. Existence plus freshness alone would let the
+              -- one thing that marks it as no longer the owner be the one thing this never reads.
+              -- Same clause as the live-wrapper predicate in `agent_sessions.py`.
+              AND COALESCE(superseded_by, '') = ''
               AND datetime(last_seen) > datetime('now', ?)
+              -- ...and not WILDLY ahead of us. `> now - stale` is satisfied for ever by a stamp
+              -- hours in the future, so a bad write would make a dead bridge renewable permanently.
+              -- The tolerance is what keeps ordinary container/host skew from reading as bogus.
+              AND datetime(last_seen) <= datetime('now', ?)
             """,
-            (owner, agent_id, f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"),
+            (
+                owner, agent_id,
+                f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds",
+                f"+{BRIDGE_CLOCK_SKEW_TOLERANCE_SECONDS} seconds",
+            ),
         )).fetchone()
     except Exception:
         # Unreadable bridge state is not evidence of a live claim. Fall back to the strict anchor,

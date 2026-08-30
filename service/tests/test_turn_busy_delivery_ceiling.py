@@ -463,7 +463,7 @@ class OnlyAVerifiableRenewalMayExtendATurnTests(FastApiTestCase):
 
         asyncio.run(_run())
 
-    def _bridge(self, bridge_id, agent_id, *, last_seen_age):
+    def _bridge(self, bridge_id, agent_id, *, last_seen_age, superseded_by=""):
         """A bridge_instances row, which is the thing that makes a renewal VERIFIABLE."""
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - last_seen_age))
 
@@ -472,10 +472,11 @@ class OnlyAVerifiableRenewalMayExtendATurnTests(FastApiTestCase):
             try:
                 await db.execute("PRAGMA foreign_keys=OFF")
                 await db.execute(
-                    "INSERT INTO bridge_instances (id, agent_id, last_seen, registered_at) "
-                    "VALUES (?,?,?,?) "
-                    "ON CONFLICT(id) DO UPDATE SET agent_id=excluded.agent_id, last_seen=excluded.last_seen",
-                    (bridge_id, agent_id, stamp, stamp),
+                    "INSERT INTO bridge_instances (id, agent_id, last_seen, registered_at, superseded_by) "
+                    "VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET agent_id=excluded.agent_id, "
+                    "last_seen=excluded.last_seen, superseded_by=excluded.superseded_by",
+                    (bridge_id, agent_id, stamp, stamp, superseded_by),
                 )
                 await db.commit()
             finally:
@@ -542,3 +543,46 @@ class OnlyAVerifiableRenewalMayExtendATurnTests(FastApiTestCase):
         self._turn("lease-quiet", bridge_id="bridge-quiet",
                    started_age=60 * 60, updated_age=liveness.TURN_BUSY_BACKSTOP_SECONDS + 60)
         self.assertFalse(self._holds("lease-quiet"), "an un-renewed lease must expire")
+
+    def test_a_SUPERSEDED_bridge_cannot_renew_even_while_heartbeating(self):
+        """A superseded bridge is explicitly not an owner, and it can still be beating.
+
+        Supersession is a SERVER-side fact: `stopClaudeTurnEndDetector` runs at process exit, and a
+        replaced bridge is never told it lost. So it keeps heartbeating and keeps re-stamping. If
+        existence plus freshness were enough, the one thing that marks it as no longer the owner
+        would be the one thing the renewal did not read. The repo's own live-wrapper predicate
+        (`agent_sessions.py:233`) carries this clause; this one was missing it.
+        """
+        self._bridge("bridge-super", "lease-super", last_seen_age=5, superseded_by="bridge-new")
+        self._turn("lease-super", bridge_id="bridge-super", started_age=40 * 60, updated_age=5)
+        self.assertFalse(
+            self._holds("lease-super"),
+            "a superseded bridge renewed a lease; a replaced owner would hold work indefinitely",
+        )
+
+    def test_a_FAR_FUTURE_last_seen_cannot_renew(self):
+        """A bogus stamp must not buy an unbounded lease.
+
+        `last_seen > now - stale` is satisfied for ever by a timestamp far in the future, so a bad
+        write or a wildly wrong clock would make a dead bridge renewable permanently. Same
+        asymmetry the ceiling itself had to close for `turn_updated_at`.
+        """
+        self._bridge("bridge-future", "lease-future", last_seen_age=-6 * 3600)
+        self._turn("lease-future", bridge_id="bridge-future", started_age=40 * 60, updated_age=5)
+        self.assertFalse(self._holds("lease-future"), "a far-future heartbeat renewed a lease")
+
+    def test_ORDINARY_CLOCK_SKEW_still_renews(self):
+        """The control that stops this becoming a false red.
+
+        `aify-comms doctor`'s `env-bridge` check once reported every environment dead because the
+        CONTAINER clock ran 4.1 seconds ahead of the host, so every fresh heartbeat looked
+        future-dated. A strict "not in the future" test would reproduce that here and cut off every
+        genuinely-live bridge on a skewed host. The bound is a tolerance, not zero.
+        """
+        self._bridge("bridge-skewed", "lease-skewed", last_seen_age=-5)
+        self._turn("lease-skewed", bridge_id="bridge-skewed", started_age=40 * 60, updated_age=5)
+        self.assertTrue(
+            self._holds("lease-skewed"),
+            "a heartbeat 5s ahead of us was treated as bogus. That is ordinary container/host skew "
+            "and rejecting it cuts off every live bridge on a skewed machine.",
+        )

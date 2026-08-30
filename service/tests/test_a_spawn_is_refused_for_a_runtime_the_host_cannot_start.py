@@ -82,6 +82,27 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
 
     ENV = "windows:spawn-host:default"
 
+    def _backdate_bridge_last_seen(self, stamp: str) -> None:
+        """Age the stored anchor, simulating elapsed time rather than a caller writing it."""
+        import asyncio, json
+        from service.db import get_db
+
+        async def _run():
+            db = await get_db()
+            try:
+                row = await (await db.execute(
+                    "SELECT metadata FROM environments WHERE id = ?", (self.ENV,))).fetchone()
+                metadata = json.loads(row["metadata"] or "{}") if row else {}
+                metadata["bridgeLastSeen"] = stamp
+                await db.execute(
+                    "UPDATE environments SET metadata = ? WHERE id = ?",
+                    (json.dumps(metadata), self.ENV))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
     def _environment(self, runtimes):
         response = self.client.post("/api/v1/environments/heartbeat", json={
             "id": self.ENV, "kind": "windows", "os": "windows",
@@ -117,12 +138,25 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         status `online`; the thing that CLAIMS a spawn is the bridge. Before the cutover only a bridge
         wrote `last_seen`, so `online` implied a claimer. Now it does not, and the gate has to ask the
         question it actually depends on."""
+        # ESTABLISHED THE WAY PRODUCTION ESTABLISHES IT, which is not how this test first did it.
+        #
+        # It used to POST `metadata: {"bridgeLastSeen": stale}` on a beat carrying NO `bridgeId`.
+        # That state cannot occur: the handler writes `bridgeLastSeen` only for a beat that carries
+        # a bridgeId, and since 2026-08-30 it STRIPS the whole `bridge*` namespace from any beat
+        # that does not -- because a host advertiser writing bridge authority is a forgery, not a
+        # fixture. The test was constructing exactly the shape the guard now refuses, so it started
+        # passing its own setup through a hole instead of through the product.
+        #
+        # A real bridge beats (which stamps the anchor to NOW), and then time passes. Backdating the
+        # stored value is how "time passed" is expressed in a test; it is not how a caller could
+        # ever set it.
         stale = "2026-08-30T00:00:00Z"
         self.client.post("/api/v1/environments/heartbeat", json={
             "id": self.ENV, "kind": "windows", "os": "windows", "machineId": "win32:spawn-host",
             "runtimes": [{"runtime": "pi", "available": True}],
-            "metadata": {"bridgeLastSeen": stale},
+            "bridgeId": "bridge-that-has-since-gone",
         })
+        self._backdate_bridge_last_seen(stale)
         response = self._spawn("pi")
         self.assertEqual(response.status_code, 409, response.text)
         # The phrase in full, because `test_every_refusal_is_exercised.py` matches a refusal's whole

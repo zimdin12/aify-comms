@@ -280,6 +280,26 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         advertised_roots = cwd_roots if cwd_roots is not None else (
             existing_metadata.get("advertisedCwdRoots", []) if existing else []
         )
+        #: OWNERSHIP IS ENFORCED AT THE BOUNDARY, not assumed from a naming convention.
+        #:
+        #: Deriving the preserved set by prefix decided WHICH keys are bridge-owned and said nothing
+        #: about who may WRITE them. Preservation below runs as "restore the stored value if the key
+        #: is not already here" — and `next_metadata` starts as a copy of the CALLER's metadata, so
+        #: a caller that SENT `bridgeBuild` already had the key present and its forged value won.
+        #:
+        #: What that bought a host advertiser was not cosmetic. `bridgeLastSeen` is the evidence the
+        #: spawn gate reads to decide a host has a live bridge, so forging it gets spawns accepted
+        #: that nothing can claim. `bridgeBuild` is what `bridge-current` compares against repo HEAD,
+        #: so forging it silences the one instrument that can say a bridge is running old code.
+        #:
+        #: Only a bridge sends a `bridgeId`. A caller without one has its whole `bridge*` namespace
+        #: dropped before the merge; everything else it sent is kept, so an advertisement is still an
+        #: advertisement. aify-env emits no such key by design, which a cross-repo test pins.
+        if not str(req.bridgeId or "").strip():
+            metadata = {
+                key: value for key, value in metadata.items()
+                if not (isinstance(key, str) and key.startswith("bridge"))
+            }
         next_metadata = {**metadata, "advertisedCwdRoots": advertised_roots}
         # WHEN A BRIDGE LAST SPOKE, which is a different question from when this ROW was last written.
         # Only a bridge sends a `bridgeId`, so only a bridge sets this; an advertisement from aify-env

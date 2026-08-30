@@ -170,3 +170,60 @@ class TwoTiersDescribeOneEnvironmentTests(FastApiTestCase):
         after = self._beat(full)
         self.assertEqual(["codex"], self._runtimes(after))
         self.assertEqual(["codex"], sorted(after["terminalRuntimes"]))
+
+    def test_a_HOST_ADVERTISER_CANNOT_FORGE_BRIDGE_AUTHORITY(self):
+        """A caller with no `bridgeId` must not be able to write the `bridge*` namespace.
+
+        THE HOLE, found by review 2026-08-30. Preservation ran as `if bridge_key not in
+        next_metadata`, and `next_metadata` starts as a copy of the CALLER's metadata. So the guard
+        only restored a stored value when the caller stayed silent. A caller that SENT
+        `bridgeLastSeen` or `bridgeBuild` already had the key present, preservation skipped it, and
+        the forged value won.
+
+        What that buys an attacker is not cosmetic. `bridgeLastSeen` is the evidence the spawn gate
+        reads to decide a host has a live bridge, so forging it makes spawns be accepted that
+        nothing can claim -- the exact strand that gate was added to prevent. `bridgeBuild` is what
+        `bridge-current` compares against repo HEAD, so forging it silences the one instrument that
+        can say a bridge is running old code.
+
+        Deriving the preserved set by prefix was necessary and not sufficient: it decided WHICH keys
+        are bridge-owned, and said nothing about who may WRITE them. Ownership is enforced at the
+        boundary now -- no `bridgeId`, no `bridge*` key survives from the request.
+        """
+        # A real bridge establishes the authority.
+        self._beat({**BRIDGE_BEAT_STOOD_DOWN, "metadata": {
+            "bridgeStartedAt": "2026-08-30T10:00:00Z",
+            "bridgeBuild": "real-build-aaaa",
+        }})
+
+        # A host advertiser -- no bridgeId -- tries to write the namespace.
+        forged = self._beat({**ENVIRONMENT_BEAT, "metadata": {
+            "bridgeBuild": "forged-build-zzzz",
+            "bridgeLastSeen": "2099-01-01T00:00:00Z",
+            "bridgeStartedAt": "2099-01-01T00:00:00Z",
+            "bridgeAnythingElse": "forged",
+            # Sent in the SAME beat as the forgeries, so the control below proves the strip is
+            # scoped to the namespace this caller does not own rather than discarding its metadata.
+            "advertiser": "aify-env",
+        }})
+        stored = forged.get("metadata") or {}
+
+        self.assertEqual(stored.get("bridgeBuild"), "real-build-aaaa",
+                         "a host advertiser overwrote the build `bridge-current` compares")
+        self.assertEqual(stored.get("bridgeStartedAt"), "2026-08-30T10:00:00Z",
+                         "a host advertiser overwrote the bridge's start time")
+        self.assertNotEqual(stored.get("bridgeLastSeen"), "2099-01-01T00:00:00Z",
+                            "a host advertiser forged the freshness the spawn gate reads")
+        self.assertNotIn("bridgeAnythingElse", stored,
+                         "an unrecognised bridge* key from a non-bridge caller was accepted")
+
+        # POSITIVE CONTROL: the advertiser's OWN fields still land, so the strip is scoped to the
+        # namespace it does not own rather than discarding the whole advertisement.
+        self.assertEqual(stored.get("advertiser"), "aify-env")
+
+    def test_a_REAL_BRIDGE_may_still_write_its_own_namespace(self):
+        """The other side of the same boundary. Stripping for everyone would break the owner."""
+        self._beat({**BRIDGE_BEAT_STOOD_DOWN, "metadata": {"bridgeBuild": "first-aaaa"}})
+        second = self._beat({**BRIDGE_BEAT_STOOD_DOWN, "metadata": {"bridgeBuild": "second-bbbb"}})
+        self.assertEqual((second.get("metadata") or {}).get("bridgeBuild"), "second-bbbb",
+                         "a bridge could not update its own build")
