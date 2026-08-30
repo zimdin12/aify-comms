@@ -1,7 +1,10 @@
 // Channels: whether one exists, who is in it, and what it contains.
 //
-// Four MCP tools — `comms_channel_create`, `comms_channel_join`, `comms_channel_read`,
-// `comms_channel_list`. v0.5.4 layer 2 of the server.js decomposition.
+// Six MCP tools — `comms_channel_create`, `comms_channel_join`, `comms_channel_leave`,
+// `comms_channel_read`, `comms_channel_list`, `comms_channel_delete`. v0.5.4 layer 2 of the
+// server.js decomposition. (This line said "Four" and listed four while the module held five, then
+// six: a count written once and never re-measured. Everything below that says "the four" means the
+// original four, and is left alone rather than silently renumbered.)
 //
 // THE GROUP IS DELIBERATELY INCOMPLETE, and this is the record of why rather than an oversight.
 // `comms_channel_send` is the fifth channel tool and it is NOT here: it is the only one that DELIVERS, and
@@ -123,6 +126,55 @@ export function registerChannelTools(server, z) {
   );
 
   // ═══════════════════════════════════════════════════════════════════════════════
+  // 11b. comms_channel_leave -- Stop receiving a channel WITHOUT destroying it
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  server.tool(
+    "comms_channel_leave",
+    "Stop receiving a channel, without destroying it for anyone else. This is the non-destructive " +
+      "exit and the one comms_channel_delete tells you to prefer: leaving removes only your own " +
+      "membership, while deleting ends the channel and its history for every member.",
+    {
+      channel: z.string().describe("Channel name to leave"),
+      from: z.string().describe("Your agent ID"),
+    },
+    // NO third-party removal, deliberately, and this is where it differs from comms_channel_join.
+    // `POST /channels/{name}/leave` deletes whatever membership it is handed and never checks that
+    // the caller owns it, so an `agentId` parameter here would let any agent silently remove any
+    // other from a channel. Leaving is about yourself; removing somebody else is an operator action.
+    // Keeping the parameter off also leaves the two transports exactly in step.
+    async ({ channel, from }) => {
+      const target = from;
+      try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
+
+      if (IS_REMOTE) {
+        const r = await httpCall("POST", `/channels/${encodeURIComponent(channel)}/leave`, { agentId: target });
+        if (!r.changed) {
+          return { content: [{ type: "text", text: `${target} is not a member of #${channel}; nothing to leave.` }] };
+        }
+        return { content: [{ type: "text", text: `Left #${channel}. Remaining members: ${r.members.join(", ") || "none"}` }] };
+      }
+
+      const chFile = path.join(MESSAGES_DIR, "channels", `${channel}.json`);
+      if (!fs.existsSync(chFile)) {
+        return { content: [{ type: "text", text: `Channel #${channel} not found.` }], isError: true };
+      }
+      const ch = JSON.parse(fs.readFileSync(chFile, "utf-8"));
+      const at = ch.members.indexOf(target);
+      if (at < 0) {
+        return { content: [{ type: "text", text: `${target} is not a member of #${channel}; nothing to leave.` }] };
+      }
+      ch.members.splice(at, 1);
+      ch.messages.push({
+        id: `${Date.now()}`, from: "_system", type: "info",
+        body: `${target} left`, timestamp: Date.now(),
+      });
+      fs.writeFileSync(chFile, JSON.stringify(ch, null, 2));
+      return { content: [{ type: "text", text: `Left #${channel}. Remaining members: ${ch.members.join(", ") || "none"}` }] };
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════════
   // 12. comms_channel_read -- Read channel messages
   // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -203,7 +255,13 @@ export function registerChannelTools(server, z) {
 
   server.tool(
     "comms_channel_delete",
-    "Delete a channel YOU created, along with every message in it. To simply stop receiving it, leave instead.",
+    // The warning below lived HERE as a code comment, where no agent could read it, while the SSE
+    // transport carried it in its description. Same endpoint, same destruction, and which warning an
+    // agent received depended only on how it happened to be connected.
+    "THE MOST DESTRUCTIVE DELETE AN AGENT CAN REACH. Deletes a channel YOU created, its membership " +
+      "and EVERY message ever posted to it — shared history for every member, not just your own. " +
+      "There is no undo. To stop receiving a channel, LEAVE it: deleting ends it for everybody, so " +
+      "only the creator or an operator surface may do so and the service enforces that.",
     {
       channel: z.string().describe("Channel name to delete"),
       from: z.string().describe("Your agent ID — must be the channel's creator"),

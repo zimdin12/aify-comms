@@ -155,6 +155,58 @@ class ChannelToolTests(unittest.TestCase):
         self.assertIn("2 members", out)
         self.assertIn("(no description)", out, "a missing description must not render as empty")
 
+    # ── comms_channel_leave ──────────────────────────────────────────────────────────
+    #
+    # The non-destructive exit. `POST /channels/{name}/leave` existed the whole time and no
+    # transport exposed it, while comms_channel_delete's description told agents to "leave instead"
+    # -- so the only exit an agent could reach was the one that ends the channel for every member.
+
+    def test_leaving_reports_who_is_left_behind(self):
+        out, api = self._run(
+            ch.comms_channel_leave, {"ok": True, "changed": True, "members": ["a", "c"]},
+            channel="team", from_agent="b",
+        )
+        self.assertIn("Left #team", out)
+        self.assertIn("a, c", out, "the remaining members are what tells you the channel survived")
+        self.assertEqual("POST", api.calls[0]["method"])
+        self.assertEqual("/channels/team/leave", api.calls[0]["path"])
+        self.assertEqual({"agentId": "b"}, api.calls[0]["json"])
+
+    def test_leaving_the_last_seat_does_not_render_an_empty_list(self):
+        out, _ = self._run(
+            ch.comms_channel_leave, {"ok": True, "changed": True, "members": []},
+            channel="team", from_agent="a",
+        )
+        self.assertIn("none", out, "an empty membership must read as 'none', not as a blank")
+
+    def test_leaving_a_channel_you_are_not_in_says_so_rather_than_claiming_success(self):
+        """`changed: false` is the service saying nothing was removed. Reporting it as a departure
+        would tell an agent it had left a channel it is still receiving."""
+        out, _ = self._run(
+            ch.comms_channel_leave, {"ok": True, "changed": False, "members": ["a"]},
+            channel="team", from_agent="z",
+        )
+        self.assertIn("Not a member", out)
+        self.assertNotIn("Left #team", out)
+
+    def test_an_api_error_is_surfaced(self):
+        out, _ = self._run(
+            ch.comms_channel_leave, {"detail": "no such channel"}, channel="x", from_agent="a")
+        self.assertEqual("Error: no such channel", out)
+
+    def test_leave_is_registered_and_takes_no_third_party(self):
+        """It must be reachable, and it must not become a way to evict another agent: the endpoint
+        deletes whatever membership it is handed without checking the caller owns it."""
+        import inspect
+        self.assertIn(ch.comms_channel_leave, ch.TOOLS)
+        self.assertEqual(
+            ["channel", "from_agent"],
+            sorted(inspect.signature(ch.comms_channel_leave).parameters),
+        )
+        # Control: the sibling that DOES take a third party is unchanged, so this is a real
+        # difference between two tools rather than a reader that sees no parameters at all.
+        self.assertIn("from_agent", inspect.signature(ch.comms_channel_join).parameters)
+
 
 if __name__ == "__main__":
     unittest.main()

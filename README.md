@@ -96,9 +96,22 @@ bash install.sh --client claude http://localhost:8800 --with-api-key
 docker compose up -d          # the service only reads the key at startup
 ```
 
-`--with-api-key` generates a key if there is none, writes it to `.env` where the service reads it, and
-passes the same value into every wrapper and MCP config it writes. **An existing key is reused, never
-rotated** — a fresh one would leave every already-installed bridge holding the old value.
+`--with-api-key` generates a key if there is none and writes it to `.env`, where the service reads it.
+**An existing key is reused, never rotated** — a fresh one would leave every already-installed bridge
+holding the old value.
+
+The installer then hands that key to each of the four things that must present it, and they are worth
+naming because a sentence claiming "every config it writes" stood here while two of them got nothing:
+
+| destination | how it receives the key |
+|---|---|
+| Claude and Codex MCP config | `mcp add --env AIFY_API_KEY=… --env CLAUDE_MCP_API_KEY=…` |
+| Hermes MCP config | written into `config.yaml` by `scripts/hermes-mcp-config.mjs` — hermes filters env down to `_SAFE_ENV_KEYS`, so an unnamed variable never reaches the MCP child |
+| the environment bridge (`~/.local/bin/aify-comms`) | baked as `${AIFY_API_KEY:-…}`, so a key exported in your shell still wins |
+| a strict-MCP launcher | from `keyEnv` in `~/.aify/services.json`, resolved per MCP server |
+
+Hermes and the environment bridge were the two that got nothing, until 2026-08-30. Both are covered by
+tests that fail if the key stops arriving.
 
 Then open the dashboard **once** with the key in the URL:
 

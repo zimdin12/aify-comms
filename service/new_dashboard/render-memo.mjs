@@ -62,10 +62,37 @@ export function renderSection(key, signature, renderFn) {
 // because they ARE the memo's correctness: each names the fields whose change should repaint a section,
 // so a field left out makes that section go blind to a real update, and an unstable one makes it repaint
 // on every poll. The memo itself cannot tell the difference.
-export const _agentSig = () => state.agents.map((a) => [a.id, a.status]);
+// WHAT THESE MISSED, AND WHY IT MATTERED. `_agentSig` was `[id, status]` and `_envSig` was
+// `[id, status, label]`, while the sections they gate render a good deal more than that. A field the
+// renderer reads and the signature omits makes that section go BLIND: the data changes, the memo
+// sees an identical signature, and the screen keeps showing the old answer with nothing indicating
+// it is stale. `staleBridgeBadge` is the sharpest case — it exists because an operator restarted
+// aify-env twice against a bridge 231 commits behind the service and "nothing on any screen said
+// so", and it is rendered from `metadata.bridgeBuild`, which `_envSig` did not carry. The badge
+// built to end that silence could not appear.
+//
+// RELATIVE TIMES ARE DELIBERATELY NOT SOLVED HERE. `offlineAge` renders "last seen 4m ago", which
+// must change as the clock advances even when no datum does. No signature can express that: adding
+// `lastSeen` repaints only when the heartbeat lands, and adding a clock tick repaints every section
+// on a timer and destroys selection and focus while doing it. It needs the times to stop being baked
+// into `innerHTML` at all. Left as v0.6.1 work rather than half-done here.
+export const _agentSig = () => state.agents.map((a) => [
+  a.id, a.status, a.statusNote, a.runtime, a.sessionMode, a.role, a.model,
+  a.unread, a.favorited, a.consoleAvailable, a.quotaCritical, a.poolSeverity,
+]);
 export const _contractSig = () => state.contracts.map((c) => [c.id, c.state, c.status, c.overdue, c.subject]);
 export const _runSig = () => state.runs.map((r) => [r.id, r.status, r.subject, r.summary, r.targetAgentId || r.target_agent]);
-export const _envSig = () => state.environments.map((e) => [e.id, e.status, e.label]);
+export const _envSig = () => state.environments.map((e) => [
+  e.id, e.status, e.label, e.kind, e.os, e.machineId, e.terminal, e.pty,
+  // The metadata keys `environments-panels.mjs` actually reads. The blob is NOT stringified whole:
+  // it also carries `bridgeLastSeen`, which is rewritten every 30 seconds by the environment
+  // heartbeat, so a whole-blob signature would repaint both environment sections on every poll.
+  e.metadata?.bridgeBuild, e.metadata?.unknownProcesses, e.metadata?.terminalReason,
+  e.metadata?.manual, JSON.stringify(e.metadata?.manualRoots ?? null),
+  // Runtime pills and workspace roots are rendered per environment and change when a host is
+  // re-described — which, since aify-env began advertising, happens without the status moving.
+  JSON.stringify(e.runtimes ?? null), JSON.stringify(e.cwdRoots ?? null),
+]);
 export const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.agentId, r.error, r.updatedAt]);
 export const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
 export const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);

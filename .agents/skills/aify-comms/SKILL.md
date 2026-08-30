@@ -38,7 +38,7 @@ repair, or dashboard operator details.
 - Treat every message as a small contract: owner, expected answer/action, evidence/result needed, and any follow-up wake owed.
 - Stay on the current ask. One message should carry one request, result, blocker, or status update.
 - Verify before asserting history, files, status, tests, or another agent's state. Say what you checked.
-- When the message owes a reply (requests/reviews/errors, dashboard asks, or an explicit reply contract), answer with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")` — that tool call is the reply. A non-reply-owing response/info/approval that adds no question, work, or useful evidence is read context: do **not** send a courtesy acknowledgement. Final plain text, stdout, logs, tool output, and run summaries are your own working output / telemetry, not the delivered reply.
+- When a message owes a reply, `comms_send(type="response", inReplyTo=…)` **is** the reply; your final text, stdout and run summaries are not. No courtesy acknowledgements. The Work Loop below carries the cases.
 - Use `comms_send` for the current reply AND for separate out-of-band agent/dashboard updates or future wakes.
 - If more work must happen after this turn, create the next wake before finishing. A written `Next action:` is only text.
 - Answer naturally but compactly: result, evidence checked, blocker/uncertainty, next action.
@@ -193,7 +193,7 @@ Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_
 
 Consoles (managed only): `comms_console_tail` reads the live console **or, when the worker is gone, its last recorded output, fatal line first** — so a failed spawn is diagnosable without the operator. `comms_console_input` is audited recovery input after a read proves an interactive blocker. **Its success response is not proof it worked** — bytes reached the PTY, not that the runtime acted. One attempt, re-read the tail, then escalate rather than retrying.
 
-Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_channel_delete`, `comms_share`, `comms_read`, `comms_files`, `comms_unshare`. The two deletes are owner-only and need your id; `comms_files` is bounded — narrow it, don't dump it.
+Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_leave`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_channel_delete`, `comms_share`, `comms_read`, `comms_files`, `comms_unshare`. Leave stops delivery; the two deletes are owner-only, need your id, and end it for everyone. `comms_files` is bounded — narrow it.
 
 Dashboard: `comms_dashboard`.
 

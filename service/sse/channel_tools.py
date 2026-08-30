@@ -37,6 +37,25 @@ async def comms_channel_join(channel: str, from_agent: str) -> str:
     return f"Joined #{channel}. Members: {', '.join(r.get('members', []))}"
 
 
+async def comms_channel_leave(channel: str, from_agent: str) -> str:
+    """Stop receiving a channel, without destroying it for anyone else.
+
+    This is the NON-destructive exit, and the one comms_channel_delete tells you to prefer. Leaving
+    removes only your own membership; the channel and its history stay for every other member.
+
+    `POST /channels/{name}/leave` has existed the whole time and no transport exposed it, while
+    comms_channel_delete's description said "to simply stop receiving it, leave instead" -- pointing
+    agents at a capability they could not reach, so the only exit an agent could actually take was
+    the one that ends the channel for everybody.
+    """
+    r = await _api("POST", f"/channels/{channel}/leave", {"agentId": from_agent})
+    if "detail" in r:
+        return f"Error: {r['detail']}"
+    if not r.get("changed"):
+        return f"Not a member of #{channel}; nothing to leave."
+    return f"Left #{channel}. Remaining members: {', '.join(r.get('members', [])) or 'none'}"
+
+
 async def comms_channel_send(
     channel: str,
     from_agent: str,
@@ -139,6 +158,7 @@ async def comms_channel_delete(channel: str, requestedBy: str) -> str:
 TOOLS = (
     comms_channel_create,
     comms_channel_join,
+    comms_channel_leave,
     comms_channel_send,
     comms_channel_read,
     comms_channel_list,

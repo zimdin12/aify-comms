@@ -316,3 +316,81 @@ test("a section that throws EVERY time is retried every time", () => {
   }
   assert.equal(attempts, 4);
 });
+
+// ── the signatures must cover what their sections actually render ──────────────────
+//
+// THE DEFECT. `_envSig` was `[id, status, label]` while `renderRuntime` reads kind, os, machineId,
+// terminal, the runtime pills, the workspace roots and five metadata keys. A field the renderer
+// reads and the signature omits makes the section go blind: the datum changes, the memo sees an
+// identical signature, and the screen keeps the old answer with nothing saying it is stale.
+// `staleBridgeBadge` was the casualty — a badge added specifically because "nothing on any screen
+// said so" when a bridge ran 231 commits behind the service, rendered from `metadata.bridgeBuild`,
+// which the signature did not carry. It could not appear.
+//
+// These are BEHAVIOURAL: each case mutates one field and asserts the signature moves. A test that
+// read the signature's source text would pass on a signature that named a field it never used.
+
+const envWith = (over) => ({
+  id: 'env-1', status: 'online', label: 'box', kind: 'windows', os: 'win32',
+  machineId: 'win32:box', terminal: true, pty: true,
+  runtimes: [{ runtime: 'claude-code', available: true }], cwdRoots: ['/a'],
+  metadata: { bridgeBuild: 'aaaaaaa', unknownProcesses: 0, terminalReason: '', manual: false, manualRoots: [] },
+  ...over,
+});
+
+const envSigOf = (env) => {
+  const previous = state.environments;
+  state.environments = [env];
+  try { return JSON.stringify(_envSig()); } finally { state.environments = previous; }
+};
+
+test("every environment field renderRuntime reads moves the signature", () => {
+  const base = envSigOf(envWith({}));
+  const cases = {
+    status: { status: 'offline' },
+    label: { label: 'other' },
+    kind: { kind: 'wsl' },
+    os: { os: 'linux' },
+    machineId: { machineId: 'linux:box' },
+    terminal: { terminal: false },
+    'metadata.bridgeBuild': { metadata: { ...envWith({}).metadata, bridgeBuild: 'bbbbbbb' } },
+    'metadata.unknownProcesses': { metadata: { ...envWith({}).metadata, unknownProcesses: 6 } },
+    'metadata.terminalReason': { metadata: { ...envWith({}).metadata, terminalReason: 'no pty' } },
+    'metadata.manualRoots': { metadata: { ...envWith({}).metadata, manualRoots: ['/z'] } },
+    runtimes: { runtimes: [{ runtime: 'codex', available: false }] },
+    cwdRoots: { cwdRoots: ['/a', '/b'] },
+  };
+  for (const [field, over] of Object.entries(cases)) {
+    assert.notEqual(envSigOf(envWith(over)), base, `${field} is rendered but does not move the signature`);
+  }
+});
+
+test("bridgeLastSeen does NOT move the signature, or every poll would repaint", () => {
+  // THE CONTROL THAT KEEPS THE FIX HONEST. The environment heartbeat rewrites `bridgeLastSeen`
+  // every 30 seconds. Signing the whole metadata blob would have covered bridgeBuild and repainted
+  // both environment sections continuously — trading a stale badge for a flickering dashboard.
+  const base = envSigOf(envWith({}));
+  const beaten = envSigOf(envWith({
+    metadata: { ...envWith({}).metadata, bridgeLastSeen: '2026-08-30T18:00:00Z' },
+  }));
+  assert.equal(beaten, base, "a heartbeat-only change must not repaint");
+});
+
+test("agent statusNote and runtime move the signature", () => {
+  // `realtime-socket.mjs` writes `statusNote` without the status necessarily moving, so under the
+  // old `[id, status]` signature a note could be written and never shown.
+  const previous = state.agents;
+  try {
+    const sig = (over) => {
+      state.agents = [{ id: 'a', status: 'online', statusNote: '', runtime: 'codex', unread: 0, ...over }];
+      return JSON.stringify(_agentSig());
+    };
+    const base = sig({});
+    assert.notEqual(sig({ statusNote: 'bridge heartbeat gone' }), base, "statusNote must repaint");
+    assert.notEqual(sig({ runtime: 'hermes' }), base, "runtime must repaint");
+    assert.notEqual(sig({ unread: 3 }), base, "unread must repaint");
+    // Control: an identical agent still produces an identical signature, so the comparisons above
+    // are detecting the field and not simply a signature that changes on every call.
+    assert.equal(sig({}), base);
+  } finally { state.agents = previous; }
+});

@@ -40,15 +40,20 @@ test("the scratch store is really in use", () => {
   assert.ok(MESSAGES_DIR.startsWith(STORE), `expected the scratch store, got ${MESSAGES_DIR}`);
 });
 
-test("the wrapper registers exactly the five channel tools and exports only itself", () => {
+test("the wrapper registers exactly the six channel tools and exports only itself", () => {
   // `comms_channel_delete` joined them 2026-08-18. It is the most destructive delete an agent can
   // reach — channel, membership and every message ever posted, for every member — so the endpoint
   // gained a creator-or-operator check in the same change. Membership is deliberately not enough:
   // to stop receiving a channel you LEAVE it.
+  //
+  // AND UNTIL 2026-08-30 YOU COULD NOT. The sentence above, and the delete tool's own description,
+  // both routed agents to a leave that no transport exposed — `POST /channels/{name}/leave` existed
+  // the whole time. So the only exit an agent could actually take was the one that ends the channel
+  // for everybody, while every doc told it to do the opposite. `comms_channel_leave` is that exit.
   assert.deepEqual(
     [...tools.keys()].sort(),
-    ["comms_channel_create", "comms_channel_delete", "comms_channel_join", "comms_channel_list",
-     "comms_channel_read"],
+    ["comms_channel_create", "comms_channel_delete", "comms_channel_join", "comms_channel_leave",
+     "comms_channel_list", "comms_channel_read"],
   );
   assert.deepEqual(Object.keys(channels).sort(), ["registerChannelTools"]);
 });
@@ -217,3 +222,50 @@ test("each tool is registered exactly once across the bridge", () => {
 });
 
 process.on("exit", () => { try { rmSync(STORE, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+// ── comms_channel_leave ────────────────────────────────────────────────────────────
+//
+// The non-destructive exit. Its whole reason for existing is that `comms_channel_delete` told
+// agents to "leave instead" while no leave tool existed, so the only reachable exit destroyed the
+// channel for every member.
+
+test("leaving removes only your own membership and leaves the channel standing", async () => {
+  await call("comms_channel_create", { name: "leavers", from: "agent-a" });
+  await call("comms_channel_join", { channel: "leavers", from: "agent-b" });
+  await call("comms_channel_join", { channel: "leavers", from: "agent-c" });
+
+  const res = await call("comms_channel_leave", { channel: "leavers", from: "agent-b" });
+  assert.ok(!res.isError, `leave failed: ${text(res)}`);
+
+  const stored = JSON.parse(readFileSync(path.join(MESSAGES_DIR, "channels", "leavers.json"), "utf-8"));
+  assert.deepEqual(stored.members.sort(), ["agent-a", "agent-c"], "only the leaver is removed");
+  // The channel itself, and its history, survive. This is the whole difference from delete.
+  assert.ok(existsSync(path.join(MESSAGES_DIR, "channels", "leavers.json")));
+  assert.ok(stored.messages.some((m) => m.body === "agent-b left"), "the departure is recorded");
+});
+
+test("leaving a channel you are not in is reported, not silently treated as success", async () => {
+  await call("comms_channel_create", { name: "not-mine", from: "agent-a" });
+  const res = await call("comms_channel_leave", { channel: "not-mine", from: "agent-z" });
+  assert.match(text(res), /not a member/i);
+  const stored = JSON.parse(readFileSync(path.join(MESSAGES_DIR, "channels", "not-mine.json"), "utf-8"));
+  assert.deepEqual(stored.members, ["agent-a"], "a no-op leave must not disturb the membership");
+});
+
+test("leaving a channel that does not exist is an error, not an empty success", async () => {
+  // Absence versus emptiness, the distinction this module's header calls out by name.
+  const res = await call("comms_channel_leave", { channel: "never-created", from: "agent-a" });
+  assert.ok(res.isError, "a missing channel must be an error");
+  assert.match(text(res), /not found/i);
+});
+
+test("leave takes no agentId, so no agent can remove another from a channel", async () => {
+  // `POST /channels/{name}/leave` deletes whatever membership it is handed and never checks the
+  // caller owns it. An `agentId` parameter here — which comms_channel_join does have — would turn
+  // that into a reachable capability. The absence is the guard.
+  const schema = tools.get("comms_channel_leave").schema;
+  assert.deepEqual(Object.keys(schema).sort(), ["channel", "from"]);
+  // Control: the sibling that DOES accept a third party still does, so this is a real difference
+  // between the two tools and not a reader that cannot see parameters at all.
+  assert.ok(Object.keys(tools.get("comms_channel_join").schema).includes("agentId"));
+});

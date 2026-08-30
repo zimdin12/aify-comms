@@ -1377,6 +1377,17 @@ install_bridge_launcher() {
   local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/aify-comms"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
+  # THE BRIDGE NEEDS THE KEY OR IT CANNOT TALK TO ITS OWN SERVICE. It reads
+  # CLAUDE_MCP_API_KEY / AIFY_API_KEY once at module load (aify-service-endpoint.mjs:54) and
+  # otherwise sends none. Measured 2026-08-30 with controls: `API_KEY` appeared 0 times in this
+  # generated block and 0 times in the INSTALLED launcher, against 4 and 3 for `AIFY_SERVER_URL`.
+  # So setting `API_KEY` would have 401'd the one process that owns spawning and the managed fleet,
+  # with no error naming the cause -- the remedy for an open service would have taken the fleet down.
+  #
+  # Baked, like every other key destination the installer writes (~/.claude.json via `mcp add
+  # --env`, hermes' config.yaml). It is one more copy of a secret already on this disk in .env, on
+  # the same trust boundary; a launcher that must run from a bare shell has nowhere else to read it.
+  local default_api_key; default_api_key="$(aify_api_key)"
   mkdir -p "$wrapper_dir"
 cat > "$wrapper_path" <<EOF
 #!/bin/bash
@@ -1521,6 +1532,10 @@ NODE
 
 export AIFY_SERVER_URL="\$SERVER_URL"
 export AIFY_CWD_ROOTS="\$ROOTS"
+# An inherited key wins over the baked one, so an operator who rotates in their shell is not
+# overridden by whatever was true at install time. Empty stays empty: apiKeyFrom() treats "" as
+# absent, so an unkeyed service is unaffected by this line.
+export AIFY_API_KEY="\${AIFY_API_KEY:-$default_api_key}"
 
 # WHERE SPAWNS RUN. Empty means this bridge hosts managed agents itself, which is what it did
 # before v0.6 and what every host does until an operator opts in. Set, it delegates every spawn to
@@ -1857,96 +1872,13 @@ _patch_hermes_config_at() {
     node_server_path="$(path_for_windows_runtime "$node_server_path")"
   fi
 
-  MSYS_NO_PATHCONV=1 node -e '
-    const fs = require("fs");
-    const file = process.argv[1];
-    const serverPath = process.argv[2];
-    const serverUrl = process.argv[3] || "";
-    let text = "";
-    try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
-    // Hermes filters env-vars to stdio MCP children: only PATH HOME etc
-    // pass through by default (tools/mcp_tool.py _SAFE_ENV_KEYS). The
-    // hermes-aify wrapper exports the gateway vars to hermes itself but
-    // without explicit propagation here those vars never reach the
-    // aify-comms MCP server child. Hermes does support templated env
-    // resolution at MCP-spawn time so we use that to inject the
-    // current value of each var per launch.
-    //
-    // Plan 6 follow-up (2026-05-26): AIFY_AGENT_ID + AIFY_SESSION_MODE
-    // + AIFY_MANAGED_VIA_WRAPPER added — without them the inner bridge
-    // never registers in bridge_instances and dispatch sits queued
-    // forever (observed 2026-05-26 with hermes-test managed:
-    // wrapper PTY attached, hermes TUI rendered, MCP server loaded,
-    // but no /agents POST). AIFY_COMMS_AGENT_ID + AIFY_TERMINAL_ID kept
-    // in sync for symmetry with terminalChildEnv.
-    const entry = [
-      "  aify-comms:",
-      "    command: \"node\"",
-      "    args:",
-      `      - ${JSON.stringify(serverPath)}`,
-      "    env:",
-      `      AIFY_AGENT_ID: \"\${AIFY_AGENT_ID}\"`,
-      `      AIFY_COMMS_AGENT_ID: \"\${AIFY_COMMS_AGENT_ID}\"`,
-      `      AIFY_AGENT_ROLE: \"\${AIFY_AGENT_ROLE}\"`,
-      `      AIFY_AGENT_CWD: \"\${AIFY_AGENT_CWD}\"`,
-      `      AIFY_SESSION_MODE: \"\${AIFY_SESSION_MODE}\"`,
-      `      AIFY_SESSION_HANDLE: \"\${AIFY_SESSION_HANDLE}\"`,
-      `      AIFY_EXPLICIT_SESSION_HANDLE: \"\${AIFY_EXPLICIT_SESSION_HANDLE}\"`,
-      `      AIFY_RUNTIME: \"\${AIFY_RUNTIME}\"`,
-      `      AIFY_TERMINAL_ID: \"\${AIFY_TERMINAL_ID}\"`,
-      `      AIFY_MANAGED_VIA_WRAPPER: \"\${AIFY_MANAGED_VIA_WRAPPER}\"`,
-      `      HERMES_SESSION_ID: \"\${HERMES_SESSION_ID}\"`,
-      `      AIFY_HERMES_GATEWAY_URL: \"\${AIFY_HERMES_GATEWAY_URL}\"`,
-      `      AIFY_HERMES_GATEWAY_TOKEN: \"\${AIFY_HERMES_GATEWAY_TOKEN}\"`,
-      `      HERMES_TUI_GATEWAY_URL: \"\${HERMES_TUI_GATEWAY_URL}\"`,
-      // The aify-comms MCP child runs in HTTP mode against the service ONLY when
-      // CLAUDE_MCP_SERVER_URL / AIFY_SERVER_URL is set (server.js:94 — else it
-      // silently falls back to the local .messages/ FILE store and replies never
-      // reach the service). The MCP child is spawned by the (managed) hidden
-      // gateway host / (resident) hermes process, BOTH of which inherit the
-      // hermes-aify wrapper exported AIFY_SERVER_URL/CLAUDE_MCP_SERVER_URL
-      // (install.sh bash:1160-1161, PS:1578-1579 — baked default_server). So we
-      // ALWAYS emit these two keys: a literal URL when one was given at install
-      // (most robust — no env dependency), otherwise the \${VAR} interpolation
-      // hermes resolves at MCP-spawn time from the wrapper-exported env
-      // (mcp_tool.py _interpolate_env_vars). Either way HTTP mode is guaranteed;
-      // the prior omit-when-empty left the child in file mode.
-      `      AIFY_SERVER_URL: ${serverUrl ? JSON.stringify(serverUrl) : "\"\${AIFY_SERVER_URL}\""}`,
-      `      CLAUDE_MCP_SERVER_URL: ${serverUrl ? JSON.stringify(serverUrl) : "\"\${CLAUDE_MCP_SERVER_URL}\""}`,
-    ];
-    // Plan 6 follow-up: rewrite the aify-comms entry in place when it
-    // exists, so re-running install.sh refreshes the env block. The
-    // previous skip-if-exists guard meant operators who installed
-    // before the env-block expansion never picked up the new keys
-    // (only AIFY_HERMES_GATEWAY_URL was propagated, breaking managed
-    // delivery).
-    const lines = text.replace(/\s*$/, "").split(/\r?\n/);
-    const mcpIndex = lines.findIndex((line) => /^[ \t]*mcp_servers:[ \t]*$/.test(line));
-    let existingStart = -1;
-    let existingEnd = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^[ \t]+aify-comms:[ \t]*$/.test(lines[i])) {
-        existingStart = i;
-        const baseIndent = (lines[i].match(/^[ \t]+/) || [""])[0].length;
-        existingEnd = lines.length;
-        for (let j = i + 1; j < lines.length; j++) {
-          if (lines[j].trim() === "") continue;
-          const indent = (lines[j].match(/^[ \t]*/) || [""])[0].length;
-          if (indent <= baseIndent) { existingEnd = j; break; }
-        }
-        break;
-      }
-    }
-    if (existingStart >= 0) {
-      lines.splice(existingStart, existingEnd - existingStart, ...entry);
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-    } else if (mcpIndex >= 0) {
-      lines.splice(mcpIndex + 1, 0, ...entry);
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-    } else {
-      fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`);
-    }
-  ' "$node_config_file" "$node_server_path" "$SERVER_URL"
+  # The entry itself is built by scripts/hermes-mcp-config.mjs. It lived HERE as ~90 lines of
+  # JavaScript inside a single-quoted bash string, and that is precisely why a missing API key
+  # went unnoticed: every hermes install test is a static grep of this file, which can only ever
+  # prove that a line was written. As a module it is run by its test instead.
+  local api_key; api_key="$(aify_api_key)"
+  MSYS_NO_PATHCONV=1 node "$SCRIPT_DIR/scripts/hermes-mcp-config.mjs" \
+    "$node_config_file" "$node_server_path" "$SERVER_URL" "$api_key"
 }
 
 install_hermes_plugin() {

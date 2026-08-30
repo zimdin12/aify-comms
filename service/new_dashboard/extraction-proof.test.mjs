@@ -1872,10 +1872,51 @@ const EXTRACTIONS = [
     module: "render-memo.mjs",
     importLine: "import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';",
     items: [
-      { name: "_agentSig", at: 938, marker: "// _agentSig moved to ./render-memo.mjs in v0.5.4." },
+      {
+        name: "_agentSig", at: 938,
+        marker: "// _agentSig moved to ./render-memo.mjs in v0.5.4.",
+        // The section rendered statusNote and runtime while the signature carried neither, so a note written by realtime-socket could never appear.
+        editedSince: [
+          {
+            was: [
+              "const _agentSig = () => state.agents.map((a) => [a.id, a.status]);"
+            ],
+            now: [
+              "const _agentSig = () => state.agents.map((a) => [",
+              "  a.id, a.status, a.statusNote, a.runtime, a.sessionMode, a.role, a.model,",
+              "  a.unread, a.favorited, a.consoleAvailable, a.quotaCritical, a.poolSeverity,",
+              "]);"
+            ],
+          },
+        ],
+      },
       { name: "_contractSig", at: 939, marker: "// _contractSig moved to ./render-memo.mjs in v0.5.4." },
       { name: "_runSig", at: 940, marker: "// _runSig moved to ./render-memo.mjs in v0.5.4." },
-      { name: "_envSig", at: 941, marker: "// _envSig moved to ./render-memo.mjs in v0.5.4." },
+      {
+        name: "_envSig", at: 941,
+        marker: "// _envSig moved to ./render-memo.mjs in v0.5.4.",
+        // The signature omitted every field staleBridgeBadge, unknownProcessBadge and terminalReasonNote render from, so the badge built to end a silent build mismatch could not appear. bridgeLastSeen is deliberately still absent: it is rewritten every 30s and would repaint on every poll.
+        editedSince: [
+          {
+            was: [
+              "const _envSig = () => state.environments.map((e) => [e.id, e.status, e.label]);"
+            ],
+            now: [
+              "const _envSig = () => state.environments.map((e) => [",
+              "  e.id, e.status, e.label, e.kind, e.os, e.machineId, e.terminal, e.pty,",
+              "  // The metadata keys `environments-panels.mjs` actually reads. The blob is NOT stringified whole:",
+              "  // it also carries `bridgeLastSeen`, which is rewritten every 30 seconds by the environment",
+              "  // heartbeat, so a whole-blob signature would repaint both environment sections on every poll.",
+              "  e.metadata?.bridgeBuild, e.metadata?.unknownProcesses, e.metadata?.terminalReason,",
+              "  e.metadata?.manual, JSON.stringify(e.metadata?.manualRoots ?? null),",
+              "  // Runtime pills and workspace roots are rendered per environment and change when a host is",
+              "  // re-described — which, since aify-env began advertising, happens without the status moving.",
+              "  JSON.stringify(e.runtimes ?? null), JSON.stringify(e.cwdRoots ?? null),",
+              "]);"
+            ],
+          },
+        ],
+      },
       { name: "_spawnReqSig", at: 942, marker: "// _spawnReqSig moved to ./render-memo.mjs in v0.5.4." },
       { name: "_msgSig", at: 943, marker: "// _msgSig moved to ./render-memo.mjs in v0.5.4." },
       { name: "_chatChanSig", at: 944, marker: "// _chatChanSig moved to ./render-memo.mjs in v0.5.4." },

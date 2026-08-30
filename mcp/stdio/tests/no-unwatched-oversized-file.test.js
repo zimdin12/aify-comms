@@ -125,7 +125,12 @@ const CEILINGS = {
   // `install_skill_tree` walker, and the number DID NOT MOVE -- the walker cost five lines and
   // collapsing the third call site paid six. A raise was written here and then reverted, because
   // the third site was found by the gate that followed rather than by the fix.
-  "install.sh": 3074,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 3074 -> 3006 on 2026-08-30, PAID DOWN rather than granted. The ~90-line JavaScript program that
+  // wrote hermes' MCP entry moved to `scripts/hermes-mcp-config.mjs`, which is what made it testable
+  // -- and the reason it needed to be is that it had been shipping without the API key, invisible to
+  // every hermes install test because they all grep this file. The bridge launcher's key export
+  // added a dozen lines back; the net is 68 recovered.
+  "install.sh": 3006,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

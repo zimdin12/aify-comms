@@ -41,7 +41,7 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 
 //: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
-  "aify-comms/SKILL.md": 15_354,
+  "aify-comms/SKILL.md": 15_109,
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
   "aify-comms/references/operations.md": 11_550,
