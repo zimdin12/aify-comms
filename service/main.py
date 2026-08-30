@@ -453,7 +453,7 @@ def create_app() -> FastAPI:
     #
     # ALWAYS ON. Unlike the key and the bind address, this costs an operator nothing: no program sends
     # `Sec-Fetch-Site`, and both dashboards are same-origin or same-site.
-    app.add_middleware(CrossSiteBrowserMiddleware, allowed_origins=config.cors_origins)
+    pass  # MUTATED
 
     app.add_middleware(RequestTimingMiddleware)
 
