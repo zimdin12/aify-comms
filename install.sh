@@ -426,15 +426,22 @@ copy_bridge_to_native_dir() {
   echo "  Host bridge version stamp written to $_stamp ($_vshort)."
 }
 
+# EVERY skill in a tree, not the ones somebody listed. Two were named at each call site; a third was
+# added, this reported success without copying it, and the skill that exists to be found when an agent
+# is asked to install was visible only inside the checkout.
+install_skill_tree() {  # $1 = source skills dir, $2 = destination
+  mkdir -p "$2"
+  for _skill in "$1"/*/; do
+    [ -d "$_skill" ] || continue
+    _name="$(basename "$_skill")"
+    rm -rf "$2/$_name" && cp -R "$_skill" "$2/$_name"
+  done
+}
+
 copy_claude_assets() {
-  local skill_dst="$HOME/.claude/skills/aify-comms"
-  local debug_skill_dst="$HOME/.claude/skills/aify-comms-debug"
   local commands_dst="$HOME/.claude/commands/aify-comms"
-  mkdir -p "$(dirname "$skill_dst")" "$commands_dst"
-  rm -rf "$skill_dst"
-  rm -rf "$debug_skill_dst"
-  cp -R "$SCRIPT_DIR/.claude/skills/aify-comms" "$skill_dst"
-  cp -R "$SCRIPT_DIR/.claude/skills/aify-comms-debug" "$debug_skill_dst"
+  mkdir -p "$commands_dst"
+  install_skill_tree "$SCRIPT_DIR/.claude/skills" "$HOME/.claude/skills"
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
   refresh_plugin_snapshot "$HOME/.claude/plugins/aify-comms" "claude"
 }
@@ -483,10 +490,8 @@ copy_hermes_assets() {
   local hermes_home="${HERMES_HOME:-$HOME/.hermes}"
   local cat_dir="$hermes_home/skills/autonomous-ai-agents"
   mkdir -p "$cat_dir"
-  rm -rf "$cat_dir/aify-comms" "$cat_dir/aify-comms-debug"
-  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms" "$cat_dir/aify-comms"
-  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms-debug" "$cat_dir/aify-comms-debug"
-  echo "  Installed aify-comms + aify-comms-debug skills to $cat_dir"
+  install_skill_tree "$SCRIPT_DIR/.agents/skills" "$cat_dir"
+  echo "  Installed skills to $cat_dir: $(ls "$cat_dir" | tr '\n' ' ')"
   refresh_plugin_snapshot "$hermes_home/plugins/aify-comms" "hermes"
 }
 
@@ -1708,14 +1713,9 @@ install_windows_cmd_shim() {
 }
 
 copy_codex_assets() {
-  local codex_home="${CODEX_HOME:-$HOME/.codex}"
-  local skill_dst="$codex_home/skills/aify-comms"
-  local debug_skill_dst="$codex_home/skills/aify-comms-debug"
-  mkdir -p "$(dirname "$skill_dst")"
-  rm -rf "$skill_dst"
-  rm -rf "$debug_skill_dst"
-  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms" "$skill_dst"
-  cp -R "$SCRIPT_DIR/.agents/skills/aify-comms-debug" "$debug_skill_dst"
+  # The THIRD tree, found by the gate rather than by me: two were converted to the walker and this
+  # one was not, which is the same one-shorter-than-the-directory defect in a place nobody looked.
+  install_skill_tree "$SCRIPT_DIR/.agents/skills" "${CODEX_HOME:-$HOME/.codex}/skills"
 }
 
 install_opencode_config() {

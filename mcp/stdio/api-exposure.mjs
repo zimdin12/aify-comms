@@ -78,12 +78,12 @@ export function apiExposureVerdict({
     detail: `The fleet listing is readable without an API key AND ${credentialRows} of `
       + `${totalRows ?? "?"} agent row(s) carry a live gateway token. Anything that can reach this `
       + "port can read working credentials for those agents.",
-    fix: "Three ways out, all of them decisions rather than repairs: set API_KEY so the service "
-      + "requires one -- every bridge is given it at install, but the DASHBOARD is not, so every one "
-      + "of its /api/v1 polls would answer 401 while /ws stays exempt, leaving a page that reports a "
-      + "live connection over no data until it is given a key too; publish the port on 127.0.0.1 "
-      + "instead of 0.0.0.0, which costs remote environments; or move the gateway token off the fleet "
-      + "listing, which costs the dashboard's one-click hermes console link.",
+    // THE FIRST OPTION USED TO BE THE EXPENSIVE ONE and no longer is; saying otherwise argued an
+    // operator out of the right answer. Until 2026-08-30 a key left the dashboard answering 401 to
+    // every poll, because a browser cannot put `X-API-Key` on a document request. It now exchanges
+    // `?api_key=` for an HttpOnly, SameSite=Lax cookie, so the page is opened once with the key in
+    // the URL and works from then on.
+    fix: "Three ways out. The first stopped being the expensive one on 2026-08-30: `bash install.sh --client <c> <endpoint> --with-api-key` writes API_KEY to .env where the service reads it and passes the same value to every client it installs, then `docker compose up -d`. THE DASHBOARD STILL NEEDS ONE STEP: a browser cannot send X-API-Key on a document request, so until you open <endpoint>/?api_key=<the value in .env> once -- which trades it for an HttpOnly cookie that Dashboard Next on :8801 also sends, since cookies ignore ports -- every /api/v1 poll answers 401 while /ws stays exempt, leaving a page that reports a live connection over no data. Any OTHER machine needs install.sh re-run or its clients hold no key. The other two are unchanged costs: publish the port on 127.0.0.1 instead of 0.0.0.0, which costs remote environments; or move the gateway token off the fleet listing, which costs the dashboard's one-click hermes console link.",
   };
 }
 

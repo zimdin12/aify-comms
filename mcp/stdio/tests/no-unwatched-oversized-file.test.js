@@ -118,6 +118,13 @@ const CEILINGS = {
   // wiring that cannot live anywhere else: a flag, its usage line, one resolver call, and the
   // generate-and-report block with its error path. Every comment on this change was cut to a pointer
   // at the script that carries the reasoning.
+  // 2026-08-30: install.sh NAMED the two skills it installed, at THREE call sites -- the Claude
+  // tree, the Codex tree and the Hermes mirror. A third skill was added, the installer ran,
+  // reported success, and did not copy it: the list was one shorter than the directory, which is
+  // the defect the allowlist header in this repo warns about. All three now call one
+  // `install_skill_tree` walker, and the number DID NOT MOVE -- the walker cost five lines and
+  // collapsing the third call site paid six. A raise was written here and then reverted, because
+  // the third site was found by the gate that followed rather than by the fix.
   "install.sh": 3074,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines

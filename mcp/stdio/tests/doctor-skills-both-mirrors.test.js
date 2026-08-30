@@ -113,9 +113,17 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   // The pairing. A check that compared a directory install.sh never writes would be green for ever
   // and prove nothing, which is worse than not checking.
   const installer = readFileSync(join(REPO, "install.sh"), "utf8");
-  assert.match(installer, /\.agents\/skills\/aify-comms/, "install.sh no longer copies the mirror");
+  // MATCHED ON THE TREE, not on a skill inside it. These named `.agents/skills/aify-comms`, which
+  // stopped existing when install.sh went from copying two listed skills to walking the directory --
+  // a change made because a third skill was added and silently not installed. A gate that pins the
+  // spelling of a fix goes red on the next correct change; the property is that both mirrors are
+  // still written.
+  assert.match(installer, /install_skill_tree "\$SCRIPT_DIR\/\.agents\/skills"/,
+    "install.sh no longer copies the Codex/Hermes mirror");
+  assert.match(installer, /install_skill_tree "\$SCRIPT_DIR\/\.claude\/skills"/,
+    "install.sh no longer copies the Claude tree");
   assert.match(installer, /skills\/autonomous-ai-agents/, "the hermes destination moved");
-  assert.match(installer, /codex_home"?\/skills|skills\/aify-comms/, "the codex destination moved");
+  assert.match(installer, /CODEX_HOME.*\/skills/, "the codex destination moved");
 }
 
 // ── the verdict still distinguishes the three outcomes ─────────────────────────────────────────

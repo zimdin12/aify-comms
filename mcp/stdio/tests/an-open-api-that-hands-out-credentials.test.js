@@ -67,11 +67,16 @@ test("the remedy names three DECISIONS and does not pretend to be a repair", () 
   assert.match(fix, /127\.0\.0\.1/);
   assert.match(fix, /console link|hermes/i, "the cost of the third option must be stated, or it reads "
     + "as free");
-  // THE SAME RULE FOR THE FIRST, which had no cost until 2026-08-29 and is the expensive one. The
-  // dashboard sends `X-Aify-Operator-Key` and never `X-API-Key`, and its own app has no proxy route
-  // to attach one, so setting API_KEY 401s every poll while `/ws` stays exempt -- a page reporting a
-  // live connection over no data. An operator reading three options picks the one with no stated
-  // cost.
+  // THE SAME RULE FOR THE FIRST, whose cost CHANGED on 2026-08-30 and had to be restated rather than
+  // deleted. It was the expensive option: a browser cannot put `X-API-Key` on a document request, so
+  // setting API_KEY 401'd every poll while `/ws` stayed exempt -- a page reporting a live connection
+  // over no data. The key middleware now trades `?api_key=` for an HttpOnly cookie, and Dashboard
+  // Next on :8801 sends it too because cookies are scoped by host and ignore ports (verified from the
+  // served page's own `data-default-api-port="8800"`, which is what makes its fetches browser-side).
+  //
+  // So the cost is now ONE STEP rather than a broken dashboard -- and the text must still say so. A
+  // remedy that reads as free is the one an operator picks without knowing what it asks of them, and
+  // a `fix` that overstates the cost of the right answer argues them out of it with authority.
   assert.match(fix, /dashboard/i, "the cost of the FIRST option must be stated too");
   assert.match(fix, /401/, "say what the dashboard actually does, not that it is 'affected'");
 });
