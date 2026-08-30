@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,6 +20,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from service.longpoll import attributable_ms, begin_wait_accounting
 
 from service.config import get_config
+from service.api_core.browser_origin import (
+    browser_request_is_allowed, is_browser_navigation, url_without_api_key,
+)
 from service.routers import health, containers as containers_router
 from service.routers.api_v2 import router as api_router
 from service.db import init_db
@@ -119,11 +122,18 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
         }
 
     async def dispatch(self, request: Request, call_next):
-        if request.headers.get("sec-fetch-site", "").strip().lower() != "cross-site":
-            return await call_next(request)
-        origin = request.headers.get("origin", "").strip().rstrip("/").lower()
-        if origin and origin in self.allowed_origins:
-            # The operator named this origin in `cors_origins`. That is a decision, and it stands.
+        # ONE POLICY, shared with the WebSocket door. This used to key on `Sec-Fetch-Site` alone and
+        # never read `Origin`, so a hostile Origin with no Fetch Metadata passed untouched and
+        # `same-site` -- the registrable DOMAIN, which a sibling subdomain shares -- passed
+        # wholesale. The WebSocket check already compared by host; two guards for one question,
+        # disagreeing, is how the weaker one becomes the way in.
+        if browser_request_is_allowed(
+            method=request.method,
+            sec_fetch_site=request.headers.get("sec-fetch-site", ""),
+            origin=request.headers.get("origin", ""),
+            host=request.headers.get("host", ""),
+            allowed_origins=self.allowed_origins,
+        ):
             return await call_next(request)
         return Response(
             content='{"error":"Cross-site browser requests are refused. Add the origin to cors_origins in config/service.json if this is your own dashboard."}',
@@ -187,6 +197,34 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # page the operator visits -- a hole the header-only scheme did not have, opened by the fix
             # for a different problem. A default nobody stated is a default somebody upgrades away.
             # `httponly` is NOT a default (Starlette's is False) and is doing work on its own.
+            # A BROWSER NAVIGATION GETS THE KEY OUT OF ITS URL. The documented way to open the
+            # dashboard once a key is set is to visit `/?api_key=<value>` -- which works, and then
+            # leaves the credential in history, in the address bar, in any bookmark made from that
+            # page, and in the `Referer` of every outbound link. None of that is needed: the cookie
+            # is already set on this very response.
+            #
+            # SCOPED to a navigation, and detected POSITIVELY. A program passing `?api_key=` is a
+            # supported caller whose contract a 303 would change, and its URL is in nobody's
+            # history. `Sec-Fetch-Dest: document` is set by browsers and by no program; inferring
+            # "browser" from an absence would sweep in every one of them.
+            #
+            # AFTER the key check, never before: redirecting first would turn a rejected credential
+            # into a 303 that looks like success.
+            if is_browser_navigation(request.headers.get("sec-fetch-dest", ""), request.method):
+                # RELATIVE, deliberately. `str(request.url)` is absolute and its authority comes
+                # from the `Host` header, so reflecting it would put a client-supplied value into a
+                # redirect target and would also pin a scheme this service may not be reached on
+                # behind a proxy. A path-relative Location keeps the browser exactly where it is.
+                cleaned = url_without_api_key(
+                    f"{request.url.path}?{request.url.query}" if request.url.query
+                    else request.url.path
+                )
+                redirect = RedirectResponse(url=cleaned or "/", status_code=303)
+                redirect.set_cookie(
+                    self.COOKIE, self.api_key,
+                    max_age=self.COOKIE_MAX_AGE, httponly=True, samesite="lax", path="/",
+                )
+                return redirect
             response.set_cookie(
                 self.COOKIE, self.api_key,
                 max_age=self.COOKIE_MAX_AGE, httponly=True, samesite="lax", path="/",
@@ -232,41 +270,19 @@ async def _periodic_dispatch_reconcile() -> None:
 def websocket_origin_is_allowed(origin: str, host: str, allowed_origins) -> bool:
     """May a WebSocket handshake carrying this `Origin` be accepted?
 
-    PURE, so every case can be driven without a socket. `origin` is the handshake header, `host` is
-    the `Host` this service was reached on, and `allowed_origins` is `cors_origins` from config.
+    DELEGATES to `browser_request_is_allowed`, which is the same decision the HTTP door asks. This
+    function held the BETTER of the two implementations -- it compared by host, so the second
+    dashboard on another port still worked -- while the HTTP guard keyed on `Sec-Fetch-Site` alone.
+    Keeping the better copy here and the weaker one there is how a service ends up with a front door
+    and a side door that disagree, and an attacker only needs the weaker.
 
-    NO ORIGIN MEANS NOT A BROWSER -- a bridge, a CLI, a test -- and those are the callers this endpoint
-    exists to serve. Refusing on absence would refuse all of them, and a browser cannot omit it.
-
-    COMPARED BY HOST, not by full origin, because the dashboard is a browser client too: the classic UI
-    is same-origin, and Dashboard Next answers on another PORT of the same host. Ports do not make a
-    different site, so refusing on a port difference would break the second dashboard while stopping
-    nothing -- an attacker cannot serve from the operator's own hostname.
-
-    `*` in `cors_origins` grants nothing, matching the HTTP guard: a wildcard is the absence of a
-    decision about who may drive this service from a browser, not a decision to trust every page.
+    A handshake is a GET and browsers do not attach Fetch Metadata to it, so the origin comparison
+    is the whole test: no Origin means not a browser, and those callers -- bridges, CLIs, tests --
+    are what this endpoint exists to serve.
     """
-    origin = str(origin or "").strip()
-    if origin == "":
-        return True
-    named = {
-        str(entry).strip().rstrip("/").lower()
-        for entry in (allowed_origins or [])
-        if str(entry).strip() not in ("", "*")
-    }
-    if origin.rstrip("/").lower() in named:
-        return True
-    from urllib.parse import urlsplit
-
-    origin_host = (urlsplit(origin).hostname or "").lower()
-    # `Host` carries a port; the origin's hostname does not. Compare the names alone.
-    #
-    # PARSED, NOT SPLIT ON THE LAST COLON. That shortcut is right for `localhost:8800` and wrong for
-    # every IPv6 form: `[::1]` served on port 80 has no port to strip, and splitting it anyway yields
-    # `":"` -- which matches no origin, so a legitimate same-origin request is refused. The address is
-    # bracketed precisely so it can be told from a port, and `urlsplit` already knows how.
-    own_host = urlsplit(f"//{str(host or '').strip()}").hostname or ""
-    return bool(origin_host) and origin_host == own_host.lower()
+    return browser_request_is_allowed(
+        method="GET", sec_fetch_site="", origin=origin, host=host, allowed_origins=allowed_origins,
+    )
 
 
 async def _authorize_websocket(ws: WebSocket, api_key: str) -> bool:
