@@ -15,7 +15,13 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
   and [aify-env](https://github.com/zimdin12/aify-env) as three repos, which phases are done, and the
   operator decisions each one turned on. **Phase 8 is ON since 2026-08-25: managed spawns go to
   aify-env**, so aify-env is now REQUIRED for spawning and a spawn fails loudly rather than falling
-  back — two spawners on one host is the collision the tier exists to end. Read
+  back — two spawners on one host is the collision the tier exists to end. **And since 2026-08-30
+  aify-env also DESCRIBES the host**: it advertises `runtimes`, `terminalRuntimes`, `terminal` and
+  `pty`, and the bridge omits exactly those whenever aify-env's `/health` reports `advertising: true`.
+  Exactly one tier per host, decided from that fact rather than a flag on each side; standing down
+  needs a literal `true`, so an absent, false or unreachable aify-env leaves the bridge doing it. The
+  bridge keeps `label` and `cwdRoots` (aify-env sends neither, by design) and its own `bridgeId` /
+  `bridgeVersion` / `bridgeStartedAt`, which supersession is arbitrated on. Read
   [docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md) before touching spawn or terminals; its last section
   records the three defects the first real spawn exposed, all of which sat on the joins between
   components that each reported healthy. `aify-comms doctor`'s `spawn-delegation` says where spawns
@@ -199,8 +205,8 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 5055 tests (+10079 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 399 suites, 1 skipped test (named in its output)
+python -m pytest service/tests -q                      # 5073 tests (+10112 subtests)
+cd mcp/stdio && node tests/run-all.mjs                 # 400 suites, 1 skipped test (named in its output)
 cd service/new_dashboard && node --test *.test.mjs     # 1439 tests
 ```
 
@@ -243,7 +249,7 @@ delegated one does too now — for a cross-repo proof, "unverified" must not rea
 
 Those counts are a **measured snapshot** (2026-08-27), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
-the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and 4413/364/1221 then 4541/372/1254 on 2026-08-26, 4571/373/1273 on 2026-08-27, 4699/377/1334 on 2026-08-28, 4926/396/1429, 4943/396/1437 4966/396/1437 on 2026-08-29 and 5055/399/1439 on 2026-08-30 -- fourteen readings in thirteen days, THREE of them on 2026-08-29 alone, which is the argument. The last pair is the sharpest version of it: a figure written into this file in the morning was wrong by the evening, without anyone doing anything unusual. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. **It happened a SECOND time and went unnoticed for a day**: the layout table read 1166 while this paragraph read 1254, both written on 2026-08-26. Twice is not bad luck. The layout table is the copy that rots, because whoever updates a count comes here to write the date and never scrolls up. Before that they read 955/219/541 and 1576 while the real
+the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and 4413/364/1221 then 4541/372/1254 on 2026-08-26, 4571/373/1273 on 2026-08-27, 4699/377/1334 on 2026-08-28, 4926/396/1429, 4943/396/1437 4966/396/1437 on 2026-08-29 and 5055/399/1439 then 5073/400/1439 on 2026-08-30 -- fifteen readings in thirteen days, THREE of them on 2026-08-29 alone, which is the argument. The last pair is the sharpest version of it: a figure written into this file in the morning was wrong by the evening, without anyone doing anything unusual. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. **It happened a SECOND time and went unnoticed for a day**: the layout table read 1166 while this paragraph read 1254, both written on 2026-08-26. Twice is not bad luck. The layout table is the copy that rots, because whoever updates a count comes here to write the date and never scrolls up. Before that they read 955/219/541 and 1576 while the real
 figures were already these, which is the whole reason for this paragraph.
 
 Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change
