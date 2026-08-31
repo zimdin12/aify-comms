@@ -225,3 +225,52 @@ assert.equal(piEnv.AIFY_MANAGED_VIA_WRAPPER, "0", "bridge-spawned pi env must st
 }
 
 console.log("terminal-env.test.js: all assertions passed");
+
+// ── the Reset instruction reaches the child ────────────────────────────────────────────────────
+//
+// THE WIRE, not the helper. `runResolveSessionCli` honours `AIFY_HERMES_FRESH_CONTEXT` and is proven
+// to; none of that fires unless the spawn actually SETS it. Measured 2026-08-31: `resumePolicy` was
+// carried all the way to the bridge and read ONLY by codex, so a hermes Reset resumed a 5 June
+// conversation and the agent died on its own context window.
+
+const freshEnv = terminalChildEnv({
+  baseEnv: {},
+  runtime: "hermes",
+  terminal: { agentId: "sc-hermes" },
+  agentInfo: { runtimeState: { resumePolicy: "fresh_context" } },
+});
+assert.equal(freshEnv.AIFY_HERMES_FRESH_CONTEXT, "1",
+             "a fresh_context spawn did not tell the child to start fresh");
+
+// UNSET IS NOT NEUTRAL. The spread carries the environment BRIDGE's own environment into every
+// child, so one Reset in the bridge's env would make every later spawn start fresh and silently
+// discard history. The AIFY_AGENT_ROLE comment in terminal-env.js records the same bug.
+const ordinaryEnv = terminalChildEnv({
+  baseEnv: { AIFY_HERMES_FRESH_CONTEXT: "1" },
+  runtime: "hermes",
+  terminal: { agentId: "sc-hermes" },
+  agentInfo: { runtimeState: { resumePolicy: "native_first" } },
+});
+assert.equal(ordinaryEnv.AIFY_HERMES_FRESH_CONTEXT, "",
+             "an inherited fresh-context flag survived into an ordinary spawn");
+
+// FAILS CLOSED THE SAFE WAY: the destructive reading is "start fresh", which throws away the
+// operator's thread, so an absent policy must mean resume.
+const absentEnv = terminalChildEnv({
+  baseEnv: { AIFY_HERMES_FRESH_CONTEXT: "1" },
+  runtime: "hermes",
+  terminal: { agentId: "sc-hermes" },
+  agentInfo: {},
+});
+assert.equal(absentEnv.AIFY_HERMES_FRESH_CONTEXT, "",
+             "a spawn with no resumePolicy was treated as a Reset");
+
+// The terminal row carries it when agentInfo does not.
+const rowEnv = terminalChildEnv({
+  baseEnv: {},
+  runtime: "hermes",
+  terminal: { agentId: "sc-hermes", runtimeState: { resumePolicy: "fresh_context" } },
+  agentInfo: {},
+});
+assert.equal(rowEnv.AIFY_HERMES_FRESH_CONTEXT, "1",
+             "the policy on the terminal row was ignored");

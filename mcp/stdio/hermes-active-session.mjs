@@ -355,9 +355,39 @@ export async function runResolveSessionCli(agentId, deps = {}) {
     // can never override it. This guarantees the registered handle == the visible
     // TUI's resumed session, instead of falling through to a stale marker.
     explicitId = "",
+    // FRESH CONTEXT — the one instruction that must beat every resume path.
+    //
+    // `resumePolicy: "fresh_context"` reaches the bridge correctly (session_restart.py sets it,
+    // spawn-loop.mjs carries it) and until 2026-08-31 ONLY codex read it. Hermes resumed regardless,
+    // so `comms_restart freshContext=true` reported success and changed nothing: comms-senior-dev
+    // stayed on a 5 JUNE conversation until it reached 1,122,638 tokens against a 900k window and
+    // could no longer answer at all.
+    freshContext = String(process.env.AIFY_HERMES_FRESH_CONTEXT || "").trim() === "1",
   } = deps;
   const id = String(agentId || "").trim();
   if (!id) throw new Error("resolve-session requires an agentId");
+
+  // DECIDED FIRST, BEFORE ANY OTHER PATH RUNS. There are FOUR independent routes back to the old
+  // conversation, which is why clearing the marker is not a fix on its own:
+  //   1. the marker file;
+  //   2. `startResumeMarkerSync`, which rewrites that file from the gateway's live session -- the
+  //      marker held a June id with an mtime minutes old;
+  //   3. branch (b) below, which with no marker falls back to `active_list(most-recent)` -- the same
+  //      session, resurrected by another route;
+  //   4. the per-agent active-session file, which `discoverSessionId` reads as its PRIMARY source.
+  // Anything that executes before this decision is one more chance to resolve a session, so this
+  // returns without consulting the gateway at all.
+  if (freshContext) {
+    // Bare dir, not `{ tempDir }` -- `clearSessionMarker`'s own shape, and the same call convention
+    // the stale-marker clear below uses. The options shape clears nothing and fails silently.
+    try { clearMarker(id, tempDir); } catch { /* best-effort; never block a launch */ }
+    if (activeSessionFile) {
+      try { writeActiveSessionFile(activeSessionFile, ""); } catch { /* best-effort */ }
+    }
+    err(`[hermes-managed-host] resolve-session: agent '${id}' -> FRESH (resumePolicy=fresh_context; marker and active file cleared).\n`);
+    out("\n");
+    return { agentId: id, resolved: "", source: "fresh-context" };
+  }
 
   // Guard against an UNEXPANDED placeholder (e.g. `--resume "${HERMES_SESSION_ID}"`
   // when the var is unset) — treat it as "no explicit" and fall through to

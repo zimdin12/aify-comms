@@ -67,6 +67,7 @@ function harness({ active = [], db = null, dbThrows = false, openThrows = false,
     tempDir: rest.tempDir || os.tmpdir(),
     activeSessionFile: rest.activeSessionFile === undefined ? "/tmp/active.json" : rest.activeSessionFile,
     explicitId: rest.explicitId || "",
+    freshContext: rest.freshContext === true,
     openClient: openThrows
       ? async () => { throw new Error("gateway refused"); }
       : async () => ({
@@ -344,4 +345,129 @@ test("the default writer CREATES the parent directory", async () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── fresh context: the one instruction that must beat every resume path ─────────────────────────
+//
+// MEASURED 2026-08-31, and it is why `comms_restart freshContext=true` had never once worked for a
+// hermes agent. `service/api_core/session_restart.py` sets `resume_policy="fresh_context"` and clears
+// `agents.session_handle`; `spawn-loop.mjs` carries it; ONLY codex reads it. Hermes resumed anyway,
+// and comms-senior-dev sat on a 5 JUNE conversation until it hit 1,122,638 tokens against a 900k
+// window and could no longer answer anything.
+//
+// THREE INDEPENDENT PATHS LEAD BACK TO THE OLD SESSION, which is why clearing the marker is not a
+// fix on its own:
+//   1. the marker file itself;
+//   2. `startResumeMarkerSync`, which rewrites that file from the gateway's live session -- the
+//      marker's mtime was minutes old while holding a June id;
+//   3. branch (b) here, which with NO marker falls back to `active_list(most-recent)` -- the same
+//      live session, resurrected by a different route.
+// So the instruction has to be honoured BEFORE any of them runs.
+
+const FRESH_CARRIER = "AIFY_HERMES_FRESH_CONTEXT";
+delete process.env[FRESH_CARRIER];
+assert.equal(process.env[FRESH_CARRIER], undefined,
+  "the fresh-context env seal did not take — the default-OFF test below would be reading the ambient value");
+
+test("FRESH CONTEXT refuses to resume, even when the marker names a DB-resumable session", async () => {
+  const { deps, calls } = harness({
+    marker: "20260605_181038_6cd2ef",
+    db: [row("eph-1", "20260605_181038_6cd2ef")],
+    active: [row("eph-1", "20260605_181038_6cd2ef")],
+    freshContext: true,
+  });
+  const result = await runResolveSessionCli(AGENT, deps);
+  assert.equal(result.resolved, "", "a fresh-context launch resolved a session to resume");
+  assert.equal(result.source, "fresh-context");
+  assert.deepEqual(calls.markerWrites, [], "a fresh-context launch persisted a resume id");
+});
+
+test("FRESH CONTEXT clears the marker, using the BARE-dir convention clearSessionMarker takes", async () => {
+  // `clearSessionMarker(id, dir)` — not `{ tempDir }`, which is the shape the read/write helpers use.
+  // Getting this wrong clears nothing and fails silently.
+  const { deps, calls } = harness({
+    marker: "20260605_181038_6cd2ef",
+    db: [row("eph-1", "20260605_181038_6cd2ef")],
+    tempDir: "/tmp/seal",
+    freshContext: true,
+  });
+  await runResolveSessionCli(AGENT, deps);
+  assert.equal(calls.markerClears.length, 1, "the stale marker was not cleared");
+  assert.deepEqual(calls.markerClears[0], { id: AGENT, dir: "/tmp/seal" });
+});
+
+test("FRESH CONTEXT does not fall back to the most-recent LIVE session", async () => {
+  // Path 3. With no marker at all the normal resolution resurrects `active_list(most-recent)`, which
+  // on a running gateway is the very conversation the reset was asked to escape.
+  const { deps, calls } = harness({
+    marker: "",
+    active: [row("eph-9", "20260605_181038_6cd2ef", "2026-08-31T12:00:00Z")],
+    db: [row("eph-9", "20260605_181038_6cd2ef")],
+    freshContext: true,
+  });
+  const result = await runResolveSessionCli(AGENT, deps);
+  assert.equal(result.resolved, "", "the most-recent live session was resurrected anyway");
+});
+
+test("FRESH CONTEXT never opens the gateway at all, so nothing can steer it back", async () => {
+  // The early return is the point: any code that runs before the decision is another chance to
+  // resolve a session. Proven by making the opener fail the test if it is reached.
+  let opened = 0;
+  const { deps } = harness({ marker: "20260605_181038_6cd2ef", freshContext: true });
+  deps.openClient = async () => { opened += 1; throw new Error("must not be reached"); };
+  const result = await runResolveSessionCli(AGENT, deps);
+  assert.equal(opened, 0, "a fresh-context launch consulted the gateway");
+  assert.equal(result.resolved, "");
+});
+
+test("FRESH CONTEXT is OFF by default, so an ordinary launch still resumes its history", async () => {
+  // ANTI-VACUITY. Losing the operator's thread on every restart is the bug this file's header names
+  // first; a fix that started fresh unconditionally would reintroduce it.
+  const { deps } = harness({
+    marker: "20260605_181038_6cd2ef",
+    db: [row("eph-1", "20260605_181038_6cd2ef")],
+  });
+  const result = await runResolveSessionCli(AGENT, deps);
+  assert.equal(result.resolved, "20260605_181038_6cd2ef", "an ordinary launch stopped resuming");
+  assert.match(result.source, /^marker/);
+});
+
+test("the env carrier turns it on, because the spawn reaches the wrapper through the environment", async () => {
+  const { deps } = harness({ marker: "20260605_181038_6cd2ef", db: [row("e", "20260605_181038_6cd2ef")] });
+  delete deps.freshContext;
+  process.env[FRESH_CARRIER] = "1";
+  try {
+    const result = await runResolveSessionCli(AGENT, deps);
+    assert.equal(result.resolved, "", "the environment carrier was ignored");
+    assert.equal(result.source, "fresh-context");
+  } finally {
+    delete process.env[FRESH_CARRIER];
+  }
+});
+
+test("FRESH CONTEXT clears the ACTIVE-SESSION FILE too, which discoverSessionId reads FIRST", async () => {
+  // Path 4, and the one easiest to miss: the in-session bridge resolves its session id from the
+  // per-agent active file as its PRIMARY source, ahead of the marker. Clearing the marker while
+  // leaving that file behind hands the fresh session the old id by a different door.
+  const { deps, calls } = harness({
+    marker: "20260605_181038_6cd2ef",
+    db: [row("eph-1", "20260605_181038_6cd2ef")],
+    activeSessionFile: "/tmp/active.json",
+    freshContext: true,
+  });
+  await runResolveSessionCli(AGENT, deps);
+  assert.deepEqual(calls.activeFiles, [{ file: "/tmp/active.json", sid: "" }],
+                   "the stale active-session file was left pointing at the old conversation");
+});
+
+test("FRESH CONTEXT with no active file configured writes none", async () => {
+  // Anti-vacuity for the test above: an unconditional write would create a file for an agent that
+  // has none, and `discoverSessionId` would then start reading it.
+  const { deps, calls } = harness({
+    marker: "20260605_181038_6cd2ef",
+    activeSessionFile: "",
+    freshContext: true,
+  });
+  await runResolveSessionCli(AGENT, deps);
+  assert.deepEqual(calls.activeFiles, []);
 });

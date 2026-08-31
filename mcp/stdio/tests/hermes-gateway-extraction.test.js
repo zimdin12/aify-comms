@@ -119,7 +119,65 @@ const EXTRACTIONS = [
       { name: "defaultWriteActiveSessionFile", at: 300, marker: "// defaultWriteActiveSessionFile moved to ./hermes-active-session.mjs in v0.5.4." },
       { name: "waitForActiveSession", at: 1155, marker: "// waitForActiveSession moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
       { name: "startResumeMarkerSync", at: 2034, marker: "// startResumeMarkerSync moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
-      { name: "runResolveSessionCli", at: 2791, marker: "// runResolveSessionCli moved to ./hermes-active-session.mjs in v0.5.4.", pristineExported: true },
+      {
+        name: "runResolveSessionCli", at: 2791,
+        marker: "// runResolveSessionCli moved to ./hermes-active-session.mjs in v0.5.4.",
+        pristineExported: true,
+        // v0.6.1: FRESH CONTEXT. `comms_restart freshContext=true` reported success and resumed
+        // anyway for hermes -- the policy was read only by codex, and the marker file, the sync
+        // that rewrites it, the active_list fallback and the active-session file all led back to
+        // the same conversation. The guard returns before any of them run.
+        editedSince: [
+          {
+            was: [
+              "    explicitId = \"\",",
+              "  } = deps;",
+            ],
+            now: [
+              "    explicitId = \"\",",
+              "    // FRESH CONTEXT \u2014 the one instruction that must beat every resume path.",
+              "    //",
+              "    // `resumePolicy: \"fresh_context\"` reaches the bridge correctly (session_restart.py sets it,",
+              "    // spawn-loop.mjs carries it) and until 2026-08-31 ONLY codex read it. Hermes resumed regardless,",
+              "    // so `comms_restart freshContext=true` reported success and changed nothing: comms-senior-dev",
+              "    // stayed on a 5 JUNE conversation until it reached 1,122,638 tokens against a 900k window and",
+              "    // could no longer answer at all.",
+              "    freshContext = String(process.env.AIFY_HERMES_FRESH_CONTEXT || \"\").trim() === \"1\",",
+              "  } = deps;",
+            ],
+          },
+          {
+            was: [
+              "  if (!id) throw new Error(\"resolve-session requires an agentId\");",
+            ],
+            now: [
+              "  if (!id) throw new Error(\"resolve-session requires an agentId\");",
+              "",
+              "  // DECIDED FIRST, BEFORE ANY OTHER PATH RUNS. There are FOUR independent routes back to the old",
+              "  // conversation, which is why clearing the marker is not a fix on its own:",
+              "  //   1. the marker file;",
+              "  //   2. `startResumeMarkerSync`, which rewrites that file from the gateway's live session -- the",
+              "  //      marker held a June id with an mtime minutes old;",
+              "  //   3. branch (b) below, which with no marker falls back to `active_list(most-recent)` -- the same",
+              "  //      session, resurrected by another route;",
+              "  //   4. the per-agent active-session file, which `discoverSessionId` reads as its PRIMARY source.",
+              "  // Anything that executes before this decision is one more chance to resolve a session, so this",
+              "  // returns without consulting the gateway at all.",
+              "  if (freshContext) {",
+              "    // Bare dir, not `{ tempDir }` -- `clearSessionMarker`'s own shape, and the same call convention",
+              "    // the stale-marker clear below uses. The options shape clears nothing and fails silently.",
+              "    try { clearMarker(id, tempDir); } catch { /* best-effort; never block a launch */ }",
+              "    if (activeSessionFile) {",
+              "      try { writeActiveSessionFile(activeSessionFile, \"\"); } catch { /* best-effort */ }",
+              "    }",
+              "    err(`[hermes-managed-host] resolve-session: agent '${id}' -> FRESH (resumePolicy=fresh_context; marker and active file cleared).\\n`);",
+              "    out(\"\\n\");",
+              "    return { agentId: id, resolved: \"\", source: \"fresh-context\" };",
+              "  }",
+            ],
+          },
+        ],
+      },
     ],
   },
   {

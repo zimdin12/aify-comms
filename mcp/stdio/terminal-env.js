@@ -17,6 +17,10 @@ export function terminalChildEnv({
   const runtimeConfig = agentInfo?.runtimeConfig || terminal.runtimeConfig || {};
   const managedModel = String(agentInfo?.model || runtimeConfig.model || "").trim();
   const managedEffort = String(runtimeConfig.effort || runtimeConfig.thinking || "").trim();
+  // The Reset instruction, read from wherever the spawn recorded it.
+  const resumePolicy = String(
+    agentInfo?.runtimeState?.resumePolicy || terminal?.runtimeState?.resumePolicy || "",
+  ).trim().toLowerCase();
   const env = {
     // STRIPPED FIRST, then the values this function owns are set below. The spread is how a bridge's
     // own ancestry reaches everything it starts, and it has been discovered one symptom at a time --
@@ -27,6 +31,17 @@ export function terminalChildEnv({
     // function is responsible for, which is a different act from removing one that leaked in.
     ...withoutInheritedMarkers(baseEnv),
     AIFY_RUNTIME: key,
+    // FRESH CONTEXT, SET UNCONDITIONALLY -- including to "". The spread above carries the environment
+    // BRIDGE's own environment into everything it launches, so a value merely left unset here is
+    // INHERITED rather than absent, and one Reset would make every later spawn start fresh forever.
+    // That is the AIFY_AGENT_ROLE lesson below, and this is the same shape.
+    //
+    // `resumePolicy: "fresh_context"` is written by session_restart.py on a Reset and carried by
+    // spawn-loop.mjs. Until 2026-08-31 ONLY codex read it, so a hermes Reset reported success and
+    // resumed anyway: comms-senior-dev stayed on a 5 JUNE conversation until it reached 1,122,638
+    // tokens against a 900k window and could no longer answer at all. `runResolveSessionCli` reads
+    // this and refuses every resume path.
+    AIFY_HERMES_FRESH_CONTEXT: resumePolicy === "fresh_context" ? "1" : "",
     AIFY_AGENT_ID: terminal.agentId || "",
     AIFY_COMMS_AGENT_ID: terminal.agentId || "",
     // The spawn's ROLE, and it must be set unconditionally — including to "".
