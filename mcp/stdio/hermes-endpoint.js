@@ -22,8 +22,11 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-const PORT_BASE = 8642; // first port in the per-agent range
-const PORT_SPAN = 1000; // range is PORT_BASE .. PORT_BASE + PORT_SPAN - 1 (8642–9641)
+// EXPORTED so the gateway-orphan check applies THIS range rather than a copy of it. A second
+// hand-written 8642 somewhere else agrees until one of them is changed, and the check's whole job is
+// deciding which running gateways are ours.
+export const PORT_BASE = 8642; // first port in the per-agent range
+export const PORT_SPAN = 1000; // range is PORT_BASE .. PORT_BASE + PORT_SPAN - 1 (8642–9641)
 
 // Single tmp-dir resolution shared by EVERY marker reader/writer (the wrapper's
 // `node -e`, server.js register, and hermes-managed-host.js's loop) so they all

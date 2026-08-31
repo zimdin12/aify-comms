@@ -46,6 +46,30 @@ export function cmdlineDeliveryLoopAgent(commandLine) {
 }
 
 
+/**
+ * The PORT a hermes gateway host is serving, or null when the line is not one.
+ *
+ * A gateway host is `hermes … dashboard … --port <n>`, one process per agent. It is the piece that
+ * survives when its owner dies: the delivery loop and aify-env can both go away while the gateway
+ * keeps running, holding its port and -- on Windows -- keeping hermes' native `.pyd` files LOCKED.
+ * That is not hypothetical: on 2026-08-31 the operator's `hermes update` refused to run, listing 45
+ * live processes from this install, after aify-env was killed with agents still up.
+ *
+ * THE PORT IS RETURNED, NOT JUDGED. Whether a port belongs to aify-comms is this repo's policy
+ * (`PORT_BASE`/`PORT_SPAN` in hermes-endpoint.js) and lives with the check that applies it; parsing
+ * a number out of a command line is all this does.
+ */
+export function cmdlineHermesGatewayPort(commandLine) {
+  const s = String(commandLine || "");
+  if (!s) return null;
+  if (!/hermes/i.test(s) || !/\bdashboard\b/.test(s)) return null;
+  const m = s.match(/--port[\s=]+(\d{1,5})\b/);
+  if (!m) return null;
+  const port = Number(m[1]);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
+}
+
+
 // A resident operator session carries `--aify-agent <x>` (space or = form) and
 // is NOT a managed delivery loop. Return the agent id, or null. Used to EXCLUDE
 // resident sessions from the survivor set (defence-in-depth — a resident agent

@@ -36,6 +36,8 @@ import { checkApiExposure } from "./api-exposure-check.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkContextWindow } from "./context-window-check.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
+import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
+import { PORT_BASE, PORT_SPAN } from "./hermes-endpoint.js";
 import { checkService } from "./service-check.mjs";
 import {
   describeEnv,
@@ -513,6 +515,42 @@ async function checkSpawnDelegation() {
 checkSkillsInstalled();
 await checkSpawnDelegation();
 await checkManagedOrphans();
+// WHAT IS HOLDING HERMES' FILES. Its sibling above watches the DELIVERY LOOPS; nothing watched the
+// per-agent GATEWAY HOSTS, and on 2026-08-31 the operator's `hermes update` refused to run, listing
+// 45 live processes from this install after aify-env was killed. Establishing whether those were
+// ours took a port range, a marker directory and a process walk -- a question this row now answers
+// directly. It reports STATE and makes no claim about why a gateway lives as long as it does; that
+// was investigated, three explanations were wrong, and the honest answer is still unknown.
+//
+// THE PROBES ARE IMPORTED LAZILY, exactly as `checkManagedOrphans` does above: a host that cannot
+// enumerate processes must fail in THIS row, with the reason, rather than taking the doctor's module
+// load down and silencing every other check with it.
+const gatewayProbes = await import("./proc-probes.js").catch(() => null);
+await checkGatewayOrphans({
+  get,
+  add,
+  listProcesses: () => {
+    if (!gatewayProbes) throw new Error("the process probes could not be loaded");
+    return gatewayProbes.defaultListProcesses();
+  },
+  toPort: (line) => (gatewayProbes ? gatewayProbes.cmdlineHermesGatewayPort(line) : null),
+  loopAgent: (line) => (gatewayProbes ? gatewayProbes.cmdlineDeliveryLoopAgent(line) : null),
+  // The markers live beside the session markers, one file per agent holding its port.
+  readPortMarkers: () => {
+    const dir = process.env.TEMP || process.env.TMP || "/tmp";
+    const markers = {};
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith("aify-hermes-port-")) continue;
+      try {
+        markers[name.slice("aify-hermes-port-".length)] = readFileSync(join(dir, name), "utf8").trim();
+      } catch { /* a marker we cannot read is one we cannot attribute; skip it */ }
+    }
+    return markers;
+  },
+  // FROM THE MODULE THAT OWNS THE RANGE, never a second 8642 written here.
+  base: PORT_BASE,
+  span: PORT_SPAN,
+});
 checkRunningBridges();
 await checkAgentIdentity();
 await checkEnvBridge();
