@@ -35,6 +35,7 @@ import { defaultMachineId } from "./runtimes.js";
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkContextWindow } from "./context-window-check.mjs";
+import { checkSessionHandles } from "./session-handle-check.mjs";
 import { checkService } from "./service-check.mjs";
 import {
   describeEnv,
@@ -385,6 +386,12 @@ await checkEnvProcesses({
 // plane could say so -- and the auto-mirrored failure notice lists four candidate causes without
 // naming this one, so the single diagnosis readable off the screen was the one nobody looked for.
 await checkContextWindow({ get, add, skip });
+// IS ANY CONVERSATION CLAIMED BY TWO AGENTS? The ids are already unique; the failure is several
+// agents pointing at ONE. Two live instances on 2026-08-31, found by hand hours apart and invisible
+// to every status badge: a re-registered resident left a ghost row holding its session handle, so
+// every message to that id was refused and relayed for hours; and four hermes agents shared one
+// conversation, which is how a thread reaches 1.1M tokens. One read answers it for the whole fleet.
+await checkSessionHandles({ get, add });
 // IS THE FLEET LISTING OPEN, AND DOES IT HAND OUT CREDENTIALS WHEN IT IS? Measured on the operator's
 // host 2026-08-29: 200 with no key, 200 with a wrong one, and 16 of 47 agent rows carrying a live
 // gateway token. Neither half is a defect alone -- running without a key is a configuration, and the
