@@ -29,6 +29,8 @@ so it cannot quietly swallow the whole matrix.
 
 from __future__ import annotations
 
+import datetime as _dt
+
 import asyncio
 import dataclasses
 import sqlite3
@@ -38,7 +40,13 @@ from service.db import get_db
 from service.tests._base import FastApiTestCase
 
 OLD = "2020-01-01T00:00:00Z"
-FRESH = "2099-01-01T00:00:00Z"
+#: A REAL recent timestamp, not a far-future one. This was "2099-01-01T00:00:00Z", which the old
+#: clamp accepted because it only asked whether the age EXCEEDED the ceiling -- and a future stamp
+#: gives a negative age, which never does. The delivery gate has rejected future stamps since a
+#: 2026-07-26 review (a negative age trivially satisfies `<= ceiling`, so the flag would hold for
+#: ever), and the status clamp now shares that policy. So the fixture's "fresh" was a value
+#: production must not trust, and every case using it silently stopped meaning "recent".
+FRESH = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 #: mode x disabled x in_turn/awaiting x worker/env (managed) x bridge freshness (resident).
 CASES: dict[str, dict] = {
@@ -134,7 +142,6 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
                 # `_managed_spawn_is_starting` requires a CLAIMED spawn (status running + started_at)
                 # inside its window — a queued-but-unclaimed one deliberately does not count, which is
                 # the distinction that made the stuck-spawn deadlock visible as `available`.
-                import datetime as _dt
                 _fresh = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 conn.execute(
                     "INSERT INTO spawn_requests (id, spawn_spec_id, created_by, environment_id,"
@@ -144,10 +151,15 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
                      "coder", runtime, "running", _fresh, _fresh, _fresh, _fresh))
             if "in_turn" in kw or "awaiting" in kw:
                 conn.execute(
-                    "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, last_event_at)"
-                    " VALUES (?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET in_turn=excluded.in_turn,"
-                    " awaiting_input=excluded.awaiting_input, last_event_at=excluded.last_event_at",
+                    "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, "
+                    "last_event_at, turn_started_at)"
+                    " VALUES (?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET in_turn=excluded.in_turn,"
+                    " awaiting_input=excluded.awaiting_input, last_event_at=excluded.last_event_at,"
+                    " turn_started_at=excluded.turn_started_at",
                     (agent_id, int(kw.get("in_turn", 0)), int(kw.get("awaiting", 0)),
+                     kw.get("last_event", FRESH),
+                     # The anchor carries the age now; the matrix varies `last_event` to mean
+                     # "how old is this turn", and that meaning moved columns.
                      kw.get("last_event", FRESH)))
             if kw.get("session"):
                 eid, sid, tid = f"e_{agent_id}", f"s_{agent_id}", f"t_{agent_id}"

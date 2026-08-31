@@ -167,13 +167,20 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
             from service.db import get_db
             db = await get_db()
             try:
+                # THE ANCHOR MOVES WITH IT, and that is the change this test had to absorb. The
+                # clamp used to age `last_event_at`; it now ages `turn_started_at`, because the
+                # hermes hook refreshes the former before every model call and a ceiling measured
+                # against a clock the latch keeps winding never fires. Backdating only
+                # `last_event_at` no longer makes a turn look old -- it makes it look like a turn
+                # that BEGAN recently and was last touched long ago, which is not stale at all.
                 await db.execute(
-                    "UPDATE agent_status_state SET in_turn = 1, last_event_at = ? WHERE agent_id = ?",
-                    (last_event_at or _now(), agent_id),
+                    "UPDATE agent_status_state SET in_turn = 1, last_event_at = ?, "
+                    "turn_started_at = ? WHERE agent_id = ?",
+                    (last_event_at or _now(), last_event_at or _now(), agent_id),
                 )
                 await db.commit()
                 row = await (await db.execute(
-                    "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state "
+                    "SELECT in_turn, awaiting_input, last_event_at, turn_started_at FROM agent_status_state "
                     "WHERE agent_id = ?", (agent_id,),
                 )).fetchone()
                 console = await (await db.execute(

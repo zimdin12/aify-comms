@@ -26,11 +26,13 @@ lets the claim funnel keep BEGIN IMMEDIATE to itself.
 
 from __future__ import annotations
 
+
 import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.dispatch_text import _MERGED_DISPATCH_HEADER
 from service.api_core.events import _append_terminal_event
@@ -429,37 +431,20 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
     _touched = _iso_to_epoch(str(row["turn_updated_at"] or ""))
     _owner = str((row["turn_bridge_id"] if "turn_bridge_id" in _keys else "") or "")
 
-    if await _turn_lease_is_renewable(db, agent_id, _owner):
-        # A verified claim: age against the last renewal, and bound the whole turn absolutely.
-        if _started and (datetime.now(timezone.utc).timestamp() - _started) > TURN_LEASE_ABSOLUTE_MAX_SECONDS:
-            return False
-        seen = _touched or _started
-    else:
-        # Nothing checkable is claiming this. The start anchor is the bound; fall back to the
-        # last-touch column only for rows written before the anchor existed.
-        seen = _started or _touched
-    if not seen:
-        # MISSING/UNPARSEABLE timestamp → do NOT hold (fixed 2026-07-26, review follow-up).
-        # The first cut returned True here "to trust the raw flag", which quietly reproduced the
-        # exact strand this helper exists to prevent: a latched turn_busy=1 whose turn_updated_at
-        # is empty or malformed has NOTHING to age against, so it would hold delivery forever and
-        # a non-steer target would stay permanently deaf — with no ceiling to rescue it.
-        #
-        # Releasing is the correct asymmetry. Every writer stamps turn_updated_at via _now()
-        # (the /turn-start, /heartbeat and reconcile paths all do), so a blank or unparseable
-        # value means a corrupt row, not a live turn. The worst case from releasing is ONE
-        # message delivered mid-turn, which the harness queues or the reply reconciles; the worst
-        # case from holding is an agent that never receives work again. Prefer the recoverable
-        # failure.
-        return False
-    # A FUTURE timestamp must not hold either (review R4, 2026-07-26). `now - seen` goes NEGATIVE
-    # for a clock-skewed or bad write, which trivially satisfies `<= CEILING` — so the flag would
-    # hold delivery forever, the exact permanent strand this ceiling exists to bound. Requiring a
-    # non-negative age closes it: only an age genuinely inside the window holds.
-    age = datetime.now(timezone.utc).timestamp() - seen
-    return 0 <= age <= TURN_BUSY_BACKSTOP_SECONDS
-
-
+    # THE POLICY LIVES IN ONE PLACE NOW. The status clamp asked the same question with different
+    # rules -- everything cut at 30 minutes, with no notion of a verified renewal -- so a working
+    # agent with a live bridge kept its work for four hours while the dashboard said it had stopped
+    # after thirty minutes. `turn_liveness_policy.turn_is_still_live` is the single answer; this
+    # function still owns the OWNERSHIP question, because that needs the database.
+    _renewable = await _turn_lease_is_renewable(db, agent_id, _owner)
+    return turn_is_still_live(
+        started_epoch=_started,
+        touched_epoch=_touched,
+        renewable=_renewable,
+        now_epoch=datetime.now(timezone.utc).timestamp(),
+        strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
+        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS,
+    )
 # v0.5.4: `_mark_dispatch_source_messages_read` arrived from the control plane. It is the one WRITE in
 # this module, and it is here because `_dispatch_source_message_ids` — which decides what to mark — is
 # already here: separating the question from the single act that consumes its answer would put a

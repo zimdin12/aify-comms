@@ -35,6 +35,8 @@ from service.api_core.active_run_lookup import (
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.capabilities import _managed_env_reachable, _row_capabilities
 from service.api_core.channel_delivery import _has_live_worker_for, _worker_liveness_for
+from service.api_core.turn_liveness_policy import turn_is_still_live
+from service.api_core.claim_gating import TURN_LEASE_ABSOLUTE_MAX_SECONDS
 from service.api_core.liveness import (
     CONSOLE_WORKING_LEASE_SECONDS,
     TURN_BUSY_BACKSTOP_SECONDS,
@@ -99,6 +101,39 @@ def _turn_anchor(state_row) -> str:
         return ""
 
 
+def _in_turn_survives_the_ceiling(state_row, *, renewable: bool = False) -> bool:
+    """The in_turn clamp, as ONE function both call sites use.
+
+    It was written out twice, once per call site, with the comparison inline. The tests then
+    reimplemented it a third time -- which is how a prefetch query that omitted the anchor stayed
+    invisible: every test computed the clamp itself from a row it had selected itself, so none of
+    them ever ran the production query that was missing the column.
+
+    `renewable` is the caller's answer to the ownership question, not one this asks: whether a lease
+    is verifiable needs the database, and this must stay callable from a row alone.
+    """
+    anchor = _iso_to_epoch(_turn_anchor(state_row))
+    touched = _iso_to_epoch(_last_touch(state_row))
+    return turn_is_still_live(
+        started_epoch=anchor,
+        touched_epoch=touched,
+        renewable=renewable,
+        now_epoch=datetime.now(timezone.utc).timestamp(),
+        strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
+        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS,
+    )
+
+
+def _last_touch(state_row) -> str:
+    """When something last happened to this row -- the moving column, used only as a renewal."""
+    if not state_row:
+        return ""
+    try:
+        return str(state_row["last_event_at"] or "")
+    except (KeyError, IndexError):
+        return ""
+
+
 async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs:
     """Build a StatusInputs from the SAME live signals the legacy derivation reads.
 
@@ -129,12 +164,8 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     # not-busy -> busy transition and left alone, so it is the one clock a re-stamping poster cannot
     # postpone. It falls back to `last_event_at` only for a row written before the column existed,
     # which the boot backfill also repairs.
-    if in_turn:
-        anchor_epoch = _iso_to_epoch(_turn_anchor(st))
-        if anchor_epoch and (
-            datetime.now(timezone.utc).timestamp() - anchor_epoch
-        ) > TURN_BUSY_BACKSTOP_SECONDS:
-            in_turn = False
+    if in_turn and not _in_turn_survives_the_ceiling(st):
+        in_turn = False
     # PURE-EVENT (2026-06-19): the turn-end GRACE was removed from BOTH status paths — this
     # WS-push path (_gather_status_inputs) and the byproduct/poll path (_compute_live_status_cache).
     # It held in_turn for 20s after a turn-END to mask a managed wrapper's premature Stop, but
@@ -553,14 +584,11 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # authoritative _gather_status_inputs would correctly clear it past the backstop — so the
     # "MUST produce the same StatusInputs" promise above would be violated for stale in_turn.
     _si_raw_in_turn = bool(_si_st and _si_st["in_turn"])
-    if _si_raw_in_turn:
-        # The SAME anchor as the authoritative path above. Two clamps on one question that read
-        # different columns is how the parity this docstring promises quietly stops holding.
-        _si_anchor_epoch = _iso_to_epoch(_turn_anchor(_si_st))
-        if _si_anchor_epoch and (
-            datetime.now(timezone.utc).timestamp() - _si_anchor_epoch
-        ) > TURN_BUSY_BACKSTOP_SECONDS:
-            _si_raw_in_turn = False
+    # The SAME function as the authoritative path above, not a second copy of its arithmetic. Two
+    # clamps on one question that computed it separately is how the parity this docstring promises
+    # quietly stops holding.
+    if _si_raw_in_turn and not _in_turn_survives_the_ceiling(_si_st):
+        _si_raw_in_turn = False
     # H1: the console-working lease must feed BOTH engines. The v2 engine reads in_turn from
     # agent_status_state (which the lease never writes), so OR the worker-gated lease in here
     # too — otherwise the feature is a no-op under status_engine=new. (The lease has its OWN

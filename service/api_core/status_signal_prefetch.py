@@ -55,13 +55,21 @@ from typing import Any, Iterable, Optional
 #: and the chunk size is stated rather than assumed so the limit is visible to the next reader.
 _MAX_PARAMS_PER_QUERY = 400
 
-_STATUS_STATE_SQL = "SELECT agent_id, in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id IN ({})"
+#: `turn_started_at` IS SELECTED HERE, and the omission was not harmless. The in_turn clamp reads
+#: the anchor through `_turn_anchor`, which falls back to `last_event_at` when the anchor is absent
+#: -- a fallback meant for rows written before the column existed. A query that simply did not ASK
+#: for the column hit that same fallback, so the whole anchoring fix was inert on the prefetched
+#: path while every targeted test passed. `test_every_status_state_read_asks_for_the_anchor.py`
+#: derives this requirement rather than trusting the next person to remember it.
+_STATUS_STATE_SQL = ("SELECT agent_id, in_turn, awaiting_input, last_event_at, turn_started_at "
+                     "FROM agent_status_state WHERE agent_id IN ({})")
 _CONSOLE_SIGNAL_SQL = "SELECT agent_id, working_at, subagents_at FROM agent_console_signal WHERE agent_id IN ({})"
 #: THE THIRD, added 2026-08-29. `agent_turn_state` meets the same criterion as the two above -- one
 #: row per agent, keyed on agent_id, no filtering, grouping or ordering -- and `_status_turn_signals`
 #: read it once per agent inside the refresh loop. Measured with the same counter as the rest of this
 #: module: 8 per-agent round-trips became 7.
-_TURN_STATE_SQL = ("SELECT agent_id, turn_busy, turn_runtime, turn_updated_at, ready "
+_TURN_STATE_SQL = ("SELECT agent_id, turn_busy, turn_runtime, turn_updated_at, ready, "
+                   "turn_started_at, turn_bridge_id "
                    "FROM agent_turn_state WHERE agent_id IN ({})")
 
 
@@ -86,7 +94,8 @@ class LiveStatusSignals:
 
     async def status_state(self, db, agent_id: str):
         return await (await db.execute(
-            "SELECT in_turn, awaiting_input, last_event_at FROM agent_status_state WHERE agent_id=?",
+            "SELECT in_turn, awaiting_input, last_event_at, turn_started_at "
+            "FROM agent_status_state WHERE agent_id=?",
             (agent_id,),
         )).fetchone()
 
@@ -98,7 +107,8 @@ class LiveStatusSignals:
 
     async def turn_state(self, db, agent_id: str):
         return await (await db.execute(
-            "SELECT turn_busy, turn_runtime, turn_updated_at, ready FROM agent_turn_state "
+            "SELECT turn_busy, turn_runtime, turn_updated_at, ready, turn_started_at, "
+            "turn_bridge_id FROM agent_turn_state "
             "WHERE agent_id = ?",
             (agent_id,),
         )).fetchone()

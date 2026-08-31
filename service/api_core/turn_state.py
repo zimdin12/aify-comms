@@ -30,6 +30,13 @@ import time
 from datetime import datetime, timezone
 
 from service.api_core.liveness import TURN_BUSY_BACKSTOP_SECONDS
+from service.api_core.turn_liveness_policy import turn_is_still_live
+# `claim_gating` does not import this module, so this is a plain edge and not a cycle -- checked
+# rather than assumed, because a function-scope import here would hide the dependency from the
+# layering tests that read module imports.
+from service.api_core.claim_gating import (
+    TURN_LEASE_ABSOLUTE_MAX_SECONDS, _turn_lease_is_renewable,
+)
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 
@@ -192,12 +199,34 @@ async def _status_turn_signals(db, agent_row, *, status_signals=None):
         _tb = await status_signals_or_live(status_signals).turn_state(db, agent_row["id"])
         if _tb:
             if int(_tb["turn_busy"] or 0) == 1:
-                _age = datetime.now(timezone.utc).timestamp() - _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
-                # WS5 Task 5.2/5.3: STATUS staleness uses the LONG backstop. The
-                # turn-END event (POST /turn-end) is the primary clear; this window
-                # only catches a DROPPED event, so it sits at the single long
-                # wall-clock ceiling rather than racing the re-pulse cadence.
-                if _iso_to_epoch(str(_tb["turn_updated_at"] or "")) and _age <= TURN_BUSY_BACKSTOP_SECONDS:
+                # THE SAME POLICY DELIVERY USES. This aged `turn_updated_at` -- the MOVING column --
+                # against the 30-minute ceiling and had no start anchor at all, so the hermes hook
+                # re-stamping before every model call kept `working` alive for ever here even after
+                # both anchored readers had let go. It was the third reader of this question and the
+                # last one still carrying the original defect.
+                _keys = _tb.keys()
+                _started = _iso_to_epoch(str(
+                    (_tb["turn_started_at"] if "turn_started_at" in _keys else "") or ""))
+                _touched = _iso_to_epoch(str(_tb["turn_updated_at"] or ""))
+                _now = datetime.now(timezone.utc).timestamp()
+
+                def _verdict(renewable):
+                    return turn_is_still_live(
+                        started_epoch=_started, touched_epoch=_touched, renewable=renewable,
+                        now_epoch=_now, strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
+                        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS)
+
+                # STRICT FIRST, and pay for the ownership query ONLY when it would change the
+                # answer. This runs per agent on a batch status refresh, and the prefetch module
+                # beside it exists precisely to stop per-agent round-trips. The shortcut is exact
+                # because the policy is monotone: verifying a lease can add liveness and never
+                # remove it, which is asserted directly over its input grid.
+                _live = _verdict(False)
+                if not _live:
+                    _owner = str((_tb["turn_bridge_id"] if "turn_bridge_id" in _keys else "") or "")
+                    if _owner:
+                        _live = _verdict(await _turn_lease_is_renewable(db, agent_row["id"], _owner))
+                if _live:
                     turn_busy = True
                     turn_runtime = str(_tb["turn_runtime"] or "").strip()
                     turn_updated_at = str(_tb["turn_updated_at"] or "").strip()

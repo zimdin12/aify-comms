@@ -78,14 +78,30 @@ class TheStatusClampIsAnchoredToTheTurnStartTests(FastApiTestCase):
         return asyncio.run(_run())
 
     def _clamped_in_turn(self, agent_id) -> bool:
-        """Run the clamp the way both call sites do: anchor, compare, decide."""
-        row = self._row(agent_id)
-        if not row["in_turn"]:
-            return False
-        anchor = status_inputs._iso_to_epoch(status_inputs._turn_anchor(row))
-        if anchor and (time.time() - anchor) > status_inputs.TURN_BUSY_BACKSTOP_SECONDS:
-            return False
-        return True
+        """Call the PRODUCTION clamp against a row read by the PRODUCTION query.
+
+        This used to recompute the comparison itself from a row this file selected itself. That is
+        the shape the review caught, and it is worse than it looks: a test that writes its own
+        SELECT can never notice that a production query omits a column, and a test that recomputes
+        the arithmetic can never notice that the two call sites disagree. Both of those were true --
+        `status_signal_prefetch.py` had two queries without the anchor, and the fix was inert on the
+        served path while this file was green.
+
+        So the row comes from `signals.status_state`, which is the reader the served path uses, and
+        the verdict comes from `_in_turn_survives_the_ceiling`, which is what both call sites call.
+        """
+        async def _run():
+            db = await get_db()
+            try:
+                from service.api_core.status_signal_prefetch import status_signals_or_live
+                row = await status_signals_or_live(None).status_state(db, agent_id)
+                if not row or not row["in_turn"]:
+                    return False
+                return status_inputs._in_turn_survives_the_ceiling(row)
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
 
     def test_a_latch_kept_warm_by_a_re_stamping_hook_still_ages_out(self):
         """THE DEFECT. Two hours into a 'turn', with an event 45 seconds ago — which is what a

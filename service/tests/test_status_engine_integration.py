@@ -677,11 +677,11 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
             c.execute(
                 """
                 INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input,
-                    turn_run_id, last_event, last_event_at, updated_at)
-                VALUES (?, 1, 0, '', 'turn_start', ?, ?)
-                ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at
+                    turn_run_id, last_event, last_event_at, turn_started_at, updated_at)
+                VALUES (?, 1, 0, '', 'turn_start', ?, ?, ?)
+                ON CONFLICT(agent_id) DO UPDATE SET in_turn=1, last_event_at=excluded.last_event_at, turn_started_at=excluded.turn_started_at
                 """,
-                ("hb4", stale, stale),
+                ("hb4", stale, stale, stale),
             )
             c.commit()
         finally:
@@ -791,7 +791,8 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
         stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=45)).isoformat().replace("+00:00", "Z")
         c = sqlite3.connect(str(self._db_path))
         try:
-            c.execute("UPDATE agent_status_state SET last_event_at=? WHERE agent_id=?", (stale, "cl3"))
+            c.execute("UPDATE agent_status_state SET last_event_at=?, turn_started_at=? "
+                      "WHERE agent_id=?", (stale, stale, "cl3"))
             c.commit()
         finally:
             c.close()

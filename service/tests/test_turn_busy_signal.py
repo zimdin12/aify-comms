@@ -294,6 +294,16 @@ class TheInlineSchemaMustNotDriftFromTheRealOneTests(unittest.TestCase):
                     f"missing column fails as 'no such column' and says nothing about the change "
                     f"that caused it.",
                 )
+                # AND THE OTHER DIRECTION. A one-way check passes a fixture carrying a column the
+                # real table does not have -- so a test could assert against a column production
+                # cannot produce, and be green for ever. That is the same class as the drift above,
+                # pointing the other way, and it costs one assertion to close.
+                self.assertEqual(
+                    fixture - real, set(),
+                    f"the inline {table} fixture declares {sorted(fixture - real)}, which the real "
+                    f"table does not have. A test written against it would assert on a column that "
+                    f"cannot exist in production.",
+                )
 
     def test_the_parser_can_actually_tell_a_missing_column(self):
         """ANTI-VACUITY. A parser returning empty sets would pass the comparison above for every
