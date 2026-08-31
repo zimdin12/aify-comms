@@ -4339,7 +4339,17 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     // process running and this bridge with no memory of it.
     // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 898, and a
     // brace-match from the class header gives lines 72..969, which is 898.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 898],
+    // 898 -> 910 on 2026-09-01: the console-keepalive tick became its own method,
+    // `_consoleKeepaliveTick`, so a test can DRIVE it instead of sleeping and counting how often a
+    // 5ms `setInterval` had fired. Windows floors timers at ~15.6ms, so the old 40-60ms windows
+    // bought 3 or 4 ticks where the assertions needed 4 AND needed one to land on a re-probe
+    // multiple: 2 failures in 6 runs, measured, and it had just reddened a whole bridge suite.
+    // Behaviour is unchanged; only the reachability of the tick is. The twelve lines are the method
+    // signature, the rebuilt `_armConsoleKeepalive`, and the note explaining why the schedule and
+    // the work are now separate things.
+    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 910, and a
+    // brace-match from the class header gives lines 72..981, which is 910.
+    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 910],
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

@@ -790,15 +790,21 @@ export class TerminalProcessManager {
   // the true dims so the net terminal size is unchanged. The shrink/restore is synchronous, so
   // the at-width-1-less window is sub-millisecond. claude-managed-only; best-effort; a noop for
   // other runtimes / resident / when disabled.
-  _armConsoleKeepalive(id, state) {
-    if (!this.consoleKeepaliveMs || state.runtime !== "claude-code"
-        || state.sessionMode !== "managed" || state.kind !== "pty") {
-      return () => {};
-    }
-    const tick = () => {
-      const st = this.terminals.get(id);
-      if (!st || !st.term) return;
-      // IDLE-GRACE GATE (2026-06-18): nudge full-rate while work is plausible; once the console has
+  // ONE KEEPALIVE TICK, as a method rather than a closure, so it can be DRIVEN instead of waited for.
+  //
+  // The behaviour is unchanged; only its reachability is. The tests around the idle-grace gate used to
+  // count how many times a 5ms `setInterval` had fired inside a 40-60ms sleep -- and Windows floors
+  // timers at ~15.6ms, so those windows bought 3 or 4 ticks where the assertions needed 4 AND needed
+  // one to land on a multiple of the re-probe period. Measured 2026-09-01: 2 failures in 6 runs of the
+  // file on its own. Not a race in the product, a budget below its own cost in the test, which is the
+  // second time this exact shape has been found in this area.
+  //
+  // A test can now call this N times and know exactly what happened. `_armConsoleKeepalive` still owns
+  // the schedule, so what it means to be ARMED is still tested through the timer.
+  _consoleKeepaliveTick(id) {
+    const st = this.terminals.get(id);
+    if (!st || !st.term) return;
+    // IDLE-GRACE GATE (2026-06-18): nudge full-rate while work is plausible; once the console has
       // shown the IDLE PROMPT (consoleClass==="idle") for a sustained run of ticks, drop to a SLOW
       // re-probe cadence rather than stopping entirely. A working/unknown class resets the streak
       // (working-but-quiet keeps consoleClass==="working" and is never throttled; "unknown" could
@@ -809,23 +815,29 @@ export class TerminalProcessManager {
       // lease (20s) lapsed, and status falsely flipped working->online. Re-probing at 1-in-N ticks
       // (below the lease TTL) re-discovers resumed work within the lease window while keeping churn
       // negligible — a genuinely idle console only re-emits its idle residue, so no working pulse.
-      if (st.consoleClass === "idle") {
-        st._kaIdleTicks = (st._kaIdleTicks || 0) + 1;
-      } else {
-        st._kaIdleTicks = 0;
-      }
-      if (st._kaIdleTicks > this.consoleKeepaliveIdleGraceTicks
-          && (st._kaIdleTicks % this.consoleKeepaliveIdleReprobeTicks) !== 0) {
-        return;
-      }
-      const cols = Math.max(20, Number(st.cols || 100));
-      const rows = Math.max(6, Number(st.rows || 28));
-      try {
-        st.term.resize(cols - 1, rows); // changed dim → SIGWINCH
-        st.term.resize(cols, rows);     // restore true dims (net unchanged)
-      } catch { /* best-effort */ }
-    };
-    const timer = setInterval(tick, this.consoleKeepaliveMs);
+    if (st.consoleClass === "idle") {
+      st._kaIdleTicks = (st._kaIdleTicks || 0) + 1;
+    } else {
+      st._kaIdleTicks = 0;
+    }
+    if (st._kaIdleTicks > this.consoleKeepaliveIdleGraceTicks
+        && (st._kaIdleTicks % this.consoleKeepaliveIdleReprobeTicks) !== 0) {
+      return;
+    }
+    const cols = Math.max(20, Number(st.cols || 100));
+    const rows = Math.max(6, Number(st.rows || 28));
+    try {
+      st.term.resize(cols - 1, rows); // changed dim → SIGWINCH
+      st.term.resize(cols, rows);     // restore true dims (net unchanged)
+    } catch { /* best-effort */ }
+  }
+
+  _armConsoleKeepalive(id, state) {
+    if (!this.consoleKeepaliveMs || state.runtime !== "claude-code"
+        || state.sessionMode !== "managed" || state.kind !== "pty") {
+      return () => {};
+    }
+    const timer = setInterval(() => this._consoleKeepaliveTick(id), this.consoleKeepaliveMs);
     if (timer && typeof timer.unref === "function") timer.unref();
     return () => clearInterval(timer);
   }

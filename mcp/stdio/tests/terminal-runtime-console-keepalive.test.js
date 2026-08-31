@@ -86,10 +86,18 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
 }
 
 // (6) IDLE-GRACE GATE (#224): a console sustained at the IDLE prompt drops to a SLOW re-probe
-// cadence after the grace (it must NEVER fully stop — a full stop could never re-discover work
+// cadence after the grace (it must NEVER fully stop -- a full stop could never re-discover work
 // that resumes after a long idle, since an unwatched claude stays quiet and never re-emits a
-// working footer → the console-working lease lapses → false `online`). A working/unknown class
+// working footer -> the console-working lease lapses -> false `online`). A working/unknown class
 // keeps full-rate nudging; a flip back off "idle" re-arms full rate.
+//
+// DRIVEN, NOT TIMED. This section and (7) used to sleep 40-80ms and count how many times a 5ms
+// setInterval had fired. Windows floors timers at ~15.6ms, so a 60ms window bought 3 or 4 ticks
+// where the assertions needed 4 AND needed one to land on a multiple of the re-probe period.
+// Measured 2026-09-01: 2 failures in 6 runs of this file alone, and it had just reddened a full
+// bridge suite. The product was never racy; the test budget was below its own cost. Calling the
+// tick directly makes each assertion a statement about the GATE rather than about the clock, and
+// the exact tick counts below are now the thing under test rather than an approximation of it.
 {
   const resizes = [];
   const mgr = new TerminalProcessManager({
@@ -101,32 +109,46 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
     cols: 100, rows: 28, consoleClass: "working", term: { resize: (c, r) => resizes.push([c, r]) },
   };
   mgr.terminals.set("t6", claude);
-  const stop = mgr._armConsoleKeepalive("t6", claude);
-  await tick(40);                                  // working → full-rate poking
-  assert.ok(resizes.length >= 2, "a working console keeps getting nudged");
-  claude.consoleClass = "idle";                    // genuinely idle now
-  await tick(60);                                  // > 3 grace ticks of idle → drop to slow re-probe
-  const afterGrace = resizes.length;
-  await tick(60);                                  // a slow-re-probe window
-  const slowDelta = resizes.length - afterGrace;
-  // #224 guard: the keepalive must STAY ALIVE on a sustained-idle console (re-probe), never the
-  // old full stop — otherwise resumed work after a long idle is never re-detected.
-  assert.ok(slowDelta > 0, "a sustained-idle console still re-probes (never fully stops) — #224");
-  claude.consoleClass = "working";                 // work resumes → must re-arm full rate
-  const beforeResume = resizes.length;
-  await tick(60);                                  // same-length window, now full rate
-  const resumeDelta = resizes.length - beforeResume;
-  assert.ok(resumeDelta > slowDelta,
-    `resumed work re-arms full-rate nudging (resume ${resumeDelta} > idle re-probe ${slowDelta}) — #224 fix`);
-  stop();
+  const run = (n) => { for (let i = 0; i < n; i += 1) mgr._consoleKeepaliveTick("t6"); };
+
+  run(3);
+  assert.equal(resizes.length, 6, "a working console is nudged on every tick (2 resizes each)");
+
+  // Ticks 1-3 are within the grace and still nudge; 4 onwards are past it and only a multiple of
+  // the re-probe period fires. Exactly one of ticks 4-8 qualifies: tick 8.
+  claude.consoleClass = "idle";
+  resizes.length = 0;
+  run(3);
+  assert.equal(resizes.length, 6, "the grace ticks themselves still nudge");
+  // Ticks 4-8. The skip is `streak > grace AND streak % reprobe !== 0`, so tick 4 clears the grace
+  // and IS a re-probe multiple -- it nudges. Ticks 5, 6, 7 are skipped; tick 8 nudges. Two nudges,
+  // four resizes. (I first wrote 2 resizes here, having counted tick 4 as skipped: it satisfies both
+  // halves of the condition at once, which is exactly the boundary a driven test can pin and a timed
+  // one could only average over.)
+  resizes.length = 0;
+  run(5);
+  assert.equal(resizes.length, 4, "past the grace only re-probe ticks fire -- and they DO fire (#224)");
+
+  // A full stop is the bug this gate was rewritten to remove, so re-probing forever is the
+  // property, not merely re-probing once.
+  resizes.length = 0;
+  run(20);
+  assert.ok(resizes.length >= 8, `re-probing continues indefinitely (got ${resizes.length})`);
+
+  // Work resumes: the streak resets on the very first non-idle tick, so full rate is immediate.
+  claude.consoleClass = "working";
+  resizes.length = 0;
+  run(5);
+  assert.equal(resizes.length, 10, "resumed work re-arms full-rate nudging at once -- #224 fix");
+  assert.equal(claude._kaIdleTicks, 0, "the idle streak is cleared, not decayed");
 }
 
 // (7) CONSOLE-CLASS FLAP (status-accuracy Task 2): a managed-claude console whose consoleClass
-// flaps working → unknown → working across ticks must KEEP getting nudged — only a SUSTAINED idle
-// run (> grace) pauses. The idle accumulator resets to 0 on ANY non-idle class (working AND
+// flaps working -> unknown -> working across ticks must KEEP getting nudged -- only a SUSTAINED
+// idle run (> grace) pauses. The idle accumulator resets to 0 on ANY non-idle class (working AND
 // unknown), so a transient mid-turn unknown blip can never accumulate toward the idle-grace pause
 // and drop the keepalive on a still-working turn (which would let the 20s console-working lease
-// lapse → false `online`). Guards against the SIGWINCH-keepalive-misfire-on-flap regression.
+// lapse -> false `online`). Guards against the SIGWINCH-keepalive-misfire-on-flap regression.
 {
   const resizes = [];
   const mgr = new TerminalProcessManager({
@@ -138,29 +160,33 @@ const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms));
     cols: 100, rows: 28, consoleClass: "working", term: { resize: (c, r) => resizes.push([c, r]) },
   };
   mgr.terminals.set("t7", claude);
-  const stop = mgr._armConsoleKeepalive("t7", claude);
-  // Drive a working → unknown → working flap across several ticks, holding each class long enough
-  // to span more than `consoleKeepaliveIdleGraceTicks` worth of ticks — far longer than the grace
-  // a SUSTAINED idle would need to pause. A flapping (never-sustained-idle) console must NOT pause.
-  await tick(40);                                  // working
-  claude.consoleClass = "unknown"; await tick(40); // unknown (could be working — keep nudging)
-  claude.consoleClass = "working"; await tick(40); // working again
-  claude.consoleClass = null;      await tick(40); // null/unknown class
-  claude.consoleClass = "working"; await tick(40); // working again
-  const flapResizes = resizes.length;
-  assert.ok(flapResizes >= 8, `a working↔unknown flap keeps getting nudged (got ${flapResizes})`);
-  // Now a genuinely SUSTAINED idle must THROTTLE to the slow re-probe cadence (proves the gate
-  // still works — the flap above kept full rate). It must not fully stop (#224): re-probe stays
-  // alive but at a fraction of the full-rate flap above.
+  const run = (n) => { for (let i = 0; i < n; i += 1) mgr._consoleKeepaliveTick("t7"); };
+
+  // A flap held far longer than the grace on each class. Never a SUSTAINED idle, so never throttled.
+  for (const cls of ["working", "unknown", "working", null, "working"]) {
+    claude.consoleClass = cls;
+    run(4);
+  }
+  assert.equal(resizes.length, 40, "a working/unknown flap is nudged on every one of its 20 ticks");
+  assert.equal(claude._kaIdleTicks, 0, "no non-idle class ever accumulates toward the grace");
+
+  // An `idle` interleaved with non-idle also never accumulates -- one non-idle tick resets it.
+  resizes.length = 0;
+  for (let i = 0; i < 6; i += 1) {
+    claude.consoleClass = "idle"; run(1);
+    claude.consoleClass = "working"; run(1);
+  }
+  assert.equal(resizes.length, 24, "an idle that never sustains is never throttled");
+
+  // Sustained idle DOES throttle, which is what proves the flap above was not simply un-gated.
   claude.consoleClass = "idle";
-  await tick(80);                                  // >> 3 grace ticks of sustained idle → throttle
-  const throttledFrom = resizes.length;
-  await tick(80);                                  // a slow-re-probe window
-  const throttledDelta = resizes.length - throttledFrom;
-  assert.ok(throttledDelta > 0, "sustained idle still re-probes (never fully stops) — #224");
-  assert.ok(throttledDelta * 2 < flapResizes,
-    `sustained idle throttles well below the full-rate flap (throttled ${throttledDelta} vs flap ${flapResizes})`);
-  stop();
+  claude._kaIdleTicks = 0;
+  resizes.length = 0;
+  run(20);
+  // Ticks 1-3 are inside the grace and nudge; then 4, 8, 12, 16, 20. Eight nudges, sixteen resizes.
+  assert.equal(resizes.length, 16,
+    "sustained idle throttles to grace ticks plus re-probes, and never stops -- #224");
+  assert.ok(resizes.length < 40, "throttled is well below the full-rate flap");
 }
 
 console.log("terminal-runtime-console-keepalive.test.js: all assertions passed");
