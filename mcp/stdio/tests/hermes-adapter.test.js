@@ -17,6 +17,40 @@ import { HermesAdapter } from "../adapters/hermes.js";
 import { writeSessionIdMarker, clearGatewayMarkers } from "../hermes-endpoint.js";
 import { tmpDir } from "./_tmpdir.js";
 
+// ── SEAL THE MARKER DIRECTORY BEFORE ANY TEST RUNS ──────────────────────────────────────────────
+//
+// THIS FILE WAS WRITING INTO THE OPERATOR'S REAL TEMP. `writeSessionIdMarker(agentId, id)` defaults
+// its directory to `process.env.TEMP`, and three calls below omitted it, so a suite run left
+// `aify-hermes-session-{marker-agent,explicit-agent,noexplicit-agent}` sitting beside the live
+// fleet's markers -- found there on 2026-08-31, alongside real agents' bindings.
+//
+// THE STAKE IS NOT TIDINESS. That file is the durable pointer telling a hermes agent which
+// conversation to resume. A test writing one for an agent id that happens to be REAL would repoint a
+// live agent at a session of the test's choosing, and nothing would report a fault: the agent would
+// simply resume the wrong conversation on its next launch.
+//
+// `clearGatewayMarkers` is NOT the cleanup for this, which is why the calls below look like they tidy
+// up and do not. It removes the port, key and gateway-URL markers and deliberately leaves the SESSION
+// binding alone -- `hermes-endpoint.js` says so directly: clearing that binding outside a terminal
+// teardown makes the next launch lose its transcript. The cleanup was correct; using it here was the
+// mistake.
+//
+// Sealing TEMP rather than threading `tempDir` through every call is deliberate: the adapter resolves
+// the marker directory INSIDE `discoverSessionId`, so a test cannot reach it by argument. And
+// `defaultMarkerTmpDir()` reads the variable at CALL time, so this seal covers production code the
+// tests drive, not merely the calls written here.
+const SEALED_TEMP = tmpDir("aify-hermes-adapter-markers-");
+const REAL_TEMP = { TEMP: process.env.TEMP, TMP: process.env.TMP };
+process.env.TEMP = SEALED_TEMP;
+process.env.TMP = SEALED_TEMP;
+assert.equal(process.env.TEMP, SEALED_TEMP, "the marker seal did not take");
+
+process.on("exit", () => {
+  if (REAL_TEMP.TEMP === undefined) delete process.env.TEMP; else process.env.TEMP = REAL_TEMP.TEMP;
+  if (REAL_TEMP.TMP === undefined) delete process.env.TMP; else process.env.TMP = REAL_TEMP.TMP;
+  try { rmSync(SEALED_TEMP, { recursive: true, force: true }); } catch { /* best-effort */ }
+});
+
 test("discoverSessionId reads the real id from the TUI active-session file", async () => {
   const adapter = new HermesAdapter();
   const dir = tmpDir("aify-hermes-adapter-");
