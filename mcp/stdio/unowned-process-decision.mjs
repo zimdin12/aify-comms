@@ -1,9 +1,16 @@
 // Which of aify-env's processes have no owner left, and which of those anyone may act on.
 //
 // THE SITUATION, measured on the operator's fleet 2026-08-31. Ten `apg-pilot` agents were spawned,
-// one of them twice, none ever bound a session handle, the agents were then intentionally removed --
-// and ELEVEN Claude Code processes carried on running with no agent, no terminal and nothing that
-// would ever collect them. `env-processes` reports them correctly; nothing acts on the report.
+// one of them twice, the agents were then intentionally removed -- and ELEVEN Claude Code processes
+// carried on running with no live agent and nothing that would ever collect them. `env-processes`
+// reports them correctly; nothing acts on the report.
+//
+// WHAT IS *NOT* CLAIMED HERE, because it cannot be read after the fact: whether those agents ever
+// bound a session handle or ever had a terminal. `agents` cascades to `agent_sessions` and on to
+// `terminal_sessions`, so after the delete, "none exist now" and "none ever existed" look identical.
+// An earlier draft of this comment asserted the second. It was asserted in the same round in which I
+// had just corrected exactly that reasoning, which is the way a retracted claim gets back in: the
+// retraction goes in a message and the sentence stays in the file.
 //
 // THIS MODULE REPORTS. IT DOES NOT AUTHORISE A STOP.
 //
@@ -31,7 +38,16 @@
 //     200  alive                                                           -> owned
 //
 // Verified against the live service: apg-pilot-07 answers 410, comms-tech-lead 200, and a fabricated
-// id 404. No new endpoint is needed for that half; the generation half below does need one.
+// id 404.
+//
+// THOSE STATUSES ARE NOT THE INTENDED CONTRACT, though, and an earlier version of this comment said
+// no new endpoint was needed because of them. Eleven routes raise that 410 with independently-worded
+// human prose; reading ownership by classifying it means parsing text nobody promised to keep stable,
+// and error prose cannot carry completeness or version semantics at all -- a truncated answer and a
+// complete one look the same. The agreed shape is a typed batch read keyed by the owner ids actually
+// observed, returning one explicit row per request and a typed refusal, with the consumer rejecting
+// partial input. `ownerFromStatus` stays because it is a pure mapping worth pinning, not because the
+// status codes are the interface.
 //
 // EVERYTHING NOT UNDERSTOOD IS KEPT. An unrecognised status, a service that did not answer, a process
 // whose label names nothing, a removal whose time is unknown -- all `keep`. The cost of a wrong
@@ -92,7 +108,8 @@ function epochMs(value) {
  * @param {{id:string, pid:number, label:string, startedAtMs:number}[]} processes  what aify-env reports
  * @param {Record<string,string>} owners  agentId -> OWNER_*, from `ownerFromStatus`
  * @param {Record<string,number>} removedAt  agentId -> epoch ms the tombstone was written
- * @returns {{candidates:object[], keep:object[]}} every input appears in exactly one list
+ * @returns {{candidates:object[], keep:object[], invalid:object[]}} EVERY input row appears in exactly
+ *   one of the three lists -- including one that is not a process row at all, which goes to `invalid`
  */
 export function unownedProcessDecision(processes = [], owners = {}, removedAt = {}) {
   const rows = Array.isArray(processes) ? processes : [];
@@ -100,9 +117,18 @@ export function unownedProcessDecision(processes = [], owners = {}, removedAt = 
   const removedAtOf = removedAt && typeof removedAt === "object" ? removedAt : {};
   const candidates = [];
   const keep = [];
+  const invalid = [];
 
   for (const entry of rows) {
-    if (!entry || typeof entry !== "object") continue;
+    if (!entry || typeof entry !== "object") {
+      // A TYPED BUCKET, NOT A `continue`. This used to drop the row and the JSDoc above used to
+      // promise a complete partition anyway -- a false claim that a test of mine actively blessed by
+      // asserting junk was "skipped". A malformed row means the listing is not what this code thinks
+      // it is, which is a fact about the instrument and belongs in the output where a caller can see
+      // it. Silently discarding it is how a truncated or renamed listing reads as a clean fleet.
+      invalid.push({ raw: entry, why: "not a process row" });
+      continue;
+    }
     const label = String(entry.label ?? "").trim();
     const row = { id: entry.id, pid: entry.pid, label };
 
@@ -155,13 +181,19 @@ export function unownedProcessDecision(processes = [], owners = {}, removedAt = 
       // An ordering that cannot be established is not a licence to name the process.
       keep.push({ ...row, why: "removed, but this process cannot be placed against the removal" });
     } else if (startedAt >= removed) {
-      keep.push({ ...row, why: "started after the removal, so it belongs to a later life" });
+      // NOT PROVEN STRICTLY BEFORE. This branch covers two different situations and deliberately gives
+      // them one answer: a process that started after the removal (a later life this tombstone knows
+      // nothing about), and one whose start EQUALS it. Equal is not after, and it is not before
+      // either -- it is the case where the ordering carries no information, which is exactly when a
+      // report must not name something. Across two clocks an equal reading is not even evidence of
+      // simultaneity, only of resolution.
+      keep.push({ ...row, why: "not proven to have started strictly before the removal (at or after it)" });
     } else {
       candidates.push({ ...row, startedAt, removedAt: removed, why: "started before its agent was removed" });
     }
   }
 
-  return { candidates, keep };
+  return { candidates, keep, invalid };
 }
 
 /**
@@ -172,10 +204,20 @@ export function unownedProcessDecision(processes = [], owners = {}, removedAt = 
  * reporting on purpose -- this module has no stop authority and its output must not read as though it
  * does.
  */
-export function describeDecision({ candidates = [], keep = [] } = {}) {
+export function describeDecision({ candidates = [], keep = [], invalid = [] } = {}) {
+  // A MALFORMED ROW IS REPORTED FIRST, and separately. It says the listing is not the shape this code
+  // expects, which is a fact about the instrument rather than about the fleet -- and an instrument
+  // this code cannot read makes every count below it a partial one.
+  const malformed = invalid.length
+    ? `. ${invalid.length} row(s) in the listing were not process rows and could not be classified, so `
+      + "these counts are of what was readable"
+    : "";
   if (!candidates.length) {
-    return `${keep.length} process(es) owned, none to report: every one has a live agent, an owner that `
-      + "could not be established, or started after its agent was removed";
+    // "CLASSIFIED", NOT "OWNED". `keep` holds rows whose ownership was never established and rows with
+    // no label to attribute at all, so calling them owned asserts the one thing this module could not
+    // determine about them.
+    return `${keep.length} process(es) classified, none to report: each has a live agent, an owner that `
+      + `could not be established, or a start not proven before its agent was removed${malformed}`;
   }
   const named = candidates.map((r) => `${r.label} pid ${r.pid}`).join(", ");
   // BOTH LIMITS, EVERY TIME. The reviewer allowed this classification to stand only on condition that
@@ -185,5 +227,5 @@ export function describeDecision({ candidates = [], keep = [] } = {}) {
     + `before their agent was intentionally removed and are still running: ${named}. Stopping one is an `
     + "operator action. Two limits on this list: the process-to-agent join is a mutable label, not an "
     + "identity; and the ordering compares aify-env's host clock against aify-comms' clock, which are "
-    + "not the same clock, so it is advisory rather than proof.";
+    + `not the same clock, so it is advisory rather than proof${malformed}.`;
 }

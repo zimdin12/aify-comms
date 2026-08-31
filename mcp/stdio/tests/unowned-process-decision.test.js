@@ -2,7 +2,9 @@
 //
 // THE FIXTURE IS THE OPERATOR'S FLEET on 2026-08-31: eleven Claude Code processes still running for
 // ten `apg-pilot` agents that had been intentionally removed, one agent holding two of them, beside
-// processes for agents that were perfectly alive.
+// processes for agents that were perfectly alive. What those agents had bound BEFORE the delete is not
+// part of the fixture and is not knowable now -- the agents -> agent_sessions -> terminal_sessions
+// cascade means present absence cannot distinguish never-created from deleted-with-the-agent.
 //
 // MOST OF THESE TESTS ARE ABOUT REFUSING TO NAME SOMETHING. The module reports; it does not authorise
 // a stop. But a report is what an operator acts on, so a wrong name here still ends with somebody's
@@ -93,18 +95,26 @@ test("A PROCESS THAT STARTED AFTER THE REMOVAL IS KEPT -- it belongs to a later 
     { "apg-pilot-01": REMOVED_AT },
   );
   assert.deepEqual(candidates, []);
-  assert.match(keep[0].why, /later life/);
+  assert.match(keep[0].why, /not proven to have started strictly before/);
 });
 
-test("a process started at the same millisecond as the removal is kept", () => {
+test("a process started at the same millisecond as the removal is kept, AND SAYS WHY", () => {
   // The boundary goes to keeping. A process whose start cannot be ordered strictly before the removal
   // has not been proven to predate it, and an unproven ordering is not authority.
-  const { candidates } = unownedProcessDecision(
+  //
+  // ASSERTING THE REASON, not just the empty list. An empty `candidates` is also what a broken guard
+  // produces, so the two are indistinguishable unless the kept row states the rule it was kept by.
+  // EQUAL IS NOT AFTER: the wording must not claim the process started after the removal, which is a
+  // stronger and different fact. Across two clocks an equal reading is not even evidence of
+  // simultaneity, only of resolution.
+  const { candidates, keep } = unownedProcessDecision(
     [proc("p1", 111, "apg-pilot-01", REMOVED_AT)],
     { "apg-pilot-01": OWNER_REMOVED },
     { "apg-pilot-01": REMOVED_AT },
   );
   assert.deepEqual(candidates, []);
+  assert.match(keep[0].why, /not proven to have started strictly before/);
+  assert.doesNotMatch(keep[0].why, /started after/);
 });
 
 test("a removal with NO KNOWN TIME cannot order anything, so nothing is reported", () => {
@@ -178,22 +188,38 @@ test("a process with NO LABEL is kept and says why -- it cannot be attributed", 
 });
 
 test("every input lands in exactly one list, so nothing is silently dropped", () => {
-  const { candidates, keep } = unownedProcessDecision(FLEET, OWNERS, REMOVALS);
-  assert.equal(candidates.length + keep.length, FLEET.length);
+  const { candidates, keep, invalid } = unownedProcessDecision(FLEET, OWNERS, REMOVALS);
+  assert.equal(candidates.length + keep.length + invalid.length, FLEET.length);
 });
 
-test("junk rows are skipped rather than crashing the caller", () => {
-  const { candidates, keep } = unownedProcessDecision(
-    [null, "nope", 7, proc("p", 1, "apg-pilot-01")], OWNERS, REMOVALS,
+test("A MALFORMED ROW IS RETURNED, not skipped -- the partition covers every input", () => {
+  // THIS TEST USED TO BLESS THE BUG. It asserted junk was "skipped rather than crashing" and checked
+  // only that the two good lists were right, which documented a hole instead of closing it: the JSDoc
+  // promised a complete partition while the loop dropped rows on the floor. A malformed row means the
+  // listing is not the shape this code thinks it is, and that is a fact about the instrument -- so it
+  // has to reach the caller, or a truncated listing reads as a clean fleet.
+  const junk = [null, "nope", 7];
+  const { candidates, keep, invalid } = unownedProcessDecision(
+    [...junk, proc("p", 1, "apg-pilot-01")], OWNERS, REMOVALS,
   );
   assert.equal(candidates.length, 1);
   assert.equal(keep.length, 0);
+  assert.equal(invalid.length, junk.length);
+  assert.deepEqual(invalid.map((r) => r.raw), junk);
+  for (const row of invalid) assert.match(row.why, /not a process row/);
+});
+
+test("the count of every input is conserved even when the listing is mostly junk", () => {
+  const rows = [null, undefined, 0, "", [], proc("p", 1, "apg-pilot-01"), proc("q", 2, "")];
+  const { candidates, keep, invalid } = unownedProcessDecision(rows, OWNERS, REMOVALS);
+  assert.equal(candidates.length + keep.length + invalid.length, rows.length);
 });
 
 test("an empty fleet reports nothing, and junk arguments do not throw", () => {
-  assert.deepEqual(unownedProcessDecision([], {}, {}), { candidates: [], keep: [] });
-  assert.deepEqual(unownedProcessDecision(null, null, null), { candidates: [], keep: [] });
-  assert.deepEqual(unownedProcessDecision(undefined), { candidates: [], keep: [] });
+  const empty = { candidates: [], keep: [], invalid: [] };
+  assert.deepEqual(unownedProcessDecision([], {}, {}), empty);
+  assert.deepEqual(unownedProcessDecision(null, null, null), empty);
+  assert.deepEqual(unownedProcessDecision(undefined), empty);
 });
 
 // -- describeDecision ----------------------------------------------------------------------------
@@ -242,4 +268,31 @@ test("nothing to report reads as nothing to report, not as an empty list of vict
     [proc("p", 1, "graph-senior-dev")], { "graph-senior-dev": OWNER_ALIVE }, {},
   ));
   assert.match(line, /none to report/);
+  // "CLASSIFIED", NOT "OWNED": `keep` also holds rows whose ownership was never established and rows
+  // with no label to attribute at all, so calling them owned asserts the one thing that was not
+  // determined about them.
+  assert.match(line, /classified/);
+  assert.doesNotMatch(line, /process\(es\) owned/);
+});
+
+test("a malformed listing is DISCLOSED in the report, on both paths", () => {
+  // A row this code cannot read makes every count beside it a count of what was readable. Saying so
+  // only when there is nothing to report would disclose it exactly when it matters least -- the same
+  // mistake `context-window`'s fan-out cap made, and the same fix.
+  const junk = [null, "nope"];
+  const withCandidates = describeDecision(unownedProcessDecision([...junk, ...FLEET], OWNERS, REMOVALS));
+  const withNone = describeDecision(unownedProcessDecision(
+    [...junk, proc("p", 1, "graph-senior-dev")], { "graph-senior-dev": OWNER_ALIVE }, {},
+  ));
+  for (const line of [withCandidates, withNone]) {
+    assert.match(line, /2 row\(s\) in the listing were not process rows/);
+    assert.match(line, /counts are of what was readable/);
+  }
+});
+
+test("a clean listing says nothing about malformed rows", () => {
+  // The disclosure has to be absent when there is nothing to disclose, or it is noise rather than a
+  // signal and stops being read.
+  const line = describeDecision(unownedProcessDecision(FLEET, OWNERS, REMOVALS));
+  assert.doesNotMatch(line, /not process rows/);
 });
