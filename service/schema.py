@@ -460,6 +460,12 @@ CREATE TABLE IF NOT EXISTS agent_status_state (
     turn_run_id TEXT NOT NULL DEFAULT '',
     last_event TEXT NOT NULL DEFAULT '',
     last_event_at TEXT NOT NULL DEFAULT '',
+    -- WHEN THIS TURN BEGAN, which is a different fact from when something last happened to this row.
+    -- `last_event_at` is the second, and the in_turn ceiling was measured against it -- so the hermes
+    -- hook, which fires `turn_start` before every model call, kept winding the very clock the ceiling
+    -- reads and a latched agent displayed `working` for ever. Same defect as `agent_turn_state`, in
+    -- the table the DASHBOARD reads rather than the one delivery reads.
+    turn_started_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT '',
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );

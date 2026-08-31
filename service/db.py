@@ -283,6 +283,49 @@ async def _migrate_agent_turn_state_table(db: aiosqlite.Connection):
         await db.execute(statement)
 
 
+#: THE SAME DEFECT AS `agent_turn_state`, IN A SECOND TABLE. That one held DELIVERY; this one holds
+#: what the dashboard SHOWS. Both clamps in `status_inputs.py` aged `in_turn` against
+#: `last_event_at`, and the hermes hook path calls `_apply_status_event(kind="turn_start")` on every
+#: fire -- which refreshes exactly that column. So the ceiling that exists to un-latch a stuck
+#: `working` was measured against a clock the latch itself keeps winding, and an agent could read
+#: `working` for ever even after the delivery ceiling had correctly released its queued work.
+#:
+#: `last_event_at` answers "when did something last happen to this row". `turn_started_at` answers
+#: "when did THIS turn begin", which is the question a turn-length ceiling is actually asking. Only
+#: the second is safe to measure against, because only the second stops moving while the turn runs.
+#:
+#: This table had NO migration map before -- every other migrated table has one -- so this adds the
+#: map, the backfill and the runner rather than a line to an existing dict.
+AGENT_STATUS_STATE_MIGRATIONS = {
+    "turn_started_at": (
+        "ALTER TABLE agent_status_state ADD COLUMN turn_started_at TEXT NOT NULL DEFAULT ''"),
+}
+
+#: Give every EXISTING busy row a start anchor, for the same reason its sibling needs one: a latched
+#: agent never makes another not-busy -> busy transition, so a column written only on transition
+#: would stay empty precisely on the rows the ceiling has to reach. Seeding from `last_event_at`
+#: costs a genuinely-working agent nothing -- it gets a fresh ceiling, which is what it had anyway --
+#: and it is the closest honest lower bound on when the turn began.
+AGENT_STATUS_STATE_BACKFILLS = (
+    "UPDATE agent_status_state SET turn_started_at = last_event_at "
+    "WHERE in_turn = 1 AND COALESCE(turn_started_at, '') = '' "
+    "AND COALESCE(last_event_at, '') != ''",
+)
+
+
+async def _migrate_agent_status_state_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(agent_status_state)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in AGENT_STATUS_STATE_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+    # Runs on every boot, not only the boot that adds the column: it is idempotent by its own WHERE
+    # clause, and a row that somehow reaches a blank anchor while busy is repaired rather than left
+    # reading `working` for ever.
+    for statement in AGENT_STATUS_STATE_BACKFILLS:
+        await db.execute(statement)
+
+
 # Runtimes the bridge can drive through a native managed integration.
 #
 # A DELIBERATE THIRD COPY, and it cannot become an import. The owner is
@@ -374,6 +417,7 @@ async def init_db(db_path: Path = None):
         await _migrate_bridge_instances_table(db)
         await _migrate_console_signal_table(db)
         await _migrate_agent_turn_state_table(db)
+        await _migrate_agent_status_state_table(db)
         await _backfill_native_managed_capability(db)
         await _reconcile_terminal_controls(db)
         await db.commit()

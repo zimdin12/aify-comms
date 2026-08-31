@@ -67,6 +67,38 @@ from service.reconcilers.status_cache import _status_refresh_after
 from service.status_engine import StatusInputs, derive
 
 
+def _turn_anchor(state_row) -> str:
+    """When the CURRENT turn began, for a ceiling that must not be postponable.
+
+    `turn_started_at` is stamped on the not-busy -> busy transition and then left alone, so a poster
+    that re-stamps on a timer cannot move it. `last_event_at` moves on every event and is what the
+    two in_turn clamps used to read -- which is why the hermes hook, firing `turn_start` before every
+    model call, kept a latched agent reading `working` for ever.
+
+    THE FALLBACK IS FOR OLD ROWS ONLY. A row written before the column existed has an empty anchor,
+    and returning nothing there would DISABLE the ceiling for exactly those rows. The boot backfill
+    fills them in, so this covers the window between a row being read and that backfill running.
+
+    ONE READER, because two clamps asking one question from different columns is how a documented
+    parity quietly stops holding -- which is the bug directly above this one in the same file.
+    """
+    if not state_row:
+        return ""
+    anchor = ""
+    try:
+        anchor = str(state_row["turn_started_at"] or "")
+    except (KeyError, IndexError):
+        # A row selected without the column (an older query, or a test fixture) is not evidence that
+        # the turn just started. Fall through to the pre-anchor behaviour rather than inventing one.
+        anchor = ""
+    if anchor:
+        return anchor
+    try:
+        return str(state_row["last_event_at"] or "")
+    except (KeyError, IndexError):
+        return ""
+
+
 async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs:
     """Build a StatusInputs from the SAME live signals the legacy derivation reads.
 
@@ -79,7 +111,8 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     aid = agent_row["id"]
     mode = _normalize_session_mode(agent_row["session_mode"] or "resident")
     st = await (await db.execute(
-        "SELECT in_turn, awaiting_input, last_event, last_event_at FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
+        "SELECT in_turn, awaiting_input, last_event, last_event_at, turn_started_at "
+        "FROM agent_status_state WHERE agent_id=?", (aid,))).fetchone()
     in_turn = bool(st and st["in_turn"])
     awaiting_stored = bool(st and st["awaiting_input"])
     # status v2 (Fix B, 2026-06-05): in_turn staleness backstop. The OLD engine
@@ -88,10 +121,18 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     # DROPPED/absent turn-END (e.g. resident hermes, which has a start hook but no
     # end hook) would latch `working` forever. Treat in_turn as ended once the
     # row's last_event_at is older than the same backstop (dropped-event safety).
+    # ANCHORED TO THE TURN'S START, not to its last touch. This aged against `last_event_at` until
+    # 2026-08-31, and the hermes hook path applies a `turn_start` event before EVERY model call --
+    # which refreshes exactly that column. So the ceiling that exists to clear a latched `working`
+    # was measuring a clock the latch itself keeps winding, and never fired. Same defect as the
+    # delivery gate's, in the table the dashboard reads. `turn_started_at` is stamped on the
+    # not-busy -> busy transition and left alone, so it is the one clock a re-stamping poster cannot
+    # postpone. It falls back to `last_event_at` only for a row written before the column existed,
+    # which the boot backfill also repairs.
     if in_turn:
-        last_event_epoch = _iso_to_epoch(st["last_event_at"] if st else "")
-        if last_event_epoch and (
-            datetime.now(timezone.utc).timestamp() - last_event_epoch
+        anchor_epoch = _iso_to_epoch(_turn_anchor(st))
+        if anchor_epoch and (
+            datetime.now(timezone.utc).timestamp() - anchor_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             in_turn = False
     # PURE-EVENT (2026-06-19): the turn-end GRACE was removed from BOTH status paths — this
@@ -513,9 +554,11 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # "MUST produce the same StatusInputs" promise above would be violated for stale in_turn.
     _si_raw_in_turn = bool(_si_st and _si_st["in_turn"])
     if _si_raw_in_turn:
-        _si_last_event_epoch = _iso_to_epoch(_si_st["last_event_at"] if _si_st else "")
-        if _si_last_event_epoch and (
-            datetime.now(timezone.utc).timestamp() - _si_last_event_epoch
+        # The SAME anchor as the authoritative path above. Two clamps on one question that read
+        # different columns is how the parity this docstring promises quietly stops holding.
+        _si_anchor_epoch = _iso_to_epoch(_turn_anchor(_si_st))
+        if _si_anchor_epoch and (
+            datetime.now(timezone.utc).timestamp() - _si_anchor_epoch
         ) > TURN_BUSY_BACKSTOP_SECONDS:
             _si_raw_in_turn = False
     # H1: the console-working lease must feed BOTH engines. The v2 engine reads in_turn from

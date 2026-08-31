@@ -138,7 +138,12 @@ async def _clear_status_state_in_turn(db, agent_id: str) -> None:
     """
     now = _now()
     await db.execute(
-        "UPDATE agent_status_state SET in_turn = 0, turn_run_id = '', "
+        # `turn_started_at` is cleared HERE TOO, for the same reason the docstring above exists: the
+        # busy setters feed both tables and a clear path that skips one leaves the row describing a
+        # turn that ended. A stale anchor is only latent -- the clamp reads it only while in_turn is
+        # 1, and the next turn stamps a fresh one -- but "latent" is what the drift this function
+        # was written for looked like before it cost thirty minutes of a working agent's status.
+        "UPDATE agent_status_state SET in_turn = 0, turn_run_id = '', turn_started_at = '', "
         "last_event = 'turn_end', last_event_at = ?, updated_at = ? "
         "WHERE agent_id = ? AND in_turn = 1",
         (now, now, agent_id),

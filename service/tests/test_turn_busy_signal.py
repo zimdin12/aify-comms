@@ -35,8 +35,10 @@ CREATE TABLE agent_turn_state (
     turn_started_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE agent_status_state (
-    agent_id TEXT PRIMARY KEY, in_turn INTEGER DEFAULT 0, awaiting_input INTEGER DEFAULT 0,
-    turn_run_id TEXT DEFAULT '', last_event TEXT DEFAULT '', last_event_at TEXT, updated_at TEXT
+    agent_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'offline',
+    in_turn INTEGER DEFAULT 0, awaiting_input INTEGER DEFAULT 0,
+    turn_run_id TEXT DEFAULT '', last_event TEXT DEFAULT '', last_event_at TEXT,
+    turn_started_at TEXT NOT NULL DEFAULT '', updated_at TEXT
 );
 """
 #: `agent_id TEXT PRIMARY KEY` on agent_turn_state is copied from the real schema deliberately: the
@@ -65,7 +67,11 @@ class TurnBusySignalTests(unittest.IsolatedAsyncioTestCase):
             "(agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at) "
             "VALUES (?,1,?,?,'hermes',?)", (agent, run, bridge, BEFORE))
         await self.db.execute(
-            "INSERT INTO agent_status_state VALUES (?,1,0,?,'turn_start',?,?)", (agent, run, BEFORE, BEFORE))
+            # NAMED COLUMNS, not positional: a bare VALUES list breaks the moment a column is added in the
+            # middle, and it silently wrote the wrong column before it broke.
+            "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, turn_run_id, "
+            "last_event, last_event_at, turn_started_at, updated_at) "
+            "VALUES (?,1,0,?,'turn_start',?,?,?)", (agent, run, BEFORE, BEFORE, BEFORE))
 
     async def _signal(self, body, *, agent="a1", bridge="b1", turn_flip=False):
         return await _apply_turn_busy_signal(self.db, agent, bridge, body, NOW, turn_flip)
@@ -222,50 +228,79 @@ if __name__ == "__main__":
 
 
 class TheInlineSchemaMustNotDriftFromTheRealOneTests(unittest.TestCase):
-    """The fixture above hand-copies `agent_turn_state`, so it can go stale. Catch that here.
+    """The fixture above hand-copies real tables, so they can go stale. Catch that here.
 
-    IT DID GO STALE, on 2026-08-30. `turn_started_at` was added to the real table and this copy was
-    not updated; five tests in this file died with "no column named turn_started_at" — a failure
-    that says nothing about the change and everything about the duplicate. The copy is deliberate
-    (see the note beside it: the real ON CONFLICT upsert needs the primary key), so the answer is
-    not to delete it but to make the drift loud and immediate.
+    IT DID GO STALE TWICE, and the second time this gate was already watching. On 2026-08-30
+    `turn_started_at` was added to `agent_turn_state` and the copy was not updated; five tests died
+    with "no column named turn_started_at". This class was written to make that loud. On 2026-08-31
+    the SAME column was added to `agent_status_state` -- the OTHER table the same fixture copies --
+    and eight tests died the same way, because this gate NAMED `agent_turn_state` and checked
+    nothing else.
+
+    A gate that hardcodes one of the things it guards is a gate with a hole the shape of everything
+    else. The tables are DERIVED from the fixture now, so a third copy is covered the moment it is
+    added rather than the moment it breaks.
     """
 
-    def test_the_fixture_declares_every_column_the_real_table_has(self):
+    @staticmethod
+    def _columns(block: str) -> set:
+        """Column names out of a CREATE TABLE body, whichever way it is laid out.
+
+        The real schema puts one column per line; the fixture packs several per line. Splitting on
+        both newlines and commas reads either, so the two need not agree on formatting to be
+        compared on content.
+        """
         import re
+        found = set()
+        body = block.split("(", 1)[1]
+        for line in body.splitlines():
+            line = line.split("--", 1)[0]
+            for chunk in line.split(","):
+                name = chunk.strip().split(" ")[0].strip()
+                if not name or not re.fullmatch(r"[a-z_]+", name):
+                    continue
+                if name.upper() in ("FOREIGN", "PRIMARY", "UNIQUE", "KEY", "REFERENCES"):
+                    continue
+                found.add(name)
+        return found
+
+    @staticmethod
+    def _table_block(sql: str, marker: str) -> str:
+        block = sql[sql.index(marker):]
+        return block[: block.index(");")]
+
+    def _fixture_tables(self) -> list:
+        """Every table the fixture declares, read off the fixture itself."""
+        import re
+        return re.findall(r"CREATE TABLE (\w+)", SCHEMA)
+
+    def test_the_fixture_declares_every_column_the_real_table_has(self):
         from pathlib import Path
 
         real_sql = Path(__file__).resolve().parents[1].joinpath("schema.py").read_text(encoding="utf-8")
-        block = real_sql[real_sql.index("CREATE TABLE IF NOT EXISTS agent_turn_state"):]
-        block = block[: block.index(");")]
-        # Column names are the first token of each non-comment, non-constraint line.
-        def columns(sql: str) -> set[str]:
-            found = set()
-            for line in sql.splitlines()[1:]:
-                line = line.strip().rstrip(",")
-                if not line or line.startswith("--") or line.upper().startswith(("FOREIGN KEY", "PRIMARY KEY", "UNIQUE")):
-                    continue
-                name = re.split(r"\s", line)[0]
-                if re.fullmatch(r"[a-z_]+", name):
-                    found.add(name)
-            return found
+        tables = self._fixture_tables()
+        self.assertGreaterEqual(len(tables), 2,
+                                f"the fixture parser found {tables}; it must find every copied table")
 
-        real = columns(block)
-        fixture_block = SCHEMA[SCHEMA.index("CREATE TABLE agent_turn_state"):]
-        fixture_block = fixture_block[: fixture_block.index(");")]
-        # The fixture packs several columns per line; split on commas too.
-        fixture = set()
-        for chunk in fixture_block.split("(", 1)[1].replace("\n", " ").split(","):
-            name = chunk.strip().split(" ")[0]
-            if re.fullmatch(r"[a-z_]+", name):
-                fixture.add(name)
+        for table in tables:
+            with self.subTest(table=table):
+                real = self._columns(self._table_block(real_sql, f"CREATE TABLE IF NOT EXISTS {table}"))
+                fixture = self._columns(self._table_block(SCHEMA, f"CREATE TABLE {table}"))
+                self.assertTrue(real, f"no columns parsed out of the REAL {table}; the parser is broken")
+                self.assertEqual(
+                    real - fixture, set(),
+                    f"the inline {table} fixture is missing {sorted(real - fixture)}. Add them to "
+                    f"SCHEMA above -- the tests in this file build their database from it, so a "
+                    f"missing column fails as 'no such column' and says nothing about the change "
+                    f"that caused it.",
+                )
 
-        # POSITIVE CONTROL: both readers found a real table, so a missing column is a real
-        # difference and not one of them silently parsing nothing.
-        self.assertIn("turn_busy", real, "the real-schema reader found nothing usable")
-        self.assertIn("turn_busy", fixture, "the fixture reader found nothing usable")
-        self.assertEqual(
-            set(), real - fixture,
-            "the inline fixture is missing columns the real agent_turn_state has. Add them here, "
-            "or the tests in this file exercise a table production cannot produce.",
-        )
+    def test_the_parser_can_actually_tell_a_missing_column(self):
+        """ANTI-VACUITY. A parser returning empty sets would pass the comparison above for every
+        table, which is exactly how this gate reported green while a copy it did not look at drifted."""
+        one_per_line = "CREATE TABLE x (\n    a TEXT,\n    b TEXT\n)"
+        real = self._columns(one_per_line)
+        self.assertEqual(real, {"a", "b"})
+        # And the packed layout the fixture uses, so the parser is proven on BOTH shapes it reads.
+        self.assertEqual(self._columns("CREATE TABLE x (a TEXT, b TEXT)"), {"a", "b"})
+        self.assertEqual(real - self._columns("CREATE TABLE x (a TEXT)"), {"b"})
