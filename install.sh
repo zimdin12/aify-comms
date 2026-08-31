@@ -1877,7 +1877,20 @@ _patch_hermes_config_at() {
   # went unnoticed: every hermes install test is a static grep of this file, which can only ever
   # prove that a line was written. As a module it is run by its test instead.
   local api_key; api_key="$(aify_api_key)"
-  MSYS_NO_PATHCONV=1 node "$SCRIPT_DIR/scripts/hermes-mcp-config.mjs" \
+  # THE SCRIPT PATH NEEDS CONVERTING AND THE ARGUMENTS MUST NOT BE. `MSYS_NO_PATHCONV=1` is here for
+  # the arguments -- two are already drive-letter paths that a second conversion would mangle -- but
+  # it also suppresses conversion of this script's OWN path, so native node.exe was handed a literal
+  # `/c/Docker/...`, resolved it against the drive root, and died with "Cannot find module
+  # C:\c\Docker\...". Caught by a redeploy 2026-08-31; hermes MCP registration had been failing since
+  # 9a2cfdca introduced this line the day before, and the installer reported it as a whole-client
+  # failure rather than the one step that broke.
+  #
+  # Guarded on `is_git_bash_windows`, NOT `hermes_runtime_is_native_windows` as the two call sites
+  # above are: those convert paths a native HERMES will later read, while this one is consumed by the
+  # installer's own `node` -- which under WSL is Linux node and must keep its POSIX path.
+  local cfg_mjs="$SCRIPT_DIR/scripts/hermes-mcp-config.mjs"
+  if is_git_bash_windows && command -v cygpath >/dev/null 2>&1; then cfg_mjs="$(cygpath -w "$cfg_mjs")"; fi
+  MSYS_NO_PATHCONV=1 node "$cfg_mjs" \
     "$node_config_file" "$node_server_path" "$SERVER_URL" "$api_key"
 }
 

@@ -130,7 +130,18 @@ const CEILINGS = {
   // -- and the reason it needed to be is that it had been shipping without the API key, invisible to
   // every hermes install test because they all grep this file. The bridge launcher's key export
   // added a dozen lines back; the net is 68 recovered.
-  "install.sh": 3006,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 3006 -> 3019 on 2026-08-31, and 11 of the 13 are the comment explaining why. THE TWO CODE LINES
+  // repair a defect that made `install.sh --client hermes` FAIL OUTRIGHT: `MSYS_NO_PATHCONV=1` is set
+  // for the arguments of the hermes MCP-config call, and it also suppressed conversion of the
+  // script's own path, so native node.exe was handed a literal `/c/Docker/...`, resolved it against
+  // the drive root, and died with "Cannot find module C:\c\Docker\...". Introduced by 9a2cfdca on
+  // 2026-08-30 and caught by a redeploy the next day -- every hermes install in between registered
+  // no MCP server, and the installer reported a whole-client failure rather than the one step that
+  // broke. The comment is long because the guard is `is_git_bash_windows` while the two call sites
+  // directly above it use `hermes_runtime_is_native_windows`, and a reader who "fixes" that
+  // inconsistency breaks WSL installs: those convert paths a native hermes reads later, this one is
+  // consumed by the installer's own node.
+  "install.sh": 3019,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

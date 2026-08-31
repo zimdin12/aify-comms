@@ -132,8 +132,15 @@ test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module"
   const lines = installer.split("\n");
   // Match the INVOCATION, not the comment above it that names the same file -- the first
   // version of this test matched the comment and passed while proving nothing.
-  const at = lines.findIndex((l) => /node .*scripts\/hermes-mcp-config\.mjs/.test(l));
-  assert.ok(at >= 0, "install.sh must invoke the hermes config module");
+  //
+  // THE PATH IS RESOLVED INTO A VARIABLE FIRST, so the invocation names the variable rather than the
+  // file. Follow the indirection instead of loosening the match: asserting on the assignment alone
+  // would pass while nothing ran it, which is the exact failure the title of this test warns about.
+  const assignedAt = lines.findIndex((l) => /^\s*local\s+\w+="[^"]*scripts\/hermes-mcp-config\.mjs"/.test(l));
+  assert.ok(assignedAt >= 0, "install.sh must resolve the hermes config module path");
+  const varName = /^\s*local\s+(\w+)=/.exec(lines[assignedAt])[1];
+  const at = lines.findIndex((l) => new RegExp(`node "\\$${varName}"`).test(l));
+  assert.ok(at >= 0, "install.sh must invoke the hermes config module through that resolved path");
 
   // The invocation continues onto the next line via a trailing backslash; read both.
   const invocation = lines.slice(at, at + 2).join(" ");
@@ -144,4 +151,33 @@ test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module"
 
   // And the variable is populated from the one resolver, not left empty.
   assert.match(installer, /api_key="\$\(aify_api_key\)"/);
+});
+
+test("the config module's own path is CONVERTED for a native-Windows node", () => {
+  // REGRESSION, and it cost a whole client. `MSYS_NO_PATHCONV=1` is set on this invocation to protect
+  // its ARGUMENTS -- two are already drive-letter paths a second conversion would mangle -- and it
+  // also suppressed conversion of the script's own path. Native node.exe was handed a literal
+  // `/c/Docker/...`, resolved it against the drive root, and died:
+  //   Cannot find module 'C:\c\Docker\aify-comms\scripts\hermes-mcp-config.mjs'
+  // Introduced 2026-08-30 by 9a2cfdca and caught by a redeploy the next day. Every hermes install in
+  // between registered NO MCP server, and the installer reported a whole-client failure rather than
+  // the one step that broke -- so the symptom pointed nowhere near the cause.
+  //
+  // THE GUARD IS `is_git_bash_windows`, not `hermes_runtime_is_native_windows` as the two call sites
+  // above it use, and that difference is load-bearing: those convert paths a native HERMES reads
+  // later, while this one is consumed by the installer's OWN node, which under WSL is Linux node and
+  // must keep a POSIX path. A reader tidying the inconsistency away breaks WSL installs.
+  const installer = fs.readFileSync(path.join(REPO, "install.sh"), "utf8");
+  const lines = installer.split("\n");
+  const assignedAt = lines.findIndex((l) => /^\s*local\s+\w+="[^"]*scripts\/hermes-mcp-config\.mjs"/.test(l));
+  assert.ok(assignedAt >= 0);
+  const varName = /^\s*local\s+(\w+)=/.exec(lines[assignedAt])[1];
+
+  // The conversion sits between the assignment and the invocation, and it converts THAT variable.
+  const invokedAt = lines.findIndex((l) => new RegExp(`node "\\$${varName}"`).test(l));
+  const between = lines.slice(assignedAt + 1, invokedAt).join("\n");
+  assert.match(between, new RegExp(`${varName}="\\$\\(cygpath -w "\\$${varName}"\\)"`),
+               "the module path is never converted, so native node gets a POSIX path it cannot open");
+  assert.match(between, /is_git_bash_windows/,
+               "the conversion is unguarded, which would hand Linux node a Windows path under WSL");
 });
