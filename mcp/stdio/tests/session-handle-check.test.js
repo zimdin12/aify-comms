@@ -170,3 +170,24 @@ test("it costs ONE read, so it can run on every doctor invocation", () => {
     assert.deepEqual(calls.fetched, ["/api/v1/agents"]);
   });
 });
+
+test("an ARRAY is not an agent map — it is UNKNOWN, not a clean fleet", () => {
+  // REVIEWER FINDING, 2026-08-31, and the sharp half is that the test above this one had already
+  // noticed an array reaches the counter and merely asserted it did not crash. `typeof [] ===
+  // "object"`, so a bare typeof guard lets it through, and an array yields no entries in the shape
+  // this check wants -- which renders as "nobody holds a handle". Documenting a hole is not closing
+  // it.
+  const { deps, calls } = harness({ agents: [] });
+  return checkSessionHandles(deps).then(() => {
+    const [, ok, code] = calls.added[0];
+    assert.equal(ok, false, "an array listing was reported as a clean fleet");
+    assert.equal(code, "unknown");
+  });
+});
+
+test("a plain object listing is still accepted — the guard did not become paranoid", () => {
+  const { deps, calls } = harness({ agents: { a: { sessionHandle: "x" } } });
+  return checkSessionHandles(deps).then(() => {
+    assert.equal(calls.added[0][1], true);
+  });
+});

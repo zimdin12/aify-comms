@@ -82,9 +82,18 @@ export const CONTEXT_NEAR_RATIO = 0.9;
  *
  * @param {{agentId:string, usage:{ratio:number}|null, reason?:string}[]} rows
  */
-export function contextWindowVerdict(rows = [], { fullAt = CONTEXT_FULL_RATIO, nearAt = CONTEXT_NEAR_RATIO } = {}) {
+export function contextWindowVerdict(rows = [], {
+  fullAt = CONTEXT_FULL_RATIO,
+  nearAt = CONTEXT_NEAR_RATIO,
+  unmeasured = 0,
+} = {}) {
   const considered = Array.isArray(rows) ? rows : [];
+  const skipped = Math.max(0, Math.floor(unmeasured) || 0);
   if (!considered.length) {
+    // NOTHING MEASURED AND A TAIL LEFT OVER IS NOT "no agent to measure". Reported by a reviewer on
+    // 2026-08-31: the fan-out cap took the first N candidates in insertion order and the verdict never
+    // learned it had been capped, so an exhausted agent sitting at position N+1 produced a clean row.
+    if (skipped) return cappedVerdict(skipped, 0);
     return { ok: true, code: "none", detail: "no agent has a readable console to measure." };
   }
 
@@ -104,7 +113,7 @@ export function contextWindowVerdict(rows = [], { fullAt = CONTEXT_FULL_RATIO, n
   const pct = (row) => `${row.agentId} ${Math.round(row.usage.ratio * 100)}%`;
   const full = readable.filter((row) => row.usage.ratio >= fullAt).map(pct);
   if (full.length) {
-    return {
+    return withTruncation(skipped, {
       ok: false,
       code: "exhausted",
       detail: `${full.length} agent(s) have filled their context window and cannot answer: ${full.join(", ")}`,
@@ -114,28 +123,75 @@ export function contextWindowVerdict(rows = [], { fullAt = CONTEXT_FULL_RATIO, n
         + "BRIDGE AT OR PAST ea18156b: before it, hermes ignored the fresh-context policy and resumed "
         + "the same conversation anyway, so the reset reported success and changed nothing. Check "
         + "`bridge-current` above.",
-    };
+    });
   }
 
   const near = readable.filter((row) => row.usage.ratio >= nearAt).map(pct);
   if (near.length) {
-    return {
+    return withTruncation(skipped, {
       ok: false,
       code: "near-full",
       detail: `${near.length} agent(s) are close to filling their context window: ${near.join(", ")}`,
       fix: "They still answer, but each turn brings them nearer the ceiling, after which they go "
         + "silent while every other signal still reads healthy. Reset them at a moment of your "
         + "choosing rather than mid-task.",
-    };
+    });
   }
 
   const worst = readable.reduce((a, b) => (a.usage.ratio >= b.usage.ratio ? a : b));
   const unread = considered.length - readable.length;
+
+  // A CLEAN TAIL IS THE ONLY THING THAT EARNS `ok`. Everything measured is healthy, but if the
+  // fan-out cap left agents unlooked-at, the honest answer is PARTIAL: the one thing this check
+  // exists to find could be sitting in the part nobody opened.
+  //
+  // NOTE the earlier returns are wrapped by `withTruncation` rather than checked here, because
+  // `exhausted` and `near-full` outrank `partial` -- correctly, since a measured problem beats an
+  // unmeasured maybe -- and an operator reading either of those must STILL be told the tail was not
+  // opened. A cap that is only disclosed on the quiet path is disclosed exactly when it matters least.
+  if (skipped) return cappedVerdict(skipped, readable.length, pct(worst));
+
   return {
     ok: true,
     code: "ok",
     detail: `${readable.length} console(s) measured, worst ${pct(worst)}`
       + (unread ? `; ${unread} could not be read` : ""),
+  };
+}
+
+/**
+ * Any verdict, plus the fact that the fan-out was capped.
+ *
+ * `exhausted` and `near-full` OUTRANK `partial`, and that ranking is right: a measured problem beats
+ * an unmeasured maybe. But an operator reading either of them must still be told the tail was never
+ * opened, or the cap is disclosed only on the quiet path -- exactly when it matters least.
+ */
+function withTruncation(skipped, verdict) {
+  if (!skipped) return verdict;
+  return {
+    ...verdict,
+    detail: `${verdict.detail}. ${skipped} further console(s) were not opened because the fan-out cap `
+      + "was reached, so this is not the whole fleet",
+  };
+}
+
+/**
+ * Some evidence, and a tail nobody looked at.
+ *
+ * SPLIT FROM `unknown-all` DELIBERATELY, following this repo's own ruling after a doctor check
+ * reported green twice while measuring nothing: `partial` means "what I measured was fine, and I did
+ * not measure everything", which is a different sentence from "I measured nothing" and from "all
+ * clear". Collapsing the three is how a cap becomes a lie.
+ */
+function cappedVerdict(skipped, measured, worst = "") {
+  return {
+    ok: false,
+    code: "partial",
+    detail: `${measured} console(s) measured${worst ? `, worst ${worst}` : ""}, but ${skipped} more `
+      + "were not opened because the fan-out cap was reached -- an exhausted agent could be among them.",
+    fix: "Raise `maxConsoles` for this run, or reduce how many agents keep a console open. Until the "
+      + "tail is measured this row is not a clean result: the agent this check exists to find may be "
+      + "in the part nobody looked at.",
   };
 }
 
@@ -154,10 +210,18 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24 }) {
       "Check the `service` row above.");
   }
 
-  const candidates = Object.entries(agents)
+  const eligible = Object.entries(agents)
     .filter(([, agent]) => agent && typeof agent === "object")
-    .filter(([, agent]) => agent.consoleAvailable === true && agent.sessionMode === "managed")
-    .slice(0, maxConsoles);
+    .filter(([, agent]) => agent.consoleAvailable === true && agent.sessionMode === "managed");
+
+  // SORTED, so the cap is not a lottery. Insertion order made which agents got measured depend on
+  // whatever the service happened to return first, and a fan-out that silently drops an arbitrary
+  // tail cannot be reasoned about at all. Alphabetical is not risk-ranked -- nothing here knows the
+  // risk before it reads the console -- but it IS deterministic, so two runs on an unchanged fleet
+  // measure the same agents and the truncation is reported either way.
+  eligible.sort(([a], [b]) => a.localeCompare(b));
+  const candidates = eligible.slice(0, maxConsoles);
+  const unmeasured = eligible.length - candidates.length;
 
   const rows = [];
   for (const [agentId] of candidates) {
@@ -165,6 +229,6 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24 }) {
     rows.push({ agentId, usage: parseContextUsage(console_ && console_.output) });
   }
 
-  const verdict = contextWindowVerdict(rows);
+  const verdict = contextWindowVerdict(rows, { unmeasured });
   return add("context-window", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }

@@ -232,3 +232,84 @@ test("the fix does not recommend a Reset without saying which bridge makes it wo
   assert.match(verdict.fix, /ea18156b/);
   assert.match(verdict.fix, /bridge-current/);
 });
+
+// ── the fan-out cap must never produce a clean row ──────────────────────────────────────────────
+//
+// REVIEWER FINDING, 2026-08-31. The cap took the first N candidates in insertion order and the
+// verdict never learned it had been capped, so an exhausted agent at position N+1 yielded `ok`. That
+// is the precise false green this check was written to abolish, reintroduced by its own bound.
+
+test("a capped fan-out reports PARTIAL, never ok, even when everything measured is healthy", () => {
+  const verdict = contextWindowVerdict([at("a", 0.2)], { unmeasured: 7 });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, "partial");
+  assert.match(verdict.detail, /7 more were not opened/);
+});
+
+test("a capped fan-out that measured NOTHING is partial too, not 'no agent to measure'", () => {
+  const verdict = contextWindowVerdict([], { unmeasured: 3 });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.code, "partial");
+});
+
+test("an EXHAUSTED agent still outranks the cap — the urgent answer is not hidden by partial", () => {
+  const verdict = contextWindowVerdict([at("dead", 1.4)], { unmeasured: 9 });
+  assert.equal(verdict.code, "exhausted");
+});
+
+test("with nothing left over, a healthy fleet is still a clean ok", () => {
+  // Anti-vacuity: the fix must not turn every pass into partial.
+  assert.equal(contextWindowVerdict([at("a", 0.2)], { unmeasured: 0 }).code, "ok");
+});
+
+test("THE CHECK reports partial when more agents were eligible than the cap allows", () => {
+  const agents = { agents: {} };
+  for (let i = 0; i < 9; i += 1) agents.agents[`a${i}`] = managed();
+  // NOT `HEALTHY` -- that fixture is 820.3k/900k = 91%, which is near-full by this module's own
+  // calibration, and near-full outranks partial. The first version of this test used it and failed
+  // for that reason, which is the fixture being wrong rather than the code.
+  const LOW = " ready | gpt 5.6 sol 900k | 90k/900k | 1h 2m | cmp 0 | voice off";
+  const { deps, calls } = harness(agents, Object.fromEntries(
+    Array.from({ length: 9 }, (_, i) => [`a${i}`, { output: LOW }])));
+  return checkContextWindow({ ...deps, maxConsoles: 4 }).then(() => {
+    const [, ok, code, detail] = calls.added[0];
+    assert.equal(ok, false);
+    assert.equal(code, "partial");
+    assert.match(detail, /5 more were not opened/);
+  });
+});
+
+test("the capped selection is DETERMINISTIC, so two runs measure the same agents", () => {
+  // Insertion order made this a lottery: which agents got looked at depended on whatever the service
+  // returned first. Alphabetical is not risk-ranked, but it is reproducible, and the truncation is
+  // reported either way.
+  const agents = { agents: { zeta: managed(), alpha: managed(), mid: managed() } };
+  const consoles = { alpha: { output: HEALTHY }, mid: { output: HEALTHY }, zeta: { output: HEALTHY } };
+  const { deps, calls } = harness(agents, consoles);
+  return checkContextWindow({ ...deps, maxConsoles: 2 }).then(() => {
+    const opened = calls.fetched.filter((p) => p.includes("/console"));
+    assert.ok(opened[0].includes("alpha") && opened[1].includes("mid"),
+              `the cap did not take the first two alphabetically: ${opened.join(", ")}`);
+  });
+});
+
+test("truncation is disclosed even when an EXHAUSTED agent is found", () => {
+  // The stronger form of the reviewer's rule. `exhausted` outranks `partial` and should -- a measured
+  // problem beats an unmeasured maybe -- but an operator reading it must still learn the tail was
+  // never opened, or the cap is disclosed only on the quiet path, exactly when it matters least.
+  const verdict = contextWindowVerdict([at("dead", 1.4)], { unmeasured: 9 });
+  assert.equal(verdict.code, "exhausted");
+  assert.match(verdict.detail, /9 further console\(s\) were not opened/);
+});
+
+test("truncation is disclosed on the NEAR-FULL path too", () => {
+  const verdict = contextWindowVerdict([at("close", 0.95)], { unmeasured: 4 });
+  assert.equal(verdict.code, "near-full");
+  assert.match(verdict.detail, /4 further console\(s\) were not opened/);
+});
+
+test("with nothing skipped, no verdict grows a truncation clause", () => {
+  // Anti-vacuity for the two above.
+  const verdict = contextWindowVerdict([at("dead", 1.4)], { unmeasured: 0 });
+  assert.doesNotMatch(verdict.detail, /not opened/);
+});

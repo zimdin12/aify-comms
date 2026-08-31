@@ -97,15 +97,32 @@ export function sessionHandleVerdict(duplicates, { measured = 0 } = {}) {
  * ONE READ. The whole question is answerable from the agent listing, which is why it is cheap enough
  * to run on every doctor invocation.
  */
+/**
+ * The agent map, or null when what came back was not one.
+ *
+ * `typeof [] === "object"`, so a bare `typeof` check accepts an ARRAY -- and an array of agents
+ * yields zero entries from `Object.entries` in the shape this check wants, which reads as "nobody
+ * holds a handle" rather than "that was not an agent map". A reviewer caught this on 2026-08-31, and
+ * the sharper half of the catch is that the test below had ALREADY noticed the array reached the
+ * counter and merely asserted it did not crash. Documenting a hole is not closing it.
+ */
+function agentMap(listing) {
+  const agents = listing && listing.agents;
+  if (!agents || typeof agents !== "object" || Array.isArray(agents)) return null;
+  return agents;
+}
+
 export async function checkSessionHandles({ get, add }) {
   const listing = await get("/api/v1/agents");
-  const agents = listing && typeof listing.agents === "object" ? listing.agents : null;
+  const agents = agentMap(listing);
   if (!agents) {
     // NO EVIDENCE IS NOT A PASS. An unreadable listing means nothing was compared, and a green row
     // here would be indistinguishable from a fleet with no collisions at all.
     return add("session-handles", false, "unknown",
-      "the service did not answer, so no agent's session handle was compared against any other.",
-      "Check the `service` row above.");
+      "the service did not answer with a readable agent map, so no session handle was compared "
+        + "against any other.",
+      "Check the `service` row above. A listing that came back in an unexpected shape reports here "
+        + "too: an unreadable map and a fleet with no collisions must never render the same.");
   }
 
   const measured = Object.values(agents)
