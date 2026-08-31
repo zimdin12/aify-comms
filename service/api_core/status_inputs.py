@@ -136,34 +136,54 @@ def _last_touch(state_row) -> str:
         return ""
 
 
-async def _in_turn_survives(db, agent_id: str, state_row, *, status_signals=None) -> bool:
-    """The clamp WITH the ownership question answered, which is what both builders need.
+async def _in_turn_survives(db, agent_id: str, state_row, *, status_signals=None,
+                            turn_row=None, renewable=None) -> bool:
+    """The clamp with the ownership question answered, ON THE CARRIER DELIVERY USES.
 
-    `_in_turn_survives_the_ceiling` takes the verdict and cannot fetch it; this is the caller that
-    can. Leaving both builders on the pure helper's `renewable=False` default meant the policy was
-    shared while the ANSWER still was not: a 47-minute turn with a live, verifiable bridge read
-    `working=false` on status while delivery correctly held its queued work for up to four hours.
-    Unifying the policy and then calling it with a constant is agreement in form only.
+    TWO TABLES CARRY THIS TURN'S CLOCKS AND THEY CAN DISAGREE. `agent_status_state` holds the status
+    engine's start and last-event; `agent_turn_state` holds the harness signal's start and last
+    touch. Delivery ages the second pair. A previous round shared the policy FUNCTION and the
+    renewal VERDICT and still evaluated status on the first pair -- which is not the same answer,
+    and the discriminators are reachable whenever one writer updates one table without the other:
 
-    STRICT FIRST, and the ownership query only when it would change the answer. This runs per agent
-    on a batch refresh and `status_signal_prefetch` exists to stop per-agent round-trips, so a
-    turn inside the thirty-minute window -- which is nearly all of them -- costs nothing extra. The
-    shortcut is exact because the policy is monotone in `renewable`: verification can add liveness
-    and never remove it, asserted over its input grid in `test_turn_liveness_policy.py`.
+        live bridge, status touched NOW, turn-state touched 31m ago -> status renews, delivery ends
+        live bridge, status touched 31m ago, turn-state touched NOW -> delivery renews, status ends
+
+    So the STRICT arm keeps the status anchor -- that is this engine's own record of when its turn
+    began, and it is what an unverified turn must age against -- while the RENEWAL arm switches to
+    the authoritative `agent_turn_state` start/touch/owner tuple, exactly as `_turn_busy_holds_
+    delivery` does. Once a claim is being trusted, both readers trust the same evidence.
+
+    The 110-combination grid proves the policy is monotone in `renewable`; it says nothing about two
+    tables carrying different timestamps. That is why the strict-first shortcut is safe only within
+    ONE evidence tuple, and why the renewal arm re-evaluates rather than reusing the strict verdict.
+
+    `turn_row` and `renewable` let a caller that already has them pass them in, so the served path
+    does not re-read the row or repeat the ownership query it has just performed.
     """
     if _in_turn_survives_the_ceiling(state_row):
         return True
-    turn_row = await status_signals_or_live(status_signals).turn_state(db, agent_id)
-    owner = ""
-    if turn_row:
-        try:
-            owner = str(turn_row["turn_bridge_id"] or "")
-        except (KeyError, IndexError):
-            owner = ""
+    if turn_row is None:
+        turn_row = await status_signals_or_live(status_signals).turn_state(db, agent_id)
+    if not turn_row:
+        return False
+    keys = turn_row.keys()
+    owner = str((turn_row["turn_bridge_id"] if "turn_bridge_id" in keys else "") or "")
     if not owner:
         return False
-    renewable = await _turn_lease_is_renewable(db, agent_id, owner)
-    return _in_turn_survives_the_ceiling(state_row, renewable=renewable)
+    if renewable is None:
+        renewable = await _turn_lease_is_renewable(db, agent_id, owner)
+    if not renewable:
+        return False
+    return turn_is_still_live(
+        started_epoch=_iso_to_epoch(str(
+            (turn_row["turn_started_at"] if "turn_started_at" in keys else "") or "")),
+        touched_epoch=_iso_to_epoch(str(turn_row["turn_updated_at"] or "")),
+        renewable=True,
+        now_epoch=datetime.now(timezone.utc).timestamp(),
+        strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
+        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS,
+    )
 
 
 async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs:
@@ -303,7 +323,8 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     session_row = await _current_agent_session_row(db, agent_row["id"])
     active_run = await _current_active_run_row(db, agent_row["id"])
     channel_pending_reply_run = await _current_channel_awaiting_reply_run_row(db, agent_row["id"])
-    turn_busy, turn_runtime, turn_updated_at, turn_state_ready = await _status_turn_signals(
+    (turn_busy, turn_runtime, turn_updated_at, turn_state_ready,
+     _si_turn_row, _si_renewable) = await _status_turn_signals(
         db, agent_row, status_signals=status_signals,
     )
     # Console-working lease (2026-06-05): a fresh spinner-gated lease is the managed-claude
@@ -620,7 +641,8 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # clamps on one question that computed it separately is how the parity this docstring promises
     # quietly stops holding.
     if _si_raw_in_turn and not await _in_turn_survives(
-            db, agent_row["id"], _si_st, status_signals=status_signals):
+            db, agent_row["id"], _si_st, status_signals=status_signals,
+            turn_row=_si_turn_row, renewable=_si_renewable):
         _si_raw_in_turn = False
     # H1: the console-working lease must feed BOTH engines. The v2 engine reads in_turn from
     # agent_status_state (which the lease never writes), so OR the worker-gated lease in here

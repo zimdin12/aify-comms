@@ -395,3 +395,111 @@ class BothProductionBuildersRenewAVerifiedTurnTests(FastApiTestCase):
         gathered, served_status = self._both_builders("sb-forever")
         self.assertFalse(gathered)
         self.assertNotEqual(served_status, "working")
+
+
+class TheTwoTABLES_MUST_NOT_CARRY_DIFFERENT_ANSWERSTests(FastApiTestCase):
+    """Sharing the policy and the renewal verdict is still not sharing the EVIDENCE.
+
+    `agent_status_state` carries the status engine's start and last-event; `agent_turn_state` carries
+    the harness signal's start and last touch. Delivery ages the second pair. A previous round aged
+    status on the FIRST pair even while renewing, so the same function and the same ownership verdict
+    produced two answers whenever the tables disagreed -- which is reachable any time one writer
+    updates one table without the other, the exact drift class these parallel tables have produced
+    before.
+
+    THE 47-MINUTE TEST ABOVE CANNOT CATCH THIS: it seeds both clocks identically, so the carriers
+    agree by construction and the seam is invisible. These seed them apart on purpose, in both
+    directions, and require all THREE readers to agree.
+    """
+
+    DB_NAME = "aify-status-carrier-parity-test.db"
+
+    def _seed(self, agent_id, *, status_touch_age, turn_touch_age, started_age=47 * 60,
+              bridge_id="br-parity", bridge_age=3):
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(
+                    "INSERT INTO agents (id, name, role, status, session_mode, launch_mode,"
+                    " registered_at, last_seen) VALUES (?,?,'coder','online','resident','detached',?,?)"
+                    " ON CONFLICT(id) DO UPDATE SET status='online'",
+                    (agent_id, agent_id, _stamp(3600), _stamp(5)))
+                await db.execute(
+                    "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, turn_run_id,"
+                    " last_event, last_event_at, turn_started_at, updated_at)"
+                    " VALUES (?,1,0,'','turn_start',?,?,?)"
+                    " ON CONFLICT(agent_id) DO UPDATE SET in_turn=1,"
+                    " last_event_at=excluded.last_event_at, turn_started_at=excluded.turn_started_at",
+                    (agent_id, _stamp(status_touch_age), _stamp(started_age), _stamp(status_touch_age)))
+                await db.execute(
+                    "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id,"
+                    " turn_runtime, turn_updated_at, turn_started_at)"
+                    " VALUES (?,1,'',?,'hermes',?,?)"
+                    " ON CONFLICT(agent_id) DO UPDATE SET turn_busy=1,"
+                    " turn_bridge_id=excluded.turn_bridge_id,"
+                    " turn_updated_at=excluded.turn_updated_at,"
+                    " turn_started_at=excluded.turn_started_at",
+                    (agent_id, bridge_id, _stamp(turn_touch_age), _stamp(started_age)))
+                await db.execute(
+                    "INSERT INTO bridge_instances (id, agent_id, machine_id, last_seen,"
+                    " superseded_by, registered_at) VALUES (?,?,'m1',?,'',?)"
+                    " ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen,"
+                    " agent_id=excluded.agent_id, superseded_by=''",
+                    (bridge_id, agent_id, _stamp(bridge_age), _stamp(7200)))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
+    def _all_three(self, agent_id):
+        """Delivery, the authoritative builder, and the served builder — on one row."""
+        async def _run():
+            db = await get_db()
+            try:
+                db.row_factory = __import__("aiosqlite").Row
+                from service.api_core import claim_gating
+                delivery = await claim_gating._turn_busy_holds_delivery(db, agent_id)
+                agent_row = await (await db.execute(
+                    "SELECT * FROM agents WHERE id=?", (agent_id,))).fetchone()
+                gathered = await status_inputs._gather_status_inputs(db, agent_row)
+                cached = await status_inputs._compute_live_status_cache(db, agent_row)
+                return (bool(delivery), bool(gathered.in_turn),
+                        str(cached.get("status") or "") == "working")
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_status_fresh_turn_state_stale_must_not_let_status_outlive_delivery(self):
+        """DISCRIMINATOR ONE. The status row was touched NOW, the harness row 31 minutes ago. Ageing
+        status on its own carrier would renew it while delivery expired."""
+        self._seed("cp-a", status_touch_age=0, turn_touch_age=31 * 60)
+        delivery, gathered, served = self._all_three("cp-a")
+        self.assertEqual(
+            (delivery, gathered, served), (delivery, delivery, delivery),
+            f"the three readers disagree: delivery={delivery} authoritative={gathered} "
+            f"served={served}. Once a claim is trusted they must age the SAME evidence.",
+        )
+
+    def test_status_stale_turn_state_fresh_must_not_let_delivery_outlive_status(self):
+        """DISCRIMINATOR TWO, the mirror. Delivery renews on a fresh harness touch; status must not
+        expire underneath it and report an idle agent whose work is still held."""
+        self._seed("cp-b", status_touch_age=31 * 60, turn_touch_age=0)
+        delivery, gathered, served = self._all_three("cp-b")
+        self.assertEqual(
+            (delivery, gathered, served), (delivery, delivery, delivery),
+            f"the three readers disagree: delivery={delivery} authoritative={gathered} "
+            f"served={served}.",
+        )
+
+    def test_the_discriminators_are_not_vacuous(self):
+        """ANTI-VACUITY. If both shapes happened to be dead everywhere, agreement would be trivial —
+        so at least one of them must be a LIVE turn, and a dead bridge must still end all three."""
+        self._seed("cp-live", status_touch_age=0, turn_touch_age=0)
+        self.assertEqual(self._all_three("cp-live"), (True, True, True),
+                         "a fresh verified turn was not live on all three readers")
+        self._seed("cp-dead", status_touch_age=0, turn_touch_age=0, bridge_age=9000)
+        self.assertEqual(self._all_three("cp-dead"), (False, False, False),
+                         "a 47-minute turn with a DEAD bridge held somewhere")

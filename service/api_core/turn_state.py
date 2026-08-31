@@ -192,11 +192,14 @@ async def _status_turn_signals(db, agent_row, *, status_signals=None):
     # public idle-live status is `online` so operators do not see both
     # `ready` and `available` as competing positive states.
     turn_state_ready = False
+    _tb_row = None
+    _tb_renewable = None
     try:
         # Read through the signal source rather than inline, so a batch refresh can hand this the
         # row it already loaded. An absent source READS -- `status_signals_or_live` fails closed, and
         # the live reader issues exactly the query that used to be here.
         _tb = await status_signals_or_live(status_signals).turn_state(db, agent_row["id"])
+        _tb_row = _tb
         if _tb:
             if int(_tb["turn_busy"] or 0) == 1:
                 # THE SAME POLICY DELIVERY USES. This aged `turn_updated_at` -- the MOVING column --
@@ -225,7 +228,8 @@ async def _status_turn_signals(db, agent_row, *, status_signals=None):
                 if not _live:
                     _owner = str((_tb["turn_bridge_id"] if "turn_bridge_id" in _keys else "") or "")
                     if _owner:
-                        _live = _verdict(await _turn_lease_is_renewable(db, agent_row["id"], _owner))
+                        _tb_renewable = await _turn_lease_is_renewable(db, agent_row["id"], _owner)
+                        _live = _verdict(_tb_renewable)
                 if _live:
                     turn_busy = True
                     turn_runtime = str(_tb["turn_runtime"] or "").strip()
@@ -247,4 +251,7 @@ async def _status_turn_signals(db, agent_row, *, status_signals=None):
     except Exception:
         turn_busy = False
         turn_state_ready = False
-    return turn_busy, turn_runtime, turn_updated_at, turn_state_ready
+    # The row and the renewal verdict travel OUT, so the in_turn clamp downstream does not
+    # re-read one or repeat an ownership query this function has already paid for. Recomputing
+    # them would also risk two answers to one question inside a single refresh.
+    return turn_busy, turn_runtime, turn_updated_at, turn_state_ready, _tb_row, _tb_renewable
