@@ -21,6 +21,12 @@ the sibling health tests use `service.main.app` for the same reason.
 
 from fastapi.testclient import TestClient
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the browser guard now
+#: requires every request to arrive on a Host this service trusts -- loopback, a literal IP, or
+#: a name the operator declared. `testserver` is none of those, and no real client sends it.
+#: Pointing the client at loopback is what a bridge, a CLI or `curl` actually does.
+LOOPBACK = "http://127.0.0.1:8800"
+
 from service.main import app
 
 
@@ -31,7 +37,7 @@ def _health(client: TestClient) -> dict:
 
 
 def test_it_reports_a_number():
-    with TestClient(app) as client:
+    with TestClient(app, base_url=LOOPBACK) as client:
         body = _health(client)
         assert "sockets" in body, "/health does not say how many clients are connected"
         assert isinstance(body["sockets"], int)
@@ -40,7 +46,7 @@ def test_it_reports_a_number():
 def test_the_number_follows_the_manager():
     """Read from the manager rather than invented. A field that always said 0 would look correct on an
     idle host and be useless on a busy one -- which is the only time it gets asked."""
-    with TestClient(app) as client:
+    with TestClient(app, base_url=LOOPBACK) as client:
         manager = app.state.ws_manager
         before = _health(client)["sockets"]
 
@@ -63,7 +69,7 @@ def test_a_broken_manager_cannot_take_the_container_down():
         def active_count(self):
             raise RuntimeError("manager is broken")
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url=LOOPBACK) as client:
         saved = app.state.ws_manager
         app.state.ws_manager = Exploding()
         try:
@@ -75,7 +81,7 @@ def test_a_broken_manager_cannot_take_the_container_down():
 
 
 def test_it_survives_no_manager_at_all():
-    with TestClient(app) as client:
+    with TestClient(app, base_url=LOOPBACK) as client:
         saved = app.state.ws_manager
         del app.state.ws_manager
         try:

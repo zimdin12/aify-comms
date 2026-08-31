@@ -85,6 +85,10 @@ class ServiceConfig:
     #: comparing Origin to Host compares two client-supplied values, which agree perfectly under DNS
     #: rebinding. Add a LAN name or dashboard hostname here to reach the service on it from a browser.
     trusted_hosts: list[str] = field(default_factory=list)
+    #: Caddy's site list, verbatim (`localhost:8443, stevenz-l:8443, ...`). Names the service may be
+    #: reached by; `hosts_from_https_sites` turns it into hosts and `main.py` unions it with
+    #: `trusted_hosts` once, for the HTTP guard and the WebSocket guard together.
+    https_sites: str = ""
 
     # Logging
     log_level: str = "info"
@@ -174,6 +178,10 @@ class ServiceConfig:
             "OPERATOR_KEY": "operator_key",
             "CORS_ORIGINS": ("cors_origins", lambda v: [s.strip() for s in v.split(",")]),
             "TRUSTED_HOSTS": ("trusted_hosts", lambda v: [s.strip() for s in v.split(",") if s.strip()]),
+            # The same value Caddy is given, read so the service trusts the names it is actually
+            # SERVED as. Unset here and Caddy falls back to its own in-file default, which is why
+            # this cannot be the only source -- see `hosts_from_https_sites`.
+            "HTTPS_SITES": "https_sites",
             "LOG_LEVEL": "log_level",
             "LOG_FORMAT": "log_format",
         }

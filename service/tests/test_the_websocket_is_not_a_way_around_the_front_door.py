@@ -23,6 +23,18 @@ on the same host through -- Dashboard Next answers on :8801 -- and refuses anoth
 
 from __future__ import annotations
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the guard now requires every
+#: request to arrive on a Host this service trusts -- loopback, a literal IP, or a name the
+#: operator declared. `testserver` is none of those, and nothing real sends it; a bridge, a CLI
+#: or `curl` reaches the service exactly like this.
+LOOPBACK = "http://127.0.0.1:8800"
+#: `TestClient.websocket_connect` sends `Host: testserver` REGARDLESS of `base_url` -- measured,
+#: by spying on the guard: it received `host="testserver"` from a client built on
+#: `http://127.0.0.1:8800`. So a websocket test states the Host itself, or it is testing the
+#: refusal of a hostname nothing real sends.
+WS_HOST = {"host": "127.0.0.1:8800"}
+
+
 import unittest
 
 from service.main import websocket_origin_is_allowed as allowed
@@ -59,14 +71,31 @@ class TheWebSocketChecksItsOriginTests(unittest.TestCase):
         The same-host shortcut now applies only on a host we independently trust: loopback, plus
         whatever the operator names in `trusted_hosts`. A rebound name is neither.
 
-        THIS HAS AN OPERATOR COST and it is deliberate: reaching the dashboard over a LAN name or
-        address from a browser now requires that name in `trusted_hosts`. Loopback keeps working
-        untouched, which is the default deployment.
+        THIS HAS AN OPERATOR COST and it is deliberate: reaching the dashboard over a LAN NAME from a
+        browser requires that name in `trusted_hosts` (or in `HTTPS_SITES`, which is derived from).
+        Loopback keeps working untouched, which is the default deployment.
+
+        A LITERAL IP IS NOT A NAME, and this test asserted it was. Rebinding is a DNS answer that
+        changes under the browser; there is no lookup to poison when the client typed an address,
+        and page script cannot set `Host`. So an address is trusted and only names need declaring --
+        which is also what keeps every bridge, CLI and `curl` working with nothing configured.
+
+        WHAT THIS DOES NOT FIX, stated because the guard reads stronger than it is: a browser too old
+        to send Fetch Metadata can still be made to issue a plain cross-site GET at loopback, and no
+        header-based rule can see it, because there are no headers. That is CSRF, not rebinding, and
+        the answer to it is `API_KEY`. The Host rule closes rebinding, which is the part it can.
         """
-        # Not named: refused, however well Origin and Host agree with each other.
-        self.assertFalse(allowed("http://192.168.1.10", "192.168.1.10:8800", []))
+        # A NAME nobody declared: refused, however well Origin and Host agree with each other.
         self.assertFalse(allowed("http://evil.example", "evil.example:8800", []),
                          "a rebound host agreeing with itself is not a same-origin request")
+        self.assertFalse(allowed("http://stevenz-l:3000", "stevenz-l:8800", []),
+                         "an undeclared LAN name is exactly what a rebind supplies")
+
+        # An ADDRESS needs no declaring: it cannot have been rebound.
+        self.assertTrue(allowed("http://192.168.1.10", "192.168.1.10:8800", []))
+        # ...but it is still only a SAME-host claim: a page on another origin is refused on it.
+        self.assertFalse(allowed("http://evil.example", "192.168.1.10:8800", []),
+                         "an IP Host must not vouch for somebody else's Origin")
 
         # Named by the operator: allowed, including a second dashboard on another port of it.
         self.assertTrue(allowed("http://192.168.1.10", "192.168.1.10:8800", [], ["192.168.1.10"]))
@@ -138,7 +167,7 @@ class TheENDPOINTActuallyChecksTests(unittest.TestCase):
                 pass
 
         app.state.ws_manager = _Manager()
-        return TestClient(app)
+        return TestClient(app, base_url=LOOPBACK)
 
     def test_a_page_on_another_site_cannot_open_the_stream(self):
         from starlette.websockets import WebSocketDisconnect
@@ -150,5 +179,5 @@ class TheENDPOINTActuallyChecksTests(unittest.TestCase):
     def test_a_program_sending_no_origin_still_connects(self):
         # The control: without it, "the guard works" and "the WebSocket is broken" look identical.
         client = self._client()
-        with client.websocket_connect("/ws") as ws:
+        with client.websocket_connect("/ws", headers=WS_HOST) as ws:
             self.assertIsNotNone(ws)

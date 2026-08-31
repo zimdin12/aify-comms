@@ -126,8 +126,10 @@ class WithNoOriginFetchMetadataIsAllThereIsTests(unittest.TestCase):
         self.assertTrue(allowed(sec_fetch_site="none", method="GET"))
 
     def test_a_PROGRAM_sending_neither_header_is_allowed(self):
-        """A browser cannot omit both. Refusing on absence would refuse every bridge, every CLI and
-        every curl this service exists to serve, and protect nobody."""
+        """Every bridge, CLI and curl this service exists to serve sends neither header, and they
+        keep working. NOT because absence is read as "not a browser" -- it was, and that was the
+        residual: a browser predating Fetch Metadata omits both too. They pass because they reach
+        the service on a Host it trusts, which is checked here whatever the headers say."""
         self.assertTrue(allowed(method="POST"))
 
 
@@ -329,8 +331,8 @@ class BothDoorsGetTheSAMEConfigTests(unittest.TestCase):
         # captured a fragment and failed on correct code.
         call = " ".join(lines[at:at + 4])
 
-        self.assertIn("config.trusted_hosts", call,
-                      "the websocket door does not receive the operator's trusted hosts, so a "
+        self.assertIn("trusted_hosts", call,
+                      "the websocket door does not receive the resolved trusted hosts, so a "
                       "named LAN host would work over HTTP and be refused on the live stream")
         # POSITIVE CONTROL: the same slice finds the sibling argument, so a miss above is a real
         # absence rather than a window that landed on the wrong lines.
@@ -344,8 +346,9 @@ class BothDoorsGetTheSAMEConfigTests(unittest.TestCase):
         from service import main as service_main
 
         source = inspect.getsource(service_main.create_app)
-        self.assertIn("trusted_hosts=config.trusted_hosts", source)
+        self.assertIn("effective_trusted_hosts(config.trusted_hosts, config.https_sites)", source)
         self.assertNotIn("getattr(config, 'trusted_hosts'", source)
+        self.assertNotIn("getattr(config, 'https_sites'", source)
 
 
 class RebindingReachesTheNoOriginArmTooTests(unittest.TestCase):
@@ -381,13 +384,38 @@ class RebindingReachesTheNoOriginArmTooTests(unittest.TestCase):
             method="GET", path="/", sec_fetch_site="", sec_fetch_dest="document",
             origin="", host="evil.example", allowed_origins=[], trusted_hosts=["aify.local"]))
 
-    def test_a_PROGRAM_on_ANY_host_is_still_served(self):
-        """Both headers absent is not a browser. Refusing on Host here would break every bridge
-        reaching the service by a container name, and protect nobody: a program can send any Host
-        it likes, so the check buys nothing against one."""
+    def test_NO_HEADERS_AT_ALL_IS_STILL_HOST_CHECKED(self):
+        """This test used to assert the opposite, on the reasoning that "both headers absent is not a
+        browser". Executed by review: browsers that predate Fetch Metadata send none of it, and a
+        same-origin GET carries no `Origin`, so a rebound page in such a browser was classified as a
+        program and skipped the Host check entirely -- against the mutating GET routes. The check is
+        unconditional now, and does not rest on guessing what kind of client sent the request."""
+        self.assertFalse(browser_request_is_allowed(
+            method="POST", path="/api/v1/agents", sec_fetch_site="", sec_fetch_dest="",
+            origin="", host="evil.example", allowed_origins=[], trusted_hosts=["aify.local"]))
+
+    def test_AND_THE_HEADER_LESS_CLIENTS_THAT_MATTER_ARE_UNTOUCHED(self):
+        """The cost of making it unconditional, paid where it would actually land. A bridge, a CLI or
+        `curl` reaches this service on loopback or on an address, and REBINDING NEEDS A NAME -- there
+        is no DNS answer to poison when the client typed an IP, and page script cannot set `Host`.
+        So every one of these is served with nothing configured."""
+        for host in ("127.0.0.1:8800", "localhost:8800", "[::1]:8800",
+                     "192.168.1.50:8800", "10.0.0.7:8800"):
+            with self.subTest(host=host):
+                self.assertTrue(browser_request_is_allowed(
+                    method="POST", path="/api/v1/agents", sec_fetch_site="", sec_fetch_dest="",
+                    origin="", host=host, allowed_origins=[], trusted_hosts=[]))
+
+    def test_a_NAMED_host_is_served_once_the_operator_declares_it(self):
+        """The one case that needs configuration, and the escape hatch for it. A program reaching the
+        service by a hostname -- through the HTTPS proxy, or by a container name -- is refused until
+        the operator says that name is this service, via `TRUSTED_HOSTS` or `HTTPS_SITES`."""
+        self.assertFalse(browser_request_is_allowed(
+            method="POST", path="/api/v1/agents", sec_fetch_site="", sec_fetch_dest="",
+            origin="", host="stevenz-l:8443", allowed_origins=[], trusted_hosts=[]))
         self.assertTrue(browser_request_is_allowed(
             method="POST", path="/api/v1/agents", sec_fetch_site="", sec_fetch_dest="",
-            origin="", host="anything-at-all", allowed_origins=[], trusted_hosts=["aify.local"]))
+            origin="", host="stevenz-l:8443", allowed_origins=[], trusted_hosts=["stevenz-l"]))
 
 
 class ANavigablePathMustNotBEAPREFIXTests(unittest.TestCase):
@@ -407,3 +435,56 @@ class ANavigablePathMustNotBEAPREFIXTests(unittest.TestCase):
         for path in ("/", "/health", "/api/v1/dashboard", "/api/v1/dashboard/index.html"):
             with self.subTest(path=path):
                 self.assertTrue(path_is_navigable(path))
+
+
+class TheTrustedHostListIsDERIVEDFromWhatTheOperatorAlreadyDeclaredTests(unittest.TestCase):
+    """`HTTPS_SITES` is the same value Caddy is given, and `config/Caddyfile` says every name you
+    intend to reach it by must be listed. That makes it the existing answer to the question this
+    guard asks, so it is derived rather than asked for a second time under another name.
+
+    THE COST THIS AVOIDS IS CONCRETE. The operator's own Caddy serves `stevenz-l:8443` and
+    `stevenz-l.local:8443`. With the Host check unconditional and nothing derived, browser access by
+    either name would be refused after a rebuild, and the cause -- a security fix landing three
+    commits earlier -- would not be visible from the symptom.
+    """
+
+    def test_the_names_caddy_is_served_as_become_trusted_hosts(self):
+        from service.api_core.browser_origin import effective_trusted_hosts
+        resolved = effective_trusted_hosts(
+            [], "localhost:8443, 127.0.0.1:8443, stevenz-l:8443, stevenz-l.local:8443")
+        self.assertEqual(resolved, ["localhost", "127.0.0.1", "stevenz-l", "stevenz-l.local"])
+
+    def test_a_request_on_such_a_name_is_then_served(self):
+        """The union reaching the DECISION, not just being computed. A list built correctly and
+        handed to nobody is the shape this file already caught once."""
+        from service.api_core.browser_origin import effective_trusted_hosts
+        resolved = effective_trusted_hosts([], "stevenz-l:8443")
+        self.assertTrue(browser_request_is_allowed(
+            method="POST", path="/api/v1/agents", sec_fetch_site="same-origin",
+            origin="https://stevenz-l:8443", host="stevenz-l:8443",
+            allowed_origins=[], trusted_hosts=resolved))
+        # NEGATIVE CONTROL: a name NOT in that declaration is still refused, so the allowance
+        # tracks the operator's list rather than the presence of any list at all.
+        self.assertFalse(browser_request_is_allowed(
+            method="POST", path="/api/v1/agents", sec_fetch_site="same-origin",
+            origin="https://evil.example", host="evil.example",
+            allowed_origins=[], trusted_hosts=resolved))
+
+    def test_an_operators_explicit_list_and_the_derived_one_are_UNIONED_not_replaced(self):
+        from service.api_core.browser_origin import effective_trusted_hosts
+        self.assertEqual(
+            effective_trusted_hosts(["box.lan"], "stevenz-l:8443"), ["box.lan", "stevenz-l"])
+        # A name in both places appears once, so listing it twice is not a way to change behaviour.
+        self.assertEqual(
+            effective_trusted_hosts(["stevenz-l"], "stevenz-l:8443"), ["stevenz-l"])
+
+    def test_an_unset_HTTPS_SITES_adds_nothing_rather_than_an_empty_name(self):
+        """An empty entry in the list would match a request carrying no Host at all."""
+        from service.api_core.browser_origin import effective_trusted_hosts
+        for value in ("", None, "   ", ",,"):
+            with self.subTest(value=value):
+                self.assertEqual(effective_trusted_hosts([], value), [])
+        self.assertFalse(browser_request_is_allowed(
+            method="POST", path="/api/v1/agents", sec_fetch_site="same-origin",
+            origin="", host="", allowed_origins=[],
+            trusted_hosts=effective_trusted_hosts([], "")))

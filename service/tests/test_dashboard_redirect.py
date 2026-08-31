@@ -26,6 +26,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the browser guard now
+#: requires every request to arrive on a Host this service trusts -- loopback, a literal IP, or
+#: a name the operator declared. `testserver` is none of those, and no real client sends it.
+#: Pointing the client at loopback is what a bridge, a CLI or `curl` actually does.
+LOOPBACK = "http://127.0.0.1:8800"
+
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -63,11 +69,17 @@ class DashboardRedirectTests(unittest.TestCase):
             # here changed nothing and made the field look alive.
             port=8800,
             mcp_enabled=False,
+            # DECLARED, because the browser guard now requires every request to arrive on a Host
+            # this service trusts. `aify.internal` is a NAME, and a name is exactly what a DNS
+            # rebind supplies -- so it is refused until an operator says it is this service. The
+            # test below drives the redirect on that name, which is what a real named deployment
+            # looks like once `TRUSTED_HOSTS` or `HTTPS_SITES` declares it.
+            trusted_hosts=["aify.internal"],
         )
         self.original_get_config = main_module.get_config
         self.addCleanup(setattr, main_module, "get_config", self.original_get_config)
         main_module.get_config = lambda: cfg
-        self.client = TestClient(main_module.create_app())
+        self.client = TestClient(main_module.create_app(), base_url=LOOPBACK)
 
     def test_legacy_dashboard_entry_points_redirect_to_new_dashboard(self):
         with patch.dict(os.environ, {"AIFY_DASHBOARD_URL": "http://dashboard.example:8801/"}):

@@ -1,6 +1,18 @@
 import tempfile
 import unittest
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the guard now requires every
+#: request to arrive on a Host this service trusts -- loopback, a literal IP, or a name the
+#: operator declared. `testserver` is none of those, and nothing real sends it; a bridge, a CLI
+#: or `curl` reaches the service exactly like this.
+LOOPBACK = "http://127.0.0.1:8800"
+#: `TestClient.websocket_connect` sends `Host: testserver` REGARDLESS of `base_url` -- measured,
+#: by spying on the guard: it received `host="testserver"` from a client built on
+#: `http://127.0.0.1:8800`. So a websocket test states the Host itself, or it is testing the
+#: refusal of a hostname nothing real sends.
+WS_HOST = {"host": "127.0.0.1:8800"}
+
+
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -27,13 +39,13 @@ class WebsocketAuthTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_websocket_requires_api_key(self):
-        with TestClient(self.app) as client:
+        with TestClient(self.app, base_url=LOOPBACK) as client:
             with self.assertRaises(WebSocketDisconnect):
-                with client.websocket_connect("/ws?agent_id=tester"):
+                with client.websocket_connect("/ws?agent_id=tester", headers=WS_HOST):
                     pass
 
     def test_websocket_accepts_valid_api_key_and_tracks_agent(self):
-        with TestClient(self.app) as client:
-            with client.websocket_connect("/ws?agent_id=tester&api_key=secret") as ws:
+        with TestClient(self.app, base_url=LOOPBACK) as client:
+            with client.websocket_connect("/ws?agent_id=tester&api_key=secret", headers=WS_HOST) as ws:
                 ws.send_text("ping")
                 self.assertIn("tester", client.app.state.ws_manager.online_agents())

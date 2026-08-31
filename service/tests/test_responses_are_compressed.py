@@ -12,6 +12,12 @@ comes back off the wire.
 """
 from __future__ import annotations
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the browser guard now
+#: requires every request to arrive on a Host this service trusts -- loopback, a literal IP, or
+#: a name the operator declared. `testserver` is none of those, and no real client sends it.
+#: Pointing the client at loopback is what a bridge, a CLI or `curl` actually does.
+LOOPBACK = "http://127.0.0.1:8800"
+
 import json
 import unittest
 
@@ -41,7 +47,7 @@ class ResponsesAreCompressed(unittest.TestCase):
         def _tiny():  # noqa: ANN202
             return {"ok": True}
 
-        cls.client = TestClient(cls.app)
+        cls.client = TestClient(cls.app, base_url=LOOPBACK)
 
     def test_a_large_response_comes_back_gzipped(self):
         response = self.client.get(

@@ -25,6 +25,7 @@ cannot quietly become "whatever the last request did".
 
 from __future__ import annotations
 
+import ipaddress
 from urllib.parse import urlsplit
 
 #: Methods that cannot change state, so a browser NAVIGATION to them is not an attack.
@@ -62,11 +63,78 @@ NAVIGABLE_PATHS = (
 )
 
 
+def host_is_an_ip_literal(host: str) -> bool:
+    """Was this service addressed by a literal IP rather than by a name?
+
+    THE POINT IS REBINDING, AND REBINDING NEEDS A NAME. The attack is a DNS answer that changes
+    under the browser: the victim loads `evil.example`, that name is re-resolved to this service,
+    and the browser then treats it as the origin. There is no lookup to poison when the client
+    typed an address, and page script cannot override `Host` (it is a forbidden header), so an
+    IP-addressed request cannot have been rebound. Trusting it costs nothing this guard defends.
+
+    It is what lets the Host requirement apply to EVERY caller instead of only to ones that
+    identified themselves as browsers: bridges, `curl` and the MCP clients reach the service on
+    loopback or on an address, and none of them is asked to configure anything.
+    """
+    name = _hostname_of(host)
+    if not name:
+        return False
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return True
+
+
+def hosts_from_https_sites(value: str) -> list[str]:
+    """The host NAMES out of a Caddy `HTTPS_SITES` list, which is the operator's own declaration.
+
+    `config/Caddyfile` says it plainly: "Every name you intend to REACH IT BY must be listed". That
+    makes it the existing answer to the question this guard asks, so deriving from it beats asking
+    the operator to maintain a second list that means the same thing and can disagree with the first.
+
+    Entries carry a port (`stevenz-l:8443`) and the port is dropped: a port does not make a
+    different site, and the guard compares names. An empty or unset value yields nothing rather than
+    a list containing an empty string, which would match a request with no Host at all.
+    """
+    names = []
+    for entry in str(value or "").split(","):
+        name = _hostname_of(entry.strip())
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def effective_trusted_hosts(trusted_hosts, https_sites: str) -> list[str]:
+    """The ONE list both doors are handed: what the operator named, plus what Caddy is served as.
+
+    A pure function rather than an expression at one call site, because "both doors get the same
+    configuration" is the property that has already failed here once -- `trusted_hosts` reached the
+    HTTP middleware and not the WebSocket one, so a named LAN host worked in the dashboard and was
+    refused on the live console. Computing it in one place and passing the result to both is what
+    makes that hard to get wrong again; having it testable without building the application is what
+    makes the union itself provable.
+
+    Order is preserved and duplicates dropped, so an operator listing a name in both places gets it
+    once.
+    """
+    named = [str(entry).strip() for entry in (trusted_hosts or []) if str(entry).strip()]
+    out = list(named)
+    lowered = {entry.lower() for entry in named}
+    for name in hosts_from_https_sites(https_sites):
+        if name.lower() not in lowered:
+            out.append(name)
+            lowered.add(name.lower())
+    return out
+
+
 def host_is_trusted(host: str, trusted_hosts=None) -> bool:
     """Is `Host` one this service accepts a same-host claim on?"""
     name = _hostname_of(host)
     if not name:
         return False
+    if host_is_an_ip_literal(host):
+        return True
     named = {str(entry).strip().lower() for entry in (trusted_hosts or []) if str(entry).strip()}
     return name in (named or set()) or name in DEFAULT_TRUSTED_HOSTS
 
@@ -166,13 +234,20 @@ def browser_request_is_allowed(
     sibling subdomain qualifies; but a plain navigation from one is harmless and refusing it would
     break the operator's own link between dashboards.
 
-    ABSENT EVERYTHING MEANS NOT A BROWSER — a bridge, a CLI, a test, `curl` — and those are the
-    callers this service exists to serve. A browser cannot omit both, so this is not the hole it
-    looks like; refusing on absence would refuse every legitimate client and protect nobody.
+    ABSENT EVERYTHING USED TO MEAN "NOT A BROWSER", AND THAT WAS WRONG. This docstring asserted that
+    a browser cannot omit both. Browsers that predate Fetch Metadata can and do — Safari before
+    16.4, older Firefox, anything Internet Explorer — and a same-origin GET carries no `Origin`
+    either. So the header-derived "is this a browser" test had exactly one job and failed at it for
+    the oldest clients, which are the ones least likely to be defended elsewhere.
+
+    THE HOST REQUIREMENT IS THEREFORE UNCONDITIONAL, and no longer inferred from headers the client
+    chooses to send. Every request must arrive on a Host this service trusts: loopback, a literal IP
+    (`host_is_an_ip_literal` says why that is safe), or a name the operator listed. An
+    operator-NAMED origin is still honoured whatever the Host, because that is an explicit decision
+    about a specific third party rather than a shortcut inferred from self-agreement.
     """
     origin = str(origin or "").strip().rstrip("/")
     site = str(sec_fetch_site or "").strip().lower()
-    dest = str(sec_fetch_dest or "").strip().lower()
 
     # A BROWSER MUST REACH US ON A TRUSTED HOST, whichever arm it would otherwise take.
     #
@@ -186,8 +261,13 @@ def browser_request_is_allowed(
     #
     # An operator-NAMED origin is still honoured below whatever the Host: that is an explicit
     # decision about a specific third party, not a shortcut inferred from self-agreement.
-    browser_identified = bool(site) or bool(dest)
-    if browser_identified and origin.lower() not in _named_origins(allowed_origins):
+    # UNCONDITIONAL, because "did a browser send this" was itself read off client-supplied headers.
+    # Keying on `Sec-Fetch-*` being present at all left a second walk-around one step behind the
+    # first: a browser old enough to send no Fetch Metadata, on a same-origin GET that carries no
+    # `Origin`, was classified as a program and skipped the check entirely. Requiring the Host of
+    # EVERY caller costs the header-less clients nothing, because loopback and IP literals are
+    # trusted and that is how a bridge, a CLI or `curl` reaches this service.
+    if origin.lower() not in _named_origins(allowed_origins):
         if not host_is_trusted(host, trusted_hosts):
             return False
 

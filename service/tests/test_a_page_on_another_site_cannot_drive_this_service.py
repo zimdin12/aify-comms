@@ -28,6 +28,12 @@ origin may drive this service. `*` grants no exemption: a wildcard is the absenc
 
 from __future__ import annotations
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the guard now requires every
+#: request to arrive on a Host this service trusts -- loopback, a literal IP, or a name the
+#: operator declared. `testserver` is none of those, and nothing real sends it; a bridge, a CLI
+#: or `curl` reaches the service exactly like this.
+LOOPBACK = "http://127.0.0.1:8800"
+
 import unittest
 
 from fastapi import FastAPI
@@ -60,7 +66,7 @@ def _app(allowed_origins=None, trusted_hosts=None) -> FastAPI:
 
 class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(_app())
+        self.client = TestClient(_app(), base_url=LOOPBACK)
 
     def test_a_cross_site_page_cannot_type_into_a_live_console(self):
         """The endpoint the audit named. It is the sharpest one, not the only one."""
@@ -103,7 +109,7 @@ class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
         self.assertEqual(same_origin.status_code, 200, "a same-origin dashboard was refused")
 
         second_dashboard = self.client.get("/api/v1/agents", headers={
-            "sec-fetch-site": "same-site", "origin": "http://testserver:8801"})
+            "sec-fetch-site": "same-site", "origin": "http://127.0.0.1:8801"})
         self.assertEqual(second_dashboard.status_code, 200,
                          "Dashboard Next on another port was refused")
 
@@ -122,7 +128,7 @@ class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
 
 class TheOperatorsOwnConfigIsHonouredTests(unittest.TestCase):
     def test_an_origin_named_in_cors_origins_is_allowed_through(self):
-        client = TestClient(_app(["https://dash.example"]))
+        client = TestClient(_app(["https://dash.example"]), base_url=LOOPBACK)
         response = client.get("/api/v1/agents", headers={
             "sec-fetch-site": "cross-site", "origin": "https://dash.example"})
         self.assertEqual(response.status_code, 200, "a configured origin was refused")
@@ -130,7 +136,7 @@ class TheOperatorsOwnConfigIsHonouredTests(unittest.TestCase):
     def test_a_trailing_slash_or_different_case_still_matches(self):
         """An origin is compared, not parsed, so the two spellings an operator actually writes must
         both work -- otherwise the exemption silently does nothing and looks like the guard is broken."""
-        client = TestClient(_app(["https://Dash.Example/"]))
+        client = TestClient(_app(["https://Dash.Example/"]), base_url=LOOPBACK)
         response = client.get("/api/v1/agents", headers={
             "sec-fetch-site": "cross-site", "origin": "https://dash.example"})
         self.assertEqual(response.status_code, 200)
@@ -138,16 +144,16 @@ class TheOperatorsOwnConfigIsHonouredTests(unittest.TestCase):
     def test_a_WILDCARD_grants_nothing(self):
         """`*` is the default. Reading it as "every browser may drive this" would make the guard a
         no-op in precisely the configuration it exists to protect."""
-        client = TestClient(_app(["*"]))
+        client = TestClient(_app(["*"]), base_url=LOOPBACK)
         self.assertEqual(client.get("/api/v1/agents", headers=CROSS).status_code, 403)
 
     def test_an_origin_NOT_in_the_list_is_still_refused(self):
-        client = TestClient(_app(["https://dash.example"]))
+        client = TestClient(_app(["https://dash.example"]), base_url=LOOPBACK)
         self.assertEqual(client.get("/api/v1/agents", headers=CROSS).status_code, 403)
 
     def test_a_cross_site_request_with_NO_origin_is_refused(self):
         # A page can withhold Origin on some request kinds; Sec-Fetch-Site alone is enough to know.
-        client = TestClient(_app(["https://dash.example"]))
+        client = TestClient(_app(["https://dash.example"]), base_url=LOOPBACK)
         self.assertEqual(
             client.get("/api/v1/agents", headers={"sec-fetch-site": "cross-site"}).status_code, 403)
 
@@ -181,7 +187,7 @@ class TheREALAppInstallsItTests(unittest.TestCase):
             return create_app()
 
     def test_the_real_app_refuses_a_cross_site_page(self):
-        client = TestClient(self._real_app())
+        client = TestClient(self._real_app(), base_url=LOOPBACK)
         response = client.get("/api/v1/agents", headers=CROSS)
         self.assertEqual(response.status_code, 403,
                          "create_app() does not install the cross-site guard")
@@ -191,12 +197,12 @@ class TheREALAppInstallsItTests(unittest.TestCase):
         installed = [m.cls.__name__ for m in app.user_middleware]
         self.assertIn("APIKeyMiddleware", installed,
                       "the key middleware is not even installed, so this proves no ordering")
-        client = TestClient(app)
+        client = TestClient(app, base_url=LOOPBACK)
         response = client.get("/api/v1/agents", headers=CROSS)
         self.assertEqual(response.status_code, 403,
                          "a 401 here means the key check ran first, leaving the keyless default open")
 
     def test_a_program_still_reaches_the_real_app(self):
         # The control: the guard must not have simply broken the service.
-        client = TestClient(self._real_app())
+        client = TestClient(self._real_app(), base_url=LOOPBACK)
         self.assertEqual(client.get("/health").status_code, 200)

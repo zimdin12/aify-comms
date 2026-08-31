@@ -21,7 +21,8 @@ from service.longpoll import attributable_ms, begin_wait_accounting
 
 from service.config import get_config
 from service.api_core.browser_origin import (
-    browser_request_is_allowed, is_browser_navigation, url_without_api_key,
+    browser_request_is_allowed, effective_trusted_hosts, is_browser_navigation,
+    url_without_api_key,
 )
 from service.routers import health, containers as containers_router
 from service.routers.api_v2 import router as api_router
@@ -106,8 +107,12 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
     removed by page script, and no program sends it -- so this protects the default deployment, which
     is the one that needed protecting.
 
-    ABSENT MEANS "not a browser", and that is not a hole: a browser cannot omit this header. Refusing
-    on absence would refuse every bridge, every CLI and every `curl` this service exists to serve.
+    ABSENT DOES NOT MEAN "not a browser", though this docstring said so. A browser old enough to
+    predate Fetch Metadata sends none of it, and a same-origin GET carries no `Origin` either, so the
+    header-derived "is this a browser" test skipped exactly the clients least defended elsewhere.
+    The Host requirement is unconditional now and does not depend on that judgement at all; the
+    header-less callers this service exists to serve -- bridges, CLIs, `curl` -- reach it on loopback
+    or on a literal IP, and neither can be a rebinding target. `browser_origin.py` carries the why.
     """
 
     def __init__(self, app, allowed_origins: list[str] | None = None,
@@ -476,10 +481,17 @@ def create_app() -> FastAPI:
     # the key check does, because the deployment it protects is the one with NO key. It also sits
     # outside CORS, so a cross-site preflight is refused before CORS gets to approve it.
     #
-    # ALWAYS ON. Unlike the key and the bind address, this costs an operator nothing: no program sends
-    # `Sec-Fetch-Site`, and both dashboards are same-origin or same-site.
+    # RESOLVED ONCE, for the HTTP guard and the WebSocket guard together. Wiring `trusted_hosts` into
+    # one call site and not the other is a bug this file has already shipped once: the dashboard
+    # worked over a named host and the live console refused, with one policy and two callers, one of
+    # them under-informed. There is exactly one list, computed here, and both are handed it.
+    #
+    # `HTTPS_SITES` is the operator's own answer to "what names am I reached by" -- Caddy is given
+    # that same value, and its Caddyfile says every name you intend to reach it by must be listed.
+    # Deriving from it means the ordinary HTTPS deployment needs no second list to keep in step.
+    trusted_hosts = effective_trusted_hosts(config.trusted_hosts, config.https_sites)
     app.add_middleware(CrossSiteBrowserMiddleware, allowed_origins=config.cors_origins,
-                       trusted_hosts=config.trusted_hosts)
+                       trusted_hosts=trusted_hosts)
 
     app.add_middleware(RequestTimingMiddleware)
 
@@ -496,7 +508,7 @@ def create_app() -> FastAPI:
         # with no key configured, which is the default.
         if not websocket_origin_is_allowed(
             ws.headers.get("origin", ""), ws.headers.get("host", ""), config.cors_origins,
-            config.trusted_hosts
+            trusted_hosts
         ):
             await ws.close(code=1008)
             return

@@ -23,6 +23,12 @@ drifts is one of them keeping a path to a file that has moved.
 
 from __future__ import annotations
 
+#: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the browser guard now
+#: requires every request to arrive on a Host this service trusts -- loopback, a literal IP, or
+#: a name the operator declared. `testserver` is none of those, and no real client sends it.
+#: Pointing the client at loopback is what a bridge, a CLI or `curl` actually does.
+LOOPBACK = "http://127.0.0.1:8800"
+
 import unittest
 from pathlib import Path
 
@@ -38,7 +44,7 @@ FAVICON_FILE = Path(__file__).resolve().parents[1] / "favicon.svg"
 class ServiceRootTests(unittest.TestCase):
     def setUp(self):
         self.app = create_app()
-        self.client = TestClient(self.app)
+        self.client = TestClient(self.app, base_url=LOOPBACK)
         self.cfg = get_config()
         self._saved_version = self.cfg.version
 
@@ -87,8 +93,8 @@ class FaviconTests(unittest.TestCase):
     """One file, four routes, three modules. Tested for agreement rather than consolidated."""
 
     def setUp(self):
-        self.client = TestClient(create_app())
-        self.dashboard = TestClient(dashboard_app)
+        self.client = TestClient(create_app(), base_url=LOOPBACK)
+        self.dashboard = TestClient(dashboard_app, base_url=LOOPBACK)
 
     def tearDown(self):
         self.client.close()
@@ -136,7 +142,7 @@ class FaviconTests(unittest.TestCase):
         saved = cfg.api_key
         cfg.api_key = "a-real-key"
         try:
-            client = TestClient(create_app())
+            client = TestClient(create_app(), base_url=LOOPBACK)
             for path in ("/favicon.svg", "/favicon.ico", "/api/v1/favicon.svg"):
                 with self.subTest(path=path):
                     self.assertEqual(client.get(path).status_code, 200)
