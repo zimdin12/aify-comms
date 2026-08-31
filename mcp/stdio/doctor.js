@@ -34,6 +34,7 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { defaultMachineId } from "./runtimes.js";
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
+import { checkContextWindow } from "./context-window-check.mjs";
 import { checkService } from "./service-check.mjs";
 import {
   describeEnv,
@@ -377,6 +378,13 @@ await checkEnvProcesses({
   launcherText: installedLauncherText(),
   machineId: defaultMachineId(),
 });
+// CAN THESE AGENTS STILL ANSWER? Measured 2026-08-31: five managed hermes agents produced nothing
+// for over two hours while status read `online`, `lastSeen` refreshed every few seconds and their
+// dispatch runs reported `delivered`. They were reading their messages and starting work, then
+// dying on a context window filled by conversations resuming since June. Nothing in the control
+// plane could say so -- and the auto-mirrored failure notice lists four candidate causes without
+// naming this one, so the single diagnosis readable off the screen was the one nobody looked for.
+await checkContextWindow({ get, add, skip });
 // IS THE FLEET LISTING OPEN, AND DOES IT HAND OUT CREDENTIALS WHEN IT IS? Measured on the operator's
 // host 2026-08-29: 200 with no key, 200 with a wrong one, and 16 of 47 agent rows carrying a live
 // gateway token. Neither half is a defect alone -- running without a key is a configuration, and the
