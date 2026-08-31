@@ -255,7 +255,10 @@ def test_generating_REUSES_an_existing_key_rather_than_rotating():
         == "already-here-and-long-enough-to-be-real"
     # A shell key over a file that names NO key is still handed back unrotated. (This line used to
     # put a DIFFERENT key in the file and assert the shell won; that pairing is a refusal now.)
-    assert _ask("OTHER=1\n", {"CLAUDE_MCP_API_KEY": "from-shell"}, generate=True) == "from-shell"
+    # A REAL-LENGTH key, because `--generate` refuses to ADOPT a weak one: this test's subject is
+    # rotation, and a 10-character fixture would have failed it for an unrelated reason.
+    shell_key = "s" * 40
+    assert _ask("OTHER=1\n", {"CLAUDE_MCP_API_KEY": shell_key}, generate=True) == shell_key
 
 
 def test_a_generated_key_is_not_predictable():
@@ -277,3 +280,185 @@ def test_install_sh_delegates_rather_than_carrying_its_own_copy():
     assert "scripts/api-key.sh" in install_sh, "install.sh no longer delegates to the one reader"
     assert "${CLAUDE_MCP_API_KEY:-${AIFY_API_KEY:-}}" not in install_sh, \
         "install.sh re-typed the key precedence instead of calling the script"
+
+
+# ---------------------------------------------------------------------------------------------
+# Round 2, from review. Three defects and a missing contract, all of them the SAME shape as the bug
+# this file exists for: a failure that reads as an absence.
+
+
+def _failing_grep_dir(directory: Path) -> Path:
+    """A `grep` earlier on PATH that exits 2, the way a real I/O error does.
+
+    WHY A STUB AND NOT A REAL UNREADABLE FILE: measured on this host, `chmod 000` does not block
+    reads (Windows ACLs), so the natural trigger cannot be produced here. Driving the error
+    directly is the difference between testing the guard and hoping the platform cooperates.
+    """
+    binaries = directory / "fakebin"
+    binaries.mkdir()
+    stub = binaries / "grep"
+    stub.write_text('#!/bin/bash\necho "grep: simulated I/O error" >&2\nexit 2\n',
+                    encoding="utf-8", newline="\n")
+    stub.chmod(0o755)
+    return binaries
+
+
+def _run_with_failing_grep(root: Path, generate: bool) -> subprocess.CompletedProcess:
+    binaries = _failing_grep_dir(root)
+    env = {"PATH": f"{binaries}{os.pathsep}{os.environ.get('PATH', '')}",
+           "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")}
+    command = [_bash(), str(root / "scripts" / "api-key.sh")] + (["--generate"] if generate else [])
+    return subprocess.run(command, capture_output=True, text=True, env=env)
+
+
+#: EVERY ROW MEASURED against real Compose on 2026-08-31 (`docker compose config`, throwaway
+#: project, `env_file: - .env`). Not one of them is a belief about dotenv syntax: guessing here is
+#: how the installer and the service end up holding different keys. Re-measuring needs Docker,
+#: which is why the observations are recorded rather than re-derived on every run.
+COMPOSE_GRAMMAR = [
+    ("API_KEY=plain\n", "plain", "a bare value"),
+    ('API_KEY="dq"\n', "dq", "double quotes are stripped"),
+    ("API_KEY='sq'\n", "sq", "single quotes are stripped"),
+    ("export API_KEY=exported\n", "exported", "an export prefix is accepted"),
+    ("   API_KEY=lead\n", "lead", "leading whitespace is ignored"),
+    ("\tAPI_KEY=tabbed\n", "tabbed", "a tab counts as leading whitespace"),
+    ("API_KEY = spaced\n", "spaced", "whitespace may surround the equals"),
+    ("API_KEY=trail   \n", "trail", "trailing whitespace is trimmed"),
+    ("API_KEY=val #comment\n", "val", "a hash AFTER WHITESPACE starts a comment"),
+    ("API_KEY=val#nospace\n", "val#nospace", "an un-spaced hash is part of the value"),
+    ('API_KEY="val #keep"\n', "val #keep", "quotes protect a hash"),
+    ("API_KEY=a b c\n", "a b c", "an unquoted value keeps its inner spaces"),
+    ("#API_KEY=nope\n", "", "a commented line is not a definition"),
+    ("API_KEY=\n", "", "a declared empty value is not a key"),
+    ("API_KEY=first\nAPI_KEY=second\n", "second", "the LAST definition wins, as env_file does"),
+]
+
+
+def test_THE_DECLARED_GRAMMAR_MATCHES_WHAT_COMPOSE_ACTUALLY_DOES():
+    """Duplicate precedence was only the first divergence. `export API_KEY=x` is a definition
+    Compose honours and the old pattern did not match at all -- so the script reported ABSENT while
+    the service held a key, which is the original bug wearing different clothes. And an inline `#`
+    comment was kept, so a client would have been handed `val #comment` as its key."""
+    for text, expected, why in COMPOSE_GRAMMAR:
+        assert _ask(text) == expected, f"{why}: {text!r}"
+
+
+def test_AN_UNPARSEABLE_VALUE_IS_REFUSED_RATHER_THAN_GUESSED():
+    r"""Compose applies escape rules inside quotes (`"a\"b"` gives `a"b`, and `\n` gives a real
+    newline in BOTH quote styles -- measured). Reimplementing that is a second parser to keep in
+    step, and a wrong answer here is a key mismatch invisible from either side. So it says so."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), 'API_KEY="a\\nb"\n')
+        result = _run(root, None, generate=False)
+        assert result.returncode == 5, f"a value it cannot parse was guessed at: {result!r}"
+        assert "backslash inside quotes" in result.stderr
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), 'API_KEY="unclosed\n')
+        result = _run(root, None, generate=False)
+        assert result.returncode == 5
+        assert "never closes" in result.stderr
+    # POSITIVE CONTROL: an ordinary quoted key still resolves, so exit 5 marks a real ambiguity
+    # rather than every quoted value.
+    assert _ask('API_KEY="ordinary"\n') == "ordinary"
+
+
+def test_A_READ_FAILURE_IS_NOT_AN_ABSENCE():
+    """The defect this whole file is about, still present INSIDE the script one round later:
+    `grep ... || true` collapsed a real I/O error into "no key". `grep` exits 1 for no-match and 2
+    or more for a genuine failure, and only the first of those is an answer."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "API_KEY=whatever\n")
+        result = _run_with_failing_grep(root, generate=False)
+        assert result.returncode == 1, f"a read failure reported as absent: {result!r}"
+        assert result.stdout.strip() == "", "it printed a key it never managed to read"
+
+
+def test_A_FAILED_READ_MUST_NOT_TRIGGER_A_REWRITE_OF_ENV():
+    """DATA LOSS, and I wrote it. `persist_key` ran `grep -v ... > "$tmp" || true` and then moved
+    `$tmp` into place, so a read that FAILED produced an empty temp file and the move replaced the
+    operator's entire `.env` with a single API_KEY line.
+
+    PROVEN AGAINST THE PREVIOUS VERSION, not argued: driving commit 0dbb02b4 with this same stub
+    grep took a three-line `.env` holding `HERMES_TOKEN` down to one line. That is the positive
+    control -- without it, "the file survived" is equally consistent with a guard that works and
+    with a scenario that never reached the dangerous code at all."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(
+            Path(scratch),
+            "COMPOSE_PROJECT_NAME=aify\nSERVICE_PORT=8800\nHERMES_TOKEN=irreplaceable\n")
+        result = _run_with_failing_grep(root, generate=True)
+        assert result.returncode != 0, "a rewrite went ahead on the strength of a failed read"
+        surviving = (root / ".env").read_text(encoding="utf-8")
+        assert "HERMES_TOKEN=irreplaceable" in surviving, \
+            f"the operator's settings were destroyed: {surviving!r}"
+        assert "SERVICE_PORT=8800" in surviving
+
+
+def test_GENERATE_REFUSES_A_WEAK_EXISTING_KEY_THOUGH_READING_ONE_ONLY_WARNS():
+    """Reported and refused are both right, in different places, and I had only the first.
+    `--generate` is the path that exists to ESTABLISH the key every client will be handed, so
+    adopting a guessable one there is precisely what it must not do. An ordinary read is the
+    operator's running state -- the service is already on that key and every bridge holds it -- so
+    aborting an install neither rotates it nor helps anyone."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "OTHER=kept\nAPI_KEY=short\n")
+
+        reading = _run(root, None, generate=False)
+        assert reading.returncode == 0, "an ordinary install was blocked by a key already in use"
+        assert reading.stdout.strip() == "short"
+        assert "guessable" in reading.stderr
+
+        generating = _run(root, None, generate=True)
+        assert generating.returncode == 4, f"--generate adopted a weak key: {generating!r}"
+        assert "refusing to adopt" in generating.stderr
+        assert (root / ".env").read_text(encoding="utf-8").count("API_KEY=") == 1, \
+            "the refusal still wrote to .env"
+
+    # NEGATIVE CONTROL: a key AT the floor is adopted, so the refusal tracks length rather than
+    # firing on every key that reaches --generate.
+    assert _ask("API_KEY=" + ("k" * 32) + "\n", generate=True) == "k" * 32
+
+
+def _grep_that_fails_only_when_filtering(directory: Path) -> Path:
+    """A `grep` that answers the READ honestly and fails only the `-Ev` call `persist_key` makes.
+
+    WHY SO SPECIFIC. The blunt stub -- fail every grep -- never reaches `persist_key` at all: the
+    read guard refuses first, so a mutation removing the persist guard left the suite GREEN. That is
+    a guard with no reachable path, which is a guard nobody can claim. This reproduces the only way
+    the dangerous line is actually reached: a read that succeeded, and a later filter that did not.
+    It is a real window, not a contrivance -- the file can change or the disk can fail between them.
+    """
+    binaries = directory / "fakebin-filter"
+    binaries.mkdir()
+    real = shutil.which("grep")
+    stub = binaries / "grep"
+    stub.write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = "-Ev" ]; then echo "grep: simulated I/O error" >&2; exit 2; fi\n'
+        f'exec "{real}" "$@"\n',
+        encoding="utf-8", newline="\n")
+    stub.chmod(0o755)
+    return binaries
+
+
+def test_THE_PERSIST_GUARD_IS_REACHABLE_AND_NOT_JUST_PRESENT():
+    """`persist_key` re-reads `.env` to drop the old definition, and that read can fail on its own
+    after the first one succeeded. Without its own guard the empty result would be written over the
+    operator's file -- the same data loss, one call later, and the read guard does not cover it."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(
+            Path(scratch),
+            "COMPOSE_PROJECT_NAME=aify\nHERMES_TOKEN=irreplaceable\n")
+        binaries = _grep_that_fails_only_when_filtering(root)
+        env = {"PATH": f"{binaries}{os.pathsep}{os.environ.get('PATH', '')}",
+               "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+               # NO API_KEY in the file, so this is not a conflict -- it is the "persist what we
+               # hand out" branch, which is the one that writes.
+               "AIFY_API_KEY": "s" * 40}
+        command = [_bash(), str(root / "scripts" / "api-key.sh"), "--generate"]
+        result = subprocess.run(command, capture_output=True, text=True, env=env)
+
+        surviving = (root / ".env").read_text(encoding="utf-8")
+        assert "HERMES_TOKEN=irreplaceable" in surviving, \
+            f"persist rewrote .env from a failed read: {surviving!r}"
+        assert result.returncode != 0, "it reported success after refusing to write"
