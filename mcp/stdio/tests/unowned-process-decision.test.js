@@ -19,6 +19,7 @@ import {
   OWNER_UNKNOWN,
   describeDecision,
   ownerFromStatus,
+  processRowProblem,
   unownedProcessDecision,
 } from "../unowned-process-decision.mjs";
 
@@ -192,6 +193,77 @@ test("every input lands in exactly one list, so nothing is silently dropped", ()
   assert.equal(candidates.length + keep.length + invalid.length, FLEET.length);
 });
 
+test("THE REVIEWER'S OWN HOSTILE INPUT, verbatim -- every row of it is invalid", () => {
+  // RUN AGAINST THE SHIPPED COMMIT AND IT RETURNED `invalid: []`. The array, the empty object and the
+  // Date were classified as unlabelled `keep`, and the fourth row became a CANDIDATE printed as
+  // "gone pid null" -- a thing an operator might stop, with no identity to stop it by.
+  //
+  // The guard was `!entry || typeof entry !== "object"`, which rejects null and primitives and nothing
+  // else. And the conservation test PASSED throughout, because conserving a row into the wrong
+  // population still conserves it. A total that adds up is not a partition that is correct.
+  const hostile = [[], {}, new Date(0), { id: "p", pid: null, label: "gone", startedAtMs: 1 }];
+  const { candidates, keep, invalid } = unownedProcessDecision(hostile, OWNERS, REMOVALS);
+  assert.deepEqual(candidates, []);
+  assert.deepEqual(keep, []);
+  assert.equal(invalid.length, hostile.length);
+});
+
+test("each malformed row says HOW it was malformed, not merely that it was", () => {
+  // Which way a row is wrong says which thing broke. An array where a row was expected is a different
+  // defect from a row whose pid did not survive serialisation, and an operator chasing one is not
+  // helped by being told the other happened.
+  const cases = [
+    [[], /array/],
+    [{}, /no process id/],
+    [new Date(0), /no process id/],
+    [{ id: "p", pid: null }, /no usable pid/],
+    [{ id: "p", pid: 0 }, /no usable pid/],
+    [{ id: "p", pid: -1 }, /no usable pid/],
+    [{ id: "p", pid: NaN }, /no usable pid/],
+    [{ id: "p", pid: "123" }, /no usable pid/],
+    [{ id: "   ", pid: 5 }, /no process id/],
+    [{ id: 7, pid: 5 }, /no process id/],
+    [null, /not an object/],
+    ["nope", /not an object/],
+  ];
+  for (const [row, expected] of cases) {
+    const { invalid } = unownedProcessDecision([row], OWNERS, REMOVALS);
+    assert.equal(invalid.length, 1, `${JSON.stringify(row)} was not rejected`);
+    assert.match(invalid[0].why, expected, `${JSON.stringify(row)} gave the wrong reason`);
+  }
+});
+
+test("a row with a pid but NO LABEL is still a valid row -- unclaimed is a state, not a defect", () => {
+  // The three situations must stay distinguishable: a malformed row, an unattributable one, and one
+  // whose start cannot be ordered. Requiring a label here would collapse the second into the first and
+  // tell an operator the listing is broken when it is merely reporting something real.
+  const { keep, invalid } = unownedProcessDecision([proc("p1", 111, "")], OWNERS, REMOVALS);
+  assert.deepEqual(invalid, []);
+  assert.match(keep[0].why, /no label/);
+});
+
+test("a row with no start time is a valid row too -- unorderable is a typed outcome", () => {
+  const { keep, invalid } = unownedProcessDecision(
+    [{ id: "p1", pid: 111, label: "apg-pilot-01" }],
+    { "apg-pilot-01": OWNER_REMOVED }, { "apg-pilot-01": REMOVED_AT },
+  );
+  assert.deepEqual(invalid, []);
+  assert.match(keep[0].why, /cannot be placed/);
+});
+
+test("no candidate can ever be reported without a usable pid to name it by", () => {
+  // The failure was not just a misclassification: describeDecision printed "gone pid null". A report
+  // an operator cannot act on is worse than no report, because it looks actionable.
+  const rows = [...FLEET, { id: "x", pid: null, label: "apg-pilot-01", startedAtMs: BEFORE }];
+  const { candidates } = unownedProcessDecision(rows, OWNERS, REMOVALS);
+  for (const c of candidates) {
+    assert.equal(typeof c.pid, "number");
+    assert.ok(Number.isFinite(c.pid) && c.pid > 0, `candidate had pid ${c.pid}`);
+  }
+  const line = describeDecision(unownedProcessDecision(rows, OWNERS, REMOVALS));
+  assert.doesNotMatch(line, /pid null|pid undefined|pid NaN/);
+});
+
 test("A MALFORMED ROW IS RETURNED, not skipped -- the partition covers every input", () => {
   // THIS TEST USED TO BLESS THE BUG. It asserted junk was "skipped rather than crashing" and checked
   // only that the two good lists were right, which documented a hole instead of closing it: the JSDoc
@@ -206,11 +278,17 @@ test("A MALFORMED ROW IS RETURNED, not skipped -- the partition covers every inp
   assert.equal(keep.length, 0);
   assert.equal(invalid.length, junk.length);
   assert.deepEqual(invalid.map((r) => r.raw), junk);
-  for (const row of invalid) assert.match(row.why, /not a process row/);
+  // Cause-specific, so this asserts the cause these three actually have rather than a blanket phrase.
+  for (const row of invalid) assert.match(row.why, /not an object/);
 });
 
 test("the count of every input is conserved even when the listing is mostly junk", () => {
-  const rows = [null, undefined, 0, "", [], proc("p", 1, "apg-pilot-01"), proc("q", 2, "")];
+  // CONSERVATION ALONE IS NOT ENOUGH and this test used to be the only one guarding the partition.
+  // It passed against a build that classified arrays and Dates as processes, because the total was
+  // still right. It stays because a dropped row is a real failure too, but the population tests above
+  // are what actually hold the boundary.
+  const rows = [null, undefined, 0, "", [], {}, new Date(0), { id: "z", pid: null },
+    proc("p", 1, "apg-pilot-01"), proc("q", 2, "")];
   const { candidates, keep, invalid } = unownedProcessDecision(rows, OWNERS, REMOVALS);
   assert.equal(candidates.length + keep.length + invalid.length, rows.length);
 });
@@ -295,4 +373,60 @@ test("a clean listing says nothing about malformed rows", () => {
   // signal and stops being read.
   const line = describeDecision(unownedProcessDecision(FLEET, OWNERS, REMOVALS));
   assert.doesNotMatch(line, /not process rows/);
+});
+
+// -- processRowProblem, tested directly ----------------------------------------------------------
+//
+// THE PREDICATE THE WHOLE BOUNDARY RESTS ON, so it is exercised by name rather than only through the
+// classifier. Testing it only through `unownedProcessDecision` proves the pair agree, which is a
+// weaker claim than either being right -- and this predicate is where the shipped defect lived.
+
+test("a well-formed row has no problem", () => {
+  assert.equal(processRowProblem({ id: "p1", pid: 111, label: "a", startedAtMs: 1 }), null);
+});
+
+test("label and start time are OPTIONAL -- their absence is a state, not a malformed row", () => {
+  // Requiring them would collapse "unclaimed" and "unorderable" into "broken listing", and those are
+  // three different things an operator needs told apart.
+  assert.equal(processRowProblem({ id: "p1", pid: 111 }), null);
+  assert.equal(processRowProblem({ id: "p1", pid: 111, label: "" }), null);
+  assert.equal(processRowProblem({ id: "p1", pid: 111, startedAtMs: "nonsense" }), null);
+});
+
+test("it rejects everything that is not an object", () => {
+  for (const v of [null, undefined, 0, 1, "", "row", true, false, Symbol("s"), 9n]) {
+    assert.match(processRowProblem(v), /not an object/, `${String(v)} was accepted`);
+  }
+});
+
+test("AN ARRAY IS REJECTED -- typeof [] is \"object\", which is how one walked through the old guard", () => {
+  assert.match(processRowProblem([]), /array/);
+  assert.match(processRowProblem([1, 2, 3]), /array/);
+});
+
+test("an id must be a non-empty string, not merely present", () => {
+  for (const id of [undefined, null, "", "   ", "\t\n", 7, {}, []]) {
+    assert.match(processRowProblem({ id, pid: 111 }), /no process id/, `id ${String(id)} was accepted`);
+  }
+});
+
+test("a pid must be a finite positive NUMBER -- a numeric string is not a pid", () => {
+  // `"123"` would survive any check that only asks whether the field is truthy, and 0 would survive
+  // any check that only asks whether it is a number.
+  for (const pid of [undefined, null, 0, -1, -0.5, NaN, Infinity, -Infinity, "123", "", {}, []]) {
+    assert.match(processRowProblem({ id: "p", pid }), /no usable pid/, `pid ${String(pid)} was accepted`);
+  }
+  assert.equal(processRowProblem({ id: "p", pid: 1 }), null);
+});
+
+test("id is checked before pid, so a row missing both names the id", () => {
+  // Not a preference: a stable order means an operator seeing two runs of the same broken listing gets
+  // the same reason both times, instead of one that depends on field iteration.
+  assert.match(processRowProblem({}), /no process id/);
+});
+
+test("a Date is rejected, and for the reason a Date is wrong here", () => {
+  // It is an object and not an array, so only the identity fields catch it. Review used exactly this
+  // value, and under the old guard it was classified as an unlabelled process.
+  assert.match(processRowProblem(new Date(0)), /no process id/);
 });
