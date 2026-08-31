@@ -76,12 +76,19 @@ def test_the_key_the_service_is_configured_with_is_found():
 
 
 def test_an_explicit_key_in_the_shell_still_wins():
-    # Both names, in the bridge's own precedence. An operator exporting one is making a choice, and a
-    # file cannot overrule it.
-    assert _ask("API_KEY=from-file\n", {"CLAUDE_MCP_API_KEY": "from-shell"}) == "from-shell"
-    assert _ask("API_KEY=from-file\n", {"AIFY_API_KEY": "from-shell"}) == "from-shell"
-    assert _ask("API_KEY=from-file\n",
+    """An operator exporting a key is making a choice, and a file with NO key cannot overrule it.
+
+    This test used to pit the shell against a file holding a DIFFERENT key and assert the shell won.
+    That is the case where clients get one value and the restarted service runs on the other, so it
+    is now a refusal rather than a preference -- see the conflict test below. What survives here is
+    the part that was always right: precedence between the two SHELL names, and the shell answering
+    when the file says nothing."""
+    assert _ask("OTHER=1\n", {"CLAUDE_MCP_API_KEY": "from-shell"}) == "from-shell"
+    assert _ask("OTHER=1\n", {"AIFY_API_KEY": "from-shell"}) == "from-shell"
+    assert _ask("OTHER=1\n",
                 {"CLAUDE_MCP_API_KEY": "first", "AIFY_API_KEY": "second"}) == "first"
+    # And a file naming the SAME key is agreement, not a conflict, so the shell still answers.
+    assert _ask("API_KEY=same\n", {"CLAUDE_MCP_API_KEY": "same"}) == "same"
 
 
 def test_no_key_anywhere_is_an_ANSWER_and_not_an_error():
@@ -128,8 +135,95 @@ def test_a_commented_out_key_is_not_a_key():
     assert _ask("# API_KEY=disabled\nAPI_KEY=real\n") == "real"
 
 
-def test_the_FIRST_definition_wins_the_way_a_dotenv_reader_reads_it():
-    assert _ask("API_KEY=first\nAPI_KEY=second\n") == "first"
+def test_the_LAST_definition_wins_THE_WAY_COMPOSE_READS_IT():
+    """This test asserted `first` and was named for "the way a dotenv reader reads it". Some dotenv
+    libraries do read first. The consumer here is not one of them: `docker-compose.yml` passes `.env`
+    as `env_file`, and Compose parses it into a map where a later line overwrites an earlier one.
+
+    MEASURED against real Compose, both ways, in a throwaway project: on `API_KEY=FIRST_aaa` then
+    `API_KEY=LAST_bbb`, `docker compose config` renders `LAST_bbb`; swapping the two lines swaps the
+    answer, so the reading is positional and not a property of those strings. The script took the
+    first (`grep -m1`). So a duplicated key handed the SERVICE one value and every CLIENT the other:
+    a 401 on every call, with both halves looking correctly configured."""
+    assert _ask("API_KEY=first\nAPI_KEY=second\n") == "second"
+
+
+def test_GENERATING_CANNOT_AUTHOR_THE_DUPLICATE_IT_USED_TO_MISREAD():
+    """The old `--generate` appended. An operator's `.env` commonly carries a blank `API_KEY=` from a
+    template, which read as absent, so generating appended a SECOND definition -- and then the next
+    run read the blank first one and appended a third. The file the two readers disagree about was
+    written by this script."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "API_KEY=\nOTHER=kept\n")
+        result = _run(root, None, generate=True)
+        assert result.returncode == 0, result.stderr
+        text = (root / ".env").read_text(encoding="utf-8")
+        definitions = [line for line in text.splitlines() if line.strip().startswith("API_KEY=")]
+        assert len(definitions) == 1, f"generate authored a duplicate definition: {definitions!r}"
+        assert definitions[0].split("=", 1)[1] == result.stdout.strip()
+        assert "OTHER=kept" in text, "rewriting the key dropped an unrelated line"
+
+
+def test_A_SHELL_KEY_AND_A_DIFFERENT_FILE_KEY_IS_REFUSED_NOT_PREFERRED():
+    """The case that configures every client with a value the service will refuse. The shell key used
+    to win silently: clients got it, the service restarted onto the file's key, and every call 401'd
+    with both halves looking correctly installed. There is a right action available, so this refuses
+    and names it rather than picking one."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "API_KEY=" + ("f" * 40) + "\n")
+        result = _run(root, {"AIFY_API_KEY": "s" * 40}, generate=False)
+        assert result.returncode == 3, f"a shell/file conflict was not refused: {result!r}"
+        assert result.stdout.strip() == "", "it printed a key it had just called ambiguous"
+        assert "DIFFERENT API keys" in result.stderr
+        # POSITIVE CONTROL: the SAME key in both places is not a conflict, so the refusal above is a
+        # real disagreement rather than a guard that fires whenever the shell is set at all.
+        agreed = _run(root, {"AIFY_API_KEY": "f" * 40}, generate=False)
+        assert agreed.returncode == 0, agreed.stderr
+        assert agreed.stdout.strip() == "f" * 40
+
+
+def test_A_SHELL_ONLY_KEY_IS_PERSISTED_WHERE_THE_SERVICE_WILL_READ_IT():
+    """It was exported into every client and never written to `.env`, so the next service restart came
+    up keyless while every client presented a key. Nothing 401s in that direction -- a keyless service
+    accepts anything -- which is exactly why it could sit there unnoticed until the operator set a
+    key for real."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "OTHER=kept\n")
+        result = _run(root, {"AIFY_API_KEY": "s" * 40}, generate=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "s" * 40, "generate rotated a key it was handed"
+        text = (root / ".env").read_text(encoding="utf-8")
+        assert "API_KEY=" + ("s" * 40) in text, "the key handed to clients was never persisted"
+
+
+def test_A_WEAK_KEY_FROM_ANY_SOURCE_IS_REPORTED():
+    """Validation applied only to newly generated bytes, so a weak key that arrived any other way was
+    reused as though it had been vetted. It is REPORTED and not refused: the service is already
+    running on it and every installed bridge holds it, so aborting neither rotates it nor helps."""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "API_KEY=short\n")
+        result = _run(root, None, generate=False)
+        assert result.returncode == 0, "a weak existing key must not abort the install"
+        assert result.stdout.strip() == "short", "it warned and then withheld the key in use"
+        assert "guessable" in result.stderr
+        # NEGATIVE CONTROL: a key at the floor draws no warning, so the warning tracks length rather
+        # than firing on every key that reaches the check.
+        fine = _run(_scratch_repo(Path(tempfile.mkdtemp()), "API_KEY=" + ("k" * 32) + "\n"), None, False)
+        assert fine.returncode == 0 and fine.stderr.strip() == "", fine.stderr
+
+
+def test_ABSENT_AND_ERROR_ARE_DIFFERENT_ANSWERS():
+    """`aify_api_key() { ...; || true; }` in install.sh collapsed a real failure into "no key", so a
+    keyless config got written after an error. They are distinguishable now: absent exits 0 with
+    empty stdout, a conflict exits 3."""
+    with tempfile.TemporaryDirectory() as scratch:
+        absent = _run(_scratch_repo(Path(scratch), "OTHER=x\n"), None, generate=False)
+        assert absent.returncode == 0 and absent.stdout.strip() == ""
+    with tempfile.TemporaryDirectory() as scratch:
+        root = _scratch_repo(Path(scratch), "API_KEY=" + ("f" * 40) + "\n")
+        conflict = _run(root, {"AIFY_API_KEY": "s" * 40}, generate=False)
+        assert conflict.returncode != 0, "an error is indistinguishable from finding no key"
+        assert conflict.returncode != absent.returncode
 
 
 def test_generating_writes_the_key_where_the_SERVICE_will_read_it():
@@ -159,7 +253,9 @@ def test_generating_REUSES_an_existing_key_rather_than_rotating():
     401 this whole change exists to prevent."""
     assert _ask("API_KEY=already-here-and-long-enough-to-be-real\n", generate=True) \
         == "already-here-and-long-enough-to-be-real"
-    assert _ask("API_KEY=from-file\n", {"CLAUDE_MCP_API_KEY": "from-shell"}, generate=True) == "from-shell"
+    # A shell key over a file that names NO key is still handed back unrotated. (This line used to
+    # put a DIFFERENT key in the file and assert the shell won; that pairing is a refusal now.)
+    assert _ask("OTHER=1\n", {"CLAUDE_MCP_API_KEY": "from-shell"}, generate=True) == "from-shell"
 
 
 def test_a_generated_key_is_not_predictable():

@@ -1602,9 +1602,9 @@ hermes_runtime_is_native_windows() {
 }
 
 # One reader for the key: this shell, then the service's own `.env`. scripts/api-key.sh says why.
-# stderr is deliberately NOT swallowed; `|| true` keeps having no key non-fatal, which is supported.
+# No `|| true`: it made ERROR read as ABSENT. "HOW THE CALLERS MUST READ THIS" there covers both.
 aify_api_key() {
-  bash "$SCRIPT_DIR/scripts/api-key.sh" || true
+  bash "$SCRIPT_DIR/scripts/api-key.sh"
 }
 
 path_for_node() {
