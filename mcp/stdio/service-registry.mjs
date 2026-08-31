@@ -71,7 +71,20 @@ export function upsertService(existingText, serviceName, entry) {
     current = parsed;
   }
 
-  const services = { ...current.services, [serviceName]: normaliseEntry(entry) };
+  // CLEARING REQUIRES AN EXPLICIT ACTION, NEVER AN OMISSION. `credentialRef` is set by the installer
+  // only on the path that establishes a key, so EVERY ordinary reinstall called this with the field
+  // absent -- and a rebuilt entry without it silently unpublished the reference, leaving aify-env
+  // pointed at nothing while both halves looked correctly installed. A temporarily absent aify-env
+  // did the same. So an absent field CARRIES FORWARD what is already published; `null` is how a
+  // caller says "remove it", which is a thing somebody has to mean rather than forget.
+  const published = current.services?.[serviceName];
+  const merged = { ...entry };
+  if (merged.credentialRef === undefined && typeof published?.credentialRef === "string") {
+    merged.credentialRef = published.credentialRef;
+  }
+  if (merged.credentialRef === null) delete merged.credentialRef;
+
+  const services = { ...current.services, [serviceName]: normaliseEntry(merged) };
 
   // REFUSE TO WRITE WHAT THE READER WOULD REJECT. The guard above protects another service's entry
   // from an unreadable EXISTING file; without this one the same harm arrives through the other

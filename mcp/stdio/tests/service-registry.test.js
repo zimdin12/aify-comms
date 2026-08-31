@@ -143,3 +143,46 @@ test("the field stays v1-compatible, which is why the version does not move", ()
   const { text } = upsertService("", "aify-comms", { ...COMMS, credentialRef: "a.key" });
   assert.equal(JSON.parse(text).version, REGISTRY_VERSION);
 });
+
+test("AN ORDINARY REINSTALL DOES NOT DELETE THE CARRIER REFERENCE", async () => {
+  // The defect the reviewer found, and it was live: `CREDENTIAL_REF` is set by install.sh only on
+  // the path that ESTABLISHES a key, so every ordinary update called this with the field absent --
+  // and a rebuilt entry without it silently unpublished the reference, leaving aify-env pointed at
+  // nothing while both halves looked correctly installed. A temporarily absent aify-env did the same.
+  const published = JSON.stringify({
+    version: REGISTRY_VERSION,
+    services: {
+      "aify-comms": {
+        endpoint: "http://127.0.0.2:1", endpointEnv: [], keyEnv: [], mcp: [],
+        credentialRef: "aify-comms-6b1e.key",
+      },
+    },
+  });
+  const reinstall = upsertService(published, "aify-comms", COMMS);
+  assert.equal(reinstall.ok, true, (reinstall.errors || []).join("; "));
+  assert.equal(JSON.parse(reinstall.text).services["aify-comms"].credentialRef,
+               "aify-comms-6b1e.key",
+               "an ordinary reinstall unpublished the credential reference");
+});
+
+test("clearing the reference takes an explicit null, not an omission", async () => {
+  // Removing a credential pointer is a thing somebody has to MEAN. Omission is what an installer
+  // does by default, so it cannot be the signal for a destructive change.
+  const published = JSON.stringify({
+    version: REGISTRY_VERSION,
+    services: {
+      "aify-comms": {
+        endpoint: "http://127.0.0.2:1", endpointEnv: [], keyEnv: [], mcp: [],
+        credentialRef: "aify-comms-6b1e.key",
+      },
+    },
+  });
+  const cleared = upsertService(published, "aify-comms", { ...COMMS, credentialRef: null });
+  assert.equal(cleared.ok, true, (cleared.errors || []).join("; "));
+  assert.ok(!("credentialRef" in JSON.parse(cleared.text).services["aify-comms"]),
+            "an explicit clear left the reference in place");
+
+  // And a NEW reference replaces the old one rather than being ignored by the carry-forward.
+  const rotated = upsertService(published, "aify-comms", { ...COMMS, credentialRef: "new-ref.key" });
+  assert.equal(JSON.parse(rotated.text).services["aify-comms"].credentialRef, "new-ref.key");
+});
