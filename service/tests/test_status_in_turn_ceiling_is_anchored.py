@@ -215,6 +215,15 @@ class TheWriterMustNotMoveTheAnchorTests(FastApiTestCase):
                     self.assertEqual(self._anchor("sw-all"), "", f"{kind} ended the turn but kept an anchor")
                     self._apply("sw-all", "turn_start")
                     self._backdate_anchor("sw-all", 7200)
+                    # RE-READ, because the anchor this branch just wrote is `now - 7200` at the
+                    # CURRENT second, not at the second `before` was captured. These stamps are
+                    # second-resolution (see `_backdate_anchor`), so comparing every later kind
+                    # against the original value fails the moment the loop crosses a one-second
+                    # boundary -- and only then, which is what made it intermittent: three full-suite
+                    # runs on 2026-08-31, two green and one red on exactly `turn_start` and
+                    # `unblocked`, the two kinds that follow `turn_end` in sorted order. Reproduced
+                    # deterministically by sleeping 1.1s here, which reddened those same two.
+                    before = self._anchor("sw-all")
 
     def test_ending_the_turn_clears_the_anchor(self):
         """Otherwise the NEXT turn starts already aged, and its ceiling fires immediately."""
