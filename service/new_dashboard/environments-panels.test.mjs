@@ -17,6 +17,15 @@ import {
   renderSpawnRequests,
 } from "./environments-panels.mjs";
 
+/**
+ * The card's text with markup removed.
+ *
+ * The offline age is emitted by `relTimeHtml` as a `<span data-rel-ts>` so `rel-time-ticker.mjs`
+ * can refresh the number in place instead of repainting the environment list. Stripping tags keeps
+ * these assertions about WHAT THE CARD SAYS rather than about how it is marked up.
+ */
+const stripTags = (html) => String(html).replace(/<[^>]*>/g, "");
+
 function el(extra = {}) {
   // classList is here because the roots editor opens the inspector drawer; without it the failure reads
   // as "Cannot read properties of undefined (reading 'add')", which says nothing about the cause.
@@ -280,7 +289,8 @@ test("an OFFLINE environment says how long it has been silent; an online one doe
     renderRuntime();
     return els["environment-list"].innerHTML;
   });
-  assert.match(offline, /last seen 83d ago/, "an offline environment does not say how long it has been silent");
+  assert.match(stripTags(offline), /last seen 83d ago/,
+               "an offline environment does not say how long it has been silent");
 
   // ANTI-VACUITY: a card that always printed an age would satisfy the assertion above while making a
   // claim about a host that is answering right now.

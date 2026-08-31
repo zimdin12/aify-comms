@@ -21,15 +21,41 @@ export const tsMs = (value) => {
 
 // Relative "Nm / Nh / Nd ago" from an ISO string OR epoch (seconds or ms). Tolerant of the
 // mixed timestamp shapes the API returns: epoch-ms ints, epoch-seconds, and ISO-8601 text.
-export const relTime = (iso) => {
-  if (!iso) return '';
-  const ms = tsMs(iso);
+// THE CLOCK IS AN ARGUMENT HERE, and that is the whole point of splitting it out. `relTime` reads
+// `Date.now()` inside itself, so nothing can ask what a given moment renders as, and the ticker in
+// `rel-time-ticker.mjs` needs exactly that: one reading of the clock, applied to every node on the
+// page, so a screenful of times cannot disagree about what "now" is.
+export const relTimeAt = (value, nowMs) => {
+  if (!value) return '';
+  const ms = tsMs(value);
   if (!Number.isFinite(ms)) return '';
-  const minutes = Math.max(0, Math.round((Date.now() - ms) / 60000));
+  const minutes = Math.max(0, Math.round((nowMs - ms) / 60000));
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 6) / 10;
   if (hours < 48) return `${hours}h`;
   return `${Math.round(hours / 24)}d`;
+};
+
+export const relTime = (iso) => relTimeAt(iso, Date.now());
+
+// The same label, plus the absolute instant it was computed from, so it can be re-rendered later
+// WITHOUT re-rendering the section around it.
+//
+// `render-memo.mjs` states the problem it solves: a memoised section repaints when a FIELD moves, and
+// "4m ago" has to move when no field does. Putting `lastSeen` in the signature repaints only when the
+// heartbeat lands; putting a clock tick in it repaints every section on a timer and destroys the
+// operator's selection and scroll while doing it.
+//
+// The timestamp shipped is the PARSED epoch-ms, never the raw field. The API returns epoch-seconds,
+// epoch-ms and ISO text; resolving that once at render keeps the ticker a pure arithmetic step
+// instead of re-running the tolerant parser against every node on every tick.
+//
+// EMPTY IN, EMPTY OUT -- not an empty span. Several call sites read `relTime(x) ? ... : ''`, and a
+// zero-width span would make every one of those conditionals true and print a stray separator.
+export const relTimeHtml = (value, nowMs = Date.now()) => {
+  const label = relTimeAt(value, nowMs);
+  if (!label) return '';
+  return `<span class="rel-time" data-rel-ts="${tsMs(value)}">${esc(label)}</span>`;
 };
 
 

@@ -32,6 +32,7 @@ import { updateStaticLinks } from './static-links.mjs';
 import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { previewAppearance, refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
 import { preferredAttentionCollapsed, preferredNavCollapsed, setAttentionCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
+import { REL_TIME_SELECTOR, startRelTimeTicker } from './rel-time-ticker.mjs';
 import { state } from './state.mjs';
 import { byId, installRejectionToast, toast, uiConfirm } from './ui.js';
 
@@ -312,6 +313,12 @@ export function wireGlobalControls({
   byId('toggle-nav').addEventListener('click', () => {
     setNavCollapsed(!byId('app-shell')?.classList.contains('nav-collapsed'));
   });
+
+  // Keep every rendered "4m ago" true without repainting the section holding it. The ticker owns no
+  // state beyond its interval and re-queries the document each tick, so sections that repaint are
+  // picked up automatically. This is the one line that reaches the live DOM; everything it drives is
+  // unit-tested in `rel-time-ticker.test.mjs`.
+  startRelTimeTicker({ queryAll: () => document.querySelectorAll(REL_TIME_SELECTOR) });
 }
 
 /**

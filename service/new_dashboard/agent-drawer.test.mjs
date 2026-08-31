@@ -264,11 +264,54 @@ test("…and the environment's LABEL when it has one", () => {
 // the whole HTML and THREE of these four passed with the row deleted, because they were matching the
 // tooltip. The mutation is what said so: removing the row reddened exactly one of the four.
 
-/** The `<dd>` of the Last seen row, or null when the row is absent. */
+/**
+ * The `<dd>` of the Last seen row as PLAIN TEXT, or null when the row is absent.
+ *
+ * The age is now emitted by `relTimeHtml` as a `<span data-rel-ts>` so `rel-time-ticker.mjs` can keep
+ * it true without repainting the drawer. That is markup INSIDE the cell, so the tag strip is what
+ * lets these assertions keep reading the row rather than the tooltip -- the property the note above
+ * says the first version of them got wrong.
+ */
 function lastSeenCell(html) {
-  const match = /<dt>Last seen<\/dt><dd>([^<]*)<\/dd>/.exec(html);
-  return match ? match[1] : null;
+  const match = /<dt>Last seen<\/dt><dd>(.*?)<\/dd>/.exec(html);
+  return match ? match[1].replace(/<[^>]*>/g, "") : null;
 }
+
+/** The `data-rel-ts` the Last seen row carries, or null. The ticker updates nothing without it. */
+function lastSeenStamp(html) {
+  const match = /<dt>Last seen<\/dt><dd>.*?data-rel-ts="(\d+)".*?<\/dd>/.exec(html);
+  return match ? Number(match[1]) : null;
+}
+
+test("the last-seen age carries its own instant, so the ticker can keep it true", () => {
+  // WITHOUT THIS the age is a number frozen at render. `render-memo.mjs` will not repaint the drawer
+  // until some FIELD moves, and "last seen 1m ago" beside an agent that died an hour ago is the
+  // display asserting the opposite of the truth -- the reading that sent this session chasing a
+  // live-looking timestamp on 2026-08-31.
+  const at = Date.now() - 42 * 60 * 1000;
+  seed({ agents: [{ id: "coder", lastSeen: new Date(at).toISOString() }] });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    const stamp = lastSeenStamp(els["inspector-content"].innerHTML);
+    assert.ok(stamp, "the last-seen row carries no data-rel-ts, so nothing can refresh it");
+    // To the second: the attribute must be the PARSED instant, not a re-encoded relative figure.
+    assert.equal(Math.round(stamp / 1000), Math.round(at / 1000));
+  });
+});
+
+test("an agent with NO lastSeen emits no timestamp to refresh", () => {
+  // Anti-vacuity for the test above: a row that always carried a stamp would satisfy it while
+  // claiming an age for an agent that never reported one.
+  seed({ agents: [{ id: "coder" }] });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    const html = els["inspector-content"].innerHTML;
+    // Prove the drawer actually rendered before reading a null out of it: without this the assertion
+    // below passes against an empty string, which is the vacuous form of this test.
+    assert.match(html, /Last seen/, "the drawer did not render, so the null below proves nothing");
+    assert.equal(lastSeenStamp(html), null);
+  });
+});
 
 test("the drawer says how long ago the agent was last seen", () => {
   const minutesAgo = new Date(Date.now() - 42 * 60 * 1000).toISOString();

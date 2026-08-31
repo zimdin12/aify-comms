@@ -49,7 +49,7 @@ import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
-import { esc, relTime } from './util.js';
+import { esc, relTime, relTimeHtml } from './util.js';
 import { serviceBuildShort } from './version-badge.mjs';
 
 /**
@@ -67,8 +67,9 @@ import { serviceBuildShort } from './version-badge.mjs';
  */
 function offlineAge(env) {
   if (resolveStatus(env.status).kind !== 'offline') return '';
-  const seen = relTime(env.lastSeen);
-  return seen ? ` · last seen ${esc(seen)} ago` : '';
+  // Carries its own instant (see `relTimeHtml`) so the ticker refreshes the number in place.
+  const seen = relTimeHtml(env.lastSeen);
+  return seen ? ` · last seen ${seen} ago` : '';
 }
 
 /**

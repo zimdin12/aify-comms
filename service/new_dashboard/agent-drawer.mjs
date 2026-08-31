@@ -28,7 +28,7 @@ import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from 
 import { state } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
-import { esc, relTime } from './util.js';
+import { esc, relTimeHtml } from './util.js';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -101,7 +101,9 @@ export function openAgentDrawer(agentId) {
   // reddened on it -- correctly. That gate exists because three such alternates were removed
   // in one sweep: "a dead alternate is worse than nothing here, because it reads like
   // coverage for the rename it cannot catch". I added a fourth and a test asserting it works.
-  const lastSeen = relTime(agent.lastSeen);
+  // Emitted with its own timestamp so `rel-time-ticker.mjs` can keep it true without repainting
+  // the drawer -- which would destroy the operator's selection mid-read.
+  const lastSeen = relTimeHtml(agent.lastSeen);
   const sessionChangedBanner = agent.sessionChanged ? `
       <div class="session-changed-banner" role="alert">
         <p>⚠ This agent reported a new session id <code>${esc(agent.pendingSessionId)}</code> that differs from its pinned handle <code>${esc(agent.sessionHandle || '—')}</code>. Delivery still targets the pinned handle until you resolve this.</p>
@@ -121,7 +123,7 @@ export function openAgentDrawer(agentId) {
         ${row('Workspace', esc((session && session.workspace) || agent.cwd || '—'))}
         ${row('Session', sid ? `${esc(sid)} · ${esc(session.status || 'unknown')}` : '<span class="subtle">no active session</span>')}
         ${row('Machine', esc(agent.machineId || '—'))}
-        ${row('Last seen', lastSeen ? `${esc(lastSeen)} ago` : '—')}
+        ${row('Last seen', lastSeen ? `${lastSeen} ago` : '—')}
       </dl>
       ${continueCliBlock}
       <div class="agent-drawer-actions">${actions}</div>

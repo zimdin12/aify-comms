@@ -767,7 +767,7 @@ const EXTRACTIONS = [
         ],
           now: [
           "        ${row('Machine', esc(agent.machineId || '—'))}",
-          "        ${row('Last seen', lastSeen ? `${esc(lastSeen)} ago` : '—')}",
+          "        ${row('Last seen', lastSeen ? `${lastSeen} ago` : '—')}",
         ],
         },
         {
@@ -794,7 +794,9 @@ const EXTRACTIONS = [
           "  // reddened on it -- correctly. That gate exists because three such alternates were removed",
           "  // in one sweep: \"a dead alternate is worse than nothing here, because it reads like",
           "  // coverage for the rename it cannot catch\". I added a fourth and a test asserting it works.",
-          "  const lastSeen = relTime(agent.lastSeen);",
+          "  // Emitted with its own timestamp so `rel-time-ticker.mjs` can keep it true without repainting",
+          "  // the drawer -- which would destroy the operator's selection mid-read.",
+          "  const lastSeen = relTimeHtml(agent.lastSeen);",
         ],
         },
       ],
@@ -3201,6 +3203,27 @@ const EXTRACTIONS = [
         // the two spaces cannot end up inside one.
         name: "wireGlobalControls",
         at: 4650,
+        // EDITED SINCE EXTRACTION: the relative-time ticker is started here, at boot, because this is
+        // where every other once-at-load listener is bound. It is one line reaching the live DOM; the
+        // module it drives is unit-tested without a browser.
+        editedSince: [
+          {
+            was: [
+              "  setNavCollapsed(!byId('app-shell')?.classList.contains('nav-collapsed'));",
+              "});",
+            ],
+            now: [
+              "  setNavCollapsed(!byId('app-shell')?.classList.contains('nav-collapsed'));",
+              "});",
+              "",
+              "// Keep every rendered \"4m ago\" true without repainting the section holding it. The ticker owns no",
+              "// state beyond its interval and re-queries the document each tick, so sections that repaint are",
+              "// picked up automatically. This is the one line that reaches the live DOM; everything it drives is",
+              "// unit-tested in `rel-time-ticker.test.mjs`.",
+              "startRelTimeTicker({ queryAll: () => document.querySelectorAll(REL_TIME_SELECTOR) });",
+            ],
+          },
+        ],
         marker: [
           "// The boot-time listener wiring moved to ./boot-wiring.mjs in v0.5.4. The CALL stays here so the",
           "// boot sequence is still readable in one place, in order.",
