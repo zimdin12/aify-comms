@@ -2728,8 +2728,8 @@ fi
 # Settled BEFORE the first config that carries it is written. Resolved always, generated only on ask.
 if [ "$WITH_API_KEY" = true ]; then
   if RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --generate)"; then
-    export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY"
-    export AIFY_API_KEY="$RESOLVED_API_KEY"
+    export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
+    export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh")"
     echo "API key in place (.env). RESTART THE SERVICE for it to take effect:"
     echo "    docker compose up -d"
     echo "Until then the service still accepts unauthenticated requests."

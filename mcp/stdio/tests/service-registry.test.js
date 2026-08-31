@@ -97,3 +97,49 @@ test("the endpoint env names come from the bridge, not from this test", () => {
   assert.deepEqual(written.endpointEnv, ENDPOINT_ENV_NAMES);
   assert.ok(ENDPOINT_ENV_NAMES.length > 0, "the bridge must declare at least one endpoint name");
 });
+
+test("credentialRef is written when given, and OMITTED when not", () => {
+  // WHERE the key file is, never what is in it -- the same rule as `keyEnv`, for the same reason:
+  // this file is readable by everything on the host. It is one basename that aify-env resolves under
+  // its own root, so a registry entry cannot point that daemon at a path of its choosing.
+  const withRef = upsertService("", "aify-comms", { ...COMMS, credentialRef: "aify-comms-6b1e.key" });
+  assert.equal(withRef.ok, true, (withRef.errors || []).join("; "));
+  assert.equal(JSON.parse(withRef.text).services["aify-comms"].credentialRef, "aify-comms-6b1e.key");
+
+  // OMITTED rather than written empty: `credentialRef: ""` on every service makes "this host stores
+  // no credential for me" indistinguishable from a field somebody cleared on purpose.
+  const without = upsertService("", "aify-comms", COMMS);
+  assert.ok(!("credentialRef" in JSON.parse(without.text).services["aify-comms"]),
+            "an absent reference was written as an empty string");
+  // And a blank one is treated as absent rather than stored.
+  const blank = upsertService("", "aify-comms", { ...COMMS, credentialRef: "   " });
+  assert.ok(!("credentialRef" in JSON.parse(blank.text).services["aify-comms"]));
+});
+
+test("ANOTHER SERVICE'S credentialRef survives our registration", () => {
+  // The whole reason this writer merges rather than replaces. A field this installer has never heard
+  // of belongs to somebody else and must come back out byte for byte -- otherwise registering
+  // aify-comms would quietly strip another service's credential pointer and break its daemon.
+  const existing = JSON.stringify({
+    version: REGISTRY_VERSION,
+    services: {
+      "other-service": {
+        endpoint: "http://127.0.0.1:9000", endpointEnv: [], keyEnv: [], mcp: [],
+        credentialRef: "other.key",
+      },
+    },
+  });
+  const result = upsertService(existing, "aify-comms", COMMS);
+  assert.equal(result.ok, true, (result.errors || []).join("; "));
+  assert.equal(JSON.parse(result.text).services["other-service"].credentialRef, "other.key");
+});
+
+test("the field stays v1-compatible, which is why the version does not move", () => {
+  // MEASURED against the reader aify-wrapper actually ships: it ACCEPTS an entry carrying
+  // `credentialRef` (ok, no errors) and drops it on parse. Dropping is harmless because that package
+  // only ever READS the registry -- `lib/registry-cli.mjs` imports `readFileSync` and nothing else --
+  // so the field cannot be lost in a round-trip back to disk. Old readers ignore it safely and no
+  // writer erases it, which is the whole condition for leaving the version alone.
+  const { text } = upsertService("", "aify-comms", { ...COMMS, credentialRef: "a.key" });
+  assert.equal(JSON.parse(text).version, REGISTRY_VERSION);
+});

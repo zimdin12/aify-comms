@@ -109,6 +109,17 @@ function normaliseEntry(entry) {
   // Only when true. Writing `strictMcp: false` everywhere would make an opt-in that nobody chose look
   // like a decision somebody made.
   if (entry.strictMcp === true) normalised.strictMcp = true;
+  // WHERE THE KEY FILE IS, and never what is in it. Same rule as `keyEnv` and the same reason: this
+  // file is readable by everything on the host, so it says WHERE a credential lives and never the
+  // value. `credentialRef` is one basename that aify-env resolves under its own root, so a registry
+  // entry cannot point that daemon at a path of its choosing.
+  //
+  // OMITTED WHEN ABSENT rather than written empty, for the reason above it: a `credentialRef: ""` on
+  // every service would make "this host stores no credential for me" indistinguishable from a field
+  // somebody had cleared on purpose, and old readers would see a key they must now decide about.
+  if (typeof entry.credentialRef === "string" && entry.credentialRef.trim() !== "") {
+    normalised.credentialRef = entry.credentialRef.trim();
+  }
   return normalised;
 }
 
