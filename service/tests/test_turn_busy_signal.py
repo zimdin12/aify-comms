@@ -32,7 +32,7 @@ SCHEMA = """
 CREATE TABLE agent_turn_state (
     agent_id TEXT PRIMARY KEY, turn_busy INTEGER DEFAULT 0, turn_run_id TEXT DEFAULT '',
     turn_bridge_id TEXT DEFAULT '', turn_runtime TEXT DEFAULT '', turn_updated_at TEXT,
-    turn_started_at TEXT NOT NULL DEFAULT ''
+    turn_started_at TEXT NOT NULL DEFAULT '', ready INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE agent_status_state (
     agent_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'offline',
@@ -265,6 +265,25 @@ class TheInlineSchemaMustNotDriftFromTheRealOneTests(unittest.TestCase):
         return found
 
     @staticmethod
+    def _migration_columns(table: str) -> set:
+        """Columns an EXISTING database gains for `table` through db.py's migration dicts."""
+        import re as _re
+
+        from service import db as db_module
+
+        wanted = set()
+        for name in dir(db_module):
+            if not name.endswith("_MIGRATIONS"):
+                continue
+            value = getattr(db_module, name)
+            if not isinstance(value, dict):
+                continue
+            for column, statement in value.items():
+                if _re.search(rf"ALTER TABLE\s+{_re.escape(table)}\b", str(statement)):
+                    wanted.add(column)
+        return wanted
+
+    @staticmethod
     def _table_block(sql: str, marker: str) -> str:
         block = sql[sql.index(marker):]
         return block[: block.index(");")]
@@ -285,6 +304,14 @@ class TheInlineSchemaMustNotDriftFromTheRealOneTests(unittest.TestCase):
         for table in tables:
             with self.subTest(table=table):
                 real = self._columns(self._table_block(real_sql, f"CREATE TABLE IF NOT EXISTS {table}"))
+                # PLUS WHAT THE MIGRATIONS ADD. `schema.py` is what a FRESH database gets; an
+                # existing one gets the same columns through a `*_MIGRATIONS` dict, and a column
+                # added only there would be invisible to this comparison. That is the remaining
+                # one-way edge: the gate would call a fixture complete while production had a
+                # column it did not. Derived from db.py rather than listed, so a new migration
+                # joins this check without anyone remembering to.
+                migrated = self._migration_columns(table)
+                real |= migrated
                 fixture = self._columns(self._table_block(SCHEMA, f"CREATE TABLE {table}"))
                 self.assertTrue(real, f"no columns parsed out of the REAL {table}; the parser is broken")
                 self.assertEqual(
@@ -304,6 +331,15 @@ class TheInlineSchemaMustNotDriftFromTheRealOneTests(unittest.TestCase):
                     f"table does not have. A test written against it would assert on a column that "
                     f"cannot exist in production.",
                 )
+
+    def test_the_migration_scan_actually_finds_columns(self):
+        """ANTI-VACUITY for the union above. A scan returning an empty set widens nothing and the
+        comparison keeps passing -- the gate would look strengthened while checking exactly what it
+        checked before. Both fixture tables gained a column through a migration, so both must be
+        found, and a table that has none must come back empty rather than matching everything."""
+        self.assertIn("turn_started_at", self._migration_columns("agent_turn_state"))
+        self.assertIn("turn_started_at", self._migration_columns("agent_status_state"))
+        self.assertEqual(self._migration_columns("no_such_table_anywhere"), set())
 
     def test_the_parser_can_actually_tell_a_missing_column(self):
         """ANTI-VACUITY. A parser returning empty sets would pass the comparison above for every

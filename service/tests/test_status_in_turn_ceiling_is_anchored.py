@@ -288,3 +288,110 @@ class EveryWriterOfThisColumnAgreesTests(FastApiTestCase):
         in_turn, anchor = _asyncio.run(_run())
         self.assertEqual(in_turn, 0)
         self.assertEqual(anchor, "", "the reaper ended the turn and left its start behind")
+
+
+class BothProductionBuildersRenewAVerifiedTurnTests(FastApiTestCase):
+    """A 47-minute turn with a LIVE bridge must read `working` on both builders.
+
+    THE HALF-FIX THE REVIEW CAUGHT. Sharing one policy function is not the same as sharing its
+    ANSWER: both `agent_status_state` clamps called it with the default `renewable=False`, so a turn
+    delivery correctly held for up to four hours read as finished on status after thirty minutes.
+    Agreement in form, not in fact.
+
+    THESE DRIVE `_gather_status_inputs` AND `_compute_live_status_cache` THEMSELVES, because that is
+    the only thing that would have caught it. Every earlier test in this file went through the pure
+    clamp, which is exactly where the constant was NOT -- the constant was at the call sites.
+    """
+
+    DB_NAME = "aify-status-anchor-builders-test.db"
+
+    def _seed(self, agent_id, *, started_age, bridge_id, bridge_last_seen_age):
+        """A turn `started_age` old, owned by a bridge that beat `bridge_last_seen_age` ago."""
+        async def _run():
+            db = await get_db()
+            try:
+                await db.execute("PRAGMA foreign_keys=OFF")
+                await db.execute(
+                    "INSERT INTO agents (id, name, role, status, session_mode, launch_mode,"
+                    " registered_at, last_seen) "
+                    "VALUES (?,?,'coder','online','resident','detached',?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET status='online'",
+                    (agent_id, agent_id, _stamp(3600), _stamp(5)))
+                await db.execute(
+                    "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, turn_run_id,"
+                    " last_event, last_event_at, turn_started_at, updated_at)"
+                    " VALUES (?,1,0,'','turn_start',?,?,?)"
+                    " ON CONFLICT(agent_id) DO UPDATE SET in_turn=1,"
+                    " last_event_at=excluded.last_event_at,"
+                    " turn_started_at=excluded.turn_started_at",
+                    (agent_id, _stamp(5), _stamp(started_age), _stamp(5)))
+                await db.execute(
+                    "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id,"
+                    " turn_runtime, turn_updated_at, turn_started_at)"
+                    " VALUES (?,1,'',?,'hermes',?,?)"
+                    " ON CONFLICT(agent_id) DO UPDATE SET turn_busy=1,"
+                    " turn_bridge_id=excluded.turn_bridge_id,"
+                    " turn_updated_at=excluded.turn_updated_at,"
+                    " turn_started_at=excluded.turn_started_at",
+                    (agent_id, bridge_id, _stamp(5), _stamp(started_age)))
+                if bridge_id:
+                    await db.execute(
+                        "INSERT INTO bridge_instances (id, agent_id, machine_id, last_seen,"
+                        " superseded_by, registered_at) VALUES (?,?,'m1',?,'',?)"
+                        " ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen,"
+                        " agent_id=excluded.agent_id, superseded_by=''",
+                        (bridge_id, agent_id, _stamp(bridge_last_seen_age), _stamp(7200)))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(_run())
+
+    def _both_builders(self, agent_id):
+        """The two production builders, run against the same row."""
+        async def _run():
+            db = await get_db()
+            try:
+                db.row_factory = __import__("aiosqlite").Row
+                agent_row = await (await db.execute(
+                    "SELECT * FROM agents WHERE id=?", (agent_id,))).fetchone()
+                gathered = await status_inputs._gather_status_inputs(db, agent_row)
+                cached = await status_inputs._compute_live_status_cache(db, agent_row)
+                # THE SERVED PATH RETURNS A DERIVED STATUS, not the raw flag -- it feeds `in_turn`
+                # into `derive()` and hands back the answer. Asserting on a key it does not publish
+                # read as False for every case and would have "passed" the negative tests while
+                # proving nothing, which is the vacuity this file has already been caught by once.
+                return bool(gathered.in_turn), str(cached.get("status") or "")
+            finally:
+                await db.close()
+
+        return asyncio.run(_run())
+
+    def test_a_47_MINUTE_turn_with_a_LIVE_bridge_reads_working_on_BOTH(self):
+        """THE DEFECT the review named, in the units it named it in. Past the strict ceiling, well
+        inside the absolute bound, with an independently observable claimant."""
+        self._seed("sb-live", started_age=47 * 60, bridge_id="br-live",
+                   bridge_last_seen_age=3)
+        gathered, served_status = self._both_builders("sb-live")
+        self.assertTrue(gathered, "the authoritative builder ended a verified 47-minute turn")
+        self.assertEqual(served_status, "working",
+                         "the SERVED builder ended a verified 47-minute turn")
+
+    def test_the_same_turn_with_a_DEAD_bridge_is_still_cut_at_the_strict_anchor(self):
+        """ANTI-VACUITY, and the whole point of the operator's ruling: renewal is for claims that are
+        independently observable. A bridge that stopped beating proves nothing, so the strict
+        thirty-minute anchor applies and the latch is released."""
+        self._seed("sb-dead", started_age=47 * 60, bridge_id="br-dead",
+                   bridge_last_seen_age=6000)
+        gathered, served_status = self._both_builders("sb-dead")
+        self.assertFalse(gathered, "an unverifiable 47-minute turn held on the authoritative path")
+        self.assertNotEqual(served_status, "working",
+                            "an unverifiable 47-minute turn held on the served path")
+
+    def test_and_past_the_ABSOLUTE_bound_even_a_live_bridge_does_not_hold_it(self):
+        """A renewable lease with no ceiling is the permanent strand again in a better hat."""
+        self._seed("sb-forever", started_age=5 * 60 * 60, bridge_id="br-live2",
+                   bridge_last_seen_age=3)
+        gathered, served_status = self._both_builders("sb-forever")
+        self.assertFalse(gathered)
+        self.assertNotEqual(served_status, "working")

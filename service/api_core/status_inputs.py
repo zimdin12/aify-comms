@@ -36,7 +36,9 @@ from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.capabilities import _managed_env_reachable, _row_capabilities
 from service.api_core.channel_delivery import _has_live_worker_for, _worker_liveness_for
 from service.api_core.turn_liveness_policy import turn_is_still_live
-from service.api_core.claim_gating import TURN_LEASE_ABSOLUTE_MAX_SECONDS
+from service.api_core.claim_gating import (
+    TURN_LEASE_ABSOLUTE_MAX_SECONDS, _turn_lease_is_renewable,
+)
 from service.api_core.liveness import (
     CONSOLE_WORKING_LEASE_SECONDS,
     TURN_BUSY_BACKSTOP_SECONDS,
@@ -134,6 +136,36 @@ def _last_touch(state_row) -> str:
         return ""
 
 
+async def _in_turn_survives(db, agent_id: str, state_row, *, status_signals=None) -> bool:
+    """The clamp WITH the ownership question answered, which is what both builders need.
+
+    `_in_turn_survives_the_ceiling` takes the verdict and cannot fetch it; this is the caller that
+    can. Leaving both builders on the pure helper's `renewable=False` default meant the policy was
+    shared while the ANSWER still was not: a 47-minute turn with a live, verifiable bridge read
+    `working=false` on status while delivery correctly held its queued work for up to four hours.
+    Unifying the policy and then calling it with a constant is agreement in form only.
+
+    STRICT FIRST, and the ownership query only when it would change the answer. This runs per agent
+    on a batch refresh and `status_signal_prefetch` exists to stop per-agent round-trips, so a
+    turn inside the thirty-minute window -- which is nearly all of them -- costs nothing extra. The
+    shortcut is exact because the policy is monotone in `renewable`: verification can add liveness
+    and never remove it, asserted over its input grid in `test_turn_liveness_policy.py`.
+    """
+    if _in_turn_survives_the_ceiling(state_row):
+        return True
+    turn_row = await status_signals_or_live(status_signals).turn_state(db, agent_id)
+    owner = ""
+    if turn_row:
+        try:
+            owner = str(turn_row["turn_bridge_id"] or "")
+        except (KeyError, IndexError):
+            owner = ""
+    if not owner:
+        return False
+    renewable = await _turn_lease_is_renewable(db, agent_id, owner)
+    return _in_turn_survives_the_ceiling(state_row, renewable=renewable)
+
+
 async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs:
     """Build a StatusInputs from the SAME live signals the legacy derivation reads.
 
@@ -164,7 +196,7 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
     # not-busy -> busy transition and left alone, so it is the one clock a re-stamping poster cannot
     # postpone. It falls back to `last_event_at` only for a row written before the column existed,
     # which the boot backfill also repairs.
-    if in_turn and not _in_turn_survives_the_ceiling(st):
+    if in_turn and not await _in_turn_survives(db, aid, st):
         in_turn = False
     # PURE-EVENT (2026-06-19): the turn-end GRACE was removed from BOTH status paths — this
     # WS-push path (_gather_status_inputs) and the byproduct/poll path (_compute_live_status_cache).
@@ -587,7 +619,8 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     # The SAME function as the authoritative path above, not a second copy of its arithmetic. Two
     # clamps on one question that computed it separately is how the parity this docstring promises
     # quietly stops holding.
-    if _si_raw_in_turn and not _in_turn_survives_the_ceiling(_si_st):
+    if _si_raw_in_turn and not await _in_turn_survives(
+            db, agent_row["id"], _si_st, status_signals=status_signals):
         _si_raw_in_turn = False
     # H1: the console-working lease must feed BOTH engines. The v2 engine reads in_turn from
     # agent_status_state (which the lease never writes), so OR the worker-gated lease in here
