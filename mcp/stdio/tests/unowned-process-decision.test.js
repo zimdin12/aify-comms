@@ -296,12 +296,28 @@ test("the count of every input is conserved even when the listing is mostly junk
   assert.equal(candidates.length + keep.length + invalid.length, rows.length);
 });
 
-test("a genuinely empty listing reports nothing, and says so as a RESULT", () => {
-  const empty = { candidates: [], keep: [], invalid: [], unreadable: null };
-  assert.deepEqual(unownedProcessDecision([], {}, {}), empty);
-  // No arguments at all means an empty listing, not a broken one: the default parameter supplies it,
-  // and `undefined` is what a caller passes when it has nothing rather than something wrong.
-  assert.deepEqual(unownedProcessDecision(undefined), empty);
+test("THE THREE ARMS ARE DISTINCT: observed-empty, absent, and malformed", () => {
+  // An EXPLICIT empty array is an observation: the caller looked and there was nothing.
+  assert.deepEqual(unownedProcessDecision([], {}, {}),
+    { candidates: [], keep: [], invalid: [], unreadable: null });
+
+  // OMITTED and explicit `undefined` are not observations at all. A `processes = []` default made
+  // them indistinguishable from the line above, so both answered "none to report" -- and in
+  // JavaScript `undefined` is exactly what a missing field or a failed lookup returns.
+  // `listing.processes` after a key rename is `undefined`, not evidence of an empty fleet.
+  assert.match(unownedProcessDecision().unreadable, /no process listing was supplied/);
+  assert.match(unownedProcessDecision(undefined, {}, {}).unreadable, /no process listing was supplied/);
+
+  // MALFORMED says something different again, and keeps saying which thing arrived.
+  assert.match(unownedProcessDecision({}, {}, {}).unreadable, /an object, not an array/);
+});
+
+test("the absent arm and the malformed arm do not share a message", () => {
+  // Collapsing them would tell an operator chasing a renamed field that the producer sent the wrong
+  // type, and vice versa. Two different bugs, two different first places to look.
+  const absent = unownedProcessDecision().unreadable;
+  const malformed = unownedProcessDecision("bad").unreadable;
+  assert.notEqual(absent, malformed);
 });
 
 test("AN UNREADABLE LISTING IS REFUSED, not normalised into an empty fleet", () => {
@@ -482,4 +498,23 @@ test("a Date is rejected, and for the reason a Date is wrong here", () => {
   // It is an object and not an array, so only the identity fields catch it. Review used exactly this
   // value, and under the old guard it was classified as an unlabelled process.
   assert.match(processRowProblem(new Date(0)), /no process id/);
+});
+
+test("describeDecision() WITH NOTHING refuses, rather than synthesising an all-clear", () => {
+  // The same fabricated absence one layer up. Defaulting every field meant a call with no argument at
+  // all produced "0 process(es) classified, none to report" -- reachable exactly the way the listing
+  // default was, by a caller reading a key that no longer exists on the shape it was handed.
+  for (const nothing of [undefined, null, "", 0, false, "decision", 42, []]) {
+    const line = describeDecision(nothing);
+    assert.match(line, /No decision was supplied/, `${String(nothing)} was described as a result`);
+    assert.match(line, /not a clean result/);
+    assert.doesNotMatch(line, /none to report/);
+  }
+});
+
+test("a real decision is still described normally", () => {
+  // The refusal above must not swallow the ordinary path.
+  const line = describeDecision(unownedProcessDecision(FLEET, OWNERS, REMOVALS));
+  assert.doesNotMatch(line, /No decision was supplied/);
+  assert.match(line, /apg-pilot-01 pid 32456/);
 });

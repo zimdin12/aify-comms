@@ -153,12 +153,22 @@ export function processRowProblem(entry) {
  * meaningless. That is the same false green this repo has now hit in a doctor check, a fan-out cap and
  * here: no evidence must never render as a pass.
  *
- * `undefined` is NOT refused -- the default parameter makes it a genuinely empty listing, which is what
- * calling with no arguments means. `null` is refused, because somebody passed something and it was not
- * a listing.
+ * `undefined` IS REFUSED, and it used to be the one hole left. A `processes = []` default made an
+ * omitted argument indistinguishable from an observed empty listing, so both answered "0 process(es)
+ * classified, none to report". In JavaScript `undefined` is what a missing field or a failed lookup
+ * returns -- `listing.processes` after a key rename is `undefined`, not evidence of an empty fleet.
+ *
+ * I argued the opposite and was wrong on my own evidence. A mutation that refused `undefined` had
+ * survived, and I recorded it as unreachable and therefore meaningless. Review read it correctly: it
+ * was unreachable BECAUSE the default erased the distinction before this function ever saw it, which
+ * makes the surviving mutation a description of the defect rather than a null result.
+ *
+ * A caller holding a genuinely empty listing passes `[]`, which is one character and says what it
+ * means.
  */
 function listingProblem(processes) {
   if (Array.isArray(processes)) return null;
+  if (processes === undefined) return "no process listing was supplied";
   if (processes === null) return "the process listing was null";
   const kind = typeof processes;
   return `the process listing was ${"aeiou".includes(kind[0]) ? "an" : "a"} ${kind}, not an array`;
@@ -170,7 +180,8 @@ function listingProblem(processes) {
  * PURE: the process list, the ownership answers and the removal times are all handed in, so every rule
  * here is testable without a service, a daemon or a process to kill.
  *
- * @param {{id:string, pid:number, label:string, startedAtMs:number}[]} processes  what aify-env reports
+ * @param {{id:string, pid:number, label:string, startedAtMs:number}[]} processes  what aify-env reports.
+ *   REQUIRED, and an omitted or `undefined` value is refused rather than read as an empty fleet
  * @param {Record<string,string>} owners  agentId -> OWNER_*, from `ownerFromStatus`
  * @param {Record<string,number>} removedAt  agentId -> epoch ms the tombstone was written
  * @returns {{candidates:object[], keep:object[], invalid:object[], unreadable:string|null}} EVERY
@@ -178,7 +189,7 @@ function listingProblem(processes) {
  *   at all, which goes to `invalid`. When the LISTING ITSELF is unreadable the three lists are
  *   empty and `unreadable` says why: that is a refusal, not a fleet with no processes in it.
  */
-export function unownedProcessDecision(processes = [], owners = {}, removedAt = {}) {
+export function unownedProcessDecision(processes, owners = {}, removedAt = {}) {
   // THE CARRIER IS CHECKED BEFORE ITS CONTENTS. A listing that is not a listing is refused rather than
   // normalised into a tidy empty answer -- see `listingProblem` for why row conservation is blind to it.
   const unreadable = listingProblem(processes);
@@ -297,7 +308,16 @@ export function unownedProcessDecision(processes = [], owners = {}, removedAt = 
  * reporting on purpose -- this module has no stop authority and its output must not read as though it
  * does.
  */
-export function describeDecision({ candidates = [], keep = [], invalid = [], unreadable = null } = {}) {
+export function describeDecision(decision) {
+  // A MISSING DECISION IS NOT A CLEAN ONE. This defaulted every field, so `describeDecision()` with
+  // no argument at all synthesised "0 process(es) classified, none to report" -- the same
+  // fabricated all-clear as the listing default one layer down, and reachable the same way: a
+  // caller reading `result.decision` from a shape that no longer has that key.
+  if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
+    return "No decision was supplied, so there is nothing to report on. This is not a clean result: "
+      + "nothing was classified, and the caller passed no decision to describe.";
+  }
+  const { candidates = [], keep = [], invalid = [], unreadable = null } = decision;
   // REFUSAL FIRST, and it must not be phrased as a result. "0 process(es) classified, none to report"
   // was what this said for a null listing: an all-clear derived from having read nothing.
   if (unreadable) {
