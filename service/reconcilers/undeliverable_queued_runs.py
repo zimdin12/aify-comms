@@ -19,6 +19,8 @@ DB ACCESS: `db` is passed in and the CALLER commits — `sweep.py` wraps each st
 """
 from __future__ import annotations
 
+from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES
+
 import time
 import uuid
 from typing import Any, Optional
@@ -229,7 +231,7 @@ async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int]
         if (
             not already_rescued
             and run_session_mode == "managed"
-            and run_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}
+            and run_runtime in LAUNCHABLE_RUNTIMES
         ):
             rescued = await _coldstart_spawn_request_for_dispatch(
                 db,

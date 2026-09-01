@@ -18,6 +18,8 @@ caller's transaction.
 """
 from __future__ import annotations
 
+from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES
+
 import json
 import time
 import uuid
@@ -70,7 +72,7 @@ async def _ensure_managed_pty_for_dispatch(
     if active and (not wanted_session or str(active["session_id"] or "") == wanted_session):
         return active
     normalized_runtime = _normalize_runtime(runtime or "")
-    if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
+    if normalized_runtime not in LAUNCHABLE_RUNTIMES:
         return None
 
     if wanted_session:

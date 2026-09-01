@@ -18,6 +18,8 @@ one and not the other was silent. Adjacent, the duplication is visible to anyone
 """
 from __future__ import annotations
 
+from service.api_core.vocabulary import RUNTIMES_THAT_TRACK_A_TURN
+
 import json
 import time
 import uuid
@@ -64,7 +66,7 @@ async def _record_terminal_delivery_contract(
     requested_at = _now()
     normalized_runtime = _normalize_runtime(runtime or "")
     existing_active_turn = None
-    if normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}:
+    if normalized_runtime in RUNTIMES_THAT_TRACK_A_TURN:
         active_cursor = await db.execute(
             """
             SELECT id
@@ -102,7 +104,7 @@ async def _record_terminal_delivery_contract(
         await _invalidate_agent_live_state(db, recipient_id)
         return parent_run_id
 
-    tracks_active_turn = normalized_runtime in {"claude-code", "codex", "hermes", "opencode", "pi"}
+    tracks_active_turn = normalized_runtime in RUNTIMES_THAT_TRACK_A_TURN
     status = "running" if tracks_active_turn else "delivered"
 
     # THE SAME STORAGE-BOUNDARY RULE `_create_dispatch_runs` applies, and this writer did not.

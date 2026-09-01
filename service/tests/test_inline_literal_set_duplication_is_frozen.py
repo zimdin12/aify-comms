@@ -53,9 +53,15 @@ MIN_MEMBERS = 3
 # UNRULED. This is a debt ledger, not an allowlist of good practice: adding an entry to make a red
 # test green is the move this file exists to stop.
 FROZEN: dict[frozenset[str], int] = {
-    # console_input_queue.py:66 + :104, dispatch_start.py:97, managed_pty_for_dispatch.py:72,
-    # reconcilers/undeliverable_queued_runs.py:232
-    frozenset({"claude-code", "codex", "hermes", "opencode", "pi"}): 5,
+    # 5 -> 0 on 2026-09-02, and the entry is GONE rather than set to zero: this ledger measures
+    # inline duplication, and a group with no occurrences is not duplication worth recording. The
+    # five sites were asking TWO different questions with one spelling. Three meant "can the service
+    # launch this?" and now use the contract-derived `LAUNCHABLE_RUNTIMES` (dispatch_start,
+    # managed_pty_for_dispatch, undeliverable_queued_runs). Two meant "does a run against this stay
+    # open until the turn ends?" -- console_input_queue names that itself, `tracks_active_turn` --
+    # and now use `RUNTIMES_THAT_TRACK_A_TURN`, declared separately because the runtime contract does
+    # not model turn tracking. The sets are equal TODAY and that is a coincidence, not a definition;
+    # collapsing them back would make one call site silently answer the other's question.
     # runtimes/hermes.py (the active-session file + the sessions-dir scan), runtimes/pi.py.
     # 4 -> 3 on 2026-08-17: the fourth site was `_query_gateway_most_recent`, deleted as dead code
     # (nothing called it, and `discover_session_id` deliberately refuses to). This gate caught the
@@ -161,8 +167,17 @@ def test_the_scan_sees_inline_literals_and_not_named_constants():
     groups = _cross_module_groups()
     assert len(groups) == len(FROZEN), f"expected {len(FROZEN)} groups, measured {len(groups)}"
 
-    runtimes = frozenset({"claude-code", "codex", "hermes", "opencode", "pi"})
-    assert runtimes in groups, "the launchable-runtime duplication is the clearest case and must be seen"
+    # A GROUP THAT IS STILL THERE, and this control had to move on 2026-09-02: it used the
+    # launchable-runtime set, which was the clearest case until the duplication was removed. A
+    # positive control naming a group that no longer exists cannot prove the scan works -- it just
+    # fails for the same reason a broken scan would, which is the one thing an anti-vacuity check
+    # must never do.
+    session_states = frozenset({"active", "attached", "idle", "running", "starting"})
+    assert session_states in groups, (
+        "the scan found none of the known duplicated groups, so every assertion in this file is "
+        "vacuous. Check the scan before touching FROZEN."
+    )
+    assert len(groups[session_states]) >= 2, "a cross-module group must span at least two files"
 
     # `_NATIVE_MANAGED_RUNTIMES` is a named assignment in runtime.py and db.py; only the INLINE copy
     # in claim_block_reason.py may be counted here.

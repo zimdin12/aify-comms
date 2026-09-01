@@ -34,6 +34,8 @@ transaction, which is what makes 394 lines of spawn logic movable at all.
 
 from __future__ import annotations
 
+from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES
+
 import json
 import time
 import uuid
@@ -121,7 +123,7 @@ async def _coldstart_spawn_request_for_dispatch(
     appended for the caller to surface.
     """
     normalized_runtime = _normalize_runtime(runtime or "")
-    if normalized_runtime not in {"claude-code", "codex", "hermes", "opencode", "pi"}:
+    if normalized_runtime not in LAUNCHABLE_RUNTIMES:
         return _coldstart_refusal(
             warnings, f"runtime {normalized_runtime or '(unset)'!r} is not cold-startable")
 
