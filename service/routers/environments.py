@@ -165,9 +165,9 @@ def _bridge_owned_metadata_keys(existing_metadata) -> tuple:
 #: EVERY OMITTABLE-AND-PRESERVED field, WITH THE CARRIER IT TRAVELS IN. "Host-owned" was the
 #: original framing and it was too narrow: the class is any field whose ABSENCE means "keep what
 #: is stored", whichever tier supplies it. One declaration, because there are two
-#: carriers and splitting them is how the last field went missing: three of these live in the
-#: `metadata` blob and the fourth is a COLUMN, so a set that named only the metadata keys looked
-#: complete while describing three quarters of the problem.
+#: carriers and splitting them is how a field goes missing: three of these live in the `metadata`
+#: blob and TWO are COLUMNS, so a set that named only the metadata keys looked complete while
+#: describing three fifths of the problem.
 #:
 #: DERIVED-AGAINST, NOT MERELY WRITTEN DOWN. This is still a literal, because a field's CARRIER
 #: cannot be inferred from the model -- nothing in `runtimes: Optional[list]` says it is a column.
@@ -189,6 +189,9 @@ HOST_OWNED_FIELDS = (
     ("terminalRuntimes", METADATA_CARRIER, "terminalRuntimes"),
     #: The two that are not metadata. Preserved by their own `is None` restores below rather than by
     #: the metadata loop, which is why a metadata-only list could never have caught their absence.
+    #: Their declared key is the COLUMN NAME, and `test_each_declared_host_field_survives_omission`
+    #: reads it straight out of `environments` -- so a key that is not a column fails rather than
+    #: quietly reading something else.
     ("runtimes", COLUMN_CARRIER, "runtimes"),
     #: FOUND BY THE GATE ON ITS FIRST RUN, which is the argument for having one. `cwdRoots` is
     #: supplied by the BRIDGE rather than described by the host -- aify-env sends none by design -- so

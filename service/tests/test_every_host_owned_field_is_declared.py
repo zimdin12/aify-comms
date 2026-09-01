@@ -130,9 +130,14 @@ def test_every_declared_field_exists_on_the_model() -> None:
 def test_both_carriers_are_represented() -> None:
     """The defect was a metadata-only view of a two-carrier problem.
 
-    Three of these live in the `metadata` blob and one is a COLUMN. A set that named only the metadata
-    keys looked complete while describing three quarters of it, which is exactly why the column half
+    Three of these live in the `metadata` blob and TWO are COLUMNS. A set that named only the metadata
+    keys looked complete while describing three fifths of it, which is exactly why the column half
     could go unmentioned for as long as it did.
+
+    THIS FILE CHECKS MEMBERSHIP ONLY, and that boundary is worth stating because it was not obvious:
+    review changed one storage key to `terminalBROKEN` and every test here still passed while the live
+    route erased the stored value on omission. Naming the right members says nothing about what they
+    map to. `test_each_declared_host_field_survives_omission.py` drives the real route to check that.
     """
     carriers = {carrier for _f, carrier, _k in HOST_OWNED_FIELDS}
     assert carriers == {METADATA_CARRIER, COLUMN_CARRIER}, (
