@@ -150,7 +150,7 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_run_status",
-    "Check the status of a dispatched run.",
+    "Inspect a dispatched run: its status, recent events, and any control requests against it.",
     {
       runId: z.string().describe("Dispatch run ID"),
     },
@@ -224,7 +224,7 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_run_interrupt",
-    "Request interruption of an active dispatched run. Returns a control request ID.",
+    "Request interruption of an active dispatched RUN. Returns a control request ID. No dispatched run to interrupt? Use comms_interrupt.",
     {
       runId: z.string().describe("Dispatch run ID"),
       from: z.string().optional().describe("Requesting agent ID"),
@@ -249,7 +249,7 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_interrupt",
-    "Interrupt the agent currently running in a managed console. Sends terminal-native Ctrl+C to the target agent, so it also works for turns started directly in the TUI rather than by a dispatch run.",
+    "Interrupt the agent currently running in a managed CONSOLE. Sends terminal-native Ctrl+C, so it also works for turns started directly in the TUI rather than by a dispatch run. For a dispatched run, comms_run_interrupt is the tracked path.",
     {
       agentId: z.string().describe("Target agent ID"),
       from: z.string().optional().describe("Requesting agent ID"),

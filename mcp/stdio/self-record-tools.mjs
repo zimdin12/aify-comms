@@ -33,7 +33,7 @@ export function registerSelfRecordTools(server, z) {
 
   server.tool(
     "comms_status",
-    "Set your freeform focus/availability NOTE (shown as your statusNote next to your name in comms_agents/comms_agent_info). Your LIVE status badge — working/online/available/blocked/offline/stopped — is DERIVED by the service from real signals (turn start/end, worker liveness, dispatch state) and cannot be set here: the `status` label below is only a coarse focus hint and does NOT override the derived badge (e.g. 'idle' just renders as online). The `note` is the part that reliably surfaces. Report task completion with a reply message, not by setting status.",
+    "Set your freeform focus/availability NOTE (shown as your statusNote next to your name in comms_agents/comms_agent_info). Your LIVE status badge — working/online/available/blocked/offline/stopped — is DERIVED by the service from real signals (turn start/end, worker liveness, dispatch state) and cannot be set here: the `status` label below is only a coarse focus hint and does NOT override the derived badge (e.g. 'idle' just renders as online). The `note` is the part that reliably surfaces, and it persists across re-register (the coarse `status` label does not). Report task completion with a reply message, not by setting status.",
     {
       agentId: z.string().describe("Your agent ID"),
       status: z

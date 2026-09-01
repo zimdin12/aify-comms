@@ -63,14 +63,12 @@ MAX_FILES_LIMIT = 200
 async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> str:
     """List shared artifacts.
 
-    BOUNDED, and it did not used to be. This tool took NO parameters and returned every artifact the
-    fleet had ever shared — measured live on 2026-08-18 at 333 files / 87,014 characters, which the
-    caller's harness refused to inline. An unbounded list is not a listing, it is a claim on the
-    agent's own context: the reply crowds out the work it was supposed to inform.
+    BOUNDED: `limit` caps the reply, `query` matches name or description, `fromAgent` filters by
+    sharer. The reply always says how many were WITHHELD -- a truncated list that does not admit
+    it is truncated reads as "that is everything".
 
-    `limit` caps it, `query` matches name or description, `fromAgent` filters by sharer. The reply
-    always says how many were withheld, for the same reason `comms_search` says what it searched — a
-    truncated list that does not admit it is truncated reads as "that is everything".
+    An unbounded listing is a claim on your own context: the reply crowds out the work it was
+    meant to inform.
     """
     r = await _api("GET", "/shared")
     if "detail" in r:
@@ -115,11 +113,6 @@ async def comms_files(query: str = "", fromAgent: str = "", limit: int = 50) -> 
 
 async def comms_unshare(name: str, requestedBy: str) -> str:
     """Delete a shared artifact you shared.
-
-    There was NO tool for this until 2026-08-18 — the endpoint existed, but the only agent-reachable
-    way to remove an artifact was `comms_clear(target="shared")`, which wipes every artifact on the
-    hub for every team. A per-item delete missing while a fleet-wide wipe is one call away is how an
-    agent tidying up destroys somebody else's work.
 
     Only the sharer or an operator surface may delete; the service enforces it.
     """
