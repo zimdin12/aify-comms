@@ -29,6 +29,7 @@ const isPlainObject = (value) => typeof value === "object" && value !== null && 
 // aify-wrapper package this repo already pins, and `install.sh` runs `npm install` (2781) before
 // it registers the service (2801), so a missing package fails loudly at install rather than
 // silently skipping the check.
+import { credentialRefProblem } from "./credential-ref.mjs";
 import { parseRegistry } from "aify-wrapper/lib/registry.mjs";
 
 /**
@@ -95,6 +96,25 @@ export function upsertService(existingText, serviceName, entry) {
   // Only OUR entry is judged. Validating the merged file would let a third party's pre-existing
   // damage block a registration that is itself correct, which is a worse failure than the one this
   // prevents: it would make somebody else's bad entry uninstall ours.
+  // A REF THE CONSUMER WILL REFUSE IS NOT WRITTEN. `normaliseEntry` below checks only that this is a
+  // non-empty string, and the comment there claims a registry entry cannot point aify-env at a path
+  // of its choosing -- which is true because AIFY-ENV refuses one, not because this did. The result
+  // was a green install and a credential that silently did not resolve. Refused here instead, where
+  // the person who set CREDENTIAL_REF is still present to fix it.
+  const refProblem = services[serviceName].credentialRef === undefined
+    ? ""
+    : credentialRefProblem(services[serviceName].credentialRef);
+  if (refProblem) {
+    return {
+      ok: false,
+      errors: [
+        `credentialRef ${JSON.stringify(services[serviceName].credentialRef)} is one aify-env will `
+        + `refuse to resolve: ${refProblem}. It names one file inside that daemon's own credential `
+        + "store, never a path.",
+      ],
+    };
+  }
+
   const ours = parseRegistry(stableJson({ version: REGISTRY_VERSION, services: { [serviceName]: services[serviceName] } }));
   if (!ours.ok) {
     return {
