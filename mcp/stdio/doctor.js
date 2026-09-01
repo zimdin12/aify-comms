@@ -34,6 +34,7 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { defaultMachineId } from "./runtimes.js";
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
+import { markFor } from "./doctor-mark.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkContextWindow } from "./context-window-check.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
@@ -609,7 +610,23 @@ if (asJson) {
     // "0 live bridge(s) match repo HEAD" reads as a clean pass when the check is actually saying
     // it cannot tell yet. Same lesson as the stale-token verdict whose message doctor used to
     // collapse into "connected": a check must not look more confident than it is.
-    const mark = c.code === "skipped" ? "–" : c.code === "partial" ? "~" : c.ok ? "✓" : "✗";
+    // `ok` IS CONSULTED BEFORE `partial`, and the old order made a FAILURE look like a note.
+    //
+    // `partial` says how much evidence was gathered; `ok` says what the answer was. They are
+    // independent, and both combinations exist in this tool today:
+    //
+    //   * `doctor-predicates.js` returns {ok: true,  code: "partial"} -- some bridges reported a
+    //     build, the rest are pre-B1. Genuinely benign, and `~` is right for it.
+    //   * `context-window-check.mjs` returns {ok: false, code: "partial"} from `cappedVerdict`, whose
+    //     own text reads "this row is not a clean result: the agent this check exists to find may be"
+    //     among the ones not measured. That is a failure, and it rendered as the same `~`.
+    //
+    // Testing `partial` first meant the second case wore the first case's glyph. An operator scanning
+    // a report for `✗` saw none, in a run that had failed to answer the question -- the exact shape of
+    // `a2f9e42`'s false green, one layer up in the rendering rather than in the verdict.
+    //
+    // `skipped` stays first because a skip carries ok:true and is not a result at all.
+    const mark = markFor(c);
     console.log(`  ${mark} ${c.id.padEnd(18)} ${c.detail}`);
     if (!c.ok && c.fix) console.log(`      → ${c.fix}`);
   }
