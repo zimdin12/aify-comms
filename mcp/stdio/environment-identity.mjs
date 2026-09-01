@@ -37,7 +37,7 @@ import { dedupePreserveOrder } from "./dedupe.mjs";
 import { advertisedEnvironmentRuntimes, advertisedTerminalRuntimes } from "./environment-runtimes.js";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { bridgeTerminalSupported } from "./terminal-runtime.js";
-import { defaultMachineId } from "./runtimes.js";
+import { defaultMachineId, hostIsWsl } from "./runtimes.js";
 
 // Both are aliases rather than derivations: `AIFY_VERSION` is the single release version (see CLAUDE.md,
 // "one file, and a test that enforces it") and `defaultMachineId()` is a pure function of env and hostname.
@@ -45,11 +45,23 @@ import { defaultMachineId } from "./runtimes.js";
 const BRIDGE_VERSION = AIFY_VERSION;
 const MACHINE_ID = defaultMachineId();
 
-export function environmentKind() {
+export function environmentKind({ isWsl = hostIsWsl() } = {}) {
   const explicit = String(process.env.AIFY_ENVIRONMENT_KIND || "").trim();
   if (explicit) return explicit;
   if (process.env.WSL_DISTRO_NAME) return "wsl";
   if (process.env.container || fs.existsSync("/.dockerenv")) return "docker";
+  // A WSL HOST THAT DID NOT INHERIT THE VARIABLE. Everything above is unchanged, deliberately: the
+  // declared precedence is that an explicit kind wins, then WSL beats container, and reordering to
+  // let /proc speak earlier would relabel a docker container running ON WSL2 as `wsl`, because the
+  // WSL2 kernel's osrelease says "microsoft" inside the container too. So the file signal sits here,
+  // where it can only answer a case that currently answers `linux`.
+  //
+  // WHY IT MATTERS AT ALL: the environment ID is `${kind}:${hostname}:default`, nothing sets
+  // AIFY_ENVIRONMENT_ID, and WSL_DISTRO_NAME is absent in many child processes (see
+  // `stablePlatformTag` in runtimes.js, which stopped trusting it after the same divergence broke
+  // dispatch-claim on 2026-06-02). Without this, one WSL host registers as two environments and its
+  // workers split between them -- the failure this module's own header warns about.
+  if (isWsl) return "wsl";
   if (process.platform === "win32") return "windows";
   if (process.platform === "darwin") return "macos";
   return "linux";

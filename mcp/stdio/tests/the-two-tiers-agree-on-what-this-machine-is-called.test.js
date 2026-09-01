@@ -33,7 +33,14 @@ import { environmentKind, environmentOs } from "../environment-identity.mjs";
 /** Where aify-env lives. Overridable, because a sibling checkout is a convention and not a fact. */
 const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
 const ADVERTISE = path.join(AIFY_ENV, "lib", "advertise.mjs");
+const HOST_WSL = path.join(AIFY_ENV, "lib", "host-wsl.mjs");
 const available = fs.existsSync(ADVERTISE);
+
+/** aify-env's OWN WSL probe, so each tier answers with its own instrument rather than a shared one. */
+async function environmentSaysWsl() {
+  const mod = await import(`file://${HOST_WSL.split(String.fromCharCode(92)).join("/")}`);
+  return mod.hostIsWsl();
+}
 
 /** The env vars `defaultMachineId` consults, so a case can be posed to it without a subprocess. */
 const NAMING = ["AIFY_MACHINE_ID", "COMPUTERNAME", "HOSTNAME"];
@@ -74,12 +81,15 @@ test("both tiers name this REAL host identically", async (t) => {
   const { machineIdFor } = await import(`file://${ADVERTISE.split(String.fromCharCode(92)).join("/")}`);
 
   // No hypotheticals: the machine the suite is running on, asked of both.
+  // `isWsl` COMES FROM aify-env's OWN PROBE, not from a copy of the rule written here. A test that
+  // computes the input itself hands the tier a better answer than its production call site gets --
+  // which is exactly how this drifted: `bin/aify-env.mjs` passed `isWsl: kind === "wsl"`, derived
+  // from an environment variable, while the bridge read /proc. Both now probe; this asks each.
   const fromEnvironment = machineIdFor({
     platform: process.platform,
     hostname: os.hostname(),
     env: process.env,
-    isWsl: process.platform === "linux"
-      && /microsoft|wsl/i.test(readOsRelease()),
+    isWsl: await environmentSaysWsl(),
   });
   assert.equal(fromEnvironment, defaultMachineId(),
     "the two tiers would register this host under two different machine ids");
@@ -133,22 +143,20 @@ test("WSL is tagged `wsl` on both sides, which is what keeps it off the Windows 
   );
 });
 
-/** The file the bridge reads to decide it is WSL, or "" when there is none to read. */
-function readOsRelease() {
-  try {
-    return fs.readFileSync("/proc/sys/kernel/osrelease", "utf8");
-  } catch {
-    return "";
-  }
-}
-
 test("both tiers call this REAL host the same kind, and the same os", async (t) => {
   if (!available) return t.skip("aify-env is not checked out");
   const advertise = await import(`file://${ADVERTISE.split(String.fromCharCode(92)).join("/")}`);
 
   // No hypotheticals: the machine the suite is running on, asked of both.
+  // EACH TIER USES ITS OWN PROBE. Passing one answer to both would compare a function against
+  // itself: the drift being guarded here is precisely that the two could derive WSL differently,
+  // which they did until `hostIsWsl` landed on both sides -- one read /proc while the other read
+  // WSL_DISTRO_NAME, so a WSL host that did not inherit the variable got two kinds and two ids.
   assert.equal(
-    advertise.environmentKind({ platform: process.platform, env: process.env, exists: existsSync }),
+    advertise.environmentKind({
+      platform: process.platform, env: process.env, exists: existsSync,
+      isWsl: await environmentSaysWsl(),
+    }),
     environmentKind(),
     "the two tiers would register this host under two different KINDS, and the kind is joined into the id",
   );
@@ -172,14 +180,28 @@ test("they agree on every env-driven branch, which is where a drift would land",
     { label: "an explicit kind of whitespace is not a kind", env: { AIFY_ENVIRONMENT_KIND: "   " } },
   ];
 
+  // THE BRANCH THAT WAS BROKEN ON BOTH SIDES, posed to both: a WSL host whose process did not
+  // inherit WSL_DISTRO_NAME. Driven separately from the env cases because it is the one input that
+  // does NOT come from the environment, which is the entire reason it was got wrong.
+  for (const isWsl of [true, false]) {
+    assert.equal(
+      advertise.environmentKind({ platform: process.platform, env: {}, exists: () => false, isWsl }),
+      environmentKind({ isWsl }),
+      `a host the probe calls ${isWsl ? "WSL" : "not WSL"} gets two different kinds`,
+    );
+  }
+
   const saved = new Map(KIND_VARS.map((name) => [name, process.env[name]]));
   try {
     for (const { label, env } of cases) {
       for (const name of KIND_VARS) delete process.env[name];
       Object.assign(process.env, env);
+      const isWsl = await environmentSaysWsl();
       assert.equal(
-        advertise.environmentKind({ platform: process.platform, env: process.env, exists: existsSync }),
-        environmentKind(),
+        advertise.environmentKind({
+          platform: process.platform, env: process.env, exists: existsSync, isWsl,
+        }),
+        environmentKind({ isWsl }),
         `${label}: the two tiers disagree`,
       );
     }

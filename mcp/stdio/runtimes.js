@@ -439,17 +439,24 @@ export function defaultCapabilitiesForRuntime(runtime, sessionMode, sessionHandl
 // and emit a STABLE `wsl` tag; native platforms keep process.platform. The host
 // component is still the machine's own hostname, so this stays fully dynamic
 // across everyone's PCs — nothing is hardcoded.
-function stablePlatformTag() {
-  if (process.platform === "linux") {
-    try {
-      if (/microsoft|wsl/i.test(fs.readFileSync("/proc/sys/kernel/osrelease", "utf8"))) {
-        return "wsl";
-      }
-    } catch {
-      // not WSL or /proc unreadable → fall through to the platform tag
-    }
+// EXPORTED because a second reader needed it and copied the wrong input instead. `environmentKind`
+// in environment-identity.mjs derived WSL from WSL_DISTRO_NAME -- the very variable the comment
+// above explains is absent in many child processes -- and the environment ID is built from that
+// kind. So the same WSL host could register `wsl:<host>:default` from an interactive shell and
+// `linux:<host>:default` from a spawned one, which is the 2026-06-02 divergence again, one field
+// over, on the key an environment row is matched on. One predicate, two readers.
+export function hostIsWsl({ platform = process.platform, readFile = fs.readFileSync } = {}) {
+  if (platform !== "linux") return false;
+  try {
+    return /microsoft|wsl/i.test(readFile("/proc/sys/kernel/osrelease", "utf8"));
+  } catch {
+    // /proc unreadable -> not WSL. Fails closed: a host we cannot prove is WSL keeps its platform.
+    return false;
   }
-  return process.platform;
+}
+
+function stablePlatformTag() {
+  return hostIsWsl() ? "wsl" : process.platform;
 }
 
 export function defaultMachineId() {
