@@ -35,9 +35,14 @@ async def comms_inbox(
     mode: str = "full",
     messageId: str = "",
     limit: int = 20,
+    peek: bool = False,
 ) -> str:
-    """Check your inbox. Returns only UNREAD messages by default. Use mode='headers' for preview-only triage or messageId to fetch one message by ID. Messages are marked as read after viewing."""
+    """Check your inbox. Returns only UNREAD messages by default. Viewing MARKS MESSAGES READ, mode='headers' included -- pass peek=true to leave them unread. messageId fetches one message by ID."""
     params = {"filter": filter, "limit": str(limit), "mode": mode}
+    # SET ONLY WHEN TRUE. The route gates on `bool(peek)` over a STRING, so any non-empty value
+    # counts and sending "false" would read as peek. Omitting the key is the only way to say no.
+    if peek:
+        params["peek"] = "1"
     if fromAgent:
         params["fromAgent"] = fromAgent
     if fromRole:

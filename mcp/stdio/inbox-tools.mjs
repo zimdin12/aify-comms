@@ -50,7 +50,8 @@ export function registerInboxTools(server, z) {
   server.tool(
     "comms_inbox",
     "Check your inbox. Returns only UNREAD messages by default (limit 20). " +
-      "Messages are automatically marked as read after viewing. Use mode=headers for preview-only triage or messageId to fetch one message by ID.",
+      "Viewing MARKS MESSAGES READ, mode=headers included — pass peek=true to leave them unread. " +
+      "messageId fetches one message by ID.",
     {
       agentId: z.string().describe("Your agent ID"),
       filter: z.enum(["unread", "read", "all"]).optional().describe("Which messages (default: unread)"),
@@ -60,8 +61,9 @@ export function registerInboxTools(server, z) {
       mode: z.enum(["full", "headers"]).optional().describe("Return full bodies or header/preview only (default: full)"),
       messageId: z.string().optional().describe("Fetch one specific inbox message by ID. Overrides the unread/read filter."),
       limit: z.number().optional().describe("Max messages (default: 20)"),
+      peek: z.boolean().optional().describe("Read without consuming: leave the messages UNREAD. mode=headers alone does NOT do this."),
     },
-    async ({ agentId, filter, fromAgent, fromRole, type, mode, messageId, limit }) => {
+    async ({ agentId, filter, fromAgent, fromRole, type, mode, messageId, limit, peek }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
 
       const maxN = limit || 20;
@@ -74,6 +76,9 @@ export function registerInboxTools(server, z) {
         if (fromRole) params.set("fromRole", fromRole);
         if (type) params.set("type", type);
         if (messageId) params.set("messageId", messageId);
+        // SET ONLY WHEN TRUE. The route gates on `bool(peek)` over a STRING, so any non-empty
+        // value counts and `peek=false` would read as peek. Omitting is the only way to say no.
+        if (peek) params.set("peek", "1");
         const r = await httpCall("GET", `/messages/inbox/${agentId}?${params}`);
         if (!r.messages.length) {
           return { content: [{ type: "text", text: messageId ? `Message ${messageId} not found in inbox.` : "Inbox empty." }] };
@@ -109,7 +114,7 @@ export function registerInboxTools(server, z) {
       }
 
       const shown = messages.slice(0, messageId ? 1 : maxN);
-      markAsRead(agentId, shown);
+      if (!peek) markAsRead(agentId, shown);
 
       const formatted = shown.map((m) => (inboxMode === "headers" ? formatInboxHeaders(m, registry) : formatInboxMessage(m, registry)));
       const truncNote = !messageId && total > maxN ? `\n\n(Showing ${maxN} of ${total}. Use limit param for more.)` : "";
