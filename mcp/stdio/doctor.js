@@ -33,6 +33,7 @@ import { checkOpenAiUsageAccess } from "./usage-collector.js";
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
 import { defaultMachineId } from "./runtimes.js";
 import { checkApiExposure } from "./api-exposure-check.mjs";
+import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkContextWindow } from "./context-window-check.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
@@ -81,13 +82,31 @@ const sh = (cmd, cmdArgs, cwd) => {
   try { return execFileSync(cmd, cmdArgs, { cwd: cwd || undefined, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
   catch { return ""; }
 };
+//: Whether the service ANSWERED and refused us, as opposed to not answering at all. A doctor that
+//: cannot tell those apart tells an operator to check whether the service is up while it is up and
+//: rejecting every request -- which is what happened the day `API_KEY` was first set.
+let serviceRefusedTheKey = false;
 const get = async (path) => {
   try {
-    const res = await fetch(`${SERVER_URL}${path}`, { signal: AbortSignal.timeout(5000) });
+    // WITH THE KEY. This sent nothing until 2026-09-01, which was invisible while no key was set and
+    // blinded every service-reading check the moment one was. See doctor-api-key.mjs.
+    const headers = DOCTOR_API_KEY.key ? { "X-API-Key": DOCTOR_API_KEY.key } : {};
+    const res = await fetch(`${SERVER_URL}${path}`, { headers, signal: AbortSignal.timeout(5000) });
+    if (res.status === 401 || res.status === 403) {
+      serviceRefusedTheKey = true;
+      return null;
+    }
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
 };
+
+/** Why the service produced nothing, in the operator's terms rather than the transport's. */
+const whyNoService = () => (serviceRefusedTheKey
+  ? (DOCTOR_API_KEY.key
+    ? `the service REFUSED the API key (from ${DOCTOR_API_KEY.source}). It is running -- the key is wrong.`
+    : "the service requires an API key and this doctor has none. Set API_KEY in .env, or export AIFY_API_KEY.")
+  : "the service did not answer");
 
 // ── the checkout we are comparing against (the only source of "should be running") ──
 function findRepo() {
@@ -102,6 +121,11 @@ function findRepo() {
   return null;
 }
 const repo = findRepo();
+// RESOLVED AFTER THE REPO, because `.env` lives in it. Shell first: an operator who exported a key is
+// pointing this run somewhere specific and a file in the checkout must not override that.
+const DOCTOR_API_KEY = resolveDoctorApiKey({
+  env: process.env, repoDir: repo ? repo.dir : "", readFile: (f) => readFileSync(f, "utf8"), join,
+});
 
 // ── 1. service container: is it serving the build you think it is? ──────────────────
 // ── 2. the installed bridge copy: does it match the checkout? ───────────────────────
@@ -234,7 +258,17 @@ async function checkAgentIdentity() {
 // degraded bridge as "none online", a false RED. Verified against api_v2.py before rewriting.)
 async function checkEnvBridge() {
   const envs = await get("/api/v1/environments");
-  if (!envs) return skip("env-bridge", "service unreachable");
+  if (!envs) {
+    skip("env-bridge", whyNoService());
+    // AND bridge-current, for the SAME reason spelled out fifty lines below: a bare `return` here
+    // took the rest of this function with it, so an unreachable service produced a report with no
+    // `bridge-current` row at all -- not a skip, not a failure, absent. That was fixed once for the
+    // no-online-bridge branch and left standing on this one, which is the branch that fires when the
+    // service is down or refusing the key. A check that could not be asked must SAY it was not asked.
+    return add("bridge-current", false, "unknown-all",
+      `${whyNoService().replace(/\.$/, "")}, so no live bridge could be asked which build it is running.`,
+      "Check the `service` row above, then re-run.");
+  }
   const list = envs.environments || [];
   const online = list.filter(envIsOnline);
   const offline = list.filter((e) => !envIsOnline(e));
