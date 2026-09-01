@@ -1,0 +1,224 @@
+diff --git a/bin/aify-env.mjs b/bin/aify-env.mjs
+index 400a5a7..3e931db 100644
+--- a/bin/aify-env.mjs
++++ b/bin/aify-env.mjs
+@@ -165,7 +165,15 @@ async function reapLeftovers() {
+     isAlive: defaultIsAlive,
+     verify: defaultVerify,
+     ownerIsAlive: defaultIsAlive,
++    // Only ever the instance we stopped ourselves. See the adoption branch in lib/orphan-reap.mjs.
++    adoptFrom: supersededPid,
+   });
++  for (const entry of leftovers.adopt) {
++    process.stderr.write(
++      `[aify-env] adopted pid ${entry.pid} (${entry.service}) from the environment this instance `
++      + `superseded; it keeps running${chr10}`,
++    );
++  }
+   for (const entry of leftovers.reap) {
+     // The TREE, not the pid: the recorded process is a launcher, and the agent it started is a child of
+     // it. Reaping only the launcher leaves exactly the process an operator cared about.
+@@ -185,7 +193,14 @@ async function reapLeftovers() {
+   // above: the reaper spared another environment's processes and then deleted the only record that
+   // they exist. Sparing a process and forgetting it is barely better than killing it -- the operator
+   // still ends up with something running that nothing can clean up.
+-  clearOwned(OWNED_FILE, { keep: entriesOwnedElsewhere(recorded, { ownerIsAlive: defaultIsAlive }) });
++  // AND KEEP WHAT WE ADOPTED, under THIS instance's pid. Sparing a process and then dropping it from
++  // the record is the leak this function exists to prevent -- it would survive the handover and then
++  // be invisible to every future instance, including our own shutdown. Rewriting the owner is what
++  // makes the adoption real rather than merely a decision not to kill.
++  const adopted = leftovers.adopt.map((entry) => ({ ...entry, owner: process.pid }));
++  clearOwned(OWNED_FILE, {
++    keep: [...entriesOwnedElsewhere(recorded, { ownerIsAlive: defaultIsAlive }), ...adopted],
++  });
+ }
+ 
+ const runner = new Runner({ ownedFile: OWNED_FILE });
+@@ -389,6 +404,10 @@ async function incumbent() {
+ }
+ 
+ let superseding = false;
++// WHOSE PROCESSES WE INHERIT. Set only when this instance deliberately stopped an incumbent to take
++// its port; `reapLeftovers` adopts that owner's entries instead of reaping them. Zero on an ordinary
++// boot, where a dead owner means a crash and its leftovers really are orphans.
++let supersededPid = 0;
+ server.on("error", async (failure) => {
+   if (failure?.code === "EADDRINUSE") {
+     // TAKE OVER, rather than refuse. Operator ruling: starting the environment means this one serves.
+@@ -410,12 +429,32 @@ server.on("error", async (failure) => {
+       process.exit(69);
+     }
+     superseding = true;
++    // BEFORE the kill, so the record's new owner is known even if killTree throws. The entries are
++    // adopted on the strength of us having stopped that instance on purpose, and that decision does
++    // not change with how tidily it died.
++    supersededPid = holder.pid;
+     process.stderr.write(
+       `aify-env: superseding the environment already running on ${HOST}:${port} (pid ${holder.pid}, `
+       + `version ${holder.version ?? "unknown"}).${chr10}`,
+     );
+     try {
+-      await killTree(holder.pid);
++      // THE DAEMON ONLY -- NOT ITS TREE, AND NOT GRACEFULLY. Both of the obvious ways to stop it take
++      // the fleet with it, which is the whole defect:
++      //
++      //   * `killTree` ends the incumbent AND its children, and the children ARE the agents. They die
++      //     here, before the reaper this instance runs has any chance to adopt them.
++      //   * `SIGTERM` is worse-looking-better: the incumbent's shutdown handler exists precisely to
++      //     make "processes managed by aify-env die with it" true, so asking it politely is asking it
++      //     to reap the fleet on its way out.
++      //
++      // SIGKILL runs no handler, so the workers are left running and parentless -- which is exactly
++      // the state `reapLeftovers` adopts them from, using the record the incumbent already wrote.
++      // Nothing is lost by skipping its cleanup: this instance rewrites that record moments later.
++      //
++      // The operator's other clause is untouched. A LAST aify-env going down still runs its handler
++      // and still takes its processes with it; only a handover is exempt, and only because somebody
++      // is standing by to inherit them.
++      process.kill(holder.pid, "SIGKILL");
+     } catch {
+       // Reported by the retry failing, rather than swallowed here where it would read as success.
+     }
+diff --git a/lib/orphan-reap.mjs b/lib/orphan-reap.mjs
+index 6fc3b92..5cdd36f 100644
+--- a/lib/orphan-reap.mjs
++++ b/lib/orphan-reap.mjs
+@@ -23,9 +23,14 @@ import { spawnSync } from "node:child_process";
+  *   work and belongs to the caller; the decision does not change with the technique.
+  *   `ownerIsAlive` answers "is the instance that wrote this entry still running". Defaults to
+  *   `isAlive`, since it is the same question asked of a different pid.
+- * @returns {{reap: object[], skipped: Array<{entry: object, reason: string}>}}
++ *   `adoptFrom` is the pid of an instance THIS one deliberately superseded, if any. Its entries are
++ *   adopted rather than reaped: the caller stopped that instance on purpose, so its processes were
++ *   never abandoned. Omit it for an ordinary boot, where every dead owner is a crash.
++ * @returns {{reap: object[], skipped: Array<{entry: object, reason: string}>, adopt: object[]}}
++ *   `adopt` entries must be written back under the new owner by the caller. Leaving them unclaimed
++ *   would spare them and then forget them, which is the leak this file exists to prevent.
+  */
+-export function planOrphanReap(entries, { isAlive, verify, ownerIsAlive }) {
++export function planOrphanReap(entries, { isAlive, verify, ownerIsAlive, adoptFrom }) {
+   // AN ENTRY WHOSE OWNER IS STILL RUNNING IS NOT AN ORPHAN. It is another live instance's process, and
+   // the whole record is about cleaning up after an instance that DIED.
+   //
+@@ -42,6 +47,7 @@ export function planOrphanReap(entries, { isAlive, verify, ownerIsAlive }) {
+   const ownerProbe = typeof ownerIsAlive === "function" ? ownerIsAlive : isAlive;
+   const reap = [];
+   const skipped = [];
++  const adopt = [];
+ 
+   for (const entry of Array.isArray(entries) ? entries : []) {
+     let alive;
+@@ -58,6 +64,39 @@ export function planOrphanReap(entries, { isAlive, verify, ownerIsAlive }) {
+     }
+ 
+     const owner = Number(entry.owner);
++
++    // A HANDOVER IS NOT A CRASH, and until 2026-09-01 nothing here could tell them apart.
++    //
++    // Supersession stops the incumbent, takes its port, and then reaps from its record -- by which
++    // time the owner really IS dead, so the guard above correctly declines to spare anything. Every
++    // healthy worker of the environment being replaced died. Twice on 2026-09-01, five agents each
++    // time, three of them mid-work; the operator's own start was the second one.
++    //
++    // The replacement knows something no probe can recover: it killed that owner ITSELF, deliberately,
++    // to take over. Operator's ruling, 2026-09-01: "starting should take over running aify-env
++    // sessions if possible and kill that another aify-env." So an entry belonging to the instance we
++    // superseded is ADOPTED -- kept running, and rewritten to this instance -- rather than reaped.
++    //
++    // STILL VERIFIED FIRST. Adoption inherits responsibility for a process, so claiming one that is no
++    // longer ours would be the same mistake as killing one: the record would name a stranger, and the
++    // next shutdown would end it. Unverifiable is not adoptable.
++    //
++    // Scoped to the ONE pid we replaced, never "any dead owner". A dead owner we did not supersede is
++    // exactly the crash this file exists to clean up after, and adopting those would turn every boot
++    // into an amnesty and leak the fleet forever.
++    const superseded = Number(adoptFrom);
++    if (Number.isInteger(superseded) && superseded > 0 && owner === superseded) {
++      let stillOurs;
++      try {
++        stillOurs = verify(entry) === true;
++      } catch {
++        stillOurs = false;
++      }
++      if (stillOurs) adopt.push(entry);
++      else skipped.push({ entry, reason: "not ours any more" });
++      continue;
++    }
++
+     if (Number.isInteger(owner) && owner > 0) {
+       let ownerRunning;
+       try {
+@@ -88,7 +127,7 @@ export function planOrphanReap(entries, { isAlive, verify, ownerIsAlive }) {
+     reap.push(entry);
+   }
+ 
+-  return { reap, skipped };
++  return { reap, skipped, adopt };
+ }
+ 
+ /**
+diff --git a/tests/a-second-start-supersedes-the-first.test.js b/tests/a-second-start-supersedes-the-first.test.js
+index 76d0cb4..ed0aa6d 100644
+--- a/tests/a-second-start-supersedes-the-first.test.js
++++ b/tests/a-second-start-supersedes-the-first.test.js
+@@ -102,7 +102,21 @@ test("a second start takes over, and the first stops serving", async () => {
+   }
+ });
+ 
+-test("the predecessor's processes are reaped by the replacement, not stranded", async () => {
++test("the predecessor's processes are ADOPTED by the replacement, not killed", async () => {
++  // THIS TEST USED TO ASSERT THE OPPOSITE, and the behaviour it pinned cost the operator their fleet
++  // twice on 2026-09-01 -- five agents each time, three of them mid-work.
++  //
++  // Reaping the predecessor's processes was right about one thing: they must not be stranded. It was
++  // wrong about why they were ownerless. Supersession STOPS the incumbent, so by the time the reaper
++  // reads the record the owner is dead -- killed by the act of starting -- and every healthy worker
++  // looked exactly like a crash leftover.
++  //
++  // Operator's ruling, 2026-09-01: "starting should take over running aify-env sessions if possible
++  // and kill that another aify-env." The daemon dies; its work does not.
++  //
++  // The stranding requirement is unchanged and is the second half of this test: the process must be
++  // OWNED by the replacement afterwards. Sparing it and forgetting it would be the original bug with
++  // a longer fuse -- nothing would ever clean it up, including the new instance's own shutdown.
+   const PORT = 8884;
+   const box = sealed("adopt");
+   const launcher = longLauncher(box.dir);
+@@ -121,11 +135,33 @@ test("the predecessor's processes are reaped by the replacement, not stranded",
+     assert.ok(alive(pid), "nothing was running, so this test would prove nothing");
+ 
+     second = start(box.env(box.record), PORT);
++    // What the replacement SAYS it did with each entry. Collected because "the process is gone" has
++    // several causes and they need different fixes -- reaped, never adopted, or died with its parent.
++    let said = "";
++    second.stdout.on("data", (c) => { said += c; });
++    second.stderr.on("data", (c) => { said += c; });
+     await waitFor(second, /listening/);
+-    // The replacement reaps from the record once the port is its own.
+-    for (let i = 0; i < 40 && alive(pid); i += 1) await new Promise((r) => setTimeout(r, 200));
+-
+-    assert.ok(!alive(pid), "the predecessor's process was left running with nobody owning it");
++    // Settle past the point the old build would have killed it. Waiting for a death that must NOT
++    // happen needs a fixed wait: there is no event to observe, and returning early would make this
++    // pass for a process that dies a moment later.
++    await new Promise((r) => setTimeout(r, 2500));
++
++    assert.ok(
++      alive(pid),
++      "the replacement killed the predecessor's process. Superseding an environment must not end the "
++      + "work it was doing -- that is the defect this test was rewritten for."
++      + " What the replacement said:" + String.fromCharCode(10) + said,
++    );
++
++    // AND IT IS OWNED, not merely spared. Read from the record the next instance would read.
++    const record = JSON.parse(fs.readFileSync(box.record, "utf8"));
++    const entry = (Array.isArray(record) ? record : record.processes ?? []).find((e) => e.pid === pid);
++    assert.ok(entry, `the adopted process is absent from the record, so nothing can ever clean it up`);
++    assert.equal(
++      entry.owner, second.pid,
++      "the adopted process is still recorded under the dead instance, so the next boot will read it "
++      + "as an orphan and kill it -- the fix would only have postponed the deaths by one start",
++    );
+   } finally {
+     if (second) second.kill();
+     first.kill();
