@@ -100,3 +100,37 @@ class TurnLivenessPolicyTests(unittest.TestCase):
         everything, or yes to everything."""
         self.assertTrue(self.live(started_ago=10, touched_ago=1))
         self.assertFalse(self.live(started_ago=ABSOLUTE + 60, touched_ago=1, renewable=True))
+
+    def test_the_ceiling_SKIPPED_for_an_anchorless_row_grants_nothing(self):
+        """DISP-L1, and it is a non-defect. Pinned so nobody "fixes" it again -- I tried twice.
+
+        The finding is accurate as written: `if started_epoch and (now - started) > absolute_max`
+        does skip the 4-hour ceiling for a row with no start anchor. The inference that this leaves
+        such a turn unbounded is what does not hold.
+
+        Without an anchor the renewable branch computes `seen = max(usable_touch, 0)`, which IS the
+        touch column -- exactly what the unverified branch falls back to -- and both then face the
+        same `age <= strict_seconds`. So an anchorless turn is already bounded by the STRICT rule,
+        which is tighter than the ceiling it skips. The ceiling only ever bites a turn that HAS an
+        anchor, and there it applies.
+
+        Two repairs were written and both were wrong. Bounding against `started_epoch or
+        touched_epoch` measures the ceiling from the column a timer-driven poster refreshes, so it
+        never arrives. Refusing an anchorless renewable turn breaks
+        `test_VERIFYING_A_LEASE_NEVER_REMOVES_LIVENESS` -- the property both status readers' shortcut
+        depends on -- by making verification turn a live turn dead.
+
+        Measured alongside: 0 of 24 `agent_turn_state` rows lack `turn_started_at`.
+        """
+        for touched in (1, 100, STRICT - 1, STRICT + 1, 7200, 20000):
+            self.assertEqual(
+                self.live(touched_ago=touched, renewable=True),
+                self.live(touched_ago=touched, renewable=False),
+                f"an anchorless row answers differently when verified (touched_ago={touched}), so the "
+                "skipped ceiling now grants something and DISP-L1 has become real",
+            )
+
+    def test_and_the_ceiling_still_bites_a_row_that_HAS_an_anchor(self):
+        """The other half: dropping DISP-L1 must not be read as "the ceiling does nothing"."""
+        self.assertTrue(self.live(started_ago=ABSOLUTE - 60, touched_ago=1, renewable=True))
+        self.assertFalse(self.live(started_ago=ABSOLUTE + 60, touched_ago=1, renewable=True))
