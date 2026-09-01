@@ -786,6 +786,7 @@ small, .subtle { color: var(--muted); }
 /* Sessions fills the viewport like Chat: the page is a flex column that doesn't scroll, and the
    two columns fill it + scroll internally — no hand-tuned calc(100vh-Npx) leaving dead space. */
 #page-sessions.active { display: flex; flex-direction: column; overflow: hidden; }
+#page-files.active { display: flex; flex-direction: column; overflow: hidden; } /* declared HERE, above the <=1100px override it ties with; see css-cascade.test.mjs */
 .session-shell {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
@@ -1068,7 +1069,7 @@ small, .subtle { color: var(--muted); }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .run-row { grid-template-columns: 1fr; }
 }
-@media (max-width: 980px) {
+@media (min-width: 761px) and (max-width: 980px) { /* tablet only; unbounded it killed the <=760px rule -- see css-cascade.test.mjs */
   .run-row { grid-template-columns: 22px minmax(0, 1fr) auto; }
 }
 @media (max-width: 760px) {
@@ -1329,7 +1330,7 @@ small, .subtle { color: var(--muted); }
   /* On narrow screens the workspace scrolls normally (single-column stacks need it). */
   .workspace { height: auto; min-height: 100vh; overflow: visible; display: block; }
   #page-chat.active { display: block; overflow: visible; }
-  .chat-shell { grid-template-columns: 1fr; flex: none; min-height: 0; }
+  .chat-shell, .chat-shell.compact { grid-template-columns: 1fr; flex: none; min-height: 0; } /* .compact is (0,2,0); a media query adds none */
   .chat-rail { max-height: 42vh; }
 }
 
@@ -1355,7 +1356,6 @@ small, .subtle { color: var(--muted); }
 .files-upload input[type="file"]::file-selector-button { background: var(--panel-2); color: var(--soft); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 9px; margin-right: 9px; cursor: pointer; }
 .files-upload .spawn-submit button { min-height: 40px; }
 /* Files fills the viewport: page is a flex column, the list fills the remaining height + scrolls. */
-#page-files.active { display: flex; flex-direction: column; overflow: hidden; }
 .files-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
 .file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 11px 14px; }
 .file-main { min-width: 0; }

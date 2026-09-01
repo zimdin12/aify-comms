@@ -1688,6 +1688,33 @@ const EXTRACTIONS = [
         name: "handleGlobalKeydown",
         at: 4651,
         marker: "  handleGlobalKeydown(event, closeInspector, toggleFavorite);",
+        editedSince: [
+          {
+            // The triage tiles gained an Enter/Space branch on 2026-09-01. They rendered as
+            // `role="button" tabindex="0"` with a click handler and no key handler, so a
+            // keyboard-only operator got a focus ring, a screen reader saying "button", and
+            // nothing on Enter. The two branches above it were already there; nothing compared
+            // the lists, because one of them was this file's header comment.
+            was: [
+              "    toggleFavorite(event.target.dataset.favToggle);",
+              "  }",
+              "  // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as",
+            ],
+            now: [
+              "    toggleFavorite(event.target.dataset.favToggle);",
+              "  }",
+              "  // The triage tiles, for the same reason and missed for the same reason: this list is hand-kept,",
+              "  // the comment at the top of this file enumerates what it covers, and a third `role=button` span",
+              "  // shipped without anyone comparing the two lists. `every-role-button-is-keyboard-operable.test.mjs`",
+              "  // now DERIVES the population from the markup so a fourth cannot arrive unnoticed.",
+              "  if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-diag-jump]')) {",
+              "    event.preventDefault();",
+              "    jumpFromDiagnostic(event.target);",
+              "  }",
+              "  // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as",
+            ],
+          },
+        ],
         wrapper: {
           header: ["export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {"],
           footer: ["}"],
