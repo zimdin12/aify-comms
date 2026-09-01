@@ -83,7 +83,17 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="$REPO_ROOT/.env"
+#: The file the SERVICE reads, overridable so a test can seal it.
+#:
+#: NOT a convenience. `.env` is an ambient input to every caller of this script, and until 2026-09-01
+#: nothing could hold it still: the moment an operator set `API_KEY` for real, four tests in
+#: `test_the_environment_bridge_gets_the_key_the_service_uses.py` began failing -- correctly, because
+#: the CONFLICT guard below fired on the shell key they set versus the file key they could not see.
+#: They sealed both shell names and believed that was the whole environment; it stopped being so when
+#: this script learned to read the file.
+#:
+#: A test that cannot seal an input is a test whose result the host decides.
+ENV_FILE="${AIFY_ENV_FILE:-$REPO_ROOT/.env}"
 
 #: The floor a key must clear, named ONCE. The generator held itself to this and nothing checked a
 #: key that arrived any other way, so an operator's weak key was reused as though it had been vetted.

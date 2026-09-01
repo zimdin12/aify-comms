@@ -62,6 +62,15 @@ def _render(directory: Path, key: str | None) -> str:
     # inherits a real key would pass the keyed cases for the wrong reason and never fail the bare one.
     for name in SHELL_KEY_NAMES:
         env.pop(name, None)
+    # AND SEAL `.env`, WHICH IS THE OTHER HALF AND WAS NOT SEALED. `scripts/api-key.sh` resolves the
+    # shell FIRST and the repo's `.env` SECOND, and refuses with exit 3 when the two name different
+    # keys -- correctly, because that is the state where clients get one key and the service runs on
+    # another. Sealing only the shell therefore left the operator's real file deciding the outcome:
+    # the day `API_KEY` was set for real, all four tests here failed on a CONFLICT they had set up
+    # without being able to see it. Pointing at an empty file in the temp directory makes "no key
+    # configured anywhere" the baseline each case then varies from.
+    env["AIFY_ENV_FILE"] = (directory / "sealed.env").as_posix()
+    (directory / "sealed.env").write_text("", encoding="utf-8")
     if key is not None:
         env["AIFY_API_KEY"] = key
 
@@ -121,3 +130,44 @@ def test_the_launcher_never_carries_a_key_the_environment_did_not_supply():
         for line in text.splitlines():
             if line.startswith(f'export {name}='):
                 assert line.endswith(':-}"'), f"{name} was given a value nobody configured: {line}"
+
+
+def test_the_seal_this_file_depends_on_actually_seals():
+    """`AIFY_ENV_FILE` is honoured, proven by making it name a key and reading it back.
+
+    WITHOUT THIS, THE SEAL CAN ROT SILENTLY. Every case above sets `AIFY_ENV_FILE` and would keep
+    passing if `scripts/api-key.sh` stopped honouring it -- they would simply be reading the
+    operator's real `.env` again, which is the state that broke them in the first place and did so
+    invisibly for as long as no key was set. A seal nothing verifies is a comment.
+
+    Both directions in one test: the sealed file's key is returned, and a DIFFERENT sealed file with
+    no key returns nothing. One without the other would pass for a script that ignored the variable
+    and happened to find the same answer.
+    """
+    with tempfile.TemporaryDirectory(prefix="aify-seal-") as tmp:
+        sealed = Path(tmp) / "sealed.env"
+        env = dict(os.environ)
+        for name in SHELL_KEY_NAMES:
+            env.pop(name, None)
+        env["AIFY_ENV_FILE"] = sealed.as_posix()
+
+        sealed.write_text("API_KEY=sk-sealed-value-not-the-real-one\n", encoding="utf-8")
+        found = subprocess.run(
+            [_bash(), str(REPO / "scripts" / "api-key.sh")],
+            capture_output=True, text=True, env=env,
+        )
+        assert found.returncode == 0, found.stderr
+        assert found.stdout.strip() == "sk-sealed-value-not-the-real-one", (
+            "scripts/api-key.sh ignored AIFY_ENV_FILE, so every test in this file is reading the "
+            "operator's real .env and its result is decided by the host"
+        )
+
+        sealed.write_text("# nothing here\n", encoding="utf-8")
+        empty = subprocess.run(
+            [_bash(), str(REPO / "scripts" / "api-key.sh")],
+            capture_output=True, text=True, env=env,
+        )
+        assert empty.returncode == 0, empty.stderr
+        assert empty.stdout.strip() == "", (
+            "a sealed file with no key still produced one, so the resolver reached past the seal"
+        )
