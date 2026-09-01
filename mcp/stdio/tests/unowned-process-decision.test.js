@@ -189,6 +189,9 @@ test("a process with NO LABEL is kept and says why -- it cannot be attributed", 
 });
 
 test("every input lands in exactly one list, so nothing is silently dropped", () => {
+  // NECESSARY, NOT SUFFICIENT, and it has now failed to catch two separate defects: a row conserved
+  // into the WRONG population still conserves, and an unreadable CONTAINER has no rows on either side
+  // so the arithmetic is perfect and vacuous. The population tests are what actually hold the boundary.
   const { candidates, keep, invalid } = unownedProcessDecision(FLEET, OWNERS, REMOVALS);
   assert.equal(candidates.length + keep.length + invalid.length, FLEET.length);
 });
@@ -293,11 +296,53 @@ test("the count of every input is conserved even when the listing is mostly junk
   assert.equal(candidates.length + keep.length + invalid.length, rows.length);
 });
 
-test("an empty fleet reports nothing, and junk arguments do not throw", () => {
-  const empty = { candidates: [], keep: [], invalid: [] };
+test("a genuinely empty listing reports nothing, and says so as a RESULT", () => {
+  const empty = { candidates: [], keep: [], invalid: [], unreadable: null };
   assert.deepEqual(unownedProcessDecision([], {}, {}), empty);
-  assert.deepEqual(unownedProcessDecision(null, null, null), empty);
+  // No arguments at all means an empty listing, not a broken one: the default parameter supplies it,
+  // and `undefined` is what a caller passes when it has nothing rather than something wrong.
   assert.deepEqual(unownedProcessDecision(undefined), empty);
+});
+
+test("AN UNREADABLE LISTING IS REFUSED, not normalised into an empty fleet", () => {
+  // THE TEST HERE USED TO BLESS THIS. It asserted `unownedProcessDecision(null, null, null)` equalled
+  // three empty buckets and called that "junk arguments do not throw" -- so a listing that could not be
+  // read rendered as "0 process(es) classified, none to report", which is an all-clear derived from
+  // having examined nothing. Review probed it with null, {}, "bad" and 42.
+  //
+  // ROW CONSERVATION CANNOT SEE THIS. It counts rows against an input length, and when the container
+  // is unreadable there are no rows on either side, so the arithmetic is perfect and means nothing.
+  for (const bad of [null, {}, "bad", 42, true, () => {}]) {
+    const out = unownedProcessDecision(bad, {}, {});
+    assert.ok(out.unreadable, `${String(bad)} was accepted as a listing`);
+    assert.deepEqual(out.candidates, []);
+    assert.deepEqual(out.keep, []);
+    assert.deepEqual(out.invalid, []);
+  }
+});
+
+test("the refusal names what arrived, so the broken producer can be found", () => {
+  assert.match(unownedProcessDecision(null).unreadable, /null/);
+  assert.match(unownedProcessDecision("bad").unreadable, /a string/);
+  assert.match(unownedProcessDecision(42).unreadable, /a number/);
+  assert.match(unownedProcessDecision({}).unreadable, /an object/);
+});
+
+test("A REFUSED LISTING READS AS A REFUSAL, never as a clean fleet", () => {
+  // The wording is the whole point. An operator who skims "none to report" stops looking.
+  const line = describeDecision(unownedProcessDecision(null));
+  assert.match(line, /could not be read/);
+  assert.match(line, /NOTHING was classified/);
+  assert.match(line, /not an empty fleet/);
+  assert.doesNotMatch(line, /none to report/);
+});
+
+test("a readable listing carries unreadable:null, so the field is never merely absent", () => {
+  // A caller testing `if (out.unreadable)` must get a defined answer on both paths; an absent key and
+  // a null one read the same in JS but not to a reader deciding whether the field exists at all.
+  const out = unownedProcessDecision(FLEET, OWNERS, REMOVALS);
+  assert.equal(out.unreadable, null);
+  assert.ok("unreadable" in out);
 });
 
 // -- describeDecision ----------------------------------------------------------------------------
@@ -410,13 +455,21 @@ test("an id must be a non-empty string, not merely present", () => {
   }
 });
 
-test("a pid must be a finite positive NUMBER -- a numeric string is not a pid", () => {
-  // `"123"` would survive any check that only asks whether the field is truthy, and 0 would survive
-  // any check that only asks whether it is a number.
-  for (const pid of [undefined, null, 0, -1, -0.5, NaN, Infinity, -Infinity, "123", "", {}, []]) {
+test("a pid must be a SAFE POSITIVE INTEGER -- finite and positive is not enough", () => {
+  // `"123"` survives a truthiness check and 0 survives a typeof check, which is why both were already
+  // here. Review then found `{id:"p", pid:0.5}` accepted: there is no process one-half. And `1e21` IS
+  // an integer by `Number.isInteger`, but it sits past 2^53 where values stop being exactly
+  // representable -- an identity that cannot be represented exactly cannot address a process exactly.
+  const rejected = [
+    undefined, null, 0, -1, -0.5, 0.5, 1.5, 1e21, Number.MAX_VALUE,
+    NaN, Infinity, -Infinity, "123", "", {}, [], true,
+  ];
+  for (const pid of rejected) {
     assert.match(processRowProblem({ id: "p", pid }), /no usable pid/, `pid ${String(pid)} was accepted`);
   }
-  assert.equal(processRowProblem({ id: "p", pid: 1 }), null);
+  for (const pid of [1, 111, 239888, Number.MAX_SAFE_INTEGER]) {
+    assert.equal(processRowProblem({ id: "p", pid }), null, `pid ${String(pid)} was rejected`);
+  }
 });
 
 test("id is checked before pid, so a row missing both names the id", () => {

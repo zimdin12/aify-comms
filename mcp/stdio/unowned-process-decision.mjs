@@ -130,10 +130,38 @@ export function processRowProblem(entry) {
   if (Array.isArray(entry)) return "an array, not a process row";
   const id = typeof entry.id === "string" ? entry.id.trim() : "";
   if (!id) return "no process id, so nothing could address it";
-  if (typeof entry.pid !== "number" || !Number.isFinite(entry.pid) || entry.pid <= 0) {
+  // A SAFE POSITIVE INTEGER, not merely a positive number. `pid: 0.5` passed a finite-and-positive
+  // check and there is no such process; so did `1e21`, which IS an integer by `Number.isInteger` but
+  // sits past 2^53 where values stop being exactly representable -- and an identity that cannot be
+  // represented exactly cannot address a process exactly. `Number.isSafeInteger` is the bound that
+  // says that, rather than a made-up ceiling nobody could justify later.
+  if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0) {
     return "no usable pid, so nothing could address it";
   }
   return null;
+}
+
+/**
+ * Whether the listing itself could be read, or the reason it could not.
+ *
+ * AN UNREADABLE LISTING IS NOT AN EMPTY FLEET, and until review probed it this returned three empty
+ * buckets for `null`, `{}`, `"bad"` and `42` alike -- `describeDecision` then said "0 process(es)
+ * classified, none to report", which is a clean bill of health derived from having read nothing.
+ *
+ * Row conservation cannot catch this. It counts rows against an input length, and when the container
+ * is unreadable there are no rows to conserve on either side, so the arithmetic is perfect and
+ * meaningless. That is the same false green this repo has now hit in a doctor check, a fan-out cap and
+ * here: no evidence must never render as a pass.
+ *
+ * `undefined` is NOT refused -- the default parameter makes it a genuinely empty listing, which is what
+ * calling with no arguments means. `null` is refused, because somebody passed something and it was not
+ * a listing.
+ */
+function listingProblem(processes) {
+  if (Array.isArray(processes)) return null;
+  if (processes === null) return "the process listing was null";
+  const kind = typeof processes;
+  return `the process listing was ${"aeiou".includes(kind[0]) ? "an" : "a"} ${kind}, not an array`;
 }
 
 /**
@@ -145,11 +173,23 @@ export function processRowProblem(entry) {
  * @param {{id:string, pid:number, label:string, startedAtMs:number}[]} processes  what aify-env reports
  * @param {Record<string,string>} owners  agentId -> OWNER_*, from `ownerFromStatus`
  * @param {Record<string,number>} removedAt  agentId -> epoch ms the tombstone was written
- * @returns {{candidates:object[], keep:object[], invalid:object[]}} EVERY input row appears in exactly
- *   one of the three lists -- including one that is not a process row at all, which goes to `invalid`
+ * @returns {{candidates:object[], keep:object[], invalid:object[], unreadable:string|null}} EVERY
+ *   input row appears in exactly one of the three lists -- including one that is not a process row
+ *   at all, which goes to `invalid`. When the LISTING ITSELF is unreadable the three lists are
+ *   empty and `unreadable` says why: that is a refusal, not a fleet with no processes in it.
  */
 export function unownedProcessDecision(processes = [], owners = {}, removedAt = {}) {
-  const rows = Array.isArray(processes) ? processes : [];
+  // THE CARRIER IS CHECKED BEFORE ITS CONTENTS. A listing that is not a listing is refused rather than
+  // normalised into a tidy empty answer -- see `listingProblem` for why row conservation is blind to it.
+  const unreadable = listingProblem(processes);
+  if (unreadable) return { candidates: [], keep: [], invalid: [], unreadable };
+
+  const rows = processes;
+  // `owners` and `removedAt` get NO equivalent refusal, and that is deliberate rather than an
+  // oversight. A junk owners map leaves every row at "ownership could not be established" and a junk
+  // removedAt leaves every row at "cannot be placed against the removal" -- both already true, already
+  // conservative, and already visible per row. Only the listing can fabricate an ABSENCE, which is the
+  // thing that reads as good news.
   const ownerOf = owners && typeof owners === "object" ? owners : {};
   const removedAtOf = removedAt && typeof removedAt === "object" ? removedAt : {};
   const candidates = [];
@@ -246,7 +286,7 @@ export function unownedProcessDecision(processes = [], owners = {}, removedAt = 
     }
   }
 
-  return { candidates, keep, invalid };
+  return { candidates, keep, invalid, unreadable: null };
 }
 
 /**
@@ -257,7 +297,14 @@ export function unownedProcessDecision(processes = [], owners = {}, removedAt = 
  * reporting on purpose -- this module has no stop authority and its output must not read as though it
  * does.
  */
-export function describeDecision({ candidates = [], keep = [], invalid = [] } = {}) {
+export function describeDecision({ candidates = [], keep = [], invalid = [], unreadable = null } = {}) {
+  // REFUSAL FIRST, and it must not be phrased as a result. "0 process(es) classified, none to report"
+  // was what this said for a null listing: an all-clear derived from having read nothing.
+  if (unreadable) {
+    return `The process listing could not be read (${unreadable}), so NOTHING was classified. This is `
+      + "not an empty fleet -- no process was examined, and any number of them may be running with no "
+      + "owner. Fix the listing before reading anything into this.";
+  }
   // A MALFORMED ROW IS REPORTED FIRST, and separately. It says the listing is not the shape this code
   // expects, which is a fact about the instrument rather than about the fleet -- and an instrument
   // this code cannot read makes every count below it a partial one.
