@@ -162,10 +162,47 @@ def _bridge_owned_metadata_keys(existing_metadata) -> tuple:
 #:
 #: Each is paired with the REQUEST FIELD that produces it, because "the caller said nothing about the
 #: terminal" is the condition, and the metadata key is only where the answer is kept.
-HOST_OWNED_METADATA = (
-    ("terminal", "terminal"),
-    ("pty", "pty"),
-    ("terminalRuntimes", "terminalRuntimes"),
+#: EVERY OMITTABLE-AND-PRESERVED field, WITH THE CARRIER IT TRAVELS IN. "Host-owned" was the
+#: original framing and it was too narrow: the class is any field whose ABSENCE means "keep what
+#: is stored", whichever tier supplies it. One declaration, because there are two
+#: carriers and splitting them is how the last field went missing: three of these live in the
+#: `metadata` blob and the fourth is a COLUMN, so a set that named only the metadata keys looked
+#: complete while describing three quarters of the problem.
+#:
+#: DERIVED-AGAINST, NOT MERELY WRITTEN DOWN. This is still a literal, because a field's CARRIER
+#: cannot be inferred from the model -- nothing in `runtimes: Optional[list]` says it is a column.
+#: What makes it safe is the gate: `test_every_host_owned_field_is_declared.py` reads the handler for
+#: the `if req.X is not None` guards that mark a field as host-describing, and fails if any of them is
+#: absent here or if anything here is absent there. Adding a fifth host fact without declaring it is
+#: a RED test rather than a silent erasure on the next advertisement.
+#:
+#: The gate exists because the erasure already happened twice: `50a61dbe` stopped a heartbeat blanking
+#: what it did not mention, and `badab14c` then found FOUR MORE fields it had missed. A hand-kept list
+#: with no gate is that same defect with a delay on it, and the bridge-owned set thirty lines above
+#: this one was already derived for exactly that reason.
+METADATA_CARRIER = "metadata"
+COLUMN_CARRIER = "column"
+
+HOST_OWNED_FIELDS = (
+    ("terminal", METADATA_CARRIER, "terminal"),
+    ("pty", METADATA_CARRIER, "pty"),
+    ("terminalRuntimes", METADATA_CARRIER, "terminalRuntimes"),
+    #: The two that are not metadata. Preserved by their own `is None` restores below rather than by
+    #: the metadata loop, which is why a metadata-only list could never have caught their absence.
+    ("runtimes", COLUMN_CARRIER, "runtimes"),
+    #: FOUND BY THE GATE ON ITS FIRST RUN, which is the argument for having one. `cwdRoots` is
+    #: supplied by the BRIDGE rather than described by the host -- aify-env sends none by design -- so
+    #: it is not a host fact. It is in this set anyway because the set is about the ERASURE CLASS, not
+    #: about which tier speaks: a field whose absence means "keep what is stored" is blanked the
+    #: moment nothing preserves it, and `cwd_roots` is restored at the `cwd_roots is None` branch
+    #: exactly as `runtimes` is. Naming it here is what stops the next reader assuming the column half
+    #: is a single special case.
+    ("cwdRoots", COLUMN_CARRIER, "cwd_roots"),
+)
+
+#: The metadata half, derived rather than repeated. Its consumers are unchanged.
+HOST_OWNED_METADATA = tuple(
+    (field, key) for field, carrier, key in HOST_OWNED_FIELDS if carrier == METADATA_CARRIER
 )
 
 
