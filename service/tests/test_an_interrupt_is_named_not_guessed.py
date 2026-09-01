@@ -69,3 +69,41 @@ def test_a_provider_error_is_still_not_ours():
     # The negative control. If everything looked service-authored the registry would be decoration.
     assert not is_service_authored("Error: 429 Too Many Requests from the model provider")
     assert not is_service_authored("")
+
+
+def test_the_undetermined_reason_says_whose_failure_it_is():
+    """A reader supplied the subject themselves and got it wrong, at real cost.
+
+    Reported 2026-08-27: an operator read `TURN_ENDED_WITHOUT_REPLY` and concluded the agent had
+    died. It had not -- the worker was mid-way through a large rebuild and still going. They sent two
+    dispatches asking where it had got to, interrupting exactly the work that needed uninterrupted
+    attention.
+
+    Nothing in the sentence was false. It described a RUN and never said so, and "the worker turn did
+    not finish" invites exactly one inference about the worker. This module already refuses to state
+    a CAUSE it cannot determine; the same discipline applies to the SUBJECT.
+
+    Asserted as properties rather than as the exact sentence, so a rewrite that keeps the meaning
+    does not have to edit a test -- and one that drops it does.
+    """
+    text = TURN_ENDED_WITHOUT_REPLY.lower()
+    assert "run" in text, "the reason does not name what actually failed"
+    assert "may still be" in text or "still be alive" in text, (
+        "the reason does not say the worker may still be running, which is the inference a reader "
+        "supplies for themselves when it is missing"
+    )
+    # And it names the cheap check, because "do not conclude that" without "check this instead" is
+    # how a reader ends up guessing again.
+    assert "comms_console_tail" in TURN_ENDED_WITHOUT_REPLY or "comms_agent_info" in TURN_ENDED_WITHOUT_REPLY, (
+        "the reason does not name a way to find out whether the agent is alive"
+    )
+
+
+def test_it_is_still_service_authored_and_still_not_provider_evidence():
+    """CONTROL on the rewrite: the two properties other code keys on must survive it.
+
+    `is_service_authored` is provenance, not wording, so this holds by construction -- but the string
+    grew a sentence and the classifier is what stops a service-authored guess being read as a
+    provider's own error. Cheap to assert, and the failure would be silent.
+    """
+    assert is_service_authored(TURN_ENDED_WITHOUT_REPLY)

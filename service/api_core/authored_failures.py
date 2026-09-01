@@ -53,10 +53,25 @@ from __future__ import annotations
 #:
 #: 429 still appears, because naming the branch is useful and hiding it would be a different kind of
 #: dishonesty. Safety comes from `is_service_authored()`, not from avoiding the token.
+#: AND IT SAYS WHOSE FAILURE IT IS, because a reader supplied that themselves and got it wrong.
+#:
+#: Reported 2026-08-27. An operator read this line and concluded the agent had died. It had not: the
+#: worker was mid-way through a large rebuild and still going. They sent two dispatches asking where
+#: it had got to, interrupting exactly the work that needed uninterrupted attention, and the evidence
+#: pointing the other way -- commits further along than the agent's last report -- had been sitting in
+#: front of them the whole time and read as "commits I cannot account for".
+#:
+#: Nothing in the sentence was false. It described a RUN and never said so, and "the worker turn did
+#: not finish" invites precisely one inference about the worker. This module already refuses to state
+#: a cause it cannot determine; the same rule applies to the SUBJECT. A failed run is dispatch
+#: bookkeeping, and liveness is a different question with a cheaper answer.
 TURN_ENDED_WITHOUT_REPLY = (
-    "Turn ended without a reply — the worker turn did not finish. Cause NOT DETERMINED; possible: a "
-    "model-provider throttle (429/529), a provider safety or policy refusal, a mid-turn interrupt, or "
-    "a stall. Failed by reconcile so the run isn't stranded as 'delivered'."
+    "Turn ended without a reply — this RUN was closed, which is NOT the same as the agent stopping: "
+    "the worker may still be alive and working. Cause NOT DETERMINED; possible: a model-provider "
+    "throttle (429/529), a provider safety or policy refusal, a mid-turn interrupt, or a stall. "
+    "Failed by reconcile so the run isn't stranded as 'delivered'. Before treating the agent as dead, "
+    "read its console (comms_console_tail) or comms_agent_info — this line is bookkeeping about one "
+    "run, not evidence about the process."
 )
 
 #: Failed because somebody INTERRUPTED the turn, and we know because we recorded doing it.
