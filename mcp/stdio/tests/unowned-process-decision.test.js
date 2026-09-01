@@ -506,15 +506,81 @@ test("describeDecision() WITH NOTHING refuses, rather than synthesising an all-c
   // default was, by a caller reading a key that no longer exists on the shape it was handed.
   for (const nothing of [undefined, null, "", 0, false, "decision", 42, []]) {
     const line = describeDecision(nothing);
-    assert.match(line, /No decision was supplied/, `${String(nothing)} was described as a result`);
+    assert.match(line, /No usable decision/, `${String(nothing)} was described as a result`);
     assert.match(line, /not a clean result/);
     assert.doesNotMatch(line, /none to report/);
   }
 });
 
-test("a real decision is still described normally", () => {
-  // The refusal above must not swallow the ordinary path.
-  const line = describeDecision(unownedProcessDecision(FLEET, OWNERS, REMOVALS));
-  assert.doesNotMatch(line, /No decision was supplied/);
-  assert.match(line, /apg-pilot-01 pid 32456/);
+test("AN OBJECT-SHAPED MALFORMED DECISION IS REFUSED TOO, not defaulted into an all-clear", () => {
+  // The first version of this guard rejected non-objects and arrays and stopped there, so any plain
+  // object was accepted and its missing fields defaulted. `{}` described ITSELF as "0 process(es)
+  // classified, none to report" -- the fabricated all-clear again, arriving this time through a
+  // renamed or dropped field rather than a missing argument.
+  //
+  // Every required field gets its own case, because a guard that checks three of four passes a test
+  // that only probes `{}`.
+  const cases = [
+    [{}, /no .candidates./],
+    [{ keep: [], invalid: [], unreadable: null }, /no .candidates./],
+    [{ candidates: [], invalid: [], unreadable: null }, /no .keep./],
+    [{ candidates: [], keep: [], unreadable: null }, /no .invalid./],
+    [{ candidates: [], keep: [], invalid: [] }, /no .unreadable./],
+  ];
+  for (const [decision, expected] of cases) {
+    const line = describeDecision(decision);
+    assert.match(line, /No usable decision/, `${JSON.stringify(decision)} was described as a result`);
+    assert.match(line, expected);
+    assert.doesNotMatch(line, /none to report/);
+  }
+});
+
+test("A WRONG FIELD TYPE IS REFUSED RATHER THAN THROWN AT THE CALLER", () => {
+  // These CRASHED: `{candidates:"x"}` died on `candidates.map` and `{keep:null}` on `keep.length`.
+  // A reporter that throws takes down the caller asking it what happened -- at the moment something
+  // is already wrong, which is the only moment anyone calls it.
+  const cases = [
+    { candidates: "x", keep: [], invalid: [], unreadable: null },
+    { candidates: [], keep: null, invalid: [], unreadable: null },
+    { candidates: [], keep: [], invalid: "no", unreadable: null },
+    { candidates: {}, keep: [], invalid: [], unreadable: null },
+    { candidates: [], keep: [], invalid: [], unreadable: 42 },
+    { candidates: [], keep: [], invalid: [], unreadable: "" },
+    { candidates: [], keep: [], invalid: [], unreadable: "   " },
+  ];
+  for (const decision of cases) {
+    let line;
+    assert.doesNotThrow(() => { line = describeDecision(decision); },
+      `${JSON.stringify(decision)} threw instead of refusing`);
+    assert.match(line, /No usable decision/);
+  }
+});
+
+test("an EMPTY unreadable string is refused -- a reason that says nothing is not a reason", () => {
+  // `unreadable: ""` is falsy, so it would read as "readable" to any truthiness check while being a
+  // refusal the producer meant to send.
+  assert.match(describeDecision({ candidates: [], keep: [], invalid: [], unreadable: "" }),
+    /No usable decision/);
+});
+
+test("BOTH REAL DECISIONS STILL DESCRIBE NORMALLY -- the guard must not eat the ordinary path", () => {
+  // The positive control. "Refuse everything" satisfies every test above and breaks the module.
+  const readable = describeDecision(unownedProcessDecision([], {}, {}));
+  assert.match(readable, /none to report/);
+  assert.doesNotMatch(readable, /No usable decision/);
+
+  const refused = describeDecision(unownedProcessDecision(null));
+  assert.match(refused, /could not be read/);
+  assert.doesNotMatch(refused, /No usable decision/);
+
+  const withCandidates = describeDecision(unownedProcessDecision(FLEET, OWNERS, REMOVALS));
+  assert.match(withCandidates, /apg-pilot-01 pid 32456/);
+  assert.doesNotMatch(withCandidates, /No usable decision/);
+});
+
+test("extra fields on a decision are fine -- the contract is what must be there, not what may not", () => {
+  // Refusing unknown keys would break every caller that ever adds one, and says nothing about
+  // whether the fields this function reads are trustworthy.
+  const decision = { ...unownedProcessDecision([], {}, {}), somethingNew: true };
+  assert.match(describeDecision(decision), /none to report/);
 });

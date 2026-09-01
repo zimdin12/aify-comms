@@ -308,16 +308,41 @@ export function unownedProcessDecision(processes, owners = {}, removedAt = {}) {
  * reporting on purpose -- this module has no stop authority and its output must not read as though it
  * does.
  */
-export function describeDecision(decision) {
-  // A MISSING DECISION IS NOT A CLEAN ONE. This defaulted every field, so `describeDecision()` with
-  // no argument at all synthesised "0 process(es) classified, none to report" -- the same
-  // fabricated all-clear as the listing default one layer down, and reachable the same way: a
-  // caller reading `result.decision` from a shape that no longer has that key.
+function decisionProblem(decision) {
   if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
-    return "No decision was supplied, so there is nothing to report on. This is not a clean result: "
-      + "nothing was classified, and the caller passed no decision to describe.";
+    return "no decision was supplied";
   }
-  const { candidates = [], keep = [], invalid = [], unreadable = null } = decision;
+  // OWN FIELDS, EXACT TYPES, BEFORE ANY DESTRUCTURING. Rejecting only non-objects left `{}` and
+  // `{candidates:[], keep:[], invalid:[]}` describing themselves as "0 process(es) classified, none
+  // to report" -- the same fabricated all-clear the listing default produced, arriving through a
+  // renamed or dropped field instead of a missing argument. Worse, a wrong TYPE threw:
+  // `{candidates:"x", ...}` died on `candidates.map` and `{keep:null, ...}` on `keep.length`, so the
+  // reporter crashed the caller that asked it what happened.
+  //
+  // `Object.hasOwn`, not truthiness: a field present and empty is an answer, a field absent is not,
+  // and `[]` is falsy-adjacent enough that a `||` check would have conflated them again.
+  for (const field of ["candidates", "keep", "invalid"]) {
+    if (!Object.hasOwn(decision, field)) return `the decision had no \`${field}\``;
+    if (!Array.isArray(decision[field])) return `the decision's \`${field}\` was not an array`;
+  }
+  if (!Object.hasOwn(decision, "unreadable")) return "the decision had no `unreadable`";
+  const { unreadable } = decision;
+  if (unreadable !== null && !(typeof unreadable === "string" && unreadable.trim())) {
+    return "the decision's `unreadable` was neither null nor a reason";
+  }
+  return null;
+}
+
+export function describeDecision(decision) {
+  // A MISSING OR MALFORMED DECISION IS NOT A CLEAN ONE, and "malformed" has to mean the SCHEMA rather
+  // than the JavaScript kind -- see `decisionProblem`. Defaulting the fields here is what turned no
+  // decision at all into "none to report", one layer above the listing default that did the same.
+  const problem = decisionProblem(decision);
+  if (problem) {
+    return `No usable decision was supplied (${problem}), so there is nothing to report on. This is `
+      + "not a clean result: nothing was classified, and what arrived could not be read as a decision.";
+  }
+  const { candidates, keep, invalid, unreadable } = decision;
   // REFUSAL FIRST, and it must not be phrased as a result. "0 process(es) classified, none to report"
   // was what this said for a null listing: an all-clear derived from having read nothing.
   if (unreadable) {
