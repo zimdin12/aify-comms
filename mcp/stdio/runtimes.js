@@ -361,8 +361,16 @@ export function normalizeRuntime(runtime) {
   return RUNTIME_ALIASES.get(key) || key || "generic";
 }
 
+// EXPORTED FOR THE SAME REASON `RUNTIME_ALIASES` IS, and it was the half nobody checked. The
+// agreement test compared aliases and canonical ids against the contract and never the LAUNCHABLE
+// set, so this list -- written inline inside `canLaunchRuntime` -- could drift from
+// `service/contracts/vocabulary.json` with nothing to say so. The bridge keeps its own copy on
+// purpose (install.sh ships only mcp/stdio/, so service/ is absent on the host); what it cannot do
+// is keep an UNCHECKED one.
+export const LAUNCHABLE_RUNTIMES = Object.freeze(["claude-code", "codex", "hermes", "opencode", "pi"]);
+
 export function canLaunchRuntime(runtime) {
-  return ["claude-code", "codex", "hermes", "opencode", "pi"].includes(normalizeRuntime(runtime));
+  return LAUNCHABLE_RUNTIMES.includes(normalizeRuntime(runtime));
 }
 
 export function controlCapabilitiesForRuntime(runtime) {

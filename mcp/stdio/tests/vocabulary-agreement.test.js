@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { RUNTIME_ALIASES } from "../runtimes.js";
+import { LAUNCHABLE_RUNTIMES, RUNTIME_ALIASES } from "../runtimes.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const contractPath = join(here, "..", "..", "..", "service", "contracts", "vocabulary.json");
@@ -44,11 +44,36 @@ for (const [alias, target] of RUNTIME_ALIASES) {
   );
 }
 
+// THE LAUNCHABLE SET, which this file did not compare until 2026-09-01. Aliases and canonical ids
+// were checked and the set that decides whether a spawn is even attempted was not, so the bridge's
+// copy -- written inline inside `canLaunchRuntime` -- was gated by nothing on either side of the
+// language boundary. The python freeze ledger does not scan JS, so nothing anywhere saw it.
+assert.deepEqual(
+  [...LAUNCHABLE_RUNTIMES].sort(),
+  [...contract.runtimes.launchable].sort(),
+  "mcp/stdio/runtimes.js LAUNCHABLE_RUNTIMES has diverged from service/contracts/vocabulary.json. " +
+    "A bridge that thinks a runtime is launchable when the service does not (or the reverse) either " +
+    "refuses a spawn the service would accept, or attempts one it cannot complete."
+);
+
+// Launchable must be a SUBSET of canonical, the same invariant the python contract test asserts.
+// A launchable id that is not canonical could never be normalized onto by any alias.
+for (const runtime of LAUNCHABLE_RUNTIMES) {
+  assert.ok(
+    contract.runtimes.canonical.includes(runtime),
+    `bridge calls ${runtime} launchable, but the contract does not list it as canonical`
+  );
+}
+
 // The agreement is only worth something if the file it reads is real. An unreadable or truncated
 // contract must fail loudly rather than compare an empty object against an empty object.
 assert.ok(
   Object.keys(expected).length >= 15,
   "the contract looks truncated - refusing to certify agreement against it"
 );
+assert.ok(
+  Array.isArray(contract.runtimes.launchable) && contract.runtimes.launchable.length >= 3,
+  "the contract's launchable list looks empty or missing - refusing to certify agreement against it"
+);
 
-console.log("vocabulary agreement: bridge RUNTIME_ALIASES matches the contract");
+console.log("vocabulary agreement: bridge RUNTIME_ALIASES and LAUNCHABLE_RUNTIMES match the contract");
