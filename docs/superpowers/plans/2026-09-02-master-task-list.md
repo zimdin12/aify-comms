@@ -250,6 +250,13 @@ solved it by narrowing to one runtime. See D9.
 
 ---
 
+## A note on history, so the record is navigable
+
+`7071aac2` is titled `docs(plan)` and also carries the `/spawn` 409 rewrite and its test -- a
+`git add -A` swept them in. The message does not describe the code change, so anyone tracing that
+message will not find it there. Not rewritten, because it is pushed and shared; recorded here
+instead, which is the cheaper of the two honest options.
+
 ## Done on 2026-09-02, for context
 
 Each verified on the artifact that executes, not on the repo.

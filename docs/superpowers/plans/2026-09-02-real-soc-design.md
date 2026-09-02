@@ -62,6 +62,20 @@ aify-comms   (a service)          the control plane; one consumer of the two abo
 endpoint. A generic module that reaches for `httpCall` has crossed the line, and the classification
 above is a measurement anyone can re-run -- which is what a gate can hold.
 
+## What step 2 does NOT yet settle
+
+**Dispatch delivery per runtime.** A claimed agent still has to RECEIVE work. `dispatch-loop.mjs`
+long-polls whenever it hosts a single agent -- which is every resident claude/codex/hermes wrapper --
+so an agent started by aify-env self-delivers through its own launcher's bridge. Managed HERMES is
+the exception: it uses a separate `hermes-managed-host.js run <agent>` delivery loop that the
+environment bridge spawns, and nothing has yet proven aify-env can start one. **Establish that before
+claiming the `aify-comms` command can be deleted.**
+
+**Who may claim.** Bridge authority is established by SENDING a `bridgeId` -- "no `bridgeId`, no
+`bridge*` key survives from the request" -- and nothing authenticates which caller is entitled to
+one beyond the shared API key. That is the same gap as D7 in the task list, and moving claiming into
+aify-env does not widen it, but it does make it load-bearing in a second place.
+
 ## Order of work
 
 1. **The plugin seam in aify-env.** What a service plugin is handed (process spawning, terminal
