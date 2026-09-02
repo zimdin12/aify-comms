@@ -284,11 +284,20 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
                     f'than a missing bridge -- starting one will not clear it. Re-register the '
                     f'environment, or check `metadata.bridgeLastSeen` on that row.',
                 )
+            # SAYS WHY AIFY-ENV BEING UP IS NOT ENOUGH, because that is the question this message
+            # was actually being asked. Measured 2026-09-02: the operator had aify-env running and
+            # healthy, read "described by aify-env" as "so it should work", and lost hours to six
+            # refusals -- while the old text sent them to `aify-comms`, a command they had asked to
+            # have REMOVED. Naming the missing CAPABILITY rather than a command to type is what
+            # separates "start this" from "this cannot happen yet".
             raise HTTPException(
                 409,
-                f'Environment "{req.environmentId}" is described by aify-env but has no live '
-                f'environment bridge, and only a bridge claims a spawn. Run `aify-comms` on that host, '
-                f'then retry.',
+                f'Environment "{req.environmentId}" is described by aify-env, which RUNS processes '
+                f'but does not claim spawns -- it has no claim loop, so accepting this would queue it '
+                f'for ever. Claiming is the aify-comms environment bridge, and none is live '
+                f'here (last seen: {(environment.get("metadata") or {}).get("bridgeLastSeen") or "never"}). '
+                f'Start one on that host, or see docs/TARGET_ARCHITECTURE.md -- moving the claim into '
+                f'aify-env is open work, not a setting.',
             )
         runtime_capability = _runtime_capability_for_environment(environment, normalized_runtime)
         if not runtime_capability:

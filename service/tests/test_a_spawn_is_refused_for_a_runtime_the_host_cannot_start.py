@@ -353,10 +353,22 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         response = self._spawn("pi")
         self.assertEqual(response.status_code, 409, response.text)
         # The phrase in full, because `test_every_refusal_is_exercised.py` matches a refusal's whole
-        # message against the test tree -- a fragment leaves it counted as untested.
-        self.assertIn('" is described by aify-env but has no live environment bridge, and only a '
-                      'bridge claims a spawn. Run `aify-comms` on that host, then retry.', response.text)
-        self.assertIn("aify-comms", response.text, "the refusal must say how to start one")
+        # message against the test tree -- a fragment leaves it counted as untested. In two halves
+        # because the message now carries the bridge's LAST SEEN between them, which varies per row.
+        self.assertIn('" is described by aify-env, which RUNS processes but does not claim spawns '
+                      '-- it has no claim loop, so accepting this would queue it for ever. Claiming '
+                      'is the aify-comms environment bridge, and none is live here (last seen: ',
+                      response.text)
+        self.assertIn('Start one on that host, or see docs/TARGET_ARCHITECTURE.md -- moving the '
+                      'claim into aify-env is open work, not a setting.', response.text)
+        # WHY THE CAPABILITY AND NOT JUST A COMMAND. The old text said "Run `aify-comms`", and on
+        # 2026-09-02 the operator was running aify-env, healthy, and read "described by aify-env" as
+        # meaning it should work -- six refusals and hours later. aify-env RUNS processes and does
+        # not CLAIM; a message naming only a command cannot convey that, and named one the operator
+        # had asked to have removed.
+        self.assertIn("does not claim spawns", response.text,
+                      "the refusal must say why a healthy aify-env is not enough")
+        self.assertIn("aify-comms", response.text, "the refusal must still say what does claim")
 
     def test_a_row_with_no_bridgeLastSeen_at_all_still_spawns(self):
         """Every environment registered before that field existed is this shape. Reading absent as

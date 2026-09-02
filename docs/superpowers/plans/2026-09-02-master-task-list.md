@@ -14,9 +14,22 @@ evidence.
 
 ## 0. FIRST, by operator instruction 2026-09-02
 
-**T1 IS v0.6.2, not v0.6.1** (operator, 2026-09-02). v0.6.1 is the fixes tag; restructuring 5,272
-tests is not a fix and can REMOVE protection, so it gets its own tag and an obvious before-and-after.
-T2 and everything in A-D stays in v0.6.1 unless moved deliberately.
+**THE TAGS, as the operator scoped them 2026-09-02:**
+
+| tag | contents | bar |
+|---|---|---|
+| **v0.6.1** | T1 (tests) + T2 (separation of concerns) | a WORKING version: manually tested, proven working, and the INSTALL proven correct |
+| **v0.6.2** | every other improvement + all review fixes | the improved and reviewed one |
+
+*"t1 - optimizing our tests and fixing separation of concerns should be in 0.6.1 (it had to be in
+0.6.0 actually)... 0.6.1 needs to be working version of this (manually tested and prooven working and
+prooven install to be correct)."*
+
+**v0.6.1 IS ALREADY TAGGED** at `a9c963f0` (2026-09-02, today's fixes). Under this scope it is not
+v0.6.1 yet, so the tag ACCUMULATES and is re-cut when T1 and T2 land and are manually proven --
+consistent with the operator's earlier *"make tag now, but all fixes... should all be added to this
+tag later on."* Manual proof is a release gate here, not a nicety: today produced four separate cases
+where every automated check was green and the thing did not work.
 
 - **T1. Optimize the test stack. TAG: v0.6.2.** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
   ... I am sure that there are many duplicates and pointless tests. you have created all of them so be
