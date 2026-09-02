@@ -2745,7 +2745,7 @@ if [ "$WITH_API_KEY" = true ]; then
   RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --generate)"     || { echo "ERROR: --with-api-key was requested but no key could be generated." >&2; exit 1; }
   echo "API key in place (.env). Until you run 'docker compose up -d' the service still accepts unauthenticated requests."
 else
-  RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" || true)"
+  RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --ask || true)"
 fi
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"

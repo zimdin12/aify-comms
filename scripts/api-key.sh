@@ -294,8 +294,71 @@ generate_key() {
   printf '%s\n' "$key"
 }
 
+#: ASK, when this host has no key and somebody is there to be asked.
+#:
+#: THE DEFECT THIS CLOSES, measured 2026-09-02. `install.sh` resolved a key from the shell or `.env`
+#: and, finding none, carried on silently -- so a host was configured with no key at all, every
+#: advertisement was refused with 401, and both sides reported healthy. An installer that proceeds
+#: with a missing value is how an operator loses a day to a fleet that will not spawn.
+#:
+#: NOT THE SAME AS `--generate`. Generating MINTS a key and is the right move for a fresh host with
+#: nobody to ask; asking is the right move when a key already exists SOMEWHERE ELSE -- another
+#: machine, a password manager, a second service -- and only this host is missing it. Guessing which
+#: of those an operator meant is what silence did.
+#:
+#: READS FROM /dev/tty, NOT STDIN. The installer is routinely run with stdin piped or closed, and a
+#: prompt on stdin would either read the pipe or hang. No terminal means no ask: the caller is told
+#: nothing was resolved and decides for itself, which is what keeps an unattended install honest.
+ask_for_key() {
+  # OPENING IT IS THE TEST, not `[ -r /dev/tty ]`. That check PASSES with no controlling terminal --
+  # the device node is there and readable -- and the first write then fails with "No such device or
+  # address", turning a silent no-op into an error the caller reports as a failed install. A guard
+  # that passes when its input is missing is decoration.
+  # BRACED, so the suppression covers the ATTEMPT. Bash applies redirections left to right, so a bare
+  # `exec 3>/dev/tty 2>/dev/null` reports the failure on the stderr it has not redirected yet -- and
+  # an installer that prints "/dev/tty: No such device or address" on every unattended run teaches
+  # its operator that errors there are normal.
+  if ! { exec 3>/dev/tty; } 2>/dev/null; then return 0; fi
+  local key=""
+  printf 'aify-comms has no API key on this host.
+' >&3
+  printf 'Enter one to use (leave blank to run without a key): ' >&3
+  # Echo off, and restored on EVERY exit path -- including an interrupt, which otherwise leaves the
+  # operator with an invisible terminal.
+  local saved
+  saved="$(stty -g < /dev/tty 2>/dev/null || true)"
+  trap '[ -n "$saved" ] && stty "$saved" < /dev/tty 2>/dev/null || true' RETURN INT TERM
+  stty -echo < /dev/tty 2>/dev/null || true
+  IFS= read -r key < /dev/tty || true
+  stty "$saved" < /dev/tty 2>/dev/null || true
+  printf '
+' >&3
+  exec 3>&-
+
+  key="$(printf '%s' "$key" | tr -d '[:space:]')"
+  [ -n "$key" ] || return 0
+
+  if key_is_weak "$key"; then
+    echo "WARNING: that key is ${#key} characters; $MIN_KEY_LENGTH is the floor this project" >&2
+    echo "         generates to. It reads as protection while being guessable." >&2
+  fi
+  # PERSISTED, or the next command would ask again. `.env` is where the SERVICE reads it, which is
+  # what makes the two halves agree -- the defect this file was originally written for.
+  persist_key "$key" || return $?
+  printf '%s
+' "$key"
+}
+
 if [ "${1:-}" = "--generate" ]; then
   generate_key
+elif [ "${1:-}" = "--ask" ]; then
+  existing="$(resolve_key)" || exit $?
+  if [ -n "$existing" ]; then
+    printf '%s
+' "$existing"
+  else
+    ask_for_key
+  fi
 else
   resolve_key
 fi
