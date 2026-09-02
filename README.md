@@ -56,7 +56,8 @@ docker compose up -d --build      # service :8800 (API), Dashboard Next :8801
 curl http://localhost:8800/health # {"status":"healthy"}
 
 bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
-npm install -g github:zimdin12/aify-env && aify-env                 # agent hosts only
+git clone https://github.com/zimdin12/aify-env && (cd aify-env && ./install.sh)  # agent hosts only
+aify-env                                                            # then start it
 ```
 
 Then open `http://localhost:8801`, spawn a managed agent into a workspace, and message it. Legacy

@@ -102,18 +102,15 @@ Node snippet. Raw HTTP can write metadata such as `runtimeConfig.gatewayUrl`,
 but it does not create the live resident bridge heartbeat/claim loop. A
 resident agent without that bridge is `offline` and cannot receive live sends.
 
-When opening a known agent directly, use the runtime's `*-aify --aify-agent <id>`
-wrapper. Managed agents are created through the dashboard or `comms_spawn(...)` and
-must not re-register from delivered runs. Ownership switches and lifecycle verbs are
-operator actions; read `references/operations.md` before changing them. If only a
-saved native handle is wrong, use **Set handle** instead of re-registering unrelated
-fields.
+To open a known agent directly, use `*-aify --aify-agent <id>`. Managed agents are created through the dashboard or `comms_spawn(...)` and must not
+re-register from delivered runs. Ownership switches and lifecycle verbs are operator
+actions. If only a saved native handle is wrong, use **Set handle** rather than
+re-registering unrelated fields.
 
-Windows paths passed to tools should use forward slashes (`C:/Users/you/project`). WSL/Linux sessions should use native Linux paths (`/mnt/c/...`), and native Windows sessions should use `C:/...`.
+Paths use forward slashes (`C:/Users/you/project`); WSL/Linux sessions use `/mnt/c/...`.
 
-Runtime-specific wrapper, handle, gateway, and fallback details live in
-`references/operations.md`. Load them only when registering, switching ownership, or
-debugging a runtime; routine teamwork does not need them.
+Runtime wrapper, handle, gateway and fallback details live in `references/operations.md`;
+load them only when registering, switching ownership, or debugging a runtime.
 
 Create persistent managed identities through an environment:
 
@@ -121,6 +118,10 @@ Create persistent managed identities through an environment:
 comms_envs()
 comms_spawn(from="my-agent", agentId="feature-coder", role="coder", runtime="codex", workspace="/path/to/project", initialMessage="Brief for the new agent")
 ```
+
+**`comms_envs` `online` does NOT mean a spawn can run** — it means the host is described. A 409
+naming "no live environment bridge" against an `online` row is that gap; diagnose with
+`aify-comms-debug` -> `dispatch-bridges.md`.
 
 Short-lived local subagents inside one task should report to their parent, not register or message the wider team, unless the user explicitly promotes them to comms-visible agents.
 

@@ -298,7 +298,27 @@ general host.
 silently, and update by the same command. aify-env had no installer at all and now has one; the
 README describes three components and the single ordering constraint that exists.
 
-**T3 -- docs. IN PROGRESS.** Four corrected: `TARGET_ARCHITECTURE.md` (both the removal condition and
+**T3 -- docs and skills. SUBSTANTIALLY DONE.** Every correction traced to one root cause:
+"spawning" was doing two jobs. Execution moved to aify-env on 2026-08-25; claiming did not; every
+document measured the first and reported the work finished.
+
+- **7 install instructions** across `README.md` and each `install.<runtime>.md` told a reader to get
+  aify-env with `npm install -g`, which installs the command and cannot notice a missing credential
+  -- the 2026-09-02 failure, replicated seven times.
+- **`TARGET_ARCHITECTURE.md`** twice: the table's removal condition, and the Phase 8 entry marked
+  DONE (kept struck through -- what a reader believed for eight days is the point).
+- **`PHASE8_STATUS.md`, `CLAUDE.md`, `PRODUCT_BRIEF.md`.**
+- **The 409 got its first troubleshooting entry.** The most expensive failure of the day was absent
+  from the debug reference entirely.
+- **The always-loaded skill now warns about the trap**: `comms_envs` `online` does not mean a spawn
+  can run. Paid for by compressing four passages, so the file got SMALLER and its ceiling came down.
+
+**A gate so the seven-place duplication cannot rot again**
+(`test_the_install_table_agrees_across_every_guide`). It asserts a PROPERTY -- no guide routes a
+reader around aify-env's installer -- rather than pinning a string, which would be edited to match
+rather than obeyed.
+
+**Superseded note, kept for the record.** Four corrected: `TARGET_ARCHITECTURE.md` (both the removal condition and
 the Phase 8 entry that read as done), `PHASE8_STATUS.md`, `CLAUDE.md`, `PRODUCT_BRIEF.md`. Each
 carried the same error -- "spawning" doing two jobs, execution and claiming, with only the first
 measured.

@@ -29,8 +29,12 @@ that runs agents installs aify-env and the launchers, and carries no copy of the
 
 **Today it fails that test.** `install.sh` is one script doing both halves, and the client half installs
 92 MB of aify-comms' own runtime into `~/.aify-comms`. Two paths means two installers, and the client
-one is `npm install -g github:zimdin12/aify-env` plus aify-wrapper's
+one is aify-env's own `./install.sh` plus aify-wrapper's
 `install.sh --all --endpoint <url>` -- both of which already exist and already work.
+
+aify-env's installer arrived on 2026-09-02 and is not the same as `npm install -g`: it ASKS for a
+service credential this host is missing, which the bare npm command cannot notice. A host installed
+without one advertises, is refused with 401, and reports healthy throughout -- which cost a day.
 
 **The git form, not the bare name.** Neither package is published to npm: `npm install -g aify-env`
 returns a 404, and four documents carried it as the client-path instruction. It worked on the machine

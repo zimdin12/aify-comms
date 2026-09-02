@@ -41,7 +41,10 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 
 //: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
-  "aify-comms/SKILL.md": 15_109,
+  "aify-comms/SKILL.md": 15_103,  // LOWERED 2026-09-02. A warning was ADDED -- that
+  // `comms_envs` reporting `online` does not mean a spawn can run -- and paid for by
+  // compressing four passages that repeated what their own pointers already said. The file
+  // gained the guardrail and got smaller, which is the trade this ratchet exists to force.
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
   "aify-comms/references/operations.md": 11_550,
