@@ -119,6 +119,38 @@ way it already consumes aify-wrapper, pinned by sha. That is an architectural co
 the thing to weigh rather than the line count: 2,098 lines with small blast radii is ordinary work,
 and a new cross-repo dependency in the path a fleet boots through is not.
 
+## Step 3, corrected a SECOND time -- the move is mostly not supported
+
+Two measurements have now undercut the premise, and the second is the one that matters.
+
+**The endpoint-reference test was the wrong instrument for this question.** It asks whether a module
+names an aify-comms URL, which is exactly right for deciding what belongs in the PLUGIN. It says
+nothing about whether a module implements aify-comms CONCEPTS.
+
+`terminal-runtime.js` is the case that shows it. Zero endpoint references -- and of its 982 lines,
+11 mention delegation and 6 mention local spawning. The other ~965 are terminal LIFECYCLE: state,
+output handling, exit reporting, console classification, resize. That lifecycle feeds aify-comms'
+terminals table, its console tail and its status engine. It is aify-comms' own model of a terminal,
+and it happens not to contain a URL because `terminal-manager.mjs` holds those.
+
+**Moving it into aify-env would put one service's domain model inside the general host**, and
+duplicate the `runner.mjs` aify-env already has. That is the opposite of the goal.
+
+### What the measurements DO support
+
+1. **aify-env owns hosting.** Done: the plugin claims, `Runner` spawns, proven end to end against a
+   real socket and a real process.
+2. **aify-comms keeps its terminal and runtime model.** `runtimes.js` (45 importers, reached by the
+   MCP client entry) and the terminal lifecycle are its domain, not the host's.
+3. **The real duplication is the bridge's LOCAL spawning fallback** -- `TerminalProcessManager`'s
+   non-delegated path, taken when `envDelegation.isEnabled()` is false. Retiring it makes delegation
+   the only way the bridge starts anything, which is what "aify-env owns hosting" MEANS when it is
+   true rather than merely configured.
+
+That is a much smaller step 3 than moving 2,098 lines, and it is the one the evidence carries. The
+larger move is not refused -- it is unsupported, which is a different claim and a reversible one if
+a second `aify-` service later needs the same lifecycle.
+
 ## Order of work
 
 1. **The plugin seam in aify-env.** What a service plugin is handed (process spawning, terminal
