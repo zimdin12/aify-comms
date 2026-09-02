@@ -18,8 +18,8 @@ evidence.
 
 | tag | contents | bar |
 |---|---|---|
-| **v0.6.1** | T1 (tests) + T2 (separation of concerns) | a WORKING version: manually tested, proven working, and the INSTALL proven correct |
-| **v0.6.2** | every other improvement + all review fixes | the improved and reviewed one |
+| **v0.6.1** | T1 (tests) + T2 (all 3 SoC steps) + T3 (skills/docs review) + T4 (install overhaul) | a WORKING version: manually tested, proven working, and the INSTALL proven correct |
+| **v0.6.2** | every other improvement, all review fixes, and what the EXTERNAL review of v0.6.1 finds | the improved and reviewed one |
 
 *"t1 - optimizing our tests and fixing separation of concerns should be in 0.6.1 (it had to be in
 0.6.0 actually)... 0.6.1 needs to be working version of this (manually tested and prooven working and
@@ -68,6 +68,27 @@ where every automated check was green and the thing did not work.
   key to connect with aify-comms container... and aify-env spawns aify-wrappers."* Until it does, a
   bare `aify-comms` is REQUIRED to spawn, which is why sc-manager and I both told the operator to run
   a command the architecture says should be gone.
+
+- **T3. Review and update ALL skills and docs** (operator, 2026-09-02). After the SoC move, most of
+  what the docs and skills say about component boundaries is wrong -- CLAUDE.md, ARCHITECTURE.md,
+  TARGET_ARCHITECTURE.md, PHASE8_STATUS.md, both skill mirrors, and every install guide. The
+  TARGET_ARCHITECTURE error that hid T2 for eight days is the reason this is a v0.6.1 item rather
+  than housekeeping: a document that says a thing is done is how the thing stops being checked.
+
+- **T4. The installer, rebuilt for three components** (operator, 2026-09-02): *"install stuff has to
+  be good also, it should have changed almost totally, because installing is now including 3
+  components and each repo has its own install instructions, also install should ask stuff if not set
+  before, install should be also used for updating."*
+  Three requirements, each with a defect behind it:
+  1. **THREE COMPONENTS, each repo owning its own instructions.** aify-comms, aify-env and
+     aify-wrapper install separately today and only aify-comms has a real installer.
+  2. **ASK when a value is not already set.** This is C4, and today proved why: a key that existed in
+     `.env` never reached aify-env, and the operator was never prompted for one. An installer that
+     silently proceeds with a missing value is how that happened.
+  3. **THE SAME PATH UPDATES.** Re-running the installer is already the documented remedy for a stale
+     bridge, and today it was ALSO the remedy that changed nothing. Update must be a supported verb,
+     not a reinstall that happens to work.
+  The bar is the operator's: *"proven install to be correct"*, manually, not by a green suite.
 
 ---
 
