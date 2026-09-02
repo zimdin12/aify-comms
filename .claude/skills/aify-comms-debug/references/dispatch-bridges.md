@@ -24,6 +24,27 @@ deploy, check shell history for a bare `aify-comms` before anything else.
   `aify-comms doctor` `env-bridge` confirms one is actually ONLINE, not merely registered.
 - The launcher now prints a banner naming the supersede-and-reap behaviour before it starts.
 
+## `comms_spawn` returns 409 while `comms_envs` says the environment is `online` (2026-09-02)
+
+**Symptom.** `comms_envs` reports `[online]`; `comms_spawn` refuses in the same minute with *"described
+by aify-env but has no live environment bridge, and only a bridge claims a spawn."*
+
+**Cause. `status` and "a bridge is live here" are different facts, and only one decides a spawn.**
+`status`/`lastSeen` are refreshed by aify-env ADVERTISING the host. `/spawn` reads
+`metadata.bridgeLastSeen`, written only for a heartbeat carrying a `bridgeId`, which only a bridge
+sends. Measured: `online, lastSeen 17:26:41Z` beside a `bridgeLastSeen` from the previous day.
+
+**Diagnose in one read; prefer this to `comms_envs`:**
+
+```bash
+curl -s -H "X-API-Key: $AIFY_API_KEY" http://127.0.0.1:8800/api/v1/environments   | python -c "import json,sys;[print(r['id'],r['status'],(r.get('metadata') or {}).get('bridgeLastSeen')) for r in json.load(sys.stdin)['environments']]"
+```
+
+Older than 90s means nothing can claim, whatever `status` says.
+
+**Fix.** Start something that claims there -- read the supersede-and-reap warning above first. The
+doctor was fixed to ask this; **`comms_envs` still reports `status`, so distrust it here.**
+
 ## Channel-routed claude dispatches stay queued forever (resident or managed)
 
 **Symptom.** Send to a claude-code agent (resident OR managed). `dispatch_runs.status` stays `queued`, `execution_mode='channel'`. No `claimed` event, no delivery. The bridge appears alive (heartbeats), `aify-comms` MCP tools work for OTHER tasks, but channel dispatches sit forever.

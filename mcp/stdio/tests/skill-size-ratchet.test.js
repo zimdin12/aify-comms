@@ -59,7 +59,14 @@ const CEILINGS = {
   // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
   // paragraph above it already said.
   "aify-comms-debug/references/dashboard-console.md": 18_426,
-  "aify-comms-debug/references/dispatch-bridges.md": 25917,
+  "aify-comms-debug/references/dispatch-bridges.md": 27_139,  // RAISED 2026-09-02 from
+  // 25_917, deliberately and with the reason recorded: a new failure CLASS was added --
+  // `comms_spawn` refusing with 409 while `comms_envs` reports the environment online,
+  // because `status` and `bridgeLastSeen` answer different questions. It cost the operator
+  // a day, misled two agents into reporting the fleet ready, and had no entry anywhere. The
+  // entry was trimmed from 2,250 bytes to 1,222 -- symptom, mechanism, one diagnostic
+  // command, fix -- and the alternative payment was compressing the per-runtime session
+  // diagnosis above it, which is denser than this and would have lost more than it saved.
   "aify-comms-debug/references/dispatch-delivery.md": 26_577,
   // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
   //

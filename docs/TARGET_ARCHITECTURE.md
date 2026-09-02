@@ -56,7 +56,7 @@ and the gap is worth naming rather than leaving a list the machine visibly contr
 | on PATH | why | goes when |
 |---|---|---|
 | `aify-env`, `claude-aify`, `codex-aify`, `hermes-aify` | the target four | — |
-| `aify-comms` | the environment bridge. Nothing else starts one while delegation is off | Phase 8 flips (open item 2) |
+| `aify-comms` | the environment bridge. It is the only thing that CLAIMS a spawn -- hosting moved to aify-env on 2026-08-25, claiming did not | aify-env's comms plugin is proven on real hardware (open item 2). "Phase 8 flips" was the old condition and it read as met for eight days while this command stayed load-bearing |
 | `aify-wrapper-check`, `aify-wrapper-install` | aify-wrapper's own commands, installed by the client path by construction. A launcher answering for itself needs a command to ask | they are the client path; the list above should include them |
 | `aify-doctor` | an alias for `aify-comms doctor`, kept for agent habits and older docs | **the only genuine leftover.** One line in install.sh, and the question is whether anything still reaches for the old name |
 
@@ -115,7 +115,24 @@ operator rather than on effort.
    it could. Mirroring those five is the work that makes this flag a genuine equivalence rather than a
    trade, and it is ordinary work, not a decision.
 
-2. ~~**The `aify-comms` command still hosts managed agents.**~~ **DONE 2026-08-25: delegation is ON.**
+2. **The `aify-comms` command still CLAIMS managed spawns.** Hosting moved on 2026-08-25; claiming
+   did not, and this entry read as finished for eight days because it recorded the half that moved.
+
+   **The correction, 2026-09-02.** `/spawn` requires `metadata.bridgeLastSeen`, written only for a
+   heartbeat carrying a `bridgeId`, and only the environment bridge sent one. So the command stayed
+   load-bearing while the table above said it "goes when Phase 8 flips" and this entry said Phase 8
+   had flipped. The operator ran everything they were told to and was refused six times; two agents
+   read this document and concluded the fleet was ready. **A document that claims completion is how a
+   thing stops being checked** -- and the claim here was true of execution and false of claiming.
+
+   **Where it now stands:** aify-env carries an `aify-comms` PLUGIN that heartbeats with a `bridgeId`
+   and claims spawn requests, proven end to end against a real socket, a real `Runner` and a real
+   process. Nothing in the DELIVERY path needs the command either -- the launcher spawns its own
+   delivery loop (`hermes-aify:562`), which the bridge never did. What remains before the command can
+   be deleted is proving it on real hardware: install, restart, and one spawn with no bridge running.
+
+   ~~**DONE 2026-08-25: delegation is ON.**~~ (Kept, struck through, because the wrong claim is the
+   point: it is what a reader believed for eight days.)
    The operator took the call on an idle fleet, `install.sh --delegate-spawns` bakes it into the
    environment-bridge launcher, and `aify-comms doctor`'s `spawn-delegation` reports the setting and
    whether aify-env is answering.

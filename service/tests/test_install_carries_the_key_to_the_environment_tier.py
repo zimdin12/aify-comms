@@ -77,54 +77,71 @@ def bash() -> str | None:
 @unittest.skipIf(bash() is None, "bash is required to run install.sh")
 @unittest.skipUnless(INSTALL_SH.is_file(), "install.sh is missing")
 class InstallCarriesTheKeyTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
-        self.log = self.root / "calls.log"
-        binaries = self.root / "bin"
+    #: ONE INSTALLER RUN FOR THE WHOLE CLASS, because it is the same run every assertion reads.
+    #: Executing `install.sh` costs about a minute, and this file ran it twice to ask two questions
+    #: about one recorded behaviour -- which is the shape T1 exists to remove: cost without coverage.
+    #: The state asserted below is a LOG OF WHAT HAPPENED, so sharing it across tests shares
+    #: evidence rather than mutable state.
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls._tmp.name)
+        cls.log = cls.root / "calls.log"
+        binaries = cls.root / "bin"
         binaries.mkdir()
-        stub = binaries / "aify-env"
-        # Forward slashes: this path is read by bash, and a Windows separator inside a shell
+        log = str(cls.log).replace(chr(92), "/")
+        # Forward slashes: these paths are read by bash, and a Windows separator inside a shell
         # redirection is an escape sequence rather than a directory.
-        stub.write_text(STUB.format(log=str(self.log).replace("\\", "/")), encoding="utf-8", newline="\n")
-        stub.chmod(0o755)
-        # A `claude` stub too. `install.sh` registers the MCP server with `claude mcp add`, and
-        # the real CLI resolves its config from USERPROFILE -- so with only HOME redirected it
-        # rewrote the operator's REAL ~/.claude.json to a path inside this temp dir, which
-        # tearDown then deleted. Every later session found aify-comms pointing at nothing.
-        claude_stub = binaries / "claude"
-        claude_stub.write_text(CLAUDE_STUB.format(log=str(self.log).replace(chr(92), '/')),
-                               encoding='utf-8', newline=chr(10))
-        claude_stub.chmod(0o755)
-        self.binaries = binaries
+        for name, body in (("aify-env", STUB), ("claude", CLAUDE_STUB)):
+            stub = binaries / name
+            stub.write_text(body.format(log=log), encoding="utf-8", newline=chr(10))
+            stub.chmod(0o755)
+        cls.binaries = binaries
         #: The seal, recorded before anything runs. A seal that is not checked is one that has
         #: already broken once.
-        self._config_before = (REAL_CLAUDE_CONFIG.read_bytes()
-                               if REAL_CLAUDE_CONFIG.is_file() else None)
+        cls._config_before = (REAL_CLAUDE_CONFIG.read_bytes()
+                              if REAL_CLAUDE_CONFIG.is_file() else None)
+        cls.result = cls._install() if (REPO / ".env").is_file() else None
 
-    def tearDown(self):
-        self._tmp.cleanup()
-        # Restore FIRST, then fail: a test that reports a leak and leaves the operator pointing
-        # into a deleted temp directory has done the damage regardless.
-        if self._config_before is not None and REAL_CLAUDE_CONFIG.is_file():
-            if REAL_CLAUDE_CONFIG.read_bytes() != self._config_before:
-                REAL_CLAUDE_CONFIG.write_bytes(self._config_before)
-                raise AssertionError(
-                    "install.sh wrote the REAL ~/.claude.json despite the sandbox. It has been "
-                    "restored, but the stubs no longer cover every path it takes there."
-                )
+    @classmethod
+    def tearDownClass(cls):
+        # THE SEAL IS CHECKED BEFORE THE CLEANUP, and that ordering is load-bearing. It ran after
+        # until 2026-09-02, so a cleanup that raised -- which it does on Windows whenever the
+        # installer leaves a handle open in the temp tree -- skipped the check entirely. The one
+        # safety assertion in this file was reachable only when nothing else went wrong.
+        #
+        # And the cleanup no longer raises: a temp directory this test cannot delete is housekeeping,
+        # not a result. It errored the whole class in the full suite while passing in isolation,
+        # which is the most expensive shape a test can have -- green alone, red together, and neither
+        # about the thing under test.
+        try:
+            if cls._config_before is not None and REAL_CLAUDE_CONFIG.is_file():
+                if REAL_CLAUDE_CONFIG.read_bytes() != cls._config_before:
+                    REAL_CLAUDE_CONFIG.write_bytes(cls._config_before)
+                    raise AssertionError(
+                        "install.sh wrote the REAL ~/.claude.json despite the sandbox. It has been "
+                        "restored, but the stubs no longer cover every path it takes there."
+                    )
+        finally:
+            # Best-effort, and last. A leftover temp directory is swept by the runner's own per-run
+            # root; a failure here must never turn a passing class red.
+            try:
+                cls._tmp.cleanup()
+            except OSError:
+                pass
 
-    def _run_installer(self, *extra: str) -> subprocess.CompletedProcess:
+    @classmethod
+    def _install(cls, *extra: str) -> subprocess.CompletedProcess:
         env = dict(os.environ)
         # POSIX-form PATH. A `C:/...` entry is silently ignored by this shell, so the stub is never
         # found and every probe falls through to the real binary -- which reads as "the installer did
         # not carry the key" no matter what the installer does.
-        posix_bin = "/" + str(self.binaries).replace(":", "").replace("\\", "/")
+        posix_bin = "/" + str(cls.binaries).replace(":", "").replace("\\", "/")
         env["PATH"] = posix_bin + os.pathsep.replace(os.pathsep, ":") + env.get("PATH", "")
-        env["HOME"] = str(self.root)
+        env["HOME"] = str(cls.root)
         # USERPROFILE too: on Windows the `claude` CLI reads its config path from that, not HOME.
-        env["USERPROFILE"] = str(self.root)
-        env["AIFY_HOME"] = str(self.root / ".aify-comms")
+        env["USERPROFILE"] = str(cls.root)
+        env["AIFY_HOME"] = str(cls.root / ".aify-comms")
         return subprocess.run(
             [bash(), str(INSTALL_SH), "--client", "claude", "http://127.0.0.1:8800", *extra],
             cwd=str(REPO), env=env, capture_output=True, text=True, timeout=900,
@@ -154,8 +171,8 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         the tier that needs it."""
         if not (REPO / ".env").is_file():
             self.skipTest(".env is absent, so there is no key for the installer to find")
-        result = self._run_installer()
-        self.assertEqual(result.returncode, 0, f"installer failed:\n{result.stdout[-2000:]}")
+        self.assertIsNotNone(self.result, "the installer did not run, so this proves nothing")
+        self.assertEqual(self.result.returncode, 0, f"installer failed: {self.result.stdout[-2000:]}")
         self.assertIn(
             "credential set --service aify-comms --stdin", self.calls(),
             "the installer did not hand the key to aify-env, so its advertisements will 401 and no "
@@ -168,7 +185,6 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         configured."""
         if not (REPO / ".env").is_file():
             self.skipTest(".env is absent")
-        self._run_installer()
         self.assertIn("credential status --service aify-comms", self.calls())
 
 

@@ -3,6 +3,23 @@
 Phase 8 moves spawning out of aify-comms. The instruction was to build it behind a flag defaulting to
 today's behaviour and stop before flipping it.
 
+> **PHASE 8 MOVED EXECUTION, NOT CLAIMING — read this before trusting anything below that says
+> "spawning" without qualification.** Measured 2026-09-02, eight days after this file recorded the
+> flip as done: `/spawn` refuses unless an environment has a live BRIDGE, keyed on
+> `metadata.bridgeLastSeen`, which the service writes only for a heartbeat carrying a `bridgeId` —
+> and only the aify-comms environment bridge sent one. So aify-env RAN the processes and the bridge
+> still had to CLAIM them, which is why the `aify-comms` command stayed necessary while every
+> document said its job had moved.
+>
+> The operator ran exactly what they were told to and was refused six times. Two agents read the
+> docs and reported the fleet ready. **The word "spawning" was doing two jobs — starting a process
+> and claiming the request — and this file only ever measured the first.**
+>
+> aify-env now carries an `aify-comms` plugin that heartbeats with a `bridgeId` and claims spawn
+> requests; it is proven end to end against a real socket, a real `Runner` and a real process, and
+> not yet proven on the operator's hardware. See
+> [superpowers/plans/2026-09-02-real-soc-design.md](superpowers/plans/2026-09-02-real-soc-design.md).
+
 ## Built
 
 **`mcp/stdio/env-client.mjs`** and its tests — start, stop, list, health and output against aify-env.

@@ -31,7 +31,35 @@ consistent with the operator's earlier *"make tag now, but all fixes... should a
 tag later on."* Manual proof is a release gate here, not a nicety: today produced four separate cases
 where every automated check was green and the thing did not work.
 
-- **T1. Optimize the test stack. TAG: v0.6.2.** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
+- **T1. Optimize the test stack. TAG: v0.6.2. PREMISE TESTED 2026-09-02, and it did not hold.**
+  The census the method called for now exists: 487 python files, 4,656 test functions. The dominant
+  file, `test_api_v2_regressions.py`, holds 386 of them in 15,822 lines with NO docstring -- and
+  breaks into **248 distinct two-word subjects, 180 of which have exactly one test**. The largest
+  cluster is nine. That is not redundancy; it is 248 unrelated subjects in the default destination.
+  Deleting there removes tests that each prove something different.
+  **The cost is wall time, not count.** ~18 minutes for python, on ONE of this machine's 32 cores.
+  `pytest-xdist` is not installed. Parallelising removes no coverage at all, which is a better answer
+  than deleting tests that catch things. Two obstacles to establish first: the installer tests race
+  each other (two false reds on 2026-09-02) and the live-status cache is a process global.
+  **First cut done**, and it is the model: `test_install_carries_the_key_to_the_environment_tier`
+  ran the real installer TWICE to ask two questions about one recorded behaviour. Now once per
+  class -- 58s to 29.4s, same three assertions, sandbox seal re-verified.
+
+  **PARALLEL SAFETY, measured 2026-09-02** -- the question that decides whether the 32-core win is
+  real. Of 487 python test files: 20 touch the process-global live-status cache (4%), 87 spawn a
+  process or bind a socket (18%), 7 read the operator's home directory (1.4%). So roughly 82% are
+  safe as they stand, and the unsafe minority is IDENTIFIABLE rather than diffuse -- which is what
+  makes this tractable.
+  **The shape:** `--dist loadfile`, so a file's tests stay on one worker and class-level state is
+  preserved; the process-global cache is then no worse than today, because it is already one process
+  per run. The genuine hazard is two files on DIFFERENT workers touching one external resource --
+  the real `~/.claude.json`, the service registry, a fixed port -- which is the 7 plus part of the
+  87, and is handled by pinning those to a single worker group.
+  **BLOCKED ON ONE THING:** `pytest-xdist` is not installed, and installing it changes the operator's
+  Python environment. Their call, not mine. Estimated payoff, to be measured rather than promised:
+  ~18 minutes to single digits, with no coverage removed.
+
+- **T1 (original framing).** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
   ... I am sure that there are many duplicates and pointless tests. you have created all of them so be
   sure to unify into end to end tests and make that tests stack more optimal."*
   Counts today: python 5272 (+10367 subtests), bridge 412 suites, dashboard 1515, aify-wrapper 177,
@@ -256,6 +284,31 @@ solved it by narrowing to one runtime. See D9.
 `git add -A` swept them in. The message does not describe the code change, so anyone tracing that
 message will not find it there. Not rewritten, because it is pushed and shared; recorded here
 instead, which is the cheaper of the two honest options.
+
+## v0.6.1 progress, 2026-09-02
+
+**T2 -- separation of concerns.** Steps 1 and 2 DONE and proven end to end: the plugin seam, the
+claim pass, the API client, both loops, the daemon wiring, and an integration test against a real
+socket, a real `Runner`, a real launcher and a real process. aify-env now heartbeats with a
+`bridgeId` and claims spawn requests. Step 3 was rescoped twice by measurement and is now a small
+cleanup -- see the design note; moving 2,098 lines would have put a service's domain model inside the
+general host.
+
+**T4 -- the installer. DONE.** All three components ask for what is missing rather than proceeding
+silently, and update by the same command. aify-env had no installer at all and now has one; the
+README describes three components and the single ordering constraint that exists.
+
+**T3 -- docs. IN PROGRESS.** Four corrected: `TARGET_ARCHITECTURE.md` (both the removal condition and
+the Phase 8 entry that read as done), `PHASE8_STATUS.md`, `CLAUDE.md`, `PRODUCT_BRIEF.md`. Each
+carried the same error -- "spawning" doing two jobs, execution and claiming, with only the first
+measured.
+
+**WHAT v0.6.1 STILL NEEDS**, and the order:
+1. Install the new aify-env on the operator's machine (operator's call -- it changes their setup).
+2. Operator restarts it. Starting shared infrastructure is never the agent's.
+3. **One real spawn with no `aify-comms` bridge running.** That is the proof; everything else is a
+   measured claim.
+4. T1's parallelism, T3's remaining pass.
 
 ## Done on 2026-09-02, for context
 

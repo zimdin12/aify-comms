@@ -13,9 +13,15 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
 - [docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md](docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md)
   — **v0.6, the work in flight.** aify-comms, [aify-wrapper](https://github.com/zimdin12/aify-wrapper)
   and [aify-env](https://github.com/zimdin12/aify-env) as three repos, which phases are done, and the
-  operator decisions each one turned on. **Phase 8 is ON since 2026-08-25: managed spawns go to
-  aify-env**, so aify-env is now REQUIRED for spawning and a spawn fails loudly rather than falling
-  back — two spawners on one host is the collision the tier exists to end. **And since 2026-08-30
+  operator decisions each one turned on. **Phase 8 moved EXECUTION on 2026-08-25 and CLAIMING
+  only on 2026-09-02**, which is a distinction that cost a day: aify-env RAN managed spawns while the
+  `aify-comms` environment bridge still had to CLAIM them, because `/spawn` keys on
+  `metadata.bridgeLastSeen` and the service writes that only for a heartbeat carrying a `bridgeId`.
+  Every document said spawning had moved; the command stayed load-bearing, and six spawns were
+  refused on a host whose operator was running everything correctly. aify-env now carries an
+  `aify-comms` plugin that claims — proven end to end in test, NOT yet on real hardware. aify-env is
+  REQUIRED for spawning either way and a spawn fails loudly rather than falling back — two spawners
+  on one host is the collision the tier exists to end. **And since 2026-08-30
   aify-env also DESCRIBES the host**: it advertises `runtimes`, `terminalRuntimes`, `terminal` and
   `pty`, and the bridge omits exactly those whenever aify-env's `/health` reports `advertising: true`.
   Exactly one tier per host, decided from that fact rather than a flag on each side; standing down

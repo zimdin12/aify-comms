@@ -44,7 +44,11 @@ The dashboard should feel like a real web application, not a database admin page
 Daily workflow target:
 
 1. Start the service/dashboard container.
-2. Run `aify-comms` in each execution environment, for example native Windows and WSL.
+2. Run `aify-env` in each execution environment, for example native Windows and WSL. It hosts
+   the processes and, once it holds a credential for this service, claims its spawns. (This
+   said `aify-comms` until 2026-09-02: the environment bridge was the thing you ran per
+   machine, and it is being retired -- `docs/TARGET_ARCHITECTURE.md` names four commands and
+   that is not one of them.)
 3. Open the dashboard.
 4. Spawn or restart managed identities from the dashboard, selecting the exact workspace per agent.
 5. Chat with agents and channels from the dashboard; keep manual resident CLI registrations as compatibility/debug bindings.
