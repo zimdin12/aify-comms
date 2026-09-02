@@ -14,7 +14,11 @@ evidence.
 
 ## 0. FIRST, by operator instruction 2026-09-02
 
-- **T1. Optimize the test stack.** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
+**T1 IS v0.6.2, not v0.6.1** (operator, 2026-09-02). v0.6.1 is the fixes tag; restructuring 5,272
+tests is not a fix and can REMOVE protection, so it gets its own tag and an obvious before-and-after.
+T2 and everything in A-D stays in v0.6.1 unless moved deliberately.
+
+- **T1. Optimize the test stack. TAG: v0.6.2.** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
   ... I am sure that there are many duplicates and pointless tests. you have created all of them so be
   sure to unify into end to end tests and make that tests stack more optimal."*
   Counts today: python 5272 (+10367 subtests), bridge 412 suites, dashboard 1515, aify-wrapper 177,
