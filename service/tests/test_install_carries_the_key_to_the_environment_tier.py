@@ -18,9 +18,25 @@ a static check on this would have passed the whole time the defect existed: the 
 present and correct, in a branch that never ran. The only thing that distinguishes the two is
 executing the path.
 
-SANDBOXED. `HOME` and `AIFY_HOME` point at a temporary directory and `aify-env` is a stub on PATH, so
-nothing here touches the operator's real configuration or credential store. The stub is what the
-assertion reads: a credential carried is a credential COMMAND ISSUED, and the argv proves it.
+IT RUNS THE REAL INSTALLER, SO TWO AT ONCE FAIL EACH OTHER. This is the only test here that executes
+`install.sh`, and two concurrent installs race over the same stub log and the same global state. It
+produced a false red twice on 2026-09-02, both times because a targeted `-k` run was started
+alongside a full sweep. If this file fails in the full suite and PASSES on its own, that is what you
+are looking at, not a defect.
+
+SANDBOXED THREE WAYS, AND THE SANDBOX IS ASSERTED RATHER THAN ASSUMED. An earlier version set `HOME`
+and `AIFY_HOME` only -- and `install.sh` registers the MCP server by invoking `claude mcp add`, whose
+CLI resolves its own config path from `USERPROFILE` on Windows and ignored both. The installer duly
+rewrote the operator's REAL `~/.claude.json` with a server path inside this test's temporary
+directory, which `tearDown` then deleted; every later session found aify-comms pointing at nothing.
+
+So: `claude` and `aify-env` are both stubs on PATH, so the real CLIs are never reached;
+`HOME`, `USERPROFILE` and `AIFY_HOME` all point into the temp root; and the real config file is
+hashed before and after, with a restore-and-fail if it moved. A seal that is not checked is a seal
+that has already broken once.
+
+The stubs are what the assertions read: a credential carried is a credential COMMAND ISSUED, and the
+argv proves it.
 """
 
 from __future__ import annotations
