@@ -172,6 +172,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         skip_paths = ["/health", "/ready", "/version", "/docs", "/redoc", "/openapi.json", "/ws", "/favicon", "/api/v1/favicon"]
         if any(request.url.path.startswith(p) for p in skip_paths):
             return await call_next(request)
+        # A CORS PREFLIGHT CARRIES NO CREDENTIALS -- the browser strips them by specification, so
+        # there is no key for this middleware to find and it answered 401. That refusal is invisible
+        # to the caller (a failed preflight surfaces as a generic network error, never as "401"), and
+        # it blocks the real request from ever being sent: every cross-origin call that needs a
+        # preflight fails, which is any POST the dashboard makes to the service port.
+        #
+        # LETTING IT PAST GRANTS NOTHING. A preflight returns CORS policy headers and no body; the
+        # request it authorises still arrives here separately and still needs a valid key. Answering
+        # it is CORSMiddleware's job, and it never got the chance.
+        if request.method == "OPTIONS":
+            return await call_next(request)
         # THREE CARRIERS, and the third is why the dashboard works at all. A browser cannot set a
         # header on a document request, so with only `X-API-Key` a protected service serves its own
         # UI a 401 -- measured against the real app, and invisible to the suite, whose base builds an
@@ -303,6 +314,13 @@ async def _authorize_websocket(ws: WebSocket, api_key: str) -> bool:
     provided_key = (
         ws.headers.get("X-API-Key")
         or ws.query_params.get("api_key")
+        # THE ONLY CREDENTIAL A BROWSER CAN SEND ON THIS HANDSHAKE. The WebSocket API takes no
+        # headers and the dashboard's socket URL carries no query param, so once a key was set a
+        # page could not authenticate at all: every handshake closed 1008, the client backed off and
+        # retried, and the dashboard reconnected for ever while its polls 401'd separately. Read the
+        # cookie the middleware already issues, from the same constant it writes -- a typo between
+        # the two is a login that silently never sticks, which is what that constant says.
+        or ws.cookies.get(APIKeyMiddleware.COOKIE)
     )
     # Bytes comparison — a non-ASCII key would TypeError on the str form (see the
     # middleware note); here it would bubble out of the WS handshake. (bughunt 2026-07-03)

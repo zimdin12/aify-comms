@@ -15,6 +15,8 @@
 // with undefined dependencies. That path only executes when the service restarts, which is exactly
 // when nobody is watching.
 
+import { withApiKey } from './api-key.mjs';
+
 import { apiOrigin } from './api-client.mjs';
 import { state } from './state.mjs';
 import { dispositionOf } from './realtime-dispositions.mjs';
@@ -50,7 +52,11 @@ export function connectRealtimeSocket() {
   if (dashboardSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(dashboardSocket.readyState)) return;
   const wsOrigin = apiOrigin.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
   try {
-    dashboardSocket = new WebSocket(`${wsOrigin}/ws`);
+    // THE SOCKET NEEDS THE KEY TOO, and a query parameter is the only carrier it has: the
+    // browser WebSocket API takes no headers. Until 2026-09-02 this URL was bare, so with
+    // `API_KEY` set every handshake was refused and the client's own backoff below turned a
+    // permanent refusal into a dashboard that reported "reconnecting" for ever.
+    dashboardSocket = new WebSocket(withApiKey(`${wsOrigin}/ws`));
   } catch {
     state.realtimeConnected = false;
     return;

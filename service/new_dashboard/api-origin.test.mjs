@@ -21,13 +21,16 @@ const KEY = "aify.next.apiOrigin";
 
 // search: the query string. stored: the value already in localStorage, or null. port: the
 // data-default-api-port attribute, or undefined for "not set".
-function withBrowser({ search = "", stored = null, port, protocol = "http:", hostname = "localhost" }, run) {
+function withBrowser({ search = "", stored = null, port, protocol = "http:", hostname = "localhost", origin }, run) {
   for (const name of ["location", "localStorage", "document"]) {
     assert.equal(name in globalThis, false, `${name} leaked into the test environment — the seal is broken`);
   }
   const store = new Map();
   if (stored !== null) store.set(KEY, stored);
-  globalThis.location = { search, protocol, hostname };
+  // `origin` is a real property of a real `location`, and the resolver reads it on the https
+  // branch. Omitting it is the same narrower-than-real fake this file already warns about
+  // below: the code would be correct and the test would see `undefined`.
+  globalThis.location = { search, protocol, hostname, origin: origin ?? `${protocol}//${hostname}` };
   globalThis.localStorage = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, v),
@@ -59,9 +62,34 @@ test("the default port comes from the document, and 8800 is only the fallback", 
 });
 
 test("the fallback keeps the page's own protocol and hostname", () => {
-  // A dashboard opened over https on a LAN address must not be sent to http://localhost.
-  const origin = withBrowser({ protocol: "https:", hostname: "10.0.0.11" }, resolveApiOrigin);
-  assert.equal(origin, "https://10.0.0.11:8800");
+  // A dashboard opened on a LAN address must not be sent to localhost.
+  const origin = withBrowser({ hostname: "10.0.0.11", port: "8800" }, resolveApiOrigin);
+  assert.equal(origin, "http://10.0.0.11:8800");
+});
+
+test("AN HTTPS PAGE USES ITS OWN ORIGIN, not the port attribute", () => {
+  // The only https deployment is the Caddy proxy, which serves the page, `/api/*` and `/ws` from ONE
+  // origin. Honouring the port attribute here sends an https page to `https://host:8800`, where
+  // nothing speaks TLS -- and a page cannot reach a second origin's http API anyway, because the
+  // browser blocks it as mixed content. Measured 2026-09-02: the proxied page answered `curl`
+  // correctly while telling the BROWSER to call 8800, so the dashboard loaded and stayed empty.
+  const origin = withBrowser(
+    { protocol: "https:", hostname: "10.0.0.11", origin: "https://10.0.0.11:8443", port: "8800" },
+    resolveApiOrigin,
+  );
+  assert.equal(origin, "https://10.0.0.11:8443",
+    "an https page was sent to the port attribute instead of its own origin");
+});
+
+test("an explicit ?apiOrigin= still overrides, even on https", () => {
+  // The escape hatch survives: pointing the dashboard at another machine is what that parameter is
+  // for, and the https rule must not quietly take it away.
+  const origin = withBrowser(
+    { protocol: "https:", hostname: "10.0.0.11", origin: "https://10.0.0.11:8443",
+      search: "?apiOrigin=https://other:9443" },
+    resolveApiOrigin,
+  );
+  assert.equal(origin, "https://other:9443");
 });
 
 test("?apiOrigin= wins AND PERSISTS — it outlives the query string that set it", () => {

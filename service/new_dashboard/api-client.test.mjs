@@ -191,3 +191,128 @@ test("setOperatorKey attaches the operator key to every request", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+
+// --- The service key, and the 401 that asks for it -----------------------------------------------
+// THE HELPER BEING RIGHT IS NOT THE CLAIM. `api-key.test.mjs` proves the store and the header shape;
+// these prove `api()` actually CALLS them. This repo has shipped a feature whose six helper tests
+// were green while the call site was disconnected, so the call site gets its own tests.
+
+import { readApiKey as _readKey } from "./api-key.mjs";
+import { PROMPT_ID as _PROMPT_ID } from "./api-key-prompt.mjs";
+
+function _storeWith(value) {
+  const data = value ? { "aify.apiKey": value } : {};
+  globalThis.localStorage = {
+    getItem: (k) => (k in data ? data[k] : null),
+    setItem: (k, v) => { data[k] = String(v); },
+    removeItem: (k) => { delete data[k]; },
+  };
+  return data;
+}
+
+function _fakeDocument() {
+  const byId = new Map();
+  const make = (tag) => ({
+    tagName: tag, style: { cssText: "" }, children: [], attributes: {}, value: "", _listeners: {},
+    set id(v) { this._id = v; byId.set(v, this); },
+    get id() { return this._id; },
+    setAttribute(k, v) { this.attributes[k] = v; },
+    appendChild(c) { this.children.push(c); return c; },
+    addEventListener(t, fn) { this._listeners[t] = fn; },
+    focus() {},
+  });
+  return { body: make("body"), createElement: make, getElementById: (id) => byId.get(id) || null };
+}
+
+test("the stored service key is sent as X-API-Key on every request", async () => {
+  // Without this the dashboard cannot authenticate at all once API_KEY is set: it is served from the
+  // dashboard port and calls the API on the service port, so the cookie the service issues does not
+  // ride the request and the header is the only carrier left.
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    seen.push(options?.headers || {});
+    return { ok: true, status: 200, text: async () => "{}" };
+  };
+  try {
+    _storeWith("banana");
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    await api("/whatever");
+    assert.equal(seen[0]["X-API-Key"], "banana",
+      "the service key was not sent, so every request 401s and the dashboard never loads");
+
+    // The same trap the operator key has: a caller replacing the headers wholesale must not lose it.
+    await api("/upload", { method: "POST", headers: {} });
+    assert.equal(seen[1]["X-API-Key"], "banana",
+      "a caller-supplied headers object dropped the service key");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("no stored key sends no header, so an unprotected service is unaffected", async () => {
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    seen.push(options?.headers || {});
+    return { ok: true, status: 200, text: async () => "{}" };
+  };
+  try {
+    _storeWith(null);
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    await api("/whatever");
+    assert.equal(seen[0]["X-API-Key"], undefined, "an absent key must not send an empty header");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("a 401 puts the key prompt on the page instead of only throwing", async () => {
+  // THE WHOLE POINT. Before this, a keyed service rendered a dashboard that polled, failed, retried
+  // and gave the operator no way in except hand-editing the URL.
+  const realFetch = globalThis.fetch;
+  const realDoc = globalThis.document;
+  globalThis.fetch = async () => ({
+    ok: false, status: 401, statusText: "Unauthorized",
+    text: async () => JSON.stringify({ error: "Invalid or missing API key." }),
+  });
+  const doc = _fakeDocument();
+  globalThis.document = doc;
+  try {
+    _storeWith("the-wrong-one");
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    assert.equal(doc.getElementById(_PROMPT_ID), null, "CONTROL: the prompt must not be there yet");
+    await assert.rejects(() => api("/whatever"), /Invalid or missing API key/,
+      "the error must still propagate -- callers render it");
+    assert.notEqual(doc.getElementById(_PROMPT_ID), null,
+      "a 401 did not mount the prompt, so the operator has no way to supply a key");
+    assert.equal(_readKey(), "",
+      "the refused key survived, so it would be retried on every future load");
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.document = realDoc;
+  }
+});
+
+test("a NON-401 failure does not mount the prompt", async () => {
+  // NEGATIVE CONTROL. A prompt that appeared on any error would cover the dashboard whenever the
+  // service hiccupped, and would read as an auth problem when it is not one.
+  const realFetch = globalThis.fetch;
+  const realDoc = globalThis.document;
+  globalThis.fetch = async () => ({
+    ok: false, status: 500, statusText: "Server Error", text: async () => "{}",
+  });
+  const doc = _fakeDocument();
+  globalThis.document = doc;
+  try {
+    _storeWith("banana");
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    await assert.rejects(() => api("/whatever"));
+    assert.equal(doc.getElementById(_PROMPT_ID), null, "a 500 mounted the key prompt");
+    assert.equal(_readKey(), "banana", "a 500 discarded a key that was never refused");
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.document = realDoc;
+  }
+});

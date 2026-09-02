@@ -53,6 +53,14 @@ export function resolveApiOrigin() {
   const stored = asHttpOrigin(localStorage.getItem('aify.next.apiOrigin'));
   if (stored) return stored;
   localStorage.removeItem('aify.next.apiOrigin');
+  // AN HTTPS PAGE TALKS TO ITS OWN ORIGIN, because the only way this dashboard is served over HTTPS
+  // is the Caddy proxy, which puts the page, `/api/*` and `/ws` on ONE origin for exactly this
+  // reason. Falling through to the port below would send an https page to `https://host:8800`,
+  // where nothing speaks TLS -- and even if something did, a page cannot reach a second origin's
+  // http API without the browser blocking it as mixed content. Measured 2026-09-02: the proxied page
+  // answered every request correctly to `curl` while telling the BROWSER to call port 8800, so the
+  // dashboard loaded and then stayed empty with no error naming a port.
+  if (location.protocol === 'https:') return location.origin;
   const port = document.documentElement.dataset.defaultApiPort || '8800';
   return `${location.protocol}//${location.hostname}:${port}`;
 }

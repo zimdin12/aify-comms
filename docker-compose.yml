@@ -103,8 +103,22 @@ services:
     profiles: ["https"]
     container_name: ${COMPOSE_PROJECT_NAME:-aify-comms}-https
     restart: ${RESTART_POLICY:-unless-stopped}
+    # HOST AND CONTAINER PORT ARE THE SAME ON PURPOSE. Caddy listens on whatever port its SITE
+    # ADDRESSES name, not on a fixed one -- so publishing `8801:8443` while HTTPS_SITES says `:8801`
+    # maps a host port onto a container port nothing is listening on, and the failure is a connection
+    # refused with every container reporting healthy. Keep HTTPS_PORT and the port inside HTTPS_SITES
+    # equal.
     ports:
-      - "${HTTPS_PORT:-8443}:8443"
+      - "${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"
+    # HTTPS_SITES REACHES CADDY ONLY IF IT IS PASSED HERE. `{$HTTPS_SITES:...}` in the Caddyfile is
+    # resolved by Caddy from its OWN environment, not by compose, and this service has no `env_file`
+    # -- so the knob documented in `.env.example` silently did nothing and Caddy always used the
+    # Caddyfile default. Measured 2026-09-02: `printenv HTTPS_SITES` in the container was empty
+    # while `.env` had named four sites, and the certificates Caddy issued were the default four.
+    # Adding a name to `.env` and seeing no change is the whole failure this line removes.
+    environment:
+      - HTTPS_SITES=${HTTPS_SITES:-localhost:8443, 127.0.0.1:8443}
+      - HTTPS_DEFAULT_SNI=${HTTPS_DEFAULT_SNI:-localhost}
     volumes:
       - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       # Persisted so the local CA and issued certs survive a restart. Without this every

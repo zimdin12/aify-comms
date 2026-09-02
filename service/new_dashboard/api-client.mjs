@@ -14,6 +14,9 @@
 // a multipart upload — need the base itself, not a wrapped request. An ESM import of a `let` reflects
 // later assignments, so `setApiBase` below reaches them, while an importer still cannot assign to it (that
 // is a syntax error). One writer, many readers, read-only at every reader: the case live bindings are for.
+import { apiKeyHeader } from './api-key.mjs';
+import { ensureApiKeyPrompt } from './api-key-prompt.mjs';
+
 export let apiBase = '';
 
 // The service ROOT, without the `/api/v1` suffix. A live binding for the same reason as `apiBase`, and
@@ -62,10 +65,23 @@ export async function api(path, options = {}) {
   const { headers: callerHeaders, ...rest } = options;
   const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };
   if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;
+  // THE SERVICE KEY, AND A HEADER RATHER THAN THE COOKIE ON PURPOSE. This page is served from the
+  // dashboard port and calls the API back on the service port, so every request here is
+  // cross-origin -- and a cookie does not ride a cross-origin fetch unless credentialed CORS is on,
+  // which `main.py` switches OFF whenever `CORS_ORIGINS` is `*`. See `api-key.mjs` for why leaving
+  // it off is the right call. Attached AFTER the caller's headers for the same reason the operator
+  // key is: so it survives a caller that replaced the defaults wholesale.
+  const serviceKey = apiKeyHeader();
+  if (serviceKey) Object.assign(headers, serviceKey);
   const response = await fetch(`${apiBase}${path}`, { headers, ...rest });
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) {
+    // A 401 IS ANSWERABLE, so answer it rather than rendering "Invalid or missing API key" into a
+    // panel. Before this, a keyed service showed a dashboard that polled, failed and retried with
+    // no way for the operator to supply the key except by hand-editing the URL. The prompt mounts
+    // once however many requests fail together.
+    if (response.status === 401) ensureApiKeyPrompt();
     // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old
     // `data.detail` coerced that to "[object Object]". Flatten to readable text.
     let detail = data.error || data.detail || response.statusText;

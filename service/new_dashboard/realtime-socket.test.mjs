@@ -429,3 +429,39 @@ test("the page-resume rationale travelled WITH the code it explains", async () =
     assert.ok(src.includes(line), `the extraction plan restores this line; it must exist here: ${line.slice(0, 48)}…`);
   }
 });
+
+test("connect carries the stored key, because a WebSocket cannot send a header", () => {
+  // THE CALL SITE, not the helper. `api-key.test.mjs` proves `withApiKey` builds the right URL; this
+  // proves the socket actually uses it. Until 2026-09-02 the URL was bare, so with `API_KEY` set the
+  // handshake was refused, the backoff retried, and the dashboard reported "reconnecting" for ever
+  // while its polls failed separately -- one cause presenting as two faults.
+  const realStore = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (k) => (k === "aify.apiKey" ? "banana" : null), setItem() {}, removeItem() {} };
+  try {
+    withFakes(({ built }) => {
+      harness();
+      connectRealtimeSocket();
+      assert.equal(built[0].url, "ws://fake.invalid/ws?api_key=banana");
+    });
+  } finally {
+    if (realStore === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realStore;
+  }
+});
+
+test("CONTROL: with no key stored the URL is exactly what it always was", () => {
+  // Pins that the line above changes the URL only when there is something to add -- an unprotected
+  // service must be untouched by any of this.
+  const realStore = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+  try {
+    withFakes(({ built }) => {
+      harness();
+      connectRealtimeSocket();
+      assert.equal(built[0].url, "ws://fake.invalid/ws");
+    });
+  } finally {
+    if (realStore === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realStore;
+  }
+});

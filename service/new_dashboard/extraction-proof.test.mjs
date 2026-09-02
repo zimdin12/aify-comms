@@ -447,7 +447,34 @@ const EXTRACTIONS = [
               "  const { headers: callerHeaders, ...rest } = options;",
               "  const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };",
               "  if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;",
+              "  // THE SERVICE KEY, AND A HEADER RATHER THAN THE COOKIE ON PURPOSE. This page is served from the",
+              "  // dashboard port and calls the API back on the service port, so every request here is",
+              "  // cross-origin -- and a cookie does not ride a cross-origin fetch unless credentialed CORS is on,",
+              "  // which `main.py` switches OFF whenever `CORS_ORIGINS` is `*`. See `api-key.mjs` for why leaving",
+              "  // it off is the right call. Attached AFTER the caller's headers for the same reason the operator",
+              "  // key is: so it survives a caller that replaced the defaults wholesale.",
+              "  const serviceKey = apiKeyHeader();",
+              "  if (serviceKey) Object.assign(headers, serviceKey);",
               "  const response = await fetch(`${apiBase}${path}`, { headers, ...rest });",
+            ],
+          },
+          // The second divergence in the same function, and the one an operator actually sees: a 401
+          // now MOUNTS THE KEY PROMPT instead of only throwing a string into a panel. Declared
+          // separately from the header edit above because they are two decisions -- one about which
+          // credential travels, one about what happens when it is missing.
+          {
+            was: [
+              "  if (!response.ok) {",
+              "    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old",
+            ],
+            now: [
+              "  if (!response.ok) {",
+              "    // A 401 IS ANSWERABLE, so answer it rather than rendering \"Invalid or missing API key\" into a",
+              "    // panel. Before this, a keyed service showed a dashboard that polled, failed and retried with",
+              "    // no way for the operator to supply the key except by hand-editing the URL. The prompt mounts",
+              "    // once however many requests fail together.",
+              "    if (response.status === 401) ensureApiKeyPrompt();",
+              "    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old",
             ],
           },
         ],
@@ -559,10 +586,29 @@ const EXTRACTIONS = [
     items: [
       {
         name: "resolveApiOrigin", at: 16, marker: "// resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.",
-        // VALIDATES THE OVERRIDE NOW. `?apiOrigin=` was stored and returned with only trailing
+        // TWO edits, in ONE array: this object may carry `editedSince` once, and a second key of the
+        // same name is silently the only one JS keeps -- caught here by the duplicate-key test rather
+        // than by the reconstruction, which would simply have stopped checking the first edit.
+        //
+        // (1) AN HTTPS PAGE ANSWERS WITH ITS OWN ORIGIN. The only https deployment is the Caddy
+        // proxy, which serves the page, `/api/*` and `/ws` from one origin for exactly this reason.
+        // (2) VALIDATES THE OVERRIDE NOW. `?apiOrigin=` was stored and returned with only trailing
         // slashes stripped, and it feeds every fetch, the WebSocket URL, `legacy.href`, and the Help
         // card's install snippet -- a shell command the operator is told to copy and run.
         editedSince: [{
+          was: ["  const port = document.documentElement.dataset.defaultApiPort || '8800';"],
+          now: [
+            "  // AN HTTPS PAGE TALKS TO ITS OWN ORIGIN, because the only way this dashboard is served over HTTPS",
+            "  // is the Caddy proxy, which puts the page, `/api/*` and `/ws` on ONE origin for exactly this",
+            "  // reason. Falling through to the port below would send an https page to `https://host:8800`,",
+            "  // where nothing speaks TLS -- and even if something did, a page cannot reach a second origin's",
+            "  // http API without the browser blocking it as mixed content. Measured 2026-09-02: the proxied page",
+            "  // answered every request correctly to `curl` while telling the BROWSER to call port 8800, so the",
+            "  // dashboard loaded and then stayed empty with no error naming a port.",
+            "  if (location.protocol === 'https:') return location.origin;",
+            "  const port = document.documentElement.dataset.defaultApiPort || '8800';",
+          ],
+        }, {
           was: [
             "  const requested = params.get('apiOrigin');",
             "  if (requested) {",
@@ -2409,7 +2455,26 @@ const EXTRACTIONS = [
         ],
       },
       { name: "WS_CONNECTING_TIMEOUT_MS", at: 511, marker: null },
-      { name: "connectRealtimeSocket", at: 512, marker: null },
+      {
+        name: "connectRealtimeSocket",
+        at: 512,
+        marker: null,
+        // The socket URL now carries the service key. A WebSocket handshake cannot take a header, and
+        // this page is served from the dashboard port while the socket goes to the service port, so a
+        // query parameter is the only carrier a browser has. Bare, it was refused whenever `API_KEY`
+        // was set, and the backoff below turned that permanent refusal into a dashboard that reported
+        // "reconnecting" for ever.
+        editedSince: [{
+          was: ["    dashboardSocket = new WebSocket(`${wsOrigin}/ws`);"],
+          now: [
+            "    // THE SOCKET NEEDS THE KEY TOO, and a query parameter is the only carrier it has: the",
+            "    // browser WebSocket API takes no headers. Until 2026-09-02 this URL was bare, so with",
+            "    // `API_KEY` set every handshake was refused and the client's own backoff below turned a",
+            "    // permanent refusal into a dashboard that reported \"reconnecting\" for ever.",
+            "    dashboardSocket = new WebSocket(withApiKey(`${wsOrigin}/ws`));",
+          ],
+        }],
+      },
       {
         // THE BLANK LINE AND THE SIX COMMENT LINES ABOVE THIS DECLARATION are declared here because
         // `declarationSpan` covers a declaration, not the prose above it — so a cluster whose members

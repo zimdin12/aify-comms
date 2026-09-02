@@ -17,6 +17,16 @@
 	# certificate-transparency log or fail because the host is unreachable from the internet.
 	local_certs
 	admin off
+	# WHICH CERTIFICATE TO SERVE WHEN THE CLIENT SENDS NO SNI, which is every browser reaching this
+	# by IP address: RFC 6066 forbids putting an IP literal in SNI, so `https://192.168.100.10:8443`
+	# arrives with no name at all and Caddy has nothing to select on. Measured 2026-09-02: Caddy had
+	# ISSUED a certificate for the address and still failed the handshake with a TLS internal-error
+	# alert, logging nothing -- the same connection with `-servername` set succeeded, which is what
+	# named SNI as the cause rather than the certificate.
+	#
+	# Set this to the address you actually type. A name (`stevenz-l`) needs none of this and is the
+	# better route where DNS or mDNS resolves it.
+	default_sni {$HTTPS_DEFAULT_SNI:localhost}
 }
 
 # THE SITE ADDRESSES MUST BE NAMED. A bare `:8443` looks tidier and does not work: Caddy has no
