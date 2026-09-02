@@ -63,7 +63,11 @@ from service.api_core.settings import _load_settings
 from service.api_core.status_decision import StatusFacts, _decide_effective_status
 from service.api_core.turn_state import _status_turn_signals
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
-from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
+from service.api_core.terminal_text import (
+    _terminal_prompt_hint_from_raw,
+    _terminal_prompt_hint_from_screen,
+)
+from service.terminal_snapshot import render_live_screen
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
 from service.api_core.status_signal_prefetch import status_signals_or_live
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -512,15 +516,25 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         and (active_run or (agent_session_mode == "managed" and has_live_worker))
     ):
         try:
-            terminal_row = await (await db.execute(
-                "SELECT output, cols FROM terminal_sessions WHERE id = ?",
-                (terminal_id,),
-            )).fetchone()
-            terminal_input_hint = _terminal_prompt_hint_from_raw(
-                f"term:{terminal_id}",
-                terminal_row["output"] if terminal_row else "",
-                (terminal_row["cols"] if terminal_row and "cols" in terminal_row.keys() else 0),
-            )
+            # THE LIVE SCREEN FIRST, and the stored tail only when this process has never seen
+            # that terminal. `_terminal_prompt_hint_from_raw` renders raw -> screen -> hint, and
+            # `terminal_snapshot` already holds the rendered screen in memory from the same output
+            # the tail is written from -- so this skips a pyte reconstruction of up to 64 KB per
+            # status refresh, not merely a SELECT. The fallback stays because the live screen is a
+            # process global and is empty after a restart, which is precisely what the tail is for.
+            live = render_live_screen(terminal_id)
+            if live is not None:
+                terminal_input_hint = _terminal_prompt_hint_from_screen(f"term:{terminal_id}", live[0])
+            else:
+                terminal_row = await (await db.execute(
+                    "SELECT output, cols FROM terminal_sessions WHERE id = ?",
+                    (terminal_id,),
+                )).fetchone()
+                terminal_input_hint = _terminal_prompt_hint_from_raw(
+                    f"term:{terminal_id}",
+                    terminal_row["output"] if terminal_row else "",
+                    (terminal_row["cols"] if terminal_row and "cols" in terminal_row.keys() else 0),
+                )
         except Exception:
             terminal_input_hint = ""
     # NO `active_run_runtime`. It was computed here on every status refresh and read at no line in

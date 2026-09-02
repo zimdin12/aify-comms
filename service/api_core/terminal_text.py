@@ -173,9 +173,13 @@ _PROMPT_HINT_TTL_SECONDS = 5.0
 _PROMPT_HINT_CACHE: dict[str, tuple[str, float, str]] = {}
 
 
-def _terminal_prompt_hint_from_raw(cache_key: str, raw: Any, cols: Any = 0) -> str:
-    """Awaiting-input hint derived from the reconstructed SCREEN of a raw PTY log."""
-    text = str(raw or "")
+def _prompt_hint(cache_key: str, text: str, to_screen) -> str:
+    """The pre-gate, the cache and the answer. `to_screen` is the only thing that differs.
+
+    Split out so the raw path and the already-rendered path cannot drift: they must agree on which
+    text counts as a prompt and on how long an answer stays valid, and two copies of that would agree
+    only until one was edited.
+    """
     if not text:
         return ""
     # Cheap pre-gate: collapse whitespace the way the escape-painted screen already is, and
@@ -188,10 +192,33 @@ def _terminal_prompt_hint_from_raw(cache_key: str, raw: Any, cols: Any = 0) -> s
     cached = _PROMPT_HINT_CACHE.get(cache_key)
     if cached and cached[0] == digest and cached[1] > now:
         return cached[2]
-    try:
-        screen = _render_terminal_snapshot(text, int(cols or 0) or 100, 40)
-    except Exception:
-        screen = text  # pyte absent/failed: degrade to the old behaviour rather than lie
-    hint = _terminal_awaiting_input_hint(screen)
+    hint = _terminal_awaiting_input_hint(to_screen(text))
     _PROMPT_HINT_CACHE[cache_key] = (digest, now + _PROMPT_HINT_TTL_SECONDS, hint)
     return hint
+
+
+def _terminal_prompt_hint_from_raw(cache_key: str, raw: Any, cols: Any = 0) -> str:
+    """Awaiting-input hint derived from the reconstructed SCREEN of a raw PTY log."""
+    def render(text: str) -> str:
+        try:
+            return _render_terminal_snapshot(text, int(cols or 0) or 100, 40)
+        except Exception:
+            return text  # pyte absent/failed: degrade to the old behaviour rather than lie
+    return _prompt_hint(cache_key, str(raw or ""), render)
+
+
+def _terminal_prompt_hint_from_screen(cache_key: str, screen: Any) -> str:
+    """The same answer, from a screen SOMEBODY ELSE HAS ALREADY RENDERED.
+
+    THE WHOLE JOB of the raw variant is raw -> screen -> hint. The live screen in
+    `terminal_snapshot` is the second of those already, kept in memory and fed by the same output
+    the stored tail is written from -- so the status path can skip the render as well as the database
+    read. That is the point: not a cheaper read, one less pyte reconstruction per status refresh, of
+    up to 64 KB.
+
+    ITS OWN CACHE KEY NAMESPACE. The two variants share `_PROMPT_HINT_CACHE`, and a caller that used
+    one key for both would store a digest of the raw log under the key it later looks up with a
+    digest of the screen -- never a hit, and the cache would silently stop working rather than
+    misanswer. Prefixing keeps both live.
+    """
+    return _prompt_hint(f"screen:{cache_key}", str(screen or ""), lambda text: text)

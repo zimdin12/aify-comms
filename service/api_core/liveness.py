@@ -28,7 +28,11 @@ from datetime import datetime, timezone
 
 from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
-from service.api_core.terminal_text import _terminal_prompt_hint_from_raw
+from service.api_core.terminal_text import (
+    _terminal_prompt_hint_from_raw,
+    _terminal_prompt_hint_from_screen,
+)
+from service.terminal_snapshot import render_live_screen
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 from service.api_core.settings import _load_settings
 from service.api_core.capabilities import (
@@ -262,7 +266,7 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     try:
         row = await (await db.execute(
             f"""
-            SELECT output, cols, runtime FROM terminal_sessions
+            SELECT id, output, cols, runtime FROM terminal_sessions
             WHERE agent_id = ?
               AND status IN {TERMINAL_LIVE_FILTER_SQL}
               AND id NOT LIKE 'vterm_%'
@@ -282,6 +286,19 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     if _normalize_runtime(str(row["runtime"] or "")) != "claude-code":
         return False
     keys = row.keys()
+    # THE LIVE SCREEN FIRST. `_terminal_prompt_hint_from_raw`'s whole job is raw -> screen -> hint,
+    # and `terminal_snapshot` is already holding that screen in memory, fed by the same output the
+    # stored tail is written from. Reading it here skips a pyte reconstruction of up to 64 KB on
+    # every status refresh, not just a database read.
+    #
+    # THE TAIL REMAINS THE FALLBACK, and has to: the live screen is a process global, so it is empty
+    # for every terminal this process has not seen since it started. That is the case the stored tail
+    # exists to cover, and dropping it would make status wrong for a window after each restart rather
+    # than merely slower.
+    terminal_id = str(row["id"]) if "id" in keys else ""
+    live = render_live_screen(terminal_id) if terminal_id else None
+    if live is not None:
+        return bool(_terminal_prompt_hint_from_screen(f"agent:{agent_id}", live[0]))
     return bool(_terminal_prompt_hint_from_raw(
         f"agent:{agent_id}",
         row["output"] if "output" in keys else "",
