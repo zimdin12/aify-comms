@@ -2738,18 +2738,18 @@ if [ -n "$EMIT_WRAPPERS_DIR" ]; then
   exit 0
 fi
 
-# Settled BEFORE the first config that carries it is written. Resolved always, generated only on ask.
+# Settled BEFORE the first config that carries it. NOT gated on `--with-api-key`: that flag asks for a
+# key to be GENERATED, and gating the carry left configured clients beside an aify-env holding no
+# credential, 401'ing while both reported healthy. See test_install_carries_the_key_to_the_env*.
 if [ "$WITH_API_KEY" = true ]; then
-  if RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --generate)"; then
-    export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
-    export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh")"
-    echo "API key in place (.env). RESTART THE SERVICE for it to take effect:"
-    echo "    docker compose up -d"
-    echo "Until then the service still accepts unauthenticated requests."
-  else
-    echo "ERROR: --with-api-key was requested but no key could be generated." >&2
-    exit 1
-  fi
+  RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --generate)"     || { echo "ERROR: --with-api-key was requested but no key could be generated." >&2; exit 1; }
+  echo "API key in place (.env). Until you run 'docker compose up -d' the service still accepts unauthenticated requests."
+else
+  RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" || true)"
+fi
+if [ -n "${RESOLVED_API_KEY:-}" ]; then
+  export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
+  export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"
 fi
 
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
