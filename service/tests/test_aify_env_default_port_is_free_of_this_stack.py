@@ -25,11 +25,59 @@ COMPOSE = REPO / "docker-compose.yml"
 AIFY_ENV = Path(os.environ.get("AIFY_ENV_REPO", Path.home() / "projects" / "aify-env"))
 
 # "${NEW_DASHBOARD_PORT:-8801}:8801" and "8188:8188" both appear; the HOST port is the left half.
-PUBLISHED = re.compile(r'^\s*-\s*"(?:\$\{[A-Z_]+:-)?(\d+)\}?:\d+"', re.MULTILINE)
+#: The CONTAINER side may be a variable too, not only a literal. The https proxy publishes
+#: `"${HTTPS_PORT:-8443}:${HTTPS_PORT:-8443}"` because Caddy listens on whatever port its site
+#: addresses name -- and this pattern required a bare number there, so it silently stopped matching
+#: that line and the scan lost a port. A collision check that cannot see a published port reports
+#: "no collision" for the same reason it reports everything else: it looked at nothing.
+PUBLISHED = re.compile(
+    r'^\s*-\s*"(?:\$\{[A-Z_]+:-)?(\d+)\}?:(?:\$\{[A-Z_]+:-)?\d+\}?"', re.MULTILINE)
+
+
+#: The variable name in a `"${VAR:-default}:..."` host port, so the value an operator SET can be
+#: looked up rather than only the fallback baked into compose.
+PUBLISHED_VAR = re.compile(r'^\s*-\s*"\$\{([A-Z_]+):-\d+\}:', re.MULTILINE)
+
+
+def env_overrides() -> dict[str, int]:
+    """Ports the operator actually set, read from `.env`.
+
+    WITHOUT THIS THE GATE READS A FICTION. Compose defaults are what the file says; `.env` is what
+    runs. On 2026-09-02 the dashboard was moved to `NEW_DASHBOARD_PORT=8802` -- aify-env's own
+    DEFAULT_PORT -- and this gate stayed green, because it was still reading the `8801` fallback that
+    nothing was using. The collision was real: aify-env binds loopback, so it SHADOWED the Docker
+    publish instead of failing to start, and the dashboard on that port answered aify-env's 404.
+    A published port that fails to bind is loud; one that is quietly shadowed is not.
+
+    Absent or unreadable `.env` yields no overrides, which is correct for a fresh checkout -- there
+    the compose defaults ARE what runs.
+    """
+    path = REPO / ".env"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    found = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        value = value.strip()
+        if value.isdigit():
+            found[name.strip()] = int(value)
+    return found
 
 
 def published_host_ports() -> set[int]:
-    return {int(m) for m in PUBLISHED.findall(COMPOSE.read_text(encoding="utf-8"))}
+    """Every host port this stack publishes, as CONFIGURED -- defaults overridden by `.env`."""
+    text = COMPOSE.read_text(encoding="utf-8")
+    overrides = env_overrides()
+    ports = {int(m) for m in PUBLISHED.findall(text)}
+    for name in PUBLISHED_VAR.findall(text):
+        if name in overrides:
+            ports.add(overrides[name])
+    return ports
 
 
 def aify_env_default_port() -> int:
