@@ -96,6 +96,71 @@ export function envIsOnlineAt(env, now) {
   return age >= -ENV_FUTURE_SKEW_MS && age <= ENV_STALE_AFTER_MS;
 }
 
+//: CAN ANYTHING CLAIM A SPAWN HERE -- a DIFFERENT question from `envIsOnline`, and they were the
+//: same one until this was written.
+//:
+//: `status` and `lastSeen` are refreshed by aify-env ADVERTISING the host. Since 2026-08-30 that is
+//: what those fields mean, and the service split the question accordingly: `/spawn` asks
+//: `environment_has_live_bridge()` (metadata.bridgeLastSeen plus a live `bridge_instances` row),
+//: while `environment_effective_status` still ages on `last_seen`. The doctor never followed, so
+//: `env-bridge` -- the check whose entire job is "can dashboard-managed spawns run" -- answered from
+//: the field that does not determine it.
+//:
+//: MEASURED 2026-09-02, and it cost the operator a blocked fleet: the row read `status: online,
+//: lastSeen 17:26:41Z` while `bridgeLastSeen` was `2026-09-01T15:38:12Z`. There had been no bridge
+//: for a day. `comms_envs` and this doctor both said online; `/spawn` returned 409 in the same
+//: minute and was the only one telling the truth. The two agreed by accident beforehand only because
+//: aify-env's advertisements were failing with 401 -- fixing that credential broke the coincidence
+//: and exposed the conflation.
+export const SPAWN_CLAIMER_FRESH_SECONDS = 90;
+//: How far ahead a stamp may sit and still count. NOT ZERO: a container clock 4.1s ahead of the host
+//: once made this doctor call every environment dead.
+export const BRIDGE_STAMP_SKEW_SECONDS = 120;
+
+export const BRIDGE_STAMP_FRESH = "fresh";
+export const BRIDGE_STAMP_STALE = "stale";
+export const BRIDGE_STAMP_ABSENT = "absent";
+export const BRIDGE_STAMP_INVALID = "invalid";
+
+/**
+ * Classify `metadata.bridgeLastSeen` into the SAME four answers the service uses.
+ *
+ * FOUR, NOT A BOOLEAN, because the collapse was got backwards once already: ABSENT read as "unknown,
+ * and unknown means yes" kept every pre-stamp row authorised for ever, and INVALID read as absent
+ * turned corrupt data into authorisation. Here ABSENT means the doctor CANNOT tell -- the service
+ * resolves it against `bridge_instances`, a table no endpoint exposes -- so it must be reported as
+ * unproven rather than answered either way.
+ */
+export function bridgeStampStateAt(env, now) {
+  const stamp = String(env?.metadata?.bridgeLastSeen || "").trim();
+  if (!stamp) return BRIDGE_STAMP_ABSENT;
+  const at = Date.parse(stamp);
+  if (Number.isNaN(at)) return BRIDGE_STAMP_INVALID;
+  const age = now - at;
+  if (age < -BRIDGE_STAMP_SKEW_SECONDS * 1000) return BRIDGE_STAMP_INVALID;
+  return age <= SPAWN_CLAIMER_FRESH_SECONDS * 1000 ? BRIDGE_STAMP_FRESH : BRIDGE_STAMP_STALE;
+}
+
+/** True only when a bridge has spoken for this environment recently enough to claim a spawn. */
+export function envCanClaimASpawnAt(env, now) {
+  return bridgeStampStateAt(env, now) === BRIDGE_STAMP_FRESH;
+}
+
+export function envCanClaimASpawn(env) {
+  return envCanClaimASpawnAt(env, Date.now());
+}
+
+/** How old the bridge stamp is, in the operator's terms, or "" when there is none to age. */
+export function bridgeStampAgeAt(env, now) {
+  const stamp = String(env?.metadata?.bridgeLastSeen || "").trim();
+  const at = Date.parse(stamp);
+  if (!stamp || Number.isNaN(at)) return "";
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 120) return `${seconds}s ago`;
+  if (seconds < 7200) return `${Math.round(seconds / 60)}m ago`;
+  return `${Math.round(seconds / 3600)}h ago`;
+}
+
 export function envStateIsUnknown(env) {
   return !ENV_KNOWN_STATES.has(String(env?.status || "").trim().toLowerCase());
 }
@@ -427,8 +492,13 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
   if (!head) {
     return { ok: true, code: "skipped", detail: "no checkout to compare running bridges against", fix: "" };
   }
-  // Only ONLINE rows: a dead bridge's build is not a claim about anything running.
-  const live = environments.filter((e) => envIsOnline(e));
+  // Only rows where a BRIDGE is live -- `envCanClaimASpawn`, not `envIsOnline`. A dead bridge's
+  // build is not a claim about anything running, and since aify-env began advertising, `status:
+  // online` no longer means a bridge is there at all. Measured 2026-09-02: this reported "1 live
+  // bridge is RUNNING older code" against a host whose last bridge had spoken 26 hours earlier --
+  // naming a stale build for a process that did not exist, and sending the operator to relaunch a
+  // wrapper rather than to start a bridge.
+  const live = environments.filter((e) => envCanClaimASpawn(e));
   if (!live.length) {
     return { ok: true, code: "skipped", detail: "no live environment bridge to check", fix: "" };
   }

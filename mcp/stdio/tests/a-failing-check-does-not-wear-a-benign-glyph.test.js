@@ -42,8 +42,14 @@ const cappedVerdict = () => contextWindowVerdict([], { unmeasured: 7 });
 const HEAD_SHA = "abc1234abc1234abc1234abc1234abc1234abc12";
 const partlyKnownBridges = () => bridgeCurrentVerdict({
   environments: [
-    { id: "a", status: "online", lastSeen: new Date().toISOString(), metadata: { bridgeBuild: HEAD_SHA } },
-    { id: "b", status: "online", lastSeen: new Date().toISOString() },
+    // `bridgeLastSeen` is what makes these LIVE BRIDGES rather than advertised hosts: since aify-env
+    // began heartbeating the same row, `status: "online"` no longer implies a bridge is there, and
+    // `bridgeCurrentVerdict` skips rows without a recent stamp. Omitting it here would make this
+    // file assert a glyph on a verdict that was never produced.
+    { id: "a", status: "online", lastSeen: new Date().toISOString(),
+      metadata: { bridgeLastSeen: new Date().toISOString(), bridgeBuild: HEAD_SHA } },
+    { id: "b", status: "online", lastSeen: new Date().toISOString(),
+      metadata: { bridgeLastSeen: new Date().toISOString() } },
   ],
   headSha: HEAD_SHA, headShort: HEAD_SHA.slice(0, 7), bridgeCommitsSince: {},
 });

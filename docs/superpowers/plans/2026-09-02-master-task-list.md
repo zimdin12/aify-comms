@@ -104,8 +104,29 @@ solved it by narrowing to one runtime. See D9.
 
 ## D. Found while working, still open
 
-- **D1. aify-env must be restarted to pick up its credential.** The key is stored and the registry
-  now names it (`credentialRef`), but the running daemon read neither at startup. Operator's action.
+- **D0. `comms_envs` reports `status`, which is not whether a bridge is live.** THE SAME DEFECT the
+  doctor had, in the tool AGENTS read. Measured 2026-09-02: `comms_envs` said
+  `windows:StevenZ-L:default [online]` while `/spawn` returned 409 in the same minute, and
+  sc-manager -- correctly trusting the tool -- reported the fleet ready and was refused six times.
+  `status` and `lastSeen` are refreshed by aify-env ADVERTISING the host; `/spawn` reads
+  `metadata.bridgeLastSeen`. The service split those questions on 2026-08-30
+  (`environment_has_live_bridge` against `environment_effective_status`) and neither the doctor nor
+  `comms_envs` followed. The doctor half is FIXED; this half is not, and it is the one an agent
+  consults before deciding whether to spawn. **Highest-value open item: it misleads agents, silently,
+  at the moment they act.**
+- **D10. A skipped doctor check reports `ok: true`.** `env-bridge` skipped for a missing API key reads
+  as PASSING in `--json`. With D11, that is how "I could not ask" became "no bridge is online" in an
+  agent's summary.
+- **D11. The doctor finds the API key only from the repo checkout.** `doctor-api-key.mjs` reads the
+  `.env` beside the repo, so every agent running `aify-comms doctor` from its own working directory
+  loses every service-reading check. Reproduced from the home directory. Now fixable properly: the
+  key lives in aify-env's credential store and the registry names it with `credentialRef`, so a
+  host-side tool can resolve it wherever it runs.
+
+- **D1. DONE 2026-09-02.** aify-env restarted, read the credential, and advertises: `advertising:
+  true`, `acceptedAt` set, `fresh: true`. The 401 is gone. Root cause was `aify-env credential set`
+  doing nothing through the dispatcher (fixed, aify-env `a598e7b`) plus `install.sh` gating the carry
+  on `--with-api-key` (fixed, `a3ec9ed0`).
 - **D2. Duplicate session handles.** 3 sessions claimed by 8 agents, measured 09-02. Report-only; the
   mechanism is still unknown and two traced explanations were disproved against hermes' own source.
 - **D3. Orphaned hermes gateways. CLEARED 2026-09-02, and the open question is answered.** 15
@@ -122,18 +143,18 @@ solved it by narrowing to one runtime. See D9.
 - **D4. SPLIT-M1: no gate compares VERSION against the released tag.** VERSION read `0.6.0` while HEAD
   was 407 commits past the v0.6.0 tag and every version gate was green -- they check that the five
   files agree with EACH OTHER. The v0.6.1 bump was a hand-correction, not something a test demanded.
-- **D5. aify-env's build identity may not distinguish versions.** Its `/health` omits
-  `advertiseCredentials`, which the current source emits, while its content hash matches the checkout.
-  Either the hash does not cover the files that changed or something else is running. **UNVERIFIED --
-  do not repeat my mistake of asserting either way.**
+- **D5. WITHDRAWN 2026-09-02.** The premise was mine and wrong twice over: `dd8b2d2a` is a CONTENT
+  HASH, not a git sha -- I read it as one and told the operator the build identity was broken. It is
+  not: running-hash against disk-hash is exactly the right instrument and it correctly read CURRENT.
+  The missing `/health` fields were a stale process, resolved by the restart (`220b5280`).
 - **D6. WRAP-M1: keyEnv secrets baked into world-readable launchers.** Latent only because no service
   sets `strictMcp: true`. Fix before one does.
 - **D7. Per-agent authority.** A shared secret proves fleet membership, never "may act AS agent X".
   Blocks SSE-M1 (console input's actor is forgeable by construction), CRED-L1, Row 4 F4, and Row 1
   (dashboard terminal input). The operator's 09-02 answer described the INSTALL-TIME key (C4), which
   does not close this. Recorded as open by decision, not by oversight.
-- **D8. `advertiseCredentials` missing from the running daemon's `/health`.** Unexplained; related to
-  D5.
+- **D8. RESOLVED with D5.** Absent because the process predated the restart, not because the code
+  lacked the field.
 - **D9. Prompt detection is claude-code-only and unbounded in the tail.** See the herdr notes in A.
   A general detector with regions and negative guards would cover hermes, codex and pi, which today
   fall back to native events only.

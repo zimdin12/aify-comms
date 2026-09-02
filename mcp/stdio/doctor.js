@@ -44,6 +44,13 @@ import { checkService } from "./service-check.mjs";
 import {
   describeEnv,
   envIsOnline,
+  envCanClaimASpawn,
+  envCanClaimASpawnAt,
+  bridgeStampStateAt,
+  bridgeStampAgeAt,
+  BRIDGE_STAMP_STALE,
+  BRIDGE_STAMP_ABSENT,
+  BRIDGE_STAMP_INVALID,
   envStateIsUnknown,
   bridgeCurrentVerdict,
   bridgeInstallVerdict,
@@ -271,11 +278,35 @@ async function checkEnvBridge() {
       "Check the `service` row above, then re-run.");
   }
   const list = envs.environments || [];
-  const online = list.filter(envIsOnline);
-  const offline = list.filter((e) => !envIsOnline(e));
+  // THE SPAWN'S OWN QUESTION, not the row's status. `status` and `lastSeen` are refreshed by aify-env
+  // ADVERTISING the host; `/spawn` asks `environment_has_live_bridge()`, which reads
+  // `metadata.bridgeLastSeen`. Measured 2026-09-02: a row read `online, lastSeen 17:26:41Z` with a
+  // `bridgeLastSeen` from the previous day, this check reported "1 online", and every spawn returned
+  // 409 in the same minute. A check whose entire job is "can dashboard-managed spawns run" must ask
+  // what the spawn asks.
+  const now = Date.now();
+  const online = list.filter((e) => envCanClaimASpawnAt(e, now));
+  const offline = list.filter((e) => !envCanClaimASpawnAt(e, now));
   if (!online.length) {
+    // WHICH KIND OF NO. The service distinguishes four states and sends an operator somewhere
+    // different for each; one message would send them to the wrong place most of the time.
+    const described = (e) => {
+      const state = bridgeStampStateAt(e, now);
+      const age = bridgeStampAgeAt(e, now);
+      if (state === BRIDGE_STAMP_STALE) return `${describeEnv(e)} [last bridge ${age}]`;
+      if (state === BRIDGE_STAMP_ABSENT) {
+        return `${describeEnv(e)} [no bridge stamp — this doctor cannot resolve that; the service checks bridge_instances]`;
+      }
+      if (state === BRIDGE_STAMP_INVALID) return `${describeEnv(e)} [unreadable bridge timestamp — corrupt row]`;
+      return describeEnv(e);
+    };
+    const advertised = list.filter((e) => envIsOnline(e)).length;
     const detail = list.length
-      ? `No environment bridge is ONLINE — dashboard-managed spawns cannot run. ${list.length} registered but not connected: ${offline.map(describeEnv).join(", ")}`
+      ? `No environment bridge can claim a spawn — dashboard-managed spawns cannot run. `
+        + `${list.length} environment(s) registered: ${offline.map(described).join(", ")}`
+        + (advertised
+          ? `. ${advertised} of them read \`online\`, which means aify-env is DESCRIBING that host, not that a bridge is live on it.`
+          : "")
       : "No environment bridge is registered — dashboard-managed spawns cannot run.";
     add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
     // AND STILL REPORT bridge-current, which used to VANISH here. This `return` took the whole
@@ -487,7 +518,10 @@ async function checkManagedOrphans() {
     : null;
 
   const envs = await get("/api/v1/environments");
-  const online = (envs && envs.environments ? envs.environments : []).filter(envIsOnline);
+  // The BRIDGE's liveness, not the row's advertised status: a loop belongs to no live bridge
+  // whenever no bridge can claim a spawn, and reading `status` here would attribute orphans to a
+  // bridge that has not spoken since yesterday.
+  const online = (envs && envs.environments ? envs.environments : []).filter(envCanClaimASpawn);
   const liveBridgeId = online.length === 1 ? String(online[0].bridgeId || "") : "";
 
   const verdict = managedOrphanVerdict({ loops, agents, liveBridgeId });

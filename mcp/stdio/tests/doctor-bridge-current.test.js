@@ -22,11 +22,19 @@ const HEAD = "4157299abcdef0123456789abcdef0123456789a";
 const SHORT = "4157299";
 const now = new Date().toISOString();
 
+// A LIVE BRIDGE NOW MEANS A RECENT `bridgeLastSeen`, not `status: "online"`. Since aify-env began
+// advertising, `status` says that tier DESCRIBES the host -- a row can be online for a day with no
+// bridge on it, which is exactly what happened on 2026-09-02 and what `bridgeCurrentVerdict` must
+// stop reading as a running process. These fixtures model a real live bridge; without the stamp they
+// model an advertised host, and every assertion below would pass by being skipped.
 const env = (id, build, extra = {}) => ({
   id,
   status: "online",
   lastSeen: now,
-  metadata: build === undefined ? {} : { bridgeBuild: build },
+  metadata: {
+    bridgeLastSeen: now,
+    ...(build === undefined ? {} : { bridgeBuild: build }),
+  },
   ...extra,
 });
 
