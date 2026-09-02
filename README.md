@@ -8,15 +8,36 @@ The dashboard is the product surface. Messages are the work interface; runs, ses
 
 The intended team behavior is conversational but disciplined: dashboard direct chat is human/operator chat, every message is a small contract, direct agent requests should receive threaded replies, and channel discussion should happen when an agent is named, responsible, asked a question, or has evidence to contribute. Managed turns should not end silently: final text is captured as the current reply, and future work needs a real `comms_send` wake.
 
-## Two installs, and you may only need one
+## Three components, and you may only need some of them
 
-| you want | install | how |
+| component | what it is | installed by |
 |---|---|---|
-| **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
-| **to run agents on this machine** | `aify-env` + the launchers | `npm install -g github:zimdin12/aify-env github:zimdin12/aify-wrapper`, then `aify-wrapper-install --all --endpoint <url>` |
+| **aify-comms** | the service: database, dashboard, the API agents talk to | `./setup.sh`, then `docker compose up -d --build` |
+| **aify-env** | the host that runs processes for a service, and claims its spawns | `./install.sh` in the [aify-env](https://github.com/zimdin12/aify-env) checkout |
+| **aify-wrapper** | the launchers a runtime is started through | `aify-wrapper-install --all --endpoint <url>` |
 
-A machine may do either, both, or neither, and the service can live on another host. Where each piece
-belongs and what is still in the way is [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).
+**Each repo owns its own instructions**, because each answers a different question — what a service
+needs, what a host needs, what a launcher needs — and one combined document goes stale in whichever
+part its author was not thinking about.
+
+**Order matters, and only in one place.** The service can be installed on its own; a host is only
+useful once it knows which service to describe. So: service first, then `aify-env` on each machine
+that will run agents, then the launchers. Everything else is independent.
+
+**Each installer ASKS for what it cannot find, and updating is the same command.** That is not
+decoration: on 2026-09-02 a key sat in this repo's `.env`, the host running the agents held no
+credential for it, and nothing asked. Every advertisement was refused with 401, both sides reported
+healthy, and a day went to a fleet that would not spawn with no component anywhere naming a
+credential. An installer that proceeds with a missing value is how that happens, so none of them do
+now — and an unattended run says what is missing and exits non-zero rather than reporting success
+over a host that cannot work.
+
+`npm install -g github:zimdin12/aify-env` still installs the command. What it does not do is notice a
+missing credential, which is why `./install.sh` exists in that repo.
+
+A machine may run any of these, all of them, or none, and the service can live on another host. Where
+each piece belongs and what is still in the way is
+[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).
 
 ## Quick start
 
