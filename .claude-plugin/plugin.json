@@ -1,7 +1,7 @@
 {
   "name": "aify-comms",
   "description": "Inter-agent communication hub: messaging, channels, file sharing, active dispatch, and a dashboard for Claude Code, Codex, Hermes and other MCP-connected coding agents.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": {
     "name": "zimdin12"
   },
