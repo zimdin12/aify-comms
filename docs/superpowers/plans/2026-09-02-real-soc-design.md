@@ -84,6 +84,41 @@ assumed to own it.
 one beyond the shared API key. That is the same gap as D7 in the task list, and moving claiming into
 aify-env does not widen it, but it does make it load-bearing in a second place.
 
+## Step 3, corrected by measurement: "generic" splits two ways
+
+The first classification asked whether a module names an aify-comms endpoint. That was the right
+question for the PLUGIN boundary and the wrong one for step 3, because it puts two very different
+kinds of module on the same side.
+
+Counting IMPORTERS separates them:
+
+| module | lines | importers | destination |
+|---|---|---|---|
+| `terminal-runtime.js` | 981 | 4 | **aify-env** |
+| `claude-console-prompts.js` | 350 | 1 | **aify-env** |
+| `runtimes-exec.js` | 341 | 5 | **aify-env** |
+| `claude-console-spinner.js` | 178 | 2 | **aify-env** |
+| `delegated-stream.mjs` | 131 | 1 | **aify-env** |
+| `launcher-file.mjs` | 62 | 1 | **aify-env** |
+| `env-term-shim.mjs` | 55 | 1 | **aify-env** |
+| `runtimes.js` | 549 | **45** | **STAYS** |
+| `bridge-agent-state.mjs` | 70 | **11** | **STAYS** |
+
+**`runtimes.js` is CLIENT-PATH code.** `claude-channel.js` -- the MCP client entry every agent loads
+-- imports it, as does `server.js`. Moving it into aify-env would make every agent's MCP bridge
+depend on the HOST tier, which is the exact inversion `TARGET_ARCHITECTURE` exists to prevent: its
+open item 1 is already that the client path installs too much aify-comms code, and this would add a
+second tier to that path rather than removing one.
+
+So step 3 moves **2,098 lines with a blast radius of 1-5 importers each**, and leaves 619 lines of
+client-path utility where they are. The moved set is the hosting half: PTYs, launcher resolution,
+console classification, delegated streams.
+
+**WHAT STEP 3 STILL COSTS.** It needs a new dependency direction -- aify-comms consuming aify-env the
+way it already consumes aify-wrapper, pinned by sha. That is an architectural commitment, and it is
+the thing to weigh rather than the line count: 2,098 lines with small blast radii is ordinary work,
+and a new cross-repo dependency in the path a fleet boots through is not.
+
 ## Order of work
 
 1. **The plugin seam in aify-env.** What a service plugin is handed (process spawning, terminal
