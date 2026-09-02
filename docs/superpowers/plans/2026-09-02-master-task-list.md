@@ -12,6 +12,48 @@ evidence.
 
 ---
 
+## 0. FIRST, by operator instruction 2026-09-02
+
+- **T1. Optimize the test stack.** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
+  ... I am sure that there are many duplicates and pointless tests. you have created all of them so be
+  sure to unify into end to end tests and make that tests stack more optimal."*
+  Counts today: python 5272 (+10367 subtests), bridge 412 suites, dashboard 1515, aify-wrapper 177,
+  aify-env 830. A full sweep costs ~20 minutes for python alone, which is why suites get skipped and
+  why three runs were lost today to editing mid-run.
+  **How to do it without deleting coverage**, in this order:
+  1. MEASURE before cutting. Group by what a test PROVES, not by name: the repo's own rule is that a
+     second test of the same property is cost without coverage. A census of assertions per property
+     is the input, and it does not exist yet.
+  2. Kill duplicates by MUTATION, not by reading. Two tests are redundant when the same mutation
+     fails both; that is checkable and a name similarity is not.
+  3. Prefer ONE end-to-end test over N unit tests only where the units have no independent failure
+     mode. Where a unit can fail alone -- every predicate this repo extracted precisely so it could
+     fail in a test rather than in production -- collapsing it loses the thing that made it safe.
+  4. The suites that ROT are the ones nobody runs: aify-wrapper and aify-env are in nobody's ritual
+     and drifted 158->177 and 496->830 unnoticed. Faster suites are worth most there.
+  **The trap to avoid**, and it is the repo's own history: several tests here exist because a green
+  suite hid a live defect. Any cut has to name which mutation still fails after it.
+
+- **T2. `aify-comms` the COMMAND should not exist** (operator, 2026-09-02): *"we moved to aify-env and
+  that old command should be totally removed."* `docs/TARGET_ARCHITECTURE.md:51` agrees --
+  "Nothing else. No `aify-comms` command" -- and its table says that command "goes when Phase 8
+  flips (open item 2)". Item 2 reads "DONE 2026-08-25: delegation is ON". **The condition was met
+  eight days ago and the removal never happened.**
+  **What blocks it, precisely:** Phase 8 moved spawn EXECUTION to aify-env and left spawn CLAIMING
+  with the bridge. `/spawn` requires `metadata.bridgeLastSeen`, which `routers/environments.py:349`
+  writes only for a request carrying a `bridgeId` -- and only a bridge sends one. aify-env's
+  advertisement deliberately preserves that field rather than refreshing it, and the comment says
+  why: "without the split, a host with no bridge reads `online` off aify-env's beat and accepts
+  spawns nothing can claim." That split is CORRECT given a bridge must claim. Nobody took over
+  claiming.
+  **So the decision is: does aify-env become the claimer?** The operator's stated model says yes --
+  *"I only run aify-env in directory, so it can spawn managed in that directory... it uses global api
+  key to connect with aify-comms container... and aify-env spawns aify-wrappers."* Until it does, a
+  bare `aify-comms` is REQUIRED to spawn, which is why sc-manager and I both told the operator to run
+  a command the architecture says should be gone.
+
+---
+
 ## A. aify-env TUI
 
 Asked 2026-08-24, re-reported unmet 2026-08-25, still unmet 2026-09-02. This is the oldest unmet ask
