@@ -64,12 +64,20 @@ above is a measurement anyone can re-run -- which is what a gate can hold.
 
 ## What step 2 does NOT yet settle
 
-**Dispatch delivery per runtime.** A claimed agent still has to RECEIVE work. `dispatch-loop.mjs`
-long-polls whenever it hosts a single agent -- which is every resident claude/codex/hermes wrapper --
-so an agent started by aify-env self-delivers through its own launcher's bridge. Managed HERMES is
-the exception: it uses a separate `hermes-managed-host.js run <agent>` delivery loop that the
-environment bridge spawns, and nothing has yet proven aify-env can start one. **Establish that before
-claiming the `aify-comms` command can be deleted.**
+**Dispatch delivery per runtime -- ANSWERED 2026-09-02, and the answer is favourable.** A claimed
+agent still has to RECEIVE work. `dispatch-loop.mjs` long-polls whenever it hosts a single agent --
+every resident claude/codex/hermes wrapper -- so an agent started by aify-env self-delivers through
+its own launcher's bridge.
+
+Managed HERMES looked like the exception, because its `hermes-managed-host.js run <agent>` delivery
+loop is a separate process. It is not: the LAUNCHER spawns it. `hermes-aify:562` runs
+`nohup node "$AIFY_HERMES_MANAGED_HOST_JS" run "$HERMES_AIFY_AGENT_ID" &`, and the PowerShell
+launcher does the same at `.ps1:320`. The environment bridge never spawned it -- it only ever started
+the launcher, which is exactly what aify-env now does.
+
+**So nothing in the delivery path requires the `aify-comms` command.** Recorded as an open gap
+earlier the same day and closed by reading the installed launcher rather than the bridge that was
+assumed to own it.
 
 **Who may claim.** Bridge authority is established by SENDING a `bridgeId` -- "no `bridgeId`, no
 `bridge*` key survives from the request" -- and nothing authenticates which caller is entitled to
