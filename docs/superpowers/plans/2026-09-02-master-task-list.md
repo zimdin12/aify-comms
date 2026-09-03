@@ -21,7 +21,9 @@ do. Ordered by whether it has a clock on it.
 automatic renewal is possible and a human must run `claude` and log in; 21 claude-code agents share
 the grant. Whether a refresh EXTENDS that window is unresolved -- it answers itself around 23:09 UTC
 tonight, when the access token expires and a refresh is actually due. `aify-comms doctor`'s new
-`claude-login` row tracks it.
+`claude-login` row tracks it. **Read again at 18:40 UTC: both stamps UNCHANGED** -- access still
+expires 23:09:47, refresh still 11:57:46, 17.3h left. So no refresh has happened yet and the
+question is still open, which is what a lazy refresh looks like rather than a stalled one.
 
 **2. THREE DEPLOYS, none of which I should run.** The doctor names the size of each:
 | step | what is waiting |
@@ -378,7 +380,29 @@ in the file and the one the operator has raised most often.
   no raw ESC byte anywhere in 110KB -- a missing `JSON.parse` puts literal escape text on screen),
   and claude MOVES THE CURSOR instead of printing spaces. Three mutations.
 - **A3. The TUI shows what the doctor shows** (08-24 16:15, and item 3 of the TARGET_ARCHITECTURE
-  work order). `aify-env doctor` exists and works; the TUI does not render it.
+  work order). **DONE 2026-09-03** (aify-env `b81ca5c`, pushed; INERT until a restart).
+
+  **The blocker was structural, not visual.** `aify-env doctor` worked, but its collection lived
+  INSIDE the script, so the only consumer it could ever have was a terminal -- the view had nothing
+  to call. Shelling out to the binary and parsing its text was the other option and the worse one: a
+  display parsing another display's output is a contract nobody declared, and it breaks the first
+  time a column moves. So the collection moved to `lib/environment-report.mjs` with every input
+  injected, which is the same move this project already made on aify-comms' `doctor.js`.
+
+  `lib/dashboard.mjs` now collects the checks from the answers it already has in hand -- no second
+  round of HTTP for the same questions -- and `renderDashboard` draws a HEALTH section from them.
+
+  **RENDERED, NOT RE-JUDGED.** The state and the words are the doctor's. A view that decided for
+  itself whether a check counted would give the operator two tools that can disagree about one host.
+  Only the FAILING rows are drawn, with an `n/m passing` count beside the heading: a full pass list
+  is eight rows of noise on a glance-panel, and `aify-env doctor` is there for the reader who wants
+  every row. An empty list renders "not collected", never silence -- **no evidence is not a pass**,
+  and a blank health panel reads as a healthy one. Collection is best-effort inside a `try`, because
+  a view that cannot draw at all because one check threw is worse than a view without the panel.
+
+  13 tests in `tests/the-view-shows-what-the-doctor-shows.test.js`, which drive the REAL collector
+  rather than a hand-written check list -- the A1/A2 lesson, where both features worked and neither
+  join was pinned.
 - **A4. Bare `aify-env` opens the TUI** (08-24 20:19). Today a bare `aify-env` STARTS the environment
   and supersedes the incumbent. That collides with the standing safety rule and with the operator's
   own 08-24 23:23 ruling that starting means taking over. **Decide, do not assume:** either bare
@@ -1076,10 +1100,34 @@ solved it by narrowing to one runtime. See D9.
   | `which option do you want` + claude spinner footer | `""` -- correctly suppressed |
   | `[codex] working...` + `which option do you want` | `Awaiting console input.` -- **false blocked** |
 
-  So decision-flavoured prose from a hermes, codex or pi agent that is *generating* reads as blocked.
-  That is the same defect the claude guard was added for after the subagent-to-blocked incident
-  (2026-06-07), still open for three runtimes of four. The guard does not over-suppress: a genuine
-  `(y/n)` after the spinner is still reported.
+  So decision-flavoured prose from a hermes, codex or pi agent that is *generating* reads as blocked
+  -- ***IF ANYTHING EVER FED IT ONE.*** **CORRECTED 2026-09-03 by a call-site census: nothing does,
+  and this consequence clause was wrong.** All THREE callers gate on the runtime BEFORE the text
+  function is reached:
+
+  | caller | the gate |
+  |---|---|
+  | `liveness.py:284` `_agent_awaiting_input` | `if _normalize_runtime(row["runtime"]) != "claude-code": return False` |
+  | `status_inputs.py:514` | the whole block is `if _normalize_runtime(...) == "claude-code" and ...` |
+  | `terminal_runs.py:214` `_close_idle_claude_terminal_run_without_reply` | `if _normalize_runtime(runtime) != "claude-code": return False` |
+
+  (The third was not in this entry at all until the census. It reaches
+  `_terminal_awaiting_input_hint` through `_terminal_idle_prompt_hint`, as a NEGATIVE gate --
+  "awaiting input" means this is not an idle prompt -- so a false positive there would suppress a
+  run-close rather than blocking an agent. Still claude-only. Repo-wide grep outside the tests finds
+  no fourth caller, positive-controlled by the same search naming all three.)
+
+  **So the table above measured the FUNCTION, on a path production never takes** -- the second time
+  in one day I measured a code path nothing reaches (the first was B3's stored-vs-inferred width).
+  The demonstration is honest about what it fed the function; the sentence drawing a consequence for
+  agents was not, and this is what "find the READER before claiming a consequence" is for.
+
+  **WHAT IS ACTUALLY WRONG IS THE TITLE, and it is a MISSING CAPABILITY rather than a wrong status.**
+  Three runtimes of four get NO prompt detection at all, so a codex, hermes or pi agent genuinely
+  stuck at an interactive prompt never reads `blocked`. Nobody has reported that, which is consistent
+  with both "it does not happen" and "it happens and looks like an agent that went quiet" -- and this
+  file cannot tell those apart. The guard does not over-suppress: a genuine `(y/n)` after the spinner
+  is still reported.
 
   **THE OBVIOUS FIX DOES NOT WORK, and this is the part worth writing down.** The bridge already
   emits per-runtime busy markers -- `codex-session.js` and `hermes-managed-gateway-session.js` push
@@ -1097,8 +1145,58 @@ solved it by narrowing to one runtime. See D9.
   prompt on this screen". Not built: it moves a guard that currently protects the claude path, so it
   wants a deliberate change rather than a footnote to a measurement.
 
+  **AND THE CENSUS ABOVE LOWERS ITS PRIORITY RATHER THAN RAISING IT.** Extending detection to three
+  runtimes means REMOVING three runtime gates that are each currently doing real work, and replacing
+  the one suppression they rely on with a call-site one built on run state. The benefit is unmeasured
+  -- no non-claude agent has been observed stuck at a prompt -- and the cost is a change to the
+  input that makes `blocked` reachable, in the module whose last two incidents were a false `blocked`
+  and an invisible one. **The measurement that would justify building it** is a read of live
+  non-claude terminal screens for prompt shapes: if none of them ever sits at one, this is a
+  capability nothing needs. That read is cheap and has not been done.
+
   (pi was not measured -- `pi-session.js` emits no equivalent marker that a grep for the same shape
   finds, and no pi terminal was live on this host to read.)
+
+- **D12. A DEAD HERMES TERMINAL KEEPS NO OUTPUT, AND THAT IS THE EVIDENCE BEHIND THE QUESTION THE
+  OPERATOR HAS ASKED MOST.** Found 2026-09-03 while measuring D9. MEASURED, NOT ROOT-CAUSED.
+
+  | | claude-code | hermes / pi |
+  |---|---|---|
+  | terminals that streamed >1000 output events | many | **21** |
+  | ...of which retain any `terminal_sessions.output` | -- | **2** |
+  | largest retained tail among them | **66,622 chars** | **536 chars** |
+
+  Four claude terminals stopped at `2026-09-03T05:32:22Z` hold 53,162 / 56,180 / 66,595 / 66,622
+  characters. Two hermes terminals stopped at **the same timestamp** hold 536 each; the other 32
+  non-claude terminals hold nothing.
+
+  **THE OBVIOUS EXPLANATIONS ARE BOTH RULED OUT.**
+  - *Retention:* `terminal_history.py` clears `output` for ended terminals older than
+    `ended_output_ttl_hours`, default **24**. These stopped 13 hours ago and the rule is
+    runtime-agnostic, so it has not run on either side.
+  - *"Hermes never streams bytes":* it does. Its newest 199 `terminal_output` events carry **7,615
+    characters**, median 36, max 640 -- real escape sequences, not empty progress pings. (The first
+    read said "len=0" for every one; that was my probe reading a `detail` field the payload calls
+    `body`. Corrected before it reached a conclusion.)
+
+  So the bytes exist as EVENTS and never accumulated into the session tail, which is written by the
+  SAME `UPDATE` as `output_seq` in `_append_terminal_output`. A row with `output_seq=5758` and a
+  536-character tail should not be reachable through that function, and why it is has not been
+  established. The 536 characters that ARE there are hermes' teardown: a run of `ESC[K` line clears,
+  a mode-reset block, and `[terminal exited]`.
+
+  **WHY IT MATTERS, and it is not a tidiness item.** `service/terminal_diagnostics.py` exists to
+  answer "which line of a dead terminal's output explains the death". For a dead hermes worker it has
+  essentially nothing to read. That is exactly the question the operator asked twice about the
+  2026-08-26 death clusters, where "every answer had to be reconstructed from timestamps in another
+  component's database" -- and this says the output that would have answered it directly was not
+  there to read. aify-env's RECENT EXITS "last words" panel answers the same question from its own
+  registry, which is why it was built.
+
+  **NEXT STEP, and it needs the write path rather than the API:** instrument or read
+  `_append_terminal_output`'s callers for the hermes gateway session and find whether it is reached
+  with the accumulated `terminal` row, reached with a stale one, or bypassed. Not done tonight --
+  this is a service change and the finding is worth more than a guess at its cause.
 
 ---
 
