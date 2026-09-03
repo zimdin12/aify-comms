@@ -22,6 +22,24 @@ automatic renewal is possible and a human must run `claude` and log in; 21 claud
 the grant. Whether a refresh EXTENDS that window is unresolved -- it answers itself around 23:09 UTC
 tonight, when the access token expires and a refresh is actually due.
 
+  **ANSWERED 2026-09-03 23:57 UTC, AND THE ANSWER IS THE BAD ONE: A REFRESH DOES NOT EXTEND THE
+  REFRESH WINDOW.** The open question all night was whether the lazy refresh, when it fired, would
+  push the 11:57 deadline out. It fired between 21:47 and 23:57 and it did not:
+
+  | | before | after |
+  |---|---|---|
+  | `expiresAt` (access) | 2026-09-03T23:09:47.**365**Z | 2026-09-04T07:04:49.**396**Z -- renewed, +7.9h |
+  | `refreshTokenExpiresAt` | 2026-09-04T11:57:46.**365**Z | 2026-09-04T11:57:46.**396**Z -- **unmoved** |
+
+  **THE MILLISECONDS ARE THE EVIDENCE.** The refresh field was REWRITTEN -- .365 to .396 -- while its
+  value stayed put. That is what separates "no refresh has happened yet" from "a refresh happened and
+  did not extend it", and it is the second. Every reading before this one showed both stamps
+  identical, so the pair is a genuine before/after rather than two guesses.
+
+  **SO THE DEADLINE IS FIRM.** No amount of agent activity moves 2026-09-04 11:57:46 UTC. A human
+  must run `claude` and log in before then, or every claude-code agent on this host stops at once.
+  The `claude-login` row would have said so continuously -- it is still not installed.
+
   **THE CHECK ITSELF IS PROVEN ON THE REAL CREDENTIAL FILE, not merely green in tests.** Running the
   CHECKOUT's doctor (`node mcp/stdio/doctor.js`, which installs nothing) between 20:00 and 20:25 UTC printed
   `claude-login  the claude login lapses in 15.7h ... The access token has 2.9h left and renews
@@ -1497,6 +1515,34 @@ solved it by narrowing to one runtime. See D9.
   already cover several launchers each, and `wrapper-check-cli.test.js` uses claude alone but the CLI
   iterates whatever launchers it finds without branching on runtime, so one launcher exercises the
   same path.
+
+- **D20. A GATE THAT NAMED THREE FILES GUARDED THE FLEET-REAPING HAZARD. Derived 2026-09-04**
+  (`28ee2cb9`).
+
+  `channel-bridge-identities-are-distinct.test.js` listed `claude-channel.js`, `hermes-channel.js`
+  and `hermes-run-reporting.mjs`. Its own assertion says what a missed one costs: "two channel
+  drivers now build their bridge id from the SAME prefix. They run side by side, so each registration
+  will supersede the other and reap its managed workers."
+
+  **A NEW DRIVER IS THE CASE IT EXISTS FOR, AND THE CASE A TYPED LIST CANNOT COVER** -- whoever adds
+  the driver is whoever would have to remember to add it here. Now read from the directory and keyed
+  on the DECLARATION (`CHANNEL_BRIDGE_PREFIX`) rather than a filename convention, because a
+  `*-channel.js` glob would have missed `hermes-run-reporting.mjs`, one of the three. Positive
+  control: the scan must find at least three, since every collision assertion is vacuous over an
+  empty set. Verified it returns exactly the three that were listed, then proved it catches what the
+  list could not -- a fourth driver reusing hermes' exact template fires the collision assertion by
+  name.
+
+  **FOURTH INSTANCE OF ONE DEFECT IN A DAY**, after the rename gate's column set (D-history), the
+  wrapper neutrality test's three launchers (`c72bf75`) and `--shared`'s one-of-four (D19). The rule
+  is the operator's own: derive allowed values, never list them.
+
+  **AND THE SCAN THAT FOUND IT MOSTLY DID NOT WORK, which is worth recording so it is not repeated.**
+  A broad "typed population" heuristic flagged 196 files against 121 healthy and was useless -- most
+  typed lists are closed sets of statuses or test cases with no source of truth to derive from.
+  Narrowing to lists whose MEMBERS ARE FILE NAMES, in a test that never reads a directory, gave 11.
+  The other ten carry no consequence near this one and were deliberately left; converting them on
+  spec would be churn. None of the 196 is recorded as a finding.
 
 ---
 
