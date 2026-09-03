@@ -12,6 +12,49 @@ evidence.
 
 ---
 
+## WAITING ON THE OPERATOR, as of 2026-09-03 17:30 UTC
+
+Consolidated because it was scattered across seven places in this file, and none of it is mine to
+do. Ordered by whether it has a clock on it.
+
+**1. A CLOCK: the claude login.** `refreshTokenExpiresAt` is **2026-09-04 11:57 UTC**. Past it no
+automatic renewal is possible and a human must run `claude` and log in; 21 claude-code agents share
+the grant. Whether a refresh EXTENDS that window is unresolved -- it answers itself around 23:09 UTC
+tonight, when the access token expires and a refresh is actually due. `aify-comms doctor`'s new
+`claude-login` row tracks it.
+
+**2. THREE DEPLOYS, none of which I should run.** The doctor names the size of each:
+| step | what is waiting |
+|---|---|
+| `docker compose up -d --build` | 6 commits changed service code -- incl. VERSION 0.6.2 and recording a terminal's real size |
+| re-run `install.sh` | 13 commits changed `mcp/stdio/` -- incl. the doctor's D10/D11 fixes, the `claude-login` check, and 1,301 characters off `tools/list` |
+| restart aify-env | 10 commits inert until then, incl. the pty-size fix and `aify-env run` |
+
+**3. DECISIONS, each blocking something specific.**
+- **Per-agent consumption collector** -- blocks deleting ~1,800 lines of retired bridge modules. Move
+  it to aify-env, retire the analytics panel, or leave it reading zeros.
+- **C7's rationale** -- the hook-source reversal is recorded as decided with no reason, and the
+  commit it reverses argues the opposite. Say which and it is ten minutes.
+- **C5** -- writing the terminal tail lazily is a durability trade-off; wall-clock here is noise, so
+  the question is how much tail loss is acceptable.
+- **D7, per-agent authority** -- open by your decision, and it blocks SSE-M1, CRED-L1, Row 4 F4 and
+  dashboard terminal input.
+- **The API key is 6 characters** against this project's own floor of 32. Rotating 401s every
+  installed bridge until each is reinstalled, so it wants to ride along with a reinstall.
+- **`hasTrustDialogAccepted`** -- the last third of v0.6.1 (c). Writing `~/.claude.json` needs a lock
+  or a single writer: it has corrupted before under concurrent writes, on a host running a dozen
+  claude processes.
+- **`bridge-current`** -- retire it, or re-point it at the host tier's build. It cannot answer as it
+  stands, and ten inert aify-env commits are exactly the signal a re-pointed version would give.
+
+**4. YOUR PROCESSES AND DATA.** 18 hermes gateway hosts with no worker behind them; 18 agent
+identities silent for over 30 days (three for 126); 3 sessions each claimed by more than one agent,
+now visible per-agent in the dashboard drawer.
+
+**5. THE `--shared` HEADLINE IS UNPROVEN LIVE.** Complete in code for all four wrappers and
+mutation-tested, but proving it starts a resident on your fleet, which is yours to decide.
+
+
 ## 0. FIRST, by operator instruction 2026-09-02
 
 **THE TAGS, as the operator scoped them 2026-09-02:**
