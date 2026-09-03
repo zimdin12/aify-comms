@@ -81,6 +81,26 @@ now visible per-agent in the dashboard drawer.
 mutation-tested, but proving it starts a resident on your fleet, which is yours to decide.
 
 
+## v0.6.1 CLOSE-OUT, RE-VERIFIED 2026-09-04 — four of five were already done
+
+The standing work order still lists these as remaining, so each was checked against the code rather
+than against another document. That is the same order's own warning: a document saying a thing is
+done, or not done, is how eight days were lost.
+
+| item | state | evidence |
+|---|---|---|
+| (a) `comms_remove_agent` must stop its worker, not orphan it | **DONE, and tested** | `routers/agents/identity.py` `DELETE /agents/{id}`: for a MANAGED agent it sets `status='stopped'`, calls `_request_stop_agent_terminals(..., reap_triad=True)` and **commits that in its own transaction** before `_remove_agent_record` — because deleting the agent cascades to `terminal_controls` and would wipe a control emitted in the same one. Residents are skipped on purpose. Three tests in `test_hermes_remove_triad_reap.py`, all passing. |
+| (b) remove the `aify-comms` environment-bridge command | **COMMAND HALF DONE** | `install.sh:1524` renders a launcher that prints "this command starts nothing. The host tier is aify-env." and `exit 2`. |
+| (b) …and the dead code behind it | **DELIBERATELY NOT DONE** | `server.js` still carries 4 references to `spawn-loop` / `terminal-control-loop`. That is the ~1,800-line cluster, blocked on the consumption-collector decision in the operator list above — not an oversight. |
+| (c) console-prompt rules into the service; write `hasTrustDialogAccepted` | **PART DONE** | The rules moved. Writing `~/.claude.json` needs a lock or a single writer (it has corrupted before under concurrent writes on a host running a dozen claude processes), which is an operator decision. |
+| (d) full docs + skills pass | **DONE** | `10a202f2` — CLAUDE.md, README, ARCHITECTURE, TARGET_ARCHITECTURE, PHASE8_STATUS, AIFY_ENV_BOUNDARY, BRIDGE_SETUP, all five install guides, both skill mirrors. |
+| (e) cut and push the v0.6.1 tag | **DONE** | `v0.6.1` → `b7d77fdf`, 2026-09-03. |
+
+**So v0.6.1 is closed except (c)'s last third, and both remainders are operator decisions rather than
+work.** What is left in the standing order is v0.6.2, which is code-complete and untagged.
+
+---
+
 ## 0. FIRST, by operator instruction 2026-09-02
 
 **THE TAGS, as the operator scoped them 2026-09-02:**
