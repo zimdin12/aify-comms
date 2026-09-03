@@ -172,6 +172,22 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
         self.assertEqual(env["AIFY_SESSION_HANDLE"], "sess-abc")
         self.assertEqual(env["CLAUDE_SESSION_ID"], "sess-abc")
 
+    def test_A_CLAUDE_WORKER_IS_TOLD_IT_IS_WRAPPER_BACKED(self):
+        """MEASURED ON A LIVE FLEET, 2026-09-03. Seven managed workers started, registered and read
+        `online`, and every channel dispatch to them sat `queued` for ever, because this flag reached
+        them as "0". The child bridge reads it to decide whether to advertise channel and resident
+        claim modes; told "0", a claude-code worker comes up healthy and claims nothing, which looks
+        exactly like a delivery bug somewhere else entirely.
+
+        The cause was two functions with nearly the same name answering different questions --
+        `_managed_via_wrapper_for_runtime` asks about dispatch ROUTING and says False for claude-code,
+        for the very reason this must say True. Asserted at the ENDPOINT because the unit test can
+        only prove the composer passes through whatever it is handed; this proves the right thing is
+        handed to it."""
+        self._register()
+        env = self._launch(self._terminal())["env"]
+        self.assertEqual(env["AIFY_MANAGED_VIA_WRAPPER"], "1")
+
     def test_the_response_is_JSON_SERIALISABLE_end_to_end(self):
         """CONTROL. Every assertion above reads a parsed body, so a value the encoder cannot handle
         would fail as a 500 here rather than as a confusing shape there."""

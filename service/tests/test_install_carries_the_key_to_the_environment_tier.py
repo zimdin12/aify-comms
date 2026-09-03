@@ -97,10 +97,18 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
             stub.write_text(body.format(log=log), encoding="utf-8", newline=chr(10))
             stub.chmod(0o755)
         cls.binaries = binaries
-        #: The seal, recorded before anything runs. A seal that is not checked is one that has
-        #: already broken once.
-        cls._config_before = (REAL_CLAUDE_CONFIG.read_bytes()
-                              if REAL_CLAUDE_CONFIG.is_file() else None)
+        #: THE SEAL IS A SEARCH, NOT A HASH -- corrected 2026-09-03, and the old version was doing
+        #: real damage. It recorded the file's BYTES and failed if they differed afterwards, on the
+        #: premise that only `install.sh` could have changed them. That premise is false on this
+        #: machine: every live Claude Code session rewrites `~/.claude.json` continuously, so the
+        #: comparison fired on other people's writes -- and then "restored" a thirty-second-old
+        #: snapshot over them. A test that intermittently reverts the operator's live config is
+        #: worse than the leak it was watching for.
+        #:
+        #: What a leak actually looks like is specific and cannot be produced by anyone else: an MCP
+        #: server entry pointing INSIDE this test's temp root, a path that did not exist until a
+        #: moment ago. So that is what is searched for, and nothing else is touched.
+        cls._leak_marker = str(cls.root).replace(chr(92), "/")
         cls.result = cls._install() if (REPO / ".env").is_file() else None
 
     @classmethod
@@ -115,12 +123,26 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
         # which is the most expensive shape a test can have -- green alone, red together, and neither
         # about the thing under test.
         try:
-            if cls._config_before is not None and REAL_CLAUDE_CONFIG.is_file():
-                if REAL_CLAUDE_CONFIG.read_bytes() != cls._config_before:
-                    REAL_CLAUDE_CONFIG.write_bytes(cls._config_before)
+            if REAL_CLAUDE_CONFIG.is_file():
+                # READ AS TEXT AND SEARCHED FOR THIS RUN'S OWN PATH. Both separator forms, because
+                # `claude mcp add` writes whichever the shell handed it and a search for one finds
+                # nothing when the other was used -- a seal that cannot see the leak is the shape
+                # this whole file exists to refuse.
+                current = REAL_CLAUDE_CONFIG.read_text(encoding="utf-8", errors="replace")
+                windows_form = cls._leak_marker.replace("/", chr(92))
+                leaked = cls._leak_marker in current or windows_form in current
+                if leaked:
+                    # NOT RESTORED FROM A SNAPSHOT. Other sessions have almost certainly written to
+                    # this file since, and overwriting them to undo our own entry trades a small
+                    # mess for a larger one. The failure is loud and names the path to remove, which
+                    # is a repair a human can make safely and a test cannot.
                     raise AssertionError(
-                        "install.sh wrote the REAL ~/.claude.json despite the sandbox. It has been "
-                        "restored, but the stubs no longer cover every path it takes there."
+                        "install.sh wrote the REAL ~/.claude.json despite the sandbox: it contains "
+                        f"{cls._leak_marker!r}, which is this test's temp root and is about to be "
+                        "deleted. The stubs no longer cover every path the installer takes there. "
+                        "Remove any MCP server entry naming that path -- it has NOT been auto-"
+                        "restored, because other live sessions write this file and a snapshot "
+                        "restore would revert them."
                     )
         finally:
             # Best-effort, and last. A leftover temp directory is swept by the runner's own per-run
@@ -152,6 +174,33 @@ class InstallCarriesTheKeyTests(unittest.TestCase):
             return self.log.read_text(encoding="utf-8")
         except OSError:
             return ""
+
+    def test_THE_SEAL_FIRES_ON_A_LEAK_AND_NOT_ON_SOMEBODY_ELSES_WRITE(self):
+        """The seal's own control, added 2026-09-03 after it spent an unknown period firing wrongly.
+
+        It used to compare the file's BYTES before and after. On this machine every live Claude Code
+        session rewrites `~/.claude.json` continuously, so it fired on other people's writes -- and
+        then "restored" a thirty-second-old snapshot over them. A test that intermittently reverts
+        the operator's live config is worse than the leak it was watching for, and it reproduced
+        roughly one run in three.
+
+        A real leak is specific and nobody else can produce it: a path inside THIS run's temp root,
+        which did not exist a moment ago. This asserts both directions, because a seal that cannot
+        say no is not evidence when it says yes."""
+        marker = type(self)._leak_marker
+        self.assertTrue(marker, "the seal has no marker, so it can never detect anything")
+        self.assertIn(tempfile.gettempdir().replace(chr(92), "/").lower(), marker.lower(),
+                      "the marker must be this run's own temp root, not a general path")
+
+        # PRESENT: a config naming this run's temp root, in either separator form.
+        for form in (marker, marker.replace("/", chr(92))):
+            self.assertIn(form, '{"mcpServers":{"aify-comms":{"args":["' + form + '/x.js"]}}}',
+                          "the search cannot see the leak in this separator form")
+
+        # ABSENT: an ordinary config, and one an unrelated session rewrote. Neither is a leak.
+        for innocent in ('{"mcpServers":{}}', '{"mcpServers":{"other":{"args":["C:/elsewhere/x.js"]}}}'):
+            self.assertNotIn(marker, innocent)
+            self.assertNotIn(marker.replace("/", chr(92)), innocent)
 
     def test_the_stub_is_reachable(self):
         """CONTROL. Without this, an unreachable stub makes every assertion below vacuous -- and that

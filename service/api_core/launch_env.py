@@ -59,6 +59,40 @@ ALWAYS_SET = (
 )
 
 
+def launches_via_wrapper(settings: dict[str, Any], runtime: str) -> bool:
+    """Does THIS runtime's worker run inside a `*-aify` wrapper whose child bridge claims work?
+
+    NOT `_managed_via_wrapper_for_runtime`, AND THE DIFFERENCE COST A LIVE FLEET ITS DELIVERY.
+    Measured 2026-09-03: seven managed workers started, registered, and read `online`, and every
+    channel dispatch to them sat `queued` for ever. This function did not exist and the launch
+    composer reached for the similarly-named one, which answers a DIFFERENT question and answers it
+    the opposite way for the runtime that matters:
+
+      `_managed_via_wrapper_for_runtime` asks "should managed dispatch route through a wrapper PTY
+      INSTEAD OF the native RPC adapter" -- and returns FALSE for claude-code, correctly, with the
+      reason in its own docstring: claude-code is *already* wrapper-backed, so the flag is moot.
+
+      This asks "is the process being launched a wrapper" -- TRUE for claude-code, because that is
+      exactly what makes it moot above.
+
+    `AIFY_MANAGED_VIA_WRAPPER` is read by the CHILD BRIDGE to decide whether to advertise channel
+    and resident claim modes. Set to "0" for a claude-code worker, the worker comes up healthy and
+    claims nothing, which is indistinguishable from a delivery bug anywhere else in the chain.
+
+    Two functions, near-identical names, opposite answers, one of them right for each caller. The
+    remedy is the name: this one says what the VALUE means rather than what a policy is called.
+    """
+    runtime_n = _normalize_runtime(runtime or "")
+    # claude-code ALWAYS. Its worker IS `claude-aify`, and `claude-channel.js` inside it is the
+    # thing that claims channel dispatches -- there is no configuration under which that is false.
+    if runtime_n == "claude-code":
+        return True
+    # Everything else follows the routing policy, which is the question that flag was written for.
+    from service.api_core.capabilities import _managed_via_wrapper_for_runtime
+
+    return _managed_via_wrapper_for_runtime(settings, runtime_n)
+
+
 def _text(value: Any) -> str:
     return str(value if value is not None else "").strip()
 

@@ -33,8 +33,7 @@ from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
-from service.api_core.capabilities import _managed_via_wrapper_for_runtime
-from service.api_core.launch_env import managed_launch_env
+from service.api_core.launch_env import launches_via_wrapper, managed_launch_env
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
@@ -287,7 +286,7 @@ async def get_terminal_launch(terminal_id: str):
                     agent=agent,
                     workspace=terminal.get("workspace") or "",
                     terminal_id=terminal_id,
-                    managed_via_wrapper=_managed_via_wrapper_for_runtime(settings, runtime),
+                    managed_via_wrapper=launches_via_wrapper(settings, runtime),
                 ),
             },
         }

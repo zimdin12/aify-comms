@@ -31,7 +31,12 @@ import re
 import unittest
 from pathlib import Path
 
-from service.api_core.launch_env import ALWAYS_SET, managed_launch_env, session_env_vars_for
+from service.api_core.launch_env import (
+    ALWAYS_SET,
+    launches_via_wrapper,
+    managed_launch_env,
+    session_env_vars_for,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 JS_SOURCE = REPO / "mcp" / "stdio" / "terminal-env.js"
@@ -146,6 +151,42 @@ class TheLaunchEnvironmentHasOneOwnerTests(unittest.TestCase):
         ))
         missing = sorted(name for name in js_names if name not in ours)
         self.assertEqual(missing, [], "the host writes these and this composer does not")
+
+
+    def test_CLAUDE_CODE_ALWAYS_LAUNCHES_VIA_ITS_WRAPPER(self):
+        """THE DEFECT THIS CLOSES, measured 2026-09-03 on a live fleet. Seven managed workers
+        started, registered and read `online`, and every channel dispatch to them sat `queued` for
+        ever.
+
+        The launch composer reached for `_managed_via_wrapper_for_runtime`, whose name is nearly
+        identical and whose question is different: it asks whether managed dispatch should route
+        through a wrapper PTY INSTEAD OF the native adapter, and answers FALSE for claude-code --
+        correctly, and for the very reason this must answer TRUE: claude-code is already
+        wrapper-backed, so that flag is moot for it.
+
+        `AIFY_MANAGED_VIA_WRAPPER` is read by the CHILD BRIDGE to decide whether to advertise
+        channel and resident claim modes. Set to "0", a claude-code worker comes up healthy and
+        claims nothing — indistinguishable from a delivery bug anywhere else in the chain."""
+        from service.api_core.capabilities import _managed_via_wrapper_for_runtime
+
+        settings = {}
+        self.assertTrue(launches_via_wrapper(settings, "claude-code"))
+        self.assertFalse(
+            _managed_via_wrapper_for_runtime(settings, "claude-code"),
+            "if these two ever agree for claude-code, one of them has been changed to answer the "
+            "other's question and this test is what should say so",
+        )
+
+    def test_the_flag_reaches_the_environment_the_child_bridge_reads(self):
+        env = managed_launch_env(
+            terminal=_terminal(), managed_via_wrapper=launches_via_wrapper({}, "claude-code"),
+        )
+        self.assertEqual(env["AIFY_MANAGED_VIA_WRAPPER"], "1")
+
+    def test_pi_still_stays_NATIVE_managed(self):
+        """The exclusion the routing flag exists for is preserved: OMP is single-client RPC, and
+        dashboard chat and Console must share one native managed controller."""
+        self.assertFalse(launches_via_wrapper({}, "pi"))
 
 
 if __name__ == "__main__":
