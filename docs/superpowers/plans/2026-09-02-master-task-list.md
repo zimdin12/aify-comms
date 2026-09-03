@@ -20,16 +20,23 @@ do. Ordered by whether it has a clock on it.
 **1. A CLOCK: the claude login.** `refreshTokenExpiresAt` is **2026-09-04 11:57 UTC**. Past it no
 automatic renewal is possible and a human must run `claude` and log in; 21 claude-code agents share
 the grant. Whether a refresh EXTENDS that window is unresolved -- it answers itself around 23:09 UTC
-tonight, when the access token expires and a refresh is actually due. `aify-comms doctor`'s new
-`claude-login` row tracks it. **Read again at 18:40 UTC: both stamps UNCHANGED** -- access still
+tonight, when the access token expires and a refresh is actually due.
+
+  **AND THE ROW BUILT TO TRACK IT IS NOT RUNNING YET.** `claude-login` is in the checkout; the
+  INSTALLED doctor at `~/.aify-comms` predates it -- `claude-auth-check.mjs` is not there, and a live
+  `aify-comms doctor` at 21:10 UTC printed 15 rows with no `claude-login` among them. So the one
+  instrument built for this deadline warns nobody until `install.sh` is re-run, which is the same
+  silent-deploy shape this repo opens with: the code is written, the check is green in the suite, and
+  the thing it watches is unwatched. Re-running the installer is already on the deploy list below
+  for other reasons; this is the item with a clock on it. **Read again at 18:40 UTC: both stamps UNCHANGED** -- access still
 expires 23:09:47, refresh still 11:57:46, 17.3h left. So no refresh has happened yet and the
 question is still open, which is what a lazy refresh looks like rather than a stalled one.
 
 **2. THREE DEPLOYS, none of which I should run.** The doctor names the size of each:
 | step | what is waiting |
 |---|---|
-| `docker compose up -d --build` | 7 commits changed service code -- incl. VERSION 0.6.2, recording a terminal's real size, and D13's lost-update fix on terminal output |
-| re-run `install.sh` | 13 commits changed `mcp/stdio/` -- incl. the doctor's D10/D11 fixes, the `claude-login` check, and 1,301 characters off `tools/list` |
+| `docker compose up -d --build` | **8** commits changed service code (doctor, 21:10 UTC) -- incl. VERSION 0.6.2, recording a terminal's real size, and D13's lost-update fix on terminal output |
+| re-run `install.sh` | **14** commits changed `mcp/stdio/` (doctor, 21:10 UTC) -- incl. the doctor's D10/D11 fixes, **the `claude-login` check that is not yet installed**, and 1,301 characters off `tools/list` |
 | restart aify-env | 10 commits inert until then, incl. the pty-size fix and `aify-env run` |
 
 **3. DECISIONS, each blocking something specific.**
