@@ -372,38 +372,43 @@ solved it by narrowing to one runtime. See D9.
 - **B3. The console complaints, from May and never closed:** text gets scrambled, encoding issues,
   feels slow. Each needs a repro before a fix; do not guess.
 
-  **FIRST REAL REPRO FOR "SCRAMBLED", 2026-09-03 -- and it is a width, not an encoding.** A snapshot
-  rendered at a width the source was NOT drawn at re-wraps every line, which is what garbled text
-  looks like. `terminal_controls.py` already says so in a comment: recording the PTY's authoritative
-  cols "kills the live-redraw garble caused by inferred != actual width". So the mechanism is known
-  and half-fixed: `_attach_terminal_snapshot` prefers `stored_cols` whenever it is > 0, and falls
-  back to `infer_source_width` only when it is 0.
+  **ROOT-CAUSED 2026-09-03, and the first write-up of it was WRONG in its attribution -- corrected
+  below.** A snapshot rendered at a width the source was not drawn at re-wraps every line, which is
+  what garbled text looks like. `terminal_controls.py` already says so: recording the PTY's
+  authoritative cols "kills the live-redraw garble caused by inferred != actual width".
 
-  **WHICH IS EXACTLY THE RESIDENT CASE, the one the operator actually looks at.** A resident wrapper
-  mirrors a real terminal whose width was never stored. Measured on live data: of 13 terminals with a
-  substantial log, 4 have no stored width, and the inference returned 239, 225, 120 and 120 for them.
+  **THE MEASUREMENT THAT SETTLED IT.** Across 13 live terminals with a substantial log,
+  `cols > 0` if and only if a completed resize control exists -- 13 of 13, no disagreement. A
+  terminal has NO recorded width until a human opens its console and the fit round-trips. Until
+  then the snapshot renders at an inferred width. That first paint is what the operator sees.
 
-  **The inference is CORRECT for what it documents and wrong for what it is used on.** Controlled
-  both ways: fed a full-width rule at 80/100/120/157/200/260 it returns each exactly, and fed an
-  empty or all-space log it returns 0 rather than guessing. But its premise -- "full-screen TUIs draw
-  a full-width frame, so the furthest drawn column IS the source width" -- only holds for a TUI. Fed
-  PLAIN SCROLLING TEXT it returns the longest LINE: source 200 with a longest line of 120 infers 120.
-  Three live terminals inferring exactly 120 is that signature, not three 120-column terminals.
+  **AND THE CAUSE IS UPSTREAM OF THE SERVICE ENTIRELY.** `aify-env`'s `Runner.#spawnChild` passed
+  `{ cwd, env }` to the terminal opener and nothing else, so the `cols`/`rows` the aify-comms plugin
+  computed for every start control were dropped one frame before the pty. Every pty was born at the
+  opener's default of 120 regardless of what was asked for. **FIXED: aify-env `53b694f`** -- and only
+  a POSITIVE size is forwarded, because callers send `0` for "unknown" and `?? 120` does not
+  substitute for zero, so passing it through would have made a zero-width pty.
 
-  **A better heuristic is NOT the fix, and this was checked rather than assumed.** The renderer takes
-  `max(viewer_cols, src_w)`, so an under-estimate of 120 against a true 200 still beats returning 0
-  and falling back to a narrower viewer width. Guessing more cleverly cannot produce a fact nobody
-  recorded.
+  **TWO CORRECTIONS TO THE FIRST WRITE-UP (`2e378282`), both of which would have misdirected the
+  next reader.** It said the zero-width rows were the RESIDENT case; they are not -- every one of the
+  13 is a managed spawn (`requested_by = spawn-request`, `claude-aify --aify-agent ... --auto`), and
+  no resident mirror appeared in the sample at all. And it said "three live terminals inferring
+  exactly 120 is the signature of plain scrolling text, not three 120-column terminals" -- backwards.
+  They ARE 120-column terminals, because 120 is precisely the default those ptys were born at. The
+  inference was right and I called it wrong. The controlled experiment behind that claim was sound;
+  what was unsound was attributing it to live rows without first asking what width those ptys
+  actually had.
 
-  **The fix is a REPORTED width.** Managed terminals get one from a completed resize control; a
-  resident has no equivalent. The wrapper knows its own terminal's width at launch and could carry it
-  the way it already carries every other HARNESS_* fact -- a generic `cols`, no service knowledge, so
-  it stays inside the aify-wrapper constraint. That is a template change across all four wrappers plus
-  the pin dance, and it is the next B3 slice.
+  **STILL OPEN under B3.** The service records `cols` only when a resize control COMPLETES, so a
+  terminal nobody has opened still carries 0 and still renders inferred. aify-env now honours a
+  requested size; the remaining half is recording that size on the terminal row at CREATION, so the
+  width is known before anyone looks. Note this is inert until an aify-env restart, which is the
+  operator's call.
 
-  **Still unexplained, and NOT to be folded into this:** "encoding issues" and "feels slow" have no
-  repro yet. Width explains re-wrapping; it does not explain a wrong GLYPH. Do not let one diagnosis
-  close three complaints.
+  **Explicitly NOT closed by any of this:** "encoding issues" and "feels slow" still have no repro.
+  Width explains re-wrapping; it does not explain a wrong glyph. One diagnosis must not close three
+  complaints.
+
 - **B4. The doctor, visible in the dashboard** (09-02). *"i never go to that path... i have container
   that should give me that info. some random path for aify-comms doctor... no. will never use it."*
   Four checks are answerable from the service's own data with no host agent -- `env-bridge`,
