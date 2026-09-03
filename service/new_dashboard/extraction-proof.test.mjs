@@ -988,7 +988,36 @@ const EXTRACTIONS = [
     importLine: "import { controlEnvironment, createSpawnRequest, initEnvironmentActions, openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests, resetEnvironmentRoots, submitEnvironmentRoots } from './environments-panels.mjs';",
     seeding: "initEnvironmentActions({ closeInspector, inspect, refresh, refreshSoon });",
     items: [
-      { name: "renderEnvironmentSpawnOptions", at: 3010, marker: "// renderEnvironmentSpawnOptions moved to ./environments-panels.mjs in v0.5.4." },
+      {
+        name: "renderEnvironmentSpawnOptions", at: 3010,
+        marker: "// renderEnvironmentSpawnOptions moved to ./environments-panels.mjs in v0.5.4.",
+        editedSince: [{
+          // ADVERTISED IS NOT CLAIMABLE, 2026-09-03. `status` is aify-env describing the host; a spawn
+          // needs something offering to CLAIM the work, which the service derives into `spawnClaim`.
+          // This page read the first and offered the second -- measured 2026-09-02, it preselected a host
+          // where nothing had claimed for a day and showed no sign of it.
+          // The two lines move together because they are adjacent and one region: `was` and `now`
+          // must span the same span of the pristine file.
+          was: [
+            "    : String(state.environments.find((env) => resolveStatus(env.status).kind === 'online')?.id || state.environments[0]?.id || '');",
+            "  envSelect.innerHTML = '<option value=\"\">Environment</option>' + state.environments.map((env) => `<option value=\"${esc(env.id)}\"${String(env.id) === currentEnv ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(resolveStatus(env.status).label)})</option>`).join('');",
+          ],
+          now: [
+            "    // PREFER A HOST THAT CAN CLAIM. `online` alone preselected machines where nothing could",
+            "    // run the work, and the operator found out from a refusal rather than from this form.",
+            "    : String(state.environments.find((env) => resolveStatus(env.status).kind === 'online' && spawnClaim(env).canSpawn)?.id",
+            "      || state.environments.find((env) => resolveStatus(env.status).kind === 'online')?.id",
+            "      || state.environments[0]?.id || '');",
+            "  envSelect.innerHTML = '<option value=\"\">Environment</option>' + state.environments.map((env) => {",
+            "    const claim = spawnClaim(env);",
+            "    // The option stays SELECTABLE when it cannot claim. Disabling it would hide the reason, and an",
+            "    // operator who has just restarted a claimer needs to be able to try the host they expect.",
+            "    const note = claim.canSpawn ? '' : ' \u2014 cannot spawn';",
+            "    return `<option value=\"${esc(env.id)}\"${String(env.id) === currentEnv ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(resolveStatus(env.status).label)})${note}</option>`;",
+            "  }).join('');",
+          ],
+        }],
+      },
       {
         name: "renderRuntime", at: 3038, marker: "// renderRuntime moved to ./environments-panels.mjs in v0.5.4.",
         // An OFFLINE environment now says how long it has been silent. `offline` alone read the same
@@ -1020,6 +1049,24 @@ const EXTRACTIONS = [
           now: [
             "      ${terminalReasonNote(env)}",
             "      <div class=\"env-runtime-list\">",
+          ],
+        }, {
+          // ADVERTISED IS NOT CLAIMABLE, 2026-09-03. `status` is aify-env describing the host; a spawn
+          // needs something offering to CLAIM the work, which the service derives into `spawnClaim`.
+          // This page read the first and offered the second -- measured 2026-09-02, it preselected a host
+          // where nothing had claimed for a day and showed no sign of it.
+          // The card's Spawn button now says so, rather than offering a spawn that is refused.
+          was: [
+            "        ${resolveStatus(env.status).kind === 'offline' ? '' : `<button class=\"ghost\" data-env-spawn=\"${esc(env.id)}\" title=\"Open the spawn form prefilled for this environment\">Spawn here\u2026</button>`}",
+          ],
+          now: [
+            "        ${resolveStatus(env.status).kind === 'offline' ? '' : (() => {",
+            "          const claim = spawnClaim(env);",
+            "          const title = claim.canSpawn",
+            "            ? 'Open the spawn form prefilled for this environment'",
+            "            : `A spawn here would be refused: ${claim.why}. Start a claimer on that host.`;",
+            "          return `<button class=\"ghost${claim.canSpawn ? '' : ' danger'}\" data-env-spawn=\"${esc(env.id)}\" title=\"${esc(title)}\">Spawn here\u2026${claim.canSpawn ? '' : ' (no claimer)'}</button>`;",
+            "        })()}",
           ],
         }],
       },
@@ -1104,7 +1151,37 @@ const EXTRACTIONS = [
           },
         ],
       },
-      { name: "renderEnvironmentSummary", at: 2995, marker: "// renderEnvironmentSummary moved to ./environments-panels.mjs in v0.5.4." },
+      {
+        name: "renderEnvironmentSummary", at: 2995,
+        marker: "// renderEnvironmentSummary moved to ./environments-panels.mjs in v0.5.4.",
+        editedSince: [{
+          // ADVERTISED IS NOT CLAIMABLE, 2026-09-03. `status` is aify-env describing the host; a spawn
+          // needs something offering to CLAIM the work, which the service derives into `spawnClaim`.
+          // This page read the first and offered the second -- measured 2026-09-02, it preselected a host
+          // where nothing had claimed for a day and showed no sign of it.
+          // A SECOND TILE rather than a corrected one: "Online bridges" is a true fact and still
+          // worth showing. The two agree on a healthy fleet and diverge when it matters.
+          was: [
+            "  const offline = state.environments.filter((env) => resolveStatus(env.status).kind === 'offline').length;",
+          ],
+          now: [
+            "  const offline = state.environments.filter((env) => resolveStatus(env.status).kind === 'offline').length;",
+            "  // TWO TILES, because they answer different questions and one of them was missing. \"Online bridges\"",
+            "  // counts hosts that are DESCRIBED; this counts hosts that can take a spawn. They read the same on a",
+            "  // healthy fleet and diverge exactly when an operator needs to know.",
+            "  const claimable = state.environments.filter((env) => spawnClaim(env).canSpawn && resolveStatus(env.status).kind === 'online').length;",
+          ],
+        }, {
+          // The tile itself. Declared separately because it is a different region of the file.
+          was: [
+            "    metric('Online bridges', online, online ? 'ok' : 'neutral'),",
+          ],
+          now: [
+            "    metric('Online bridges', online, online ? 'ok' : 'neutral'),",
+            "    metric('Can spawn', claimable, claimable ? 'ok' : 'bad'),",
+          ],
+        }],
+      },
       { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4." },
       // The four ACTIONS, added later in v0.5.4. They landed in this module rather than a new one
       // because an environment's actions and the panels that render them are one subject.
@@ -1187,6 +1264,25 @@ const EXTRACTIONS = [
             ],
             now: [
               "      const id = String(env.id || '');",
+            ],
+          },
+          {
+            // ADVERTISED IS NOT CLAIMABLE, 2026-09-03. `status` is aify-env describing the host; a spawn
+            // needs something offering to CLAIM the work, which the service derives into `spawnClaim`.
+            // This page read the first and offered the second -- measured 2026-09-02, it preselected a host
+            // where nothing had claimed for a day and showed no sign of it.
+            // Reassigning an agent to a host with no claimer leaves it unable to start, so the option
+            // is NAMED rather than removed -- a host whose claimer is about to start must stay pickable.
+            was: [
+              "      return `<option value=\"${esc(id)}\"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}</option>`;",
+            ],
+            now: [
+              "      // NAMED, NOT REMOVED. Moving an agent to a host where nothing claims leaves it unable to",
+              "      // start, and `online` is aify-env describing the machine rather than offering to run it --",
+              "      // the same conflation that cost a day on 2026-09-02. Dropping the option would hide the",
+              "      // reason and refuse a host whose claimer the operator is about to start.",
+              "      const note = spawnClaim(env).canSpawn ? '' : ' \u2014 cannot spawn';",
+              "      return `<option value=\"${esc(id)}\"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}${note}</option>`;",
             ],
           },
           // Dropped a dead snake_case alternate: the service emits sessionHandle.

@@ -24,7 +24,7 @@
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
 import { state } from './state.mjs';
-import { renderStatusChip, resolveStatus } from './status.js';
+import { renderStatusChip, resolveStatus, spawnClaim } from './status.js';
 import { byId, toast } from './ui.js';
 import { esc, relTime } from './util.js';
 
@@ -36,7 +36,12 @@ export function openAgentEditForm(agentId) {
   const envOptions = ['<option value="">— keep current —</option>']
     .concat(onlineEnvs.map((env) => {
       const id = String(env.id || '');
-      return `<option value="${esc(id)}"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}</option>`;
+      // NAMED, NOT REMOVED. Moving an agent to a host where nothing claims leaves it unable to
+      // start, and `online` is aify-env describing the machine rather than offering to run it --
+      // the same conflation that cost a day on 2026-09-02. Dropping the option would hide the
+      // reason and refuse a host whose claimer the operator is about to start.
+      const note = spawnClaim(env).canSpawn ? '' : ' — cannot spawn';
+      return `<option value="${esc(id)}"${id === currentEnv ? ' selected' : ''}>${esc(env.label || id)}${note}</option>`;
     })).join('');
   const runtimeOptions = [...new Set(['generic', 'claude-code', 'codex', 'hermes', 'pi', 'opencode', currentRuntime])]
     .map((rt) => `<option value="${esc(rt)}"${rt === currentRuntime ? ' selected' : ''}>${esc(rt)}</option>`).join('');

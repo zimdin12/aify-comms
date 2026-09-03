@@ -125,10 +125,20 @@ test("server.js kept neither tool nor the helper — exactly one owner", () => {
 test("the module kept no state and imports only owned leaves", () => {
   const src = readFileSync(path.join(STDIO, "environment-tools.mjs"), "utf-8");
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state belongs in a tool group");
-  const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+  // THE SCANNER HAD TO BE WIDENED TO SEE ITS OWN SUBJECT. `/^import .* from "..";$/m` matches only
+  // SINGLE-LINE imports, so a braced multi-line one was invisible -- this module could have
+  // imported server.js across three lines and the assertion below would have passed. The list is
+  // the point of the test, and a list that cannot see half the syntax is not one.
+  const IMPORT = /^import\s[\s\S]*?from\s+"([^"]+)";$/gm;
+  const imports = [...src.matchAll(IMPORT)].map((m) => m[1]);
+  assert.ok(imports.length >= 4, `the import scanner found ${imports.length}; it is not reading the file`);
+  // `spawn-claimer.mjs` is a leaf and pure. The claim predicates began inside the doctor, where an
+  // MCP tool group cannot follow them -- importing the doctor to answer a question that is not the
+  // doctor's would drag its filesystem and home-directory reads into every agent's bridge.
+  // Splitting them out is what let both instruments ask the same question.
   assert.deepEqual(
     imports.sort(),
-    ["./aify-service-endpoint.mjs", "./runtimes.js", "./safe-name.mjs"],
-    "it should reach only for owned leaves — no server.js, no zod",
+    ["./aify-service-endpoint.mjs", "./runtimes.js", "./safe-name.mjs", "./spawn-claimer.mjs"],
+    "it should reach only for owned leaves - no server.js, no zod, and no doctor-predicates.js",
   );
 });

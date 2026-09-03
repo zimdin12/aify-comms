@@ -119,9 +119,9 @@ comms_envs()
 comms_spawn(from="my-agent", agentId="feature-coder", role="coder", runtime="codex", workspace="/path/to/project", initialMessage="Brief for the new agent")
 ```
 
-**`comms_envs` `online` does NOT mean a spawn can run** — it means the host is described. A 409
-naming "no live environment bridge" against an `online` row is that gap; diagnose with
-`aify-comms-debug` -> `dispatch-bridges.md`.
+`comms_envs`'s bracket says whether a spawn can be CLAIMED there; `advertised:` is the separate
+fact that a host exists. Act on the bracket — and on `spawn UNPROVEN`, spawn anyway: the attempt
+is the authority.
 
 Short-lived local subagents inside one task should report to their parent, not register or message the wider team, unless the user explicitly promotes them to comms-visible agents.
 

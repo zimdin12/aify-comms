@@ -86,6 +86,15 @@ function text(result) {
   return result.content.map((c) => c.text).join("\n");
 }
 
+// A stamp this many seconds old, rendered fresh at the moment each test reads it. NOT a literal:
+// `bridgeLastSeen` is aged against the real clock, so a fixed string would rot into a stale row and
+// every claim assertion would invert silently some time after this file was written.
+const stamped = (secondsAgo) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+
+// LIVE means TWO facts, and this fixture carries both because the service checks both. `status:
+// online` is aify-env advertising the host; `metadata.bridgeLastSeen` is something offering to
+// CLAIM work. Until 2026-09-02 this fixture had only the first, and so did the tool -- which is
+// exactly how the listing reported a fleet ready while every spawn was refused.
 const ONLINE = {
   id: "env-wsl",
   status: "online",
@@ -94,6 +103,12 @@ const ONLINE = {
   kind: "wsl",
   runtimes: [{ runtime: "claude-code" }, { runtime: "codex" }],
   cwdRoots: ["/home/dev", "/srv"],
+  get metadata() { return { bridgeLastSeen: stamped(5) }; },
+};
+
+/** Advertised by aify-env, with nothing that can claim: THE 2026-09-02 ROW, verbatim. */
+const ADVERTISED_NO_CLAIMER = {
+  ...ONLINE, id: "env-advertised", metadata: { bridgeLastSeen: stamped(26 * 3600) },
 };
 
 function reset(reply) {
@@ -135,7 +150,11 @@ test("an environment is rendered with its status, host and roots", () => {
   return tool("comms_envs").callback({}).then((result) => {
     const rendered = text(result);
     assert.match(rendered, /1 environment\(s\)/);
-    assert.match(rendered, /env-wsl \[online\] WSL Ubuntu/);
+    // THE BRACKET IS THE CLAIM ANSWER, not the advertised status. That is the whole correction:
+    // an agent reads the bracket and acts on it, and it used to say `[online]` about a host where
+    // no spawn could run.
+    assert.match(rendered, /env-wsl \[can spawn\] WSL Ubuntu/);
+    assert.match(rendered, /advertised: online/, "the advertised status stays, named as what it is");
     assert.match(rendered, /linux\/wsl/);
     assert.match(rendered, /runtimes: claude-code, codex/);
     assert.match(rendered, /roots: \/home\/dev, \/srv/);
@@ -148,7 +167,10 @@ test("MISSING fields render as 'unknown' rather than as blanks", () => {
   reset({ environments: [{ id: "env-bare" }] });
   return tool("comms_envs").callback({}).then((result) => {
     const rendered = text(result);
-    assert.match(rendered, /env-bare \[unknown\]/);
+    // A row with no bridge stamp is UNPROVEN rather than dead: the service resolves it against
+    // `bridge_instances`, which no endpoint exposes, so this side genuinely cannot tell.
+    assert.match(rendered, /env-bare \[spawn UNPROVEN: no bridge stamp on this row\]/);
+    assert.match(rendered, /advertised: unknown/);
     assert.match(rendered, /unknown\/unknown/);
     assert.match(rendered, /no runtimes/);
     assert.match(rendered, /no roots/);
@@ -230,6 +252,104 @@ test("NO environment at all says so instead of listing nothing", async () => {
     from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
   });
   assert.match(text(result), /No environment bridges are connected\./);
+});
+
+// ── the fact this tool got wrong ───────────────────────────────────────────────
+
+test("an ADVERTISED environment with no live claimer is refused, not offered", async () => {
+  // THE 2026-09-02 DEFECT, and the only test in this file that would have caught it. The row read
+  // `status: online, lastSeen 17:26:41Z` -- both refreshed by aify-env describing the host -- while
+  // `bridgeLastSeen` was a day old. `comms_envs` rendered it as online, an agent correctly trusted
+  // the tool, reported the fleet ready, and was refused six times by a `/spawn` that was reading the
+  // other field and was right every time.
+  reset({ environments: [ADVERTISED_NO_CLAIMER] });
+  const result = await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+    environmentId: "env-advertised",
+  });
+  assert.equal(result.isError, true, "an environment nothing can claim in must not be offered");
+  assert.equal(REQUESTS.filter((r) => r.method === "POST").length, 0,
+    "the spawn still reached the service, which is the queued-for-ever strand");
+  assert.match(text(result), /CANNOT SPAWN: no bridge since 26h ago/,
+    "the AGE is the fact that tells an operator whether to restart something");
+});
+
+test("the listing SAYS it cannot spawn there, in the bracket an agent reads", async () => {
+  // The refusal above is worth little on its own: an agent that reads the listing and believes it
+  // never issues the spawn that would be refused. Both instruments have to agree, which is the
+  // property that failed -- one tool, two fields, and the wrong one in front of the reader.
+  reset({ environments: [ADVERTISED_NO_CLAIMER] });
+  const rendered = text(await tool("comms_envs").callback({}));
+  assert.match(rendered, /env-advertised \[CANNOT SPAWN: no bridge since 26h ago\]/);
+  assert.match(rendered, /advertised: online/,
+    "and it still reports the advertisement, so the two facts are visibly different");
+});
+
+test("an UNREADABLE bridge timestamp is refused as corrupt, not as a missing bridge", async () => {
+  // Different remedies. Starting a bridge fixes a stale stamp and does nothing for a corrupt one,
+  // so collapsing the two sends an operator to restart something that was never the problem.
+  reset({ environments: [{ ...ONLINE, id: "env-corrupt", metadata: { bridgeLastSeen: "not-a-date" } }] });
+  const result = await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+    environmentId: "env-corrupt",
+  });
+  assert.equal(result.isError, true);
+  assert.match(text(result), /unreadable bridge timestamp/);
+});
+
+test("an UNPROVEN row is still attempted, because this side cannot see the authority", async () => {
+  // The other direction, and it must not be lost to enthusiasm for the fix above. A row with no
+  // stamp predates the field or was written by an older bridge; the service resolves it against
+  // `bridge_instances`, a table no endpoint exposes. Refusing here would refuse environments that
+  // work, so the spawn attempt is left to be the authority.
+  reset({ environments: [{ ...ONLINE, id: "env-unstamped", metadata: {} }] });
+  const result = await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+    environmentId: "env-unstamped",
+  });
+  assert.notEqual(result.isError, true, `an unstamped row was refused: ${text(result)}`);
+  assert.equal(REQUESTS.filter((r) => r.method === "POST").length, 1, "the spawn must be attempted");
+});
+
+test("AUTO-SELECTION skips the advertised host and takes the one that can claim", async () => {
+  // The selection half. With no environmentId this used to take the first `online` row -- so on a
+  // machine with one advertised host and one real claimer it chose the host where nothing runs, and
+  // the failure was a request that sat `queued` with no error anywhere.
+  reset({
+    environments: [
+      { ...ADVERTISED_NO_CLAIMER, id: "env-advertised-first" },
+      { ...ONLINE, id: "env-real-claimer", metadata: { bridgeLastSeen: stamped(5) } },
+    ],
+  });
+  await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+  });
+  const posted = REQUESTS.filter((r) => r.method === "POST");
+  assert.equal(posted.length, 1, "nothing was spawned at all");
+  assert.equal(JSON.parse(posted[0].body).environmentId, "env-real-claimer");
+});
+
+test("a PROVEN claimer is preferred over an unproven one, and unproven beats nothing", async () => {
+  // Ordering, stated rather than left to array order: fresh first, unproven as the fallback. A
+  // listing where the unstamped row happens to come first would otherwise silently pick it.
+  reset({
+    environments: [
+      { ...ONLINE, id: "env-unstamped", metadata: {} },
+      { ...ONLINE, id: "env-fresh", metadata: { bridgeLastSeen: stamped(5) } },
+    ],
+  });
+  await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+  });
+  assert.equal(JSON.parse(REQUESTS.filter((r) => r.method === "POST")[0].body).environmentId, "env-fresh");
+
+  // And with no fresh row at all, the unproven one is still tried rather than the whole thing
+  // refused -- the fallback exists so this fix cannot become a new way to block every spawn.
+  reset({ environments: [{ ...ONLINE, id: "env-unstamped", metadata: {} }] });
+  await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+  });
+  assert.equal(JSON.parse(REQUESTS.filter((r) => r.method === "POST")[0].body).environmentId, "env-unstamped");
 });
 
 // ── spawn selection ─────────────────────────────────────────────────────────────────────────────

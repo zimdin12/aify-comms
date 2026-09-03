@@ -313,3 +313,87 @@ test("an offline environment with no lastSeen makes no claim about its age", () 
   assert.doesNotMatch(html, /last seen/, "a row with no timestamp still claimed an age");
   assert.match(html, /WSL box/, "the card did not render at all");
 });
+
+// ---------------------------------------------------------------------------------------------------
+// ADVERTISED is not CLAIMABLE. Added 2026-09-03, after the same conflation shipped in three places.
+//
+// `status` and `lastSeen` are refreshed by aify-env ADVERTISING the host. A spawn needs something
+// offering to CLAIM the work, which the service derives into `spawnClaim` on the row. Measured
+// 2026-09-02: a row read `online, lastSeen 17:26:41Z` while nothing had claimed for a day; this page
+// preselected that host and offered "Spawn here…", and every spawn from the form would have been
+// refused with nothing on screen saying why.
+
+const claimable = (extra = {}) => ({
+  id: "env-live", label: "Live host", status: "online",
+  spawnClaim: { state: "fresh", canClaim: true, bridgeLastSeen: "2026-09-03T00:34:16Z" },
+  ...extra,
+});
+const advertisedOnly = (extra = {}) => ({
+  id: "env-advertised", label: "Advertised host", status: "online",
+  spawnClaim: { state: "stale", canClaim: false, bridgeLastSeen: "2026-09-02T00:00:00Z" },
+  ...extra,
+});
+
+test("the spawn form PRESELECTS a host that can claim, not merely one that is online", () => {
+  // Both are `online`, and the advertised-only one comes first. Picking by status alone chose it.
+  const els = spawnOptions({ environments: [advertisedOnly(), claimable()] });
+  assert.match(els["env-spawn-environment"].innerHTML, /value="env-live" selected/,
+    "the form preselected a host where a spawn would be refused");
+});
+
+test("an environment that cannot claim is LABELLED in the dropdown, and stays selectable", () => {
+  // Selectable on purpose: an operator who has just restarted a claimer must be able to try the host
+  // they expect, and disabling the option would hide the reason along with the choice.
+  const html = spawnOptions({ environments: [advertisedOnly()] })["env-spawn-environment"].innerHTML;
+  assert.match(html, /Advertised host \(online\) — cannot spawn/);
+  assert.doesNotMatch(html, /disabled/);
+});
+
+test("the card's Spawn button SAYS a spawn there would be refused", () => {
+  state.environments = [advertisedOnly()];
+  const html = withDom({ "environment-list": el() }, null, (els) => {
+    renderRuntime();
+    return els["environment-list"].innerHTML;
+  });
+  assert.match(html, /Spawn here…\s*\(no claimer\)/);
+  assert.match(html, /would be refused: no claimer has spoken here recently/);
+});
+
+test("an UNREADABLE claimer timestamp says corrupt row, not missing bridge", () => {
+  // Different remedies: starting a claimer fixes a stale stamp and does nothing for this one.
+  state.environments = [advertisedOnly({ spawnClaim: { state: "invalid", canClaim: false } })];
+  const html = withDom({ "environment-list": el() }, null, (els) => {
+    renderRuntime();
+    return els["environment-list"].innerHTML;
+  });
+  assert.match(html, /unreadable claimer timestamp/);
+});
+
+test("a row with NO spawnClaim keeps its Spawn button — the page cannot know", () => {
+  // FAILS OPEN, deliberately. The service settles an unstamped row against `bridge_instances`, which
+  // no listing queries, and every row registered before that field existed is this shape. An older
+  // service sending no field at all is the same case. Greying these out would take the feature away
+  // from environments that work.
+  for (const env of [{ id: "e", label: "Old", status: "online" },
+                     { id: "e", label: "Old", status: "online", spawnClaim: { state: "absent", canClaim: false } }]) {
+    state.environments = [env];
+    const html = withDom({ "environment-list": el() }, null, (els) => {
+      renderRuntime();
+      return els["environment-list"].innerHTML;
+    });
+    assert.match(html, /Spawn here…/);
+    assert.doesNotMatch(html, /no claimer/, `${JSON.stringify(env.spawnClaim)} was treated as dead`);
+  }
+});
+
+test("the summary counts CAN SPAWN separately from ONLINE, and they can disagree", () => {
+  // CONTROL for the whole change: if the new tile merely restated the old one, every assertion above
+  // could hold while the page still answered from the wrong field.
+  state.environments = [claimable(), advertisedOnly(), { id: "c", status: "offline" }];
+  const html = withDom({ "environment-summary": el() }, null, (els) => {
+    renderEnvironmentSummary();
+    return els["environment-summary"].innerHTML;
+  });
+  assert.ok(html.includes("<b>2</b><span>Online bridges</span>"), "two rows are advertised");
+  assert.ok(html.includes("<b>1</b><span>Can spawn</span>"), "and only one can take work");
+});

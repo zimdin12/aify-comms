@@ -31,7 +31,16 @@ consistent with the operator's earlier *"make tag now, but all fixes... should a
 tag later on."* Manual proof is a release gate here, not a nicety: today produced four separate cases
 where every automated check was green and the thing did not work.
 
-- **T1. Optimize the test stack. TAG: v0.6.2. PREMISE TESTED 2026-09-02, and it did not hold.**
+- **T1. Optimize the test stack. TAG: v0.6.1** (the operator moved it back on 2026-09-02: *"t1 -
+  optimizing our tests and fixing separation of concerns should be in 0.6.1"*). **PREMISE TESTED
+  2026-09-02, and it did not hold; PARALLELISM DELIVERED 2026-09-03.**
+  **RESULT: 22 minutes -> 2m50, 5,281 passing, nothing deleted.** `pytest-xdist` is installed and
+  `-n 8 --dist loadfile` is the invocation; 16 workers buys a further 14s and is not worth the
+  contention. One real blocker was found and fixed: a `subTest(status=<enum>)` label cannot cross
+  execnet's process boundary, so it passed alone and failed in parallel with a traceback naming
+  the serializer rather than the file (`79b878c4`).
+  **STILL OPEN under T1:** make the parallel invocation the DOCUMENTED default -- CLAUDE.md still
+  prescribes the serial command, so the win is available and not yet taken by anyone but me.
   The census the method called for now exists: 487 python files, 4,656 test functions. The dominant
   file, `test_api_v2_regressions.py`, holds 386 of them in 15,822 lines with NO docstring -- and
   breaks into **248 distinct two-word subjects, 180 of which have exactly one test**. The largest
@@ -55,9 +64,8 @@ where every automated check was green and the thing did not work.
   per run. The genuine hazard is two files on DIFFERENT workers touching one external resource --
   the real `~/.claude.json`, the service registry, a fixed port -- which is the 7 plus part of the
   87, and is handled by pinning those to a single worker group.
-  **BLOCKED ON ONE THING:** `pytest-xdist` is not installed, and installing it changes the operator's
-  Python environment. Their call, not mine. Estimated payoff, to be measured rather than promised:
-  ~18 minutes to single digits, with no coverage removed.
+  **NO LONGER BLOCKED.** `pytest-xdist` is installed and the payoff is measured rather than
+  estimated: 22 minutes to 2m50 at `-n 8 --dist loadfile`, with no coverage removed.
 
 - **T1 (original framing).** *"5272 tests !?!?!?!?!? add optimize tests as your first work item
   ... I am sure that there are many duplicates and pointless tests. you have created all of them so be
@@ -212,16 +220,38 @@ solved it by narrowing to one runtime. See D9.
 
 ## D. Found while working, still open
 
-- **D0. `comms_envs` reports `status`, which is not whether a bridge is live.** THE SAME DEFECT the
-  doctor had, in the tool AGENTS read. Measured 2026-09-02: `comms_envs` said
+- **D0. DONE 2026-09-03. `comms_envs` reported `status`, which is not whether a bridge is live.**
+  The same defect the doctor had, in the tool AGENTS read: measured 2026-09-02, `comms_envs` said
   `windows:StevenZ-L:default [online]` while `/spawn` returned 409 in the same minute, and
   sc-manager -- correctly trusting the tool -- reported the fleet ready and was refused six times.
-  `status` and `lastSeen` are refreshed by aify-env ADVERTISING the host; `/spawn` reads
-  `metadata.bridgeLastSeen`. The service split those questions on 2026-08-30
-  (`environment_has_live_bridge` against `environment_effective_status`) and neither the doctor nor
-  `comms_envs` followed. The doctor half is FIXED; this half is not, and it is the one an agent
-  consults before deciding whether to spawn. **Highest-value open item: it misleads agents, silently,
-  at the moment they act.**
+  **What was built.** The claim predicates left `doctor-predicates.js` for `spawn-claimer.mjs`, a
+  pure leaf, because an MCP tool group importing the doctor to answer a question that is not the
+  doctor's would drag its filesystem and home reads into every agent's bridge. Both tools now ask
+  it, in the service's own order: advertised first, then claimable. The listing's BRACKET is the
+  claim answer (`can spawn` / `CANNOT SPAWN: no bridge since 26h ago` / `spawn UNPROVEN`), and
+  `advertised:` moved to the second line, named as what it is. `comms_spawn` auto-selection prefers a
+  proven claimer and falls back to an unproven row rather than refusing -- the host cannot read
+  `bridge_instances`, so refusing there would refuse environments that work.
+  **PROVEN BY MUTATION:** answering from `status` again reddens five tests. And the work found a
+  live defect of its own -- `envs.map(summarizeEnvironment)` passes the ARRAY INDEX as the clock, so
+  every row aged against `now = 0` and read as a corrupt timestamp. Caught by the first test that
+  asserted the rendered bracket, which is the argument for asserting rendered output.
+  **The DASHBOARD had the same defect and is fixed in the same change** -- it is the tool the
+  OPERATOR spawns from, so leaving it would have fixed the agents' instrument and not theirs. It
+  preselected a host by `status`, offered "Spawn here…" on hosts where nothing could claim, and
+  counted "Online bridges" as if that answered the question. The service now DERIVES the answer once
+  (`spawnClaim` on every environment row, judged by `SPAWN_CLAIMER_FRESH_SECONDS` rather than the
+  operator's advertisement window) and the page READS it -- so there is no fourth copy of the rule.
+  `spawnClaim` lives in `status.js` beside `resolveStatus`, the canonical resolver, and both the
+  environments page and the agent-edit form import it. It FAILS OPEN on an absent stamp, because the
+  service settles that against `bridge_instances` and a page cannot. Mutation-proved on both halves:
+  answering from `status` again reddens five bridge tests and five dashboard tests.
+  **The skill got SMALLER**: it no longer has to warn a reader to distrust the tool, so its ceiling
+  came down 17 characters and the debug reference's by 8.
+  The service's 409 was rewritten too. It ended "moving the claim into aify-env is open work, not a
+  setting" -- true the day it was written and false the next, once aify-env's plugin shipped a claim
+  loop. It now names the missing capability and the remedy and says nothing about the roadmap, with
+  a test asserting the phrase "open work" is absent.
 - **D10. A skipped doctor check reports `ok: true`.** `env-bridge` skipped for a missing API key reads
   as PASSING in `--json`. With D11, that is how "I could not ask" became "no bridge is online" in an
   agent's summary.

@@ -22,7 +22,11 @@ from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _json_loads_or
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.usage_cache import derive_usage_source, usage_get
-from service.env_status import environment_effective_status as _environment_effective_status
+from service.env_status import (
+    BRIDGE_STAMP_FRESH as _BRIDGE_STAMP_FRESH,
+    bridge_stamp_state as _bridge_stamp_state,
+    environment_effective_status as _environment_effective_status,
+)
 from service.status_engine import NON_LIVE_AGENT_STATUSES
 import re
 
@@ -50,6 +54,7 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
     terminal = bool(metadata.get("terminal"))
     pty = bool(metadata.get("pty"))
     terminal_runtimes = metadata.get("terminalRuntimes") if isinstance(metadata.get("terminalRuntimes"), list) else []
+    claim_state = _bridge_stamp_state({"metadata": metadata})
     return {
         "id": row["id"],
         "label": row["label"] or row["id"],
@@ -69,6 +74,28 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
         "pty": pty,
         "terminalRuntimes": terminal_runtimes,
         "status": status,
+        # CAN A SPAWN BE CLAIMED HERE -- a DIFFERENT question from `status`, and every caller that
+        # confused them shipped the same defect. `status` and `lastSeen` are refreshed by aify-env
+        # ADVERTISING the host; claiming needs something offering to run work, which `/spawn` reads
+        # from `metadata.bridgeLastSeen`. Measured 2026-09-02: a row read `online, lastSeen
+        # 17:26:41Z` beside a `bridgeLastSeen` from the previous day, and the dashboard, the MCP
+        # tool and the doctor all reported it ready while `/spawn` refused six times and was right.
+        #
+        # DERIVED HERE SO NOBODY DERIVES IT AGAIN. The doctor and `comms_envs` each grew their own
+        # copy of this rule and each got it wrong once; a field on the row the caller already has is
+        # the only version that cannot drift. `state` carries all four answers rather than a
+        # boolean, because a caller must be able to tell "stopped" (start a claimer) from
+        # "unreadable" (the row is corrupt) from "no stamp" (this service resolves that against
+        # `bridge_instances`, so a listing genuinely cannot answer it).
+        # NOT `offline_seconds`: that is the operator's ageing window for the ADVERTISEMENT, and
+        # `/spawn` judges a claimer by `SPAWN_CLAIMER_FRESH_SECONDS`. Passing the caller's number
+        # here would let a raised setting make this field say claimable while the endpoint refuses --
+        # the drift this field exists to remove, reintroduced through the field itself.
+        "spawnClaim": {
+            "state": claim_state,
+            "canClaim": claim_state == _BRIDGE_STAMP_FRESH,
+            "bridgeLastSeen": str(metadata.get("bridgeLastSeen") or ""),
+        },
         "metadata": metadata,
         "registeredAt": row["registered_at"] or "",
         "lastSeen": row["last_seen"] or "",

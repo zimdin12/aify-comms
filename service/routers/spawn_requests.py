@@ -290,14 +290,20 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
             # refusals -- while the old text sent them to `aify-comms`, a command they had asked to
             # have REMOVED. Naming the missing CAPABILITY rather than a command to type is what
             # separates "start this" from "this cannot happen yet".
+            #
+            # UPDATED 2026-09-03, and the previous text is why this note exists. It ended "moving the
+            # claim into aify-env is open work, not a setting" -- true when written and false a day
+            # later, once aify-env's aify-comms plugin shipped a claim loop. A message that names the
+            # state of the roadmap dates faster than one that names what is MISSING RIGHT HERE, so
+            # this one describes the row and the remedy and says nothing about who is building what.
             raise HTTPException(
                 409,
-                f'Environment "{req.environmentId}" is described by aify-env, which RUNS processes '
-                f'but does not claim spawns -- it has no claim loop, so accepting this would queue it '
-                f'for ever. Claiming is the aify-comms environment bridge, and none is live '
-                f'here (last seen: {(environment.get("metadata") or {}).get("bridgeLastSeen") or "never"}). '
-                f'Start one on that host, or see docs/TARGET_ARCHITECTURE.md -- moving the claim into '
-                f'aify-env is open work, not a setting.',
+                f'Environment "{req.environmentId}" is described, but nothing is CLAIMING spawns on '
+                f'it -- describing a host and offering to run work on it are separate, and only the '
+                f'second can start this agent. Accepting would queue the request for ever (last '
+                f'claimer seen: {(environment.get("metadata") or {}).get("bridgeLastSeen") or "never"}). '
+                f'Start a claimer on that host: an aify-env with the aify-comms plugin configured, '
+                f'which is what `install.sh` sets up. `aify-env doctor` reports whether it is.',
             )
         runtime_capability = _runtime_capability_for_environment(environment, normalized_runtime)
         if not runtime_capability:

@@ -147,3 +147,30 @@ export function runStatusContext(run) {
     badges: blockerReason && resolveStatus(run?.status).kind === 'blocked' ? ['blocked'] : [],
   };
 }
+
+/**
+ * Can a spawn actually be CLAIMED on this environment, and what to say when it cannot.
+ *
+ * READ, NOT DERIVED. The service sends `spawnClaim` on every environment row, computed by the same
+ * rule `/spawn` refuses on. The doctor and the `comms_envs` MCP tool each grew their OWN copy of
+ * that rule and each got it wrong once, in the same direction -- so this page reads the answer
+ * rather than becoming the fourth copy.
+ *
+ * THE DEFECT IT CLOSES, measured 2026-09-02: this page offered "Spawn here…" and preselected a host
+ * on `status === online`, which is aify-env ADVERTISING the machine. Claiming is a separate
+ * capability. A row read `online, lastSeen 17:26:41Z` while nothing had claimed for a day, and every
+ * spawn from that form would have been refused with the page showing no sign of it.
+ *
+ * FAILS OPEN ON `absent`, deliberately: the service resolves an unstamped row against
+ * `bridge_instances`, which no listing queries, so a page cannot know. Every row registered before
+ * that field existed is this shape, and greying out their Spawn button would take the feature away
+ * from environments that work. `undefined` -- an older service -- is the same case.
+ */
+export function spawnClaim(env) {
+  const claim = env && env.spawnClaim;
+  const state = String((claim && claim.state) || 'absent');
+  if (state === 'fresh') return { canSpawn: true, why: '' };
+  if (state === 'stale') return { canSpawn: false, why: 'no claimer has spoken here recently' };
+  if (state === 'invalid') return { canSpawn: false, why: 'unreadable claimer timestamp on this row' };
+  return { canSpawn: true, why: '', unproven: true };
+}

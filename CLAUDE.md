@@ -83,7 +83,7 @@ could make one of them true.
 | `service/control_plane.py` | **v0.5.3.** The live control plane: ~140 helpers, constants and the two queue classes shared across status, dispatch, terminals, spawn and console. This was `service/routers/api_v2.py` — 20,545 lines at its peak — until the route domains moved out and it was left declaring ZERO routes. It is NOT a router: `service/routers/api_v2.py` is now nothing but the 15 `include_router` calls, and there is deliberately no compatibility re-export, so a stale `from service.routers.api_v2 import <helper>` fails loudly instead of resolving. **v0.5.4 took it to 879 lines and it is OFF `oversized-allowlist.json`** — it is **893 on 2026-08-24**, so the regrowth this paragraph warns about has started — the "still far too big, a v0.6 question" note that stood here is retired as done. It is now an ordinary file under the 1000-line gate, so the risk it carries is REGROWTH: it is still the shared home for status, dispatch, terminal, spawn and console helpers, and the gate will not warn until it has already crossed back over. |
 | `service/reconcilers/` | **v0.5.** The reconcilers extracted out of what is now `service/control_plane.py` — one module per responsibility (`status_cache`, `spawn_lifecycle`, `sessions`, `terminals`, `terminal_runs`, `terminal_consistency`, `dispatch_queue`, `dispatch_lifecycle`, `managed_workers`, `console_binding`). Leaf modules: they may import `service/clock.py`, `service/env_status.py` and each other, but must NOT import the control plane at all. **The borrow debt is PAID: reconciler imports of the control plane are ZERO**, measured by `test_leaves_do_not_import_the_carrier.py`, whose ceiling is now 0 and which fails if that ceiling is ever left slack above the real count. The function-scope "borrow shim" this table used to describe is retired — do not reintroduce one; a reconciler needing a control-plane helper means the helper is in the wrong layer. Two function-scope imports remain in `reconcilers/`, but they read `api_core` leaves, not the carrier, and each documents the cycle that forces it. |
 | `service/clock.py`, `service/env_status.py` | Leaf helpers with no service dependencies, created so the reconcilers could stop importing the router for a timestamp or an environment status. |
-| `service/new_dashboard/*.mjs` | Dashboard modules with their own `*.test.mjs` — 66 modules, 111 test files, 1480 tests (`api-client`, `shared-files`, `message-transport`, `state`, `session-rail`, `terminal-input`, …). **`app.js` is 987 lines (was 5,081) and is UNDER the 1000-line gate** — the "3,612 lines / only reachable by source-regex tests" note that stood here is retired twice over: the extracted modules import and run in Node, so they are tested by CALLING them, and the boot wiring, the delegated click dispatcher and the per-page actions have all left. Still put new behaviour in a module here rather than in `app.js`: what remains is the render orchestrator, and it is 13 lines from going red. |
+| `service/new_dashboard/*.mjs` | Dashboard modules with their own `*.test.mjs` — 68 modules, 113 test files, 1515 tests (measured 2026-09-03) (`api-client`, `shared-files`, `message-transport`, `state`, `session-rail`, `terminal-input`, …). **`app.js` is 987 lines (was 5,081) and is UNDER the 1000-line gate** — the "3,612 lines / only reachable by source-regex tests" note that stood here is retired twice over: the extracted modules import and run in Node, so they are tested by CALLING them, and the boot wiring, the delegated click dispatcher and the per-page actions have all left. Still put new behaviour in a module here rather than in `app.js`: what remains is the render orchestrator, and it is 13 lines from going red. |
 | `service/new_dashboard/extraction-proof.mjs` + `.test.mjs` | **The gate that makes app.js safe to slice.** It RECONSTRUCTS the pre-extraction app.js from the current file plus every extracted module and requires byte-identity with a tracked pristine fixture — so a slice cannot quietly change anything outside the spans it declared. Moving a declaration out of `app.js` means appending an entry to its `EXTRACTIONS` plan **in the same change**: `importLine` (and `importWas` only if the slice EDITED an existing import — a module created by an earlier extraction has none in the fixture, so its line is deleted instead), plus one item per declaration with `at` = the 0-indexed line in the FIXTURE, not the live file. `marker` may be several lines and each is verified verbatim, which is what lets a slice leave a seeding call behind. |
 | `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, `runtime-markers.js`, `notify-check.js`). Restart client wrapper after changes. |
 | `mcp/stdio/service-registry.mjs`, `register-service-cli.mjs` | **v0.6 Phase 6.** Writing this service's entry into the SHARED registry at `~/.aify/services.json`, which is how a launcher learns aify-comms exists. Installing a SERVICE registers it; installing the wrapper package is never the goal. aify-comms owns its own key and leaves every other service's alone — an unreadable or wrong-version registry is REFUSED, never rewritten, because overwriting would uninstall another service at the moment somebody reinstalls something unrelated. The reader lives in the aify-wrapper package (`lib/registry.mjs`); `endpointEnv` is exported from `aify-service-endpoint.mjs` as `ENDPOINT_ENV_NAMES` rather than typed twice, because a name the bridge reads but the registry does not declare gets INHERITED from whatever launched the runtime. |
@@ -214,10 +214,25 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests -q                      # 5235 tests (+10312 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 408 suites, 1 skipped test (named in its output)
-cd service/new_dashboard && node --test *.test.mjs     # 1480 tests
+python -m pytest service/tests -q -n 8 --dist loadfile # 5281 tests (+10389 subtests)
+cd mcp/stdio && node tests/run-all.mjs                 # 412 suites, 1 skipped test (named in its output)
+cd service/new_dashboard && node --test *.test.mjs     # 1515 tests
 ```
+
+**`-n 8 --dist loadfile` IS THE PYTHON INVOCATION, not an optimisation to remember.** Serial, that
+suite is 22 minutes on one of this machine's 32 cores, and a 22-minute suite is a suite that gets
+skipped — which is how three of this file's own counts went stale and how a cross-repo proof ran
+nothing while reporting green. Parallel it is **2m50**, with nothing deleted. `--dist loadfile` is
+load-bearing: it keeps a file's tests on ONE worker, so class-level state and the process-global
+live-status cache behave exactly as they do serially. 16 workers buys a further 14 seconds and is not
+worth the contention.
+
+Two things behave differently in parallel and both are worth knowing before you read a red. A
+`subTest` LABEL crosses a process boundary through execnet, which cannot encode an arbitrary object —
+an enum there passes alone and fails at `-n 8`, and the traceback names the serializer rather than
+your file (`79b878c4`). And two files on DIFFERENT workers touching one external resource — the real
+`~/.claude.json`, the service registry, a fixed port — is the genuine hazard `--dist loadfile` does
+not cover; a test that reaches outside its own sandbox needs pinning, not a retry.
 
 **AND THE TWO SIBLING REPOS, because a change here can redden them and a change there can redden this
 one.** They are not optional extras: `env-client-against-real-aify-env.test.js` and
@@ -226,8 +241,8 @@ checkout, so an aify-env edit is verified by running aify-comms' tests, and an a
 seam is only verified by having aify-env present.
 
 ```bash
-cd ~/projects/aify-wrapper && node --test tests/*.test.js   # 162 tests
-cd ~/projects/aify-env    && npm test                          # 798 tests, 1 skipped; `npm test`
+cd ~/projects/aify-wrapper && node --test tests/*.test.js   # 177 tests
+cd ~/projects/aify-env    && npm test                          # 925 tests, 1 skipped; `npm test`
                                                            # NOT a bare `node --test`: the script
                                                            # carries --test-timeout=60000, and a
                                                            # hang there once left a test process
@@ -258,7 +273,7 @@ delegated one does too now — for a cross-repo proof, "unverified" must not rea
 
 Those counts are a **measured snapshot** (2026-08-27), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
-the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and 4413/364/1221 then 4541/372/1254 on 2026-08-26, 4571/373/1273 on 2026-08-27, 4699/377/1334 on 2026-08-28, 4926/396/1429, 4943/396/1437 4966/396/1437 on 2026-08-29 and 5055/399/1439, 5073/400/1439 then 5081/400/1439 on 2026-08-30, and 5205/407/1463 then 5221/408/1463, 5228/408/1463 and 5228/408/1480 then 5235/408/1480 on 2026-09-01 -- twenty-one readings in fifteen days, THREE of them on 2026-08-29 alone, which is the argument. **THE HISTORY TRACKS THREE OF THE FIVE SUITES, AND THE TWO IT OMITS ROT FURTHEST.** Each reading above is python/bridge/dashboard; aify-wrapper and aify-env are in the block below and in nobody's ritual, so nothing brings anyone to them. Measured 2026-09-01: the wrapper had drifted 158 -> 162, and aify-env 496 -> 798, which is SIXTY-ONE PERCENT and the most stale figure this file carried. That is exactly the magnitude the numbers exist to rule out -- an agent whose aify-env run reports 798 against a documented 496 cannot tell fifteen days of growth from a wrong invocation, and 496 is close enough to half that a wrong invocation is the likelier reading. Re-measure all five, not the three with a habit attached. **The 2026-09-01 reading found the LAYOUT TABLE stale for the THIRD time**, and by three numbers at once rather than one: it read 65 modules / 108 test files / 1439 tests against a measured 66 / 109 / 1463. The paragraph below predicted exactly this and named the reason, and it still happened, because whoever comes to write the date arrives here and not there. The last pair is the sharpest version of it: a figure written into this file in the morning was wrong by the evening, without anyone doing anything unusual. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. **It happened a SECOND time and went unnoticed for a day**: the layout table read 1166 while this paragraph read 1254, both written on 2026-08-26. Twice is not bad luck. The layout table is the copy that rots, because whoever updates a count comes here to write the date and never scrolls up. Before that they read 955/219/541 and 1576 while the real
+the authority, never the number written here. They were 3991/318/1097 on 2026-08-17, 4165/332/1109 on 2026-08-19, 4183/342/1135 and then 4226/349/1135 on 2026-08-20, 4271/351/1135 on 2026-08-24, and 4413/364/1221 then 4541/372/1254 on 2026-08-26, 4571/373/1273 on 2026-08-27, 4699/377/1334 on 2026-08-28, 4926/396/1429, 4943/396/1437 4966/396/1437 on 2026-08-29 and 5055/399/1439, 5073/400/1439 then 5081/400/1439 on 2026-08-30, and 5205/407/1463 then 5221/408/1463, 5228/408/1463 and 5228/408/1480 then 5235/408/1480 on 2026-09-01, and 5281/412/1515 on 2026-09-03 -- twenty-two readings in seventeen days, THREE of them on 2026-08-29 alone, which is the argument. **THE HISTORY TRACKS THREE OF THE FIVE SUITES, AND THE TWO IT OMITS ROT FURTHEST.** Each reading above is python/bridge/dashboard; aify-wrapper and aify-env are in the block below and in nobody's ritual, so nothing brings anyone to them. Measured 2026-09-01: the wrapper had drifted 158 -> 162, and aify-env 496 -> 798 (162 -> 177 and 798 -> 925 by 2026-09-03, so BOTH kept moving while nobody was looking at them), which is SIXTY-ONE PERCENT and the most stale figure this file carried. That is exactly the magnitude the numbers exist to rule out -- an agent whose aify-env run reports 798 against a documented 496 cannot tell fifteen days of growth from a wrong invocation, and 496 is close enough to half that a wrong invocation is the likelier reading. Re-measure all five, not the three with a habit attached. **The 2026-09-01 reading found the LAYOUT TABLE stale for the THIRD time**, and by three numbers at once rather than one: it read 65 modules / 108 test files / 1439 tests against a measured 66 / 109 / 1463. The paragraph below predicted exactly this and named the reason, and it still happened, because whoever comes to write the date arrives here and not there. The last pair is the sharpest version of it: a figure written into this file in the morning was wrong by the evening, without anyone doing anything unusual. Each of those readings was taken because somebody was about to quote the previous one. **Until that last update this file carried TWO different dashboard counts** -- 1097 in the layout table and 1109 here -- which is the failure this paragraph warns about, sitting inside the warning. **It happened a SECOND time and went unnoticed for a day**: the layout table read 1166 while this paragraph read 1254, both written on 2026-08-26. Twice is not bad luck. The layout table is the copy that rots, because whoever updates a count comes here to write the date and never scrolls up. Before that they read 955/219/541 and 1576 while the real
 figures were already these, which is the whole reason for this paragraph.
 
 Editing `service/new_dashboard/app.js` also means updating `extraction-proof.test.mjs` in the SAME change
@@ -284,35 +299,38 @@ true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
 
-**Measured 2026-08-29, closest to the limit first**, counted two ways (`wc -l` and `grep -c ""`,
-agreeing on every row):
+**Re-measured 2026-09-03, closest to the limit first**, by the walk described below — the gates' own
+`SKIP_DIRS`, extensions and counting convention, so this is the population they actually judge:
 
 | lines | file | headroom |
 |---|---|---|
 | 993 | `mcp/stdio/pi-session.js` | 7 |
+| 990 | `mcp/stdio/server.js` | 10 |
 | 987 | `service/new_dashboard/app.js` | 13 |
-| 984 | `mcp/stdio/server.js` | 16 |
-| 969 | `mcp/stdio/terminal-runtime.js` | 31 |
+| 981 | `mcp/stdio/terminal-runtime.js` | 19 |
 | 893 | `service/control_plane.py` | 107 |
-| 844 | `mcp/stdio/doctor-predicates.js` | 156 |
+| 853 | `mcp/stdio/doctor-predicates.js` | 147 |
 
-FIVE files are now within 31 lines of the gate, and three of them moved in a SINGLE day: on
-2026-08-28 `doctor-predicates.js` took 78 lines, `terminal-runtime.js` 50 and `server.js` 23, all from
-one run of doctor and delegation fixes. None of those changes was wrong and none of them re-read the
-row it moved -- which is the ordinary way this table goes stale, and why the table dated two days
-earlier was already wrong when the next person came to quote it. That person was the one who wrote it.
+542 files, none at or over the limit. FOUR are within 19 lines of it and the top four have not
+changed identity since 2026-08-29 — they have crept: `server.js` 984 -> 990, `terminal-runtime.js`
+969 -> 981. `doctor-predicates.js` came DOWN 914 -> 853 when the spawn-claim predicates left for
+`spawn-claimer.mjs`, which is the shape that relieves one of these: a file at the limit is usually
+several subjects, and the one to move is the subject somebody else also needs.
 
-`doctor-predicates.js` WAS the one to watch, and the watch paid: 868 and sixth on 2026-08-26, 991
-and second when the row above was written, and **998 -- two lines of headroom, and FIRST -- by the
-time anyone came back to it the same day.** The row was already wrong when it was read, stale by a
-commit made after it was written. That is the whole argument of the paragraph below, demonstrated on
-the table above it.
+Note what that table would have said if it had been believed rather than re-run: it recorded
+`doctor-predicates.js` at 844 on 2026-08-29, and the file was at 914 before this measurement — a row
+70 lines wrong, in the direction that matters. The next person should re-run the walk rather than
+amend a row.
 
-The fix this paragraph named was applied rather than deferred: `usage-openai` moved into
-`openai-usage-check.mjs`, one module per check, the way `service-check.mjs` and
-`api-exposure-check.mjs` already are. 153 lines left, the file is 844 with 156 of headroom, and
-nothing re-exports the moved names -- a stale import fails loudly. `tests/doctor-sources.mjs` walks
-the doctor's imports transitively, so the new module joined "the doctor" with no edit anywhere.
+`doctor-predicates.js` WAS the one to watch, and the watch paid twice. It went 868 (sixth,
+2026-08-26) -> 991 -> **998, two lines of headroom and FIRST, the same day** -- a row already wrong
+when it was read, stale by a commit made after it was written. Splitting `usage-openai` out into
+`openai-usage-check.mjs` took 153 lines off it; the spawn-claim predicates leaving for
+`spawn-claimer.mjs` on 2026-09-03 took another 61, and it now sits sixth at 853. Nothing re-exports
+the moved names in either case, so a stale import fails loudly rather than resolving, and
+`tests/doctor-sources.mjs` walks the doctor's imports transitively so a new module joins "the doctor"
+with no edit anywhere. Both moves followed the same rule: take out a SUBJECT somebody else also
+needs, not whichever block is longest.
 
 `pi-session.js` inherits the watch at 7 lines. It has no equivalent fix waiting: it is one session
 class, not a file of independent checks, so relieving it means finding a real seam rather than
@@ -330,7 +348,7 @@ name. A ranked list that omits its own middle is worse than no list, because it 
 table above came from one walk using the GATES' OWN parameters -- their `SKIP_DIRS`
 (`node_modules`, `tests`, `fixtures`, `__pycache__`, `.git`, `.pytest_cache`, `.venv`, `venv`), their
 extensions, and their `wc -l` counting convention -- so it is the population the gates actually judge,
-not a similar one. That walk sees 528 files and none is at or over the limit (re-run 2026-08-29, twice: the second run is the table above, and it is NOT the same six -- `doctor-predicates.js` left the top of it). A walk that FORGETS to exclude
+not a similar one. That walk saw 528 files on 2026-08-29 and 542 on 2026-09-03, none at or over the limit — and the six are not the same six each time, so re-run it rather than trusting the names. A walk that FORGETS to exclude
 `.test.` by NAME reports `service/new_dashboard/extraction-proof.test.mjs` at 2,925 as the worst offender: the
 gates prune a `tests` DIRECTORY, and that file does not live in one. The next person to edit
 this should re-run that walk rather than amend a row.

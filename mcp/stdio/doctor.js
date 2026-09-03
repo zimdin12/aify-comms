@@ -41,9 +41,9 @@ import { checkSessionHandles } from "./session-handle-check.mjs";
 import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
 import { PORT_BASE, PORT_SPAN } from "./hermes-endpoint.js";
 import { checkService } from "./service-check.mjs";
+// Spawn CLAIMING is its own subject and its own module -- `comms_envs` asks the same question and
+// must not import the doctor to get an answer. See spawn-claimer.mjs for what that cost.
 import {
-  describeEnv,
-  envIsOnline,
   envCanClaimASpawn,
   envCanClaimASpawnAt,
   bridgeStampStateAt,
@@ -51,6 +51,10 @@ import {
   BRIDGE_STAMP_STALE,
   BRIDGE_STAMP_ABSENT,
   BRIDGE_STAMP_INVALID,
+} from "./spawn-claimer.mjs";
+import {
+  describeEnv,
+  envIsOnline,
   envStateIsUnknown,
   bridgeCurrentVerdict,
   bridgeInstallVerdict,

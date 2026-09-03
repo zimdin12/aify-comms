@@ -355,20 +355,25 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         # The phrase in full, because `test_every_refusal_is_exercised.py` matches a refusal's whole
         # message against the test tree -- a fragment leaves it counted as untested. In two halves
         # because the message now carries the bridge's LAST SEEN between them, which varies per row.
-        self.assertIn('" is described by aify-env, which RUNS processes but does not claim spawns '
-                      '-- it has no claim loop, so accepting this would queue it for ever. Claiming '
-                      'is the aify-comms environment bridge, and none is live here (last seen: ',
+        self.assertIn('" is described, but nothing is CLAIMING spawns on it -- describing a host '
+                      'and offering to run work on it are separate, and only the second can start '
+                      'this agent. Accepting would queue the request for ever (last claimer seen: ',
                       response.text)
-        self.assertIn('Start one on that host, or see docs/TARGET_ARCHITECTURE.md -- moving the '
-                      'claim into aify-env is open work, not a setting.', response.text)
-        # WHY THE CAPABILITY AND NOT JUST A COMMAND. The old text said "Run `aify-comms`", and on
-        # 2026-09-02 the operator was running aify-env, healthy, and read "described by aify-env" as
-        # meaning it should work -- six refusals and hours later. aify-env RUNS processes and does
-        # not CLAIM; a message naming only a command cannot convey that, and named one the operator
-        # had asked to have removed.
-        self.assertIn("does not claim spawns", response.text,
-                      "the refusal must say why a healthy aify-env is not enough")
-        self.assertIn("aify-comms", response.text, "the refusal must still say what does claim")
+        self.assertIn('Start a claimer on that host: an aify-env with the aify-comms plugin '
+                      'configured, which is what `install.sh` sets up. `aify-env doctor` reports '
+                      'whether it is.', response.text)
+        # WHY THE CAPABILITY AND NOT A ROADMAP. The text before this one said "moving the claim into
+        # aify-env is open work, not a setting" -- true the day it was written and false the next,
+        # when aify-env's aify-comms plugin shipped a claim loop. The version before THAT said "Run
+        # `aify-comms`", a command the operator had asked to have removed, and on 2026-09-02 they
+        # were running a healthy aify-env, read "described by aify-env" as meaning it should work,
+        # and lost hours to six refusals. Both failures are the same one: a refusal that describes
+        # the project rather than the row goes stale without anybody editing it.
+        self.assertIn("nothing is CLAIMING spawns", response.text,
+                      "the refusal must say why a healthy, advertised host is not enough")
+        self.assertIn("Start a claimer", response.text, "and what to do about it")
+        self.assertNotIn("open work", response.text,
+                         "a refusal that dates itself against the roadmap rots without an edit")
 
     def test_a_row_with_no_bridgeLastSeen_at_all_still_spawns(self):
         """Every environment registered before that field existed is this shape. Reading absent as

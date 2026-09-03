@@ -24,17 +24,17 @@ deploy, check shell history for a bare `aify-comms` before anything else.
   `aify-comms doctor` `env-bridge` confirms one is actually ONLINE, not merely registered.
 - The launcher now prints a banner naming the supersede-and-reap behaviour before it starts.
 
-## `comms_spawn` returns 409 while `comms_envs` says the environment is `online` (2026-09-02)
+## `comms_spawn` returns 409 on a host that is up (2026-09-02)
 
-**Symptom.** `comms_envs` reports `[online]`; `comms_spawn` refuses in the same minute with *"described
-by aify-env but has no live environment bridge, and only a bridge claims a spawn."*
+**Symptom.** *"nothing is CLAIMING spawns on it"* against a live host. A bridge older than
+2026-09-03 makes it worse: `comms_envs` says `[online]` about that row in the same minute.
 
-**Cause. `status` and "a bridge is live here" are different facts, and only one decides a spawn.**
-`status`/`lastSeen` are refreshed by aify-env ADVERTISING the host. `/spawn` reads
-`metadata.bridgeLastSeen`, written only for a heartbeat carrying a `bridgeId`, which only a bridge
-sends. Measured: `online, lastSeen 17:26:41Z` beside a `bridgeLastSeen` from the previous day.
+**Cause. Being described and being able to claim are different facts, and only one decides a
+spawn.** `status`/`lastSeen` come from aify-env ADVERTISING the host. `/spawn` reads
+`metadata.bridgeLastSeen`, stamped only for a heartbeat carrying a `bridgeId`. Measured: `online,
+lastSeen 17:26:41Z` beside a `bridgeLastSeen` from the previous day.
 
-**Diagnose in one read; prefer this to `comms_envs`:**
+**Diagnose in one read:**
 
 ```bash
 curl -s -H "X-API-Key: $AIFY_API_KEY" http://127.0.0.1:8800/api/v1/environments   | python -c "import json,sys;[print(r['id'],r['status'],(r.get('metadata') or {}).get('bridgeLastSeen')) for r in json.load(sys.stdin)['environments']]"
@@ -42,8 +42,9 @@ curl -s -H "X-API-Key: $AIFY_API_KEY" http://127.0.0.1:8800/api/v1/environments 
 
 Older than 90s means nothing can claim, whatever `status` says.
 
-**Fix.** Start something that claims there -- read the supersede-and-reap warning above first. The
-doctor was fixed to ask this; **`comms_envs` still reports `status`, so distrust it here.**
+**Fix.** Start a claimer there — an aify-env with the aify-comms plugin — after reading the
+supersede-and-reap warning above. The doctor and `comms_envs` both ask `bridgeLastSeen` now; a
+bridge installed before 2026-09-03 does not, so check its build before trusting its bracket.
 
 ## Channel-routed claude dispatches stay queued forever (resident or managed)
 

@@ -23,8 +23,18 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
   if (byId('environment-spawn-form')?.contains(document.activeElement)) return;
   const currentEnv = state.environments.some((env) => String(env.id) === selectedEnvId)
     ? selectedEnvId
-    : String(state.environments.find((env) => resolveStatus(env.status).kind === 'online')?.id || state.environments[0]?.id || '');
-  envSelect.innerHTML = '<option value="">Environment</option>' + state.environments.map((env) => `<option value="${esc(env.id)}"${String(env.id) === currentEnv ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(resolveStatus(env.status).label)})</option>`).join('');
+    // PREFER A HOST THAT CAN CLAIM. `online` alone preselected machines where nothing could
+    // run the work, and the operator found out from a refusal rather than from this form.
+    : String(state.environments.find((env) => resolveStatus(env.status).kind === 'online' && spawnClaim(env).canSpawn)?.id
+      || state.environments.find((env) => resolveStatus(env.status).kind === 'online')?.id
+      || state.environments[0]?.id || '');
+  envSelect.innerHTML = '<option value="">Environment</option>' + state.environments.map((env) => {
+    const claim = spawnClaim(env);
+    // The option stays SELECTABLE when it cannot claim. Disabling it would hide the reason, and an
+    // operator who has just restarted a claimer needs to be able to try the host they expect.
+    const note = claim.canSpawn ? '' : ' — cannot spawn';
+    return `<option value="${esc(env.id)}"${String(env.id) === currentEnv ? ' selected' : ''}>${esc(env.label || env.id)} (${esc(resolveStatus(env.status).label)})${note}</option>`;
+  }).join('');
   const env = state.environments.find((item) => String(item.id) === currentEnv) || {};
   const runtimeOptions = environmentRuntimes(env);
   const available = runtimeOptions.filter((runtime) => runtime.available !== false);
@@ -46,7 +56,7 @@ import { api } from './api-client.mjs';
 import { environmentStartCommand } from './environment-start-command.mjs';
 import { asArray, environmentRoots, environmentRuntimes } from './record-fields.mjs';
 import { state } from './state.mjs';
-import { renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
+import { renderStatusChip, resolveStatus, spawnClaim, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
 import { esc, relTime, relTimeHtml } from './util.js';
@@ -159,7 +169,13 @@ export function renderRuntime() {
         ${(() => { const roots = environmentRoots(env); const shown = roots.slice(0, 4).map((root) => `<code>${esc(root)}</code>`).join(''); const more = roots.length > 4 ? `<span class="subtle">+${roots.length - 4} more</span>` : ''; return (shown + more) || '<span class="subtle">No workspace roots advertised</span>'; })()}
       </div>
       <div class="contract-actions">
-        ${resolveStatus(env.status).kind === 'offline' ? '' : `<button class="ghost" data-env-spawn="${esc(env.id)}" title="Open the spawn form prefilled for this environment">Spawn here…</button>`}
+        ${resolveStatus(env.status).kind === 'offline' ? '' : (() => {
+          const claim = spawnClaim(env);
+          const title = claim.canSpawn
+            ? 'Open the spawn form prefilled for this environment'
+            : `A spawn here would be refused: ${claim.why}. Start a claimer on that host.`;
+          return `<button class="ghost${claim.canSpawn ? '' : ' danger'}" data-env-spawn="${esc(env.id)}" title="${esc(title)}">Spawn here…${claim.canSpawn ? '' : ' (no claimer)'}</button>`;
+        })()}
         <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
@@ -237,11 +253,16 @@ export function renderEnvironmentSummary() {
   if (!target) return;
   const online = state.environments.filter((env) => resolveStatus(env.status).kind === 'online').length;
   const offline = state.environments.filter((env) => resolveStatus(env.status).kind === 'offline').length;
+  // TWO TILES, because they answer different questions and one of them was missing. "Online bridges"
+  // counts hosts that are DESCRIBED; this counts hosts that can take a spawn. They read the same on a
+  // healthy fleet and diverge exactly when an operator needs to know.
+  const claimable = state.environments.filter((env) => spawnClaim(env).canSpawn && resolveStatus(env.status).kind === 'online').length;
   const runtimeKinds = new Set();
   state.environments.forEach((env) => environmentRuntimes(env).forEach((runtime) => runtimeKinds.add(runtime.runtime)));
   target.innerHTML = [
     metric('Environments', state.environments.length, state.environments.length ? 'ok' : 'neutral'),
     metric('Online bridges', online, online ? 'ok' : 'neutral'),
+    metric('Can spawn', claimable, claimable ? 'ok' : 'bad'),
     metric('Offline', offline, offline ? 'bad' : 'neutral'),
     metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
   ].join('');

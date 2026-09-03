@@ -26,14 +26,16 @@ import {
   bridgeStampAgeAt,
   envCanClaimASpawn,
   envCanClaimASpawnAt,
-  envIsOnlineAt,
   SPAWN_CLAIMER_FRESH_SECONDS,
   BRIDGE_STAMP_SKEW_SECONDS,
   BRIDGE_STAMP_FRESH,
   BRIDGE_STAMP_STALE,
   BRIDGE_STAMP_ABSENT,
   BRIDGE_STAMP_INVALID,
-} from "../doctor-predicates.js";
+} from "../spawn-claimer.mjs";
+// The OTHER question, imported from where it still lives, so the contrast test below compares two
+// modules rather than two names in one file -- which is the separation the fix actually made.
+import { envIsOnlineAt } from "../doctor-predicates.js";
 
 const NOW = Date.parse("2026-09-02T17:30:00Z");
 const iso = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
