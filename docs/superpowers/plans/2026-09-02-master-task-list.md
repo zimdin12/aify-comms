@@ -371,6 +371,39 @@ solved it by narrowing to one runtime. See D9.
   is not this.
 - **B3. The console complaints, from May and never closed:** text gets scrambled, encoding issues,
   feels slow. Each needs a repro before a fix; do not guess.
+
+  **FIRST REAL REPRO FOR "SCRAMBLED", 2026-09-03 -- and it is a width, not an encoding.** A snapshot
+  rendered at a width the source was NOT drawn at re-wraps every line, which is what garbled text
+  looks like. `terminal_controls.py` already says so in a comment: recording the PTY's authoritative
+  cols "kills the live-redraw garble caused by inferred != actual width". So the mechanism is known
+  and half-fixed: `_attach_terminal_snapshot` prefers `stored_cols` whenever it is > 0, and falls
+  back to `infer_source_width` only when it is 0.
+
+  **WHICH IS EXACTLY THE RESIDENT CASE, the one the operator actually looks at.** A resident wrapper
+  mirrors a real terminal whose width was never stored. Measured on live data: of 13 terminals with a
+  substantial log, 4 have no stored width, and the inference returned 239, 225, 120 and 120 for them.
+
+  **The inference is CORRECT for what it documents and wrong for what it is used on.** Controlled
+  both ways: fed a full-width rule at 80/100/120/157/200/260 it returns each exactly, and fed an
+  empty or all-space log it returns 0 rather than guessing. But its premise -- "full-screen TUIs draw
+  a full-width frame, so the furthest drawn column IS the source width" -- only holds for a TUI. Fed
+  PLAIN SCROLLING TEXT it returns the longest LINE: source 200 with a longest line of 120 infers 120.
+  Three live terminals inferring exactly 120 is that signature, not three 120-column terminals.
+
+  **A better heuristic is NOT the fix, and this was checked rather than assumed.** The renderer takes
+  `max(viewer_cols, src_w)`, so an under-estimate of 120 against a true 200 still beats returning 0
+  and falling back to a narrower viewer width. Guessing more cleverly cannot produce a fact nobody
+  recorded.
+
+  **The fix is a REPORTED width.** Managed terminals get one from a completed resize control; a
+  resident has no equivalent. The wrapper knows its own terminal's width at launch and could carry it
+  the way it already carries every other HARNESS_* fact -- a generic `cols`, no service knowledge, so
+  it stays inside the aify-wrapper constraint. That is a template change across all four wrappers plus
+  the pin dance, and it is the next B3 slice.
+
+  **Still unexplained, and NOT to be folded into this:** "encoding issues" and "feels slow" have no
+  repro yet. Width explains re-wrapping; it does not explain a wrong GLYPH. Do not let one diagnosis
+  close three complaints.
 - **B4. The doctor, visible in the dashboard** (09-02). *"i never go to that path... i have container
   that should give me that info. some random path for aify-comms doctor... no. will never use it."*
   Four checks are answerable from the service's own data with no host agent -- `env-bridge`,
