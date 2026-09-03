@@ -19,22 +19,39 @@ cd ~/aify-comms
 # No default OpenCode install command currently.
 ```
 
-Restart any long-running `aify-comms` bridge after updating the repo before testing the retained OpenCode controller code.
+Restart the host tier (`aify-env`) after updating the repo before testing the retained OpenCode controller code.
 
-OpenCode is not a supported **client/resident install target** today. Managed OpenCode is supported through an environment bridge on the machine that should run it. Use the normal `aify-comms` launcher installed by a supported Claude/Codex/Hermes client install; cloning this repo alone does not install that launcher:
+OpenCode is not a supported **client/resident install target** today. Managed OpenCode is
+supported through the host tier on the machine that should run it.
+
+For dashboard-managed spawns, also start the HOST TIER on the machine that should run OpenCode:
+[aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms.
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
 
-On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The OpenCode MCP/client install path is disabled; the environment bridge claims managed OpenCode work.
+Get it by cloning [aify-env](https://github.com/zimdin12/aify-env) and running its `./install.sh`,
+which ASKS for the service key this host is missing -- `npm install -g` installs the command and
+cannot notice one.
+
+One host per environment, and starting a second supersedes the first and reaps its managed workers,
+so starting one is the operator's action. Ask with `aify-env doctor` instead. The service URL
+defaults to `http://localhost:8800`; the current directory is always an allowed workspace root;
+extra root arguments are optional safety boundaries, not the per-agent project choice.
+
+**`aify-comms` no longer starts anything** -- since v0.6.1 it is a verifier (`doctor`, `--check`,
+`--version`, `--help`) and anything else exits 2 naming aify-env. See
+[docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
+
+The OpenCode MCP/client install path is disabled; the host tier claims managed OpenCode work.
 
 There is no supported resident OpenCode registration/update flow. Restart only the development bridge after changing retained controller code.
 
 Important:
-- `install.sh --client opencode` currently exits intentionally. Managed OpenCode uses the shared environment bridge; no OpenCode-local MCP/client install is required.
-- Active managed dispatch is claimed by that environment bridge. Resident OpenCode remains presence/debug metadata and is not live-wakeable.
+- `install.sh --client opencode` currently exits intentionally. Managed OpenCode uses the shared host tier; no OpenCode-local MCP/client install is required.
+- Active managed dispatch is claimed by that host tier. Resident OpenCode remains presence/debug metadata and is not live-wakeable.
 - Historical installer behavior wrote the MCP config into `~/.config/opencode/opencode.json` under the `mcp` section; the default installer no longer does this.
 - `comms_register` creates resident presence/debug metadata. A real `sessionHandle` can be retained as metadata, but resident OpenCode is not live-wakeable. Persistent triggerable OpenCode agents use `comms_spawn`.
 - `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
@@ -44,7 +61,7 @@ Important:
 - `comms_spawn` creates a persistent environment-backed agent session. Use `comms_envs` first when you need to choose a host/workspace.
 - Normal `comms_send` does not store messages for unreachable targets. Busy live targets may steer or queue/merge; stale queued/running work should still be cleared from Runs/Sessions before using chat.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
-- If an environment bridge is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**.
+- If the host tier is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents, and they cannot launch local work themselves.
 - Managed runtime hard timeout is **12 hours** by default (per-agent override via `runtimeConfig.timeoutMs`). Current bridge builds terminate the whole managed runtime process tree on timeout/interrupt/stop so stale child processes do not keep false liveness. Managed Codex has additional Codex-specific watchdogs: 30 minutes without Codex runtime notifications (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) and 90 seconds for stuck `mcpToolCall aify-comms` turns (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging).
 - Resident OpenCode registrations are presence/debug metadata only today. For triggerable teamwork, create a persistent managed agent with `comms_spawn` or the dashboard Environment spawn flow.

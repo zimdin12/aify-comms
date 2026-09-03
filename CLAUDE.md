@@ -19,7 +19,11 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
   `metadata.bridgeLastSeen` and the service writes that only for a heartbeat carrying a `bridgeId`.
   Every document said spawning had moved; the command stayed load-bearing, and six spawns were
   refused on a host whose operator was running everything correctly. aify-env now carries an
-  `aify-comms` plugin that claims — proven end to end in test, NOT yet on real hardware. aify-env is
+  `aify-comms` plugin that claims — **PROVEN ON REAL HARDWARE 2026-09-03**, six managed lanes up with
+  no bridge running at all: it claimed the spawns, registered the warm agents, resolved the launchers
+  past a Windows `.cmd` shim, ran the workers, streamed the consoles, and carried input, resize and
+  stop. **So v0.6.1 removed the command**: `aify-comms` starts nothing and refuses with exit 2 naming
+  aify-env, which is the condition `docs/TARGET_ARCHITECTURE.md` had already written down. aify-env is
   REQUIRED for spawning either way and a spawn fails loudly rather than falling back — two spawners
   on one host is the collision the tier exists to end. **And since 2026-08-30
   aify-env also DESCRIBES the host**: it advertises `runtimes`, `terminalRuntimes`, `terminal` and
@@ -148,12 +152,20 @@ aify-comms doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]} — fo
 aify-comms doctor --strict   # exit 1 if any check failed
 ```
 
-**Never run a bare `aify-comms` to check that something works.** It is not a client and not a smoke
-test — it starts the **environment bridge**, which supersedes the one already serving this
-environment; the older bridge exits and its managed workers are reaped. That is how the whole
-managed fleet went down on 2026-08-11, from a four-second run meant only to confirm the launcher
-still started. Use `aify-comms --check` (validates node, the script path and that it parses;
-registers nothing) or `aify-comms doctor`.
+**`aify-comms` is a verifier and starts nothing.** `doctor`, `--check` (validates node, the script
+path and that it parses), `--version`, `--help`; anything else exits 2 and names aify-env.
+
+**That is a v0.6.1 change, and the history is why the guarantee is worth stating.** Until then a
+bare run exec'd the stdio server with `--environment-bridge` — a real **environment bridge**, which
+by design superseded the one already serving this environment, so the older bridge exited and its
+managed workers were reaped. It took the whole managed fleet down on 2026-08-11 from a four-second
+run meant only to confirm the launcher still started, and again on 2026-08-20 when a backtick inside
+an unquoted heredoc executed the name. The mitigation was a standing rule everybody had to remember,
+which is a defect with a delay on it. **aify-env is the host tier** — it owns processes and PTYs,
+claims spawns, runs the launchers and streams the consoles — so there is no second spawner left for
+this command to be, and the refusal is enforced rather than remembered. **Starting `aify-env` is
+still the operator's action**: supersession there reaps the predecessor's workers exactly as the
+bridge's did, so ask with `aify-env doctor` instead of starting one to find out.
 
 `aify-doctor` is the same script under an older name and still works. It shipped first and the
 operator's objection was fair: one product should not need two command names remembered, so the

@@ -129,20 +129,29 @@ def test_a_value_that_means_on_is_on(tmp_path, value):
     assert result.stdout.strip() == "http://x:8802"
 
 
-def test_the_launchers_own_banner_uses_the_same_four_words():
-    """The FOURTH reader of this setting, and the one the operator actually sees.
+def test_THE_FOURTH_READER_IS_GONE_RATHER_THAN_AGREEING():
+    """RETIRED SUBJECT, kept as an assertion because "it left" and "it drifted" look identical.
 
-    The generated launcher printed "spawns: DELEGATED to aify-env" whenever the value was non-blank,
-    so a host with `="0"` was told on every single start that its spawns went somewhere they did not.
-    A banner is not a code path, which is exactly why it drifted: nothing executed it.
+    There used to be a fourth reader of this setting and it was the one the operator actually saw:
+    the launcher's own start-up banner. It printed "spawns: DELEGATED to aify-env" whenever the
+    value was non-blank, so a host with `="0"` was told on every single start that its spawns went
+    somewhere they did not. A banner is not a code path, which is exactly why it drifted -- nothing
+    executed it.
+
+    v0.6.1 removed the start-up entirely: `aify-comms` starts no environment bridge, so there is no
+    banner to keep in step. Three readers remain and each is exercised above by running it. What
+    this pins is that the fourth did not come back in some other spelling, because a reader added
+    beside a value rather than beside its parser is how the original one drifted.
     """
     install = (ROOT / "install.sh").read_text(encoding="utf-8")
-    banner = re.search(r"spawns: DELEGATED to aify-env", install)
-    assert banner, "the launcher no longer announces where spawns run"
-    window = install[max(0, banner.start() - 400):banner.start()]
-    assert "1|true|yes|on" in window, (
-        "the launcher banner decides DELEGATED by some rule other than the four words the spawn "
-        "path accepts; it will announce delegation for a value that disables it"
+    assert "spawns: DELEGATED to aify-env" not in install, (
+        "the launcher announces delegation again; it needs the four-word parser, not a truthiness "
+        "test, or it will report DELEGATED for a value that disables it"
+    )
+    # POSITIVE CONTROL: the setting is still WRITTEN, so its absence above is the banner going and
+    # not the whole feature being renamed out from under this assertion.
+    assert re.search(r'export AIFY_COMMS_DELEGATE_SPAWNS="', install), (
+        "the installer no longer records where spawns run; installed-delegation.sh reads this line"
     )
 
 

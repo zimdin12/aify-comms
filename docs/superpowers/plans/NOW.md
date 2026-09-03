@@ -41,52 +41,51 @@ liveness — with no aify-comms environment bridge running. Six lanes came up to
 | REFUSE a second worker, never kill the live one (reversed my own regression) | aify-env `f91435d` |
 | a terminal its host is reporting is not released over a bridge id | aify-comms `fc8d4c52` |
 
-### In flight, uncommitted right now
+### Done since (all pushed)
 
-**Console prompts moved from aify-env to the service** — the operator's steer, and correct for the
-multi-service future. State:
+| what | where |
+|---|---|
+| console prompts answered where the screen is CURRENT, not in the route | `274bef7b` |
+| `resumePolicy` read from `agents.runtime_state`, gated by `needs_resume_policy` | `274bef7b` |
+| **(b) the `aify-comms` command stops being an environment bridge** | this round |
+| **(d) docs + skills pass** | this round |
 
-- `service/api_core/console_prompts.py` — NEW. Rules matched against the pyte-RENDERED screen
-  (`render_live_screen`), then `plain_text()` strips the SGR codes pyte re-emits. Verified against
-  the real capture in `service/tests/data/claude-dev-channels-prompt.raw.txt`.
-- `service/routers/terminals.py` — `_answer_console_prompt_if_any` creates an `input` control.
-- aify-env's copy DELETED (`lib/plugins/aify-comms/console-prompts.mjs` and its test/fixture).
-- `service/tests/test_the_service_answers_a_parked_console.py` — NEW.
+### v0.6.1 remaining
 
-**THREE TESTS RED, all mine, all small:**
-1. `test_the_service_answers_a_parked_console.py::test_the_REAL_capture_renders_...` — the control
-   asserts against `screen` but must assert against `plain_text(screen)`. The rule itself passes.
-2. `test_append_terminal_output_split_is_inert.py` — my `terminals.py` edit needs an `EDITED_SINCE`
-   entry. Same mechanic as `test_environment_heartbeat_split_is_inert.py`: take the inserted range
-   from a `difflib` opcode against `git show HEAD:<file>`, declare it as `(added_text, "")`.
-3. `test_no_dead_imports.py` — `console_prompts.py` imports `Any` and defines `DOWN`, neither used
-   yet. Remove them (DOWN belongs with the compaction rule when that lands).
+- **(c) The compaction rule.** The seam is BUILT and proven: `answer_for_screen(screen,
+  resume_policy=...)`, `needs_resume_policy` gating the query, and `_resume_policy_for_agent`
+  reading the agent row. **The RULE is not written, deliberately** -- nobody has captured what
+  claude's compaction dialog actually sends. The last matcher written from what a screen "looks
+  like" watched its dialog and did nothing with fourteen green tests, because claude emits
+  `ESC[1C` where a person sees a space. Capture it with `comms_console_tail` on a worker that is
+  actually at that prompt, drop the bytes in `service/tests/data/`, then write the rule.
+  The trust dialog is NOT a prompt: `hasTrustDialogAccepted` is per-project state in
+  `~/.claude.json`, so write the key rather than answering a dialog.
+- **(e) Cut and push the v0.6.1 tag.** `VERSION` already says 0.6.1; `mcp/stdio/version.js`,
+  `package.json`, `package-lock.json` and `.claude-plugin/plugin.json` must match, then
+  `bash scripts/stamp.sh`, rebuild, re-run `install.sh` (mcp/stdio changed), then tag.
 
-### v0.6.1 remaining after those
+### What (b) deliberately did NOT do
 
-- **(a) DONE** — `comms_remove_agent` orphan closed by the 404 reconcile in aify-env's control pass:
-  a liveness touch that 404s means the service no longer has that terminal, so the host stops the
-  process. State-based, so it covers remove, cascade, restore-from-backup, everything.
-- **(b) Remove the `aify-comms` environment-bridge command.** `mcp/stdio/spawn-loop.mjs` and
-  `terminal-control-loop.mjs` are now dead code. **`mcp/stdio/server.js` MUST keep loading** — every
-  running wrapper is an MCP client of it. Verify with `node --check` AND by importing, and run all
-  five suites; the bridge suite reads `install.sh` and `service/` too.
-- **(c) The trust dialog is STATE, not a prompt.** `hasTrustDialogAccepted` is persisted per project
-  in `~/.claude.json` (verified by reading it). Write the key for the spawn's workspace at install
-  or spawn time instead of answering a dialog. Compaction stays a live rule and needs
-  `resumePolicy` — that is why it must live in the service.
-- **(d) Docs + skills pass.** Every doc still says the bridge starts workers. That exact staleness
-  cost eight days. Files: `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/TARGET_ARCHITECTURE.md`,
-  `docs/PHASE8_STATUS.md`, `docs/AIFY_ENV_BOUNDARY.md`, both skill mirrors, every `install.*.md`.
-  Skill edits are gated by `skill-size-ratchet.test.js` (a ceiling may only go DOWN — pay for a
-  raise) and `test_skill_mirror_parity.py` (byte-identical mirrors).
-- **(e) Cut and push the v0.6.1 tag** once (a)–(d) are done and the suites are green.
+The bridge ROLE is unreachable from any installed entry point, but ~1,800 lines of now-dead modules
+remain: `spawn-loop.mjs`, `terminal-control-loop.mjs`, `environment-control-loop.mjs`,
+`managed-environment-sync.mjs`, `managed-teardown-sweeps.mjs`, `boot-marker-sweep.mjs`,
+`reap-managed-survivors.js`, `terminal-manager.mjs`, plus `IS_ENVIRONMENT_BRIDGE` in
+`launch-identity.mjs` and 37 test files that name them. Deleting them touches `server.js`, which
+every running wrapper loads as its MCP server -- so it is a v0.6.2 change with its own live
+verification, not the last thing done before a tag. **MEASURED before deciding**: nothing is lost
+by the removal today. `managed-orphans` reports no delivery loops, `bridge-current` reads
+`unknown-all` (no bridge reports a build), `usage/consumption` is empty, and the OpenAI pool is
+collected by the SERVICE, not the bridge.
 
 ## Known-open, reported, not yet fixed
 
-- **The dev-channels auto-confirm has never fired on the operator's fleet.** It is now service-side
-  and untested live. Until proven, a fresh worker parks and someone presses Enter by hand
-  (`comms_console_input`). `comms_console_tail` shows which screen it is on.
+- **The dev-channels auto-confirm has never fired on the operator's fleet.** It was checked in the
+  ROUTE, against a screen that did not yet include the chunk -- and a parked worker sends no later
+  chunk, so it never fired once. `274bef7b` moved it into the write path where the screen is
+  current, and the service is DEPLOYED (build 274bef7b == HEAD, verified). Still unproven LIVE:
+  the next fresh worker is the test. Until then a parked worker needs one `comms_console_input`;
+  `comms_console_tail` shows which screen it is on.
 - The operator saw an empty/dark dashboard console before the last restart; it cleared afterwards.
   Unexplained — watch for it, do not assume fixed.
 - **Claude login expires ~2026-09-05** ("run /login to renew", seen on a worker screen). Every

@@ -16,9 +16,15 @@ today's behaviour and stop before flipping it.
 > and claiming the request — and this file only ever measured the first.**
 >
 > aify-env now carries an `aify-comms` plugin that heartbeats with a `bridgeId` and claims spawn
-> requests; it is proven end to end against a real socket, a real `Runner` and a real process, and
-> not yet proven on the operator's hardware. See
+> requests. See
 > [superpowers/plans/2026-09-02-real-soc-design.md](superpowers/plans/2026-09-02-real-soc-design.md).
+>
+> **CLOSED 2026-09-03 ON REAL HARDWARE, and then closed structurally.** Six managed lanes came up
+> with no bridge running at all: the plugin claimed the spawns, registered the warm agents, resolved
+> the launchers past a Windows `.cmd` shim, ran the workers, streamed the consoles, and carried
+> input, resize and stop. v0.6.1 removed the environment bridge from the `aify-comms` command
+> altogether — a bare run exits 2 and names aify-env — so the two halves of "spawning" can no longer
+> be separated by a document again. **Read everything below as HISTORY of how it got there.**
 
 ## Built
 

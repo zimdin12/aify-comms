@@ -121,18 +121,26 @@ hermes config path
 hermes mcp list
 ```
 
-For dashboard-managed spawns, also connect an environment bridge on the machine
-that should run Hermes:
+For dashboard-managed spawns, also start the HOST TIER on the machine that should run Hermes:
+[aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms.
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms http://localhost:8800
+aify-env
 ```
 
-On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd
-use `aify-comms.cmd`. The current directory is always an allowed workspace root;
-extra root arguments are optional safety boundaries, not the per-agent project
-choice.
+Get it by cloning [aify-env](https://github.com/zimdin12/aify-env) and running its `./install.sh`,
+which ASKS for the service key this host is missing -- `npm install -g` installs the command and
+cannot notice one.
+
+One host per environment, and starting a second supersedes the first and reaps its managed workers,
+so starting one is the operator's action. Ask with `aify-env doctor` instead. The service URL
+defaults to `http://localhost:8800`; the current directory is always an allowed workspace root;
+extra root arguments are optional safety boundaries, not the per-agent project choice.
+
+**`aify-comms` no longer starts anything** -- since v0.6.1 it is a verifier (`doctor`, `--check`,
+`--version`, `--help`) and anything else exits 2 naming aify-env. See
+[docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
 
 If the dashboard says Hermes is unavailable even though `hermes-aify` exists,
 check the underlying runtime command from the same Windows user/shell that runs
@@ -143,9 +151,9 @@ Get-Command hermes
 Get-Command hermes-aify.cmd
 ```
 
-`hermes-aify` is only the aify wrapper; the environment bridge still needs the
-real `hermes` executable. If Hermes is installed under another path, set it and
-restart the bridge:
+`hermes-aify` is only the aify wrapper; the host tier still needs the real
+`hermes` executable. If Hermes is installed under another path, set it and
+restart `aify-env`:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
@@ -264,7 +272,7 @@ slate" below for how the gateway's lifetime ties to the TUI/console.
 
 ### Restarting aify-comms is a clean slate
 
-The environment bridge OWNS the managed-hermes triads it spawned. Two hooks
+The host tier OWNS the managed-hermes triads it spawned. Two hooks
 keep a restart honest:
 
 - **Shutdown teardown** — on graceful shutdown (and on the supersede path), the
@@ -321,7 +329,7 @@ the **pre-spawn call only**, so the post-spawn self-reap-race call can never kil
 gateway/daemon/TUI the current launch just brought up (the 2026-06-02 port-kill root
 cause behind "gateway websocket connection failed").
 
-A managed agent whose **owning environment bridge is offline computes `offline`**
+A managed agent whose **owning host tier is offline computes `offline`**
 immediately — regardless of any surviving delivery-loop heartbeat — because a
 managed agent can only be hosted by its owning env bridge. So killing
 `aify-comms` makes its managed agents show `offline` right away, not a stale
@@ -458,7 +466,7 @@ session.
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes
 TUI for human use. Managed Hermes defaults to the same wrapper shape, but the
-environment bridge owns the `hermes-aify` PTY and the dashboard Console renders
+the host tier owns the `hermes-aify` PTY and the dashboard Console renders
 that real TUI. Native `HermesController` / ACP fallback remains available when
 wrapper-backed delivery is disabled or unavailable.
 

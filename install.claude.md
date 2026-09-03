@@ -76,21 +76,28 @@ gather evidence reports `unknown-all` and fails; that is the tool working, not a
 
 Resident Claude wakeups require a shared aify server URL. In local-only mode, the normal `comms_*` tools still work, but `claude-aify` and resident channel wakeups are intentionally not installed.
 
-For dashboard-managed spawns, also connect an environment bridge on the machine that should run Claude Code. The installer adds the `aify-comms` launcher for this:
+For dashboard-managed spawns, also start the HOST TIER on the machine that should run Claude Code. That
+is [aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
 
-**One bridge per environment, and starting a second replaces the first.** `aify-comms` IS the
-environment bridge: run it where you want agents to run, once. Starting it again supersedes the bridge
-already serving that environment, and the older one exits taking its managed workers with it — that is
-how a four-second run meant only to check the launcher still worked took down nine agents on
-2026-08-11. To verify without starting anything, use `aify-comms --check` (validates node and the
-script path, registers nothing) or `aify-comms doctor`.
+**One host per environment, and starting a second replaces the first.** Run it where you want agents
+to run, once. Starting it again supersedes the instance already serving that environment, and the
+older one exits taking its managed workers with it -- which is why starting one is the operator's
+action and never a check. To ask instead, use `aify-env doctor`, or `aify-comms doctor` for the same
+host from the service's side.
 
-On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures Claude's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
+**`aify-comms` no longer starts anything.** Until v0.6.1 the bare command WAS the environment bridge,
+and a four-second run meant only to check the launcher still worked took down nine agents on
+2026-08-11. It is now a verifier -- `doctor`, `--check`, `--version`, `--help` -- and anything else
+exits 2 naming aify-env.
+
+The service URL defaults to `http://localhost:8800`; the current directory is always an allowed
+workspace root; extra root arguments are optional safety boundaries, not the per-agent project
+choice. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
 
 After every update:
 
@@ -166,8 +173,8 @@ Important:
 - `comms_spawn` creates a persistent environment-backed agent session. Use `comms_envs` first when you need to choose a host/workspace.
 - Normal `comms_send` does not store messages for unreachable targets. Busy live targets may steer or queue/merge; stale queued/running work should still be cleared from Runs/Sessions before using chat.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
-- If an environment bridge is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**. If a resident `claude-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
-- **Restarting `aify-comms` is a clean slate for managed sessions.** The environment bridge tears down every managed session it owns on shutdown (console PTYs stopped, runtime process trees / managed-hermes triads reaped), and on the next boot sweeps for any survivors of a crashed predecessor whose owning bridge is no longer live. Both are scoped to the agents this bridge owns and never touch resident sessions or another env's agents. So after a restart there are no orphaned managed processes holding false liveness — managed sessions are re-spawned fresh from their spec, not inherited.
+- If the host tier is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**. If a resident `claude-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
+- **Restarting the host tier is a clean slate for managed sessions.** aify-env tears down every managed session it owns on shutdown (console PTYs stopped, runtime process trees / managed-hermes triads reaped), and on the next boot sweeps for any survivors of a crashed predecessor whose owning bridge is no longer live. Both are scoped to the agents this bridge owns and never touch resident sessions or another env's agents. So after a restart there are no orphaned managed processes holding false liveness — managed sessions are re-spawned fresh from their spec, not inherited.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents, and they cannot launch local work themselves.
 - Managed Claude Code model is blank by default, which lets the installed Claude Code runtime choose its default/latest model. Managed Claude Code defaults to `high` effort. Configure global defaults in Dashboard **Settings -> Runtime**. The bridge passes `--model` only when a model override is set, and always passes the configured effort. The normal dashboard does not tune model/effort per agent.
 - Managed runtime hard timeout is **12 hours** by default (per-agent override via `runtimeConfig.timeoutMs`). Managed Claude Code adds `--dangerously-skip-permissions` for dashboard-managed unattended runs and uses `--max-turns 50` by default (`runtimeConfig.maxTurns` can override). Managed Codex separately uses Codex's unattended bypass sandbox profile by default (`danger-full-access`, equivalent to `--dangerously-bypass-approvals-and-sandbox`) and has Codex-specific quiet/MCP watchdogs: 30 minutes without Codex runtime notifications (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) and 90 seconds for stuck `mcpToolCall aify-comms` turns (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging). Current bridge builds terminate the whole managed runtime process tree on timeout/interrupt/stop so stale child processes do not keep false liveness.
@@ -207,7 +214,7 @@ that one card cannot show live usage; nothing else is affected. `install.sh` pri
   - **Tail ENDED** (terminal `stop_reason` ∈ `{end_turn, stop_sequence, max_tokens}`, no pending `tool_use`) → POSTs `/turn-end` (**CLEAR**).
   - **Unreadable/null tail** → no change (never false-sets, never false-clears).
   This detector keys ONLY on transcript process truth (the harness's own `.jsonl`), never on the server's computed status (anti-feedback-loop), so it covers typed, channel-woken, AND scheduled turns. It is the robust **replacement for the removed `PostToolUse` re-pulse** for all turn types. The hooks stay the instant path (typed/managed are instant); this is the hook-independent backstop now covering BOTH directions, at ≤ ~30s latency on the detector path.
-- An `aify-comms` environment bridge launcher in `~/.local/bin`
+- An `aify-comms` verifier in `~/.local/bin` (`doctor`, `--check`, `--version`; it starts nothing)
 - A `claude-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` using the form `${AIFY_COMMS_URL:-<install-time-url>}` — caller env wins, so a bridge-spawned managed PTY can override the install-time default if it needs to talk to a different aify-comms service.
 
 **Installer safety:** If `~/.claude/settings.json` is malformed (operator hand-edit, prior crash, BOM), the installer backs up the existing file to `<path>.aify-bak-<timestamp>` and logs a `WARN` to stderr before rewriting. The pre-2026-05-22 behavior silently overwrote the file with an aify-only fresh copy, losing every operator setting/hook. Same protection now applies to all hook/config files the installer touches.

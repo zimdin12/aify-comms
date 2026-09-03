@@ -70,21 +70,28 @@ gather evidence reports `unknown-all` and fails; that is the tool working, not a
 
 The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-comms doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
 
-For dashboard-managed spawns, also connect an environment bridge on the machine that should run Codex. The installer adds the `aify-comms` launcher for this:
+For dashboard-managed spawns, also start the HOST TIER on the machine that should run Codex. That
+is [aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
 
-**One bridge per environment, and starting a second replaces the first.** `aify-comms` IS the
-environment bridge: run it where you want agents to run, once. Starting it again supersedes the bridge
-already serving that environment, and the older one exits taking its managed workers with it — that is
-how a four-second run meant only to check the launcher still worked took down nine agents on
-2026-08-11. To verify without starting anything, use `aify-comms --check` (validates node and the
-script path, registers nothing) or `aify-comms doctor`.
+**One host per environment, and starting a second replaces the first.** Run it where you want agents
+to run, once. Starting it again supersedes the instance already serving that environment, and the
+older one exits taking its managed workers with it -- which is why starting one is the operator's
+action and never a check. To ask instead, use `aify-env doctor`, or `aify-comms doctor` for the same
+host from the service's side.
 
-On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. `aify-comms --help` shows usage and unknown flag-like arguments are rejected instead of becoming roots. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md). The installer configures Codex's MCP client; the environment bridge is the long-running host process started with `--environment-bridge`, heartbeats into the dashboard, and claims spawn requests.
+**`aify-comms` no longer starts anything.** Until v0.6.1 the bare command WAS the environment bridge,
+and a four-second run meant only to check the launcher still worked took down nine agents on
+2026-08-11. It is now a verifier -- `doctor`, `--check`, `--version`, `--help` -- and anything else
+exits 2 naming aify-env.
+
+The service URL defaults to `http://localhost:8800`; the current directory is always an allowed
+workspace root; extra root arguments are optional safety boundaries, not the per-agent project
+choice. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
 
 After every update:
 
@@ -223,7 +230,7 @@ Important:
 - `comms_spawn` creates a persistent environment-backed agent session. Use `comms_envs` first when you need to choose a host/workspace.
 - Normal `comms_send` does not store messages for unreachable targets. Busy live targets may steer or queue/merge; stale queued/running work should still be cleared from Runs/Sessions before using chat.
 - Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
-- If an environment bridge is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**. If a resident `codex-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
+- If the host tier is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Restart the bridge, or assign the agent to another online environment from **Agents**, then restart from **Sessions**. If a resident `codex-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
 - SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents.
 - Managed Codex model is blank by default, which lets the installed Codex runtime choose its default/latest model. Managed Codex defaults to `high` reasoning effort. Configure global defaults in Dashboard **Settings -> Runtime**. The normal dashboard does not tune model/effort per agent. Repo fallback lives in `mcp/stdio/runtimes.js` (`managedCodexConfigText`) and `mcp/stdio/controllers/codex-controller.js` (Plan 3 RuntimeAdapter — controller class extracted from the previous `createCodexController` factory).
 - Managed runtime hard timeout is **12 hours** by default (`runtimeConfig.timeoutMs`). Managed Codex uses Codex's unattended bypass sandbox profile by default (`danger-full-access`, equivalent to `--dangerously-bypass-approvals-and-sandbox`) so managed agents can call MCP tools without hidden approval cancellation; set `runtimeConfig.sandboxMode="workspace-write"` only for permission debugging. Managed Codex also has a quiet-stall watchdog of **30 minutes** without Codex runtime notifications/stderr after the last observed activity (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`). A narrower aify-comms MCP tool-call watchdog fails stuck `mcpToolCall aify-comms` turns after **90 seconds** by default (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging). Current WSL/Linux bridge builds terminate the whole managed Codex process tree on timeout/interrupt/stop so orphan MCP tool servers do not keep stale state alive. Set the quiet timeout to `0` only for agents expected to run very long silent commands.
@@ -245,7 +252,7 @@ that one card cannot show live usage; nothing else is affected. `install.sh` pri
 - The aify skill in `$CODEX_HOME/skills/aify-comms`
 - Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
 - `UserPromptSubmit` + `Stop` hooks in `$CODEX_HOME/hooks.json` that POST `/api/v1/agents/{id}/turn-start` and `/turn-end` to the aify service. Symmetric with claude-aify's hooks — direct CLI typing flips status to `working`, end-of-turn flips it back. Codex's hooks.json schema accepts these events; inert on CLI versions that don't yet recognize them.
-- An `aify-comms` environment bridge launcher in `~/.local/bin`
+- An `aify-comms` verifier in `~/.local/bin` (`doctor`, `--check`, `--version`; it starts nothing)
 - A `codex-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` so the turn hooks know which aify service to call
 
 Current Codex CLI note:

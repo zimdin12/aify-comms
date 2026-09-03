@@ -141,7 +141,14 @@ const CEILINGS = {
   // directly above it use `hermes_runtime_is_native_windows`, and a reader who "fixes" that
   // inconsistency breaks WSL installs: those convert paths a native hermes reads later, this one is
   // consumed by the installer's own node.
-  "install.sh": 3019,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 3019 -> 2977 on 2026-09-03, and this one is PAID DOWN rather than raised. The `aify-comms`
+  // command stopped being the environment bridge: the root parser, the workspace-root resolver,
+  // the env exports, the start-up banner and the exec all went, because aify-env is the host tier
+  // and there is no second spawner for that command to be. What is left is a verifier -- doctor,
+  // --check, --version, --help -- plus a two-line install record `scripts/installed-delegation.sh`
+  // reads back. The baked API key went with it: it existed because the BRIDGE could not reach its
+  // own service, and every surviving branch reaches it on its own terms.
+  "install.sh": 2977,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

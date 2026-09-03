@@ -24,13 +24,18 @@ This is the answer to that blocker.
 Both aify-wrapper and aify-env read **the same config**, `~/.aify/services.json`, and connect to the
 same registered services. One file, two readers, no second source of truth.
 
-`aify-comms` as a COMMAND goes away. Today `install_bridge_launcher()` (`install.sh:1285`) writes
-`~/.local/bin/aify-comms` beside `claude-aify`, `codex-aify`, `hermes-aify` and `pi-aify` — four
-harness launchers and one environment bridge, same directory, same shape, entirely different job, and
-the BARE invocation is the destructive one. That is the exact mechanism of the 2026-08-11 incident:
-a four-second run meant only to confirm the launcher still started superseded the live environment
-bridge and reaped nine managed agents. Renaming it is not cosmetic. Removing the collision beats
-renaming around it, so the string only ever names the service.
+`aify-comms` as a BRIDGE is gone, v0.6.1. `install_bridge_launcher()` wrote `~/.local/bin/aify-comms`
+beside `claude-aify`, `codex-aify`, `hermes-aify` and `pi-aify` — four harness launchers and one
+environment bridge, same directory, same shape, entirely different job, and the BARE invocation was
+the destructive one. That is the exact mechanism of the 2026-08-11 incident: a four-second run meant
+only to confirm the launcher still started superseded the live environment bridge and reaped nine
+managed agents. Renaming it would not have been cosmetic; removing the collision beat renaming
+around it.
+
+What that function writes now is a verifier — `doctor`, `--check`, `--version`, `--help` — and a bare
+run exits 2 naming aify-env. **The collision is what went, not the name**: the file is still in that
+directory and still shaped like a launcher, so the remaining question is where the DOCTOR belongs,
+not which process the string starts. Nothing it can do now is destructive.
 
 ## The cut, measured
 
@@ -66,8 +71,9 @@ now, because "aify-env tracks the agents" is the natural assumption and it is wr
 ## The allowlist writes itself
 
 A host service that runs commands in the background, reachable by any registered service, is remote
-code execution by design. Today the environment bridge only launches wrappers it was told to spawn;
-that constraint is incidental, not enforced. Generalise it and the constraint is gone.
+code execution by design. aify-env only launches wrappers it was told to spawn; that constraint is
+incidental, not enforced. Generalise it and the constraint is gone — and generalising it is exactly
+what aify-dashboard and aify-project-graph will ask for, since both consume this tier.
 
 The fix is already in the artifacts. Every contract wrapper carries a marker on a line of its own:
 

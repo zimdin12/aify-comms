@@ -23,7 +23,8 @@ and failures separate. Getting the wrong one is the most common way a change app
 | | Runs where | Reload by | Holds |
 |---|---|---|---|
 | **Service** | container `aify-comms-service`, port 8800 | `bash scripts/stamp.sh && docker compose up -d --build` | FastAPI control plane, SQLite, dispatch, dashboard, SSE MCP transport |
-| **Bridge** | the **host**, one per agent + one per environment | `install.sh` **then relaunch the wrapper** | MCP stdio server, runtime adapters, terminal/PTY ownership, delivery loops |
+| **Bridge** | the **host**, one per agent | `install.sh` **then relaunch the wrapper** | MCP stdio server, runtime adapters, terminal/PTY ownership, delivery loops |
+| **Host tier** | the host, one per environment — **[aify-env](https://github.com/zimdin12/aify-env), a separate repo** | restart `aify-env`, which is the operator's action | processes, PTYs, spawn claiming, console streaming. It replaced the per-environment bridge; v0.6.1 removed the command that started one |
 | **Wrapper** | the host, a shell script on PATH | `install.sh` alone — it is written at install time, so restarting it changes nothing | `claude-aify`, `codex-aify`, `pi-aify`, `hermes-aify`: resolve the runtime CLI, export the identity environment, wire the MCP config, exec the runtime |
 | **Runtime** | the host, a child of a wrapper | its own process lifecycle | `claude`, `codex`, `hermes`, `pi` — the actual coding agent |
 
@@ -55,8 +56,14 @@ anything: registration is a row, liveness is a process.
 `install.sh` does nothing for a bridge already running — it copies files into `~/.aify-comms/`, and
 every running wrapper keeps executing the copy it loaded at boot. `aify-comms doctor` exists because
 every one of these paths fails without an error; see CLAUDE.md, "Verify a change actually took
-effect". **Never run a bare `aify-comms`** — it starts the environment bridge, supersedes the live
-one, and reaps its managed workers. Use `aify-comms --check`.
+effect".
+
+**`aify-comms` is a verifier and starts nothing — v0.6.1 made that structural.** It used to exec the
+stdio server with `--environment-bridge`, which superseded the live bridge and reaped its managed
+workers; the rule "never run a bare `aify-comms`" was the mitigation, and a rule everybody must
+remember is a defect with a delay on it. aify-env is the host tier, so there was no second spawner
+left for the command to be. `doctor`, `--check`, `--version` and `--help` answer; anything else
+refuses with exit 2 and names aify-env.
 
 ---
 

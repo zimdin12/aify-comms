@@ -67,11 +67,13 @@ Then open `http://localhost:8801`, spawn a managed agent into a workspace, and m
 notification hook and copies the skills out. `aify-wrapper-install` from the table above renders
 launchers only, and is for a machine that wants those without the rest.
 
-> **Never run a bare `aify-comms` to check that something works.** It starts the environment bridge,
-> supersedes the one already serving this host, and that bridge's managed workers are reaped — nine of
-> them, once, from a four-second run meant only to confirm the launcher still started. `aify-comms`
-> with no arguments is how you START a bridge on a host that has none. To CHECK one, use
-> `aify-comms --check` or `aify-comms doctor`.
+> **`aify-comms` is a verifier, and since v0.6.1 that is all it is.** `doctor`, `--check`,
+> `--version`, `--help`; anything else refuses and points at `aify-env`. It used to START the
+> environment bridge, which superseded the one already serving this host and reaped that bridge's
+> managed workers — nine of them, once, from a four-second run meant only to confirm the launcher
+> still started. Managed agents are hosted by **aify-env** now, so there is no second spawner for
+> this command to be, and the standing rule "never run a bare `aify-comms`" is enforced by the
+> command rather than remembered.
 
 ## Agent playbooks — install / update, and how to VERIFY it took effect
 
@@ -129,11 +131,18 @@ naming because a sentence claiming "every config it writes" stood here while two
 |---|---|
 | Claude and Codex MCP config | `mcp add --env AIFY_API_KEY=… --env CLAUDE_MCP_API_KEY=…` |
 | Hermes MCP config | written into `config.yaml` by `scripts/hermes-mcp-config.mjs` — hermes filters env down to `_SAFE_ENV_KEYS`, so an unnamed variable never reaches the MCP child |
-| the environment bridge (`~/.local/bin/aify-comms`) | baked as `${AIFY_API_KEY:-…}`, so a key exported in your shell still wins |
 | a strict-MCP launcher | from `keyEnv` in `~/.aify/services.json`, resolved per MCP server |
 
-Hermes and the environment bridge were the two that got nothing, until 2026-08-30. Both are covered by
-tests that fail if the key stops arriving.
+Hermes and the environment bridge were the two that got nothing, until 2026-08-30. Hermes is covered
+by a test that fails if the key stops arriving.
+
+**`~/.local/bin/aify-comms` no longer carries one, and that is the v0.6.1 change rather than a
+regression.** It baked `${AIFY_API_KEY:-…}` because the environment bridge could not reach its own
+service without it; the bridge is gone, and every surviving branch reaches the service on its own
+terms — `doctor` resolves the key itself (it always did: that branch execs above where the export
+was), and `--version` reads the unauthenticated `/version`. A secret copied into a file that no
+longer needs it is a copy to leak for nothing, and
+`service/tests/test_no_launcher_carries_the_service_key.py` now fails if one comes back.
 
 Then open the dashboard **once** with the key in the URL:
 
@@ -291,7 +300,7 @@ It now adds a first-class identity/session lifecycle layer:
 ## Target Mental Model
 
 1. Start the service.
-2. Connect one or more environment bridges.
+2. Start `aify-env` on each host you want to execute work in.
 3. Open the dashboard.
 4. Click **Spawn Agent**.
 5. Pick runtime, environment, workspace, role, and initial instructions. Managed model/effort defaults are global settings.
@@ -302,9 +311,9 @@ Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the
 
 ## Managed And Resident Modes
 
-Use **managed mode** for the normal persistent team. Start `aify-comms` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. Runtime adapters choose a dashboard-symmetric managed delivery path: Claude Code, Codex, and Hermes use bridge-owned wrapper PTYs where configured, while Pi and OpenCode use native controller delivery with synthesized Console streams. Browser Console attaches to the backing owner without switching identity modes. If wrapper backing cannot be established for a wrapper-capable runtime, the native managed adapter remains the fallback path. The dashboard can restart, stop, compact, or reset agents without keeping a separate CLI tab open.
+Use **managed mode** for the normal persistent team. Start `aify-env` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. Runtime adapters choose a dashboard-symmetric managed delivery path: Claude Code, Codex, and Hermes use bridge-owned wrapper PTYs where configured, while Pi and OpenCode use native controller delivery with synthesized Console streams. Browser Console attaches to the backing owner without switching identity modes. If wrapper backing cannot be established for a wrapper-capable runtime, the native managed adapter remains the fallback path. The dashboard can restart, stop, compact, or reset agents without keeping a separate CLI tab open.
 
-Managed sessions are **bridge-owned**: the environment bridge that spawned them owns their worker processes. Two consequences follow. First, **restarting `aify-comms` is a clean slate for obsolete managed workers** — the bridge tears down sessions it still owns and, on the next start, sweeps survivors of a crashed predecessor. The sweep is process-safe: a live resident wrapper protects its process family even if backend ownership metadata is stale, so restarting an environment bridge must not disconnect an operator's resident CLI. Second, **`online` means deliverable, not just present** — a managed agent reads `online` only when it has a live claimer behind it (the delivery loop / channel-sidecar that actually receives work), not merely because its gateway answers or a Console is open. A send to a managed agent whose claimer is gone fails fast with an actionable reason instead of queuing against a worker that will never claim it.
+Managed sessions are **host-owned**: the aify-env instance that started them owns their worker processes. Two consequences follow. First, **restarting the host tier is a clean slate for obsolete managed workers** — it tears down sessions it still owns and, on the next start, sweeps survivors of a crashed predecessor. The sweep is process-safe: a live resident wrapper protects its process family even if backend ownership metadata is stale, so restarting the host must not disconnect an operator's resident CLI. It is also why starting one is the operator's call and not a check: supersession reaps the predecessor's workers, and a running team is what gets reaped. Second, **`online` means deliverable, not just present** — a managed agent reads `online` only when it has a live claimer behind it (the delivery loop / channel-sidecar that actually receives work), not merely because its gateway answers or a Console is open. A send to a managed agent whose claimer is gone fails fast with an actionable reason instead of queuing against a worker that will never claim it.
 
 Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `hermes-aify --aify-agent <id>` so the wrapper registers that terminal as the live resident candidate and keeps a fresh bridge heartbeat. Raw `POST /api/v1/agents` metadata registration is not a live resident bridge and will be reported as `offline`; use the wrapper's `comms_register` MCP tool or wrapper auto-registration from the visible session. Legacy `omp-aify` / `pi-aify` wrappers are not installed by default; triggerable Pi delivery is managed RPC because OMP is single-client. Ownership does not switch automatically. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery; use **Switch to managed** when dashboard sends should return to the managed backing.
 
@@ -424,26 +433,23 @@ The dashboard opens on the **Chat** page (the default landing surface; your last
 
 ## Connect Environments
 
-Dashboard spawns require at least one host-side environment bridge. The bridge is the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, macOS, Docker, or a remote machine.
+Dashboard spawns require a host tier: the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, macOS, Docker, or a remote machine. **That is [aify-env](https://github.com/zimdin12/aify-env), not aify-comms.** It owns processes and PTYs on the host, claims spawn requests, runs the launchers and streams the consoles back.
 
-See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) for Linux/macOS/WSL and native Windows bridge commands, `AIFY_CWD_ROOTS` rules, and service URL examples.
+See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) for the host commands, `AIFY_CWD_ROOTS` rules, and service URL examples.
 See [install.hermes.md](install.hermes.md) for the quick Hermes install path and [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for Hermes-specific MCP, hook, and PTY behavior.
 
-Short version for Linux/macOS/WSL:
+Short version, every platform:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
 
-Short version for Windows PowerShell:
+**Starting it is the operator's action.** Like the bridge it replaced, a second instance supersedes the first — so start it once per host, and use `aify-env doctor` (or `aify-comms doctor`, which reports the same host from the service's side) to ask about one rather than starting one to find out.
 
-```powershell
-cd C:\path\to\workspace-or-workspace-parent
-aify-comms.cmd
-```
+The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root; extra root arguments are optional safety boundaries. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
 
-The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root. Extra root arguments are optional safety boundaries, for example `aify-comms ~/work`, `aify-comms /mnt/c/Docker`, or `aify-comms.cmd C:\Docker`. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
+**Until v0.6.1 this was `aify-comms`,** and every document said it in shell-command form. Hosting moved to aify-env on 2026-08-25 and CLAIMING followed on 2026-09-02 — a gap that cost eight days, because the docs recorded the half that had moved. The command itself is now a verifier and refuses to start anything, so the two can no longer disagree.
 
 Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. Runtime Settings also expose the delivery policy toggles that used to be API-only: manual resident/managed switch visibility, managed terminal backing, eager managed PTY spawn, wrapper-backed runtime list, and legacy console injection. The normal dashboard treats model, effort, and delivery policy as global runtime policy, not per-agent tuning.
 

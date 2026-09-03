@@ -13,16 +13,30 @@ cd ~/aify-comms
 # environment bridge plus persistent `omp --mode rpc`, not `omp-aify`.
 ```
 
-There is no resident Pi wrapper install step for normal use. Restart any long-running `aify-comms` bridge after updating the repo so managed Pi loads the current controller code.
+There is no resident Pi wrapper install step for normal use. Restart the host tier (`aify-env`) after updating the repo so managed Pi loads the current controller code.
 
-For dashboard-managed spawns, connect an environment bridge on the machine that should run Pi. The shared `aify-comms` launcher is installed by the supported Claude/Codex/Hermes client installs; cloning this repo alone does not install it:
+For dashboard-managed spawns, also start the HOST TIER on the machine that should run Pi:
+[aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms.
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
 
-On Linux, macOS, or WSL use `aify-comms`. On native Windows from PowerShell/cmd use `aify-comms.cmd`. The service URL defaults to `http://localhost:8800`; the current directory is always an allowed workspace root; extra root arguments are optional safety boundaries, not the per-agent project choice. The OMP resident wrapper install is disabled by default; managed Pi delivery does not need an MCP config inside OMP because the environment bridge drives plain `omp --mode rpc` directly.
+Get it by cloning [aify-env](https://github.com/zimdin12/aify-env) and running its `./install.sh`,
+which ASKS for the service key this host is missing -- `npm install -g` installs the command and
+cannot notice one.
+
+One host per environment, and starting a second supersedes the first and reaps its managed workers,
+so starting one is the operator's action. Ask with `aify-env doctor` instead. The service URL
+defaults to `http://localhost:8800`; the current directory is always an allowed workspace root;
+extra root arguments are optional safety boundaries, not the per-agent project choice.
+
+**`aify-comms` no longer starts anything** -- since v0.6.1 it is a verifier (`doctor`, `--check`,
+`--version`, `--help`) and anything else exits 2 naming aify-env. See
+[docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
+
+The OMP resident wrapper install is disabled by default; managed Pi delivery does not need an MCP config inside OMP because the host tier drives plain `omp --mode rpc` directly.
 
 ## Pi Wrapper Sessions
 

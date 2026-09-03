@@ -60,7 +60,7 @@ and the gap is worth naming rather than leaving a list the machine visibly contr
 | on PATH | why | goes when |
 |---|---|---|
 | `aify-env`, `claude-aify`, `codex-aify`, `hermes-aify` | the target four | — |
-| `aify-comms` | the environment bridge. It is the only thing that CLAIMS a spawn -- hosting moved to aify-env on 2026-08-25, claiming did not | aify-env's comms plugin is proven on real hardware (open item 2). "Phase 8 flips" was the old condition and it read as met for eight days while this command stayed load-bearing |
+| `aify-comms` | **since v0.6.1, a VERIFIER and nothing else** -- `doctor`, `--check`, `--version`, `--help`; anything else exits 2 naming aify-env. It was the environment bridge, and the only thing that CLAIMED a spawn | the bridge half is GONE (2026-09-03), on the condition this table set: aify-env's comms plugin proven on real hardware. What is left is the doctor, and where the doctor should live is the open question below |
 | `aify-wrapper-check`, `aify-wrapper-install` | aify-wrapper's own commands, installed by the client path by construction. A launcher answering for itself needs a command to ask | they are the client path; the list above should include them |
 | `aify-doctor` | an alias for `aify-comms doctor`, kept for agent habits and older docs | **the only genuine leftover.** One line in install.sh, and the question is whether anything still reaches for the old name |
 
@@ -148,8 +148,22 @@ operator rather than on effort.
    losing every backslash before bash. Each would have broken the first spawn with every component
    looking healthy.
 
-   What remains of this item is the command itself: `aify-comms` still exists as the environment
-   bridge, and deleting it is the last step rather than the flip.
+   **DONE 2026-09-03, on this item's own terms.** It asked for "install, restart, and one spawn with
+   no bridge running", and what happened was six managed lanes up with no bridge at all: aify-env
+   claimed the spawns, registered the warm agents, resolved the launchers past a Windows `.cmd` shim,
+   ran the workers, streamed the consoles, and carried input, resize and stop. v0.6.1 then removed
+   the bridge from the command — the exec, the root parser, the env exports, the start-up banner and
+   the baked API key. A bare `aify-comms` exits 2 and names aify-env.
+
+   **What is left is the VERIFIER, which is a different question and still open.** `aify-comms
+   doctor` is what roughly forty documents and every agent habit reach for, and the section below
+   says aify-comms' doctor belongs inside the container. Moving it means giving the container a way
+   to answer host questions it cannot see, so it is not a rename. The PATH entry stays until that is
+   answered, and it no longer starts anything, which was the part that could hurt.
+
+   ~~What remains of this item is the command itself: `aify-comms` still exists as the environment
+   bridge, and deleting it is the last step rather than the flip.~~ (Struck rather than deleted, in
+   this document's own convention: it is what a reader believed until the bridge came out.)
 
 When both are on, PATH holds `aify-env` and the three launchers, and nothing else.
 

@@ -64,8 +64,14 @@ const CEILINGS = {
   // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
   // paragraph above it already said.
   "aify-comms-debug/references/dashboard-console.md": 18_426,
-  "aify-comms-debug/references/dispatch-bridges.md": 27_131,  // 25_917 -> 27_139 on
-  // 2026-09-02 -> 27_131 on 2026-09-03. The raise added a failure CLASS that had cost the
+  "aify-comms-debug/references/dispatch-bridges.md": 26_968,  // 25_917 -> 27_139 on
+  // 2026-09-02 -> 27_131 -> 26_968 on 2026-09-03. The second paydown is v0.6.1 removing the
+  // environment-bridge command: the fleet-death entry no longer has to teach a reader that a bare
+  // `aify-comms` is dangerous, because it refuses. What it teaches instead is shorter and more
+  // useful -- the failure MODE is supersession, aify-env supersedes the same way, so starting a
+  // host tier stays the operator's action and never a check. A recovered instruction is cheaper
+  // than the rule it replaces.
+  // The raise before it added a failure CLASS that had cost the
   // operator a day and misled two agents into reporting the fleet ready: `comms_spawn`
   // refusing with 409 while `comms_envs` called the environment online, because `status` and
   // `bridgeLastSeen` answer different questions. The day after, the tool was fixed to ask the

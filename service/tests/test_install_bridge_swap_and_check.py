@@ -7,13 +7,18 @@
    staging directory beside the live tree and is swapped in with two renames; the same interrupt
    leaves all 4,200 files intact.
 
-2. A BARE `aify-comms` IS NOT A SMOKE TEST. The launcher execs the stdio server with
-   `--environment-bridge`, so running it starts a REAL environment bridge, which by design
-   supersedes whatever bridge is already serving that environment. I ran it for four seconds to
+2. A BARE `aify-comms` IS NOT A SMOKE TEST. The launcher exec'd the stdio server with
+   `--environment-bridge`, so running it started a REAL environment bridge, which by design
+   superseded whatever bridge was already serving that environment. I ran it for four seconds to
    confirm the launcher still started after editing it; the live bridge was superseded and exited,
    reaped its managed gateway hosts, my four-second process then died, and the host was left with
-   no environment bridge and nine managed agents down mid-work. `--check` is the validation that
-   was actually wanted, and the banner now says what starting it does.
+   no environment bridge and nine managed agents down mid-work.
+
+   **CLOSED STRUCTURALLY IN v0.6.1, and that is why three tests here changed shape.** aify-env is
+   the host tier and there is no second spawner for this command to be, so the exec is gone and a
+   bare run REFUSES. The mitigation used to be a banner plus a rule everybody had to remember,
+   which is a defect with a delay on it. `--check` survives as the validation that was actually
+   wanted, and what the tests now pin is that the refusal points somewhere useful.
 
 Static-text checks against install.sh and the wrapper it emits, the same pattern as the other
 test_install_*.py files — the behaviour lives in generated bash, so the shape is what can be
@@ -96,37 +101,45 @@ def test_the_launcher_offers_a_check_that_starts_nothing():
     assert "node --check" in branch, "it should actually verify the script parses"
 
 
-def test_check_is_dispatched_before_the_bridge_starts():
-    # Anchored on `--environment-bridge`, not on "exec node": the doctor subcommand also execs
-    # node, and matching that instead would make this assertion true for the wrong reason.
+def test_check_is_dispatched_before_the_refusal():
+    """It used to have to come before the BRIDGE STARTED; v0.6.1 removed the bridge, so what it must
+    now come before is the refusal that ends the script. Same property, different terminator: a
+    `--check` handled below either one never runs at all."""
     body = _code_only(_launcher())
-    assert body.index('= "--check" ]') < body.index("--environment-bridge")
+    assert body.index('= "--check" ]') < body.index("exit 2")
 
 
-def test_the_banner_states_that_starting_it_supersedes_the_live_bridge():
-    """The old banner said 'aify-comms bridge', which reads like a client, not a takeover."""
-    body = _launcher()
-    at = body.index("echo \"aify-comms ENVIRONMENT BRIDGE")
-    banner = body[at : body.index("exec node", at)]
-    assert "SUPERSEDES" in banner
-    assert "managed workers are reaped" in banner
-    assert "--check" in banner, "the banner should point at the non-destructive alternative"
+def test_the_refusal_names_the_tier_that_hosts_managed_agents():
+    """WHAT REPLACED THE BANNER. Until v0.6.1 a bare run started a real environment bridge and the
+    banner's job was to say so before it was too late. The bridge is gone -- aify-env hosts managed
+    agents -- so the same run must now refuse and point somewhere useful, or an operator following
+    an old habit gets silence.
+
+    `test_the_comms_command_starts_nothing.py` RUNS the rendered command and pins the exit status;
+    this is the shape assertion beside its siblings in this file."""
+    body = _code_only(_launcher())
+    at = body.index("aify-comms: this command starts nothing")
+    refusal = body[at:]
+    assert "aify-env" in refusal, "the refusal does not say where managed agents are hosted"
+    assert "doctor" in refusal, "the refusal does not point at the verifier"
+    assert "exit 2" in refusal, "a refusal that exits 0 reads as a successful start to a script"
 
 
-def test_help_advertises_the_non_destructive_paths():
-    """A worried operator asks for --help, and it must lead them AWAY from the destructive default.
+def test_help_advertises_the_read_only_paths():
+    """A worried operator asks for --help, and it must lead them to something that answers.
 
-    Reviewer's find, joint review round 2026-08-11: the launcher implements `doctor` and `--check`
-    and warns at startup that a bare run supersedes the live bridge, but the help text listed only
+    Reviewer's find, joint review round 2026-08-11: the launcher implemented `doctor` and `--check`
+    and warned at startup that a bare run superseded the live bridge, but the help text listed only
     `--version`. Someone checking whether things work would read help, see no safe option, and run
-    the bare command — which is exactly how the fleet went down.
+    the bare command -- which is exactly how the fleet went down. The destructive default is gone
+    now; what survives of that lesson is that help must name the branches that ANSWER.
     """
     body = _launcher()
     at = body.index("Usage: aify-comms")
     help_text = body[at : body.index("USAGE", at)]
     assert "doctor" in help_text, "help must offer the verifier"
     assert "--check" in help_text, "help must offer the non-registering validation"
-    assert "SUPERSEDES" in help_text, "help must say what a bare run does to the live bridge"
-    assert help_text.index("SUPERSEDES") < help_text.index("--version"), (
-        "the consequence belongs above the flag list, where it is read"
+    assert "aify-env" in help_text, "help must say which tier hosts managed agents now"
+    assert help_text.index("doctor") < help_text.index("--version"), (
+        "the verifier belongs at the top of the list, where it is read"
     )

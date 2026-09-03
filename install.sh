@@ -1373,31 +1373,28 @@ EOF
 }
 
 install_bridge_launcher() {
-  # Render-testable like every other wrapper: it carries the delegation setting.
+  # THE VERIFIER, and since v0.6.1 nothing else. It used to be the environment bridge; the host
+  # tier is aify-env now, so what this renders is a doctor entry point plus the install record
+  # redeploy.sh reads back.
+  #
+  # NO API KEY IS BAKED HERE ANY MORE. It was, because the bridge could not talk to its own service
+  # without one -- and every branch that survives reaches the service on its own terms: 'doctor'
+  # execs doctor.js, which resolves the key itself (proven: it reports the container build against a
+  # keyed service), and '--version' curls the unauthenticated /version. A secret copied into a file
+  # that no longer needs it is a copy to leak for nothing.
   local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/aify-comms"
   local default_server="${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}"
-  # THE BRIDGE NEEDS THE KEY OR IT CANNOT TALK TO ITS OWN SERVICE. It reads
-  # CLAUDE_MCP_API_KEY / AIFY_API_KEY once at module load (aify-service-endpoint.mjs:54) and
-  # otherwise sends none. Measured 2026-08-30 with controls: `API_KEY` appeared 0 times in this
-  # generated block and 0 times in the INSTALLED launcher, against 4 and 3 for `AIFY_SERVER_URL`.
-  # So setting `API_KEY` would have 401'd the one process that owns spawning and the managed fleet,
-  # with no error naming the cause -- the remedy for an open service would have taken the fleet down.
-  #
-  # Baked, like every other key destination the installer writes (~/.claude.json via `mcp add
-  # --env`, hermes' config.yaml). It is one more copy of a secret already on this disk in .env, on
-  # the same trust boundary; a launcher that must run from a bare shell has nowhere else to read it.
-  local default_api_key; default_api_key="$(aify_api_key)"
   mkdir -p "$wrapper_dir"
 cat > "$wrapper_path" <<EOF
 #!/bin/bash
 set -euo pipefail
 
-SAFE_CWD="\$(pwd -P 2>/dev/null || true)"
-if [ -z "\$SAFE_CWD" ] || [ ! -d "\$SAFE_CWD" ]; then
-  echo "aify-comms: current directory no longer exists; using \$HOME as the bridge root." >&2
+# A DELETED WORKING DIRECTORY BREAKS NODE BEFORE IT STARTS, which is worth guarding even for a
+# command that only reads: an agent whose worktree was removed still runs 'aify-comms doctor'.
+if ! pwd -P >/dev/null 2>&1; then
+  echo "aify-comms: current directory no longer exists; using \$HOME." >&2
   cd "\$HOME"
-  SAFE_CWD="\$(pwd -P)"
 fi
 
 SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
@@ -1436,7 +1433,7 @@ if [ "\${1:-}" = "--check" ]; then
   if [ "\$rc" = "0" ] && ! node --check "$AIFY_BRIDGE_DIR/server.js" >/dev/null 2>&1; then
     echo "  script: does not parse" >&2; rc=1
   fi
-  [ "\$rc" = "0" ] && echo "  OK — the launcher would start. Run without --check to actually start it."
+  [ "\$rc" = "0" ] && echo "  OK — node is present and the MCP bridge script parses."
   exit "\$rc"
 fi
 if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
@@ -1476,95 +1473,57 @@ if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
 fi
 if [ "\${1:-}" = "--help" ] || [ "\${1:-}" = "-h" ]; then
   cat <<'USAGE'
-Usage: aify-comms [server-url] [extra-root ...]
+Usage: aify-comms <doctor | --check | --version | --help>
 
-STARTS the local environment bridge for dashboard-managed agents. This is not a
-client and not a smoke test: starting it SUPERSEDES any bridge already serving
-this environment — the older one exits and its managed workers are reaped.
-The current directory is always an allowed workspace root. Extra roots are
-optional safety boundaries.
+VERIFIES this host's aify-comms install. It starts nothing and registers
+nothing — every invocation here reads.
 
   doctor          Verify the install against the RUNNING system (container
                   build, installed vs running bridge, wrappers, runtimes).
                   Accepts --json and --strict. Same tool as 'aify-doctor'.
-  --check         Validate this launcher WITHOUT starting or registering
-                  anything. Use this to confirm it works — a bare run takes
-                  over the live bridge.
+  --check         Validate the MCP bridge script this host has installed:
+                  node is present, the script exists, and it parses.
   --version, -V   Print the installed host bridge SHA and check origin/main
                   and the backend for a behind-count (offline-safe).
+
+Managed agents are hosted by AIFY-ENV, which owns processes and PTYs on this
+host. Start it with 'aify-env' and ask about it with 'aify-env doctor'.
 USAGE
   exit 0
 fi
-if [ "\${1:-}" != "" ] && [[ "\${1:-}" == http* ]]; then
-  SERVER_URL="\$1"
-  shift
-fi
-if [ "\${1:-}" != "" ] && [[ "\${1:-}" == -* ]]; then
-  echo "aify-comms: unknown option '\$1'. Run 'aify-comms --help' for usage." >&2
-  exit 2
-fi
-
-ROOTS="\$(node - "\$SAFE_CWD" "\${AIFY_CWD_ROOTS:-}" "\$@" <<'NODE'
-const path = require("path");
-const [cwd, envRoots, ...extraRoots] = process.argv.slice(2);
-const roots = [cwd];
-if (envRoots) roots.push(...String(envRoots).split(path.delimiter));
-roots.push(...extraRoots);
-const seen = new Set();
-const result = [];
-const skipped = [];
-for (const raw of roots) {
-  const value = String(raw || "").trim();
-  if (value.startsWith("-")) {
-    skipped.push(value);
-    continue;
-  }
-  if (!value || seen.has(value)) continue;
-  seen.add(value);
-  result.push(value);
-}
-if (skipped.length) {
-  console.error("aify-comms: ignored invalid root argument(s): " + skipped.join(", "));
-}
-console.log(result.join(path.delimiter));
-NODE
-)"
-
-export AIFY_SERVER_URL="\$SERVER_URL"
-export AIFY_CWD_ROOTS="\$ROOTS"
-# An inherited key wins over the baked one, so an operator who rotates in their shell is not
-# overridden by whatever was true at install time. Empty stays empty: apiKeyFrom() treats "" as
-# absent, so an unkeyed service is unaffected by this line.
-export AIFY_API_KEY="\${AIFY_API_KEY:-$default_api_key}"
-
-# WHERE SPAWNS RUN. Empty means this bridge hosts managed agents itself, which is what it did
-# before v0.6 and what every host does until an operator opts in. Set, it delegates every spawn to
-# aify-env, which owns processes and PTYs on this host and runs the allowlisted launcher file.
+# THE INSTALL RECORD. Two lines, written by the installer and READ BACK by
+# scripts/installed-delegation.sh and by 'aify-comms doctor'. Nothing in this file consumes them
+# any more -- the exec they configured is gone -- and that is exactly why they are labelled rather
+# than quietly kept: an export nobody can name the reader of is how a line survives a rewrite it
+# should not have survived.
 #
-# aify-env becomes REQUIRED for managed spawns once this is set: a spawn fails loudly rather than
-# quietly falling back, because a silent fallback would mean two spawners on one host -- the exact
-# collision this tier exists to end. 'aify-comms doctor' reports both the setting and whether
-# aify-env is answering.
+# They record WHERE SPAWNS RUN, which redeploy.sh must carry forward. install.sh bakes delegation
+# only when asked, so an update whose whole promise is "nothing changes but the code" moved managed
+# spawns off aify-env once already, minutes after the flip on 2026-08-25. The reader exists so that
+# cannot happen again, and it reads THIS FILE.
 #
 # THE QUOTES ARE NOT STYLE: this body is an UNQUOTED heredoc, so a backtick here runs a command while
 # the launcher is RENDERED. no-backtick-in-an-unquoted-heredoc.test.js has the incident and the rule.
 export AIFY_COMMS_DELEGATE_SPAWNS="$DELEGATE_SPAWNS"
 export AIFY_ENV_ENDPOINT="$AIFY_ENV_ENDPOINT_BAKED"
 
-echo "aify-comms ENVIRONMENT BRIDGE (this hosts dashboard-managed agents)"
-echo "  server: \$AIFY_SERVER_URL"
-echo "  roots:  \$AIFY_CWD_ROOTS"
-# The four words the spawn path accepts, not any non-blank value: this announced DELEGATED for "0"
-case "\$(printf '%s' "\$AIFY_COMMS_DELEGATE_SPAWNS" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
-  1|true|yes|on) echo "  spawns: DELEGATED to aify-env at \$AIFY_ENV_ENDPOINT" ;;
-  *)             echo "  spawns: hosted by this bridge" ;;
-esac
-echo "  note:   starting this SUPERSEDES any bridge already serving this environment —"
-echo "          the older one exits and its managed workers are reaped. Use --check to"
-echo "          validate the launcher without starting anything."
-echo "  stop:   Ctrl+C"
-cd "\$SAFE_CWD"
-exec node "$AIFY_BRIDGE_DIR/server.js" --environment-bridge
+# NO BRIDGE STARTS HERE ANY MORE, and the refusal is the feature.
+#
+# Until v0.6.1 a bare 'aify-comms' exec'd server.js --environment-bridge: a REAL environment bridge
+# that by design superseded whichever one was already serving this environment, so the older one
+# exited and its managed workers were reaped. It took the whole managed fleet down on 2026-08-11
+# from a four-second run meant only to confirm the launcher still started, and again on 2026-08-20
+# when a backtick inside an unquoted heredoc executed the name. The standing rule "never run a bare
+# aify-comms" was the mitigation; a rule everyone must remember is a defect with a delay on it.
+#
+# aify-env is the host tier now. It owns processes and PTYs, claims spawn requests, runs the
+# launchers and streams the consoles -- proven on real hardware on 2026-09-03 with no bridge
+# running at all. There is no longer a second spawner for this command to be, which is the whole
+# point of the environment tier.
+echo "aify-comms: this command starts nothing. The host tier is aify-env." >&2
+echo "  managed agents: run 'aify-env' (it owns processes and PTYs on this host)" >&2
+echo "  verify:         aify-comms doctor    (or --check, --version, --help)" >&2
+exit 2
 EOF
   chmod +x "$wrapper_path"
   install_windows_cmd_shim "aify-comms" "$wrapper_dir"
@@ -2950,11 +2909,10 @@ echo "                    aify-doctor         (same thing, kept as an alias)"
 
 echo ""
 echo "=== Installation complete ==="
-echo "Environment bridge launcher installed: aify-comms"
-echo "  Run it on each host/runtime environment you want visible in the dashboard."
-echo "  Default:  aify-comms"
-echo "  Extra root: aify-comms /path/to/extra/root"
-echo "  Remote service: aify-comms http://host:8800 /path/to/extra/root"
+echo "Verifier installed: aify-comms"
+echo "  aify-comms doctor    verify this install against the RUNNING system"
+echo "  aify-comms --check   validate the MCP bridge script (starts nothing)"
+echo "  Managed agents are hosted by aify-env. Run 'aify-env' for the host tier."
 if is_git_bash_windows; then
   echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\aify-comms.cmd"
 fi

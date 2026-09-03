@@ -1,18 +1,23 @@
-# Environment Bridge Setup
+# Host Tier Setup
+
+**The host tier is [aify-env](https://github.com/zimdin12/aify-env), and since v0.6.1 nothing in this repo starts one.** This page is kept because the CONCEPTS it describes — one host per execution environment, advertised workspace roots, supersession, the heartbeat — are unchanged and are what an operator needs. What changed is which process does it.
 
 The service container is the control plane. It stores messages, environments, spawn requests, sessions, and dashboard state. It does not directly launch native Windows, WSL, Linux, macOS, or remote processes.
 
-An environment bridge is a host-side `mcp/stdio/server.js` process. It heartbeats an environment, advertises workspace roots and runtimes, claims spawn requests for that environment, and runs Codex/Claude/OpenCode/Pi work on that host.
+**What it was.** An "environment bridge" was a host-side `mcp/stdio/server.js` process started by a bare `aify-comms`. It heartbeated an environment, advertised roots and runtimes, claimed spawn requests, and ran the work. Hosting moved to aify-env on 2026-08-25 and CLAIMING followed on 2026-09-02 — and the eight days between them cost a week, because every document said spawning had moved while the command stayed load-bearing. In v0.6.1 the command was reduced to a verifier, so the two can no longer disagree.
 
-Only the `aify-comms` launcher should advertise an environment. Normal Claude/Codex/Hermes/OpenCode/Pi MCP client sessions use the same stdio server for tools, messaging, and resident dispatch, but they do not register themselves as spawn targets. This prevents every open agent tab from appearing as a duplicate environment.
+**What it is.** `aify-env` owns processes and PTYs on the host. It heartbeats the environment, advertises roots and runtimes, claims spawn requests through its `aify-comms` plugin, resolves and runs the launcher, streams the console back, and reports liveness and exits. Proven on real hardware on 2026-09-03: six managed lanes up with no bridge running at all.
+
+Normal Claude/Codex/Hermes/OpenCode/Pi MCP client sessions use `server.js` for tools, messaging and resident dispatch, and do not register themselves as spawn targets. This is why every open agent tab does not appear as a duplicate environment.
 
 ## Quick Model
 
 - Run the service once, usually with Docker Compose.
-- Run one bridge per execution environment you want to target from the dashboard.
-- The dashboard **Environments** page should show each bridge as `online`.
-- Spawned agents can only use workspaces under that bridge's advertised roots.
-- The launcher always advertises the directory you run it from. Extra roots are optional.
+- Run one `aify-env` per execution environment you want to target from the dashboard.
+- The dashboard **Environments** page should show each host as `online`.
+- Spawned agents can only use workspaces under that host's advertised roots.
+- It always advertises the directory you run it from. Extra roots are optional.
+- **Starting one is the operator's action.** A second instance supersedes the first and reaps the predecessor's workers, so ask with `aify-env doctor` rather than starting one to find out.
 
 ## Start The Service
 
@@ -25,36 +30,35 @@ If another service already owns port `8800`, change the published port in Compos
 
 ## Installed Launcher
 
-Running `install.sh` installs an `aify-comms` launcher into `~/.local/bin` and copies the stdio bridge into a self-contained native directory (`~/.aify-comms` by default, overridable with `AIFY_HOME`) for fast cold loads. The launcher runs `server.js` from that native copy. On native Windows when installed from Git Bash, it also installs `aify-comms.cmd` so PowerShell and `cmd.exe` can launch it.
+Running `install.sh` installs an `aify-comms` command into `~/.local/bin` and copies the stdio bridge into a self-contained native directory (`~/.aify-comms` by default, overridable with `AIFY_HOME`) for fast cold loads. MCP clients run `server.js` from that native copy. On native Windows when installed from Git Bash, it also installs `aify-comms.cmd`.
 
 Installed files:
 
 - Linux/macOS/WSL/Git Bash: `~/.local/bin/aify-comms`
 - Native Windows PowerShell/cmd after Git Bash install: `%USERPROFILE%\.local\bin\aify-comms.cmd`
 
-Basic usage:
+**It is a verifier. Every branch reads; none of them starts anything:**
 
 ```bash
-aify-comms                                    # STARTS the environment bridge (see the warning below)
-aify-comms --check                            # validate the launcher WITHOUT starting or registering anything
 aify-comms doctor                             # the verifier (`aify-doctor` is the older name for it)
+aify-comms --check                            # validate the installed MCP bridge script
+aify-comms --version                          # installed SHA, plus a behind-count against origin/main
 aify-comms --help
-aify-comms /path/to/extra/root /another/root
-aify-comms http://host:8800 /path/to/extra/root
+aify-comms                                    # refuses, and points at aify-env
 ```
 
-> **`aify-comms` with no arguments is not a smoke test.** It starts a real environment bridge,
-> which **supersedes** whatever bridge is already serving this environment: the older one exits and
-> its managed workers are reaped. On 2026-08-11 a four-second `aify-comms` run — intended only to
-> confirm the launcher still started — superseded the live bridge and then died with it, leaving the
-> host with no environment bridge and nine managed agents down mid-work. Use `--check` to validate
-> the launcher; use `aify-comms doctor` to check the install.
+> **The removal, v0.6.1.** A bare `aify-comms` used to start a real environment bridge, which by
+> design **superseded** whatever bridge was already serving the environment: the older one exited and
+> its managed workers were reaped. On 2026-08-11 a four-second run — intended only to confirm the
+> launcher still started — did exactly that, leaving the host with no bridge and nine managed agents
+> down mid-work; on 2026-08-20 a backtick inside an unquoted heredoc executed the name and took seven
+> more. The mitigation was a rule everybody had to remember, which is a defect with a delay on it.
+> aify-env is the host tier and there is no second spawner for this command to be, so the exec is
+> gone and a bare run exits 2 naming where managed agents live.
 
-If no server URL is passed, the launcher uses `AIFY_SERVER_URL` or falls back to the URL provided during install, then `http://localhost:8800`. The current directory is always included in `AIFY_CWD_ROOTS`; `AIFY_CWD_ROOTS` and extra command-line roots add more allowed workspace boundaries. Unknown option-looking arguments fail fast instead of becoming roots, and the service also ignores flag-like roots from stale launchers.
+To start the host tier, run `aify-env` in the environment you want the dashboard to control. If no server URL is passed it uses `AIFY_SERVER_URL`, then the URL provided during install, then `http://localhost:8800`. The current directory is always included in `AIFY_CWD_ROOTS`; `AIFY_CWD_ROOTS` and extra command-line roots add more allowed workspace boundaries.
 
-The launcher passes `--environment-bridge` to the stdio server. That process argument is what turns the stdio server into a dashboard spawn target. Do not set the legacy `AIFY_ENVIRONMENT_BRIDGE=1` flag for ordinary MCP client sessions unless you intentionally want that process to claim dashboard spawn requests.
-
-Roots are not the project choice for every agent. They are safety boundaries that say "this bridge may launch agents somewhere under here." The exact project folder is selected per spawned agent in the dashboard.
+Roots are not the project choice for every agent. They are safety boundaries that say "this host may launch agents somewhere under here." The exact project folder is selected per spawned agent in the dashboard.
 
 Run this once in each environment you want the dashboard to control:
 
