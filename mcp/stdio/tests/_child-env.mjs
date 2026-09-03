@@ -34,6 +34,48 @@ export const LIVE_ENV_CARRIERS = Object.freeze([
 ]);
 
 /**
+ * The files a child would find the LIVE FLEET through, even with every carrier above removed.
+ *
+ * MEASURED 2026-09-03, and it cost the operator's host its spawn claim for two minutes. The
+ * cross-repo tests start a REAL aify-env from the checkout and seal `AIFY_SERVER_URL` — but
+ * aify-env does not need it. It finds its service through the REGISTRY, `~/.aify/services.json`,
+ * and its credential through `~/.aify` beside it. So the test daemon read the operator's real
+ * registry, discovered the live aify-comms, loaded its plugin, and started CLAIMING against
+ * production: `windows:StevenZ-L:default` changed hands, the operator's aify-env began answering
+ * "not the claimer", and when the test daemon exited it left a stale claim behind. New spawns could
+ * not be claimed by anything until a reconciler released it.
+ *
+ * SEALING AN ENV VAR IS NOT SEALING AN INPUT. This repo already has that lesson written down for
+ * `.env` and for `~/.claude.json`; a registry on disk is the same shape, and the previous carrier
+ * list looked complete precisely because every name in it was a variable.
+ *
+ * Pointed at a directory the test owns rather than unset: unset falls back to the home directory,
+ * which is the file being sealed against.
+ */
+/** A path that exists nowhere, so a reader finds nothing rather than the operator's file. */
+export const SEALED_PATH = "/aify-sealed-in-tests/does-not-exist.json";
+
+export const LIVE_FILE_CARRIERS = Object.freeze([
+  "AIFY_SERVICE_REGISTRY",
+  "AIFY_ENV_PROCESS_RECORD",
+]);
+
+/**
+ * AND ONE THAT HAS NO OVERRIDE, recorded rather than pretended away.
+ *
+ * `credentialRoot()` in aify-env is `path.join(os.homedir(), ".aify", "credentials")` with no
+ * environment variable in front of it, so a child cannot be pointed away from the operator's real
+ * credential store except by moving HOME. Sealing the registry is what stops a test daemon FINDING
+ * a service to claim, which is the harm that was measured; the credentials it could still read are
+ * the operator's own and it now has no service to spend them on.
+ *
+ * Named here so the next person does not add "AIFY_CREDENTIAL_ROOT" to the list above and believe
+ * they have sealed something -- a variable nothing reads is a seal that cannot hold, and this repo
+ * spent a night on defects of exactly that shape.
+ */
+export const UNSEALABLE_BY_ENV = Object.freeze(["aify-env credentialRoot() -> os.homedir()"]);
+
+/**
  * `process.env` with every live carrier REMOVED, then `extra` applied.
  *
  * Pass this as `env` to spawn/spawnSync/fork. `extra` is for what the test wants the child to see — including
@@ -42,6 +84,11 @@ export const LIVE_ENV_CARRIERS = Object.freeze([
 export function sealedChildEnv(extra = {}) {
   const env = { ...process.env };
   for (const name of LIVE_ENV_CARRIERS) delete env[name];
+  // FILE CARRIERS ARE POINTED AWAY, NOT DELETED. Deleting one falls back to the home directory,
+  // which is the file being sealed against -- so an unset `AIFY_SERVICE_REGISTRY` is not a seal, it
+  // is the default. A caller that wants a real registry passes one through `extra`, which is applied
+  // below and wins.
+  for (const name of LIVE_FILE_CARRIERS) env[name] = SEALED_PATH;
   for (const [key, value] of Object.entries(extra)) {
     if (value === undefined) delete env[key];
     else env[key] = String(value);

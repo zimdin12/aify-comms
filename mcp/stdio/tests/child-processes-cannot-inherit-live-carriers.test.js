@@ -26,7 +26,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { LIVE_ENV_CARRIERS, sealedChildEnv, leakedCarriers } from "./_child-env.mjs";
+import { LIVE_ENV_CARRIERS, sealedChildEnv, leakedCarriers, LIVE_FILE_CARRIERS, SEALED_PATH } from "./_child-env.mjs";
 
 const TESTS = fileURLToPath(new URL(".", import.meta.url));
 
@@ -82,6 +82,12 @@ const saved = new Map(LIVE_ENV_CARRIERS.map((n) => [n, process.env[n]]));
 try {
   Object.assign(process.env, hostile);
   const sealed = sealedChildEnv();
+  // FILE CARRIERS TOO. `leakedCarriers` only watches the variable list; a registry path is sealed by
+  // being POINTED AWAY rather than removed, so it is asserted by value.
+  for (const name of LIVE_FILE_CARRIERS) {
+    assert.equal(sealed[name], SEALED_PATH,
+      `${name} still points at a real file, so a child can find the live fleet through it`);
+  }
   assert.deepEqual(leakedCarriers(sealed), [],
     "sealedChildEnv left a carrier in place — the helper, not the callers, is broken");
   // …and it must still pass ordinary variables through, or callers would quietly lose PATH.
