@@ -268,8 +268,19 @@ add a resident to the operator's fleet, which is theirs to decide. The pieces ar
 `aify-env attach` resolves and refuses correctly against the live host, the rendered launcher carries
 the branch, and all five suites are green.
 
-**REMAINING:** wire codex, hermes and pi (one small change each), and prove one shared session end to
-end when the operator is awake.
+**ALL FOUR WRAPPERS NOW OFFER IT** (aify-wrapper `993041b6`, pin `8369658a` -> this commit). The
+block copied unedited, as designed; each placement is just above whatever that wrapper launches.
+
+**A real bug came out of generating three copies:** `"$CODEX_PASSTHRU_EXPANSION"` -- a variable that
+does not exist. Bash accepts it, `bash -n` passes, and the relaunched wrapper would have received ONE
+EMPTY ARGUMENT instead of everything the operator typed. A wrong expansion is silent in exactly the
+way a missing one is not. The test now requires the exec line to end in the launcher's OWN expanded
+array, and a second assertion requires the branch to be REACHABLE -- `if false` left the exec line in
+place and every other assertion green, which is the "a guard that cannot fire is decoration" shape.
+
+**REMAINING:** prove one shared session end to end. That means starting a resident through
+`--shared` on this host, which adds a session to the operator's fleet -- theirs to decide, so it
+waits.
 
 ## The architecture constraint that governs all of it
 
