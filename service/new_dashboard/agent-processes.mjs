@@ -51,6 +51,8 @@ function cells(terminal) {
     runtime: String(terminal?.runtime || ''),
     updatedAt: String(terminal?.updatedAt || terminal?.updated_at || ''),
     reason: endReason(terminal, status),
+    // THE SESSION THIS TERMINAL BELONGS TO, which is what makes the console reachable from here.
+    sessionId: String(terminal?.sessionId || terminal?.session_id || ''),
   };
 }
 
@@ -126,13 +128,25 @@ export function renderAgentProcesses(terminals, { error = '' } = {}) {
     // service sends something unexpected -- and an empty cell reads as "no data" rather than "the
     // value made no sense". Same fails-closed rule the drawer's own last-seen row documents.
     `<td>${relTimeHtml(t.updatedAt) || '<span class="subtle">—</span>'}</td>`,
+    // REUSES THE DRAWER'S OWN HANDLER rather than adding a second one. `data-agent-open-sessions`
+    // already means "select this session and show the Sessions page", and the delegated dispatcher
+    // already serves it -- so this costs no new wiring, and there is one implementation of that jump
+    // with two callers instead of two implementations that agree until one is edited.
+    //
+    // OMITTED WHEN THERE IS NO SESSION, not rendered disabled: a console terminal whose session row
+    // has gone has nothing to open, and a button that looks clickable and addresses nothing is worse
+    // than no button. `state.selectedSessionTab` defaults to 'console', so this lands on the console
+    // unless the operator had already switched tabs -- which is their own state, not ours to reset.
+    `<td>${t.sessionId
+      ? `<button class="ghost" data-agent-open-sessions="${esc(t.sessionId)}" title="Open this terminal's session in the Sessions page">Open</button>`
+      : '<span class="subtle">—</span>'}</td>`,
     '</tr>',
   ].join('')).join('');
   const liveCount = list.filter((t) => t.live).length;
   return [
     `<p class="subtle">${list.length} terminal(s), ${liveCount} live.</p>`,
     '<table class="agent-processes"><thead><tr>',
-    '<th>Terminal</th><th>Status</th><th>PID</th><th>Size</th><th>Updated</th>',
+    '<th>Terminal</th><th>Status</th><th>PID</th><th>Size</th><th>Updated</th><th></th>',
     '</tr></thead><tbody>',
     body,
     '</tbody></table>',

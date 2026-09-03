@@ -208,3 +208,58 @@ test("a reason is ESCAPED, because it carries host-authored text", () => {
   assert.ok(!/<img/.test(html), "an error string was rendered as markup");
   assert.match(html, /&lt;img/);
 });
+
+// ── reaching the console from the row that names the terminal ─────────────────────────────────────
+//
+// B5 asked for the console behind the same click. It is reached by REUSING the drawer's own
+// `data-agent-open-sessions` handler rather than adding a second one: that attribute already means
+// "select this session and show the Sessions page" and the delegated dispatcher already serves it.
+// One implementation of the jump with two callers, instead of two that agree until one is edited.
+
+test("A TERMINAL WITH A SESSION OFFERS A WAY INTO IT", () => {
+  const html = renderAgentProcesses([terminal({ sessionId: "sess_abc" })]);
+  assert.match(html, /data-agent-open-sessions="sess_abc"/,
+    "no way to reach the console for a terminal that has a session");
+});
+
+test("IT CARRIES THE TERMINAL'S OWN SESSION, not the agent's or the first one seen", () => {
+  // The failure that would look correct: a button wired to the wrong session opens SOMEBODY's
+  // console, which reads as working. Two rows, two sessions, checked independently.
+  const html = renderAgentProcesses([
+    terminal({ id: "t1", sessionId: "sess_one" }),
+    terminal({ id: "t2", sessionId: "sess_two" }),
+  ]);
+  assert.match(html, /data-agent-open-sessions="sess_one"/);
+  assert.match(html, /data-agent-open-sessions="sess_two"/);
+});
+
+test("a terminal with NO session offers nothing rather than a dead button", () => {
+  // A console terminal whose session row has gone has nothing to open, and a button that looks
+  // clickable and addresses nothing is worse than no button.
+  const html = renderAgentProcesses([terminal({ sessionId: "" })]);
+  assert.ok(!/data-agent-open-sessions/.test(html), "a terminal with no session got a live button");
+});
+
+test("the session id is ESCAPED into the attribute", () => {
+  // It lands inside an HTML attribute, so a quote in it would end the attribute early.
+  //
+  // ASSERTED ON THE ESCAPING, not on the absence of the payload -- which is what my first version
+  // did, and it failed against correct code. `esc` turns `"` into `&quot;`, so the words
+  // `onmouseover=` survive as inert TEXT and a regex looking for them matches a safe render. The
+  // question is whether the quote still closes the attribute, so that is what this checks.
+  const html = renderAgentProcesses([terminal({ sessionId: '" onmouseover="alert(1)' })]);
+  assert.match(html, /data-agent-open-sessions="&quot;/, "the quote was not escaped");
+  assert.ok(!/data-agent-open-sessions="" /.test(html), "the attribute was terminated by its value");
+});
+
+test("the header still has a cell for every column the rows render", () => {
+  // A row with six cells under a five-column header renders the last one outside the table on some
+  // browsers, which is the kind of thing only a count catches.
+  const html = renderAgentProcesses([terminal({ sessionId: "sess_abc" })]);
+  // `<th>` EXACTLY. `<th[^>]*>` also matches `<thead>`, which is how my first version reported
+  // "6 cells under 7 headers" against a table that balances.
+  const headers = (html.match(/<th>/g) || []).length;
+  const firstRow = html.slice(html.indexOf("<tbody>"));
+  const cellsInRow = (firstRow.slice(0, firstRow.indexOf("</tr>")).match(/<td[^>]*>/g) || []).length;
+  assert.equal(cellsInRow, headers, `${cellsInRow} cells under ${headers} headers`);
+});

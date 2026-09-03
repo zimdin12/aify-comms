@@ -510,7 +510,24 @@ solved it by narrowing to one runtime. See D9.
   existing anywhere, so the assertion passed by describing nothing. It now uses a fixture with a
   stale `error` string, the input that would actually leak a reason onto a live row.
 
-  **Still open under B5:** the console behind the same click.
+  **FOURTH SLICE: THE CONSOLE, REACHED FROM THE ROW THAT NAMES THE TERMINAL.** Each row with a
+  session carries an Open button -- and it REUSES the drawer's existing `data-agent-open-sessions`
+  handler rather than adding a second one. That attribute already means "select this session and show
+  the Sessions page", the delegated dispatcher already serves it, and `state.selectedSessionTab`
+  defaults to `console`. So this cost no new wiring, no click-dispatch edit and no extraction
+  declaration: one implementation of the jump with two callers, instead of two that agree until one
+  is edited. A terminal with no session gets no button rather than a dead one.
+
+  **B5 IS DONE** for what was asked: terminals, pids, why a dead one died, recent runs, and a way
+  into the console. Three mutations on this slice, each reddening its own test.
+
+  **TWO OF MY OWN TEST REGEXES WERE WRONG, and the failures were mine rather than the code's.** One
+  asserted a hostile session id was safe by looking for the absence of `onmouseover=` -- but `esc`
+  turns `"` into `&quot;`, so the words survive as inert text and the assertion failed against
+  CORRECT code; it now checks that the quote was escaped. The other counted `<th[^>]*>`, which also
+  matches `<thead>`, and reported "6 cells under 7 headers" for a table that balances. Both were
+  checked against the code before changing anything -- the same "measurement tools lie quietly" rule,
+  applied to my own assertions.
 
   **AND A NAMED FLAKE, previously unnamed.** aify-env's `doctor-live.test.js` --
   "against a live environment, owned processes are reported as PASSED rather than unanswered" --
