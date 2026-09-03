@@ -1368,6 +1368,24 @@ solved it by narrowing to one runtime. See D9.
 - **E2. Independent dev review of my own commits.** 38 of the Round 7 commits are mine and I cannot
   close them myself.
 
+  **SELF-AUDIT OF 2026-09-03's WORK, 21:00-22:20 UTC. It narrows where a reviewer should look; it
+  does NOT substitute for one** -- the claimant is the last person who should certify the claim, and
+  two of the things below are corrections to my own earlier claims from the same day.
+
+  | audited | result |
+  |---|---|
+  | D13's call site (`terminal_controls` -> `append_outside_the_queue`) | COVERED. A first grep said nothing drove it; that grep read FILES, not PATCHes. 18 control-PATCH sites, 2 with output; `test_terminal_controls_claim_update_and_output_buffer` asserts the text reaches `GET /terminals/{id}`, and neutering the method reddens it. |
+  | A3's join (snapshot -> `renderDashboard`) | PINNED. The test drives `collectSnapshot`, the real path. Removing `checks` from the snapshot reddens 3 tests. |
+  | D10/D11/`claude-auth-check` -- do the extracted modules have callers? | YES, all three entry points are called by `doctor.js`. The remaining exports exist for the agreement test and the unit tests, which `every-export-is-named-by-a-test` already requires. |
+  | the cross-repo `CREDENTIAL_DIR_NAME` | PINNED against aify-env's REAL source by `the-credential-ref-we-write-is-one-aify-env-resolves.test.js`, which fails rather than skips when the checkout is absent. Renaming ours to "creds" reddens it. |
+  | the dashboard panel race I introduced and fixed | COVERED by 4 tests including the positive control ("the ordinary case still writes"). Making `stillShowing` always true reddens 3. |
+  | the tool-surface parser fix -- did it move any existing number? | NO. Ceilings diffed before and after: zero of the 34 existing tools changed value, so parsing interpolation holes preserved every measurement. |
+  | `claude-login` against the real credential file | PROVEN, by running the CHECKOUT's doctor. Not installed -- see the operator list. |
+
+  **Two findings of mine were WITHDRAWN or DEFLATED the same day** (D12 entirely; D15's severity,
+  once the reader turned out to be the column). A reviewer should weigh that when reading anything
+  else here that carries my name.
+
 ---
 
 ## A note on history, so the record is navigable
