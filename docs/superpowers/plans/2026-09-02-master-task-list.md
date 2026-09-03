@@ -54,7 +54,7 @@ question is still open, which is what a lazy refresh looks like rather than a st
 |---|---|
 | `docker compose up -d --build` | **8** commits changed service code (doctor, ~20:10 UTC) -- incl. VERSION 0.6.2, recording a terminal's real size, and D13's lost-update fix on terminal output |
 | re-run `install.sh` | **14** commits changed `mcp/stdio/` (doctor, ~20:10 UTC) -- incl. the doctor's D10/D11 fixes, **the `claude-login` check that is not yet installed**, and 1,301 characters off `tools/list` |
-| restart aify-env | 10 commits inert until then, incl. the pty-size fix and `aify-env run` |
+| restart aify-env | ~13-15 commits inert until then, incl. the pty-size fix, `aify-env run`, and D16's TUI fix |
 
 **3. DECISIONS, each blocking something specific.**
 - **Per-agent consumption collector** -- blocks deleting ~1,800 lines of retired bridge modules. Move
@@ -1368,6 +1368,36 @@ solved it by narrowing to one runtime. See D9.
   merely the write. Nine call sites is a real slice, and doing it on suspicion -- with no
   demonstrated loss, on the module that owns agent identity -- is not a night's work with the
   operator asleep.
+
+- **D16. THE DAEMON'S OWN MESSAGES WENT THROUGH THE VIEW INSTEAD OF INTO IT. Operator-reported
+  2026-09-04, FIXED** (aify-env `037db5c`, inert until a restart).
+
+  The operator pasted their own aify-env screen with three lines of
+  `[aify-env] terminal term_1788413603585_300f67a3 output not delivered: fetch failed` wedged into
+  it -- one above the SERVICES table, one below it, one above the PROCESSES heading -- and the
+  layout coming apart around them.
+
+  **TWO WRITERS ON ONE TERMINAL.** `bin/aify-env.mjs` gave the plugin host a log sink writing to
+  stderr; `dashboard.mjs` writes frames to stdout. `frameUpdate` is DIFFERENTIAL -- it repaints only
+  changed rows, addressed by cursor position -- so a stray line shifts every row below it and the
+  writer's model of the screen stops matching the screen. Every later frame then paints in the wrong
+  place, which is why the damage is layout-wide rather than three spare lines. Nothing anywhere tied
+  logging to whether the view owned the screen; measured across all 23 files touching that sink,
+  zero guards.
+
+  **SILENCING THEM WOULD HAVE BEEN THE WRONG FIX.** "output not delivered: fetch failed" is this
+  environment reporting it could not hand a running agent's console to the service -- the thing a
+  dashboard exists to show. They are kept in a bounded ring (`lib/notices.mjs`), repeats collapsed to
+  a count because that message fires every poll, and drawn as a NOTICES section beside RECENT EXITS.
+  A quiet environment draws no section. Routing keys on the view HAVING STARTED rather than on the
+  intent to start it: `startDashboard` can throw and the daemon carries on serving, and a message
+  swallowed into a ring nobody renders is worse than one printed over a frame.
+
+  **MY OWN JOIN TEST WAS WRONG FIRST AND A MUTATION CAUGHT IT.** It called `collectSnapshot` and then
+  attached `snapshot.notices` BY HAND, so deleting the line in `dashboard.mjs` that actually attaches
+  them left it green -- the identical defect A1 and A2 shipped with, in a file whose header claims to
+  avoid it. Rewritten to drive `startDashboard` with `once` and a captured `write`, it reddens on
+  that mutation. Third time in two days that a fixture sat where the code never reads it.
 
 ---
 
