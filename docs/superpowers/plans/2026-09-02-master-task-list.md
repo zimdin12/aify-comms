@@ -237,9 +237,23 @@ in the file and the one the operator has raised most often.
 - **A2. Control a managed agent's TUI directly from aify-env** (09-02). The operator names
   [herdr](https://github.com/ogulcancelik/herdr) as the model: a persistent headless server plus a
   TUI client that attaches to REAL terminals, not redraws.
-  **Open design question, settle before building:** whose PTY is it? aify-env owns the PTYs it
-  spawns; the bridge owns the managed hermes ones. Attaching means either moving those PTYs into
-  aify-env or attaching through aify-comms. Establish which before designing on top of it.
+  ~~**Open design question, settle before building:** whose PTY is it?~~ **SETTLED BY EVENTS
+  2026-09-03: aify-env owns every managed PTY, because it starts them.** The bridge owned none by
+  then; there was nothing left to reconcile.
+
+  **DONE, and it was already built** (aify-env `5dc1ebd`). `ConsoleSession` owns the selection and
+  the follower, `OutputFollower` streams `/processes/:id/output`, `composeConsole` renders the pane,
+  and `aify-env tui` POSTs keystrokes back to `/processes/:id/input` -- attach, not redraw, which is
+  the herdr property the operator asked for.
+
+  **PROVEN LIVE:** following `sc-lead` on the operator's host returns its real claude TUI, 170 frames
+  in eight seconds.
+
+  **What was missing was the proof, exactly as with A1.** Every console test used hand-written
+  frames, so nothing exercised what a real claude sends. Six tests now drive a 933-byte live capture
+  and pin two facts only a real one shows: the wire is JSON (backslash-u-0-0-1-b as six characters,
+  no raw ESC byte anywhere in 110KB -- a missing `JSON.parse` puts literal escape text on screen),
+  and claude MOVES THE CURSOR instead of printing spaces. Three mutations.
 - **A3. The TUI shows what the doctor shows** (08-24 16:15, and item 3 of the TARGET_ARCHITECTURE
   work order). `aify-env doctor` exists and works; the TUI does not render it.
 - **A4. Bare `aify-env` opens the TUI** (08-24 20:19). Today a bare `aify-env` STARTS the environment
