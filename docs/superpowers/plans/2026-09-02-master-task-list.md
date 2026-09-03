@@ -494,8 +494,31 @@ solved it by narrowing to one runtime. See D9.
   aify-project-graph will be the real test of it.
 - **C4. The install-time key** (09-01, restated 09-02). *"when installing first time agent should ask
   for it. if installing aify-comms + aify-env + aify-wrapper (full local install) then ofc all these
-  can have one ask and use same key."* The installer now CARRIES a key it finds; it does not yet ASK
-  for one.
+  can have one ask and use same key."* ~~The installer now CARRIES a key it finds; it does not yet ASK
+  for one.~~ **ALREADY DONE -- this entry was stale, corrected 2026-09-03 by reading the code rather
+  than the note.**
+
+  `scripts/api-key.sh --ask` exists and `install.sh:2707` calls it on every install that is not
+  `--with-api-key`. It resolves shell then `.env`, and only when both are empty does it prompt --
+  reading from `/dev/tty` rather than stdin, with echo off, restored on every exit path including an
+  interrupt, and persisting to `.env` so the next command does not ask again.
+
+  **BOTH BEHAVIOURS VERIFIED, not just read.** On this host `--ask` with stdin closed returns the
+  existing key and never prompts. On a keyless host with no terminal it is silent, writes nothing and
+  exits 0 -- "no terminal means no ask", which is what keeps an unattended install honest.
+
+  **And one ask already serves all three components**, which was the other half of the request:
+  `install.sh:2711` pipes the resolved key to `scripts/credential-carrier.sh`, which puts it in
+  aify-env's credential store and returns the `CREDENTIAL_REF` written into the registry; the wrapper
+  reads it through `keyEnv`. Nothing further to build.
+
+  **FOUND WHILE VERIFYING, and it is the operator's call: THE LIVE API KEY IS 6 CHARACTERS.**
+  `MIN_KEY_LENGTH` in the same script is 32, and `key_is_weak` warns below it -- "it reads as
+  protection while being guessable". Cross-checked two ways: the resolver returns 6 characters, and
+  the credential-store file is 7 bytes. Not touched, because rotating it 401s every installed bridge
+  until each is reinstalled, and `--with-api-key` deliberately REUSES an existing key rather than
+  rotating for exactly that reason. Worth a deliberate rotation the next time the fleet is being
+  reinstalled anyway.
 - **C5. Terminal write path, the full fix** (operator chose the full option 09-02): move the two
   status-path readers off the stored tail, then write it lazily. Scoped: both readers want the
   rendered screen, and the live screen is already rendered, so they skip a pyte render as well as a
