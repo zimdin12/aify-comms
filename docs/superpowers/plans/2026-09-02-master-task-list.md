@@ -507,12 +507,37 @@ solved it by narrowing to one runtime. See D9.
   | `bridge-current` | NOT SURFACEABLE -- `bridgeBuild` no longer arrives; root-caused above |
   | `context-window` | REMAINING -- neither computed service-side nor in the dashboard |
 
-  **`context-window` is the real remaining work**, and it is the pattern `env-bridge` already
-  demonstrates: compute it in the service, have the dashboard read it, and agree with
-  `mcp/stdio/context-window-check.mjs` over one corpus. The service has what it needs -- the console
-  log is in `terminal_sessions.output` and `terminal_snapshot.py` already renders screens -- so the
-  check reads the runtime's own footer (`922.4k/900k`) off a rendered screen rather than the wrapped
-  percentage, which is what the doctor's own note says survives a dying agent's shredded display.
+  **`context-window` IS NOT SURFACEABLE EITHER, measured 2026-09-03 -- so B4 is CLOSED as far as it
+  can honestly go.** The check reads the runtime's own footer (`820.3k/900k`). Searched every
+  terminal in the live database: **0 of 20 with stored output carry that pair.** Three live
+  snapshots parsed with the doctor's own `parseContextUsage` returned NOT READABLE. Controls both
+  ways -- the same regex finds the pair in the footer the doctor's header documents, and rejects a
+  claude-code status line -- so the zero is an answer, not a broken instrument.
+
+  The reason: that footer is a HERMES shape. All five live terminals are `claude-code`, whose footer
+  carries no such pair, and the check is not runtime-scoped -- it filters on `consoleAvailable &&
+  sessionMode === "managed"` and tries them all. 17 hermes agents are registered; none has a live
+  console.
+
+  **AND THE CLI IS EQUALLY BLIND, which is the point.** `aify-comms doctor` on this host right now:
+
+  | check | CLI verdict |
+  |---|---|
+  | `env-bridge` | `ok` -- 1 online, 1 registered but cannot host a spawn |
+  | `session-handles` | `shared` -- 3 sessions, 8 agents |
+  | `bridge-current` | `unknown-all` -- no live bridge reports a build |
+  | `context-window` | `unknown-all` -- "none of 20 console(s) could be read" |
+
+  Two independent instruments agreeing on all four, including my own 0-of-20. So the two `unknown-all`
+  checks are NOT dashboard gaps -- they are blind checks, and surfacing them would put a permanent
+  "unknown" on screen. **Nothing is lost by not building them, and something would be lost by
+  building them: a panel that looks like an answer.**
+
+  **B4's real shape, against the plan's "four checks are answerable":** two are, and both are now in
+  the dashboard. Two are not, for different reasons -- `bridgeBuild` stopped being sent when the
+  heartbeat moved to aify-env, and the context footer only exists for a runtime with no live console
+  here. Reopen either when its data source comes back, and the pattern to use is `env-bridge`'s:
+  compute in the service, read in the dashboard.
 - **B5. Browse an agent and its processes** (09-02). *"i cannot still check the processes themself?
   (like browse agent or something)"* **FIRST SLICE DONE 2026-09-03: the PROCESSES panel.**
 
