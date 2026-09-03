@@ -27,14 +27,30 @@ import { normalizeSessionMode } from "./session-mode.mjs";
 import { spawnTriggeredAgent } from "./spawn-triggered-agent.mjs";
 import { formatQueuedRun } from "./tool-response-format.mjs";
 
+// EVERY AGENT PAYS THIS ON EVERY TURN. `tools/list` is always-loaded context, so a sentence here is
+// not written once -- it is re-read by every agent on every turn for the life of the fleet. It was
+// 2,638 characters; the rule applied to each sentence was whether it changes what the CALLER does.
+//
+// What went, and why, so it does not creep back:
+//   - Resident-vs-environment-managed trigger mechanics. True, and the caller cannot act on it:
+//     they do not choose the delivery path. Internals, not a contract.
+//   - The `managed_reply_capture_fallback` safety net, 294 characters, the longest sentence in the
+//     whole description. It named a config flag the agent cannot read and then told it not to rely
+//     on the behaviour -- so it changed nothing above the positive instruction two sentences up.
+//   - Deliverability was stated THREE times (managed-at-available, "`available` and `blocked` are
+//     both deliverable", blocked/completed-are-status-notes). One meaning, three places.
+//   - The two busy branches and the two queueIfBusy clauses, each a single fact split in half.
+//
+// And "do not send a courtesy acknowledgement" is now "leave it unanswered": a prohibition drags the
+// banned behaviour into context and makes it more available, so the target behaviour is named
+// instead. The requireReply phrasing is load-bearing -- three tests match on "omit requireReply",
+// "set requireReply=true" and "set requireReply=false", because each mode has to be findable.
 export const COMMS_SEND_TOOL_DESCRIPTION =
-  "Send a message to an agent by ID, or to all agents with a given role. " +
-  "This is live-delivery gated: if the target is offline, stopped, or lacks a live wake path, the message is not written. A MANAGED agent resting at `available` (no live worker yet — including a hermes whose gateway died) IS deliverable: the send cold-starts/wakes it. `available` and `blocked` are both deliverable. If the target is busy and steer-capable, ordinary sends steer into the active run between tool calls. If the target is busy but cannot steer, ordinary sends queue or merge as next-turn work. Use queueIfBusy=true only when the message should run after the active turn even when steer is available; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers. " +
-  "The special target dashboard stores a message for the human/operator without trying to start a runtime. " +
-  "Resident sessions trigger only when that exact runtime/session handle supports resident execution; environment-managed sessions remain the persistent fallback. " +
-  "Agents should answer messages that owe a reply with a comms_send tool call: use comms_send(type=\"response\", inReplyTo=<the message id>) in BOTH resident/live CLI sessions AND dashboard-managed delivered runs. Requests, reviews, errors, dashboard asks, and explicit reply contracts normally owe replies. A completion response, approval, info, or acknowledgement with no new question/work is read context: do not send a courtesy acknowledgement. That tool call is the team/chat-visible reply and closes the run; your final plain text / stdout is your own working output, not the delivered reply. (Safety net: if managed_reply_capture_fallback is enabled, a delivered run that ends without an explicit reply has its summary auto-mirrored back; do not rely on it for messages that owe replies.) Genuinely-direct terminal input you type yourself is answered with direct output, not comms_send. " +
-  "Reply tracking: omit requireReply for normal type-based behavior (`request`, `review`, and `error` owe replies; `info`, `response`, and `approval` do not). Set requireReply=true only when a normally optional message needs a tracked response. Set requireReply=false to drop the reply contract on `info`, `response` and `approval`; it does not stop the Work Loop, which enrols `request`, `review` and `error` by type whatever the flag says. requireReply changes the reply contract, not whether the target is woken. " +
-  "Keep messages scoped to one topic, state what you checked when truth matters, ask one clear question when blocked, and avoid reviving unrelated older context.";
+  "Send a message to an agent by ID, or to all agents with a given role. The target `dashboard` stores it for the operator without starting a runtime. " +
+  "LIVE-DELIVERY GATED: a target that is offline, stopped, or has no live wake path is not written at all. `available` and `blocked` ARE deliverable, including a managed agent with no live worker yet (a hermes whose gateway died), which the send cold-starts; agent-reported blocked/completed are status notes, not delivery blockers. A busy target is steered into its active run between tool calls when it can steer, and queued as next-turn work when it cannot. queueIfBusy=true forces the queue and ignores steer. " +
+  "REPLY WITH A TOOL CALL, in both live CLI sessions and dashboard-managed runs: comms_send(type=\"response\", inReplyTo=<the message id>). That call is the team-visible reply and closes the run; your final plain text is your own working output, not a delivered reply. Requests, reviews, errors, dashboard asks and explicit reply contracts owe one. A response, approval, info or acknowledgement carrying no new question or work is read context — leave it unanswered. Terminal input you typed yourself is answered in the terminal. " +
+  "Omit requireReply for type-based behaviour (`request`, `review` and `error` owe replies; `info`, `response` and `approval` do not). Set requireReply=true to track a normally optional message; set requireReply=false to drop the contract on `info`, `response` and `approval` — it does not stop the Work Loop, which enrols `request`, `review` and `error` by type whatever the flag says. requireReply changes the reply contract, not whether the target is woken. " +
+  "Keep each message on one topic and scoped to the recipient's own work, say what you checked when truth matters, and ask one clear question when blocked.";
 
 export function registerSendTools(server, z) {
 

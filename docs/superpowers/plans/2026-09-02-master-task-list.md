@@ -488,8 +488,33 @@ solved it by narrowing to one runtime. See D9.
   rendered screen, and the live screen is already rendered, so they skip a pyte render as well as a
   database read. `claim_block_reason.py` stays on the raw log -- it compares marker POSITIONS in the
   stream and a rendered screen loses that ordering.
-- **C6. `comms_send` unslop** -- tighten all 2,636 B rather than cut the reply contract. `tools/list`
-  costs ~7.9k tokens per agent per turn, so this is paid every turn by every agent.
+- **C6. `comms_send` unslop. DONE 2026-09-03**, and the surface it lives on is now gated.
+
+  `COMMS_SEND_TOOL_DESCRIPTION` went 2,638 -> 1,794 characters, a 32% cut, with the reply contract
+  intact. The test applied to each sentence was whether it changes what the CALLER does. What went:
+  the resident-vs-environment-managed trigger mechanics (true, and the caller does not choose the
+  delivery path); the `managed_reply_capture_fallback` safety net, at 294 characters the longest
+  sentence in the description, which named a config flag the agent cannot read and then said not to
+  rely on the behaviour; deliverability stated THREE times; and the two busy branches and two
+  queueIfBusy clauses, each one fact split in half. "Do not send a courtesy acknowledgement" became
+  "leave it unanswered" -- a prohibition makes the banned behaviour more available, not less.
+
+  **AND THE WHOLE SURFACE IS MEASURED NOW, which it never was.** `tests/tool-surface-size.mjs` parses
+  every `server.tool()` registration -- descriptions AND every `.describe()` on the schema, because on
+  several tools the schema half is the larger one -- and reports **30 tools, 14,491 characters, ~3,623
+  tokens**, re-read by every agent on every turn. `tool-surface-ratchet.test.js` holds each tool at
+  its measured size, may only go DOWN, fails on a tool with NO ceiling, and fails on a ceiling left
+  slack above its tool so the ratchet cannot quietly become a cap. Four mutations, each reddening
+  exactly its own test; a fifth broke the parser and correctly reddened the positive control.
+
+  **A gate caught a cut that went too far**, which is the system working:
+  `test_the_reply_flag_text_matches_the_contract` requires every agent-facing mention to NAME the
+  types it does not exempt, and shortening "enrols `request`, `review` and `error` by type" to
+  "enrols by type" broke it. Restored, at +32 characters.
+
+  **Follow-up, not done:** the SSE transport declares its own `comms_send` description as a docstring
+  in `service/sse/send_tools.py`. That is a second copy of one contract, and nothing makes the two
+  agree. Worth an agreement test rather than a rewrite.
 - **C7. Hook source: repo rather than the installed copy** (decided 09-01, reverses `e8856126`).
 
 ---
