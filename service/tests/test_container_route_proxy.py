@@ -118,7 +118,12 @@ class ContainerRouteTests(unittest.TestCase):
         """`defined`, `stopped` and `failed` all mean "not running now" — a failed container that an
         operator fixed upstream must come back on the next request rather than staying dead."""
         for status in (ContainerStatus.DEFINED, ContainerStatus.STOPPED, ContainerStatus.FAILED):
-            with self.subTest(status=status):
+            # THE SUBTEST LABEL IS A STRING, not the enum. Under `pytest -n` the subtest report is
+            # serialised across a process boundary by execnet, which cannot encode an arbitrary
+            # object -- so passing the enum fails the test in PARALLEL while passing alone, and the
+            # traceback names execnet's serializer rather than anything in this file. The value under
+            # test is unchanged; only the label a reporter prints is.
+            with self.subTest(status=status.name):
                 manager = self._manager({"a": definition()})
                 manager.states["a"].status = status
                 self._upstream()
