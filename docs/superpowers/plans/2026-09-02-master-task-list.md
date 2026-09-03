@@ -23,7 +23,7 @@ the grant. Whether a refresh EXTENDS that window is unresolved -- it answers its
 tonight, when the access token expires and a refresh is actually due.
 
   **THE CHECK ITSELF IS PROVEN ON THE REAL CREDENTIAL FILE, not merely green in tests.** Running the
-  CHECKOUT's doctor (`node mcp/stdio/doctor.js`, which installs nothing) at 21:45 UTC printed
+  CHECKOUT's doctor (`node mcp/stdio/doctor.js`, which installs nothing) between 20:00 and 20:25 UTC printed
   `claude-login  the claude login lapses in 15.7h ... The access token has 2.9h left and renews
   itself` -- the right verdict, the right hours, read from the operator's own
   `~/.claude/.credentials.json`. So re-running the installer definitely yields a working row; the
@@ -31,19 +31,29 @@ tonight, when the access token expires and a refresh is actually due.
 
   **AND THE ROW BUILT TO TRACK IT IS NOT RUNNING YET.** `claude-login` is in the checkout; the
   INSTALLED doctor at `~/.aify-comms` predates it -- `claude-auth-check.mjs` is not there, and a live
-  `aify-comms doctor` at 21:10 UTC printed 15 rows with no `claude-login` among them. So the one
+  `aify-comms doctor` between 20:00 and 20:25 UTC printed 15 rows with no `claude-login` among them. So the one
   instrument built for this deadline warns nobody until `install.sh` is re-run, which is the same
   silent-deploy shape this repo opens with: the code is written, the check is green in the suite, and
   the thing it watches is unwatched. Re-running the installer is already on the deploy list below
-  for other reasons; this is the item with a clock on it. **Read again at 18:40 UTC: both stamps UNCHANGED** -- access still
+  for other reasons; this is the item with a clock on it.
+
+  **A CORRECTION TO THIS ENTRY'S OWN TIMESTAMPS, 2026-09-03 20:25 UTC.** Several times written above
+  and in tonight's commits -- "21:10", "21:45", "21:00-22:20" -- were NOT READ. I had been piping the
+  clock probe through `tail -4`, which cut off the line carrying the time, and then wrote times
+  inferred from the scheduler's confirmations, which print in LOCAL time (UTC+3). The readings that
+  WERE printed in full are the true ones: 18:40, 19:38, 19:59 and 20:24 UTC, each unchanged. The
+  probe now prints the time in a banner it cannot lose, and the affected figures above are given as
+  the window they actually fall in rather than replaced with another guess. Nothing about the
+  DEADLINE changes -- both stamps come from the file, not from me -- but "state a mutable fact only
+  if you read it for that purpose, in that message" is exactly the rule this broke. **Read again at 18:40 UTC: both stamps UNCHANGED** -- access still
 expires 23:09:47, refresh still 11:57:46, 17.3h left. So no refresh has happened yet and the
 question is still open, which is what a lazy refresh looks like rather than a stalled one.
 
 **2. THREE DEPLOYS, none of which I should run.** The doctor names the size of each:
 | step | what is waiting |
 |---|---|
-| `docker compose up -d --build` | **8** commits changed service code (doctor, 21:10 UTC) -- incl. VERSION 0.6.2, recording a terminal's real size, and D13's lost-update fix on terminal output |
-| re-run `install.sh` | **14** commits changed `mcp/stdio/` (doctor, 21:10 UTC) -- incl. the doctor's D10/D11 fixes, **the `claude-login` check that is not yet installed**, and 1,301 characters off `tools/list` |
+| `docker compose up -d --build` | **8** commits changed service code (doctor, ~20:10 UTC) -- incl. VERSION 0.6.2, recording a terminal's real size, and D13's lost-update fix on terminal output |
+| re-run `install.sh` | **14** commits changed `mcp/stdio/` (doctor, ~20:10 UTC) -- incl. the doctor's D10/D11 fixes, **the `claude-login` check that is not yet installed**, and 1,301 characters off `tools/list` |
 | restart aify-env | 10 commits inert until then, incl. the pty-size fix and `aify-env run` |
 
 **3. DECISIONS, each blocking something specific.**
@@ -1368,7 +1378,7 @@ solved it by narrowing to one runtime. See D9.
 - **E2. Independent dev review of my own commits.** 38 of the Round 7 commits are mine and I cannot
   close them myself.
 
-  **SELF-AUDIT OF 2026-09-03's WORK, 21:00-22:20 UTC. It narrows where a reviewer should look; it
+  **SELF-AUDIT OF 2026-09-03's WORK, 20:00-20:25 UTC. It narrows where a reviewer should look; it
   does NOT substitute for one** -- the claimant is the last person who should certify the claim, and
   two of the things below are corrections to my own earlier claims from the same day.
 
