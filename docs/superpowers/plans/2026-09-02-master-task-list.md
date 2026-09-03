@@ -25,11 +25,22 @@ evidence.
 0.6.0 actually)... 0.6.1 needs to be working version of this (manually tested and prooven working and
 prooven install to be correct)."*
 
-**v0.6.1 IS ALREADY TAGGED** at `a9c963f0` (2026-09-02, today's fixes). Under this scope it is not
-v0.6.1 yet, so the tag ACCUMULATES and is re-cut when T1 and T2 land and are manually proven --
-consistent with the operator's earlier *"make tag now, but all fixes... should all be added to this
-tag later on."* Manual proof is a release gate here, not a nicety: today produced four separate cases
-where every automated check was green and the thing did not work.
+**v0.6.1 IS CUT AND PUSHED at `b7d77fdf`, 2026-09-03**, force-moved from `a9c963f0` exactly as this
+paragraph said it would be: the tag ACCUMULATES and is re-cut when T1-T4 land and are manually
+proven -- the operator's *"make tag now, but all fixes... should all be added to this tag later
+on."*
+
+Manual proof was a release gate here, not a nicety, and it earned its place twice over: the night of
+2026-09-02/03 produced SEVEN separate cases where every automated check was green and the thing did
+not work -- the prompt answerer that never fired, the liveness frame that wrote nothing, the guard
+whose input nothing wrote, the `claimed` spawn nothing aged out, the orphan rule that would have
+killed a working agent, the leaked carrier a permissive fake hid, and a deploy-delta tool that
+reported "no change" for every update because its input was CRLF.
+
+What was proven by hand before the tag moved: six managed lanes with no bridge running; a bare
+`aify-comms` exiting 2 on the operator's PATH; `redeploy.sh` end to end across three clients with
+the delta reporting honestly; the deployed build reading `b7d77fdf == repo HEAD`; and the operator's
+four agents still running through all of it.
 
 - **T1. Optimize the test stack. TAG: v0.6.1** (the operator moved it back on 2026-09-02: *"t1 -
   optimizing our tests and fixing separation of concerns should be in 0.6.1"*). **PREMISE TESTED

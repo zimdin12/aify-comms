@@ -78,64 +78,34 @@ by the removal today. `managed-orphans` reports no delivery loops, `bridge-curre
 `unknown-all` (no bridge reports a build), `usage/consumption` is empty, and the OpenAI pool is
 collected by the SERVICE, not the bridge.
 
-## THE TAG: v0.6.1 WAS ALREADY CUT AND PUSHED, on 2026-09-02
+## v0.6.1 IS CUT AND PUSHED, 2026-09-03
 
-`v0.6.1` points at `a9c963f0` on the remote. **Twenty-eight commits sit after it** -- every fix from
-the night of 2026-09-02/03, including the four that decide whether the fleet works at all. So the
-instruction "close the tag and push it" was already satisfied before it was given, and the work since
-has no tag.
+`v0.6.1` -> `b7d77fdf`, force-moved from `a9c963f0` and published. That is the operator's own scope
+for it: the tag ACCUMULATES and is re-cut when T1-T4 land and are MANUALLY proven -- *"make tag now,
+but all fixes should all be added to this tag later on"* -- recorded in
+`2026-09-02-master-task-list.md`. The previous target carried the dashboard/API-key fixes and none of
+the separation-of-concerns work the release is named for.
 
-**Not tagged by me, deliberately.** The delegation named ONE tag, and that tag exists; cutting a
-different number is a release decision that changes the operator's plan, since `v0.6.2` is currently
-reserved in this file for the resident-TUI feature set. Two options, both cheap:
+**The manual bar, met and recorded rather than asserted:**
 
-- **ship this as v0.6.2** and move the feature work to v0.6.3 -- the fixes are substantial and the
-  published v0.6.1 does not contain them;
-- **move `v0.6.1`** to HEAD -- rewrites a published tag, so the operator's call, not mine.
+| claim | evidence |
+|---|---|
+| the host tier runs the fleet | six managed lanes up with no bridge running; four alive now |
+| the command starts nothing | a bare `aify-comms` exits 2 on the operator's PATH |
+| the install is correct | `redeploy.sh` end to end, 3 clients, exit 0; `service`, `bridge-installed`, `skills-installed`, `spawn-delegation`, `env-bridge`, `env-processes` all green |
+| the deployed build IS the tag | `service` reads `b7d77fdf == repo HEAD` |
+| the update path proves itself | the delta reported 4 pre-existing failures as "was already", 0 broken, 0 falsely fixed |
+| the fleet survived it | sc-lead, sc-tester, sc-critic, sc-coder still running, liveness 1-49s fresh |
 
-Everything else for a release is ready: `VERSION`, `mcp/stdio/version.js`, both package files and
-`.claude-plugin/plugin.json` all read 0.6.1 and agree, the service is deployed and `aify-comms
-doctor`'s `service` check reads `build == repo HEAD`, and all three clients are reinstalled.
+**Deferred out of T4 with the reason, not simulated:** the installer has never been exercised on a
+host LACKING all three components. This machine has all three, so the missing-component path is
+covered only by `PATH=""` unit tests. Proving it needs a second machine or a container, and
+inventing a simulation to call it "proven install" is the exact false green this release is about.
 
-## THE ROOT CAUSE, found 2026-09-03 07:00 and FIXED (deploy pending)
-
-**The liveness frame wrote nothing.** aify-env posts an empty frame per terminal per control pass --
-no output, no status, deliberately, because a status would let a heartbeat REOPEN a terminal an
-operator or a reconciler had closed. Both guards on that path drop exactly that shape:
-`TerminalOutputWriteQueue.enqueue` returns 0 for a frame with neither, and `_append_terminal_output`
-returns before its UPDATE. The service answered `200 {"ok": true}` and changed no row.
-
-**So `fc8d4c52` was INERT.** That fix stops `_active_terminal_for_agent` releasing a terminal whose
-`bridge_id` no longer matches its environment row -- which every terminal does after an aify-env
-restart, because each start mints a fresh bridge id. Its guard asks "was this terminal REPORTED
-recently", read from `updated_at`. Nothing refreshed `updated_at`, so the guard could never be true.
-It shipped with a green suite and could never fire. See
-[[a-declared-field-with-no-reader-changes-nothing]]: a guard whose input nothing writes is worse than
-a field nothing reads, because it READS AS PROTECTION.
-
-**And nothing aged out a `claimed` spawn request.** The orphan reaper's query said
-`status = 'running'`. Its own safety note says a stale `running` row is harmless because "the
-coldstart idempotency gate only inspects queued/claimed spawns" -- which inverts for `claimed`: a
-stuck one is exactly what the gate reads, so every send is refused as ALREADY IN FLIGHT, for ever.
-
-Both fixed, both mutation-proved. `claimed` gets no live-bridge carve-out, measured: claim ->
-`started_at` is 0.0s median / 2s p99 / **7s max** across 1,068 real spawns, so a claim past the
-existing 3-minute grace is abandoned, not slow -- and sc-coder's row was claimed by the LIVE bridge,
-so the carve-out would have sheltered it another 30 minutes and made the fix useless for its own case.
-
-**BOTH ARE LIVE AND PROVEN ON THE FLEET**, service build `612e1264 == repo HEAD`. No aify-env
-restart was needed: it was already sending the frames, the service was throwing them away.
-
-Measured before and after, same query, same four terminals. Before: `updated_at` 10 to 26 minutes
-stale on every live terminal, because nothing wrote it. After: all four refreshing within **13
-seconds**. `aify-comms doctor`'s `env-processes` went from `unaccounted` to `ok — 4 process(es)
-matched a live terminal; nothing unaccounted for`.
-
-So `fc8d4c52` is protecting live terminals for the first time, and the release-on-bridge-id-mismatch
-after an aify-env restart -- the thing that started this whole chain -- cannot happen again.
-
-**Still pending an aify-env restart** (the operator's call, not urgent): `1c5af7c` and `ec243e9`,
-the end-status orphan rule and the output veto that keeps it from killing a working agent.
+**aify-env and aify-wrapper are NOT tagged for this.** Both read 0.6.0 and neither version was
+bumped; tagging them is a separate release decision on repos the operator versions themselves.
+aify-env carries real work from tonight (`1c5af7c`, `ec243e9`, `067e399`) that is INERT until it is
+restarted.
 
 ## sc-coder: RECOVERED 07:07, and what it cost to get there
 
