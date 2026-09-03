@@ -1242,6 +1242,28 @@ solved it by narrowing to one runtime. See D9.
   proven directly against the function, with a serialised control beside it, and needed no part of
   that story.
 
+- **D14. TEST HYGIENE: a hand-picked port is an assertion about the whole machine. FIXED 2026-09-03**
+  (aify-env `d27d8d9` then `f3758c0`).
+
+  It failed BOTH ways in one day and neither looked like what it was. From OUTSIDE, an unrelated
+  program of the operator's held `127.0.0.1:8894`, so a daemon could not bind, printed nothing, and
+  the test failed with `no banner:` and an empty string -- during unrelated work in another repo,
+  reading exactly like a code regression. From INSIDE, and this is what the old comment actually
+  claimed, two files BOTH used 8884 and 8885 while `node --test` runs files in parallel, so "a port
+  nothing else in this suite uses" was already false in its own dimension.
+
+  11 hardcoded ports across three files now come from `freePort()`, called ONCE per test where two
+  daemons must contend for one port -- supersession and takeover are tested by contending on
+  purpose, and giving each daemon its own free port would leave those tests green and empty.
+  `no-test-binds-a-hardcoded-port.test.js` keeps it that way; it bans BINDING to a literal, not
+  naming a port, and treats `--port 0` as correct because eight files already do that.
+
+  **Its first draft broke the two gates that protect the fleet from test claim-leaks**: a synthetic
+  control string reading `spawn(node, [DAEMON, ...])` looked to them like an unsealed daemon spawn.
+  They were right and the fixture was renamed. A fixture that resembles what another gate polices is
+  a fixture that breaks it -- worth knowing before writing the next scanner in a directory that has
+  several.
+
 ---
 
 ## E. Reviews -- LAST
