@@ -22,6 +22,13 @@ automatic renewal is possible and a human must run `claude` and log in; 21 claud
 the grant. Whether a refresh EXTENDS that window is unresolved -- it answers itself around 23:09 UTC
 tonight, when the access token expires and a refresh is actually due.
 
+  **THE CHECK ITSELF IS PROVEN ON THE REAL CREDENTIAL FILE, not merely green in tests.** Running the
+  CHECKOUT's doctor (`node mcp/stdio/doctor.js`, which installs nothing) at 21:45 UTC printed
+  `claude-login  the claude login lapses in 15.7h ... The access token has 2.9h left and renews
+  itself` -- the right verdict, the right hours, read from the operator's own
+  `~/.claude/.credentials.json`. So re-running the installer definitely yields a working row; the
+  only thing missing is the install.
+
   **AND THE ROW BUILT TO TRACK IT IS NOT RUNNING YET.** `claude-login` is in the checkout; the
   INSTALLED doctor at `~/.aify-comms` predates it -- `claude-auth-check.mjs` is not there, and a live
   `aify-comms doctor` at 21:10 UTC printed 15 rows with no `claude-login` among them. So the one
@@ -837,7 +844,16 @@ solved it by narrowing to one runtime. See D9.
 
   **THAT FIGURE IS THE THIRD READING, and the first two were both from a blind instrument.** 30 tools
   / 14,491 chars, then 34 / 16,818, now 37 / 17,222 -- each correction found MORE surface, never
-  less, because the failure always hides tools rather than inventing them. The scanner skipped string literals but not COMMENTS, so a comment containing a
+  less, because the failure always hides tools rather than inventing them.
+
+  **THE ARITHMETIC, because two of those numbers are easy to conflate and I did it once.** 16,818 was
+  the 34-tool reading BEFORE the C1 triage cut; after it the same 34 tools measured **16,687**. So the
+  step to 37 is 16,687 + 535 (the three recovered channel tools: delete 423, read 94, list 18) =
+  17,222 exactly. Checked against the ceilings the gate actually holds, before and after:
+  **ZERO of the 34 existing tools changed value.** That confirms what `templateEnd`'s comment claims
+  -- parsing the interpolation holes preserved every existing measurement rather than quietly moving
+  every ceiling -- and it is enforced rather than asserted, because a changed value would have
+  reddened the ratchet. The scanner skipped string literals but not COMMENTS, so a comment containing a
   double quote opened a phantom string and swallowed the rest of a registration. Found by adding such
   a comment while tightening `comms_compact`, which made that tool vanish from the measurement
   entirely. Fixing it revealed **four tools the scan had never seen** -- `comms_register` (990),
