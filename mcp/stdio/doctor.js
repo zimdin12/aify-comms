@@ -138,6 +138,11 @@ const repo = findRepo();
 // pointing this run somewhere specific and a file in the checkout must not override that.
 const DOCTOR_API_KEY = resolveDoctorApiKey({
   env: process.env, repoDir: repo ? repo.dir : "", readFile: (f) => readFileSync(f, "utf8"), join,
+  // THE THIRD SOURCE, and the only one that survives being run from the wrong folder (D11). The
+  // INSTALLED doctor lives under `~/.aify-comms`, whose parent is not a checkout, so `repo` is null
+  // and there is no `.env` to read -- which cost EIGHT checks their answer against a service that
+  // was up and rejecting them. aify-env holds the key for this service; the registry names it.
+  homeDir: homedir(),
 });
 
 // ── 1. service container: is it serving the build you think it is? ──────────────────

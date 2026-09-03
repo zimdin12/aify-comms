@@ -616,11 +616,38 @@ solved it by narrowing to one runtime. See D9.
   **This makes D11 more visible rather than less.** Checks that skip because the API key could not be
   resolved now read as NOT VERIFIED instead of passing, which is the honest state and the one that
   should prompt the D11 fix.
-- **D11. The doctor finds the API key only from the repo checkout.** `doctor-api-key.mjs` reads the
-  `.env` beside the repo, so every agent running `aify-comms doctor` from its own working directory
-  loses every service-reading check. Reproduced from the home directory. Now fixable properly: the
-  key lives in aify-env's credential store and the registry names it with `credentialRef`, so a
-  host-side tool can resolve it wherever it runs.
+- **D11. The doctor finds the API key only from the repo checkout. FIXED 2026-09-03.**
+
+  **Reproduced first, with the INSTALLED doctor from the home directory.** It lives under
+  `~/.aify-comms`, whose parent is not a git checkout, so `findRepo()` returns null, there is no
+  `.env` to read, and EIGHT checks lost their answer against a service that was up and rejecting
+  them: `env-bridge`, `bridge-current`, `context-window`, `session-handles`, `env-processes`,
+  `managed-orphans`, `gateway-orphans`, `api-exposure`.
+
+  **The fix is a third source, LAST in precedence so it is purely additive:** shell, then the
+  checkout's `.env`, then aify-env's credential store -- `~/.aify/services.json` names this service's
+  `credentialRef` and `~/.aify/credentials/<ref>` holds the key. Where a checkout exists the
+  resolution is byte-for-byte what it was.
+
+  **Verified on the real host, not only against fakes.** With no repo and no shell key the resolver
+  returns the store's key, and it is the SAME VALUE as the one in `.env` -- so the fallback
+  authenticates identically rather than merely producing something. That equality is the control:
+  without it the test proves a key was found, not that it works.
+
+  **A path-shaped `credentialRef` is refused rather than opened**, reusing `credentialRefProblem` --
+  already this repo's cached copy of aify-env's read-time grammar. The registry is a shared file
+  other installers write, so a ref carrying `../` is not hypothetical, and this code opens whatever
+  it is handed.
+
+  **Second cached decision on that seam, so it gets the same agreement test.** aify-comms cannot
+  import `credential-store.mjs`, so the directory name is written once here and proven against
+  aify-env's own constant. It matters because a wrong directory fails EXACTLY like an absent key: the
+  resolver reads quiet on ENOENT by design, so a rename on their side would silently return the
+  doctor to being blind everywhere but the checkout. Mutation-proved by renaming it in aify-env.
+
+  Five mutations in all, each reddening exactly its own test. Two exports with no consumer
+  (`REGISTRY_ENV_NAME`, `credentialRefIn`) were caught by `every-export-is-named-by-a-test` and made
+  module-private rather than given tests to satisfy the gate.
 
 - **D1. DONE 2026-09-02.** aify-env restarted, read the credential, and advertises: `advertising:
   true`, `acceptedAt` set, `fresh: true`. The 401 is gone. Root cause was `aify-env credential set`

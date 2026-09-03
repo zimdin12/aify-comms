@@ -150,3 +150,118 @@ test("source is reported so a refusal can name the file it came from", () => {
   assert.equal(resolveDoctorApiKey({ env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=x"), join }).source, ".env");
   assert.equal(resolveDoctorApiKey({ env: { [API_KEY_ENV_NAMES[0]]: "x" }, repoDir: "", join }).source, "the environment");
 });
+
+// ── the credential store: the only source that survives being run from the wrong folder (D11) ────
+//
+// The two sources above are the operator's shell and a file inside the CHECKOUT. An agent running
+// `aify-comms doctor` from its own working directory has neither: the installed doctor lives under
+// `~/.aify-comms`, whose parent is not a git checkout, so `findRepo()` returns null and there is no
+// `.env` to read. Reproduced from the home directory 2026-09-03 -- EIGHT checks lost their answer
+// (env-bridge, bridge-current, context-window, session-handles, env-processes, managed-orphans,
+// gateway-orphans, api-exposure) against a service that was up and rejecting them.
+//
+// Verified against the REAL host as well as these fakes: with no repo and no shell key the resolver
+// returns the store's key, and it is the SAME VALUE as the one in `.env` -- so the fallback
+// authenticates identically rather than merely producing something.
+
+/** A path-aware fake: the store case reads TWO files, which `fileSaying` above cannot express. */
+const filesystem = (files) => (path) => {
+  const key = String(path).split("\\").join("/");
+  if (!(key in files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  return files[key];
+};
+const joinAll = (...parts) => parts.join("/");
+const HOME = "/home/op";
+const REGISTRY = `${HOME}/.aify/services.json`;
+const registrySaying = (ref) => JSON.stringify({ version: 1, services: { "aify-comms": { credentialRef: ref } } });
+const storeAt = (ref) => `${HOME}/.aify/credentials/${ref}`;
+
+test("WITH NO REPO, the key comes from aify-env's credential store", () => {
+  const got = resolveDoctorApiKey({
+    env: {}, repoDir: "", homeDir: HOME, join: joinAll,
+    readFile: filesystem({ [REGISTRY]: registrySaying("aify-comms.key"), [storeAt("aify-comms.key")]: "stored-key\n" }),
+  });
+  assert.deepEqual(got, { key: "stored-key", source: "aify-env's credential store" });
+});
+
+test("THE CHECKOUT STILL WINS over the store, so nothing that works today changes", () => {
+  // The whole change is additive. A host with a `.env` resolves exactly as it did before, and this
+  // is the assertion that says so -- both sources are present and readable here.
+  const got = resolveDoctorApiKey({
+    env: {}, repoDir: "/repo", homeDir: HOME, join: joinAll,
+    readFile: filesystem({
+      "/repo/.env": "API_KEY=from-dotenv",
+      [REGISTRY]: registrySaying("aify-comms.key"),
+      [storeAt("aify-comms.key")]: "stored-key",
+    }),
+  });
+  assert.deepEqual(got, { key: "from-dotenv", source: ".env" });
+});
+
+test("a repo whose .env says nothing FALLS THROUGH to the store", () => {
+  // The in-between case: a checkout was found, and it simply carries no key. Before this it ended
+  // the search; the store is a further source, not a replacement for a missing file.
+  const got = resolveDoctorApiKey({
+    env: {}, repoDir: "/repo", homeDir: HOME, join: joinAll,
+    readFile: filesystem({
+      "/repo/.env": "# nothing here\nOTHER=1",
+      [REGISTRY]: registrySaying("aify-comms.key"),
+      [storeAt("aify-comms.key")]: "stored-key",
+    }),
+  });
+  assert.equal(got.source, "aify-env's credential store");
+});
+
+test("A REF THAT IS A PATH IS REFUSED, not opened", () => {
+  // The registry is a SHARED file other installers write, and this function opens whatever it is
+  // handed. A ref carrying `../` is the one input here that could read a file nobody intended, so
+  // it is refused by the same grammar aify-env applies at read time.
+  const opened = [];
+  const readFile = (path) => {
+    opened.push(String(path));
+    if (String(path) === REGISTRY) return registrySaying("../../.ssh/id_rsa");
+    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  };
+  const got = resolveDoctorApiKey({ env: {}, repoDir: "", homeDir: HOME, join: joinAll, readFile });
+  assert.deepEqual(got, { key: "", source: "" });
+  assert.deepEqual(opened, [REGISTRY], "a path-shaped credentialRef was opened");
+});
+
+test("AIFY_SERVICE_REGISTRY points the lookup elsewhere", () => {
+  const got = resolveDoctorApiKey({
+    env: { AIFY_SERVICE_REGISTRY: "/elsewhere/services.json" },
+    repoDir: "", homeDir: HOME, join: joinAll,
+    readFile: filesystem({
+      "/elsewhere/services.json": registrySaying("other.key"),
+      [storeAt("other.key")]: "elsewhere-key",
+    }),
+  });
+  assert.equal(got.key, "elsewhere-key");
+});
+
+test("every way the store can say nothing is quiet, not an error", () => {
+  const quiet = (files) => resolveDoctorApiKey({
+    env: {}, repoDir: "", homeDir: HOME, join: joinAll, readFile: filesystem(files),
+  });
+  // No registry at all -- the ordinary state on a host that never installed aify-env.
+  assert.deepEqual(quiet({}), { key: "", source: "" });
+  // A registry that is not JSON. `service-registry.mjs` deliberately REFUSES to rewrite one it
+  // cannot read, so a broken registry can legitimately be sitting there.
+  assert.deepEqual(quiet({ [REGISTRY]: "{{{ not json" }), { key: "", source: "" });
+  // A registry naming no ref for this service.
+  assert.deepEqual(quiet({ [REGISTRY]: JSON.stringify({ services: { other: { credentialRef: "x" } } }) }), { key: "", source: "" });
+  // A ref whose file is missing -- the credential was removed but the registry still names it.
+  assert.deepEqual(quiet({ [REGISTRY]: registrySaying("gone.key") }), { key: "", source: "" });
+  // A credential file that is empty or whitespace: present, and says nothing.
+  assert.deepEqual(quiet({ [REGISTRY]: registrySaying("k"), [storeAt("k")]: "   \n" }), { key: "", source: "" });
+});
+
+test("no homeDir means no store lookup, rather than a path built from nothing", () => {
+  // A caller that does not supply a home must not have `undefined/.aify/...` opened on its behalf.
+  const opened = [];
+  const got = resolveDoctorApiKey({
+    env: {}, repoDir: "", join: joinAll, readFile: (p) => { opened.push(p); return ""; },
+  });
+  assert.deepEqual(got, { key: "", source: "" });
+  assert.deepEqual(opened, []);
+});

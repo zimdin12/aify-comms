@@ -29,6 +29,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { credentialRefProblem as ours } from "../credential-ref.mjs";
+import { CREDENTIAL_DIR_NAME as ours_CREDENTIAL_DIR_NAME } from "../doctor-api-key.mjs";
 import { SERVICE_NAME, upsertService } from "../service-registry.mjs";
 
 const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
@@ -119,4 +120,27 @@ test("omitting the field entirely is still fine", () => {
   const withoutRef = entry(undefined);
   delete withoutRef.credentialRef;
   assert.equal(upsertService("", SERVICE_NAME, withoutRef).ok, true);
+});
+
+test("AND WE LOOK FOR THE CREDENTIAL WHERE AIFY-ENV PUTS IT", async () => {
+  // The second cached decision on this seam, added 2026-09-03 with D11. The doctor now resolves its
+  // API key from aify-env's credential store when there is no checkout to read a `.env` from, which
+  // means aify-comms has to know that daemon's directory layout -- and cannot import it, for the
+  // same packaging reason the grammar above is duplicated.
+  //
+  // A WRONG DIRECTORY FAILS EXACTLY LIKE AN ABSENT KEY. The resolver reads quiet on ENOENT, by
+  // design: no credential store is the ordinary state on a host that never installed aify-env. So a
+  // rename on their side would not throw, would not warn, and would simply return the doctor to
+  // being blind from every directory but the checkout -- the defect this was written to close,
+  // silently restored. That is precisely the failure an agreement test exists to make loud.
+  assert.ok(
+    fs.existsSync(THEIRS_PATH),
+    `aify-env checkout not found at ${AIFY_ENV}. This proof FAILS rather than skips: a cross-repo `
+    + "agreement that quietly does not run leaves the report green while proving nothing.",
+  );
+  const theirs = await import(`file://${THEIRS_PATH.split("\\").join("/")}`);
+  assert.equal(
+    ours_CREDENTIAL_DIR_NAME, theirs.CREDENTIAL_DIR_NAME,
+    "aify-comms looks for credentials in a different directory than aify-env writes them to",
+  );
 });
