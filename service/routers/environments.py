@@ -371,7 +371,28 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                 existing_started = _bridge_started_at(existing_metadata)
                 incoming_started = _bridge_started_at(metadata)
                 if existing_started and (not incoming_started or incoming_started < existing_started):
-                    return {"ok": True, "environment": _environment_record_to_dict(existing)}
+                    # REFUSED, AND IT SAYS SO. `ok: True` alone is what a heartbeat that was
+                    # ACCEPTED returns, so a bridge whose beat was arbitrated away could not tell
+                    # the difference -- it kept beating every 30s, believing it was the claimer,
+                    # while `bridgeLastSeen` never moved and `/spawn` refused every request. That
+                    # is the shape this repo has fixed three times elsewhere ("no evidence is not a
+                    # pass"), and on 2026-09-02 it cost a day here: a plugin sending its start time
+                    # in the wrong place landed on this branch forever and reported healthy.
+                    #
+                    # `ok` STAYS TRUE: the request was well-formed and the row is fine. What is
+                    # added is WHO the claimer is, so a caller can compare it with its own id.
+                    return {
+                        "ok": True,
+                        "environment": _environment_record_to_dict(existing),
+                        "claimer": {
+                            "accepted": False,
+                            "bridgeId": existing_bridge_id,
+                            "reason": (
+                                "an existing bridge started later than this one, or this beat "
+                                "carried no metadata.bridgeStartedAt to arbitrate on"
+                            ),
+                        },
+                    }
                 if incoming_started and (not existing_started or incoming_started > existing_started):
                     superseded_bridge_id = existing_bridge_id
         if (
@@ -381,7 +402,18 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
             and str(req.bridgeId or "").strip()
             and str(existing["bridge_id"] or "").strip() != str(req.bridgeId or "").strip()
         ):
-            return {"ok": True, "environment": _environment_record_to_dict(existing)}
+            # The same silence, on the other refusal: a bridge saying it is going offline must not
+            # take down a row a DIFFERENT bridge now owns. Correct, and previously indistinguishable
+            # from having been recorded.
+            return {
+                "ok": True,
+                "environment": _environment_record_to_dict(existing),
+                "claimer": {
+                    "accepted": False,
+                    "bridgeId": str(existing["bridge_id"] or "").strip(),
+                    "reason": "another bridge owns this row, and this beat was not an online one",
+                },
+            }
         await _record_environment_registration(
             db, existing, env_id, req, effective_roots, runtimes, requested_status,
             next_metadata, registered_at, now,
@@ -415,7 +447,24 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("environment_heartbeat", {"environmentId": env_id, "bridgeId": req.bridgeId or ""})
-        return {"ok": True, "environment": environment}
+        # THE ACCEPTED CASE SAYS SO TOO, and it has to: `accepted: False` is only legible against an
+        # `accepted: True` that a caller can also see. Without this pair, a caller could not tell a
+        # refusal from a service too old to answer the question -- and "the field is missing" would
+        # have to be read as success, which is how the silence got here in the first place.
+        #
+        # `bridgeId` is echoed rather than assumed: a beat with no bridgeId is an ADVERTISEMENT, not
+        # a claim, and reporting it as an accepted claimer would invent the very authority the
+        # advertise/claim split exists to withhold.
+        claimer_id = str(req.bridgeId or "").strip()
+        return {
+            "ok": True,
+            "environment": environment,
+            "claimer": {
+                "accepted": bool(claimer_id),
+                "bridgeId": claimer_id,
+                "reason": "" if claimer_id else "no bridgeId: this beat describes the host, it does not claim work",
+            },
+        }
     finally:
         await db.close()
 

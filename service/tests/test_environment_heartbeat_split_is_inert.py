@@ -159,6 +159,25 @@ EDITED_SINCE = [
         '                    req.kind or "",\n                    req.bridgeId or "",\n                    req.bridgeVersion or "",\n                    req.launcherVersion or "",',
     ),
     ("            ).strftime(ISO_SECONDS)", '            ).strftime("%Y-%m-%dT%H:%M:%SZ")'),
+    (
+        # A REFUSED HEARTBEAT NOW SAYS SO. `ok: True` alone is what an ACCEPTED beat returns, so a
+        # bridge whose beat was arbitrated away could not tell -- it kept beating, `bridgeLastSeen`
+        # never moved, `/spawn` refused everything, and both sides reported healthy for hours.
+        "                    # REFUSED, AND IT SAYS SO. `ok: True` alone is what a heartbeat that was\n                    # ACCEPTED returns, so a bridge whose beat was arbitrated away could not tell\n                    # the difference -- it kept beating every 30s, believing it was the claimer,\n                    # while `bridgeLastSeen` never moved and `/spawn` refused every request. That\n                    # is the shape this repo has fixed three times elsewhere (\"no evidence is not a\n                    # pass\"), and on 2026-09-02 it cost a day here: a plugin sending its start time\n                    # in the wrong place landed on this branch forever and reported healthy.\n                    #\n                    # `ok` STAYS TRUE: the request was well-formed and the row is fine. What is\n                    # added is WHO the claimer is, so a caller can compare it with its own id.\n                    return {\n                        \"ok\": True,\n                        \"environment\": _environment_record_to_dict(existing),\n                        \"claimer\": {\n                            \"accepted\": False,\n                            \"bridgeId\": existing_bridge_id,\n                            \"reason\": (\n                                \"an existing bridge started later than this one, or this beat \"\n                                \"carried no metadata.bridgeStartedAt to arbitrate on\"\n                            ),\n                        },\n                    }",
+        "                    return {\"ok\": True, \"environment\": _environment_record_to_dict(existing)}",
+    ),
+    (
+        # The same silence on the other refusal: a bridge going offline must not take down a row a
+        # different bridge now owns. Correct behaviour, previously indistinguishable from a write.
+        "            # The same silence, on the other refusal: a bridge saying it is going offline must not\n            # take down a row a DIFFERENT bridge now owns. Correct, and previously indistinguishable\n            # from having been recorded.\n            return {\n                \"ok\": True,\n                \"environment\": _environment_record_to_dict(existing),\n                \"claimer\": {\n                    \"accepted\": False,\n                    \"bridgeId\": str(existing[\"bridge_id\"] or \"\").strip(),\n                    \"reason\": \"another bridge owns this row, and this beat was not an online one\",\n                },\n            }",
+        "            return {\"ok\": True, \"environment\": _environment_record_to_dict(existing)}",
+    ),
+    (
+        # And the ACCEPTED case, which the pair needs: `accepted: False` is only legible against an
+        # `accepted: True` a caller can also see, or a missing field has to be read as success.
+        "        # THE ACCEPTED CASE SAYS SO TOO, and it has to: `accepted: False` is only legible against an\n        # `accepted: True` that a caller can also see. Without this pair, a caller could not tell a\n        # refusal from a service too old to answer the question -- and \"the field is missing\" would\n        # have to be read as success, which is how the silence got here in the first place.\n        #\n        # `bridgeId` is echoed rather than assumed: a beat with no bridgeId is an ADVERTISEMENT, not\n        # a claim, and reporting it as an accepted claimer would invent the very authority the\n        # advertise/claim split exists to withhold.\n        claimer_id = str(req.bridgeId or \"\").strip()\n        return {\n            \"ok\": True,\n            \"environment\": environment,\n            \"claimer\": {\n                \"accepted\": bool(claimer_id),\n                \"bridgeId\": claimer_id,\n                \"reason\": \"\" if claimer_id else \"no bridgeId: this beat describes the host, it does not claim work\",\n            },\n        }",
+        "        return {\"ok\": True, \"environment\": environment}",
+    ),
 ]
 
 

@@ -2,9 +2,10 @@
 import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import { skippedFrom, slowest, summarise } from "./run-all-summary.mjs";
+import { orderLongestFirst, readTimings, writeTimings } from "./run-all-timings.mjs";
 
 const root = new URL("..", import.meta.url);
 const testDirs = ["tests", "tests/adapters", "tests/controllers"];
@@ -35,6 +36,9 @@ const results = [];
 // process, and in every launcher, bridge and daemon those tests spawn in turn. No test file changes,
 // and forgetting to clean up stops mattering. All three variables are set because which one is read
 // depends on the platform, and setting one leaves the leak in place on the other.
+//: Beside the runner rather than in temp -- this file PRUNES temp, so a cache written there would
+//: be swept by its own housekeeping and the ordering would silently never take effect.
+const TIMINGS_FILE = new URL("./.run-all-timings.json", import.meta.url);
 const TEMP_ROOT_PREFIX = "aify-comms-testrun-";
 const PRUNE_AFTER_MS = 60 * 60 * 1000;
 
@@ -58,26 +62,80 @@ function removeTempRoot() {
 }
 
 const failed = [];
-for (const file of files) {
-  console.error(`\n[run-all] node ${file}`);
-  const startedAt = Date.now();
-  const result = spawnSync(process.execPath, [file], {
-    cwd: root,
-    stdio: ["inherit", "pipe", "inherit"],
-    encoding: "utf8",
-    env: childEnv,
+
+// HOW MANY AT ONCE, and why this is not 1 any more.
+//
+// It ran one file at a time and took 700 SECONDS on a 32-core machine, with the 15 slowest files
+// holding 64.6% of it -- so most of the wall time was one core working while 31 idled. The python
+// suite made the same move on 2026-09-03 (22 minutes to 2m50 at `-n 8`) and the argument is
+// identical: a suite nobody will wait for is a suite that gets skipped, and this repo has already
+// paid for that twice -- three of CLAUDE.md's own counts went stale, and a cross-repo proof ran
+// nothing while reporting green.
+//
+// WHY IT IS SAFE HERE, checked rather than assumed. Every file already gets its own process; no
+// test in this suite binds a FIXED port (they all listen on 0 and read the assigned one back); and
+// each file now gets its OWN temp root inside the run's root, so two files cannot meet in a scratch
+// directory. What remains shared is the operator's real home, which tests must already seal --
+// a test that reaches outside its sandbox was a defect before this change and is a louder one now.
+//
+// AIFY_TEST_CONCURRENCY=1 restores the old behaviour. Reach for it when a failure looks like two
+// files meeting rather than a real defect -- if it goes green at 1, that IS the finding, and the
+// file that needs sealing is named by the diff between the two runs.
+const CONCURRENCY = Math.max(1, Number(process.env.AIFY_TEST_CONCURRENCY || 6));
+
+// LONGEST FIRST, from the previous run's timings if we have them. A pool that starts a 90-second
+// file last leaves every other worker idle waiting for it, which costs more than the parallelism
+// saves on a distribution this skewed. With no history the order is alphabetical and the pool still
+// works -- it is an optimisation, not a correctness input.
+const queue = orderLongestFirst(files, readTimings(TIMINGS_FILE));
+
+/** Run one file, buffering its output so two files cannot interleave mid-line. */
+function runOne(file) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    // ITS OWN TEMP ROOT. `os.tmpdir()` reads these at CALL time, in this process and in every
+    // launcher, bridge and daemon the test spawns, so one variable isolates a whole tree.
+    const fileTemp = mkdtempSync(join(tempRoot, `f-`));
+    const child = spawn(process.execPath, [file], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...childEnv, TMPDIR: fileTemp, TEMP: fileTemp, TMP: fileTemp },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (status) => {
+      resolve({ file, status, stdout, stderr, ms: Date.now() - startedAt });
+    });
   });
-  const ms = Date.now() - startedAt;
-  if (result.stdout) process.stdout.write(result.stdout);
-  results.push({ file, status: result.status, skipped: skippedFrom(result.stdout), ms });
-  if (result.status !== 0) {
-    // Don't bail on the first failure — run every file so a single broken
-    // suite can't silently hide the rest (this is how the orphaned
-    // tests/controllers/* suite went unnoticed). Collect and report at the end.
-    failed.push({ file, status: result.status });
+}
+
+async function worker() {
+  for (;;) {
+    const file = queue.shift();
+    if (!file) return;
+    const done = await runOne(file);
+    // ANNOUNCED ON COMPLETION, not on start: with a pool, a "running X" line is followed by
+    // another file's output and reads as X having produced it.
+    console.error(`${String.fromCharCode(10)}[run-all] node ${file} (${(done.ms / 1000).toFixed(1)}s)`);
+    if (done.stderr) process.stderr.write(done.stderr);
+    if (done.stdout) process.stdout.write(done.stdout);
+    results.push({ file: done.file, status: done.status, skipped: skippedFrom(done.stdout), ms: done.ms });
+    if (done.status !== 0) {
+      // Don't bail on the first failure — run every file so a single broken suite can't silently
+      // hide the rest (this is how the orphaned tests/controllers/* suite went unnoticed).
+      failed.push({ file: done.file, status: done.status });
+    }
   }
 }
 
+const startedWholeRun = Date.now();
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker()));
+const wallMs = Date.now() - startedWholeRun;
+writeTimings(TIMINGS_FILE, results);
 if (failed.length > 0) {
   console.error(`\n[run-all] ${failed.length} suite(s) FAILED:`);
   for (const { file, status } of failed) {
@@ -104,9 +162,13 @@ console.error(`\n[run-all] ${summary.line}`);
 const timing = slowest(results);
 const seconds = (ms) => (ms / 1000).toFixed(1);
 const percent = (share) => `${(share * 100).toFixed(1)}%`;
+// WALL AND SUMMED ARE DIFFERENT NUMBERS NOW, and either alone misleads: the sum says where to
+// spend effort, the wall clock says what a person actually waited for. Before the pool they
+// were the same number, which is why only one was printed.
 console.error(
-  `\n[run-all] ${results.length} file(s) in ${seconds(timing.totalMs)}s. `
-  + `The ${timing.ranked.length} slowest hold ${percent(timing.headShare)} of it:`,
+  `\n[run-all] ${results.length} file(s) at concurrency ${CONCURRENCY}: `
+  + `${seconds(wallMs)}s wall, ${seconds(timing.totalMs)}s summed. `
+  + `The ${timing.ranked.length} slowest hold ${percent(timing.headShare)} of the summed time:`,
 );
 for (const { file, ms, share } of timing.ranked) {
   console.error(`  ${seconds(ms).padStart(7)}s  ${percent(share).padStart(6)}  ${file}`);
