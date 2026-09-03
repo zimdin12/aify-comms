@@ -1430,6 +1430,43 @@ solved it by narrowing to one runtime. See D9.
   because the unanswered wording carries the address mid-sentence and stripping there would leave
   "no answer from : ECONNREFUSED". Two mutations, one per half.
 
+- **D17. `aify-env run` REPORTED SUCCESS WITH NO ENVIRONMENT RUNNING, and nothing noticed. Found and
+  covered 2026-09-04** (aify-env `812ac85`).
+
+  Found by mutation while checking the `--shared` headline's failure paths. Changing the
+  no-environment branch from `exit 69` to `exit 0` left the whole suite green -- 1091 tests, zero
+  failures. The refusal was correct and completely unprotected.
+
+  **IT IS NOT AN EXIT CODE, IT IS THE HEADLINE FEATURE.** `<wrapper> --shared` EXECS `aify-env run`,
+  so that status becomes the wrapper's. A regression there means `claude-aify --shared` exits 0
+  having started nothing -- a silent no-op on the one feature whose promise is that the session
+  outlives the terminal. The operator is told it worked and finds nothing there.
+
+  **AND THE HARDER HALF: it must not START one.** Starting an environment supersedes the incumbent
+  and reaps its workers -- five agents killed twice on 2026-09-01. A `run` that helpfully booted a
+  daemon on finding none would turn every `--shared` on a quiet host into exactly that. The third
+  test asserts nothing is listening afterwards, not merely that the command failed. The fourth goes
+  through the DISPATCHER, because `--shared` runs `aify-env run` and not the script directly.
+
+  Both `--shared` failure paths are now covered: aify-env absent from PATH (exit 69, names the fix)
+  and present but not running (exit 69, names the endpoint it tried). **The SUCCESS path is still
+  unproven and still needs the operator** -- it adds a resident to their fleet.
+
+- **D18. A PRE-EXISTING FLAKE IN THE ORPHAN-REAPING TEST, measured but NOT fixed.**
+
+  `tests/orphans-die-with-the-environment.test.js` fails intermittently IN ISOLATION: 4 pass / 3 fail
+  across 7 runs, as `fetch failed` on a DELETE the daemon never answered, or the file hitting its 60s
+  timeout. **It predates this session** -- its last commits are `2c5b9ff` and `b777017`, and it fails
+  alone, so it is neither a regression from tonight nor parallel interference. Recorded so a red
+  there is not read as one.
+
+  **ONE REAL BUG WAS FOUND AND FIXED IN IT** (aify-env `adeae92`): `startDaemon` piped stderr and
+  never read it, so a full pipe would block the daemon's next write and stop it answering HTTP while
+  still alive. That fit both symptoms and the intermittency exactly. **It was NOT the cause** --
+  after the drain, 9 of 11 runs pass against 4 of 7 before, which is inside noise at that size and
+  still fails. The fix stays on its own merit and now keeps the daemon's output, so the next failure
+  arrives with an explanation instead of a bare `fetch failed`. Cause still unknown.
+
 ---
 
 ## E. Reviews -- LAST
