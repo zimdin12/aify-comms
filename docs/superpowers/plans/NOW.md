@@ -160,6 +160,42 @@ assertion is the runner's listener count.
 worker: `ec243e9` exists precisely because an end-status orphan rule would have killed this agent.
 A terminal the service calls finished while its process is writing is a contradiction to report.
 
+## OPEN AND MEASURED: running aify-env's suite moves the operator's spawn claim
+
+**Reproduced 2026-09-03, immediately either side of one `npm test` in aify-env:**
+
+    BEFORE: 4bc17d43-d538-4553-b2f8-406e26cef7d0
+    AFTER:  506071ef-1d9e-43da-992a-3c77be291ea4
+
+While it holds, the operator's own aify-env answers `not the claimer: an existing bridge started
+later than this one`, and NOTHING can claim a new spawn. Running agents are unaffected -- arbitration
+decides who takes NEW work.
+
+**TRANSIENT AND SELF-HEALING**, which is the only reason this is not urgent: `80f1cba8` releases the
+stale claim and the live host re-takes it in about two minutes. Before that commit it would have
+needed an aify-env restart, which reaps the workers.
+
+**TWO LEAKS FOUND AND FIXED; AT LEAST ONE REMAINS.**
+
+1. aify-comms' `sealedChildEnv` sealed env vars only. aify-env does not need `AIFY_SERVER_URL` -- it
+   finds its service through `~/.aify/services.json`. Fixed in `cc18e89f`: `LIVE_FILE_CARRIERS`.
+2. aify-env's `sealedDaemonEnv` set `AIFY_SERVICE_REGISTRY` to `""`, and the daemon reads it with
+   `||` -- so the seal SELECTED the operator's registry. A test asserted the empty string and froze
+   it. Fixed in `d74ba03`, with a gate that also asserts the daemon still reads it with `||`.
+
+**NOT ISOLATED.** Something else in that suite still reaches the live service. Ruled out by reading:
+`pluginsForServices` is fed only from the registry, so a sealed daemon loads no plugin. Candidates
+not yet checked one by one: the tests that pass an explicit registry
+(`a-stored-credential-reaches-a-real-beat`, `the-daemon-really-advertises`, `doctor-live`,
+`tui-live`), and anything spawning without `sealedDaemonEnv`.
+
+**HOW TO FIND IT**, for whoever picks this up: the experiment is cheap and decisive -- read
+`environments.bridge_id` for `windows:StevenZ-L:default`, run one test file, read it again. Bisect
+by file. Do not read it once and conclude, because the value CHURNS: the live host re-takes the claim
+between runs, so a single reading can show the healthy id while the leak is real.
+
+**Meanwhile:** avoid running aify-env's suite when the fleet needs to cold-start an agent.
+
 ## Known-open, reported, not yet fixed
 
 - **The dev-channels auto-confirm has never fired on the operator's fleet.** It was checked in the
