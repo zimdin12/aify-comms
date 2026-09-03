@@ -144,3 +144,67 @@ test("the container id is shared, not spelled twice", () => {
   assert.equal(typeof AGENT_PROCESSES_ID, "string");
   assert.ok(AGENT_PROCESSES_ID.length > 0);
 });
+
+// ── WHY a terminal ended, which the panel showed nothing of ───────────────────────────────────────
+//
+// MEASURED BEFORE BUILDING: of 40 live rows, 36 had ended and 33 of those carried a reason -- an
+// `error` string, an `exitCode`, or a signal. The panel said only "stopped", which is the status a
+// terminal reaches whether it was reaped, refused, superseded, or simply finished.
+
+test("A STOPPED TERMINAL SAYS WHY, from its error text", () => {
+  // The half a person can act on. These are real strings from the live service.
+  const html = renderAgentProcesses([terminal({
+    status: "stopped", error: 'this host is already running a worker for "sc-coder"',
+  })]);
+  assert.match(html, /already running a worker/);
+});
+
+test("the error text WINS over the numbers when both are present", () => {
+  // `exit 1` beside a sentence explaining what happened adds nothing, and two reasons in one cell
+  // reads as though the panel could not decide.
+  const html = renderAgentProcesses([terminal({ status: "failed", exitCode: 1, error: "refused by the host" })]);
+  assert.match(html, /refused by the host/);
+  assert.ok(!/exit 1/.test(html), "both a reason and an exit code were rendered");
+});
+
+test("a signal is named, and an exit code is shown when that is all there is", () => {
+  assert.match(renderAgentProcesses([terminal({ status: "stopped", error: "", exitSignal: "SIGTERM" })]), /killed by SIGTERM/);
+  assert.match(renderAgentProcesses([terminal({ status: "stopped", error: "", exitCode: 137 })]), /exit 137/);
+});
+
+test("EXIT 0 IS A REASON, even though it is falsy", () => {
+  // The bug a truthiness test would introduce: a terminal that exited CLEANLY is a different fact
+  // from one that recorded nothing, and `if (code)` collapses them.
+  const html = renderAgentProcesses([terminal({ status: "stopped", error: "", exitCode: 0 })]);
+  assert.match(html, /exit 0/);
+  assert.ok(!/no reason recorded/.test(html), "a clean exit was reported as unrecorded");
+});
+
+test("an ended row with NO reason says so rather than rendering blank", () => {
+  // Three of the 36 live ended rows had none, and a blank there is indistinguishable from a cell
+  // this panel forgot to fill.
+  const html = renderAgentProcesses([terminal({ status: "stopped", error: "", exitCode: null, exitSignal: "" })]);
+  assert.match(html, /no reason recorded/);
+});
+
+test("A LIVE TERMINAL GETS NO REASON ROW AT ALL", () => {
+  // A running terminal has not ended, so there is nothing to explain. Rendering "no reason recorded"
+  // beside `attached` would invent a problem.
+  const html = renderAgentProcesses([terminal({ status: "attached", error: "stale text from an earlier life" })]);
+  assert.ok(!/no reason recorded/.test(html));
+  // ASSERTED ON THE TEXT, not on a marker class. My first version checked for the absence of
+  // `agent-process-reason`, and when the colspan row was replaced by a line inside the status cell
+  // that class stopped existing anywhere -- so the assertion passed by describing nothing. The
+  // fixture now carries a stale `error` string, which is the input that would leak a reason onto a
+  // live row, and the assertion is that it does not appear.
+  assert.ok(!/stale text from an earlier life/.test(html),
+    "a live terminal rendered an error left over from before it was restarted");
+});
+
+test("a reason is ESCAPED, because it carries host-authored text", () => {
+  // These strings come from whatever refused or reaped the terminal. That is the least trusted text
+  // in the whole panel.
+  const html = renderAgentProcesses([terminal({ status: "failed", error: '<img src=x onerror="alert(1)">' })]);
+  assert.ok(!/<img/.test(html), "an error string was rendered as markup");
+  assert.match(html, /&lt;img/);
+});

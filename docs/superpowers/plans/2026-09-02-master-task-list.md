@@ -491,6 +491,25 @@ solved it by narrowing to one runtime. See D9.
   blank returns a row, since `"" === ""` matches. The guard was load-bearing and the test was not
   reaching it. Five mutations now each redden their own test.
 
+  **THIRD SLICE: WHY A TERMINAL ENDED.** The panel said only "stopped" -- the status a terminal
+  reaches whether it was reaped, refused, superseded or simply finished. Measured before building: of
+  40 live rows, 36 had ended and **33 of those carried a reason** (an `error` string, an `exitCode`,
+  or a signal) that nothing displayed. Now shown against the status it qualifies. The error TEXT wins
+  over the numbers when both are present, because it is the half a person can act on; `exit 0` is
+  treated as a reason despite being falsy, since a clean exit and an unrecorded one are different
+  facts; and an ended row with no reason says so rather than rendering blank.
+
+  **A RATCHET REFUSED THE FIRST DESIGN, AND WAS RIGHT.** The reason was a `colspan` row, which needed
+  a CSS rule to stop it reading as a separate terminal with four empty columns --
+  `no-unwatched-oversized-file` refused the eight lines, because `styles.css` is already past the
+  1000-line limit and its ceiling may only go down. The refusal produced a better answer: the reason
+  moved into the status cell, `subtle` is already styled, and it costs no CSS at all.
+
+  **And one test went vacuous in the process, caught rather than shipped.** It asserted a live row
+  carried no `agent-process-reason` class -- and when the colspan row went away that class stopped
+  existing anywhere, so the assertion passed by describing nothing. It now uses a fixture with a
+  stale `error` string, the input that would actually leak a reason onto a live row.
+
   **Still open under B5:** the console behind the same click.
 
   **AND A NAMED FLAKE, previously unnamed.** aify-env's `doctor-live.test.js` --

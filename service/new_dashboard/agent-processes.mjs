@@ -50,7 +50,40 @@ function cells(terminal) {
     size: cols > 0 && rows > 0 ? `${cols}x${rows}` : '',
     runtime: String(terminal?.runtime || ''),
     updatedAt: String(terminal?.updatedAt || terminal?.updated_at || ''),
+    reason: endReason(terminal, status),
   };
+}
+
+/** Statuses that mean the terminal has ended, and so can have a reason for ending. */
+const ENDED = new Set(['stopped', 'failed']);
+
+/**
+ * WHY a terminal ended, in the operator's terms.
+ *
+ * MEASURED BEFORE BUILDING: of 40 live rows, 36 had ended and 33 of those carried a reason -- an
+ * `error` string, an `exitCode`, or a signal. The panel showed none of it and said only "stopped",
+ * which is the status a terminal reaches whether it was reaped, refused, superseded or simply
+ * finished. `service/terminal_diagnostics.py` exists because "what killed this one" is a real
+ * question; this is the same question one layer out.
+ *
+ * THE ERROR TEXT WINS over the numbers when both are present, because it is the half a person can
+ * act on: "this host is already running a worker for sc-coder" tells them what happened, and
+ * `exit 1` beside it adds nothing.
+ *
+ * AN ENDED ROW WITH NO REASON SAYS SO, rather than rendering blank. Three of the 36 had none, and a
+ * blank cell there is indistinguishable from a cell this panel forgot to fill.
+ */
+function endReason(terminal, status) {
+  if (!ENDED.has(status)) return '';
+  const error = String(terminal?.error || '').trim();
+  if (error) return error;
+  const signal = String(terminal?.exitSignal || '').trim();
+  if (signal) return `killed by ${signal}`;
+  const code = terminal?.exitCode;
+  // `0` IS A REASON and a falsy one, so this tests for null/undefined rather than truthiness: a
+  // terminal that exited cleanly is a different fact from one that recorded nothing.
+  if (code !== null && code !== undefined && String(code) !== '') return `exit ${Number(code)}`;
+  return 'no reason recorded';
 }
 
 /**
@@ -77,7 +110,15 @@ export function renderAgentProcesses(terminals, { error = '' } = {}) {
   const body = list.map((t) => [
     '<tr>',
     `<td><code>${esc(t.id)}</code></td>`,
-    `<td>${esc(t.status || '—')}</td>`,
+    // THE REASON LIVES IN THE STATUS CELL IT EXPLAINS, on its own line.
+    //
+    // My first version made it a `colspan` row below, which needed a CSS rule to stop it reading as
+    // a SEPARATE terminal with four empty columns -- and `no-unwatched-oversized-file` refused the
+    // eight lines, because styles.css is already past the 1000-line limit and its ceiling may only
+    // go down. That refusal was right and produced a better answer: `subtle` is already styled, so
+    // this costs no CSS at all, and the reason sits against the status it qualifies rather than
+    // below the row it belongs to.
+    `<td>${esc(t.status || '—')}${t.reason ? `<br><span class="subtle">${esc(t.reason)}</span>` : ''}</td>`,
     `<td>${t.pid ? `<code>${esc(t.pid)}</code>` : '<span class="subtle">—</span>'}</td>`,
     `<td>${t.size ? esc(t.size) : '<span class="subtle" title="No resize control has completed, so the console snapshot is rendered at an inferred width">—</span>'}</td>`,
     // THE RESULT, not the input, decides. `relTimeHtml` returns '' for a timestamp it cannot parse
