@@ -1193,10 +1193,29 @@ solved it by narrowing to one runtime. See D9.
   there to read. aify-env's RECENT EXITS "last words" panel answers the same question from its own
   registry, which is why it was built.
 
-  **NEXT STEP, and it needs the write path rather than the API:** instrument or read
-  `_append_terminal_output`'s callers for the hermes gateway session and find whether it is reached
-  with the accumulated `terminal` row, reached with a stale one, or bypassed. Not done tonight --
-  this is a service change and the finding is worth more than a guess at its cause.
+  **THE WRITE QUEUE IS RULED OUT, which is the obvious suspect and is not it.**
+  `terminal_write_queue.py` batches chunks and can DISCARD them under backlog, so it looked like the
+  answer. It is sound on all three counts: chunks are appended right (`append`, line 87) and joined
+  left-to-right, so the order is chronological; the bound pops from the LEFT, so it discards the
+  OLDEST rather than the newest; and the one `appendleft` is in `_requeue_front`, which is a failed
+  write going back to the front where it belongs. It also MARKS ITSELF -- a drop prepends
+  `[aify-comms dropped N chars from terminal output backlog]` -- and the hermes tail carries no such
+  marker. So the bytes were not dropped by the queue.
+
+  **TWO CANDIDATES REMAIN, neither tested.** `_append_terminal_output` computes
+  `current = terminal["output"]` from a row its CALLER supplies, and there are two callers:
+  `terminal_write_queue._write_terminal_output` re-reads the row immediately before appending, while
+  `routers/terminal_controls.py:135` passes `latest_terminal or terminal` -- a row read earlier in
+  the request. A stale `current` there would not merely lose a chunk, it would REWRITE the column
+  from an old value, which matches a 536-character tail beside `output_seq=5758` better than any
+  drop does. The other candidate is the `terminal_consistency_repaired` event both sampled terminals
+  carry.
+
+  **NEXT STEP:** establish which caller the hermes gateway session's output actually takes, and
+  whether either can write a stale `current`. That needs a LIVE hermes terminal -- there are
+  currently zero attached on this host, all 34 non-claude terminals are stopped -- or a test that
+  drives the two callers concurrently against one row. The second is the honest one and does not
+  wait on the fleet.
 
 ---
 
