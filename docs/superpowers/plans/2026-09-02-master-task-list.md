@@ -165,6 +165,24 @@ four agents still running through all of it.
   **Two counts, not one, and they were being conflated.** 37 test files name one of the nine MODULES;
   7 name the FLAG. The flag's 7 are the ones that redden on the day it goes.
 
+  **AND ONE MODULE THE DELETION MUST NOT TAKE.** `server.js` calls `usage-collector.js` from a
+  bridge-gated block, so a sweep of "what only the environment bridge uses" reaches for it -- and it
+  is LIVE: `doctor.js` and `usage-preflight.js` both import `checkOpenAiUsageAccess` from it for the
+  `usage-openai` check. Only the two CALL SITES go; the module stays. It nearly went unnoticed
+  because `server.js` imports it ALIASED (`{ collectOnce as collectUsageOnce }`), so asking who
+  exports `collectUsageOnce` finds nobody -- the name exists on that one line and nowhere else. Any
+  scan keyed on an exported NAME is blind to every aliased import in the tree; `server.js` has two.
+  The gate is keyed on the PATH and asserts both facts.
+
+  **The capability really is safe to drop, measured live rather than remembered.** `GET /usage`
+  returns exactly ONE pool, `openai-chatgpt-codex`, updated 2026-09-03T10:30:07Z -- and the SERVICE
+  produced it: `service/routers/usage.py` calls `collect_openai_pool` on read, falling back to a
+  bridge-posted pool only when that fails. There are no usage tables in the database at all
+  (`usage_cache` is in-memory), and no bridge has posted one. So the bridge collector contributes
+  nothing to what the endpoint serves today. **The first search for this returned a false ABSENCE**:
+  grepping the service for `collect_usage` / `usage_collector` / `poll_usage` found zero and read as
+  "the service collects nothing", when the function is called `collect_openai_pool`.
+
   **The first measurement of this was WRONG, which is why the gate matches both quote styles.** A grep
   for `from "./boot-marker-sweep` reported ZERO importers and nearly justified deleting a module
   `server.js` imports on line 116 with single quotes. A reachability claim is the kind that gets acted

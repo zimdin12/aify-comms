@@ -131,6 +131,35 @@ test("managed-ownership is the one to look at first", () => {
   assert.ok(importersOf("reap-managed-survivors").includes("managed-ownership.mjs"));
 });
 
+test("USAGE-COLLECTOR IS NOT IN THE CLUSTER, and that is a decision", () => {
+  // NEGATIVE CONTROL, and a near-miss worth keeping. `server.js` calls its collector from a
+  // bridge-gated block, so a sweep of "modules only the environment bridge uses" reaches for it --
+  // and it is LIVE: `doctor.js` and `usage-preflight.js` both import `checkOpenAiUsageAccess` from
+  // it for the `usage-openai` check. Deleting it would have taken a doctor check with it.
+  //
+  // The alias is why it nearly went unnoticed. `server.js` imports it as
+  // `{ collectOnce as collectUsageOnce }`, so looking for who exports `collectUsageOnce` finds
+  // NOBODY -- the name does not exist outside that one line. A scan keyed on an exported NAME is
+  // blind to every aliased import; the one above is keyed on the PATH, which is what makes it
+  // immune. server.js has two aliased imports today, and this is the assertion that says so.
+  assert.ok(!CLUSTER.includes("usage-collector"),
+    "usage-collector was added to the cluster; the doctor imports it, so deleting it removes a check");
+  const live = importersOf("usage-collector").filter((name) => name !== "server.js");
+  assert.ok(live.length > 0,
+    "nothing outside server.js imports usage-collector any more -- re-examine whether it is now "
+    + "cluster-only, rather than assuming this comment still holds");
+});
+
+test("the scan is keyed on the PATH, so an alias cannot hide an importer", () => {
+  // Proven against the real aliased import rather than a fixture: if this ever reports zero, the
+  // scan has become name-keyed and every alias in the tree is invisible to it.
+  const text = readFileSync(join(STDIO, "server.js"), "utf8");
+  assert.match(text, /import \{ collectOnce as collectUsageOnce/,
+    "server.js's aliased import changed shape; this test no longer exercises an alias");
+  assert.ok(importersOf("usage-collector").includes("server.js"),
+    "the scan missed an ALIASED import, so it cannot be trusted about any module");
+});
+
 test("server.js still loads, whatever is imported", () => {
   // The constraint on the whole deletion: this file is the MCP server every running wrapper loads.
   // A parse error here is a fleet that cannot start, so it is asserted beside the map that will be
