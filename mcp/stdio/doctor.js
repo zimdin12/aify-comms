@@ -35,6 +35,7 @@ import { defaultMachineId } from "./runtimes.js";
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
 import { markFor } from "./doctor-mark.mjs";
+import { buildReport, summaryLine } from "./doctor-report.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
 import { checkContextWindow } from "./context-window-check.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
@@ -629,13 +630,12 @@ await checkAgentIdentity();
 await checkEnvBridge();
 await checkUsage();
 
-const failed = checks.filter((c) => !c.ok);
-const result = {
-  ok: failed.length === 0,
-  repo: repo ? { dir: repo.dir, head: repo.short } : null,
-  service_url: SERVER_URL,
-  checks,
-};
+// The envelope and the summary line live in `doctor-report.mjs`: importing THIS file runs the
+// doctor, so the verdict-shaping is the part least worth running a fleet to test. See that module
+// for why a skip must not read as a pass, and why it is derived from `code` rather than from a flag
+// on the producer.
+const result = buildReport(checks, { repo, serviceUrl: SERVER_URL });
+const failed = result.failed;
 
 if (asJson) {
   console.log(JSON.stringify(result, null, 2));
@@ -669,8 +669,11 @@ if (asJson) {
     if (!c.ok && c.fix) console.log(`      → ${c.fix}`);
   }
   console.log("");
-  console.log(failed.length ? `  ${failed.length} check(s) need attention.` : "  All checks passed.");
+  // "All checks passed" was said after a run where several checks never ran at all. The skipped
+  // count is named on its own so the reader is told what was NOT verified, in the same words the
+  // bridge test runner uses for the same reason.
+  console.log(summaryLine(result));
   console.log("");
 }
 
-process.exit(strict && failed.length ? 1 : 0);
+process.exit(strict && failed ? 1 : 0);

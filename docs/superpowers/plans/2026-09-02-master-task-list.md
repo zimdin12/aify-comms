@@ -588,9 +588,34 @@ solved it by narrowing to one runtime. See D9.
   setting" -- true the day it was written and false the next, once aify-env's plugin shipped a claim
   loop. It now names the missing capability and the remedy and says nothing about the roadmap, with
   a test asserting the phrase "open work" is absent.
-- **D10. A skipped doctor check reports `ok: true`.** `env-bridge` skipped for a missing API key reads
-  as PASSING in `--json`. With D11, that is how "I could not ask" became "no bridge is online" in an
-  agent's summary.
+- **D10. A skipped doctor check reports `ok: true`. FIXED 2026-09-03.**
+
+  The HUMAN report was always honest -- `markFor` answers "–" before it looks at `ok`. The defect
+  lived entirely in `--json`, which is the surface an INSTALLING AGENT parses: it keys on `.ok`, saw
+  `true`, and could not tell "this passed" from "this never ran".
+
+  **Derived from `code`, because there are TWO producers.** The `skip()` helper is one; predicate
+  modules are the other -- `bridgeCurrentVerdict` returns `code: "skipped"` through `add()` and never
+  touches `skip()`. A fix applied to the helper alone would have left the predicate path still
+  claiming a pass, which is the half nobody would have noticed.
+
+  **`--strict` is deliberately unchanged.** On Windows `bridge-running` and `agent-identity` ALWAYS
+  skip, so making a skip fail would turn every ordinary Windows run red -- a worse lie than the one
+  being fixed, dressed up as strictness. `ok` still means "nothing FAILED"; `passed`, `failed` and
+  `skipped` are counted separately so "nothing failed" cannot be read as "everything was checked".
+
+  Shipped as `doctor-report.mjs` rather than inline, because importing `doctor.js` RUNS the doctor --
+  the same split `service-check.mjs` already makes. Live: 15 checks now report 7 passed / 6 failed /
+  2 skipped, and the summary says "2 skipped, so NOT verified here" instead of a bare pass count.
+
+  **A mutation found a hole in my own test.** "Skips do not fail the run" stayed green when the
+  exclusion was deleted, because the fixture carried `ok: true` and never reached the deleted clause.
+  Closed with a fixture in the shape `buildReport` itself emits. Four mutations now each redden their
+  own test.
+
+  **This makes D11 more visible rather than less.** Checks that skip because the API key could not be
+  resolved now read as NOT VERIFIED instead of passing, which is the honest state and the one that
+  should prompt the D11 fix.
 - **D11. The doctor finds the API key only from the repo checkout.** `doctor-api-key.mjs` reads the
   `.env` beside the repo, so every agent running `aify-comms doctor` from its own working directory
   loses every service-reading check. Reproduced from the home directory. Now fixable properly: the

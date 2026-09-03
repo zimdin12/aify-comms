@@ -111,8 +111,14 @@ test("each check reports the fields a caller reads", () => {
 test("a failing check carries a fix, because the report is what an operator acts on", () => {
   // Not "there must be a failure" — that depends on the machine. Only: IF one failed, it says what
   // to do. A red check with no remedy is the shape this tool exists to replace.
+  //
+  // A SKIP IS NOT A FAILURE and is excluded by name. Since D10 a skipped check reports `ok: false`
+  // so that a consumer keying on `.ok` cannot read it as a pass -- which means `ok === false` alone
+  // no longer means "failed", here or anywhere else. There is nothing to fix about a check that
+  // could not run: `bridge-running` on Windows is "process inspection is Linux-only", and demanding
+  // a remedy for it would be demanding a remedy for the operating system.
   const report = runDoctor();
-  for (const check of report.checks.filter((c) => c.ok === false)) {
+  for (const check of report.checks.filter((c) => c.ok === false && !c.skipped)) {
     assert.ok(
       String(check.fix || "").trim(),
       `${check.id} failed with no fix — "${check.detail}"`,
