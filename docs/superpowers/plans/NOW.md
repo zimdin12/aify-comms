@@ -123,8 +123,19 @@ Both fixed, both mutation-proved. `claimed` gets no live-bridge carve-out, measu
 existing 3-minute grace is abandoned, not slow -- and sc-coder's row was claimed by the LIVE bridge,
 so the carve-out would have sheltered it another 30 minutes and made the fix useless for its own case.
 
-**NOT LIVE YET.** Both reach the fleet on the next service deploy; the liveness half also needs an
-aify-env restart, which is the operator's call.
+**BOTH ARE LIVE AND PROVEN ON THE FLEET**, service build `612e1264 == repo HEAD`. No aify-env
+restart was needed: it was already sending the frames, the service was throwing them away.
+
+Measured before and after, same query, same four terminals. Before: `updated_at` 10 to 26 minutes
+stale on every live terminal, because nothing wrote it. After: all four refreshing within **13
+seconds**. `aify-comms doctor`'s `env-processes` went from `unaccounted` to `ok — 4 process(es)
+matched a live terminal; nothing unaccounted for`.
+
+So `fc8d4c52` is protecting live terminals for the first time, and the release-on-bridge-id-mismatch
+after an aify-env restart -- the thing that started this whole chain -- cannot happen again.
+
+**Still pending an aify-env restart** (the operator's call, not urgent): `1c5af7c` and `ec243e9`,
+the end-status orphan rule and the output veto that keeps it from killing a working agent.
 
 ## sc-coder: RECOVERED 07:07, and what it cost to get there
 
