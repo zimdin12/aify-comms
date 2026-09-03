@@ -1272,6 +1272,45 @@ solved it by narrowing to one runtime. See D9.
   a fixture that breaks it -- worth knowing before writing the next scanner in a directory that has
   several.
 
+- **D15. `agents.runtime_state` IS THE SAME SHAPE AS D13, WITH NINE WRITERS AND NO LOCK. Measured
+  2026-09-03, NOT fixed, and NOT demonstrated to have lost anything.**
+
+  Found by auditing for D13's shape elsewhere. `runtime_state` is a JSON blob, and every writer does
+  the same three steps: `SELECT runtime_state`, `_json_loads_or(...)`, mutate the dict,
+  `UPDATE agents SET runtime_state = ?`. Nine such UPDATEs:
+
+      api_core/bridge_supersede.py      api_core/console_terminal_rows.py
+      api_core/managed_pty_for_dispatch.py   reconcilers/managed_workers.py (x2)
+      reconcilers/terminals.py          routers/agents/config.py (x2)
+      routers/agents/session_ops.py
+
+  **None of the modules that write it takes any lock** -- measured across all 23 files that touch
+  `UPDATE agents`, zero mentions of a lock.
+
+  **THE INTERLEAVING WINDOW IS REAL ON ONE EVENT LOOP, which is worth stating because "single
+  worker" reads like protection and is not.** `await db.execute(SELECT)` yields. A second coroutine
+  runs and yields on its own SELECT. Both now hold the SAME value. Each computes, then awaits its
+  UPDATE -- and the second one writes a dict built from a value that was already stale. The loser's
+  KEY disappears, not just its value, because the whole blob is replaced.
+
+  **WHAT IS NOT ESTABLISHED, and this is the honest half.** Whether two of those nine are ever in
+  flight for the SAME agent at the same instant. The fleet makes it plausible -- registration,
+  heartbeat, console binding, dispatch PTY and a 60s reconciler all write it -- but plausible is not
+  measured. Live, 40 of 44 agents carry a non-empty `runtime_state` across 9 keys
+  (`bridgeInstanceId` 40, `sessionId` 30, `ownership` 23, `environmentId` 15, `mode` 13,
+  `spawnRequestId` 13, `resumePolicy` 10, `terminalId` 4, `threadId` 2). **I did NOT read a lost key
+  out of that**, because there is no invariant here saying which agent should carry which -- and
+  inferring one, then calling a gap a lost update, is exactly the mistake D12 was withdrawn for.
+
+  **WHAT WOULD SETTLE IT:** an invariant somebody can name ("a managed spawn always carries both
+  `spawnRequestId` and `environmentId`"), or instrumenting the nine writers to record when two
+  overlap on one agent. Either is cheap; neither is guessing.
+
+  **IF IT IS FIXED, the shape is D13's:** the read must be inside whatever serialises the write, not
+  merely the write. Nine call sites is a real slice, and doing it on suspicion -- with no
+  demonstrated loss, on the module that owns agent identity -- is not a night's work with the
+  operator asleep.
+
 ---
 
 ## E. Reviews -- LAST
