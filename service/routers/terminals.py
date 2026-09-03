@@ -32,7 +32,13 @@ from fastapi import HTTPException, Request
 from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
+from service.terminal_snapshot import render_live_screen
 from service.api_core.routing import domain_router
+from service.api_core.console_prompts import (
+    answer_for_screen,
+    forget_terminal as _forget_answered_prompts,
+    should_answer,
+)
 from service.api_core.launch_env import launches_via_wrapper, managed_launch_env
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.serialization import _json_loads_or
@@ -204,6 +210,55 @@ async def list_terminals(
     # which is the failure mode a reconciliation check cannot survive: it would report the missing
     # rows as orphans.
     return {"ok": True, "terminals": terminals, "count": len(terminals), "truncated": truncated}
+
+
+async def _answer_console_prompt_if_any(db, terminal, terminal_id: str, request) -> None:
+    """Press the key a parked worker is waiting for, once, and say why.
+
+    THE FAILURE IT ENDS. A managed claude worker launched with
+    `--dangerously-load-development-channels` stops at a first-run acknowledgment and waits. It
+    registers `online`, claims nothing, and every signal reads healthy -- "up but deaf", which cost
+    the operator's fleet a night on 2026-09-03. Nothing in the chain could press Enter for it once
+    the aify-comms bridge stopped being the thing that started workers.
+
+    NEVER THROWS. This runs inside the hot output path: every chunk from every worker passes here,
+    and an exception would stop the console stream the operator reads -- trading a stuck prompt for
+    a blind one, which is a worse trade in every case.
+    """
+    try:
+        rendered = render_live_screen(terminal_id)
+        if not rendered:
+            return
+        screen = rendered[0]
+        runtime_state = _json_loads_or(
+            terminal["runtime_state"] if "runtime_state" in terminal.keys() else "", {},
+        )
+        answer = answer_for_screen(
+            screen,
+            # THE FACT ONLY THIS SERVICE HOLDS, and the reason a host cannot decide this: "keep the
+            # context" and "start fresh" want opposite answers to the same dialog.
+            resume_policy=str((runtime_state or {}).get("resumePolicy") or ""),
+        )
+        if not should_answer(terminal_id, answer):
+            return
+        await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=str(terminal["environment_id"] or ""),
+            bridge_id=str(terminal["bridge_id"] or ""),
+            action="input",
+            requested_by="console-prompt",
+            body=answer.keys,
+        )
+        await db.commit()
+        # SAID, and attributed to its rule. A keystroke nobody can account for is worse than a stuck
+        # prompt: the next person to read this console sees an answer arrive from nowhere.
+        logger.info(
+            "answered console prompt on terminal=%s rule=%s: %s",
+            terminal_id, answer.rule, answer.why,
+        )
+    except Exception:
+        logger.debug("console prompt check failed for terminal=%s", terminal_id, exc_info=True)
 
 
 @router.get("/terminals/{terminal_id}/launch")
@@ -447,16 +502,28 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         # `if req.exitCode:` would drop exactly the case this exists to record.
         if req.exitCode is not None or str(req.exitSignal or "").strip():
             await _record_terminal_exit(db, terminal_id, req.exitCode, req.exitSignal)
+        chunk_text = req.output or ""
         next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,
-            req.output or "",
+            chunk_text,
             status=status,
             base_seq=int(terminal["output_seq"] or 0),
             autoschedule=not bool(getattr(request.app.state, "testing", False)),
         )
+        # A DIALOG A WORKER CANNOT PASS ON ITS OWN IS ANSWERED HERE, by the tier that knows what the
+        # screen means. The host runs the keystrokes; it must not learn what claude looks like,
+        # because it is about to run processes for other services too.
+        #
+        # AGAINST THE RENDERED SCREEN, never the chunk. Claude does not send spaces, it moves the
+        # cursor -- a matcher on raw bytes looks for a string that is never transmitted, which is
+        # exactly how the first attempt at this watched its dialog and did nothing.
+        if chunk_text:
+            await _answer_console_prompt_if_any(db, terminal, terminal_id, request)
         await _close_out_terminal_on_end_status(
             db, terminal, terminal_id, status, _TERMINAL_END_STATUSES,
         )
+        if status in _TERMINAL_END_STATUSES:
+            _forget_answered_prompts(terminal_id)
         # Do NOT broadcast per-POST here: concurrent POSTs reorder vs seq and
         # the dashboard's seq-dedupe then drops frames (scrambled console).
         # Hand the ws manager to the write queue, which emits one ordered,
