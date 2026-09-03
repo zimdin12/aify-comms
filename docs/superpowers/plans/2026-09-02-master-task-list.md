@@ -725,9 +725,46 @@ solved it by narrowing to one runtime. See D9.
   does not close this. Recorded as open by decision, not by oversight.
 - **D8. RESOLVED with D5.** Absent because the process predated the restart, not because the code
   lacked the field.
-- **D9. Prompt detection is claude-code-only and unbounded in the tail.** See the herdr notes in A.
-  A general detector with regions and negative guards would cover hermes, codex and pi, which today
-  fall back to native events only.
+- **D9. Prompt detection is claude-code-only.** ~~and unbounded in the tail~~ -- **MEASURED
+  2026-09-03: one half is real and demonstrated, the other half is WRONG.**
+
+  **"Unbounded in the tail" does not hold.** `_terminal_awaiting_input_hint` slices `clean[-2000:]`,
+  and `_live_prompt` additionally requires at most 120 non-whitespace characters AFTER the match. Fed
+  the same prompt with 1,500 trailing characters it returns `""`; with 50 it returns the hint. The
+  region is already bounded to the bottom of the screen, by the trailing budget rather than by the
+  slice. Nothing to fix here.
+
+  **"Claude-code-only" is real, and here is the demonstration.** The only busy-suppression is
+  `_CLAUDE_WORKING_FOOTER_RE`, claude's spinner. Same input shape, two runtimes:
+
+  | input | result |
+  |---|---|
+  | `which option do you want` + claude spinner footer | `""` -- correctly suppressed |
+  | `[codex] working...` + `which option do you want` | `Awaiting console input.` -- **false blocked** |
+
+  So decision-flavoured prose from a hermes, codex or pi agent that is *generating* reads as blocked.
+  That is the same defect the claude guard was added for after the subagent-to-blocked incident
+  (2026-06-07), still open for three runtimes of four. The guard does not over-suppress: a genuine
+  `(y/n)` after the spinner is still reported.
+
+  **THE OBVIOUS FIX DOES NOT WORK, and this is the part worth writing down.** The bridge already
+  emits per-runtime busy markers -- `codex-session.js` and `hermes-managed-gateway-session.js` push
+  `[<runtime>] working...`, `hermes-session.js` pushes `[hermes] thinking...` -- so the patterns are
+  known rather than guessed. But adding them to the footer regex would change nothing, because the
+  suppression scans the region AFTER the last footer match, and the two markers have opposite
+  positions: claude's spinner is REPAINTED at the bottom of the screen, so it lands after the prose;
+  the bridge's marker is written once at TURN START, so the prose lands after IT. The semantics do
+  not transfer.
+
+  **What would work is not a text pattern at all.** Whether a runtime is generating is something the
+  CALLER already knows -- there is an open dispatch run, or there is not -- while
+  `_terminal_awaiting_input_hint` is a pure text function being asked to infer it. The suppression
+  belongs at the call site, with the run state, and the text detector should answer only "is there a
+  prompt on this screen". Not built: it moves a guard that currently protects the claude path, so it
+  wants a deliberate change rather than a footnote to a measurement.
+
+  (pi was not measured -- `pi-session.js` emits no equivalent marker that a grep for the same shape
+  finds, and no pi terminal was live on this host to read.)
 
 ---
 
