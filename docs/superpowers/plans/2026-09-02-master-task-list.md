@@ -1157,67 +1157,41 @@ solved it by narrowing to one runtime. See D9.
   (pi was not measured -- `pi-session.js` emits no equivalent marker that a grep for the same shape
   finds, and no pi terminal was live on this host to read.)
 
-- **D12. A DEAD HERMES TERMINAL KEEPS NO OUTPUT, AND THAT IS THE EVIDENCE BEHIND THE QUESTION THE
-  OPERATOR HAS ASKED MOST.** Found 2026-09-03 while measuring D9. MEASURED, NOT ROOT-CAUSED.
+- **D12. WITHDRAWN AS STATED, 2026-09-03 19:45 UTC, and the correction is mine.** It claimed a dead
+  hermes terminal keeps no output, on this evidence: "21 non-claude terminals streamed >1000 output
+  events and only 2 retain any stored tail". **That number attached the wrong noun to the wrong
+  population.** `terminal_history.py` clears `output` for ended terminals past
+  `ended_output_ttl_hours` (24), and I checked that TTL against `updatedAt` for the TWO terminals I
+  sampled by hand rather than for the population I then counted. Split properly:
 
-  | | claude-code | hermes / pi |
-  |---|---|---|
-  | terminals that streamed >1000 output events | many | **21** |
-  | ...of which retain any `terminal_sessions.output` | -- | **2** |
-  | largest retained tail among them | **66,622 chars** | **536 chars** |
+  | non-claude terminals | n |
+  |---|---|
+  | UNDER the 24h TTL -- retention has not run | **6** |
+  | OVER the 24h TTL -- retention correctly cleared them | **28** |
+  | under the TTL AND streamed >1000 events | **2** |
+  | ...of those, retaining a tail | **2** |
 
-  Four claude terminals stopped at `2026-09-03T05:32:22Z` hold 53,162 / 56,180 / 66,595 / 66,622
-  characters. Two hermes terminals stopped at **the same timestamp** hold 536 each; the other 32
-  non-claude terminals hold nothing.
+  So 19 of the 21 were the retention rule working exactly as designed. The instrument was fine; the
+  POPULATION was wrong, which is the failure `measure twice before quoting` names and which I had
+  already been bitten by twice today on code paths nothing takes.
 
-  **THE OBVIOUS EXPLANATIONS ARE BOTH RULED OUT.**
-  - *Retention:* `terminal_history.py` clears `output` for ended terminals older than
-    `ended_output_ttl_hours`, default **24**. These stopped 13 hours ago and the rule is
-    runtime-agnostic, so it has not run on either side.
-  - *"Hermes never streams bytes":* it does. Its newest 199 `terminal_output` events carry **7,615
-    characters**, median 36, max 640 -- real escape sequences, not empty progress pings. (The first
-    read said "len=0" for every one; that was my probe reading a `detail` field the payload calls
-    `body`. Corrected before it reached a conclusion.)
+  **WHAT SURVIVES IS THIN AND MAY BE NOTHING.** Two hermes terminals, alive 04:55:36 to 05:32:22 (so
+  not retention-eligible), carry `output_seq` 5758 and 5789 against a 536-character tail. If their
+  frames averaged what the newest 200 did (7,615 characters, median 36) that would be ~220 KB
+  trimmed to the 64 KB cap, not 536. **But those newest 200 are the TEARDOWN** -- mode-reset escapes
+  and `[terminal exited]` -- which is exactly where a burst of tiny frames belongs, so they say
+  nothing about the 5,558 frames before them, and `terminal_events` is capped per terminal so the
+  early ones cannot be read back. `output_seq` counts ENQUEUES, including status-only ones that
+  carry no bytes at all.
 
-  So the bytes exist as EVENTS and never accumulated into the session tail, which is written by the
-  SAME `UPDATE` as `output_seq` in `_append_terminal_output`. A row with `output_seq=5758` and a
-  536-character tail should not be reachable through that function, and why it is has not been
-  established. The 536 characters that ARE there are hermes' teardown: a run of `ESC[K` line clears,
-  a mode-reset block, and `[terminal exited]`.
+  **So there is no established defect here, only an unexplained ratio on two rows.** Reopening it
+  needs a LIVE hermes terminal watched while it runs -- zero are attached on this host, all 34
+  non-claude terminals are stopped -- so that what its frames actually carry can be measured rather
+  than inferred from a teardown. Left recorded rather than deleted because the ratio is still
+  unexplained, and because the retraction is the useful part.
 
-  **WHY IT MATTERS, and it is not a tidiness item.** `service/terminal_diagnostics.py` exists to
-  answer "which line of a dead terminal's output explains the death". For a dead hermes worker it has
-  essentially nothing to read. That is exactly the question the operator asked twice about the
-  2026-08-26 death clusters, where "every answer had to be reconstructed from timestamps in another
-  component's database" -- and this says the output that would have answered it directly was not
-  there to read. aify-env's RECENT EXITS "last words" panel answers the same question from its own
-  registry, which is why it was built.
-
-  **THE WRITE QUEUE IS RULED OUT, which is the obvious suspect and is not it.**
-  `terminal_write_queue.py` batches chunks and can DISCARD them under backlog, so it looked like the
-  answer. It is sound on all three counts: chunks are appended right (`append`, line 87) and joined
-  left-to-right, so the order is chronological; the bound pops from the LEFT, so it discards the
-  OLDEST rather than the newest; and the one `appendleft` is in `_requeue_front`, which is a failed
-  write going back to the front where it belongs. It also MARKS ITSELF -- a drop prepends
-  `[aify-comms dropped N chars from terminal output backlog]` -- and the hermes tail carries no such
-  marker. So the bytes were not dropped by the queue.
-
-  **TWO CANDIDATES REMAIN, neither tested.** `_append_terminal_output` computes
-  `current = terminal["output"]` from a row its CALLER supplies, and there are two callers:
-  `terminal_write_queue._write_terminal_output` re-reads the row immediately before appending, while
-  `routers/terminal_controls.py:135` passes `latest_terminal or terminal` -- a row read earlier in
-  the request. A stale `current` there would not merely lose a chunk, it would REWRITE the column
-  from an old value, which matches a 536-character tail beside `output_seq=5758` better than any
-  drop does. The other candidate is the `terminal_consistency_repaired` event both sampled terminals
-  carry.
-
-  **THE CONCURRENCY TEST WAS RUN, and it found a real defect that is NOT this one -- see D13.**
-  Two unserialised appends do lose bytes, proven against the real function with a serialised control
-  beside it. But the unlocked writer is the CONTROL-completion path, which does not fire often
-  enough to turn 5,758 frames into 536 characters. So D12 stays open with its cause unknown, and the
-  remaining step needs a LIVE hermes terminal -- zero are attached on this host right now, all 34
-  non-claude terminals are stopped -- to see whether its output accumulates while running or only
-  appears to.
+  (D13 below is real and fixed. It was found while chasing this, and it does not depend on any of
+  the above.)
 
 - **D13. TERMINAL OUTPUT HAS TWO WRITERS AND ONE LOCK, AND THE LOSER'S BYTES ARE GONE. PROVEN AND
   FIXED 2026-09-03** (`e18dda71`), found while investigating D12. **NEEDS A CONTAINER REBUILD.**
@@ -1261,9 +1235,12 @@ solved it by narrowing to one runtime. See D9.
   the lock, and appending to the caller's row rather than the re-read one. The inert-split gate
   declares the edit rather than being relaxed.
 
-  **IT IS NOT ESTABLISHED AS D12's CAUSE, and saying otherwise would be the easy mistake.** A
-  control completion carrying output is not frequent enough to explain 5,758 frames collapsing to
-  536 characters on its own. This is a real defect found on the way to another one.
+  **IT STANDS ON ITS OWN, and does not depend on D12 -- which has since been WITHDRAWN as stated.**
+  This was found while chasing that, and the temptation at the time was to call it the cause. It is
+  not: a control completion carrying output does not fire often enough to explain what D12 described,
+  and D12 turned out to be mostly the 24h retention rule working correctly. The lost update here was
+  proven directly against the function, with a serialised control beside it, and needed no part of
+  that story.
 
 ---
 
