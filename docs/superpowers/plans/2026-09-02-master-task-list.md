@@ -693,8 +693,32 @@ solved it by narrowing to one runtime. See D9.
   HASH, not a git sha -- I read it as one and told the operator the build identity was broken. It is
   not: running-hash against disk-hash is exactly the right instrument and it correctly read CURRENT.
   The missing `/health` fields were a stale process, resolved by the restart (`220b5280`).
-- **D6. WRAP-M1: keyEnv secrets baked into world-readable launchers.** Latent only because no service
-  sets `strictMcp: true`. Fix before one does.
+- **D6. WRAP-M1: keyEnv secrets baked into world-readable launchers. CLOSED 2026-09-03** (aify-wrapper
+  `00aaf55`, aify-comms pin below).
+
+  **Reproduced before guarding.** `mcpEntriesFor` resolves `keyEnv` to the VALUE the installing shell
+  carries; `strictMcpFragment` writes it into an `env` block; the installer bakes the fragment into
+  every launcher. Rendering with `strictMcp: true` and a key exported produced
+  `"env": { "OTHER_URL": ..., "AIFY_API_KEY": "<the key>" }`, decoded from the base64 in one line, in
+  a mode-755 file. Base64 is a transport encoding, not a secret.
+
+  **Still latent when it was closed**, which is when it was cheap: the live registry sets `strictMcp`
+  nowhere and the fragment is the empty string.
+
+  **The COMBINATION is refused**, never `strictMcp` alone and never a key alone -- verified by real
+  exit status rather than by what it was piped through: key+strict exits 78 writing zero launchers,
+  while strict-without-a-key and key-without-strict both exit 0 and render three. An ordinary install
+  with a key exported is the case a blunter guard would have broken.
+
+  **Refused at the INSTALL boundary**, because by the time a launcher exists the credential has
+  already been published to every local user.
+
+  **Why refuse rather than solve.** Keeping the pin AND keeping the secret out of the file means
+  resolving per-server env in the launcher at RUN time -- and the fragment is base64 precisely so its
+  content is never re-parsed by the shell, so adding a substitution hop back is how the escaping bugs
+  that encoding ended would return. That design is worth building when a service actually needs strict
+  mode WITH a credential. Inventing it speculatively inside a package aify-dashboard and
+  aify-project-graph are about to consume is not. **Open, and now impossible to ship silently.**
 - **D7. Per-agent authority.** A shared secret proves fleet membership, never "may act AS agent X".
   Blocks SSE-M1 (console input's actor is forgeable by construction), CRED-L1, Row 4 F4, and Row 1
   (dashboard terminal input). The operator's 09-02 answer described the INSTALL-TIME key (C4), which
