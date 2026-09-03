@@ -1040,6 +1040,47 @@ solved it by narrowing to one runtime. See D9.
 message will not find it there. Not rewritten, because it is pushed and shared; recorded here
 instead, which is the cheaper of the two honest options.
 
+## v0.6.1 close-out, verified 2026-09-03
+
+The standing task list still carried five open v0.6.1 items. Measured one by one, FOUR are done and
+the fifth is two-thirds done -- so the list was the stale thing, not the work.
+
+- **(a) `comms_remove_agent` must stop its worker, not orphan it. DONE.** `DELETE /agents/{id}` in
+  `service/routers/agents/identity.py` emits the stop control BEFORE deleting the agent -- while
+  `terminal_sessions` still exists -- and stamps `__aify_reap_triad__` so the reap intent survives
+  the row's disappearance. The handler's own comment names the trap it avoids: deleting the agent
+  cascades agents -> agent_sessions -> terminal_sessions -> terminal_controls, so a control emitted
+  in the same request would be wiped by the same delete. Residents are skipped, being the operator's
+  own session. Tested both sides: `test_hermes_remove_triad_reap.py` for the server contract,
+  `hermes-stop-triad-teardown.test.js` for the bridge teardown.
+
+- **(b) Remove the `aify-comms` environment-bridge command. DONE for the COMMAND.** A bare run exits
+  2 and names aify-env. The ~1,800 lines behind it are mapped and gated but NOT deleted, blocked on
+  one operator decision (the per-agent consumption collector) -- see T2 above.
+
+- **(c) Console-prompt rules into the service + `hasTrustDialogAccepted`. TWO-THIRDS DONE.**
+  `service/api_core/console_prompts.py` holds the rules and argues the layer in the operator's own
+  terms: a host about to run processes for aify-dashboard and aify-project-graph must not carry one
+  service's screen model. It records that the rules were briefly in aify-env at 5am on 2026-09-03,
+  that this was the wrong layer, and that this is the move. It matches the RENDERED screen, with the
+  reason measured: claude sends `I<ESC>[1Cam<ESC>[1Cusing` rather than spaces, so a raw-stream
+  matcher looks for a string never transmitted -- it watched its own dialog and did nothing with
+  every test green.
+
+  The trust dialog is DELIBERATELY excluded there, correctly: it is `hasTrustDialogAccepted` in
+  `~/.claude.json`, state to write once rather than a dialog to answer forever.
+
+  **What is NOT done is the write, and it is not trivial.** Nothing writes that key -- measured, with
+  a control. And `~/.claude.json` has corrupted before under concurrent writes (duplicate-tail, two
+  or more `claude.exe` racing), which is not recorded anywhere in this repo and is exactly what a
+  wrapper writing it at launch would risk on a host running a dozen claude processes. So it needs a
+  lock or a single writer, and that is a decision about the operator's own config file rather than a
+  tidy-up. **Operator's call.**
+
+- **(d) Full docs + skills pass. DONE** 2026-09-03 `10a202f2`.
+
+- **(e) Cut and push the v0.6.1 tag. DONE** -- `v0.6.1` is at `b7d77fdf`.
+
 ## v0.6.1 progress, 2026-09-02
 
 **T2 -- separation of concerns.** Steps 1 and 2 DONE and proven end to end: the plugin seam, the
