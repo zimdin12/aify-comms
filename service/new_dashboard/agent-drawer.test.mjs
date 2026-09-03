@@ -15,6 +15,7 @@ import test from "node:test";
 import { state } from "./state.mjs";
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from "./agent-drawer.mjs";
 import { AGENT_PROCESSES_ID } from "./agent-processes.mjs";
+import { AGENT_RUNS_ID } from "./agent-runs.mjs";
 
 function fakeEl(classes = []) {
   const set = new Set(classes);
@@ -425,4 +426,43 @@ test("AND IT ACTUALLY MAKES THE READ, not merely leaves a slot for it", async ()
     delete globalThis.document;
     if (hadFetch) globalThis.fetch = realFetch; else delete globalThis.fetch;
   }
+});
+
+test("THE DRAWER FILLS THE RUNS PANEL FROM ROWS THE PAGE ALREADY HOLDS", () => {
+  // The call site, asserted on its OUTPUT rather than on the container's existence -- which is the
+  // gap a mutation found in the processes panel's first test: deleting the call left the container
+  // and every test green. There is nothing to await here, so this needs no stubbing: `fillAgentRuns`
+  // reads `state.runs`, so seeding it and finding the subject on screen proves the whole path.
+  seed({
+    agents: [{ id: "coder" }],
+    inspector: {},
+  });
+  state.runs = [{ id: "run_seeded", targetAgentId: "coder", status: "completed", subject: "seeded subject", requestedAt: "2026-09-03T10:00:00Z" }];
+  state.runsTruncated = false;
+  const els = drawerEls();
+  els[AGENT_RUNS_ID] = { innerHTML: "" };
+  withDom(els, () => {
+    openAgentDrawer("coder");
+    assert.match(els[AGENT_RUNS_ID].innerHTML, /seeded subject/, "the runs panel was never filled");
+  });
+});
+
+test("and it shows THIS agent's runs, not the whole page's", () => {
+  // The filter proven through the drawer, not just in the pure renderer: a wiring that passed the
+  // wrong id would render a populated, entirely wrong panel -- which looks more correct than an
+  // empty one and is worse.
+  seed({ agents: [{ id: "coder" }], inspector: {} });
+  state.runs = [
+    { id: "mine", targetAgentId: "coder", status: "completed", subject: "belongs here", requestedAt: "2026-09-03T10:00:00Z" },
+    { id: "theirs", targetAgentId: "tester", status: "completed", subject: "belongs elsewhere", requestedAt: "2026-09-03T11:00:00Z" },
+  ];
+  state.runsTruncated = false;
+  const els = drawerEls();
+  els[AGENT_RUNS_ID] = { innerHTML: "" };
+  withDom(els, () => {
+    openAgentDrawer("coder");
+    const html = els[AGENT_RUNS_ID].innerHTML;
+    assert.match(html, /belongs here/);
+    assert.ok(!/belongs elsewhere/.test(html), "another agent's run reached this drawer");
+  });
 });

@@ -31,6 +31,7 @@ import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
 import { AGENT_PROCESSES_ID, loadAgentProcesses } from './agent-processes.mjs';
+import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -132,6 +133,10 @@ export function openAgentDrawer(agentId) {
         <div class="agent-drawer-subhead">Processes</div>
         <div id="${AGENT_PROCESSES_ID}"><p class="subtle">Reading this agent's terminals…</p></div>
       </div>
+      <div class="agent-drawer-cli">
+        <div class="agent-drawer-subhead">Recent runs</div>
+        <div id="${AGENT_RUNS_ID}"></div>
+      </div>
       <div class="agent-drawer-actions">${actions}</div>
     </div>`;
   // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
@@ -144,6 +149,7 @@ export function openAgentDrawer(agentId) {
   // and forget: `loadAgentProcesses` renders its own failure into its own panel, and everything
   // else in this drawer stays true whether that read succeeds or not.
   loadAgentProcesses(id, { api, byId });
+  fillAgentRuns(id, { byId });
 }
 export function syncInspectorToSelection() {
   const inspector = byId('inspector');

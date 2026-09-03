@@ -471,8 +471,35 @@ solved it by narrowing to one runtime. See D9.
   with `fetch` stubbed, so the assertion covers container, URL, response and render without a live
   GET against the operator's own service. Five mutations now each redden their own test.
 
-  **Still open under B5:** console, runs and history behind the same click. And the drawer edit is
-  declared in `extraction-proof`'s plan, generated from the file rather than transcribed.
+  **SECOND SLICE DONE: RECENT RUNS.** `agent-runs.mjs` filters `state.runs` -- already polled, so no
+  fetch at all, unlike terminals which nothing had loaded. Status, subject, requested-age, newest
+  first, sorted HERE because `state.runs` is ordered for the runs PAGE and five rows out of a
+  differently-ordered page are an arbitrary five.
+
+  Three decisions with tests behind them. **The window is partial and the panel says so**: a limit=80
+  page reached back only to 26 August, so an agent whose last run fell off it renders as an agent
+  with no runs -- and "no work ever reached this agent" versus "none in the loaded page" are opposite
+  answers, the same distinction `run-inspector.mjs` already makes. **It says what it shows out of
+  what** ("Showing 3 of 7 loaded"), because a bare count is a count of the panel, not of the agent.
+  And **a reply owed on a SETTLED run is flagged** while one on an open run is not: pending on a
+  running run means "not yet", pending on a completed one means somebody is waiting, and it is
+  invisible in a status column reading `completed`.
+
+  **A mutation found a weak fixture, not a weak guard.** "A blank agent id matches nothing" passed
+  with the guard deleted, because my fixture used a run with a real target -- which the filter
+  excludes anyway. Measured: without the guard, a blank id paired with a run whose OWN target is
+  blank returns a row, since `"" === ""` matches. The guard was load-bearing and the test was not
+  reaching it. Five mutations now each redden their own test.
+
+  **Still open under B5:** the console behind the same click.
+
+  **AND A NAMED FLAKE, previously unnamed.** aify-env's `doctor-live.test.js` --
+  "against a live environment, owned processes are reported as PASSED rather than unanswered" --
+  fails roughly one run in three under the full 1,075-test suite and passes every time alone. It is
+  properly isolated (`--port 0`, a sealed `AIFY_ENV_PROCESS_RECORD` in a temp dir, its own registry),
+  so it does NOT touch the operator's daemon; that was checked by reading it, because a test that
+  starts an aify-env is the shape that reaped five agents once. The candidate cause is its 20s
+  daemon-start budget on a loaded host -- NOT diagnosed, just the first thing to look at.
 - **B6. A login prompt instead of a URL parameter.** DONE 2026-09-02, deployed and verified.
 
 ---
