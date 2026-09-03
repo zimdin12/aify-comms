@@ -486,9 +486,33 @@ solved it by narrowing to one runtime. See D9.
   signal that matters. Surfacing the check as it stands would put a permanent "unknown" in the UI,
   which is the false-green shape inverted and no better.
 
-  **Still open under B4:** `env-bridge` and `context-window`. Note D0 already found that an
-  environment's `status` is not whether a bridge is live, so `env-bridge` wants care rather than a
-  direct read of that field.
+  **`env-bridge` WAS ALREADY DONE, found by looking before building.** The service computes
+  `spawnClaim: {state, canClaim, bridgeLastSeen}` on every environment row -- live, the Windows host
+  reads `fresh/true` and the WSL one `absent/false` -- and `status.js` reads it rather than deriving
+  it ("READ, NOT DERIVED. The service sends `spawnClaim` on every environment row"). It is displayed
+  in `environments-panels.mjs` per host, counted in its summary, and noted in the spawn form as
+  "-- cannot spawn". One implementation, service-side, already on screen.
+
+  That is also the answer to the objection that stalled B4: computing these checks service-side does
+  NOT have to duplicate the CLI, because the service can compute once and the dashboard can read. My
+  first measurement here reinvented it by reaching for the bridge's `spawn-claimer.mjs`, which is the
+  doctor's caller of the same question.
+
+  **SO B4 IS 2 OF 4 DONE, 1 REFUSED, 1 REMAINING:**
+
+  | check | state |
+  |---|---|
+  | `session-handles` | DONE 2026-09-03 -- per-agent, in the drawer, with an agreement test |
+  | `env-bridge` | ALREADY DONE -- service-computed `spawnClaim`, displayed in three places |
+  | `bridge-current` | NOT SURFACEABLE -- `bridgeBuild` no longer arrives; root-caused above |
+  | `context-window` | REMAINING -- neither computed service-side nor in the dashboard |
+
+  **`context-window` is the real remaining work**, and it is the pattern `env-bridge` already
+  demonstrates: compute it in the service, have the dashboard read it, and agree with
+  `mcp/stdio/context-window-check.mjs` over one corpus. The service has what it needs -- the console
+  log is in `terminal_sessions.output` and `terminal_snapshot.py` already renders screens -- so the
+  check reads the runtime's own footer (`922.4k/900k`) off a rendered screen rather than the wrapped
+  percentage, which is what the doctor's own note says survives a dying agent's shredded display.
 - **B5. Browse an agent and its processes** (09-02). *"i cannot still check the processes themself?
   (like browse agent or something)"* **FIRST SLICE DONE 2026-09-03: the PROCESSES panel.**
 
