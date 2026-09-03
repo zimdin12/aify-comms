@@ -1302,9 +1302,34 @@ solved it by narrowing to one runtime. See D9.
   out of that**, because there is no invariant here saying which agent should carry which -- and
   inferring one, then calling a gap a lost update, is exactly the mistake D12 was withdrawn for.
 
-  **WHAT WOULD SETTLE IT:** an invariant somebody can name ("a managed spawn always carries both
-  `spawnRequestId` and `environmentId`"), or instrumenting the nine writers to record when two
-  overlap on one agent. Either is cheap; neither is guessing.
+  **AN INVARIANT WAS FOUND AND TESTED, and the answer lowers the severity rather than raising it.**
+  The code declares one: `_runtime_state_with_handle` writes the session handle into runtime_state
+  (`threadId` for codex, `sessionId` otherwise) and several writers set the `session_handle` COLUMN
+  in the same UPDATE, so for an agent that has a handle the two should agree. Checked against the
+  live fleet:
+
+  | | n |
+  |---|---|
+  | handle in BOTH column and runtime_state | 32 -- **all agreeing, zero disagreements** |
+  | column only (state has none) | **1** -- `tech-lead`, codex, offline |
+  | state only (column has none) | 0 |
+  | neither | 11 |
+
+  **AND THE ONE EXCEPTION HAS NO ESTABLISHED CONSEQUENCE, which is the part worth knowing before
+  anyone acts on it.** Resume does NOT read runtime_state: `dispatch_start.py:249-253` selects the
+  `session_handle` COLUMN and falls back to the session row's copy. `_runtime_handle_from_state` is
+  read in only two places and neither resumes anything -- `agents/config.py:171` compares a REPORTED
+  handle, `agents/environment_assignment.py:113` reads it while reassigning. So an agent that lost
+  the key from its blob still resumes from the column. `tech-lead` is also consistent with a benign
+  path: `_runtime_state_replacing_handle` pops both keys and re-adds nothing when the new handle is
+  empty. I did not distinguish the two, and one offline agent is not evidence either way.
+
+  **SO D15 IS A LATENT SHAPE WITH NO DEMONSTRATED HARM.** The lock is missing, the window is real,
+  the invariant is now checkable, and the one live violation costs nothing that could be found. That
+  is a reason to leave it recorded rather than fixed, and a reason not to quote it as a defect.
+
+  **WHAT WOULD STILL SETTLE IT:** instrumenting the nine writers to record when two overlap on one
+  agent, or a key whose loss a reader actually punishes. The handle is not that key.
 
   **IF IT IS FIXED, the shape is D13's:** the read must be inside whatever serialises the write, not
   merely the write. Nine call sites is a real slice, and doing it on suspicion -- with no
