@@ -1040,6 +1040,36 @@ solved it by narrowing to one runtime. See D9.
 message will not find it there. Not rewritten, because it is pushed and shared; recorded here
 instead, which is the cheaper of the two honest options.
 
+## Open-list figures re-measured, 2026-09-03 17:00 UTC
+
+Four items from the standing "also open" list, checked rather than carried forward.
+
+- **`--channels` unverified -> VERIFIED CLEAN.** The stale flag is
+  `--channels server:aify-comms-channel`; `runtimes-claude.js` refuses a wrapper carrying it and
+  says to rerun install.sh. Measured: NO installed launcher on this host carries it, the control
+  confirms `claude-aify` does carry the correct `--dangerously-load-development-channels`, and the
+  detector has tests in two files. Nothing to do; the item can close.
+
+- **"48 stale identities" -> 18, not 48.** Of 44 registered agents: 11 seen inside a day, 10 within a
+  week, 5 within a month, and **18 silent for more than 30 days** -- three of them for 126 days
+  (`ef-tech-lead`, `ef-senior-dev`, `ef-coder-lead`, all `stopped`). That matches `agent-drawer.mjs`'s
+  own 2026-08-29 note ("18 of 47 agents had been silent for more than 30 days, three of them for
+  120"), so 18 has been the number for a week and 48 counts something else. **Deleting them is the
+  operator's** -- it is data removal, and several read `offline` rather than `stopped`.
+
+- **`gateway-orphans` 18/18 -> unchanged, and consistent with the rest.** All 18 hermes gateway hosts
+  have no worker behind them, which sits exactly beside B4's finding that no hermes agent has a live
+  console. The check REPORTS and never kills, deliberately: three explanations for how long an
+  orphaned gateway lives were traced and all three were disproved, so the cause is still unknown.
+  They are the operator's processes to end.
+
+- **The claude login, second sample.** 21 minutes after the first: neither stamp moved and the file
+  was not rewritten (mtime still 15:09 UTC). That is EXPECTED rather than informative -- the access
+  token still had 6.2h and claude refreshes lazily, on use. So the question that matters (does a
+  refresh EXTEND the refresh window) is still open and resolves around **23:09 UTC**, when a refresh
+  is actually due. Two samples showing no change is not evidence that refreshing does not extend;
+  it is evidence that no refresh has happened.
+
 ## URGENT, 2026-09-03 16:36 UTC: the claude login is 19 hours from lapsing, not two days
 
 The open list said "claude login expires ~2026-09-05". `~/.claude/.credentials.json` says otherwise:
