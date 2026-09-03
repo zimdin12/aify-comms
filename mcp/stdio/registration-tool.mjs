@@ -75,8 +75,9 @@ const MACHINE_ID = defaultMachineId();
 export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
   server.tool(
     "comms_register",
-    "Register this agent instance. " +
-      "Register this exact live session so other agents can message and, when supported, trigger this specific session. " +
+    // The opening sentence was "Register this agent instance." -- the tool's own name, and subsumed by
+    // the one after it, which says the same thing and adds why it matters.
+    "Register this exact live session so other agents can message and, when supported, trigger this specific session. " +
       "New persistent agents should be created with comms_spawn or the dashboard Environments page.",
     {
       agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),

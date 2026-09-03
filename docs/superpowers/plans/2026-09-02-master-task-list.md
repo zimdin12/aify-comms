@@ -657,6 +657,25 @@ solved it by narrowing to one runtime. See D9.
   somewhere durable FIRST/` and `/durable|write/` -- which is a useful check on the rule: the
   sentences that change a caller's action are the ones reviewers had already insisted on.
 
+  **THE PASS IS DONE, AND THE ANSWER TO C1's QUESTION IS: mostly yes.** The surface went
+  16,818 -> 16,687 after `comms_compact`'s 1,332 -> 1,006, plus `comms_register` (a first sentence
+  that was the tool's own name, subsumed by the next one) and `comms_dispatch` (a clause restating
+  comms_send's OWN delivery behaviour). Together with C6's `comms_send` cut of 844, that is 1,301
+  characters off what every agent re-reads every turn -- and the ratchet keeps it.
+
+  **The rest is load-bearing, and three separate checks say so rather than one opinion.**
+  1. `comms_dispatch`'s biggest candidate -- ~330 characters restating comms_send's reply contract
+     after saying "Same reply contract as comms_send" -- is a REVIEWER ITEM (`fa1c5f1e`, "O2:
+     comms_dispatch description now carries the same-turn comms_send(inReplyTo) reply contract").
+     Deliberate duplication, not accidental, so it stays: reversing it quietly is the C7 mistake.
+  2. Everything cut from `comms_compact` was outside what its four text contracts pin, and everything
+     those contracts pin was what my own "does it change the caller's action" test kept. Two
+     independent judgements agreeing.
+  3. **No dead parameters.** `launchMode`, `appServerUrl` and `managedBy` all looked like fields
+     nothing reads -- the shape that costs every agent every turn while inviting them to pass it.
+     Measured: 12, 20 and 7 product files respectively, against a control of 119 for `sessionMode`.
+     The suspicion was wrong, and checking it is the only reason that is known.
+
   **One finding worth keeping, and one number withheld.** `comms_agents`, `comms_envs` and
   `comms_usage` carry no `.describe()` text because they take NO PARAMETERS -- correct, not a gap,
   and worth writing down so the next reader does not re-open it. A quick scan for tools whose fields

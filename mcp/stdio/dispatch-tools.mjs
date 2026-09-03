@@ -84,7 +84,7 @@ export async function commsInterruptHandler({ agentId, from }, { httpCall: call 
 export function registerDispatchTools(server, z) {
   server.tool(
     "comms_dispatch",
-    "Lower-level run-control/debug API for a triggerable resident or environment-managed session. Normal agent teamwork should use comms_send, which already fails fast for unreachable targets and handles busy targets with steer or queue/merge. Use comms_dispatch only when you need explicit run-control fields while diagnosing delivery/runtime behavior. Same reply contract as comms_send: when this opens a run that owes a reply, answer with comms_send(type=\"response\", inReplyTo=<the message id>) in the SAME turn — that tool call is the team-visible reply and closes the run; your final plain text is your own working output, not the delivered reply.",
+    "Lower-level run-control/debug API for a triggerable resident or environment-managed session. Normal agent teamwork should use comms_send. Use comms_dispatch only when you need explicit run-control fields while diagnosing delivery/runtime behavior. Same reply contract as comms_send: when this opens a run that owes a reply, answer with comms_send(type=\"response\", inReplyTo=<the message id>) in the SAME turn — that tool call is the team-visible reply and closes the run; your final plain text is your own working output, not the delivered reply.",
     {
       from: z.string().describe("Your agent ID"),
       to: z.string().optional().describe("Target agent ID"),
