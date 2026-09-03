@@ -166,13 +166,25 @@ starting cold -- which is what made replacing it safe rather than merely accepta
 orphaned process, cancelled `spawn_1788417654124_877f439c` through `PATCH /spawn-requests/{id}`,
 verified zero in-flight rows, and sc-manager's retry was accepted. The other three lanes untouched.
 
-**The remaining fix is a RE-BINDING, and it is v0.6.2's first item.** An agent already wedged this
-way still cannot be recovered without replacing its worker. When a host refuses a start because it
-already runs a worker for that agent, the service should ADOPT the live terminal the refusal names
-rather than leaving the agent pointed at a dead row -- the refusal already carries the terminal id
-and the pid, and `touchLiveTerminals` already computes the fact that decides it ("is the old terminal
-still live"). Refuse when it is; adopt when it is not. Not attempted unattended: it crosses both
-repos and touches the path that starts workers.
+**THE RE-BINDING IS BUILT** (aify-env `067e399`), and it turned out to be host-side only -- no
+service change at all. A start control for an agent this host already runs a worker for now asks the
+service what it thinks of the OLD terminal, with the liveness frame:
+
+- `live` or `unknown` -> refuse, exactly as before. An outage is not permission to move a terminal
+  somebody may still be watching, and refusing is the reversible mistake.
+- `ended` or `gone` -> ADOPT. The running process is re-pointed at the new terminal instead of being
+  duplicated or killed; the runner replays its recent buffer, so the console is populated rather
+  than blank; the pid comes from the runner's own listing so `env-processes` still matches.
+
+So the same start control that was refused for ever now recovers the lane, and the session survives.
+
+**INERT UNTIL THE OPERATOR RESTARTS aify-env**, with `1c5af7c` and `ec243e9`. Nothing about it can
+disturb the running fleet before then.
+
+Six mutations. The last two only became catchable after fixing the TEST FAKE, which kept ONE listener
+where `lib/runner.mjs` keeps a Set -- so a leaked carrier passed all 54 tests. Asserting on where
+output lands cannot see it either, because each listener closes over the api that created it. The
+assertion is the runner's listener count.
 
 **Do not "fix" it by letting an ended terminal go active again**, and do not let the host stop the
 worker: `ec243e9` exists precisely because an end-status orphan rule would have killed this agent.
