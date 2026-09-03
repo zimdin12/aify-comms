@@ -666,9 +666,29 @@ solved it by narrowing to one runtime. See D9.
   BOOT and on GRACEFUL shutdown, so an abrupt kill is not covered -- which is how five gateways
   reached two days old. A state-based reaper is the shape this repo already prefers for exactly this
   (see `state-based-cleanup-over-event-based`).
-- **D4. SPLIT-M1: no gate compares VERSION against the released tag.** VERSION read `0.6.0` while HEAD
-  was 407 commits past the v0.6.0 tag and every version gate was green -- they check that the five
-  files agree with EACH OTHER. The v0.6.1 bump was a hand-correction, not something a test demanded.
+- **D4. SPLIT-M1: no gate compares VERSION against the released tag. FIXED 2026-09-03.**
+
+  **The defect was live when the gate was written**, which is the best proof it works: VERSION read
+  `0.6.1`, `v0.6.1` sat at `b7d77fdf`, and HEAD was 24 commits past it -- every existing version gate
+  green, because they only check the five declarations agree with EACH OTHER. Five files can agree
+  perfectly on a number that stopped being true the moment the tag was cut.
+
+  `test_version_is_not_an_already_released_tag.py` refuses exactly one claim: "I am the release `vX`"
+  from a tree that is not the commit `vX` names. It stays silent when no such tag exists, because
+  developing against an unreleased number is the ordinary state and demanding a tag would demand a
+  release per commit.
+
+  **VERSION is now `0.6.2` across all five declarations**, which is the truth the operator's own state
+  line already carried: v0.6.1 shipped at `b7d77fdf`, v0.6.2 is in flight. `scripts/stamp.sh` re-run.
+  The number reaches `/health`, the root endpoint, `/openapi.json`, Dashboard Next, every MCP
+  handshake and `bridgeVersion` on the control plane -- so until now a live bridge reporting `0.6.1`
+  could not be told apart from a genuine v0.6.1.
+
+  Mutations: putting VERSION back to `0.6.1` reddens it; blinding the git helper reddens the positive
+  control; and removing the commit comparison makes it MISS the real defect, which is what proves the
+  comparison is the part doing the work.
+
+  **Needs a container rebuild and an `install.sh` re-run** before anything live reports `0.6.2`.
 - **D5. WITHDRAWN 2026-09-02.** The premise was mine and wrong twice over: `dd8b2d2a` is a CONTENT
   HASH, not a git sha -- I read it as one and told the operator the build identity was broken. It is
   not: running-hash against disk-hash is exactly the right instrument and it correctly read CURRENT.
