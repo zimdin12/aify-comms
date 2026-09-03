@@ -242,12 +242,23 @@ it a buffer whose `append` writes to stdout, so there is no second copy of the f
 An ambiguous label is refused WITH the ids, because attaching is the only console operation that
 WRITES.
 
-**WHAT REMAINS for the headline:** the `--shared` flag in aify-wrapper's ONE template. It must
-1. POST the command it would have exec'd to `/processes`, 2. exec `aify-env attach <id>`, and
-3. leave the default path byte-identical. The template is harness-agnostic and renders all four
-launchers, so the flag cannot name claude or aify-comms -- it talks to the host tier, which is
-generic. The wrapper's final line today is `claude ... "${CLAUDE_ARGS[@]}"` with `STATUS=$?`, so the
-seam is that one line.
+**THE FLAG LOGIC IS BUILT TOO** (aify-wrapper `c2d1be1`), and the shape is the decision worth
+knowing: `--shared` does NOT serialise the runtime's command line. It asks the host to run **this
+wrapper again** minus the flag, then attaches. So what runs is exactly what would have run --
+including the resolving, MCP-flag composing and prior-session reaping every wrapper does before it
+launches, and whatever is added to that later -- and it passes aify-env's allowlist by being the
+very thing the allowlist is for (`HARNESS_WRAPPER_VERSION`). Harness-agnostic by construction.
+
+**CORRECTION to what this file said:** there is not ONE template. There are FOUR
+(`wrappers/*-aify.sh.in`), with four different launch shapes -- claude runs a command then reads
+`$?`, codex calls `run_codex_foreground`, hermes calls `aify_hermes_exec_plain_or_tui`, pi `exec`s.
+So the flag is one shared module (built) plus four small, separate wirings.
+
+**WHAT REMAINS:** wire `claude-aify` first, since that is the launcher the operator named. In the arg
+loop (~line 176, beside `--aify-agent=` and `--resume=`) recognise the flag, and before the final
+`claude ...` line branch to: POST `sharedStartRequest(...)` to the host, then exec
+`aify-env attach <id>`. The determinism tests in BOTH repos render and RUN the real launchers, so a
+template change reddens aify-wrapper AND the aify-comms bridge suite -- run all five.
 
 Then: A1–A4 (aify-env TUI), B1–B5 (dashboard console, agent browse, doctor in the UI), C1/C3/C5/C6/C7,
 D2/D4/D6/D7/D9/D10/D11, and the reviews E1/E2 LAST — a review round adds to the list, so running one
