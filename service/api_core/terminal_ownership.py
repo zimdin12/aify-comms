@@ -22,11 +22,13 @@ transaction.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from service.api_core.events import _append_terminal_event
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
+from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
 
@@ -133,6 +135,30 @@ async def _active_terminal_for_agent(db, agent_id: str, *, settings: Optional[di
         await _release_stale_terminal_owner(db, row, reason="Released unavailable Console owner before managed PTY dispatch.")
         return None
     if str(row["bridge_id"] or "").strip() != str(env_row["bridge_id"] or "").strip():
-        await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
-        return None
+        # A HOST THAT IS STILL REPORTING THIS TERMINAL OWNS IT, WHATEVER ITS ID SAYS.
+        #
+        # THE DEFECT, measured on the operator's fleet 2026-09-03. The environment's `bridge_id` is
+        # whichever claimer last won arbitration, and aify-env mints a fresh one every time its
+        # plugin starts. So after a restart EVERY existing terminal mismatched and was released as a
+        # "stale Console owner" -- and a release means the next delivery cold-starts a terminal
+        # instead of reaching the live worker. Measured: sc-lead's terminal held ab14b870 while the
+        # row said d908664d, its console sat at `starting` for four minutes, and every message to
+        # that lane started a replacement.
+        #
+        # The id was a PROXY for "is the owner still there", and it is a bad one: it changes for a
+        # reason that has nothing to do with the terminal. The direct answer now exists. Since
+        # 2026-09-03 a host reports every terminal it is still running, on every control pass, which
+        # bumps `updated_at` -- so a freshly-touched row IS an owner saying "this is mine and it is
+        # alive", from the only tier that can know.
+        #
+        # THE COMMENT ABOVE HAS THE OTHER HALF of this rule and stops one step short: it says never
+        # release on output-age, because a live worker can be quiet for minutes. The inverse was
+        # missing -- never release something that is provably NOT quiet.
+        touched = _iso_to_epoch(str(row["updated_at"] or "")) if "updated_at" in row.keys() else 0
+        reported_recently = bool(touched) and (
+            datetime.now(timezone.utc).timestamp() - touched
+        ) <= stale_after
+        if not reported_recently:
+            await _release_stale_terminal_owner(db, row, reason="Released stale Console owner before managed PTY dispatch.")
+            return None
     return row

@@ -62,7 +62,16 @@ export function registerLifecycleTools(server, z) {
         return {
           content: [{
             type: "text",
-            text: r.ok ? `Removed agent "${agentId}".` : `Agent "${agentId}" was already absent; future auto re-registration is blocked until explicit register.`,
+            // WHAT HAPPENS TO ITS WORKER, said rather than left to be discovered. Removing a managed
+            // agent used to leave a live process running that nothing could address, because the id
+            // was gone -- and this message said only "Removed", so a caller had no reason to look.
+            // The host now stops it within one control pass (it notices the terminal no longer
+            // exists), and a caller who needs it gone NOW should confirm rather than assume.
+            text: r.ok
+              ? `Removed agent "${agentId}". If it had a managed worker, its host stops that within `
+                + "about half a minute -- confirm with comms_agents or the environment's own process "
+                + "list if you need it gone before acting on that."
+              : `Agent "${agentId}" was already absent; future auto re-registration is blocked until explicit register.`,
           }],
         };
       }
