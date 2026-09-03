@@ -82,6 +82,21 @@ def _cursor_line(screen: str) -> str:
 RESUME_MENU = re.compile(r"Resume (?:from summary|full session)", re.I)
 
 
+def needs_resume_policy(screen: str) -> bool:
+    """True for the one screen family whose right answer depends on a fact outside the screen.
+
+    THE CALLER PAYS FOR THE POLICY ONLY HERE, and that is the reason this predicate exists rather
+    than the caller always passing one. `resumePolicy` lives on the AGENT row, so reading it is a
+    database round-trip -- and this check runs on every output chunk from every worker, in front of
+    a single SQLite writer at roughly forty frames a second. A query per chunk to answer a dialog
+    that appears once per session is the wrong trade; a regex per chunk is not.
+
+    DERIVED FROM THE RULE, never a second list: it asks the same pattern the refusal below asks, so
+    a screen family cannot be added to one and forgotten in the other.
+    """
+    return bool(RESUME_MENU.search(plain_text(screen)))
+
+
 def answer_for_screen(screen: str, *, resume_policy: str = "") -> PromptAnswer | None:
     """The keystrokes this dialog needs, or None for every other screen.
 

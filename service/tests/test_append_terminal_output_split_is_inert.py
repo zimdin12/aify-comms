@@ -96,19 +96,15 @@ _END_SUMMARY_WAS = chr(10).join([
     '            summary = f"Terminal {status} before an explicit reply was recorded."',
 ]) + chr(10)
 
-# ANSWERING A PARKED CONSOLE, added 2026-09-03. A managed claude worker launched with
-# `--dangerously-load-development-channels` stops at a first-run acknowledgment and waits: it
-# registers `online`, claims nothing, and every signal reads healthy. Nothing in the chain could
-# press Enter for it once the aify-comms bridge stopped being the thing that started workers, so
-# the tier that knows what the screen means does it here. Declared as deletions because they are
-# ADDITIONS: the reconstruction removes them to recover the fixture.
+# ANSWERING A PARKED CONSOLE, added 2026-09-03. The answering itself lives DOWN in the write path,
+# where the live screen is current -- checked here in the route it never fired once, because the
+# write is coalesced and a worker PARKED at a dialog sends no later chunk to trigger a recheck.
+# What is left in this function is naming the chunk once, and dropping a terminal's prompt record
+# when it ends. Declared as deletions because they are ADDITIONS: the reconstruction removes them.
 _PROMPT_EDITS = [
-    ("        chunk_text = req.output or \"\"", ""),
-    ("            chunk_text,", "            req.output or \"\","),
-    ("        # A DIALOG A WORKER CANNOT PASS ON ITS OWN IS ANSWERED HERE, by the tier that knows what the\n        # screen means. The host runs the keystrokes; it must not learn what claude looks like,\n        # because it is about to run processes for other services too.\n        #\n        # AGAINST THE RENDERED SCREEN, never the chunk. Claude does not send spaces, it moves the\n        # cursor -- a matcher on raw bytes looks for a string that is never transmitted, which is\n        # exactly how the first attempt at this watched its dialog and did nothing.\n        if chunk_text:\n            await _answer_console_prompt_if_any(db, terminal, terminal_id, request)", ""),
-    ("        if status in _TERMINAL_END_STATUSES:\n            _forget_answered_prompts(terminal_id)", ""),
+    ("        chunk_text = req.output or \"\"\n        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            chunk_text,", "        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            req.output or \"\","),
+    ("        if status in _TERMINAL_END_STATUSES:\n            _forget_answered_prompts(terminal_id)\n", ""),
 ]
-
 EDITED_SINCE = [(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)] + _PROMPT_EDITS
 EXTRACTIONS = ["_settle_bridge_takeover_for_output", "_close_out_terminal_on_end_status"]
 
