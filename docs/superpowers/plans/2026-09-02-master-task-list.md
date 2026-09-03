@@ -1083,6 +1083,41 @@ solved it by narrowing to one runtime. See D9.
 message will not find it there. Not rewritten, because it is pushed and shared; recorded here
 instead, which is the cheaper of the two honest options.
 
+## The claim leak is CLOSED, 2026-09-03 (aify-env `dd87e47`)
+
+It was capped as unfindable -- "bisect CANNOT find it -- race -- use a static scan". The scan found
+it.
+
+**Two test files, one omission.** `doctor-live.test.js` and `tui-live.test.js` each spawn a real
+daemon and seal its PROCESS RECORD, so it cannot reap processes it never started -- then spread
+`process.env` for everything else. The registry was everything else, so each daemon resolved the
+operator's real `~/.aify/services.json`, found the live aify-comms, loaded its plugin and claimed a
+spawn.
+
+**Every recorded symptom follows.** Transient: the daemon is killed seconds later and the service
+self-heals in ~2 minutes. Unbisectable: it is a race between the claim pass firing and `stopDaemon`.
+Full-suite-only: those two files run nowhere else. It is also the same file as the intermittent
+failure seen twice today, which now reads as the same race from the other side.
+
+**The scan's first answer was WRONG, and that is the lesson worth keeping.** It cleared both files
+because they set a temp process record -- "supplies some destination" had been treated as "supplies
+the one that matters". Narrowing it to the REGISTRY specifically is what exposed them.
+
+**A gate, not a hand-fix, and it paid immediately.** `doctor-live` was sealed by hand; the gate then
+named `tui-live` -- an identical block, copied comment and all, carrying the same omission. Three
+leaks had already been hand-fixed before today.
+
+**Proven against the live fleet:** the operator's `bridgeId` is byte-identical before and after
+running both files. A claiming daemon mints a fresh UUID per process, so an unchanged id is proof
+nothing took the claim.
+
+**AND AIFY-COMMS IS CLEAN, checked with the same method.** Exactly ONE bridge test actually runs the
+bridge (`claude-channel-content.test.js`), and it is sealed several ways over: `sealedChildEnv()`,
+its own server on `127.0.0.2`, explicit endpoint overrides, sealed TMP. The first pass here reported
+62 suspicious files and was over-matching on any mention of `server.js`; tightened to real spawn
+calls it reports 1. **A count from a loose scan is not a finding** -- both repos' numbers were wrong
+in the same direction before the instrument was sharpened.
+
 ## Open-list figures re-measured, 2026-09-03 17:00 UTC
 
 Four items from the standing "also open" list, checked rather than carried forward.
