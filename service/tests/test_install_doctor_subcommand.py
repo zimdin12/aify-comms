@@ -67,8 +67,18 @@ def test_the_standalone_alias_is_still_installed():
 
 
 def test_the_installer_tells_the_operator_the_preferred_name_first():
+    """One product should not need two command names remembered, so the summary leads with the one
+    that already exists and mentions the alias second.
+
+    ANCHORED ON `Verifier:`, not on the two-line block this used to read. That block said "Verifier
+    installed" TWICE -- once for the doctor and once for the command -- and folding the duplicate
+    away is what paid for the three-component listing added beside it on 2026-09-03: `install.sh` is
+    held at exactly its ratchet ceiling, so a feature there is funded by prose, not waived.
+    """
     text = _install_sh()
-    at = text.index("Verifier installed:")
+    at = text.index("Verifier:")
     announcement = text[at : at + 300]
     assert "aify-comms doctor" in announcement
-    assert announcement.index("aify-comms doctor") < announcement.index("aify-doctor  ")
+    assert announcement.index("aify-comms doctor") < announcement.index("aify-doctor"), (
+        "the older name is offered before the one this product wants remembered"
+    )

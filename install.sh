@@ -2904,14 +2904,14 @@ DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
   echo "exec node \"$AIFY_BRIDGE_DIR/doctor.js\" \"\$@\""
 } > "$DOCTOR_PATH"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
-echo "Verifier installed: aify-comms doctor   (\`aify-comms doctor --json\` for scripted/agent checks)"
-echo "                    aify-doctor         (same thing, kept as an alias)"
-
 echo ""
 echo "=== Installation complete ==="
-echo "Verifier installed: aify-comms"
-echo "  aify-comms doctor    verify this install against the RUNNING system"
-echo "  aify-comms --check   validate the MCP bridge script (starts nothing)"
+# ALL THREE COMPONENTS, because this installer only ever installed one of them, and a host with no
+# aify-env cannot run a managed agent at all. The reader never RUNS what it measures: a bare
+# `aify-env` starts the host tier and reaps the workers of whichever instance it supersedes.
+bash "$SCRIPT_DIR/scripts/components.sh" --render 2>/dev/null || true
+echo "Verifier: aify-comms doctor    verify this install against the RUNNING system (or aify-doctor)"
+echo "          aify-comms --check   validate the MCP bridge script (starts nothing)"
 echo "  Managed agents are hosted by aify-env. Run 'aify-env' for the host tier."
 if is_git_bash_windows; then
   echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\aify-comms.cmd"
