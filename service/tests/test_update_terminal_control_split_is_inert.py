@@ -103,10 +103,37 @@ _SIZE_REPORT_WAS = chr(10).join([
     '        if req.output:',
 ]) + chr(10)
 
+
+#:
+#: THE THIRD EDIT, 2026-09-03: the append moved UNDER THE WRITE QUEUE'S LOCK. It is the second
+#: writer of `terminal_sessions.output` and held no lock, while every streamed frame writes the
+#: same column behind `_write_lock`. The append is a read-modify-write, so two of them
+#: interleaving lose one side outright -- measured against the real function: appending "AAAA"
+#: and "BBBB" concurrently stored "BBBB" alone, where the same two serialised stored both.
+#: The re-read on the line above narrows that window and cannot close it.
+
+_OUTPUT_UNDER_LOCK_NOW = chr(10).join([
+    "            # UNDER THE WRITE QUEUE'S LOCK, AND RE-READ INSIDE IT, because this is the SECOND writer",
+    '            # of one column. The append is a read-modify-write and every streamed frame does the',
+    '            # same thing behind `_write_lock`, so a control reporting output during a flush used to',
+    "            # lose one side's bytes entirely. The re-read on the line above narrows that window and",
+    '            # cannot close it -- the row it returns is already stale by the time the lock is free,',
+    '            # which is why the id goes in and the row is fetched again inside.',
+    '            await TERMINAL_OUTPUT_WRITES.append_outside_the_queue(',
+    '                db, terminal["id"], req.output, status=terminal_status,',
+    '                fallback=latest_terminal or terminal,',
+    '            )',
+]) + chr(10)
+
+_OUTPUT_UNDER_LOCK_WAS = chr(10).join([
+    '            await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)',
+]) + chr(10)
+
 EDITED_SINCE = [
     (_STATUS_PARAMS_NOW_A, _STATUS_PARAMS_WAS_A),
     (_STATUS_PARAMS_NOW_B, _STATUS_PARAMS_WAS_B),
     (_SIZE_REPORT_NOW, _SIZE_REPORT_WAS),
+    (_OUTPUT_UNDER_LOCK_NOW, _OUTPUT_UNDER_LOCK_WAS),
 ]
 EXTRACTIONS = ["_apply_terminal_status_from_control"]
 

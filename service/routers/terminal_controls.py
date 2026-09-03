@@ -31,7 +31,7 @@ from service.api_core.terminal_controls_io import (
     _claim_terminal_controls_once,
     _terminal_control_to_dict,
 )
-from service.api_core.terminal_output import _append_terminal_output
+from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
@@ -132,7 +132,16 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
             _resize_live_terminal_screen(terminal["id"], reported_cols, reported_rows)
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
-            await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
+            # UNDER THE WRITE QUEUE'S LOCK, AND RE-READ INSIDE IT, because this is the SECOND writer
+            # of one column. The append is a read-modify-write and every streamed frame does the
+            # same thing behind `_write_lock`, so a control reporting output during a flush used to
+            # lose one side's bytes entirely. The re-read on the line above narrows that window and
+            # cannot close it -- the row it returns is already stale by the time the lock is free,
+            # which is why the id goes in and the row is fetched again inside.
+            await TERMINAL_OUTPUT_WRITES.append_outside_the_queue(
+                db, terminal["id"], req.output, status=terminal_status,
+                fallback=latest_terminal or terminal,
+            )
         await _append_terminal_event(
             db,
             terminal["id"],

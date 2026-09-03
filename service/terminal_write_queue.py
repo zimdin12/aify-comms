@@ -197,6 +197,48 @@ class TerminalOutputWriteQueue:
             if seq:
                 state["last_seq"] = max(int(state.get("last_seq") or 0), int(seq))
 
+    async def append_outside_the_queue(self, db, terminal_id: str, output: str, *, status: str = "",
+                                       fallback=None) -> None:
+        """Append output for a caller that must write IMMEDIATELY, under this queue's write lock.
+
+        IT RE-READS THE ROW INSIDE THE LOCK, and that is the whole fix rather than a detail. Taking
+        the lock around the append ALONE does not work: `_append_terminal_output` derives `current`
+        from the row it is handed, so two callers that each read the row and then queue up on the
+        lock still overwrite each other -- the second one appends to a value that was already stale
+        when it arrived. The first version of this method did exactly that and the test caught it,
+        keeping only "BBBB" of "AAAA"+"BBBB". `_write_terminal_output` was right all along for the
+        same reason: its SELECT is inside the locked region.
+
+        WHY IT EXISTS, proven 2026-09-03. `_append_terminal_output` is a read-modify-write: it takes
+        `current` from the row it is handed, concatenates, trims and UPDATEs. Two callers doing that
+        at once lose one of the two writes outright -- measured against the real function, two
+        interleaved appends of "AAAA" and "BBBB" stored "BBBB" alone, while the same two serialised
+        stored both. Every streamed frame already goes through this queue and is serialised by
+        `_write_lock`; the control-completion path called the helper DIRECTLY and held no lock, so a
+        control reporting output while a flush was in flight silently discarded one side's bytes.
+
+        THE LOCK RATHER THAN THE QUEUE, deliberately. Routing that caller through `enqueue` would fix
+        the race too and is the tidier shape, but it changes control output from immediate to
+        batched on the hottest write path in the service. This takes the same lock and changes
+        nothing else, which is the smallest change that closes it.
+
+        NOT ATOMIC SQL, which is the usual answer and is wrong here: `substr(output || ?, -65536)`
+        would drop `_trim_terminal_output`'s line-boundary trim, and a tail cut mid-ANSI-escape is
+        what made the dashboard seed a fresh xterm with garbage (fixed 2026-06-07).
+        """
+        async with self._write_lock:
+            terminal = await (await db.execute(
+                """
+                SELECT id, session_id, agent_id, environment_id, bridge_id, runtime,
+                       output, status, output_seq, created_at, cols, rows
+                FROM terminal_sessions WHERE id = ?
+                """,
+                (terminal_id,),
+            )).fetchone()
+            # A row that vanished between the caller's read and this one: fall back to what the
+            # caller already had rather than silently writing nothing, which is what it did before.
+            await _append_terminal_output(db, terminal if terminal else fallback, output, status=status)
+
     async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         db = await get_db()
         try:
