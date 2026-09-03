@@ -125,18 +125,31 @@ function internalCompactUnsupportedText(sourceSession = {}) {
 export function registerCompactTool(server, z) {
   server.tool(
     "comms_compact",
+    // C1. Every agent re-reads this on every turn, so the test applied to each sentence was whether it
+    // changes what the CALLER does. Three go, and none of them was information:
+    //   - "Compact a managed agent/session." restated the tool's own name.
+    //   - both `mode="..."` sentences said what the `mode` FIELD's own description already says, and
+    //     the "defaults to the same agent ID" half is what `newAgentId` says. A caller filling a
+    //     parameter reads the field; saying it twice is one meaning in two places.
+    //   - four fields each ended "Defaults to the source session X", so that pattern is stated ONCE
+    //     here instead of four times below.
+    // What stays is what four existing contracts pin -- `/DESTRUCTIVE/`, `/DESTRUCTIVE TO CONTEXT/`,
+    // `/record open decisions somewhere durable FIRST/` and `/durable|write/` -- which is a useful
+    // check on the rule: the sentences that change a caller's action are the ones reviewers already
+    // insisted on.
     "DESTRUCTIVE TO CONTEXT — the target loses its live working memory and continues from a summary. " +
       "Use when a managed agent is degraded by a long noisy session, not as routine hygiene: whatever it knew but never wrote down is gone. " +
-      "Have it record open decisions somewhere durable FIRST. Compact a managed agent/session. mode=\"handoff\" creates a fresh managed backing from a portable packet and defaults to the same agent ID. mode=\"internal\" requests runtime-native in-place compaction, but currently returns unsupported unless an adapter proves native support.",
+      "Have it record open decisions somewhere durable FIRST. " +
+      "environmentId, runtime and workspace each default to the source session's.",
     {
       from: z.string().describe("Manager/coordinator agent requesting the compact"),
       targetAgentId: z.string().describe("Existing managed agent to compact/continue from"),
       mode: z.enum(["handoff", "internal"]).optional().describe("Compaction mode. handoff is the reliable cross-runtime path; internal requests native in-place compaction and may be unsupported."),
       newAgentId: z.string().optional().describe("Agent ID for handoff mode. Defaults to the same target agent ID. Pass a different ID only when you intentionally want a separate continuation identity."),
-      role: z.string().optional().describe("Handoff role. Defaults to the target agent role or coder."),
-      environmentId: z.string().optional().describe("Target environment. Defaults to the source session environment."),
-      runtime: z.string().optional().describe("Target runtime. Defaults to the source session runtime."),
-      workspace: z.string().optional().describe("Target workspace. Defaults to the source session workspace."),
+      role: z.string().optional().describe("Handoff role. Defaults to the target's role, else coder."),
+      environmentId: z.string().optional().describe("Target environment."),
+      runtime: z.string().optional().describe("Target runtime."),
+      workspace: z.string().optional().describe("Target workspace."),
       instructions: z.string().optional().describe("Phase brief or compaction instructions for the fresh backing."),
       recentMessages: z.number().int().min(0).max(80).optional().describe("Recent comms messages to include in the handoff packet. Default 24."),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the handoff initial brief"),

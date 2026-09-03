@@ -23,18 +23,24 @@ import assert from "node:assert/strict";
 
 import { measureToolSurface } from "./tool-surface-size.mjs";
 
-/** Measured 2026-09-03. Characters of description + schema text, per tool. May only go DOWN. */
+/** Measured 2026-09-03, RE-measured the same day after the parser was fixed to skip comments --
+ *  which revealed four tools it had never seen (`comms_channel_send`, `comms_dashboard`,
+ *  `comms_register`, `comms_search`), every one of them ungoverned while the "every tool HAS a
+ *  ceiling" test below passed. An unguarded population reports green exactly like a guarded one.
+ *  Characters of description + schema text, per tool. May only go DOWN. */
 const CEILINGS = {
   comms_agent_info: 145,
   comms_agents: 67,
   comms_channel_create: 164,
   comms_channel_join: 128,
   comms_channel_leave: 293,
+  comms_channel_send: 878,
   comms_clear: 698,
-  comms_compact: 1332,
+  comms_compact: 1006,
   comms_console_input: 939,
   comms_console_tail: 476,
   comms_contracts: 479,
+  comms_dashboard: 173,
   comms_delete_session: 176,
   comms_describe: 346,
   comms_dispatch: 1046,
@@ -44,10 +50,12 @@ const CEILINGS = {
   comms_interrupt: 272,
   comms_listen: 348,
   comms_read: 52,
+  comms_register: 990,
   comms_remove_agent: 496,
   comms_restart: 829,
   comms_run_interrupt: 166,
   comms_run_status: 104,
+  comms_search: 580,
   comms_send: 2532,
   comms_share: 305,
   comms_spawn: 790,

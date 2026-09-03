@@ -648,6 +648,15 @@ solved it by narrowing to one runtime. See D9.
   pass over the whole surface" from a reading exercise into a ranked list, and the ratchet beside it
   means anything the pass saves is kept rather than left as room to regrow into.
 
+  **FIRST TRIAGE PASS, 2026-09-03: `comms_compact` 1,332 -> 1,006 characters (-24%).** Same test as
+  C6 -- does the sentence change what the CALLER does. Out went a sentence restating the tool's own
+  name; both `mode="..."` sentences, which said what the `mode` FIELD already says (a caller filling
+  a parameter reads the field, so that was one meaning in two places); and four field descriptions
+  each ending "Defaults to the source session X", now stated once. What stayed is exactly what four
+  existing contracts pin -- `/DESTRUCTIVE/`, `/DESTRUCTIVE TO CONTEXT/`, `/record open decisions
+  somewhere durable FIRST/` and `/durable|write/` -- which is a useful check on the rule: the
+  sentences that change a caller's action are the ones reviewers had already insisted on.
+
   **One finding worth keeping, and one number withheld.** `comms_agents`, `comms_envs` and
   `comms_usage` carry no `.describe()` text because they take NO PARAMETERS -- correct, not a gap,
   and worth writing down so the next reader does not re-open it. A quick scan for tools whose fields
@@ -728,8 +737,22 @@ solved it by narrowing to one runtime. See D9.
 
   **AND THE WHOLE SURFACE IS MEASURED NOW, which it never was.** `tests/tool-surface-size.mjs` parses
   every `server.tool()` registration -- descriptions AND every `.describe()` on the schema, because on
-  several tools the schema half is the larger one -- and reports **30 tools, 14,491 characters, ~3,623
-  tokens**, re-read by every agent on every turn. `tool-surface-ratchet.test.js` holds each tool at
+  several tools the schema half is the larger one -- and reports **34 tools, 16,818 characters, ~4,205
+  tokens**, re-read by every agent on every turn.
+
+  **THAT FIGURE IS A CORRECTION: this entry first said 30 tools / 14,491 chars, from a broken
+  instrument.** The scanner skipped string literals but not COMMENTS, so a comment containing a
+  double quote opened a phantom string and swallowed the rest of a registration. Found by adding such
+  a comment while tightening `comms_compact`, which made that tool vanish from the measurement
+  entirely. Fixing it revealed **four tools the scan had never seen** -- `comms_register` (990),
+  `comms_channel_send` (878), `comms_search` (580), `comms_dashboard` (173) -- **2,621 characters that
+  were completely ungoverned while the "every tool HAS a ceiling" test passed.** An unguarded
+  population reports green exactly like a guarded one, and this time the unguarded population was
+  invisible to the guard itself.
+
+  The gate's own positive control is what caught it: "only 29 tools found; the parser is not reaching
+  them", plus the stale-ceiling check naming the tool that had disappeared. Mutation: making the
+  scanner comment-blind again reddens both. `tool-surface-ratchet.test.js` holds each tool at
   its measured size, may only go DOWN, fails on a tool with NO ceiling, and fails on a ceiling left
   slack above its tool so the ratchet cannot quietly become a cap. Four mutations, each reddening
   exactly its own test; a fifth broke the parser and correctly reddened the positive control.

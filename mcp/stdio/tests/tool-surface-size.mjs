@@ -21,20 +21,47 @@ import { fileURLToPath } from "node:url";
 
 const STDIO = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Walk forward from `open` (the index of a "(") to its matching ")", skipping string bodies. */
+/**
+ * The index just past a string literal or a comment starting at `i`, or -1 if one does not start there.
+ *
+ * COMMENTS ARE SKIPPED, NOT JUST STRINGS, and that was a real defect rather than a precaution.
+ * Adding a code comment containing a double quote made `comms_compact` VANISH from the measurement:
+ * the scanner treated the comment's quote as a string opening and skipped past the registration's
+ * closing paren. The gate caught it -- its positive control reported "only 29 tools found" and the
+ * stale-ceiling check named the missing tool -- which is exactly the job of a control that fires
+ * when the instrument breaks rather than when the code does.
+ *
+ * NOT A FULL TOKENIZER, said plainly: a regex literal containing a quote (`/"/`) would still confuse
+ * it. Nothing in these files has one, and the gate's positive control fails loudly if that changes.
+ */
+function skipNonCode(src, i) {
+  const ch = src[i];
+  if (ch === '"' || ch === "'" || ch === "`") {
+    let j = i + 1;
+    while (j < src.length && src[j] !== ch) {
+      if (src[j] === "\\") j += 1;
+      j += 1;
+    }
+    return j + 1;
+  }
+  if (ch === "/" && src[i + 1] === "/") {
+    const nl = src.indexOf("\n", i);
+    return nl < 0 ? src.length : nl;
+  }
+  if (ch === "/" && src[i + 1] === "*") {
+    const end = src.indexOf("*/", i + 2);
+    return end < 0 ? src.length : end + 2;
+  }
+  return -1;
+}
+
+/** Walk forward from `open` (the index of a "(") to its matching ")", skipping strings AND comments. */
 function spanOf(src, open) {
   let depth = 0;
   for (let i = open; i < src.length; i += 1) {
+    const skipped = skipNonCode(src, i);
+    if (skipped >= 0) { i = skipped - 1; continue; }
     const ch = src[i];
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      i += 1;
-      while (i < src.length && src[i] !== quote) {
-        if (src[i] === "\\") i += 1;
-        i += 1;
-      }
-      continue;
-    }
     if (ch === "(") depth += 1;
     else if (ch === ")") {
       depth -= 1;
@@ -49,6 +76,13 @@ function literalChars(text) {
   let total = 0;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i];
+    // A COMMENT IS NOT PAYLOAD. Its quotes must not open a string, and its prose must not be counted
+    // as description text -- an agent never receives it, so charging it to the tool's budget would
+    // punish explaining the tool.
+    if (ch === "/" && (text[i + 1] === "/" || text[i + 1] === "*")) {
+      i = skipNonCode(text, i) - 1;
+      continue;
+    }
     if (ch !== '"' && ch !== "'" && ch !== "`") continue;
     const quote = ch;
     i += 1;
