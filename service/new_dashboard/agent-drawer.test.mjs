@@ -14,6 +14,7 @@ import test from "node:test";
 
 import { state } from "./state.mjs";
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from "./agent-drawer.mjs";
+import { AGENT_PROCESSES_ID } from "./agent-processes.mjs";
 
 function fakeEl(classes = []) {
   const set = new Set(classes);
@@ -366,4 +367,62 @@ test("it reads the field the service ACTUALLY EMITS, and no snake_case alternate
     openAgentDrawer("coder");
     assert.equal(lastSeenCell(els["inspector-content"].innerHTML), "7m ago");
   });
+});
+
+test("THE DRAWER LEAVES A CONTAINER FOR THE PROCESSES PANEL, and says it is loading", () => {
+  // B5's CALL SITE, which the render tests in agent-processes.test.mjs cannot reach. A panel proven
+  // to render correctly and never mounted is the shape this project has shipped before: six green
+  // tests over a pure builder whose feature could not fire. This asserts the drawer actually leaves
+  // the node -- keyed on the SHARED id, so a rename on either side fails here rather than silently
+  // producing a panel that never fills.
+  seed({ agents: [{ id: "coder" }], inspector: {} });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    const html = els["inspector-content"].innerHTML;
+    assert.ok(html.includes(`id="${AGENT_PROCESSES_ID}"`), "no container for the processes panel");
+    assert.match(html, /Processes/, "the panel has no heading, so an empty one reads as a gap");
+    // A PLACEHOLDER, not an empty div. The fetch is asynchronous, and a blank space between the CLI
+    // block and the actions row reads as a broken feature for however long the read takes.
+    assert.match(html, /Reading this agent's terminals/);
+  });
+});
+
+test("AND IT ACTUALLY MAKES THE READ, not merely leaves a slot for it", async () => {
+  // THE GAP A MUTATION FOUND IN MY OWN GUARD. The test above asserts the CONTAINER exists; deleting
+  // `loadAgentProcesses(id, ...)` from the drawer left it, and every other test here, green. A slot
+  // nothing fills is the same defect as a panel nothing mounts, one layer along.
+  //
+  // DRIVEN THROUGH THE REAL `api`, with `fetch` stubbed so nothing leaves this machine. Injecting a
+  // fake loader would prove the drawer calls SOMETHING; stubbing the transport proves the whole
+  // path -- container, url, response, render -- and a live GET against the operator's own service
+  // from a unit test is not an acceptable way to learn that.
+  const hadFetch = "fetch" in globalThis;
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url) => {
+    asked.push(String(url));
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        terminals: [{ id: "term_probe", status: "running", processId: "9001", cols: 157, rows: 32 }],
+      }),
+    };
+  };
+  const els = drawerEls();
+  els[AGENT_PROCESSES_ID] = { innerHTML: "" };
+  try {
+    seed({ agents: [{ id: "coder" }], inspector: {} });
+    globalThis.document = { getElementById: (id) => els[id] || null };
+    openAgentDrawer("coder");
+    // The call is deliberately fire-and-forget, so yield until its chain settles.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(asked.length, 1, `the drawer made ${asked.length} reads, expected 1`);
+    assert.match(asked[0], /\/terminals\?agentId=coder&status=all$/, `asked: ${asked[0]}`);
+    assert.match(els[AGENT_PROCESSES_ID].innerHTML, /term_probe/, "the panel was never filled");
+    assert.match(els[AGENT_PROCESSES_ID].innerHTML, /9001/, "the pid never reached the panel");
+  } finally {
+    delete globalThis.document;
+    if (hadFetch) globalThis.fetch = realFetch; else delete globalThis.fetch;
+  }
 });

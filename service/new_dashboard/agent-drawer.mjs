@@ -29,6 +29,8 @@ import { state } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
+import { api } from './api-client.mjs';
+import { AGENT_PROCESSES_ID, loadAgentProcesses } from './agent-processes.mjs';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -126,6 +128,10 @@ export function openAgentDrawer(agentId) {
         ${row('Last seen', lastSeen ? `${lastSeen} ago` : '—')}
       </dl>
       ${continueCliBlock}
+      <div class="agent-drawer-cli">
+        <div class="agent-drawer-subhead">Processes</div>
+        <div id="${AGENT_PROCESSES_ID}"><p class="subtle">Reading this agent's terminals…</p></div>
+      </div>
       <div class="agent-drawer-actions">${actions}</div>
     </div>`;
   // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
@@ -133,6 +139,11 @@ export function openAgentDrawer(agentId) {
   state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+  // B5: WHAT IS ACTUALLY RUNNING FOR THIS AGENT, fetched after the drawer is on screen rather than
+  // polled with the other nine endpoints -- "browse" is a deliberate act, so the read is too. Fire
+  // and forget: `loadAgentProcesses` renders its own failure into its own panel, and everything
+  // else in this drawer stays true whether that read succeeds or not.
+  loadAgentProcesses(id, { api, byId });
 }
 export function syncInspectorToSelection() {
   const inspector = byId('inspector');

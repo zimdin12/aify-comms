@@ -845,6 +845,37 @@ const EXTRACTIONS = [
           "  const lastSeen = relTimeHtml(agent.lastSeen);",
         ],
         },
+        {
+          // B5: the Processes panel's container, and the read that fills it. Two edits rather
+          // than one because they sit at opposite ends of the function -- the markup goes in the
+          // template, the fetch goes after the drawer is on screen -- and a single pair spanning
+          // both would declare every line between them as changed when none of them are.
+          was: [
+            "      ${continueCliBlock}",
+            "      <div class=\"agent-drawer-actions\">${actions}</div>",
+          ],
+          now: [
+            "      ${continueCliBlock}",
+            "      <div class=\"agent-drawer-cli\">",
+            "        <div class=\"agent-drawer-subhead\">Processes</div>",
+            "        <div id=\"${AGENT_PROCESSES_ID}\"><p class=\"subtle\">Reading this agent's terminals\u2026</p></div>",
+            "      </div>",
+            "      <div class=\"agent-drawer-actions\">${actions}</div>",
+          ],
+        },
+        {
+          was: [
+            "  byId('inspector')?.classList.remove('run-inspector-sheet');",
+          ],
+          now: [
+            "  byId('inspector')?.classList.remove('run-inspector-sheet');",
+            "  // B5: WHAT IS ACTUALLY RUNNING FOR THIS AGENT, fetched after the drawer is on screen rather than",
+            "  // polled with the other nine endpoints -- \"browse\" is a deliberate act, so the read is too. Fire",
+            "  // and forget: `loadAgentProcesses` renders its own failure into its own panel, and everything",
+            "  // else in this drawer stays true whether that read succeeds or not.",
+            "  loadAgentProcesses(id, { api, byId });",
+          ],
+        },
       ],
       },
       { name: "syncInspectorToSelection", at: 3558, marker: "// syncInspectorToSelection moved to ./agent-drawer.mjs in v0.5.4." },

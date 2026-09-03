@@ -441,8 +441,38 @@ solved it by narrowing to one runtime. See D9.
   `session-handles`, `context-window`, `bridge-current`. The rest need a host reporter, which is
   aify-env's job under TARGET_ARCHITECTURE.
 - **B5. Browse an agent and its processes** (09-02). *"i cannot still check the processes themself?
-  (like browse agent or something)"* No agent-detail view exists: no terminals, console, runs or pids
-  behind a click.
+  (like browse agent or something)"* **FIRST SLICE DONE 2026-09-03: the PROCESSES panel.**
+
+  Measured before building: a drawer already existed and answered everything ABOUT an agent --
+  runtime, mode, environment, workspace, session, machine, last seen -- and nothing about what is
+  running for it. A pid was reachable only by reading the database by hand.
+
+  `agent-processes.mjs` fills a panel in that drawer from `/terminals?agentId=<id>&status=all`:
+  terminal id, status, PID, size, last update.
+
+  Four decisions, each with a test that fails without it:
+  - **`status=all`, not `live`** -- a row reading `stopped` while still holding a pid IS the orphan
+    the operator went looking for (aify-env owned a live PTY for `ef-manager` pid 155844 while every
+    recent session read `stopped`). Filtering to live hides the case the panel exists for.
+  - **The PID gets a column**, because `/terminals`'s own docstring says it is the field aify-env's
+    listing shares -- it is what lets a person match a row here against something alive on the host.
+  - **A zero SIZE is flagged with why**: cols is 0 until a resize control completes, so that console
+    is rendered at an inferred width and re-wraps every line. This is the one place a person can see
+    which terminals are exposed to B3.
+  - **Fetched when the drawer opens, never polled.** The refresh is already nine endpoints; a tenth
+    paid every tick to fill a panel nobody opened is the trade this avoids.
+
+  A failed read says so rather than rendering "no processes" -- claiming an operator has no terminals
+  when the read failed is worse than admitting the panel is broken.
+
+  **A MUTATION FOUND A GAP IN MY OWN GUARD.** The call-site test asserted the container exists;
+  deleting `loadAgentProcesses(...)` from the drawer left it and all 36 tests green -- a slot nothing
+  fills, which is the disconnected-call-site defect one layer along. Closed by driving the REAL `api`
+  with `fetch` stubbed, so the assertion covers container, URL, response and render without a live
+  GET against the operator's own service. Five mutations now each redden their own test.
+
+  **Still open under B5:** console, runs and history behind the same click. And the drawer edit is
+  declared in `extraction-proof`'s plan, generated from the file rather than transcribed.
 - **B6. A login prompt instead of a URL parameter.** DONE 2026-09-02, deployed and verified.
 
 ---
