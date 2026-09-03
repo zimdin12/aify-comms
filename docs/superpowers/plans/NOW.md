@@ -242,27 +242,34 @@ it a buffer whose `append` writes to stdout, so there is no second copy of the f
 An ambiguous label is refused WITH the ids, because attaching is the only console operation that
 WRITES.
 
-**THE FLAG LOGIC IS BUILT TOO** (aify-wrapper `c2d1be1`), and the shape is the decision worth
-knowing: `--shared` does NOT serialise the runtime's command line. It asks the host to run **this
-wrapper again** minus the flag, then attaches. So what runs is exactly what would have run --
-including the resolving, MCP-flag composing and prior-session reaping every wrapper does before it
-launches, and whatever is added to that later -- and it passes aify-env's allowlist by being the
-very thing the allowlist is for (`HARNESS_WRAPPER_VERSION`). Harness-agnostic by construction.
+**THE HEADLINE IS BUILT for claude-aify** (aify-wrapper `06d8d96f`, aify-env `f99b9d0`, pin
+`8369658a`). `claude-aify --shared` asks aify-env to run THIS WRAPPER again without the flag and
+attaches; the process then belongs to the host, so closing the window leaves it running and Ctrl-]
+detaches. `aify-env run` starts-and-attaches in one step; `aify-env attach <agent>` re-attaches later.
 
-**CORRECTION to what this file said:** there is not ONE template. There are FOUR
-(`wrappers/*-aify.sh.in`), with four different launch shapes -- claude runs a command then reads
-`$?`, codex calls `run_codex_foreground`, hermes calls `aify_hermes_exec_plain_or_tui`, pi `exec`s.
-So the flag is one shared module (built) plus four small, separate wirings.
+**Re-running the wrapper rather than rebuilding its command** is the decision: every wrapper resolves
+a runtime, composes MCP flags and reaps a prior session before it launches, and a reconstructed
+command reproduces whichever parts somebody remembered. It also passes aify-env's launcher allowlist
+by being a wrapper, which is what that allowlist is for.
 
-**WHAT REMAINS:** wire `claude-aify` first, since that is the launcher the operator named. In the arg
-loop (~line 176, beside `--aify-agent=` and `--resume=`) recognise the flag, and before the final
-`claude ...` line branch to: POST `sharedStartRequest(...)` to the host, then exec
-`aify-env attach <id>`. The determinism tests in BOTH repos render and RUN the real launchers, so a
-template change reddens aify-wrapper AND the aify-comms bridge suite -- run all five.
+**The default path is untouched** -- the branch is below everything and a test asserts that by
+POSITION, plus one pinning the launch line's exact shape.
 
-Then: A1–A4 (aify-env TUI), B1–B5 (dashboard console, agent browse, doctor in the UI), C1/C3/C5/C6/C7,
-D2/D4/D6/D7/D9/D10/D11, and the reviews E1/E2 LAST — a review round adds to the list, so running one
-first expands it faster than it shrinks.
+**TWO CORRECTIONS worth carrying.** There are FOUR templates, not one, with four different launch
+shapes (claude runs then reads `$?`, codex calls `run_codex_foreground`, hermes calls
+`aify_hermes_exec_plain_or_tui`, pi `exec`s) -- so the other three are each a small separate wiring,
+and the block was made copyable (`${0##*/}`, no runtime named) with a test pinning that. And I built
+`aify-wrapper/lib/shared-session.mjs` with NO CALLER: a rendered launcher is standalone shell and
+cannot import a node module whose path it does not know. Deleted; the logic lives in `aify-env run`,
+which a shell can call because it is on PATH.
+
+**NOT YET PROVEN LIVE.** Nothing has actually started a shared session on this host -- doing so would
+add a resident to the operator's fleet, which is theirs to decide. The pieces are proven separately:
+`aify-env attach` resolves and refuses correctly against the live host, the rendered launcher carries
+the branch, and all five suites are green.
+
+**REMAINING:** wire codex, hermes and pi (one small change each), and prove one shared session end to
+end when the operator is awake.
 
 ## The architecture constraint that governs all of it
 
