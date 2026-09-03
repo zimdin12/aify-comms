@@ -213,13 +213,27 @@ in the file and the one the operator has raised most often.
   aify-env going down -- so they were not in that record. The TUI has never asked aify-comms
   anything. This was an unbuilt join, not a display bug.
 
-  **THAT BLOCKER IS GONE as of 2026-09-03, and this is now the cheapest item in the file.** aify-env
-  is the process host for every managed agent: `GET /processes` on the operator's own machine returns
-  `sc-lead`, `sc-tester`, `sc-critic`, `sc-coder` with their pids, each carrying the agent id as its
-  `label` and the runtime's own title. So "show the managed agents that are running" is a render over
-  a listing aify-env ALREADY HAS -- no join, no aify-comms call, no new plumbing. It is the oldest
-  unmet ask in this file and the one the operator has raised most often, and it stopped being hard
-  the night the host tier took over spawning. Do it first in the A series.
+  **DONE 2026-09-03** (aify-env `d78696b`), and it needed NO CODE. The blocker was the premise: this
+  tier is now the process host for every managed agent, so they are in its own record. Rendered from
+  the operator's live `/health` the same day:
+
+      PROCESSES 4 owned
+        ID       PID     AGENT      SERVICE     IO   UP     TITLE
+        cf63-p1  215208  sc-lead    aify-comms  pty  2h40m  Claude Code
+        cf63-p2  252812  sc-tester  aify-comms  pty  2h39m  Claude Code
+        cf63-p3  195104  sc-critic  aify-comms  pty  2h39m  Claude Code
+        cf63-p6  161124  sc-coder   aify-comms  pty  1h5m   Claude Code
+
+  **It came right by consequence, not by construction, so the JOIN is now pinned.** `tui.test.js`
+  proved the view renders an agent column from a snapshot the test supplies; `health.test.js` did not
+  mention `processes` at all. A payload that stopped carrying `label` would blank the AGENT column for
+  every agent with both files still green. Seven tests now drive the real `GET /health` and DERIVE the
+  required fields from the renderer's own accessors, so a new column fails on the day it lands rather
+  than rendering a dash for ever -- which has already happened here once, with `uptimeMs`.
+
+  One false alarm worth recording: the first render read `up -` for every row and looked like a
+  defect. It was my probe -- I built the snapshot from `/processes`, which carries `startedAtMs`, and
+  the dashboard reads `/health`, which derives `uptimeMs`. Checked before reporting.
 - **A2. Control a managed agent's TUI directly from aify-env** (09-02). The operator names
   [herdr](https://github.com/ogulcancelik/herdr) as the model: a persistent headless server plus a
   TUI client that attaches to REAL terminals, not redraws.
