@@ -39,6 +39,7 @@ from service.clock import now as _now
 from service.db import get_db
 from service.env_status import ENVIRONMENT_REGISTRABLE_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
+from service.env_status import environment_has_live_bridge as _environment_has_live_bridge
 from service.models import (
     EnvironmentControlClaim,
     EnvironmentControlRequest,
@@ -370,6 +371,34 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                 existing_metadata = _json_loads_or(existing["metadata"], {})
                 existing_started = _bridge_started_at(existing_metadata)
                 incoming_started = _bridge_started_at(metadata)
+                # A DEAD INCUMBENT HAS NO STANDING, and this is the half that was missing.
+                #
+                # Arbitration compared START TIMES and never asked whether the holder was alive, so a
+                # bridge that started later and then EXITED held the row for ever: nothing older
+                # could take it, and only something started even later could. Measured 2026-09-03 --
+                # a restarted aify-env claimed the row, exited, and the surviving daemon beat every
+                # 30 seconds for 20 minutes and was refused every time, while `/spawn` told the
+                # operator to start a claimer that was already running.
+                #
+                # `bridgeLastSeen` is the liveness fact this service already keeps and already gates
+                # `/spawn` on. Arbitration ignoring it was the inconsistency: the endpoint would not
+                # have let the incumbent claim anything either. Stale means beyond the SAME window,
+                # so the two answers cannot disagree.
+                #
+                # This can only ever ADMIT a live beat, never refuse one -- the branch below is
+                # skipped, not extended -- and by the time it applies, the incumbent has been silent
+                # longer than any spawn would have waited for it.
+                incumbent_is_live = _environment_has_live_bridge(
+                    {"metadata": existing_metadata}, bridge_rows_say_live=None,
+                )
+                if existing_started and not incumbent_is_live:
+                    logger.info(
+                        "environment %s: bridge %s started later but has been silent since %s; "
+                        "handing the row to live bridge %s",
+                        env_id, existing_bridge_id,
+                        existing_metadata.get("bridgeLastSeen") or "never", incoming_bridge_id,
+                    )
+                    existing_started = None
                 if existing_started and (not incoming_started or incoming_started < existing_started):
                     # REFUSED, AND IT SAYS SO. `ok: True` alone is what a heartbeat that was
                     # ACCEPTED returns, so a bridge whose beat was arbitrated away could not tell
