@@ -96,13 +96,21 @@ _END_SUMMARY_WAS = chr(10).join([
     '            summary = f"Terminal {status} before an explicit reply was recorded."',
 ]) + chr(10)
 
-# ANSWERING A PARKED CONSOLE, added 2026-09-03. The answering itself lives DOWN in the write path,
-# where the live screen is current -- checked here in the route it never fired once, because the
-# write is coalesced and a worker PARKED at a dialog sends no later chunk to trigger a recheck.
-# What is left in this function is naming the chunk once, and dropping a terminal's prompt record
-# when it ends. Declared as deletions because they are ADDITIONS: the reconstruction removes them.
+# TWO ADDITIONS OF 2026-09-03, declared as deletions because the reconstruction removes them.
+#
+# ANSWERING A PARKED CONSOLE. The answering itself lives DOWN in the write path, where the live
+# screen is current -- checked here in the route it never fired once, because the write is coalesced
+# and a worker PARKED at a dialog sends no later chunk to trigger a recheck. What is left here is
+# naming the chunk once, and dropping a terminal's prompt record when the terminal ends.
+#
+# RECORDING A LIVENESS FRAME, which is why the first pair is a large block rather than one line. A
+# frame with no output and no status is the host saying "this process is still mine", and both
+# guards downstream drop exactly that shape -- the queue returns 0, and `_append_terminal_output`
+# returns before its UPDATE. So it is answered in the route, and the block sits between the two
+# lines the earlier edit had declared, which is why this entry was regenerated rather than appended
+# to: a declaration that no longer appears verbatim undoes nothing, and the gate says so.
 _PROMPT_EDITS = [
-    ("        chunk_text = req.output or \"\"\n        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            chunk_text,", "        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            req.output or \"\","),
+    ("        chunk_text = req.output or \"\"\n        # A LIVENESS FRAME CARRIES NEITHER, and it is the only thing the host sends that says \"this\n        # process is still mine\". It is answered here rather than passed on, because both guards\n        # downstream drop it -- the queue returns 0 for a frame with no output and no status, and\n        # `_append_terminal_output` returns before its UPDATE. See `_record_host_reported_alive`\n        # for what that silence cost.\n        if not chunk_text and not status:\n            await _record_host_reported_alive(db, terminal)\n            await db.commit()\n            reported = _terminal_session_to_dict(terminal)\n            # The row's OWN sequence, never the 0 the queue would have answered: a client that took\n            # that for a real seq would see the stream jump backwards on the next chunk.\n            reported[\"outputSeq\"] = int(terminal[\"output_seq\"] or 0)\n            return {\"ok\": True, \"terminal\": reported}\n        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            chunk_text,", "        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            req.output or \"\","),
     ("        if status in _TERMINAL_END_STATUSES:\n            _forget_answered_prompts(terminal_id)\n", ""),
 ]
 EDITED_SINCE = [(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)] + _PROMPT_EDITS

@@ -97,7 +97,36 @@ Everything else for a release is ready: `VERSION`, `mcp/stdio/version.js`, both 
 `.claude-plugin/plugin.json` all read 0.6.1 and agree, the service is deployed and `aify-comms
 doctor`'s `service` check reads `build == repo HEAD`, and all three clients are reinstalled.
 
-## sc-coder IS ALIVE, UNADDRESSABLE AND UNRESTARTABLE — the top item
+## THE ROOT CAUSE, found 2026-09-03 07:00 and FIXED (deploy pending)
+
+**The liveness frame wrote nothing.** aify-env posts an empty frame per terminal per control pass --
+no output, no status, deliberately, because a status would let a heartbeat REOPEN a terminal an
+operator or a reconciler had closed. Both guards on that path drop exactly that shape:
+`TerminalOutputWriteQueue.enqueue` returns 0 for a frame with neither, and `_append_terminal_output`
+returns before its UPDATE. The service answered `200 {"ok": true}` and changed no row.
+
+**So `fc8d4c52` was INERT.** That fix stops `_active_terminal_for_agent` releasing a terminal whose
+`bridge_id` no longer matches its environment row -- which every terminal does after an aify-env
+restart, because each start mints a fresh bridge id. Its guard asks "was this terminal REPORTED
+recently", read from `updated_at`. Nothing refreshed `updated_at`, so the guard could never be true.
+It shipped with a green suite and could never fire. See
+[[a-declared-field-with-no-reader-changes-nothing]]: a guard whose input nothing writes is worse than
+a field nothing reads, because it READS AS PROTECTION.
+
+**And nothing aged out a `claimed` spawn request.** The orphan reaper's query said
+`status = 'running'`. Its own safety note says a stale `running` row is harmless because "the
+coldstart idempotency gate only inspects queued/claimed spawns" -- which inverts for `claimed`: a
+stuck one is exactly what the gate reads, so every send is refused as ALREADY IN FLIGHT, for ever.
+
+Both fixed, both mutation-proved. `claimed` gets no live-bridge carve-out, measured: claim ->
+`started_at` is 0.0s median / 2s p99 / **7s max** across 1,068 real spawns, so a claim past the
+existing 3-minute grace is abandoned, not slow -- and sc-coder's row was claimed by the LIVE bridge,
+so the carve-out would have sheltered it another 30 minutes and made the fix useless for its own case.
+
+**NOT LIVE YET.** Both reach the fleet on the next service deploy; the liveness half also needs an
+aify-env restart, which is the operator's call.
+
+## sc-coder: RECOVERED 07:07, and what it cost to get there
 
 **Found while verifying the orphan fix, on the operator's own fleet.** It is a deadlock, and every
 step in it is a component behaving as designed:
@@ -119,10 +148,20 @@ step in it is a component behaving as designed:
 5. Result: a running claude worker nobody can reach, restart or address. Three failed restart
    terminals from 06:27, 06:33 and 06:39 are the operator hitting exactly this.
 
-**The fix is a re-binding, not a kill.** When a host refuses a start because it already runs a worker
-for that agent, the service should adopt the live terminal it names rather than leaving the agent
-pointed at a dead row -- the refusal already carries the terminal id and the pid. That is a design
-change across both repos and was NOT attempted unattended.
+**RECOVERED, on sc-manager's request and their evidence.** They measured the same deadlock from
+three views independently and confirmed the work was committed and nothing lost. The launch command
+carries `--resume e306ffe9-...`, so a replacement worker rejoins the SAME claude session rather than
+starting cold -- which is what made replacing it safe rather than merely acceptable. Stopped the
+orphaned process, cancelled `spawn_1788417654124_877f439c` through `PATCH /spawn-requests/{id}`,
+verified zero in-flight rows, and sc-manager's retry was accepted. The other three lanes untouched.
+
+**The remaining fix is a RE-BINDING, and it is v0.6.2's first item.** An agent already wedged this
+way still cannot be recovered without replacing its worker. When a host refuses a start because it
+already runs a worker for that agent, the service should ADOPT the live terminal the refusal names
+rather than leaving the agent pointed at a dead row -- the refusal already carries the terminal id
+and the pid, and `touchLiveTerminals` already computes the fact that decides it ("is the old terminal
+still live"). Refuse when it is; adopt when it is not. Not attempted unattended: it crosses both
+repos and touches the path that starts workers.
 
 **Do not "fix" it by letting an ended terminal go active again**, and do not let the host stop the
 worker: `ec243e9` exists precisely because an end-status orphan rule would have killed this agent.

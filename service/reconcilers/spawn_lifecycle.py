@@ -117,8 +117,9 @@ async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
 
 
 async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wall_ceiling_minutes: int = 30) -> int:
-    """Fail spawn_requests stuck in 'running' whose claiming environment bridge is
-    no longer the current live env bridge.
+    """Fail spawn_requests stuck in 'claimed' or 'running' that nothing will ever settle.
+
+    TWO SHAPES, and only one of them was covered until 2026-09-03.
 
     These orphan when an env bridge restarts / is superseded (e.g. `aify-comms`
     restarted) BEFORE the worker it was spawning finished coming up: the claiming
@@ -128,8 +129,16 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
     `_repair_spawn_requests_from_initial_dispatch_failures`, which only covers the
     case where the initial-brief dispatch itself failed.
 
+    THE SECOND SHAPE: a `claimed` row that never starts, which is the one with TEETH. The paragraph
+    below argues a stale `running` row is harmless because "the coldstart idempotency gate only
+    inspects queued/claimed spawns". That argument inverts for `claimed`: a stuck one is exactly what
+    the gate reads, so every send to that agent is refused with "a spawn for this agent is ALREADY IN
+    FLIGHT". Measured on the operator's fleet: `sc-coder` unreachable for fifteen minutes and
+    permanently, because this query said `status = 'running'` and the live-bridge carve-out would
+    have held the row for thirty minutes even once it did not.
+
     SAFETY — this ONLY touches the stale DB record, never any process:
-    - Targets ONLY status='running' with empty finished_at.
+    - Targets status IN ('claimed','running') with empty finished_at.
     - NEVER fails a spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
       environment bridge — a worker actively (even slowly) booting on the live
       bridge is left alone regardless of how long it has been booting, because
@@ -160,16 +169,33 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
     now = _now()
     cursor = await db.execute(
         """
-        SELECT id, claimed_by_bridge_id, claimed_at, created_at
+        SELECT id, status, claimed_by_bridge_id, claimed_at, created_at
         FROM spawn_requests
-        WHERE status = 'running' AND COALESCE(finished_at, '') = ''
+        WHERE status IN ('claimed', 'running') AND COALESCE(finished_at, '') = ''
         """
     )
     failed = 0
     for row in await cursor.fetchall():
         bid = str(row["claimed_by_bridge_id"] or "").strip()
         age_epoch = _iso_to_epoch(str(row["claimed_at"] or row["created_at"] or ""))
-        if bid and bid in live_bridge_ids:
+        stuck_status = str(row["status"] or "").strip().lower()
+        # `claimed` GETS NO LIVE-BRIDGE CARVE-OUT, and the measurement is why.
+        #
+        # The carve-out below exists for a worker that is genuinely, slowly BOOTING: still `running`,
+        # its claimer still up, and failing the row would be wrong. A `claimed` row is not that
+        # state. Measured over 1,068 real spawns on the operator's service 2026-09-03, claim ->
+        # `started_at` is 0.0s median, 2s at p99 and SEVEN SECONDS at worst -- so the grace below is
+        # already twenty-five times the slowest claim anybody has observed, and a claim past it is
+        # abandoned rather than slow.
+        #
+        # AND `claimed` IS THE ONLY STATUS WHOSE STALENESS HAS TEETH. This function's own safety
+        # argument is that a stale `running` row is harmless because "the coldstart idempotency gate
+        # only inspects queued/claimed spawns". That INVERTS here: a stuck `claimed` row is precisely
+        # what the gate reads, so it refuses every send to that agent as ALREADY IN FLIGHT.
+        # `sc-coder` was unreachable for fifteen minutes on the operator's fleet and would have
+        # stayed so -- its row was claimed by the LIVE bridge, so the carve-out would have sheltered
+        # it for another thirty even once `claimed` was covered at all.
+        if stuck_status != "claimed" and bid and bid in live_bridge_ids:
             # THE CARVE-OUT IS BOUNDED. "A worker actively (even slowly) booting on the live bridge
             # is left alone regardless of how long it has been booting" was written for a worker
             # that is booting; a bridge that simply stays up made it unbounded, and a spawn claimed
@@ -196,24 +222,34 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 error = COALESCE(NULLIF(error, ''), ?),
                 finished_at = COALESCE(finished_at, ?),
                 updated_at = ?
-            WHERE id = ? AND status = 'running'
+            WHERE id = ? AND status = ?
             """,
             (
                 # NAME THE RULE THAT FIRED. The old text said the claiming bridge was no longer live,
                 # which is FALSE for a row failed by the wall ceiling -- and an error message that
                 # misattributes the cause sends the next reader to the wrong place.
                 (
-                    "Orphaned: claiming environment bridge is no longer live (env bridge "
-                    "restart/supersede); failed by reconcile."
-                    if not (bid and bid in live_bridge_ids)
+                    # NAME THE RULE THAT FIRED, and there are now three. A `claimed` row that never
+                    # moved is neither of the other two: its claimer may be perfectly alive, and it
+                    # was never "in flight" long enough to be called slow.
+                    f"Abandoned: claimed at {row['claimed_at'] or row['created_at']} and never "
+                    f"started. Real claims start in under 10 seconds; failed by reconcile so sends "
+                    f"to this agent stop being refused as already in flight."
+                    if stuck_status == "claimed"
                     else (
-                        f"Abandoned: claimed by a live bridge but never settled within "
-                        f"{wall_ceiling_seconds // 60} minutes; failed by reconcile."
+                        "Orphaned: claiming environment bridge is no longer live (env bridge "
+                        "restart/supersede); failed by reconcile."
+                        if not (bid and bid in live_bridge_ids)
+                        else (
+                            f"Abandoned: claimed by a live bridge but never settled within "
+                            f"{wall_ceiling_seconds // 60} minutes; failed by reconcile."
+                        )
                     )
                 ),
                 now,
                 now,
                 row["id"],
+                stuck_status,
             ),
         )
         failed += 1

@@ -69,8 +69,9 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
     ENVIRONMENT = "linux:test-host:default"
 
     def _seed(self, spawn_id: str, *, bridge: str, claimed_minutes_ago: float,
-              claimed_at: str | None = None, created_at: str | None = None) -> None:
-        """One `running` spawn request, with the spec its FOREIGN KEY requires."""
+              claimed_at: str | None = None, created_at: str | None = None,
+              status: str = "running") -> None:
+        """One spawn request, with the spec its FOREIGN KEY requires."""
         stamp = _ago(claimed_minutes_ago)
         claimed = stamp if claimed_at is None else claimed_at
         created = stamp if created_at is None else created_at
@@ -91,7 +92,7 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
                     "runtime, status, claimed_by_bridge_id, claimed_at, created_at, updated_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (spawn_id, f"spec-{spawn_id}", f"agent-{spawn_id}", self.ENVIRONMENT,
-                     "claude-code", "running", bridge, claimed, created, stamp),
+                     "claude-code", status, bridge, claimed, created, stamp),
                 )
                 await db.commit()
             finally:
@@ -165,6 +166,68 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
                    claimed_at="", created_at="")
         self._reap()
         self.assertEqual(self._row("ageless")["status"], "running")
+
+    # ── the second shape: a `claimed` row that never starts ─────────────────────────────────────
+    #
+    # THE ONE WITH TEETH, and it was not covered at all until 2026-09-03 -- the query said
+    # `status = 'running'`. The reaper's own safety argument says a stale `running` row is harmless
+    # because "the coldstart idempotency gate only inspects queued/claimed spawns". That inverts
+    # here: a stuck `claimed` row is exactly what the gate reads, so every send to that agent is
+    # refused with "a spawn for this agent is ALREADY IN FLIGHT", for ever.
+    #
+    # MEASURED on the operator's fleet 2026-09-03. `sc-coder` was unreachable for fifteen minutes and
+    # would have stayed so: its row was claimed by the LIVE bridge, so even once `claimed` was
+    # covered the carve-out above would have sheltered it for thirty minutes. The carve-out exists
+    # for a worker that is slowly BOOTING, which a `claimed` row is not -- across 1,068 real spawns
+    # on that same service, claim -> `started_at` is 0.0s median, 2s at p99 and SEVEN SECONDS at
+    # worst. The three-minute grace is already twenty-five times the slowest claim ever observed.
+
+    def test_A_CLAIMED_SPAWN_THAT_NEVER_STARTED_IS_FAILED(self) -> None:
+        """THE DEFECT. Nothing aged one out, and it refuses every send to that agent while it sits."""
+        self._seed("stuck-claim", bridge=DEAD_BRIDGE, claimed_minutes_ago=10, status="claimed")
+        self._reap()
+        self.assertEqual(self._row("stuck-claim")["status"], "failed",
+                         "a claimed spawn that never started still blocks every send to its agent")
+
+    def test_A_LIVE_BRIDGE_DOES_NOT_SHELTER_A_STUCK_CLAIM(self) -> None:
+        """THE HALF THAT DECIDES WHETHER THE FIX HELPS. sc-coder's row was claimed by the live
+        bridge; with the carve-out applied it would have been sheltered for thirty minutes, which is
+        the whole outage plus fifteen."""
+        self._seed("stuck-claim-live", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="claimed")
+        self._reap()
+        self.assertEqual(self._row("stuck-claim-live")["status"], "failed",
+                         "a stuck claim on a live bridge was sheltered by a carve-out written for "
+                         "slow BOOTS, which a claim is not")
+
+    def test_a_FRESH_claim_is_left_alone_on_either_bridge(self) -> None:
+        """THE DIRECTION THAT WOULD BE CATASTROPHIC. Every real spawn passes through `claimed`, so a
+        reaper that failed a fresh one would break every spawn on the fleet rather than unblock one.
+        Two minutes is already seventeen times the slowest claim measured."""
+        for name, bridge in (("fresh-claim-live", LIVE_BRIDGE), ("fresh-claim-dead", DEAD_BRIDGE)):
+            self._seed(name, bridge=bridge, claimed_minutes_ago=2, status="claimed")
+        self._reap()
+        for name in ("fresh-claim-live", "fresh-claim-dead"):
+            self.assertEqual(self._row(name)["status"], "claimed", f"{name} was reaped while fresh")
+
+    def test_the_error_names_the_rule_that_fired(self) -> None:
+        """Three rules can now fail a row and they have different remedies. An error that
+        misattributes its own cause sends the next reader somewhere else entirely -- which is the
+        bug the `running` half of this file already fixed once."""
+        self._seed("stuck-claim-text", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="claimed")
+        self._reap()
+        error = str(self._row("stuck-claim-text")["error"] or "")
+        self.assertIn("never started", error)
+        self.assertIn("already in flight", error.lower())
+        self.assertNotIn("no longer live", error,
+                         "the claiming bridge IS live; this text sends the reader to the wrong place")
+
+    def test_a_running_row_still_gets_its_own_rules(self) -> None:
+        """CONTROL FOR THE SPLIT. Widening the query must not give `running` the claim rules: a
+        genuinely booting worker on a live bridge is still sheltered until the wall ceiling."""
+        self._seed("boot-live", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="running")
+        self._reap()
+        self.assertEqual(self._row("boot-live")["status"], "running",
+                         "a booting worker on a live bridge lost its carve-out")
 
 
 if __name__ == "__main__":

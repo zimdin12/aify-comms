@@ -182,3 +182,33 @@ async def _resume_policy_for_agent(db, agent_id: str) -> str:
         return ""
     state = _json_loads_or(row["runtime_state"] or "", {})
     return str((state or {}).get("resumePolicy") or "")
+
+
+async def _record_host_reported_alive(db, terminal) -> None:
+    """The host says it is still running this terminal. Write down that it said so.
+
+    THIS IS THE WHOLE LIVENESS MECHANISM, and until 2026-09-03 it wrote NOTHING. aify-env posts an
+    empty frame per terminal per control pass -- no output, no status, deliberately, because a status
+    would let a heartbeat REOPEN a terminal an operator or a reconciler had closed. Both guards on
+    that path then dropped it: `TerminalOutputWriteQueue.enqueue` returns 0 for a frame with neither,
+    and `_append_terminal_output` returns before its UPDATE. The service answered 200 and changed
+    nothing.
+
+    WHAT THAT COST, measured on the operator's fleet. `_active_terminal_for_agent` releases a
+    terminal whose `bridge_id` no longer matches the environment row -- and every aify-env start
+    mints a fresh bridge id, so after a restart every terminal mismatches. The guard against that is
+    "was this terminal REPORTED recently", read from `updated_at`. With nothing refreshing
+    `updated_at` the guard could never be true, so it released `sc-coder`'s terminal at 06:27:52
+    while the host was running and streaming it. An ended terminal cannot go back to active by
+    design, so the worker's own output could never undo it: a live claude session, unaddressable and
+    unrestartable, and three refused restarts behind it.
+
+    NOT THROUGH THE OUTPUT QUEUE, on purpose. That queue exists to COALESCE a high-frequency byte
+    stream; a liveness touch is one tiny row write with nothing to batch, and routing it through the
+    queue is what made it invisible. It writes ONE column: no status, so it cannot reopen anything;
+    no output, so it cannot disturb the stream or its sequence numbers.
+    """
+    await db.execute(
+        "UPDATE terminal_sessions SET updated_at = ? WHERE id = ?",
+        (_now(), str(terminal["id"])),
+    )

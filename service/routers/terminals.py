@@ -31,6 +31,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.terminal_output import _record_host_reported_alive
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.console_prompts import forget_terminal as _forget_answered_prompts
@@ -449,6 +450,19 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         if req.exitCode is not None or str(req.exitSignal or "").strip():
             await _record_terminal_exit(db, terminal_id, req.exitCode, req.exitSignal)
         chunk_text = req.output or ""
+        # A LIVENESS FRAME CARRIES NEITHER, and it is the only thing the host sends that says "this
+        # process is still mine". It is answered here rather than passed on, because both guards
+        # downstream drop it -- the queue returns 0 for a frame with no output and no status, and
+        # `_append_terminal_output` returns before its UPDATE. See `_record_host_reported_alive`
+        # for what that silence cost.
+        if not chunk_text and not status:
+            await _record_host_reported_alive(db, terminal)
+            await db.commit()
+            reported = _terminal_session_to_dict(terminal)
+            # The row's OWN sequence, never the 0 the queue would have answered: a client that took
+            # that for a real seq would see the stream jump backwards on the next chunk.
+            reported["outputSeq"] = int(terminal["output_seq"] or 0)
+            return {"ok": True, "terminal": reported}
         next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,
             chunk_text,
