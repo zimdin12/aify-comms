@@ -41,6 +41,7 @@ GET /api/v1/spawn-requests
 GET /api/v1/stats
 GET /api/v1/terminals
 GET /api/v1/terminals/{terminal_id}
+GET /api/v1/terminals/{terminal_id}/launch
 GET /api/v1/usage
 GET /api/v1/usage/consumption
 GET /docs

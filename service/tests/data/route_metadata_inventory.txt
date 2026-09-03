@@ -56,6 +56,7 @@ JsonApiRoute GET /api/v1/spawn-requests name=list_spawn_requests status=- respon
 JsonApiRoute GET /api/v1/stats name=get_stats status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/terminals name=list_terminals status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/terminals/{terminal_id} name=get_terminal status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/terminals/{terminal_id}/launch name=get_terminal_launch status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/usage name=get_usage status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/usage/consumption name=get_usage_consumption status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/agents/{agent_id} name=update_agent status=- response_model=- tags=api deps=0 in_schema=True

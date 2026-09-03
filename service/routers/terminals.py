@@ -33,7 +33,11 @@ from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
+from service.api_core.capabilities import _managed_via_wrapper_for_runtime
+from service.api_core.launch_env import managed_launch_env
 from service.api_core.records import _terminal_session_to_dict
+from service.api_core.serialization import _json_loads_or
+from service.api_core.settings import _load_settings
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.api_core.ws import _get_ws
 from service.db import get_db
@@ -201,6 +205,94 @@ async def list_terminals(
     # which is the failure mode a reconciliation check cannot survive: it would report the missing
     # rows as orphans.
     return {"ok": True, "terminals": terminals, "count": len(terminals), "truncated": truncated}
+
+
+@router.get("/terminals/{terminal_id}/launch")
+async def get_terminal_launch(terminal_id: str):
+    """EVERYTHING A PROCESS HOST NEEDS TO RUN THIS TERMINAL, AND NOTHING ELSE.
+
+    THE SEAM aify-env BECOMES THE PROCESS HOST THROUGH. Until now the only tier that could start a
+    managed worker was the aify-comms environment bridge, because starting one meant composing the
+    launch -- and that composition lived on the host. The bridge is being removed; the operator's
+    reasoning is exact: aify-comms is a container service, so it cannot hold the agents or they
+    would be in the container's environment rather than the host's.
+
+    So the split is stated here. The service says WHAT to run: the program and its arguments (which
+    it already composed -- `command` and `argv` have been on the terminal row since Phase 8) and the
+    aify-owned variables the worker must be launched with. The host adds only what the service
+    cannot know: its own base environment, and CODEX_HOME, which names a directory that has to be
+    CREATED on the machine that will run the process.
+
+    NO BASE ENVIRONMENT TRAVELS. A process environment on the wire carries whatever the sender
+    happened to hold, including its secrets. `env` here is an OVERLAY, small by construction, and a
+    test asserts it stays that way -- a large one means a base environment leaked in.
+
+    404 rather than an empty launch for an unknown terminal: a host given a blank command would
+    start nothing and report success, which is the silence this whole tier keeps being bitten by.
+    """
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,),
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        terminal = _terminal_session_to_dict(row)
+
+        agent: dict[str, Any] = {}
+        agent_id = str(terminal.get("agentId") or "").strip()
+        if agent_id:
+            agent_row = await (await db.execute(
+                "SELECT * FROM agents WHERE id = ?", (agent_id,),
+            )).fetchone()
+            if agent_row:
+                # THE FIVE FIELDS THE LAUNCH NEEDS, projected explicitly rather than through
+                # `_agent_record_to_dict`. That serialiser needs a computed status, an unread count
+                # and a dispatch state -- none of which a launch depends on, and asking for them
+                # here would make starting a process depend on the status engine agreeing.
+                keys = set(agent_row.keys())
+                agent = {
+                    "id": agent_row["id"],
+                    "role": (agent_row["role"] if "role" in keys else "") or "",
+                    "runtime": (agent_row["runtime"] if "runtime" in keys else "") or "",
+                    "model": (agent_row["model"] if "model" in keys else "") or "",
+                    "sessionHandle": (agent_row["session_handle"] if "session_handle" in keys else "") or "",
+                    "runtimeConfig": _json_loads_or(
+                        agent_row["runtime_config"] if "runtime_config" in keys else "", {},
+                    ),
+                    "runtimeState": _json_loads_or(
+                        agent_row["runtime_state"] if "runtime_state" in keys else "", {},
+                    ),
+                }
+
+        settings = await _load_settings(db)
+        runtime = str(terminal.get("runtime") or agent.get("runtime") or "")
+        return {
+            "ok": True,
+            "launch": {
+                "terminalId": terminal_id,
+                "agentId": agent_id,
+                "runtime": runtime,
+                "command": terminal.get("command") or "",
+                # THE STRUCTURAL FORM, which is what a host can actually execute. An operator-supplied
+                # command has none, and splitting a human's shell string is the quoting bug this
+                # design exists to avoid -- so an empty argv is a real answer meaning "not ours to run".
+                "argv": terminal.get("argv") or [],
+                "cwd": terminal.get("workspace") or "",
+                "cols": terminal.get("cols") or 0,
+                "rows": terminal.get("rows") or 0,
+                "sessionHandle": str(terminal.get("sessionHandle") or agent.get("sessionHandle") or ""),
+                "env": managed_launch_env(
+                    terminal=terminal,
+                    agent=agent,
+                    workspace=terminal.get("workspace") or "",
+                    terminal_id=terminal_id,
+                    managed_via_wrapper=_managed_via_wrapper_for_runtime(settings, runtime),
+                ),
+            },
+        }
+    finally:
+        await db.close()
 
 
 @router.get("/terminals/{terminal_id}")
