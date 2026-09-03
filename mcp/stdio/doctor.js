@@ -20,6 +20,14 @@
 //   aify-doctor --json         # machine-readable, for an INSTALLING AGENT to parse
 //   aify-doctor --strict       # exit 1 if any check failed (default always exits 0)
 //   aify-doctor --repo <path>  # compare against a specific checkout (else: cwd, else skipped)
+//
+// WHAT `--json` PROMISES, because an agent parses it and a change here is a change to that
+// contract. `ok` is whether anything FAILED -- skips are excluded, so it behaves exactly as it
+// did and `--strict` still exits on it. Beside it are `passed`, `failed` and `skipped`, counted
+// separately so "nothing failed" can never be read as "everything was checked". A skipped
+// check carries `skipped: true` AND `ok: false`: it did not pass, because it did not run. Read
+// the envelope's `ok` for the verdict and a row's `skipped` before believing its `ok` is a
+// result -- a check that could not run is not a check that failed.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
