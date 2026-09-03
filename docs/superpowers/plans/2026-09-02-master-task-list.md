@@ -143,11 +143,27 @@ four agents still running through all of it.
   | `single-agent-teardown` | `terminal-control-loop` |
   | `reap-managed-survivors` | `managed-ownership`, `managed-teardown-sweeps`, `single-agent-teardown`, `terminal-control-loop` |
 
-  Every path ends at `server.js`, at call sites gated on `IS_ENVIRONMENT_BRIDGE`. **So the deletion is
-  one operation, not nine**: make that flag permanently false, cut its call sites, and the whole set
-  falls away together. `managed-ownership` is the only member `server.js` imports for its own sake and
-  is the one to settle first. The real cost is the ~37 test files naming the flag, which redden the
-  moment it goes -- not the module removals.
+  Every path ends at `server.js`, at call sites gated on `IS_ENVIRONMENT_BRIDGE` (lines 773, 803, 845,
+  859, 875, 889, 899). **So the deletion is one operation, not nine**: make that flag permanently
+  false, cut its call sites, and the whole set falls away together. `managed-ownership` is the only
+  member `server.js` imports for its own sake and is the one to settle first. 1,802 lines measured,
+  which is the "~1,800" this entry always claimed -- note `reap-managed-survivors` is `.js`, not
+  `.mjs`, and a scan assuming the extension silently drops its 480 lines, the largest of the nine.
+
+  **BUT THE FLAG IS NOT ONLY THE CLUSTER'S, and that is the correction that matters.** Fourteen
+  product files name it; three READ it from outside the cluster, and all three read it NEGATED:
+
+  - `auto-registration.mjs:84` -- `if (IS_ENVIRONMENT_BRIDGE) return;`
+  - `bridge-main.mjs:41` -- `if (!IS_ENVIRONMENT_BRIDGE && ORIGINAL_PARENT_PID > 1)`
+  - `resident-runtime-lost.mjs:41` -- `if (!IS_ENVIRONMENT_BRIDGE && REMOTE_AGENT_STATE.size === 0)`
+
+  (`loop-gate.mjs` names it in a comment only.) So retiring the flag is not purely a deletion: it
+  SIMPLIFIES THE RESIDENT PATH, which is the path every running wrapper takes. The simplification is
+  inert in practice -- no bridge starts today, so all three already evaluate the resident way -- but
+  it is a live edit to live code and belongs in the deletion's verification, not in its footnotes.
+
+  **Two counts, not one, and they were being conflated.** 37 test files name one of the nine MODULES;
+  7 name the FLAG. The flag's 7 are the ones that redden on the day it goes.
 
   **The first measurement of this was WRONG, which is why the gate matches both quote styles.** A grep
   for `from "./boot-marker-sweep` reported ZERO importers and nearly justified deleting a module

@@ -2,9 +2,11 @@
 //
 // WHY THIS EXISTS. v0.6.1 removed the `aify-comms` command's ability to start an environment bridge:
 // aify-env is the host tier, and the bridge role is dead as a product feature. What was NOT removed
-// is ~1,700 lines of the code behind it, deliberately -- deleting them edits `server.js`, which every
+// is 1,802 lines of the code behind it, deliberately -- deleting them edits `server.js`, which every
 // running wrapper loads as its MCP server, and that is its own change with its own live verification
-// rather than a footnote to a release.
+// rather than a footnote to a release. (Measured with the RIGHT extensions: `reap-managed-survivors`
+// is `.js` while its eight neighbours are `.mjs`, and a walk that assumes one silently drops the
+// largest module of the nine. The scan below accepts either, which is why it found its importers.)
 //
 // SO THE CLUSTER SITS THERE, AND THE RISK IS RE-ENTANGLEMENT. Code that is present and imported by
 // exactly one caller can be deleted in an afternoon. The same code with a second caller -- something
