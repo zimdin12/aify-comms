@@ -463,9 +463,32 @@ solved it by narrowing to one runtime. See D9.
   cannot drift. All three logic mutations were caught by the agreement test as well as by the unit
   tests, which is the point of having it.
 
-  **Still open under B4:** `env-bridge`, `context-window` and `bridge-current`. `bridge-current` needs
-  repo HEAD, which the service HAS via its build stamp; `context-window` needs console reads. Neither
-  is a service change either, on this evidence.
+  **`bridge-current` IS NOT SURFACEABLE, and 2026-09-03 root-caused why -- it is on this file's own
+  open list as "unknown-all permanently".** Measured on the live service: both environments carry
+  `bridgeBuild = None`, so the check has nothing to compare against repo HEAD and correctly reports
+  no evidence.
+
+  **The cause is v0.6.1, not a defect.** `mcp/stdio/environment-identity.mjs` sent `bridgeBuild`,
+  `bridgeVersion` and `bridgeStartedAt` together. The heartbeat now comes from aify-env, whose
+  `mintBridgeIdentity` sends `bridgeVersion` and `bridgeStartedAt` and **not** `bridgeBuild`. The
+  tier that reported a build is retired, so the field stopped arriving. The check is not broken --
+  its SUBJECT moved out from under it.
+
+  **And `bridgeVersion` now carries AIFY-ENV's version, in a field named for the aify-comms bridge.**
+  Live it reads `0.6.0`, which is aify-env's `package.json` version -- not staleness, a different
+  product's number. Consequence traced before being claimed: it is stored (`bridge_version`) and
+  serialised (`records.py:65`), no doctor verdict reads it, and no dashboard panel shows it. So it
+  misleads a PERSON reading `/environments`, not the software.
+
+  **The decision, which is the operator's.** Either retire `bridge-current`, or re-point it at the
+  host tier's build -- same shape, different subject, and arguably more useful now: TEN aify-env
+  commits are inert until a restart, and "the running aify-env is behind its checkout" is exactly the
+  signal that matters. Surfacing the check as it stands would put a permanent "unknown" in the UI,
+  which is the false-green shape inverted and no better.
+
+  **Still open under B4:** `env-bridge` and `context-window`. Note D0 already found that an
+  environment's `status` is not whether a bridge is live, so `env-bridge` wants care rather than a
+  direct read of that field.
 - **B5. Browse an agent and its processes** (09-02). *"i cannot still check the processes themself?
   (like browse agent or something)"* **FIRST SLICE DONE 2026-09-03: the PROCESSES panel.**
 

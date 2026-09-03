@@ -89,3 +89,10 @@ Screenshot_*.png
 # not a secret, but not source either.
 certs/
 .monitor/
+
+# Test sandboxes under mcp/stdio. `session-fixes.test.js` creates `.tmp-sandbox-*` in its CWD and
+# removes it on the happy path only, so a failing run leaves one behind -- and on 2026-09-03 a
+# `git add -A` swept one into 43f1eca5, where the trailing-whitespace gate then failed on a file
+# nobody wrote. Ignored rather than merely deleted: the leak is possible again on any red run, and a
+# rule beats remembering.
+mcp/stdio/.tmp-sandbox-*
