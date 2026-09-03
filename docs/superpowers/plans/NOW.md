@@ -78,6 +78,56 @@ by the removal today. `managed-orphans` reports no delivery loops, `bridge-curre
 `unknown-all` (no bridge reports a build), `usage/consumption` is empty, and the OpenAI pool is
 collected by the SERVICE, not the bridge.
 
+## THE TAG: v0.6.1 WAS ALREADY CUT AND PUSHED, on 2026-09-02
+
+`v0.6.1` points at `a9c963f0` on the remote. **Twenty-eight commits sit after it** -- every fix from
+the night of 2026-09-02/03, including the four that decide whether the fleet works at all. So the
+instruction "close the tag and push it" was already satisfied before it was given, and the work since
+has no tag.
+
+**Not tagged by me, deliberately.** The delegation named ONE tag, and that tag exists; cutting a
+different number is a release decision that changes the operator's plan, since `v0.6.2` is currently
+reserved in this file for the resident-TUI feature set. Two options, both cheap:
+
+- **ship this as v0.6.2** and move the feature work to v0.6.3 -- the fixes are substantial and the
+  published v0.6.1 does not contain them;
+- **move `v0.6.1`** to HEAD -- rewrites a published tag, so the operator's call, not mine.
+
+Everything else for a release is ready: `VERSION`, `mcp/stdio/version.js`, both package files and
+`.claude-plugin/plugin.json` all read 0.6.1 and agree, the service is deployed and `aify-comms
+doctor`'s `service` check reads `build == repo HEAD`, and all three clients are reinstalled.
+
+## sc-coder IS ALIVE, UNADDRESSABLE AND UNRESTARTABLE — the top item
+
+**Found while verifying the orphan fix, on the operator's own fleet.** It is a deadlock, and every
+step in it is a component behaving as designed:
+
+1. Something marks a live terminal ended. For `term_1788413610405_82e689c5` the marker is unknown;
+   what IS measured is that at 06:47:05 the service appended `reconciled_managed_orphan_worker`
+   ("live sidecar but no console PTY = headless orphan; worker killed host-side") -- and that
+   reconciler only matches a terminal ALREADY `stopped`/`failed`, so it is a consequence, not a
+   cause. The claim in that reason is false: the worker was not killed. It streamed console output
+   for another forty seconds.
+2. **The worker's own output can never restore it.** `_terminal_status_transition` refuses
+   ended -> active by design (`_TERMINAL_MONOTONIC_STATUSES`), which is right for a liveness frame
+   and fatal here.
+3. The reconciler clears `consoleTerminal`, so the dashboard has nothing to attach to.
+4. A restart makes a NEW terminal and a start control. aify-env REFUSES it -- correctly, and this is
+   the change that made the deadlock visible instead of destructive: before `f91435d` it would have
+   killed the live worker and "recovered" by destroying the session. The refusal names the live
+   terminal and its pid.
+5. Result: a running claude worker nobody can reach, restart or address. Three failed restart
+   terminals from 06:27, 06:33 and 06:39 are the operator hitting exactly this.
+
+**The fix is a re-binding, not a kill.** When a host refuses a start because it already runs a worker
+for that agent, the service should adopt the live terminal it names rather than leaving the agent
+pointed at a dead row -- the refusal already carries the terminal id and the pid. That is a design
+change across both repos and was NOT attempted unattended.
+
+**Do not "fix" it by letting an ended terminal go active again**, and do not let the host stop the
+worker: `ec243e9` exists precisely because an end-status orphan rule would have killed this agent.
+A terminal the service calls finished while its process is writing is a contradiction to report.
+
 ## Known-open, reported, not yet fixed
 
 - **The dev-channels auto-confirm has never fired on the operator's fleet.** It was checked in the
