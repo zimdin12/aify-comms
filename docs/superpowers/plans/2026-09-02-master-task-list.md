@@ -1399,6 +1399,17 @@ solved it by narrowing to one runtime. See D9.
   avoid it. Rewritten to drive `startDashboard` with `once` and a captured `write`, it reddens on
   that mutation. Third time in two days that a fixture sat where the code never reads it.
 
+  **A SECOND DEFECT CAME OFF THE SAME SCREEN** (aify-env `993646a`). The SERVICES row printed its own
+  endpoint column twice: `aify-comms  http://127.0.0.1:8800  http://127.0.0.1:8800 reports healthy
+  version 0.6.1 build b7d77fdf`. `probeService` builds that sentence with the address in front and is
+  RIGHT to -- `aify-env doctor` prints the same string with no endpoint column -- so the fix belongs
+  in the renderer, which is what knows the column is already on screen. **It costs information, not
+  decoration:** `table` gives the LAST column the leftover width and clips it, so the version and
+  build are cut first while 22 characters of duplicate address survive in front of them, and the
+  version is exactly what somebody checking whether a deploy landed reads that row for. Prefix-only,
+  because the unanswered wording carries the address mid-sentence and stripping there would leave
+  "no answer from : ECONNREFUSED". Two mutations, one per half.
+
 ---
 
 ## E. Reviews -- LAST
