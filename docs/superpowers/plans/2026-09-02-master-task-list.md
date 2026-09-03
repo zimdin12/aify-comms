@@ -1467,6 +1467,37 @@ solved it by narrowing to one runtime. See D9.
   still fails. The fix stays on its own merit and now keeps the daemon's output, so the next failure
   arrives with an explanation instead of a bare `fetch failed`. Cause still unknown.
 
+- **D19. THREE OF THE FOUR WRAPPERS' `--shared` BLOCKS WERE NEVER TESTED. Found and covered
+  2026-09-04** (aify-wrapper `6eac113`, `99e9b14`).
+
+  `shared-hands-the-session-to-the-host.test.js` read `renderAll()["claude-aify"]` in every
+  assertion. The block is copied into all four templates and one was checked.
+
+  **PROVEN, not feared:** pointing codex's `exec aify-env run` at `--launcher "/usr/bin/claude"`
+  instead of `"$0"` left all 198 tests passing. aify-env would then be asked to start the wrong
+  runtime -- or refuse it for carrying no wrapper marker -- and `codex-aify --shared` would be broken
+  with nothing to say so.
+
+  **THE BLOCK'S OWN COMMENT PREDICTS IT:** "somebody copies it, forgets the string, and codex-aify
+  starts calling itself claude." That was a warning in a comment, which is a rule somebody has to
+  remember; it is now enforced. Four tests: every rendered launcher hands over THIS wrapper with its
+  service and original arguments and matches the flag exactly rather than as a prefix; the refusal
+  exists and takes its name from `$0`; every TEMPLATE carries the block, which is the only way pi is
+  covered since `--all` deliberately renders no pi launcher; and the branch sits below everything in
+  each template -- the operator's constraint that the default path is untouched, previously checked
+  for claude alone.
+
+  **A FIRST DRAFT WAS TRIMMED BEFORE SHIPPING.** It re-checked "no launcher names another launcher's
+  runtime", which an existing test already proves. A second test of one property is cost without
+  coverage, so only what that test does NOT prove was kept: that the refusal exists at all, and that
+  the name comes from `$0` rather than a literal that happens to be right today.
+
+  **THE SAME QUESTION ASKED ELSEWHERE FOUND NOTHING**, which is worth recording so it is not re-asked:
+  `render.test.js`, `staleness.test.js` and `rendered-launchers-are-executable-by-aify-env.test.js`
+  already cover several launchers each, and `wrapper-check-cli.test.js` uses claude alone but the CLI
+  iterates whatever launchers it finds without branching on runtime, so one launcher exercises the
+  same path.
+
 ---
 
 ## E. Reviews -- LAST
