@@ -16,6 +16,7 @@ import { state } from "./state.mjs";
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from "./agent-drawer.mjs";
 import { AGENT_PROCESSES_ID } from "./agent-processes.mjs";
 import { AGENT_RUNS_ID } from "./agent-runs.mjs";
+import { AGENT_SHARING_ID } from "./agent-session-sharing.mjs";
 
 function fakeEl(classes = []) {
   const set = new Set(classes);
@@ -464,5 +465,46 @@ test("and it shows THIS agent's runs, not the whole page's", () => {
     const html = els[AGENT_RUNS_ID].innerHTML;
     assert.match(html, /belongs here/);
     assert.ok(!/belongs elsewhere/.test(html), "another agent's run reached this drawer");
+  });
+});
+
+test("THE DRAWER WARNS WHEN THIS AGENT'S SESSION IS CLAIMED BY ANOTHER", () => {
+  // B4's call site. Asserted on the OUTPUT, because a container with nothing filling it is the gap a
+  // mutation already found once in the processes panel.
+  seed({
+    agents: [
+      { id: "coder", sessionHandle: "shared-handle" },
+      { id: "tester", sessionHandle: "shared-handle" },
+    ],
+    inspector: {},
+  });
+  const els = drawerEls();
+  els[AGENT_SHARING_ID] = { innerHTML: "" };
+  withDom(els, () => {
+    openAgentDrawer("coder");
+    assert.match(els[AGENT_SHARING_ID].innerHTML, /tester/, "the drawer never warned about sharing");
+  });
+});
+
+test("AND IT CLEARS THE WARNING when the next agent's session is its own", () => {
+  // The container is REUSED across drawer opens. Leaving the previous agent's warning there names
+  // the wrong agent's neighbours, which is worse than saying nothing because it reads as current --
+  // and it is the shape a `if (nothing) return` early-out would produce.
+  seed({
+    agents: [
+      { id: "coder", sessionHandle: "shared-handle" },
+      { id: "tester", sessionHandle: "shared-handle" },
+      { id: "loner", sessionHandle: "its-own" },
+    ],
+    inspector: {},
+  });
+  const els = drawerEls();
+  els[AGENT_SHARING_ID] = { innerHTML: "" };
+  withDom(els, () => {
+    openAgentDrawer("coder");
+    assert.match(els[AGENT_SHARING_ID].innerHTML, /tester/);
+    openAgentDrawer("loner");
+    assert.equal(els[AGENT_SHARING_ID].innerHTML, "",
+      "a previous agent's sharing warning survived into another agent's drawer");
   });
 });

@@ -856,6 +856,7 @@ const EXTRACTIONS = [
           ],
           now: [
             "      ${continueCliBlock}",
+            "      <div id=\"${AGENT_SHARING_ID}\"></div>",
             "      <div class=\"agent-drawer-cli\">",
             "        <div class=\"agent-drawer-subhead\">Processes</div>",
             "        <div id=\"${AGENT_PROCESSES_ID}\"><p class=\"subtle\">Reading this agent's terminals\u2026</p></div>",
@@ -879,6 +880,7 @@ const EXTRACTIONS = [
             "  // else in this drawer stays true whether that read succeeds or not.",
             "  loadAgentProcesses(id, { api, byId });",
             "  fillAgentRuns(id, { byId });",
+            "  fillSessionSharing(id, { byId, agents: state.agents });",
           ],
         },
       ],

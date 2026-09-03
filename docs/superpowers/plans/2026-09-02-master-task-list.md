@@ -440,6 +440,32 @@ solved it by narrowing to one runtime. See D9.
   Four checks are answerable from the service's own data with no host agent -- `env-bridge`,
   `session-handles`, `context-window`, `bridge-current`. The rest need a host reporter, which is
   aify-env's job under TARGET_ARCHITECTURE.
+
+  **FIRST CHECK LANDED 2026-09-03: `session-handles`, and it needed NO service change at all.** The
+  earlier objection to B4 -- that computing these service-side duplicates verdicts the CLI already
+  produces -- turned out not to apply here. The dashboard already polls `/agents`, the whole
+  population, which is exactly what this check needs. No endpoint, no extra poll, no Python: the data
+  was on the page, unread.
+
+  **The per-agent form is the actionable one.** The doctor reports the fleet-wide collision list,
+  which is right for a report and useless when you are looking at one agent wondering why its replies
+  vanish. The drawer now says "this session is also claimed by comms-tech-lead".
+
+  **Live while it was written, and matching this file's own open list: 3 handles claimed by 8
+  agents** -- 33 of 44 agents carry a handle, 11 carry none. One of the three is the very conversation
+  that built the feature (`comms-claude` + `comms-tech-lead`).
+
+  **AND IT HAS AN AGREEMENT TEST, which is what makes the second copy honest.**
+  `mcp/stdio/session-handle-check.mjs` owns this question for the doctor and cannot be imported into
+  a browser bundle, so a copy is unavoidable -- and the alternative to copying is the dashboard not
+  answering, which IS the operator's complaint. `agent-session-sharing.agreement.test.mjs` drives
+  both over one corpus and derives the drawer's answer from the doctor's collision list, so the two
+  cannot drift. All three logic mutations were caught by the agreement test as well as by the unit
+  tests, which is the point of having it.
+
+  **Still open under B4:** `env-bridge`, `context-window` and `bridge-current`. `bridge-current` needs
+  repo HEAD, which the service HAS via its build stamp; `context-window` needs console reads. Neither
+  is a service change either, on this evidence.
 - **B5. Browse an agent and its processes** (09-02). *"i cannot still check the processes themself?
   (like browse agent or something)"* **FIRST SLICE DONE 2026-09-03: the PROCESSES panel.**
 

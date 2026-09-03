@@ -32,6 +32,7 @@ import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
 import { AGENT_PROCESSES_ID, loadAgentProcesses } from './agent-processes.mjs';
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
+import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -129,6 +130,7 @@ export function openAgentDrawer(agentId) {
         ${row('Last seen', lastSeen ? `${lastSeen} ago` : '—')}
       </dl>
       ${continueCliBlock}
+      <div id="${AGENT_SHARING_ID}"></div>
       <div class="agent-drawer-cli">
         <div class="agent-drawer-subhead">Processes</div>
         <div id="${AGENT_PROCESSES_ID}"><p class="subtle">Reading this agent's terminals…</p></div>
@@ -150,6 +152,7 @@ export function openAgentDrawer(agentId) {
   // else in this drawer stays true whether that read succeeds or not.
   loadAgentProcesses(id, { api, byId });
   fillAgentRuns(id, { byId });
+  fillSessionSharing(id, { byId, agents: state.agents });
 }
 export function syncInspectorToSelection() {
   const inspector = byId('inspector');
