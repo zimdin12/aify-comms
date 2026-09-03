@@ -1211,11 +1211,51 @@ solved it by narrowing to one runtime. See D9.
   drop does. The other candidate is the `terminal_consistency_repaired` event both sampled terminals
   carry.
 
-  **NEXT STEP:** establish which caller the hermes gateway session's output actually takes, and
-  whether either can write a stale `current`. That needs a LIVE hermes terminal -- there are
-  currently zero attached on this host, all 34 non-claude terminals are stopped -- or a test that
-  drives the two callers concurrently against one row. The second is the honest one and does not
-  wait on the fleet.
+  **THE CONCURRENCY TEST WAS RUN, and it found a real defect that is NOT this one -- see D13.**
+  Two unserialised appends do lose bytes, proven against the real function with a serialised control
+  beside it. But the unlocked writer is the CONTROL-completion path, which does not fire often
+  enough to turn 5,758 frames into 536 characters. So D12 stays open with its cause unknown, and the
+  remaining step needs a LIVE hermes terminal -- zero are attached on this host right now, all 34
+  non-claude terminals are stopped -- to see whether its output accumulates while running or only
+  appears to.
+
+- **D13. TERMINAL OUTPUT HAS TWO WRITERS AND ONE LOCK, AND THE LOSER'S BYTES ARE GONE. PROVEN
+  2026-09-03**, found while investigating D12. Not fixed -- the fix is a choice, below.
+
+  `_append_terminal_output` is a READ-MODIFY-WRITE: it takes `current = terminal["output"]` from the
+  row its caller supplies, concatenates the chunk, trims, and UPDATEs. There are two live callers and
+  only one of them is serialised:
+
+  | writer | path | lock |
+  |---|---|---|
+  | streamed PTY output | `routers/terminals.py:466` -> `TERMINAL_OUTPUT_WRITES.enqueue` -> `_write_terminal_output` | `self._write_lock` |
+  | control completion carrying output | `routers/terminal_controls.py:135` -> `_append_terminal_output` | **none** |
+
+  **DEMONSTRATED, against the real function on its own database:**
+
+      two writers, interleaved -> stored output 'BBBB'   (AAAA lost)
+      CONTROL, the same two serialised -> 'CCCCDDDD'     (both present)
+
+  The control is the half that makes it evidence: the function CAN append twice, so what the first
+  result shows is the interleaving, not an inability to accumulate.
+
+  **THE OBVIOUS FIX IS WRONG.** Making the append atomic in SQL --
+  `SET output = substr(COALESCE(output,'') || ?, -65536)` -- removes the read-modify-write entirely
+  and is the shape this normally wants. It cannot be used: `_trim_terminal_output` does not slice,
+  it slices AND drops the first partial line, because a raw char-count tail cuts mid-ANSI-escape and
+  the dashboard then seeds a fresh xterm with a broken escape (fixed 2026-06-07, and this would
+  bring it back).
+
+  **SO THE FIX IS SINGLE-WRITER:** route the control path's output through `TERMINAL_OUTPUT_WRITES`
+  like every other writer, which is what that queue exists to be -- its own header says it "sits in
+  front of the single SQLite writer". It changes control output from immediate to batched, on the
+  hottest write path in the service, pinned by an AST-comparison gate
+  (`test_append_terminal_output_split_is_inert.py`). That is a deliberate slice, not a footnote to a
+  probe, and it is written down here rather than attempted at 19:00 with the fleet running.
+
+  **IT IS NOT ESTABLISHED AS D12's CAUSE, and saying otherwise would be the easy mistake.** A
+  control completion carrying output is not frequent enough to explain 5,758 frames collapsing to
+  536 characters on its own. This is a real defect found on the way to another one.
 
 ---
 
