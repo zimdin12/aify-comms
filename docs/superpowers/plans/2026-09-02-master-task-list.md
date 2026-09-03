@@ -1235,6 +1235,14 @@ solved it by narrowing to one runtime. See D9.
   the lock, and appending to the caller's row rather than the re-read one. The inert-split gate
   declares the edit rather than being relaxed.
 
+  **AND THE CALL SITE IS COVERED, checked because I nearly concluded it was not.** A first grep said
+  no test drives `PATCH /terminals/controls/{id}` with an output field; it was reading which FILES
+  contain the word rather than which PATCHes carry it. Re-run properly -- 18 control-PATCH sites,
+  2 carrying output -- `test_terminal_controls_claim_update_and_output_buffer` asserts the appended
+  text reaches `GET /terminals/{id}`. Neutering `append_outside_the_queue` reddens it. So the fix is
+  proven at BOTH ends: the new test proves the lock and the re-read, and an existing one proves the
+  route still delivers through them.
+
   **IT STANDS ON ITS OWN, and does not depend on D12 -- which has since been WITHDRAWN as stated.**
   This was found while chasing that, and the temptation at the time was to call it the cause. It is
   not: a control completion carrying output does not fire often enough to explain what D12 described,
