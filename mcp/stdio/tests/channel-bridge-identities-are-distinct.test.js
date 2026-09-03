@@ -24,7 +24,7 @@
 // hermes-channel.js does not export its copy, so its half is read from source. Two are called.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,11 +45,39 @@ function prefixTemplate(rel) {
   return match[1];
 }
 
-const TEMPLATES = {
-  "claude-channel.js": prefixTemplate("claude-channel.js"),
-  "hermes-channel.js": prefixTemplate("hermes-channel.js"),
-  "hermes-run-reporting.mjs": prefixTemplate("hermes-run-reporting.mjs"),
-};
+/**
+ * Every module that builds a channel bridge id, READ FROM THE DIRECTORY rather than typed.
+ *
+ * THE LIST NAMED THREE FILES AND WAS CORRECT. It would have stopped being correct silently: a new
+ * channel driver -- a codex or pi one, or a second hermes path -- is exactly the case this file
+ * exists for, and it is the case a hand-written list cannot cover, because the person adding the
+ * driver is the person who would have to remember to add it here. The consequence is spelled out in
+ * the assertion below and it is not cosmetic: two drivers sharing a prefix supersede each other's
+ * registration and reap the loser's managed workers.
+ *
+ * DERIVED FROM THE DECLARATION, not from a filename convention. A module is in scope because it
+ * declares `CHANNEL_BRIDGE_PREFIX`, which is the thing whose uniqueness is being asserted -- a
+ * `*-channel.js` glob would have missed `hermes-run-reporting.mjs`, which is one of the three.
+ */
+function channelPrefixModules() {
+  return readdirSync(STDIO)
+    .filter((name) => name.endsWith(".js") || name.endsWith(".mjs"))
+    .filter((name) => /CHANNEL_BRIDGE_PREFIX\s*=\s*`/.test(sourceOf(name)))
+    .sort();
+}
+
+const MODULES = channelPrefixModules();
+
+// POSITIVE CONTROL. Every assertion below is satisfied by an empty set -- no two prefixes collide
+// when there are none -- so a scan that stopped finding modules would make this file pass loudest
+// exactly when it had broken. Three are known to declare one today.
+assert.ok(
+  MODULES.length >= 3,
+  `only ${MODULES.length} module(s) declare CHANNEL_BRIDGE_PREFIX (${MODULES.join(", ")}); the scan `
+    + "is not reaching them, and every collision assertion below is vacuous",
+);
+
+const TEMPLATES = Object.fromEntries(MODULES.map((name) => [name, prefixTemplate(name)]));
 
 // ── the three namespaces are distinct ────────────────────────────────────────────────────────
 {
