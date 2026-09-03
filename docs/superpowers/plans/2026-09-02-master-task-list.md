@@ -156,6 +156,37 @@ where every automated check was green and the thing did not work.
      not a reinstall that happens to work.
   The bar is the operator's: *"proven install to be correct"*, manually, not by a green suite.
 
+  **PROGRESS 2026-09-03.**
+  1. **Three components: DONE for reporting.** `scripts/components.sh` reports all three with their
+     versions and names each repo's own installer for the ones that are absent; `install.sh` prints
+     it. It NEVER RUNS WHAT IT MEASURES -- presence is `command -v`, the version is read out of the
+     installed package's `package.json` -- because a bare `aify-env` starts the host tier and reaps
+     the predecessor's workers. PAID FOR: `install.sh` is on a ratchet that may only go DOWN, so the
+     rendering moved into the reader and a duplicated "Verifier installed" block was folded away;
+     the file sits at exactly 2977.
+  2. **Ask when unset: LARGELY ALREADY TRUE, and this needed measuring rather than building.**
+     `SERVER_URL` is prompted when unset and interactive. The notification hook is MAINTAINED once
+     opted into -- `--with-hook` decides whether to install one that is absent, never whether to
+     keep one that exists -- via `scripts/hook-installed.sh`. `scripts/api-key.sh` distinguishes
+     ABSENT (a valid deployment) from ERROR and CONFLICT, and `install.sh` aborts on the latter two
+     rather than writing a keyless config that looks like a host which never set one. aify-env's
+     own installer prompts for credentials. What remains is a WSL/second-host pass: none of this has
+     been exercised on a machine that does not already have all three components.
+  3. **Update as a verb: DONE, and it now proves itself.** `redeploy.sh` ended by printing
+     "wrappers refreshed", which is a claim about what it ATTEMPTED -- and this repo's opening line
+     is that every deploy path fails silently. It now captures the verifier's verdicts BEFORE the
+     refresh and again after, and reports what the update broke, what it fixed, and what was already
+     failing. `scripts/deploy-delta.sh` names no individual check: a hand-kept list of "checks that
+     answer whether a deploy took" would miss every check added later, which is exactly how four
+     scanners hardcoded the doctor's filename. Nine tests, three mutations.
+
+     **It nearly shipped with the bug it exists to catch.** On Windows the verifier's output is CRLF,
+     so the parsed state was `ok` with a trailing carriage return and matched neither branch: every
+     comparison printed NOTHING and exited 0. A tool whose whole job is to say what changed,
+     reporting "no change" for every update, silently. It looked right in a hand-check because
+     `sed -i` had normalised the fixture between one case and the next. `test_CRLF_AND_LF_AGREE`
+     pins it.
+
 ---
 
 ## A. aify-env TUI
