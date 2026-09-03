@@ -235,6 +235,20 @@ operator's own terminal, zero interposition). Measured cost of the hosted path: 
 504 KB streamed for 14 concurrent PTYs. Then streaming, remote TUI and the herdr-style view in
 aify-env are one feature, and a closed terminal stops killing an agent.
 
+**HALF BUILT (aify-env `f99b9d0`): the ATTACH CLIENT exists.** `aify-env attach <agent>` hands one
+process the whole terminal, both directions untouched, resize carried, and **Ctrl-] detaches without
+killing** -- which is the property the whole feature turns on. It reuses `OutputFollower` by handing
+it a buffer whose `append` writes to stdout, so there is no second copy of the framing or decoding.
+An ambiguous label is refused WITH the ids, because attaching is the only console operation that
+WRITES.
+
+**WHAT REMAINS for the headline:** the `--shared` flag in aify-wrapper's ONE template. It must
+1. POST the command it would have exec'd to `/processes`, 2. exec `aify-env attach <id>`, and
+3. leave the default path byte-identical. The template is harness-agnostic and renders all four
+launchers, so the flag cannot name claude or aify-comms -- it talks to the host tier, which is
+generic. The wrapper's final line today is `claude ... "${CLAUDE_ARGS[@]}"` with `STATUS=$?`, so the
+seam is that one line.
+
 Then: A1–A4 (aify-env TUI), B1–B5 (dashboard console, agent browse, doctor in the UI), C1/C3/C5/C6/C7,
 D2/D4/D6/D7/D9/D10/D11, and the reviews E1/E2 LAST — a review round adds to the list, so running one
 first expands it faster than it shrinks.
