@@ -399,11 +399,25 @@ solved it by narrowing to one runtime. See D9.
   what was unsound was attributing it to live rows without first asking what width those ptys
   actually had.
 
-  **STILL OPEN under B3.** The service records `cols` only when a resize control COMPLETES, so a
-  terminal nobody has opened still carries 0 and still renders inferred. aify-env now honours a
-  requested size; the remaining half is recording that size on the terminal row at CREATION, so the
-  width is known before anyone looks. Note this is inert until an aify-env restart, which is the
-  operator's call.
+  **STILL OPEN under B3, and the aify-env fix is LATENT for this path -- say so rather than claim a
+  win.** Measured on the live control table: every START control carries `cols = 0, rows = 0` (35 of
+  them); only RESIZE controls carry real dimensions (156/157 x 32, 43 of them). So the service never
+  chooses a spawn size, `53b694f` finds nothing positive to forward for a managed spawn, and the pty
+  is still born at 120. That fix is correct and it matters for callers that DO name a size --
+  `aify-env run`, `--shared`, and the aify-dashboard callers coming -- but it moves nothing for the
+  fleet today.
+
+  **The remaining half, and it belongs to the tier that owns the pty.** The service cannot record a
+  width it never picked. aify-env DOES know it -- 120, or whatever it opened -- so it should report
+  the size back with the started process, and the service should write it onto the terminal row at
+  CREATION. Then a terminal nobody has opened still has a true width and the snapshot never infers.
+  A generic dimension on a process report, no service knowledge, so it sits inside the constraint.
+
+  The alternative -- having the service pick a spawn size and send it in the start control -- is
+  worse: it makes the service guess a terminal geometry it has no view of, which is the same class
+  of mistake as inferring the width from drawn cells.
+
+  Note anything landing in aify-env is inert until a restart, which is the operator's call.
 
   **Explicitly NOT closed by any of this:** "encoding issues" and "feels slow" still have no repro.
   Width explains re-wrapping; it does not explain a wrong glyph. One diagnosis must not close three
