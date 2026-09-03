@@ -528,6 +528,17 @@ class TerminalControlUpdate(BaseModel):
     # control completion). Persisted to terminal_sessions.process_id so an
     # orphaned PTY can be killed by-pid when its bridge is gone.
     processId: Optional[str] = None
+    # The size the host ACTUALLY opened the PTY at, reported the same way and for the same reason
+    # as `processId` above: it is a fact only the tier holding the pty can know.
+    #
+    # WHY IT IS REPORTED RATHER THAN READ OFF THE CONTROL. `terminal_controls.cols` is what the
+    # service ASKED for, and for a start control it is always 0 -- measured across every start
+    # control on this host. So a terminal had no recorded width until somebody opened its console
+    # and a resize round-tripped, and until then the snapshot had to GUESS the width from drawn
+    # cells. Rendering a snapshot at a width the source was not drawn at re-wraps every line, which
+    # is what the "scrambled console" complaint has been since May.
+    cols: Optional[int] = None
+    rows: Optional[int] = None
 
 
 class TerminalDeadReport(BaseModel):

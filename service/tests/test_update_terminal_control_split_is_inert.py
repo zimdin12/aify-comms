@@ -70,9 +70,43 @@ _STATUS_PARAMS_WAS_B = chr(10).join([
     '                (terminal_status, terminal_status, now, terminal["session_id"]),',
 ]) + chr(10)
 
+#:
+#: THE SECOND EDIT, 2026-09-03: an ADDITION rather than a substitution, so its `WAS` is just the
+#: line the new block sits above. The host now REPORTS the size its pty actually opened at, and
+#: this records it -- which is the only way a terminal that nobody has resized ever gets a width.
+#: Without one the console snapshot has to guess the width from drawn cells, and a screen rendered
+#: at a width it was not drawn at re-wraps every line. See
+#: test_the_host_reports_the_size_its_pty_actually_has.py.
+
+_SIZE_REPORT_NOW = chr(10).join([
+    '        # AND THE SIZE THE HOST SAYS IT ACTUALLY HAS, which is a different fact from the one above.',
+    '        # That branch records what the service ASKED for on a resize; this records what the host',
+    '        # REPORTS, so it also covers the start control -- where the request is always 0 and the pty',
+    '        # is nonetheless opened at some real width.',
+    '        #',
+    '        # PLACED AFTER the resize branch deliberately: when a control both requests and reports a',
+    '        # size, the report wins. The host is the only party that knows what its pty actually took;',
+    '        # the request is a wish, and a clamped or refused resize would otherwise be recorded as',
+    '        # though it had applied.',
+    '        reported_cols = int(req.cols or 0)',
+    '        reported_rows = int(req.rows or 0)',
+    '        if status == "completed" and reported_cols > 0 and reported_rows > 0:',
+    '            await db.execute(',
+    '                "UPDATE terminal_sessions SET cols = ?, rows = ? WHERE id = ?",',
+    '                (reported_cols, reported_rows, terminal["id"]),',
+    '            )',
+    '            _resize_live_terminal_screen(terminal["id"], reported_cols, reported_rows)',
+    '        if req.output:',
+]) + chr(10)
+
+_SIZE_REPORT_WAS = chr(10).join([
+    '        if req.output:',
+]) + chr(10)
+
 EDITED_SINCE = [
     (_STATUS_PARAMS_NOW_A, _STATUS_PARAMS_WAS_A),
     (_STATUS_PARAMS_NOW_B, _STATUS_PARAMS_WAS_B),
+    (_SIZE_REPORT_NOW, _SIZE_REPORT_WAS),
 ]
 EXTRACTIONS = ["_apply_terminal_status_from_control"]
 

@@ -407,11 +407,23 @@ solved it by narrowing to one runtime. See D9.
   `aify-env run`, `--shared`, and the aify-dashboard callers coming -- but it moves nothing for the
   fleet today.
 
-  **The remaining half, and it belongs to the tier that owns the pty.** The service cannot record a
-  width it never picked. aify-env DOES know it -- 120, or whatever it opened -- so it should report
-  the size back with the started process, and the service should write it onto the terminal row at
-  CREATION. Then a terminal nobody has opened still has a true width and the snapshot never infers.
-  A generic dimension on a process report, no service knowledge, so it sits inside the constraint.
+  **THE REMAINING HALF IS BUILT, 2026-09-03** -- aify-env `e7974fb`, aify-comms below. The service
+  cannot record a width it never picked, so the tier that owns the pty reports it: `Runner.start`
+  reads the size off the pty itself and hands it back, the aify-comms plugin sends it beside the pid
+  on the completed start control, and `update_terminal_control` records a REPORTED size on any
+  completed control. A generic dimension on a process report -- no service knowledge, so it sits
+  inside the constraint.
+
+  Three design points, each with a test that fails without it. The size is read off the PTY rather
+  than echoed from the request, because a caller that asks for nothing gets the opener's default and
+  a second copy of that default drifts. Only a POSITIVE size is sent or recorded, because a zero
+  recorded as a width denies the renderer its own fallback and is worse than no width. And a
+  REPORTED size beats a REQUESTED one, because a request is a wish -- a host may clamp or refuse it,
+  and only the host knows what its pty took.
+
+  **The gap a mutation found.** Deleting `cols` from the handle `Runner.start` returns left every
+  existing test green: they all assert what reaches the OPENER, never what comes back. A field with
+  no reader is the same defect as one with no writer, and only mutating both ends showed it.
 
   The alternative -- having the service pick a spawn size and send it in the start control -- is
   worse: it makes the service guess a terminal geometry it has no view of, which is the same class

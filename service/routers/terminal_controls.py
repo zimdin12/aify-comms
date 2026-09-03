@@ -113,6 +113,23 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
                 (int(control["cols"]), int(control["rows"]), terminal["id"]),
             )
             _resize_live_terminal_screen(terminal["id"], control["cols"], control["rows"])
+        # AND THE SIZE THE HOST SAYS IT ACTUALLY HAS, which is a different fact from the one above.
+        # That branch records what the service ASKED for on a resize; this records what the host
+        # REPORTS, so it also covers the start control -- where the request is always 0 and the pty
+        # is nonetheless opened at some real width.
+        #
+        # PLACED AFTER the resize branch deliberately: when a control both requests and reports a
+        # size, the report wins. The host is the only party that knows what its pty actually took;
+        # the request is a wish, and a clamped or refused resize would otherwise be recorded as
+        # though it had applied.
+        reported_cols = int(req.cols or 0)
+        reported_rows = int(req.rows or 0)
+        if status == "completed" and reported_cols > 0 and reported_rows > 0:
+            await db.execute(
+                "UPDATE terminal_sessions SET cols = ?, rows = ? WHERE id = ?",
+                (reported_cols, reported_rows, terminal["id"]),
+            )
+            _resize_live_terminal_screen(terminal["id"], reported_cols, reported_rows)
         if req.output:
             latest_terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))).fetchone()
             await _append_terminal_output(db, latest_terminal or terminal, req.output, status=terminal_status)
