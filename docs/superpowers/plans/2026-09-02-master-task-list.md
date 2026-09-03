@@ -1391,6 +1391,14 @@ solved it by narrowing to one runtime. See D9.
   | the dashboard panel race I introduced and fixed | COVERED by 4 tests including the positive control ("the ordinary case still writes"). Making `stillShowing` always true reddens 3. |
   | the tool-surface parser fix -- did it move any existing number? | NO. Ceilings diffed before and after: zero of the 34 existing tools changed value, so parsing interpolation holes preserved every measurement. |
   | `claude-login` against the real credential file | PROVEN, by running the CHECKOUT's doctor. Not installed -- see the operator list. |
+  | aify-wrapper's `strictMcpSecretProblem` -- a guard whose failure publishes a credential | PROVEN END TO END. I nearly added a redundant test: nothing in the tests names `registry-cli`, so I read it as untested. `strict-mcp.test.js` already drives `install.sh` itself, which invokes that CLI internally, and asserts the install is refused and NO launcher is written. Neutering the guard reddens 3 tests. |
+
+  **TWICE IN THIS AUDIT I CONCLUDED "NOTHING TESTS THIS" AND WAS WRONG** -- D13's call site and
+  aify-wrapper's secret guard -- each from a grep that
+  answered a nearby question -- one searched test FILES rather than call sites, one searched for a
+  module's NAME when the test reaches it through its caller. Reading the candidate file refuted both
+  in minutes, and mutating the code would have answered them faster than either grep. A reviewer
+  should treat any "untested" claim of mine here as needing that mutation before it is believed.
 
   **Two findings of mine were WITHDRAWN or DEFLATED the same day** (D12 entirely; D15's severity,
   once the reader turned out to be the column). A reviewer should weigh that when reading anything
