@@ -28,7 +28,7 @@ question is still open, which is what a lazy refresh looks like rather than a st
 **2. THREE DEPLOYS, none of which I should run.** The doctor names the size of each:
 | step | what is waiting |
 |---|---|
-| `docker compose up -d --build` | 6 commits changed service code -- incl. VERSION 0.6.2 and recording a terminal's real size |
+| `docker compose up -d --build` | 7 commits changed service code -- incl. VERSION 0.6.2, recording a terminal's real size, and D13's lost-update fix on terminal output |
 | re-run `install.sh` | 13 commits changed `mcp/stdio/` -- incl. the doctor's D10/D11 fixes, the `claude-login` check, and 1,301 characters off `tools/list` |
 | restart aify-env | 10 commits inert until then, incl. the pty-size fix and `aify-env run` |
 
@@ -1219,8 +1219,8 @@ solved it by narrowing to one runtime. See D9.
   non-claude terminals are stopped -- to see whether its output accumulates while running or only
   appears to.
 
-- **D13. TERMINAL OUTPUT HAS TWO WRITERS AND ONE LOCK, AND THE LOSER'S BYTES ARE GONE. PROVEN
-  2026-09-03**, found while investigating D12. Not fixed -- the fix is a choice, below.
+- **D13. TERMINAL OUTPUT HAS TWO WRITERS AND ONE LOCK, AND THE LOSER'S BYTES ARE GONE. PROVEN AND
+  FIXED 2026-09-03** (`e18dda71`), found while investigating D12. **NEEDS A CONTAINER REBUILD.**
 
   `_append_terminal_output` is a READ-MODIFY-WRITE: it takes `current = terminal["output"]` from the
   row its caller supplies, concatenates the chunk, trims, and UPDATEs. There are two live callers and
@@ -1246,12 +1246,20 @@ solved it by narrowing to one runtime. See D9.
   the dashboard then seeds a fresh xterm with a broken escape (fixed 2026-06-07, and this would
   bring it back).
 
-  **SO THE FIX IS SINGLE-WRITER:** route the control path's output through `TERMINAL_OUTPUT_WRITES`
-  like every other writer, which is what that queue exists to be -- its own header says it "sits in
-  front of the single SQLite writer". It changes control output from immediate to batched, on the
-  hottest write path in the service, pinned by an AST-comparison gate
-  (`test_append_terminal_output_split_is_inert.py`). That is a deliberate slice, not a footnote to a
-  probe, and it is written down here rather than attempted at 19:00 with the fleet running.
+  **THE FIX IS THE LOCK PLUS THE RE-READ, and the second half is the part that is easy to miss.**
+  `append_outside_the_queue` takes the terminal ID and fetches the row INSIDE the locked region, the
+  way `_write_terminal_output` always has. Taking the lock ALONE does not work and my first attempt
+  did exactly that: both callers had already read the row before queuing on the lock, so the second
+  still appended to a value that was stale by the time it ran. **The test caught it** -- it kept only
+  "BBBB" with the lock held -- which is why the caller reads the row and hands over the ID.
+
+  Routing the control path through the queue instead would also close it and is tidier, but it turns
+  immediate control output into batched output on the hottest write path; the lock changes nothing
+  else. Three tests, and the middle one is what makes the first evidence: the locked path keeps both
+  appends, the UNLOCKED helper driven identically loses one, and serialised appends accumulate so
+  neither is passing on a function that merely overwrites. Two mutations, each red alone: removing
+  the lock, and appending to the caller's row rather than the re-read one. The inert-split gate
+  declares the edit rather than being relaxed.
 
   **IT IS NOT ESTABLISHED AS D12's CAUSE, and saying otherwise would be the easy mistake.** A
   control completion carrying output is not frequent enough to explain 5,758 frames collapsing to
