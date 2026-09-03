@@ -451,6 +451,19 @@ solved it by narrowing to one runtime. See D9.
 
 - **C1. Triage every tool: are they reasonable, do they have good descriptions** (08-30). Partly done
   -- Row 3 fixed several descriptions -- but no pass over the whole surface.
+
+  **THE INSTRUMENT NOW EXISTS**, built for C6: `mcp/stdio/tests/tool-surface-size.mjs` reports every
+  registered tool with its description and schema cost. 30 tools, 14,491 characters. That turns "a
+  pass over the whole surface" from a reading exercise into a ranked list, and the ratchet beside it
+  means anything the pass saves is kept rather than left as room to regrow into.
+
+  **One finding worth keeping, and one number withheld.** `comms_agents`, `comms_envs` and
+  `comms_usage` carry no `.describe()` text because they take NO PARAMETERS -- correct, not a gap,
+  and worth writing down so the next reader does not re-open it. A quick scan for tools whose fields
+  lack `.describe()` reported seven; a CONTROL on one of them (`comms_send`'s `type`) showed it is
+  described, across three lines with commas inside a `z.enum([...])` that the scan's regex stopped
+  at. The number is a parser artifact and is not recorded here. A real count needs the span-aware
+  parser `tool-surface-size.mjs` already has, pointed at fields rather than at whole registrations.
 - **C2. Security work developed AND tested** (08-30). Round 7 closed and today's auth defects fixed.
   Residual: C4 and D7.
 - **C3. SoC review of aify-env and aify-wrapper** (08-30), so a project unrelated to aify-comms can
@@ -512,10 +525,32 @@ solved it by narrowing to one runtime. See D9.
   types it does not exempt, and shortening "enrols `request`, `review` and `error` by type" to
   "enrols by type" broke it. Restored, at +32 characters.
 
-  **Follow-up, not done:** the SSE transport declares its own `comms_send` description as a docstring
-  in `service/sse/send_tools.py`. That is a second copy of one contract, and nothing makes the two
-  agree. Worth an agreement test rather than a rewrite.
+  **THAT FOLLOW-UP WAS WRONG, corrected 2026-09-03 by reading the test instead of assuming.** I
+  recorded that the SSE transport's own `comms_send` docstring was "a second copy of one contract
+  with nothing making the two agree". It is a second copy, and it IS gated:
+  `test_the_reply_flag_text_matches_the_contract.py` lists four agent-facing places -- both skill
+  mirrors, `mcp/stdio/send-tools.mjs` AND `service/sse/send_tools.py` -- and derives the bound type
+  set from the SQL in `_contract_list_query` rather than hardcoding it. That is exactly the test that
+  caught the cut above. No new test: a second test of the same property is cost without coverage.
 - **C7. Hook source: repo rather than the installed copy** (decided 09-01, reverses `e8856126`).
+  **NOT EXECUTED -- the decision is recorded, the REASON is not, and the two point opposite ways.**
+
+  What the launcher does today: `claude-aify` writes a temporary `--settings` file wiring
+  `SessionStart` and `UserPromptSubmit` to `node "${AIFY_BRIDGE_DIR_FWD}/claude-session-hook.js"`,
+  i.e. the installed native copy. `e8856126` put it there deliberately, and its argument is on the
+  record: one launcher had TWO deploy models, with the hook silently opting out of the load-speed and
+  "security fixes flow on reinstall" properties the native copy exists to provide.
+
+  **Measured 2026-09-03, and it does not support the reversal.** The installed hook is byte-identical
+  to the repo's (3,320 bytes both sides) and `mcp/stdio/claude-session-hook.js` has not changed since
+  2026-07-18. So there is no live drift, no stale hook running, and nothing in the current state that
+  the reversal would fix.
+
+  That leaves one plausible reason and it is a guess: a hook edited in the checkout takes effect
+  without re-running `install.sh`, which is developer iteration speed traded against the reinstall
+  property. **Say which it is and this is a ten-minute change.** Reversing a deliberate fix on an
+  inferred motive is how a correct thing gets undone quietly, and the counter-argument here is
+  already written down in the commit being reversed.
 
 ---
 
