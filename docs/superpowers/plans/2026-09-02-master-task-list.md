@@ -390,7 +390,31 @@ solved it by narrowing to one runtime. See D9.
 - **C2. Security work developed AND tested** (08-30). Round 7 closed and today's auth defects fixed.
   Residual: C4 and D7.
 - **C3. SoC review of aify-env and aify-wrapper** (08-30), so a project unrelated to aify-comms can
-  reuse them. Not started.
+  reuse them. **MEASURED AND ONE DEFECT FIXED, 2026-09-03** (aify-wrapper `c25a4b3`, pin
+  `mcp/stdio/package.json`).
+
+  **aify-env is clean.** 8 code mentions of `aify-comms` inside `lib/plugins/`, ZERO outside it. The
+  21 product files elsewhere that name it are ALL comments -- a distinction worth making, because the
+  raw file count reads like a wholesale violation and is not one. Positive-controlled: the same scan
+  finds the 8 inside the seam, so the zero is an answer rather than a broken instrument.
+
+  **aify-wrapper's identity axis is clean too.** The templates carry ZERO non-comment mentions, and
+  the channel is DERIVED -- `server:@@SERVICE_NAME@@-channel` -- so it cannot disagree with the
+  service it belongs to. The operator's "the wrapper's channel model must be N-service rather than
+  aify-comms-only" was already satisfied.
+
+  **The LOCATION axis was not.** `NATIVE_BASE="$HOME/.aify-comms"` was set before the arguments were
+  parsed, so `--service my-service` with no `--native-base` rendered a launcher whose every NAME
+  followed my-service and whose bridge directory, host repo and codex log root pointed at
+  AIFY-COMMS' dotfolder. Silently, and only in the paths. `a-launcher-can-serve-another-service.test.js`
+  EXCUSED exactly that, filtering `.aify-comms` paths out of its "no executable line names
+  aify-comms" assertion -- the defect written down as a rule. Fixed by deriving
+  `$HOME/.$SERVICE_NAME` after the name is validated; `--native-base` still wins outright, and the
+  default render is byte-identical because SERVICE_NAME defaults to aify-comms.
+
+  **Still open under C3:** nothing has been measured about aify-env's or aify-wrapper's HTTP contract
+  shape for a second consumer -- this pass covered naming and paths only. aify-dashboard and
+  aify-project-graph will be the real test of it.
 - **C4. The install-time key** (09-01, restated 09-02). *"when installing first time agent should ask
   for it. if installing aify-comms + aify-env + aify-wrapper (full local install) then ofc all these
   can have one ask and use same key."* The installer now CARRIES a key it finds; it does not yet ASK
