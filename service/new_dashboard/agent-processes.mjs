@@ -23,6 +23,7 @@
 // endpoints; a tenth paid on every tick to fill a panel nobody has opened is the trade this avoids.
 // "Browse" is a deliberate act, so the read is too.
 
+import { state } from './state.mjs';
 import { esc, relTimeHtml } from './util.js';
 
 /** Terminal statuses that mean the row is meant to be running. Mirrors the service's own set. */
@@ -173,8 +174,27 @@ export async function loadAgentProcesses(agentId, { api, byId } = {}) {
   try {
     // `status=all` so a stopped row holding a pid is visible -- see the header.
     const answer = await api(`/terminals?agentId=${encodeURIComponent(id)}&status=all`);
-    host.innerHTML = renderAgentProcesses(answer?.terminals);
+    if (stillShowing(id)) host.innerHTML = renderAgentProcesses(answer?.terminals);
   } catch (err) {
-    host.innerHTML = renderAgentProcesses([], { error: String(err?.message || err) });
+    if (stillShowing(id)) host.innerHTML = renderAgentProcesses([], { error: String(err?.message || err) });
   }
+}
+
+/**
+ * Whether the drawer is still open on the agent this read was started for.
+ *
+ * THE RACE THIS CLOSES. Open agent A, switch to B before A's fetch returns, and A's terminals paint
+ * into B's drawer -- under B's name, with B's session and B's runs beside them. A wrong answer that
+ * looks entirely right, which is worse than an empty panel. The container is reused across drawer
+ * opens, so nothing else would notice.
+ *
+ * Found reviewing my own work: the sharing panel got this guard because it clears on every open, and
+ * this one did not because it is the only ASYNC panel of the three. The synchronous ones cannot
+ * race; this one always could.
+ */
+function stillShowing(agentId) {
+  const open = String(state?.inspector?.agentId || '');
+  // A drawer that has been closed entirely leaves no agent id, and writing into it would resurrect
+  // a panel the operator dismissed.
+  return open !== '' && open === agentId;
 }

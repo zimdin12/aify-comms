@@ -13,6 +13,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { AGENT_PROCESSES_ID, loadAgentProcesses, renderAgentProcesses } from "./agent-processes.mjs";
+import { state } from "./state.mjs";
+
+/** The loader only writes while the drawer is still open on that agent, so tests must say it is. */
+const drawerOn = (agentId) => { state.inspector = { ...state.inspector, kind: "agent", agentId }; };
 
 const terminal = (over = {}) => ({
   id: "term_1", status: "running", processId: "4242", cols: 157, rows: 32,
@@ -95,6 +99,7 @@ test("A FAILED READ IS NOT AN EMPTY LIST", () => {
 test("the loader turns a REJECTED read into that message, and never throws", () => {
   // Everything else in the drawer is still true whether this read succeeds or not, so a rejection
   // must not take the panel's neighbours down with it.
+  drawerOn("sc-lead");
   const host = { innerHTML: "" };
   return loadAgentProcesses("sc-lead", {
     api: async () => { throw new Error("network down"); },
@@ -262,4 +267,58 @@ test("the header still has a cell for every column the rows render", () => {
   const firstRow = html.slice(html.indexOf("<tbody>"));
   const cellsInRow = (firstRow.slice(0, firstRow.indexOf("</tr>")).match(/<td[^>]*>/g) || []).length;
   assert.equal(cellsInRow, headers, `${cellsInRow} cells under ${headers} headers`);
+});
+
+// ── the race a self-review found, which only the ASYNC panel can lose ─────────────────────────────
+
+test("A RESPONSE FOR THE PREVIOUS AGENT IS DISCARDED, not painted into this one's drawer", () => {
+  // Open agent A, switch to B before A's fetch returns, and A's terminals would paint into B's
+  // drawer -- under B's name, beside B's session and B's runs. A wrong answer that looks entirely
+  // right, which is worse than an empty panel, and nothing else would notice because the container
+  // is reused across opens.
+  const host = { innerHTML: "untouched" };
+  drawerOn("agent-a");
+  const pending = loadAgentProcesses("agent-a", {
+    api: async () => {
+      drawerOn("agent-b");   // the operator moved on while this was in flight
+      return { terminals: [{ id: "term_from_a", status: "running", processId: "1" }] };
+    },
+    byId: () => host,
+  });
+  return pending.then(() => {
+    assert.equal(host.innerHTML, "untouched",
+      "a stale response painted the previous agent's processes into the current drawer");
+  });
+});
+
+test("a FAILED read for the previous agent is discarded too", () => {
+  // The error path writes into the same container, so it can lose the same race -- and "could not
+  // read this agent's processes" under the wrong agent's name is its own small lie.
+  const host = { innerHTML: "untouched" };
+  drawerOn("agent-a");
+  return loadAgentProcesses("agent-a", {
+    api: async () => { drawerOn("agent-b"); throw new Error("network down"); },
+    byId: () => host,
+  }).then(() => assert.equal(host.innerHTML, "untouched"));
+});
+
+test("and a CLOSED drawer is not resurrected by a late response", () => {
+  const host = { innerHTML: "untouched" };
+  drawerOn("agent-a");
+  return loadAgentProcesses("agent-a", {
+    api: async () => { state.inspector = {}; return { terminals: [] }; },
+    byId: () => host,
+  }).then(() => assert.equal(host.innerHTML, "untouched",
+    "a panel the operator dismissed was written into"));
+});
+
+test("the ordinary case still writes: same agent, drawer still open", () => {
+  // CONTRADICTION ARM. A guard that never lets anything through would satisfy all three tests above
+  // and make the panel permanently blank.
+  const host = { innerHTML: "" };
+  drawerOn("agent-a");
+  return loadAgentProcesses("agent-a", {
+    api: async () => ({ terminals: [{ id: "term_ok", status: "running", processId: "7" }] }),
+    byId: () => host,
+  }).then(() => assert.match(host.innerHTML, /term_ok/, "the panel never filled for the current agent"));
 });
