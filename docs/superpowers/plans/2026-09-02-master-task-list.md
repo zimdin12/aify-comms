@@ -126,14 +126,39 @@ four agents still running through all of it.
   round-trips through the real reader, and all three clients are reinstalled with `skills-installed`
   and `bridge-installed` green. Mutation: restoring the exec reddens three of nine new tests.
 
-  **DELIBERATELY NOT DONE, and it is a v0.6.2 item.** ~1,800 lines of now-unreachable bridge modules
-  remain (`spawn-loop`, `terminal-control-loop`, `environment-control-loop`,
-  `managed-environment-sync`, `managed-teardown-sweeps`, `boot-marker-sweep`,
-  `reap-managed-survivors`, `terminal-manager`) plus `IS_ENVIRONMENT_BRIDGE` and the 37 test files
-  naming them. Deleting them touches `server.js`, which every running wrapper loads as its MCP
-  server. Measured before deciding: nothing live is lost by the removal -- `managed-orphans` reports
-  no delivery loops, `bridge-current` reads `unknown-all`, `usage/consumption` is empty, and the
-  OpenAI pool is collected by the SERVICE.
+  **DELIBERATELY NOT DONE, and it is a v0.6.2 item.** Deleting them touches `server.js`, which every
+  running wrapper loads as its MCP server. Measured before deciding: nothing live is lost by the
+  removal -- `managed-orphans` reports no delivery loops, `bridge-current` reads `unknown-all`,
+  `usage/consumption` is empty, and the OpenAI pool is collected by the SERVICE.
+
+  **THE REACHABILITY MAP, measured 2026-09-03 and pinned by
+  `mcp/stdio/tests/the-bridge-cluster-has-one-way-in.test.js`.** NINE modules, not the eight this
+  entry listed until now -- `single-agent-teardown` was missing, and it is reached from
+  `terminal-control-loop.mjs` alone, so it is as deletable as the rest and was simply not looked for:
+
+  | module | imported by |
+  |---|---|
+  | `spawn-loop`, `terminal-control-loop`, `environment-control-loop`, `managed-environment-sync`, `managed-teardown-sweeps`, `boot-marker-sweep` | `server.js` |
+  | `terminal-manager` | `server.js`, `terminal-control-loop` |
+  | `single-agent-teardown` | `terminal-control-loop` |
+  | `reap-managed-survivors` | `managed-ownership`, `managed-teardown-sweeps`, `single-agent-teardown`, `terminal-control-loop` |
+
+  Every path ends at `server.js`, at call sites gated on `IS_ENVIRONMENT_BRIDGE`. **So the deletion is
+  one operation, not nine**: make that flag permanently false, cut its call sites, and the whole set
+  falls away together. `managed-ownership` is the only member `server.js` imports for its own sake and
+  is the one to settle first. The real cost is the ~37 test files naming the flag, which redden the
+  moment it goes -- not the module removals.
+
+  **The first measurement of this was WRONG, which is why the gate matches both quote styles.** A grep
+  for `from "./boot-marker-sweep` reported ZERO importers and nearly justified deleting a module
+  `server.js` imports on line 116 with single quotes. A reachability claim is the kind that gets acted
+  on destructively; the instrument has to be right before the conclusion is.
+
+  **The gate exists because the risk is re-entanglement, not decay.** Code imported by exactly one
+  caller is an afternoon's deletion; the same code with a second caller is a refactor nobody
+  schedules, and that is how dead code becomes permanent. It fails if anything outside the cluster
+  starts importing it. Mutations: making the scan quote-sensitive again reddens the quote test;
+  adding one stray import in `aify-service-endpoint.mjs` reddens two.
 
 - **T3. Review and update ALL skills and docs** (operator, 2026-09-02). After the SoC move, most of
   what the docs and skills say about component boundaries is wrong -- CLAUDE.md, ARCHITECTURE.md,
