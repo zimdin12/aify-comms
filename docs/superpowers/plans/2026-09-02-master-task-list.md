@@ -183,6 +183,27 @@ four agents still running through all of it.
   grepping the service for `collect_usage` / `usage_collector` / `poll_usage` found zero and read as
   "the service collects nothing", when the function is called `collect_openai_pool`.
 
+  **OPERATOR DECISION, and it is why the deletion stopped here rather than proceeding.** Per-agent
+  CONSUMPTION is a different story from the quota pools, and it is the one thing the bridge's removal
+  actually retires. `service/new_dashboard/analytics-page.mjs` reads `/usage/consumption`; the ONLY
+  writer of that data is `collectConsumptionOnce`, called from the bridge-gated block in `server.js`
+  and from nowhere else. Live right now: `{"by_agent":{},"by_model":{},"by_source":{},"totals":{...
+  0}}` -- all zeros, because no bridge runs. So the analytics panel is ALREADY empty and deleting the
+  bridge does not break it; it makes it permanent.
+
+  Three ways forward, and the choice is a product one rather than a cleanup:
+  1. **Move the collector to aify-env.** It is the tier with host credentials that reads the rollouts,
+     which is what this collection needs, and the plugin seam is where a service-specific collector
+     belongs. Restores the panel.
+  2. **Retire the panel with the bridge.** Honest, and stops a dashboard page promising data nothing
+     produces.
+  3. **Leave it.** The panel keeps reading zeros, as it has been.
+
+  Nothing here should be deleted until that is answered -- removing the call sites first would leave
+  `collectConsumptionOnce` a tested, working, uncallable implementation, which is the exact defect
+  this project found four times in two days. `usage-collector.js` STAYS regardless: the doctor imports
+  `checkOpenAiUsageAccess` from it.
+
   **The first measurement of this was WRONG, which is why the gate matches both quote styles.** A grep
   for `from "./boot-marker-sweep` reported ZERO importers and nearly justified deleting a module
   `server.js` imports on line 116 with single quotes. A reachability claim is the kind that gets acted
