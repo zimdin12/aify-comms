@@ -687,7 +687,7 @@ solved it by narrowing to one runtime. See D9.
   -- Row 3 fixed several descriptions -- but no pass over the whole surface.
 
   **THE INSTRUMENT NOW EXISTS**, built for C6: `mcp/stdio/tests/tool-surface-size.mjs` reports every
-  registered tool with its description and schema cost. 30 tools, 14,491 characters. That turns "a
+  registered tool with its description and schema cost. 37 tools, 17,222 characters. That turns "a
   pass over the whole surface" from a reading exercise into a ranked list, and the ratchet beside it
   means anything the pass saves is kept rather than left as room to regrow into.
 
@@ -704,7 +704,9 @@ solved it by narrowing to one runtime. See D9.
   16,818 -> 16,687 after `comms_compact`'s 1,332 -> 1,006, plus `comms_register` (a first sentence
   that was the tool's own name, subsumed by the next one) and `comms_dispatch` (a clause restating
   comms_send's OWN delivery behaviour). Together with C6's `comms_send` cut of 844, that is 1,301
-  characters off what every agent re-reads every turn -- and the ratchet keeps it.
+  characters off what every agent re-reads every turn -- and the ratchet keeps it. (Those two totals
+  are from the blind instrument and were 535 characters low; the SAVINGS are unaffected, since every
+  tool they touched was one the parser could see.)
 
   **The rest is load-bearing, and three separate checks say so rather than one opinion.**
   1. `comms_dispatch`'s biggest candidate -- ~330 characters restating comms_send's reply contract
@@ -799,11 +801,12 @@ solved it by narrowing to one runtime. See D9.
 
   **AND THE WHOLE SURFACE IS MEASURED NOW, which it never was.** `tests/tool-surface-size.mjs` parses
   every `server.tool()` registration -- descriptions AND every `.describe()` on the schema, because on
-  several tools the schema half is the larger one -- and reports **34 tools, 16,818 characters, ~4,205
+  several tools the schema half is the larger one -- and reports **37 tools, 17,222 characters, ~4,306
   tokens**, re-read by every agent on every turn.
 
-  **THAT FIGURE IS A CORRECTION: this entry first said 30 tools / 14,491 chars, from a broken
-  instrument.** The scanner skipped string literals but not COMMENTS, so a comment containing a
+  **THAT FIGURE IS THE THIRD READING, and the first two were both from a blind instrument.** 30 tools
+  / 14,491 chars, then 34 / 16,818, now 37 / 17,222 -- each correction found MORE surface, never
+  less, because the failure always hides tools rather than inventing them. The scanner skipped string literals but not COMMENTS, so a comment containing a
   double quote opened a phantom string and swallowed the rest of a registration. Found by adding such
   a comment while tightening `comms_compact`, which made that tool vanish from the measurement
   entirely. Fixing it revealed **four tools the scan had never seen** -- `comms_register` (990),
@@ -818,6 +821,38 @@ solved it by narrowing to one runtime. See D9.
   its measured size, may only go DOWN, fails on a tool with NO ceiling, and fails on a ceiling left
   slack above its tool so the ratchet cannot quietly become a cap. Four mutations, each reddening
   exactly its own test; a fifth broke the parser and correctly reddened the positive control.
+
+  **AND IT WAS STILL BLIND, found the same day by the check that should have been there first: does
+  the parser return a tool for EVERY `server.tool(` written in the tree.** 37 were written; 34 were
+  measured. All three losses were one construct in `channel-tools.mjs` -- a `.replace()` whose regex
+  pattern is three backticks. The scanner had no notion of a regex literal, so those backticks read
+  as template literals, the third opened one that ran two lines on, and it ate the closing paren of
+  the `.replace(`. The enclosing registration never closed, the loop `break`ed, and
+  `comms_channel_read`, `comms_channel_list` and `comms_channel_delete` went at once -- 535
+  characters ungoverned, with "every tool HAS a ceiling" green, because a ceiling is only ever
+  demanded of a tool the parser can see. **This file's own header had PREDICTED the shape** ("a regex
+  literal containing a quote would still confuse it") and called it hypothetical; the live one was
+  backticks.
+
+  **Fixing that lost a fourth tool, which is the part worth recording.** `dashboard-tool.mjs` builds
+  HTML from templates nested in other templates' `${...}` holes, and a backtick-to-backtick scan gets
+  that wrong -- but it had been wrong in two places that CANCELLED, so the file balanced by luck.
+  Correcting the regex handling changed which misreadings cancelled and `comms_dashboard` vanished.
+  Template holes are now parsed as code, so nothing depends on the luck.
+
+  **THE REAL REPAIR IS THE CONTROL, not the three parser fixes.** `THE PARSER MEASURES EVERY
+  REGISTRATION THAT IS WRITTEN` compares a text count of `server.tool(` against the parse. The two
+  instruments fail differently, so disagreement is evidence; every other test in that file is scoped
+  to the tools the parser RETURNED, which is exactly why all of them stayed green through two rounds
+  of this. Plus `the-tool-surface-parser-reads-javascript.test.js`, which hands the parser each hard
+  case directly rather than waiting for the tree to contain one.
+
+  **That test file was green on its first run and proved nothing**, which the mutations caught: the
+  hard constructs sat BETWEEN two registrations, where no span walk ever reaches them. Moved inside a
+  handler body -- where the live defect was -- four of five mutations bite. The fifth, forcing every
+  slash to open a regex, loses no registration on any body tried: both readings skip the same
+  characters, so over-eager detection is harmless and `regexEnd`'s refusal to cross a newline bounds
+  it. That test was DELETED rather than kept as a green decoration, and the file says why.
 
   **A gate caught a cut that went too far**, which is the system working:
   `test_the_reply_flag_text_matches_the_contract` requires every agent-facing mention to NAME the

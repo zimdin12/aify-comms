@@ -1,6 +1,6 @@
 // The `tools/list` payload may only get smaller.
 //
-// WHY A RATCHET AND NOT A CAP. This surface is always-loaded context: 30 tools, 14,491 characters of
+// WHY A RATCHET AND NOT A CAP. This surface is always-loaded context: 37 tools, 17,222 characters of
 // description and field text, re-read by every agent on every turn for the life of the fleet. It is
 // the same argument `skill-size-ratchet.test.js` already makes for `SKILL.md`, on a surface nobody
 // was measuring -- and nothing here had a ceiling until 2026-09-03, so the only pressure on it was
@@ -21,19 +21,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { measureToolSurface } from "./tool-surface-size.mjs";
+import { countToolRegistrations, measureToolSurface } from "./tool-surface-size.mjs";
 
-/** Measured 2026-09-03, RE-measured the same day after the parser was fixed to skip comments --
- *  which revealed four tools it had never seen (`comms_channel_send`, `comms_dashboard`,
- *  `comms_register`, `comms_search`), every one of them ungoverned while the "every tool HAS a
- *  ceiling" test below passed. An unguarded population reports green exactly like a guarded one.
+/** Measured 2026-09-03, and RE-measured TWICE the same day, both times because the parser was
+ *  blind and both times finding tools that had never had a ceiling while the "every tool HAS a
+ *  ceiling" test below passed. First a code comment holding a quote hid four
+ *  (`comms_channel_send`, `comms_dashboard`, `comms_register`, `comms_search`). Then a regex whose
+ *  pattern was backticks hid three more (`comms_channel_read`, `comms_channel_list`,
+ *  `comms_channel_delete`) -- and correcting THAT changed which misreadings cancelled in
+ *  `dashboard-tool.mjs`, briefly losing `comms_dashboard` again, which is what nested template
+ *  literals cost. An unguarded population reports green exactly like a guarded one, which is why
+ *  the count control below now exists rather than a third round of this.
  *  Characters of description + schema text, per tool. May only go DOWN. */
 const CEILINGS = {
   comms_agent_info: 145,
   comms_agents: 67,
   comms_channel_create: 164,
+  comms_channel_delete: 423,
   comms_channel_join: 128,
   comms_channel_leave: 293,
+  comms_channel_list: 18,
+  comms_channel_read: 94,
   comms_channel_send: 878,
   comms_clear: 698,
   comms_compact: 1006,
@@ -64,6 +72,25 @@ const CEILINGS = {
   comms_unshare: 116,
   comms_usage: 190,
 };
+
+test("THE PARSER MEASURES EVERY REGISTRATION THAT IS WRITTEN", () => {
+  // THE CONTROL, and the one this file was missing through two rounds of the same defect. Every
+  // other assertion here is scoped to the tools the parser RETURNED, so a parser that loses a
+  // registration makes them all pass: no ceiling is exceeded, none is stale, and "every tool has a
+  // ceiling" is satisfied by a population with the ungoverned ones removed from it. Twice that was
+  // the actual state -- four tools hidden by a comment, then three by a regex -- and both times the
+  // gate was green.
+  //
+  // COUNTING TEXT IS A WEAKER INSTRUMENT THAN PARSING, which is the entire point: `server.tool(`
+  // occurrences and a paren-matching walk fail in different ways, so a disagreement between them is
+  // evidence. Agreement is not proof the parser is right, but disagreement is proof it is wrong.
+  const written = countToolRegistrations();
+  const measured = measureToolSurface();
+  assert.equal(measured.length, written,
+    `${written} registrations are written in the tree and ${measured.length} were measured. A tool `
+    + "the parser cannot see is a tool with no ceiling, and every other test in this file will pass "
+    + "while it grows. Fix the parser in tool-surface-size.mjs -- do not adjust this number.");
+});
 
 test("THE MEASUREMENT FINDS THE TOOLS AT ALL", () => {
   // POSITIVE CONTROL. Every assertion below is satisfied by an empty measurement -- no tool is over
