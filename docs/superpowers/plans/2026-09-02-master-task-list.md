@@ -1040,6 +1040,31 @@ solved it by narrowing to one runtime. See D9.
 message will not find it there. Not rewritten, because it is pushed and shared; recorded here
 instead, which is the cheaper of the two honest options.
 
+## URGENT, 2026-09-03 16:36 UTC: the claude login is 19 hours from lapsing, not two days
+
+The open list said "claude login expires ~2026-09-05". `~/.claude/.credentials.json` says otherwise:
+
+| token | expires | from 16:36 UTC |
+|---|---|---|
+| access | 2026-09-03 23:09 UTC | 6.6 hours |
+| refresh | **2026-09-04 11:57 UTC** | **19.3 hours** |
+
+The access one is routine -- short-lived, refreshed silently on use. **The REFRESH token is the
+deadline**: past it, no automatic renewal is possible and a human must run `claude` and log in. 21
+claude-code agents share this one grant, and the recorded date was two days optimistic in the
+direction where being wrong means the fleet stops overnight with nobody awake.
+
+**Whether a refresh EXTENDS the refresh token is unknown from one observation, and it decides
+everything.** If it does, an active fleet keeps itself alive and this never bites. If it does not,
+the hard deadline is 2026-09-04 11:57 UTC. Not guessed either way -- one sample cannot tell.
+
+**A doctor check now watches it** (`claude-login`), because nothing did: `usage-collector.js` had
+been reading that very file for the quota pool all along, so the gap was never access to the data.
+It keys on the refresh window ONLY -- a check that went red every time the access token lapsed would
+be red most hours, get switched off, and take the real deadline with it -- reads two timestamps and
+never a token, and SKIPS on a host with no claude login rather than calling a codex-only machine
+broken. Live right now it reads `expiring`.
+
 ## v0.6.1 close-out, verified 2026-09-03
 
 The standing task list still carried five open v0.6.1 items. Measured one by one, FOUR are done and

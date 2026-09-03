@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
+import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
@@ -634,6 +635,9 @@ checkRunningBridges();
 await checkAgentIdentity();
 await checkEnvBridge();
 await checkUsage();
+// Beside the usage check because it is the same subject -- a credential with a deadline -- and
+// because 21 claude-code agents share one grant that nothing was watching.
+checkClaudeLogin({ add, skip });
 
 // The envelope and the summary line live in `doctor-report.mjs`: importing THIS file runs the
 // doctor, so the verdict-shaping is the part least worth running a fleet to test. See that module
