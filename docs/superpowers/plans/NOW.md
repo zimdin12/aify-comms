@@ -183,16 +183,30 @@ needed an aify-env restart, which reaps the workers.
    `||` -- so the seal SELECTED the operator's registry. A test asserted the empty string and froze
    it. Fixed in `d74ba03`, with a gate that also asserts the daemon still reads it with `||`.
 
-**NOT ISOLATED.** Something else in that suite still reaches the live service. Ruled out by reading:
-`pluginsForServices` is fed only from the registry, so a sealed daemon loads no plugin. Candidates
-not yet checked one by one: the tests that pass an explicit registry
-(`a-stored-credential-reaches-a-real-beat`, `the-daemon-really-advertises`, `doctor-live`,
-`tui-live`), and anything spawning without `sealedDaemonEnv`.
+**THREE FIXED, AT LEAST ONE REMAINS.** The third was `a-page-cannot-start-a-process.test.js`:
+`...process.env`, `AIFY_ADVERTISE: ""`, and no registry seal. The GATE that should have caught it
+accepted any test that merely MENTIONED `AIFY_ADVERTISE`; it now requires a registry seal
+(aify-env `ae190d2`). A full suite run still moves the claim after all three.
 
-**HOW TO FIND IT**, for whoever picks this up: the experiment is cheap and decisive -- read
-`environments.bridge_id` for `windows:StevenZ-L:default`, run one test file, read it again. Bisect
-by file. Do not read it once and conclude, because the value CHURNS: the live host re-takes the claim
-between runs, so a single reading can show the healthy id while the leak is real.
+**THE CONTROL, run before any of this and the thing that made the hunt meaningful:** with nothing
+running, the claim is stable for three minutes and `last_seen` advances every 30s. So test runs cause
+it; the live host's own arbitration does not.
+
+**A BISECT CANNOT FIND IT, and this is the useful part for whoever continues.** Such a daemon lives
+for seconds, so whether it lands a claim beat before being killed is a RACE. Measured: the same file
+ran clean then dirty; a group of six ran dirty then clean. Running things and watching is the wrong
+instrument. A STATIC SCAN is the right one -- it named the third leak on the first try, with no
+waiting.
+
+**Ruled out, so nobody repeats it:** `pluginsForServices` is fed only from the registry, so a sealed
+daemon loads no plugin at all; every `api(...)` in `aify-comms-api.test.js` injects a fetch; every
+daemon-spawning test now seals the registry (the gate enforces it); and `advertisedCwdRoots` is NOT
+evidence of a spawn's cwd -- `manualRoots` is set from the dashboard, which I nearly misread as
+naming the culprit.
+
+**Where to look next:** anything that can POST an environment heartbeat WITHOUT being a daemon -- a
+unit test constructing `CommsApi` or the plugin with a real fetch, or a helper outside
+`tests/*.test.js` that the scan does not walk.
 
 **Meanwhile:** avoid running aify-env's suite when the fleet needs to cold-start an agent.
 
