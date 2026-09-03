@@ -353,6 +353,26 @@ the Phase 8 entry that read as done), `PHASE8_STATUS.md`, `CLAUDE.md`, `PRODUCT_
 carried the same error -- "spawning" doing two jobs, execution and claiming, with only the first
 measured.
 
+**THE FIRST REAL SPAWN, 2026-09-03: the gate works, the claim works, the START does not.**
+Six spawns were accepted (so `/spawn`'s claimer gate is fixed and proven on real hardware), all six
+were claimed by aify-env's plugin within seconds (so the claim loop is proven), and all six failed
+with `a start request must name a launcher to run`.
+
+**The cause is a model mismatch, measured rather than guessed.** `mcp/stdio/spawn-loop.mjs` — the
+bridge code the plugin replaced — contains ZERO process starts. It claims, reports `running` with
+the BRIDGE's own pid, registers the agent warm, and arms the dispatch loop; the worker starts LATER,
+when a message arrives. That is what `managed-warm` means, and every spawn uses it. The plugin
+instead builds a start spec at claim time from `request.launcher`, a field the wire does not carry.
+
+**This needs an operator decision before it is built** — see the design note's last section. Short
+version: (a) aify-env grows the dispatch loop and the per-runtime adapters, which puts aify-comms'
+messaging model inside the general host and is the opposite of the goal; or (b) aify-env stays a
+process host, the claim reports the agent warm, and the dispatch path asks aify-env to run the
+worker when work arrives — which needs NO new capability in aify-env, because `/processes` already
+starts an allowlisted launcher and the bridge's delegation path already used it successfully.
+**(b) is what the operator's own architecture statement asks for**, and the work it implies is in
+aify-comms.
+
 **WHAT v0.6.1 STILL NEEDS**, and the order:
 1. Install the new aify-env on the operator's machine (operator's call -- it changes their setup).
 2. Operator restarts it. Starting shared infrastructure is never the agent's.

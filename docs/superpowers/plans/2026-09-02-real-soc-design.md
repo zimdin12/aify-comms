@@ -168,3 +168,49 @@ Steps 1 and 2 are v0.6.1 with T1. Step 3 can follow without blocking the operato
 A test that re-runs the classification and fails when a module on the generic side names an
 aify-comms endpoint. Without it the boundary is prose, and prose is what let the last one rot for
 eight days while a document said it was done.
+
+---
+
+## THE GAP THE FIRST REAL SPAWN FOUND, 2026-09-03
+
+Six spawns were claimed by aify-env's plugin and all six failed with
+`a start request must name a launcher to run`. The gate fix worked, the claim loop worked, the
+plugin was the recognised claimer — and the model underneath was wrong.
+
+**MEASURED, not inferred.** `mcp/stdio/spawn-loop.mjs` — the bridge's claim consumer, the thing the
+plugin replaced — contains **zero process starts** (`grep -c "TERMINAL_MANAGER\|\.start("` → 0). It
+claims, reports `running` carrying **the bridge's own pid**, registers the agent in
+`REMOTE_AGENT_STATE` as warm, and arms the dispatch loop. The worker process is started LATER, by
+the dispatch path, when a message actually arrives. That is what `mode: "managed-warm"` means, and
+every spawn this system issues uses it.
+
+**So claiming and starting were never the same event, and the plugin treats them as one.** It builds
+a start spec at claim time from `request.launcher` — a field the wire does not carry, because the
+spec carries `runtime` and nothing ever needed a launcher at that moment. The error is correct and
+the code asking the question is in the wrong place.
+
+### The decision this needs, because it changes what gets built
+
+Who runs the delivery loop for an agent aify-env claimed?
+
+**(a) aify-env runs it.** It would need `REMOTE_AGENT_STATE`, the dispatch loop, and the per-runtime
+adapters — which are aify-comms' domain model, the same conclusion step 3 reached about
+`terminal-runtime.js`. This puts a service's messaging model inside the general host and is the
+opposite of the goal.
+
+**(b) aify-env stays a process host; the claim reports the agent warm, and a process is started when
+work arrives.** This matches the operator's own statement — *"aify-env should own spawning
+processes, hosting"*, *"aify-env spawns aify-wrappers"* — and it needs no new capability in aify-env:
+`/processes` already starts an allowlisted launcher and the bridge's delegation path already used it
+successfully. What is missing is the caller: something must ask aify-env to start the worker on first
+dispatch, and today that caller is the bridge's own dispatch loop.
+
+**(b) is the shape the architecture asks for.** The work it implies is in aify-comms, not aify-env:
+the claim reports warm (mirroring `runSpawnPass`'s status transitions and capabilities), and the
+dispatch path — which already knows how to compose a runtime's launch — asks the claiming
+environment to run it instead of spawning locally.
+
+**What is NOT the fix:** teaching the plugin to resolve `runtime` → launcher and start immediately.
+It would start six processes at claim time that the design says should not exist until work arrives,
+and it would put runtime launch composition — model flags, session handles, `AIFY_AGENT_ID`, the
+per-runtime adapters — inside aify-env.
