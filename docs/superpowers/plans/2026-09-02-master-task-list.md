@@ -101,15 +101,45 @@ where every automated check was green and the thing did not work.
   claiming.
   **So the decision is: does aify-env become the claimer?** The operator's stated model says yes --
   *"I only run aify-env in directory, so it can spawn managed in that directory... it uses global api
-  key to connect with aify-comms container... and aify-env spawns aify-wrappers."* Until it does, a
-  bare `aify-comms` is REQUIRED to spawn, which is why sc-manager and I both told the operator to run
-  a command the architecture says should be gone.
+  key to connect with aify-comms container... and aify-env spawns aify-wrappers."*
+
+  **DONE 2026-09-03, aify-comms `10a202f2`.** aify-env's `aify-comms` plugin took over claiming and
+  was PROVEN ON REAL HARDWARE first -- six managed lanes up with no bridge running at all -- which is
+  the condition `TARGET_ARCHITECTURE.md` had already set. The command now starts nothing: `doctor`,
+  `--check`, `--version`, `--help`, and anything else exits 2 naming aify-env. Gone with the exec:
+  the root parser, the workspace-root resolver, the env exports, the start-up banner, and the baked
+  API key (which existed only because the BRIDGE could not reach its own service). Two `export` lines
+  survive as the labelled install record `scripts/installed-delegation.sh` reads back.
+
+  **Proven on the host, not just in tests:** a bare `aify-comms` exits 2, the delegation record still
+  round-trips through the real reader, and all three clients are reinstalled with `skills-installed`
+  and `bridge-installed` green. Mutation: restoring the exec reddens three of nine new tests.
+
+  **DELIBERATELY NOT DONE, and it is a v0.6.2 item.** ~1,800 lines of now-unreachable bridge modules
+  remain (`spawn-loop`, `terminal-control-loop`, `environment-control-loop`,
+  `managed-environment-sync`, `managed-teardown-sweeps`, `boot-marker-sweep`,
+  `reap-managed-survivors`, `terminal-manager`) plus `IS_ENVIRONMENT_BRIDGE` and the 37 test files
+  naming them. Deleting them touches `server.js`, which every running wrapper loads as its MCP
+  server. Measured before deciding: nothing live is lost by the removal -- `managed-orphans` reports
+  no delivery loops, `bridge-current` reads `unknown-all`, `usage/consumption` is empty, and the
+  OpenAI pool is collected by the SERVICE.
 
 - **T3. Review and update ALL skills and docs** (operator, 2026-09-02). After the SoC move, most of
   what the docs and skills say about component boundaries is wrong -- CLAUDE.md, ARCHITECTURE.md,
   TARGET_ARCHITECTURE.md, PHASE8_STATUS.md, both skill mirrors, and every install guide. The
   TARGET_ARCHITECTURE error that hid T2 for eight days is the reason this is a v0.6.1 item rather
   than housekeeping: a document that says a thing is done is how the thing stops being checked.
+
+  **DONE 2026-09-03, aify-comms `10a202f2`.** CLAUDE.md, README, ARCHITECTURE, TARGET_ARCHITECTURE,
+  PHASE8_STATUS, AIFY_ENV_BOUNDARY, BRIDGE_SETUP, all five install guides and both skill mirrors.
+  Every one of them told a reader to run `aify-comms` to connect an environment, in shell-command
+  form. Both ratchets were PAID DOWN rather than raised -- `install.sh` 3019 -> 2977 and
+  `dispatch-bridges.md` 27131 -> 26968 -- because the removal took prose with it: the fleet-death
+  entry no longer has to teach that a bare `aify-comms` is dangerous, since it refuses.
+
+  One gate caught a false pass while this landed: `install.opencode.md` satisfied "names aify-env's
+  installer" only because it contained `install.sh` for aify-comms. Every guide now names aify-env's
+  own installer explicitly.
 
 - **T4. The installer, rebuilt for three components** (operator, 2026-09-02): *"install stuff has to
   be good also, it should have changed almost totally, because installing is now including 3
@@ -137,9 +167,17 @@ in the file and the one the operator has raised most often.
   see all managed agents that are running etc."* (08-24 20:19), then *"i still do not see anything
   under agent, i should se sc-manager and stuff like that correct?"* (08-25 04:46).
   **Why it never worked:** the TUI lists aify-env's OWN process record. Since Phase 8 the managed
-  hermes agents are spawned by the aify-comms BRIDGE, not by aify-env -- which is why they survived
-  aify-env going down -- so they are not in that record and never will be. The TUI has never asked
-  aify-comms anything. This is an unbuilt join, not a display bug.
+  hermes agents were spawned by the aify-comms BRIDGE, not by aify-env -- which is why they survived
+  aify-env going down -- so they were not in that record. The TUI has never asked aify-comms
+  anything. This was an unbuilt join, not a display bug.
+
+  **THAT BLOCKER IS GONE as of 2026-09-03, and this is now the cheapest item in the file.** aify-env
+  is the process host for every managed agent: `GET /processes` on the operator's own machine returns
+  `sc-lead`, `sc-tester`, `sc-critic`, `sc-coder` with their pids, each carrying the agent id as its
+  `label` and the runtime's own title. So "show the managed agents that are running" is a render over
+  a listing aify-env ALREADY HAS -- no join, no aify-comms call, no new plumbing. It is the oldest
+  unmet ask in this file and the one the operator has raised most often, and it stopped being hard
+  the night the host tier took over spawning. Do it first in the A series.
 - **A2. Control a managed agent's TUI directly from aify-env** (09-02). The operator names
   [herdr](https://github.com/ogulcancelik/herdr) as the model: a persistent headless server plus a
   TUI client that attaches to REAL terminals, not redraws.
