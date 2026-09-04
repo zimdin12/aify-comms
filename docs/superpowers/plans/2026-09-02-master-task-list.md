@@ -1011,10 +1011,37 @@ solved it by narrowing to one runtime. See D9.
   it is a restart fallback and not a live read any more -- which is exactly what the operator meant
   by *"just as rolling memory of what was on screen. but we depend on it less thx to lazy right."*
 
-  **MEASURE THE COST BEFORE BUILDING IT.** Wall-clock A/B is unmeasurable on this host (the same code
-  timed 44-47 ms then 22-25 ms minutes apart, with the live fleet as the load), so the number to take
-  is DB round-trips and bytes written per second of agent output. A change that saves nothing
-  measurable is not worth the durability it spends.
+  **MEASURED 2026-09-04, and the number is large enough to act on.** Wall-clock A/B is unmeasurable
+  on this host -- the same code timed 44-47 ms then 22-25 ms minutes apart, with the live fleet as the
+  load -- so this counts DB writes and bytes instead, which are deterministic and load-proof.
+
+  | a mid-turn claude agent, spinner repainting 10x/s | per agent |
+  |---|---|
+  | actual output produced | 440 chars/s |
+  | characters WRITTEN to `terminal_sessions.output` | **640 KB/s** |
+  | write amplification | **1490x** |
+  | the same output flushed once a second instead | 64 KB/s, a 90% reduction |
+
+  The tail sits at its 64 KB cap for any agent that has been running a while, so every flush rewrites
+  the whole thing. That is the steady state, not a corner.
+
+  **THE 10-FLUSHES-A-SECOND ASSUMPTION WAS CHECKED RATHER THAN ASSERTED**, because the whole figure
+  turns on it: `enqueue` cancels and reschedules a 4 ms idle flush per chunk, so a chunk every 100 ms
+  flushes on its own. The queue's coalescing catches BURSTS; it does nothing for a steady drip, which
+  is exactly what a spinner is.
+
+  The measurement drives `_append_terminal_output` with a counting db and never the queue, because
+  `_write_terminal_output` calls `get_db()` -- the operator's real database -- and driving it would
+  write into a live fleet's tables to answer a question about arithmetic.
+
+  **WHAT MAKES IT SAFE TO SLOW DOWN** is the half already done: nothing READS the stored tail on the
+  status path any more. It is a restart fallback, so a DB copy that lags the stream by a second costs
+  at most a second of scrollback if the service is killed abruptly -- which is what the operator meant
+  by *"just as rolling memory of what was on screen. but we depend on it less thx to lazy right."*
+
+  **CARE REQUIRED AT THE SEAM.** The same UPDATE carries `output`, `output_seq` and `status`, and the
+  seq is what the dashboard's dedupe reads -- slowing that would drop frames and scramble the console,
+  which is the very complaint B3 is about. Only the `output` column may lag.
 - **C6. `comms_send` unslop. DONE 2026-09-03**, and the surface it lives on is now gated.
 
   `COMMS_SEND_TOOL_DESCRIPTION` went 2,638 -> 1,794 characters, a 32% cut, with the reply contract
