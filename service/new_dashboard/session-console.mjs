@@ -162,9 +162,17 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
            <span class="console-toolbar">
              <span class="console-await-pill" id="console-await-pill" hidden>⌛ awaiting input</span>
              <button class="ghost" data-console-action="copy" title="Copy selection (or whole buffer) — Ctrl+Shift+C">Copy</button>
+             <button class="ghost" data-console-action="find" title="Search this console's scrollback — Ctrl+Shift+F">Find</button>
              <button class="ghost" data-console-action="refresh" title="Re-fetch the authoritative buffer and repaint">Refresh</button>
              ${canStop ? `<button class="ghost danger" data-console-action="stop" data-terminal-id="${esc(terminalId)}" title="Stop this terminal and return the agent to messenger ownership">Stop console</button>` : ''}
            </span>
+         </div>
+         <div class="console-find" hidden>
+           <input class="console-find-input" type="search" placeholder="Find in scrollback…" aria-label="Find in console scrollback" spellcheck="false" autocomplete="off">
+           <span class="console-find-summary" aria-live="polite"></span>
+           <button class="ghost" data-console-action="find-prev" title="Previous match — Shift+Enter">↑</button>
+           <button class="ghost" data-console-action="find-next" title="Next match — Enter">↓</button>
+           <button class="ghost" data-console-action="find-close" title="Close find — Escape">✕</button>
          </div>
          <div id="${esc(ptyContainerId)}" class="xterm-host"></div>
        </div>`

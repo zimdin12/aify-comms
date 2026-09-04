@@ -643,6 +643,45 @@ solved it by narrowing to one runtime. See D9.
 
 - **B1. The browser pseudo-terminal, fast and good** (08-30 17:33). *"we can use hermes dashboard as
   exmaple, they have worked on theirs for a long time."*
+
+  **MEASURED FIRST, 2026-09-04, and most of it was already built** -- the fifth item this session
+  filed as open that was not. xterm.js is vendored and pinned with fit, unicode11, web-links AND the
+  WebGL renderer (activated after `open()` with an `onContextLoss` fallback to DOM, which is the
+  "fast" half). `xterm-mount.mjs` already records a deliberate hermes parity study: `allowProposedApi`
+  for unicode11, `minimumContrastRatio: 4.5` because xterm's default of 1 paints unreadable
+  dark-blue-on-black, `convertEol: false` because this is a real PTY byte stream, and gnome-terminal
+  selection ergonomics. That is not an unbuilt feature.
+
+  **THE GAP WAS SEARCH: `scrollback: 5000` and no way to look through it.** An operator watching an
+  agent work could scroll, and that was all. DONE 2026-09-04:
+
+  - **No new dependency.** `@xterm/addon-search` exists, but everything under `/assets/vendor` was
+    vendored so the console works air-gapped, and each addition is a pinned blob somebody maintains.
+    xterm's buffer is public API and the matching is string work, so this reads the buffer directly.
+  - **Ctrl+Shift+F, never Ctrl+F.** Ctrl+F is forward-char to readline and page-forward to vim, so
+    claiming it would break those inside the consoles this exists to make usable, and the breakage
+    would look like the PTY dropping input. The console already binds Ctrl+Shift+C for copy for
+    exactly this reason, so the convention was there to follow.
+  - **WRAPPED LINES ARE JOINED BEFORE MATCHING.** xterm stores a long line as several rows. Searching
+    rows independently finds short queries and misses long ones -- and long is what people search
+    for: a path, a stack frame, a command they typed. The miss looks exactly like "that text is not
+    in the buffer". The hit is then mapped BACK to a physical row and column, or the highlight lands
+    one row up and off the right edge, for precisely the matches the join exists to find.
+  - **A COUNT, not just a highlight.** "no results" and "1 of 40" are acted on differently and are
+    indistinguishable from a highlight alone when the hit is off-screen.
+  - **The buffer is re-read on every search**, because the console is live and a cached line list
+    would scroll to rows that have moved.
+
+  **AND IT CLOSED A HAZARD THE DISPATCH HAD WARNED ABOUT SINCE IT WAS EXTRACTED.**
+  `console-click-handlers.mjs` opens by saying an unrecognised action "falls through every branch and
+  does NOTHING, with no error anywhere" -- and nothing enforced it. Adding four branches into that is
+  how it stays true, so the dispatch now RETURNS the action it handled and
+  `console-actions-agree-with-the-template.test.mjs` derives every `data-console-action` the markup
+  emits and fails on one nothing handles. Proven by renaming an attribute: it goes red.
+
+  **STILL OPEN under B1:** the remaining "good" is B2's design pass, and nothing here has been seen
+  in a browser -- 31 tests drive the logic and the DOM layer through fake elements, which is how this
+  repo tests dashboard modules, but the rendered result is unverified until someone opens it.
 - **B2. A design / UI / UX pass** (08-30, and 08-25's *"easy improvement oportunities (also in
   dashboard web ui/ux)"*). Row 2 shipped three dead CSS rules and triage-tile keyboard access, which
   is not this.
@@ -1799,6 +1838,36 @@ solved it by narrowing to one runtime. See D9.
   after the drain, 9 of 11 runs pass against 4 of 7 before, which is inside noise at that size and
   still fails. The fix stays on its own merit and now keeps the daemon's output, so the next failure
   arrives with an explanation instead of a bare `fetch failed`. Cause still unknown.
+
+  **FOUR MORE FLAKES OBSERVED 2026-09-04/05, AND TWO OF THEM SHARE ONE CAUSE.** Found while hunting
+  the `doctor-live` flake, which is itself still undiagnosed -- but its recorded cause is now
+  disproved (see B5's entry: 111-1002ms across thirteen daemon starts against a 20s budget).
+
+  | flake | verdict |
+  |---|---|
+  | aify-env `dashboard.test.js`, "a frame that throws does not kill the loop" | FIXED, `773c13d` |
+  | bridge `hermes-gateway-turn-detector.test.js`, "refresh does not cause a false turn-end" | FIXED |
+  | bridge, a SECOND test in that same file, seen once, not identified | OPEN |
+  | python `test_install_carries_the_key_to_the_environment_tier.py` | OPEN, different family |
+
+  **THE SHARED CAUSE IS A BUDGET BELOW ITS OWN COST**, and it is the rule this repo already has a
+  memory note for. Both fixed tests waited a FIXED DURATION for timer-driven work: 60ms for three
+  ticks at a ~15ms Windows floor, and 350ms for roughly fourteen. Idle they fit; under the full suite
+  they sometimes do not. Both now wait for the CONDITION, which is also FASTER on a healthy run.
+
+  **THE FIX HAS TWO HALVES AND THEY ARE NOT THE SAME.** A PRESENCE (`ends >= 1`, `frames > 1`) can be
+  polled for, so a slow host takes longer instead of failing. An ABSENCE (`exactly one`) cannot be:
+  it needs real elapsed time in which the second event could have happened, so that wait stays fixed.
+  Collapsing the two into one poll would silently stop checking the duplicate.
+
+  **AND THE PATTERN IS SYSTEMIC IN ONE FILE, measured: `hermes-gateway-turn-detector.test.js` holds
+  16 fixed sleeps, 15 of them the outcome wait followed by `stop()` and an assertion.** One has been
+  fixed and one more has been seen to fail; the other ~14 are the same shape and are latent. Worth a
+  pass, one test at a time, each with the presence/absence split above.
+
+  **A NOTE ON MUTATION-PROVING THESE.** That file has TEN identical `postTurnEnd: async () => {
+  ends++; },` lines. Mutating "the first one" hits a different test and reddens nothing, which reads
+  as a test that cannot catch its own bug. Scope the mutation to the target test's block.
 
 - **D19. THREE OF THE FOUR WRAPPERS' `--shared` BLOCKS WERE NEVER TESTED. Found and covered
   2026-09-04** (aify-wrapper `6eac113`, `99e9b14`).

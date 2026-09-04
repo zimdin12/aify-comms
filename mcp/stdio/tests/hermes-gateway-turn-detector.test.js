@@ -312,7 +312,21 @@ test("startHermesGatewayTurnDetector: refresh does not cause a false turn-end, a
     postTurnStart: async () => {},
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 350));
+  // WAIT FOR THE END, THEN FOR A DUPLICATE -- not for a fixed 350ms, which was a MEASURED flake:
+  // this failed `0 !== 1` under the full suite on 2026-09-04 and passes alone every time. Reaching
+  // one end needs four working polls plus the idle debounce, and at 25ms against Windows' ~15ms
+  // timer floor a loaded host does not fit them into 350ms. The file already knew about the floor --
+  // the intervals were chosen above it -- but the OUTCOME was still waited for by the clock.
+  //
+  // The two halves need different waits, which is why this is not one sleep. `ends >= 1` is a
+  // PRESENCE and is polled for, so a slow host takes longer instead of failing. `exactly one` is an
+  // ABSENCE and cannot be polled for at all: it needs real time in which a second end could have
+  // fired, so the grace below stays a fixed wait, sized at several poll intervals.
+  const deadline = Date.now() + 5_000;
+  while (ends < 1 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  await new Promise((r) => setTimeout(r, 150));
   stop();
   assert.equal(ends, 1, "sustained idle after a refreshing working turn → exactly one /turn-end");
 });

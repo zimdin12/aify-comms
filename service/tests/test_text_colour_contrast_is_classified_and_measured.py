@@ -153,8 +153,13 @@ class TextColourContrastIsClassifiedAndMeasured(unittest.TestCase):
         #: the button sets `background: transparent`, so it owns no surface and its `var(--muted)`
         #: foreground is read against whatever panel it sits on, exactly as `.chat-rail-section`
         #: beside it already is.
-        self.assertEqual(TOTAL, 214, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
-        self.assertEqual(len(BUCKETS["INHERITED"]), 151)
+        #: 214 -> 215 and INHERITED 151 -> 152 on 2026-09-04: `.console-find-summary`, the console
+        #: find bar's match counter (B1). INHERITED is the honest bucket -- the counter sets no
+        #: background, so its `var(--muted)` foreground is read against the bar behind it. MEASURED
+        #: rather than assumed, because that is what this gate is for: `--muted` (#9eaaa5) on the
+        #: bar's `--panel-2` (#1d2325) is 6.63:1, comfortably past the 4.5 floor.
+        self.assertEqual(TOTAL, 215, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
+        self.assertEqual(len(BUCKETS["INHERITED"]), 152)
         self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 34)
         self.assertEqual(len(BUCKETS["RUNTIME"]), 15)
         self.assertEqual(len(BUCKETS["COMPOSITE"]), 13)

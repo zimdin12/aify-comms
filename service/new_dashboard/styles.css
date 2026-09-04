@@ -1619,6 +1619,13 @@ small, .subtle { color: var(--muted); }
 /* Console toolbar + await-pill + start/fallback (WS-D). */
 .console-embed-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .console-toolbar { display: flex; align-items: center; gap: 6px; }
+
+/* The console find bar. ABOVE the terminal, not floating over it: the operator is reading the
+   output they are searching, and a bar overlapping the top rows hides a hit's context. */
+.console-find { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.console-find-input { flex: 1 1 auto; min-width: 0; padding: 4px 8px; min-height: var(--control-h-sm); font-size: var(--fs-xs); }
+.console-find-summary { flex: 0 0 auto; min-width: 6.5em; text-align: right; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.console-find button { padding: 4px 10px; min-height: var(--control-h-sm); font-size: var(--fs-xs); }
 .console-toolbar button { padding: 4px 10px; min-height: var(--control-h-sm); font-size: var(--fs-xs); }
 .console-await-pill { background: color-mix(in srgb, var(--amber) 18%, var(--panel)); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent); border-radius: 999px; padding: 2px 8px; font-size: var(--fs-xs); font-weight: 700; }
 .console-start-actions { display: flex; gap: 8px; padding: 14px; }

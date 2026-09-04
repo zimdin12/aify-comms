@@ -22,7 +22,7 @@ import { attachChatFile, uploadPastedImage, uploadSharedFile } from './shared-fi
 import { codexConsoleSendTurn } from './codex-console.mjs';
 import { createSpawnRequest, renderEnvironmentSpawnOptions } from './environments-panels.mjs';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
-import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
+import { handleGlobalInput, handleGlobalKeydown } from './keyboard-shortcuts.mjs';
 import { loadContractsForState, renderContracts } from './work-loop-actions.mjs';
 import { loadRunsForStatus, renderRuns } from './run-inspector.mjs';
 import { notificationsEnabled, toggleNotifications } from './notifications.mjs';
@@ -52,6 +52,10 @@ export function wireGlobalControls({
   document.addEventListener('keydown', (event) => {
     handleGlobalKeydown(event, closeInspector, toggleFavorite);
   });
+
+  // The console find box, searching as it is typed in. One delegated listener rather than one per
+  // console render -- the console re-renders on every poll.
+  document.addEventListener('input', handleGlobalInput);
 
   byId('refresh').addEventListener('click', refresh);
 

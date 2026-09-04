@@ -148,7 +148,10 @@ const CEILINGS = {
   // --check, --version, --help -- plus a two-line install record `scripts/installed-delegation.sh`
   // reads back. The baked API key went with it: it existed because the BRIDGE could not reach its
   // own service, and every surviving branch reaches it on its own terms.
-  "install.sh": 2977,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2977 -> 2975 on 2026-09-04. NOT a change to this file: it measured 2975 and the ceiling had two
+  // lines of slack, which is exactly the room a ratchet must not leave. Tightened to the real
+  // number as the payment for the styles.css entry below.
+  "install.sh": 2975,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
@@ -166,7 +169,21 @@ const CEILINGS = {
   // on every partial render. Two rules, and the first draft cost eleven lines: a block button
   // that aligns itself with `margin-left: auto` needs no wrapper element and no wrapper rule,
   // which paid back seven of them and removed a div from the markup as well.
-  "service/new_dashboard/styles.css": 1843,
+  // 1843 -> 1850 on 2026-09-04. THE DEAD-RULE CENSUS THIS ENTRY HAS BEEN ASKING FOR IS DONE, and it
+  // yields nothing: 422 classes are defined here and 410 are named directly in the markup. Of the
+  // twelve that are not, ELEVEN ARE BUILT AT RUNTIME -- `c-${status}` in work-loop-panels.mjs,
+  // `p-${priority}` and `t-${type}` in chat-render.mjs, `toast-${kind}` in ui.js -- and the twelfth,
+  // `xterm-viewport`, is created by xterm itself. A census keyed on literal occurrences reports all
+  // twelve as dead, and acting on it would have deleted eleven live rules and one library hook. So
+  // the note this entry carried -- that paying the ceiling down needs a census -- is answered: there
+  // is no dead CSS to reclaim, and the next person should not spend the day re-running it.
+  //
+  // What the seven lines buy: the console can be SEARCHED (B1). 5,000 lines of scrollback and the
+  // only way through them was scrolling. Four rules for a new component, in this file's own
+  // single-line idiom -- the first draft was eleven lines across five rules. `install.sh`'s ceiling
+  // comes down from 2977 to its measured 2975 in the same change, which is the payment this gate
+  // asks for rather than a nudge to clear a red test.
+  "service/new_dashboard/styles.css": 1850,
 };
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "dist", "build", ".messages", "data"]);

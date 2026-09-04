@@ -1909,6 +1909,48 @@ const EXTRACTIONS = [
               "  // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as",
             ],
           },
+          // 2026-09-04, B1: the console find box. Its Enter and Escape are claimed BEFORE the rules
+          // below, because Escape already dismisses the inspector that sits directly above the console.
+          {
+            was: [
+              "  if (event.key === 'Escape') {",
+            ],
+            now: [
+              "  // THE FIND BOX FIRST, and it returns. Enter and Escape mean something else everywhere on this",
+              "  // page -- Escape dismisses the inspector, which is directly above the console -- so while the",
+              "  // caret is in the find box those keys belong to it and nothing below may also act on them.",
+              "  //",
+              "  // DELEGATED rather than bound at render: the console re-renders on every poll, and a listener",
+              "  // attached per render is a leak that grows for as long as the page is open.",
+              "  if (event.target?.matches?.('.console-find-input')) {",
+              "    if (handleConsoleFindKey(consoleHostOf(event.target), event)) return;",
+              "  }",
+              "  if (event.key === 'Escape') {",
+            ],
+          },
+          // And the hotkey itself, beside the copy shortcut it borrows its reasoning from.
+          {
+            was: [
+              "    copyActiveConsole();",
+              "  }",
+            ],
+            now: [
+              "    copyActiveConsole();",
+              "  }",
+              "  // Ctrl+Shift+F searches the scrollback, SHIFTED FOR THE SAME REASON as the copy shortcut above:",
+              "  // plain Ctrl+F is a real key in a terminal -- readline binds it to forward-char and vim to",
+              "  // page-forward -- so claiming it would break those inside the very consoles this searches, and",
+              "  // the breakage would look like the PTY dropping input.",
+              "  if (isSearchHotkey(event) && state.activeXterm?.term) {",
+              "    event.preventDefault();",
+              "    // The console this belongs to, from the container the mount recorded. A global lookup would",
+              "    // drive whichever console came first in the DOM, and a Chat-embedded console and the Sessions",
+              "    // console are both live on one page.",
+              "    const container = state.activeXterm.container;",
+              "    toggleConsoleFind(container?.closest?.('.console-embed') ?? container);",
+              "  }",
+            ],
+          },
         ],
         wrapper: {
           header: ["export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {"],
@@ -1943,6 +1985,30 @@ const EXTRACTIONS = [
         name: "runConsoleAction",
         at: 4485,
         marker: "    runConsoleAction(consoleAction, resyncActiveConsole, stopConsoleTerminal, startConsoleForSession);",
+        editedSince: [
+          // 2026-09-04, B1: the find bar's four buttons, and the end of the silent no-op this
+          // file's own header has warned about since it was extracted.
+          {
+            was: [
+            ],
+            now: [
+              "    // FIND, and its three bar buttons. The host is resolved from the button rather than by a global",
+              "    // id for the same reason the mount is: a Chat-embedded console and the Sessions console are two",
+              "    // live consoles on one page, and a global lookup would drive whichever came first in the DOM.",
+              "    else if (action === 'find') toggleConsoleFind(consoleHost(consoleAction));",
+              "    else if (action === 'find-next') stepConsoleFind(consoleHost(consoleAction), 1);",
+              "    else if (action === 'find-prev') stepConsoleFind(consoleHost(consoleAction), -1);",
+              "    else if (action === 'find-close') closeConsoleFind(consoleHost(consoleAction));",
+              "    // AN UNKNOWN ACTION IS LOUD NOW. This file's own header warned that a renamed attribute in the",
+              "    // template turns a toolbar button into a silent no-op that looks fine in review -- and the",
+              "    // warning sat above a dispatch that did exactly that. Returning the action lets",
+              "    // `console-actions-agree-with-the-template.test.mjs` drive every value the markup actually emits",
+              "    // and fail on one nothing handles, so the population is derived rather than remembered.",
+              "    else return null;",
+              "    return action;",
+            ],
+          },
+        ],
         wrapper: {
           header: ["export function runConsoleAction(consoleAction, resyncActiveConsole, stopConsoleTerminal, startConsoleForSession) {"],
           footer: ["}"], dedent: "  ",
@@ -2347,6 +2413,36 @@ const EXTRACTIONS = [
               "    // the other way, `normalizedSessionMode !== 'resident'`, and concluded the terminal could",
               "    // represent the current owner. One render, one answer.",
               "    sessionMode: normalizedSessionMode,",
+            ],
+          },
+          // 2026-09-04, B1: the console can be SEARCHED. 5,000 lines of scrollback and no way to
+          // look through them -- the operator could scroll, and that was all. Two edits, both in
+          // this template: a Find button beside Copy (which already uses the same shifted chord,
+          // because plain Ctrl+F is forward-char to readline and page-forward to vim), and the bar
+          // itself ABOVE the terminal rather than floating over it, since a bar overlapping the top
+          // rows hides the context a hit was found in.
+          {
+            was: [
+              "             <button class=\"ghost\" data-console-action=\"copy\" title=\"Copy selection (or whole buffer) \u2014 Ctrl+Shift+C\">Copy</button>",
+            ],
+            now: [
+              "             <button class=\"ghost\" data-console-action=\"copy\" title=\"Copy selection (or whole buffer) \u2014 Ctrl+Shift+C\">Copy</button>",
+              "             <button class=\"ghost\" data-console-action=\"find\" title=\"Search this console's scrollback \u2014 Ctrl+Shift+F\">Find</button>",
+            ],
+          },
+          {
+            was: [
+              "         <div id=\"${esc(ptyContainerId)}\" class=\"xterm-host\"></div>",
+            ],
+            now: [
+              "         <div class=\"console-find\" hidden>",
+              "           <input class=\"console-find-input\" type=\"search\" placeholder=\"Find in scrollback\u2026\" aria-label=\"Find in console scrollback\" spellcheck=\"false\" autocomplete=\"off\">",
+              "           <span class=\"console-find-summary\" aria-live=\"polite\"></span>",
+              "           <button class=\"ghost\" data-console-action=\"find-prev\" title=\"Previous match \u2014 Shift+Enter\">\u2191</button>",
+              "           <button class=\"ghost\" data-console-action=\"find-next\" title=\"Next match \u2014 Enter\">\u2193</button>",
+              "           <button class=\"ghost\" data-console-action=\"find-close\" title=\"Close find \u2014 Escape\">\u2715</button>",
+              "         </div>",
+              "         <div id=\"${esc(ptyContainerId)}\" class=\"xterm-host\"></div>",
             ],
           },
         ],
@@ -3462,6 +3558,25 @@ const EXTRACTIONS = [
               "// picked up automatically. This is the one line that reaches the live DOM; everything it drives is",
               "// unit-tested in `rel-time-ticker.test.mjs`.",
               "startRelTimeTicker({ queryAll: () => document.querySelectorAll(REL_TIME_SELECTOR) });",
+            ],
+          },
+          // 2026-09-04, B1: ONE delegated `input` listener feeds the console find box. Delegated
+          // rather than bound per console render, because the console re-renders on every poll and a
+          // per-render listener is a leak that grows for as long as the page is open.
+          {
+            was: [
+              "document.addEventListener('keydown', (event) => {",
+              "  handleGlobalKeydown(event, closeInspector, toggleFavorite);",
+              "});",
+            ],
+            now: [
+              "document.addEventListener('keydown', (event) => {",
+              "  handleGlobalKeydown(event, closeInspector, toggleFavorite);",
+              "});",
+              "",
+              "// The console find box, searching as it is typed in. One delegated listener rather than one per",
+              "// console render -- the console re-renders on every poll.",
+              "document.addEventListener('input', handleGlobalInput);",
             ],
           },
         ],
