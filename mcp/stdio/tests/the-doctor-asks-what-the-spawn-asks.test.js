@@ -131,3 +131,59 @@ test("envCanClaimASpawn reads the clock so callers do not each pass one", () => 
   assert.equal(envCanClaimASpawn(live), true);
   assert.equal(envCanClaimASpawn(dead), false);
 });
+
+// ── the SERVICE's verdict wins over a locally recomputed one ─────────────────────────────────────
+//
+// EXTERNAL REVIEW, Round 8 M10. `/environments` carries `spawnClaim.state` on every row, computed by
+// the same rule `/spawn` refuses on and against the SERVICE's clock -- the one that will actually
+// decide. The doctor and `comms_envs` each recomputed it from `metadata.bridgeLastSeen` against
+// `Date.now()` on the HOST, so a host running ahead refused a spawnable environment and one running
+// behind called a good stamp unreadable. Neither is a real condition.
+//
+// `service/new_dashboard/status.js` had already made this move and says why in its own words: the
+// doctor and the MCP tool "each grew their OWN copy of that rule and each got it wrong once, in the
+// same direction". This is those two, stopping.
+
+test("the service's own spawnClaim decides, even when the local stamp disagrees", () => {
+  const now = Date.now();
+  const old = new Date(now - 600_000).toISOString();
+  const fresh = new Date(now - 1_000).toISOString();
+
+  assert.equal(
+    bridgeStampStateAt({ spawnClaim: { state: "fresh" }, metadata: { bridgeLastSeen: old } }, now),
+    "fresh",
+    "a locally-aged stamp overrode the service's own verdict. The service is the tier that refuses "
+    + "the spawn, so a host disagreeing with it is a host being wrong.",
+  );
+  assert.equal(
+    bridgeStampStateAt({ spawnClaim: { state: "stale" }, metadata: { bridgeLastSeen: fresh } }, now),
+    "stale",
+    "a locally-fresh stamp overrode a service that had already said stale",
+  );
+});
+
+test("WITHOUT the field it still computes, so an older service is not a blind spot", () => {
+  // THE CONTROL, and the reason the fallback stays: a service too old to send `spawnClaim` is
+  // precisely the deployment an operator runs the doctor to investigate. Removing the computation
+  // would answer `absent` for every row there, which reads as "no claimer" and is not what was seen.
+  const now = Date.now();
+  assert.equal(
+    bridgeStampStateAt({ metadata: { bridgeLastSeen: new Date(now - 1_000).toISOString() } }, now),
+    "fresh", "the fallback stopped recognising a fresh stamp");
+  assert.equal(
+    bridgeStampStateAt({ metadata: { bridgeLastSeen: new Date(now - 600_000).toISOString() } }, now),
+    "stale", "the fallback stopped ageing a stamp");
+});
+
+test("a spawnClaim state this host does not know is IGNORED, not trusted", () => {
+  // A guard that accepts an unrecognised value is decoration. A future service inventing a state
+  // must fall back to the rule this host can actually reason about, rather than having the string
+  // passed through into a comparison that will never match.
+  const now = Date.now();
+  assert.equal(
+    bridgeStampStateAt(
+      { spawnClaim: { state: "something-new" }, metadata: { bridgeLastSeen: new Date(now - 1_000).toISOString() } },
+      now),
+    "fresh",
+    "an unrecognised state was passed through instead of falling back to the local computation");
+});

@@ -171,9 +171,21 @@ export function renderRuntime() {
       <div class="contract-actions">
         ${resolveStatus(env.status).kind === 'offline' ? '' : (() => {
           const claim = spawnClaim(env);
-          const title = claim.canSpawn
-            ? 'Open the spawn form prefilled for this environment'
-            : `A spawn here would be refused: ${claim.why}. Start a claimer on that host.`;
+          // THREE ANSWERS, NOT TWO. `unproven` was returned by `spawnClaim` and read by nobody until
+          // 2026-09-04 (external review, Round 8 M8) -- so a row this page CANNOT judge showed the
+          // same confident button as one it had checked. A field nothing reads changes nothing, which
+          // is this repo's own rule from the opposite end.
+          //
+          // The fail-open stays and its reasoning is unchanged: the service resolves an unstamped row
+          // against `bridge_instances`, which no listing queries, so the page genuinely cannot know
+          // and greying the button would take the feature from environments that work. What is fixed
+          // is the silence.
+          const title = claim.canSpawn && claim.unproven
+            ? 'This environment carries no claim stamp, so whether a spawn is accepted cannot be told '
+              + 'from here. Try it, or ask `aify-comms doctor` on that host.'
+            : claim.canSpawn
+              ? 'Open the spawn form prefilled for this environment'
+              : `A spawn here would be refused: ${claim.why}. Start a claimer on that host.`;
           return `<button class="ghost${claim.canSpawn ? '' : ' danger'}" data-env-spawn="${esc(env.id)}" title="${esc(title)}">Spawn here…${claim.canSpawn ? '' : ' (no claimer)'}</button>`;
         })()}
         <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>

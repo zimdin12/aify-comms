@@ -397,3 +397,51 @@ test("the summary counts CAN SPAWN separately from ONLINE, and they can disagree
   assert.ok(html.includes("<b>2</b><span>Online bridges</span>"), "two rows are advertised");
   assert.ok(html.includes("<b>1</b><span>Can spawn</span>"), "and only one can take work");
 });
+
+// ── an environment the page cannot judge says so ─────────────────────────────────────────────────
+//
+// EXTERNAL REVIEW, Round 8 M8. `spawnClaim()` returns `unproven: true` for a row with no claim
+// stamp, and NOTHING read it -- measured, one hit in the whole dashboard, the line that sets it. So
+// a row the page cannot judge showed the same confident button as one it had checked. A field
+// nothing reads changes nothing, which is this repo's own rule arriving from the other end.
+//
+// The fail-open stays: the service resolves an unstamped row against `bridge_instances`, which no
+// listing queries, so the page genuinely cannot know and greying the button would take the feature
+// from environments that work. The silence is what was wrong.
+
+/** The environment list's HTML for one row, rendered the way the page renders it. */
+function runtimeHtmlFor(env) {
+  state.environments = [env];
+  return withDom({ "environment-list": el() }, null, (els) => {
+    renderRuntime();
+    return els["environment-list"].innerHTML;
+  });
+}
+
+test("a row with NO claim stamp keeps its button and says the answer is unknown", () => {
+  const html = runtimeHtmlFor({ id: "windows:unstamped:default", label: "Unstamped", status: "online" });
+  assert.match(html, /Spawn here/, "the button was taken away from a row that may well work");
+  assert.match(html, /cannot be told/,
+    "the page offered a confident Spawn button for an environment it cannot judge. `unproven` is "
+    + "returned for exactly this row and was read by nobody.");
+});
+
+test("a FRESH claim still gets the plain title, so the notice means something", () => {
+  // THE CONTROL. A notice on every row is one an operator stops reading, and it would hide the
+  // difference this test exists to preserve.
+  const html = runtimeHtmlFor({
+    id: "windows:stamped:default", label: "Stamped", status: "online",
+    spawnClaim: { state: "fresh" },
+  });
+  assert.match(html, /Open the spawn form prefilled/, "a proven row lost its ordinary title");
+  assert.doesNotMatch(html, /cannot be told/, "the unknown-claim notice fired on a PROVEN row");
+});
+
+test("a STALE claim still refuses, and says why", () => {
+  const html = runtimeHtmlFor({
+    id: "windows:stale:default", label: "Stale", status: "online",
+    spawnClaim: { state: "stale" },
+  });
+  assert.match(html, /no claimer/, "a row that would be refused no longer says so");
+  assert.doesNotMatch(html, /cannot be told/, "a KNOWN refusal was reported as unknown");
+});

@@ -36,6 +36,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
+import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
 import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
@@ -609,6 +610,16 @@ async function checkSpawnDelegation() {
 // terminal. See docs/AIFY_ENV_BOUNDARY.md for the table that assigns them.
 checkSkillsInstalled();
 await checkSpawnDelegation();
+// WORK THAT WAS TAKEN AND NOT DONE, which no row here asked about until 2026-09-04 (external
+// review, Round 8 M9). `spawn-delegation` says where spawns RUN, `env-bridge` says a claimer is
+// registered, `bridge-current` says it is running current code -- and a host whose claim loop died
+// after taking a request passes all three, because the heartbeat is a SEPARATE loop from the claim
+// loop. That is exactly how H2 stayed invisible: accepted spawns that never appeared, with every
+// instrument green.
+{
+  const verdict = await spawnQueueVerdict({ list: () => get("/api/v1/spawn-requests") });
+  add("spawn-queue", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+}
 await checkManagedOrphans();
 // WHAT IS HOLDING HERMES' FILES. Its sibling above watches the DELIVERY LOOPS; nothing watched the
 // per-agent GATEWAY HOSTS, and on 2026-08-31 the operator's `hermes update` refused to run, listing

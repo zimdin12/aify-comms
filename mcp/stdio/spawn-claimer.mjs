@@ -49,6 +49,23 @@ export const BRIDGE_STAMP_INVALID = "invalid";
  * unproven rather than answered either way.
  */
 export function bridgeStampStateAt(env, now) {
+  // THE SERVICE'S ANSWER FIRST, since 2026-09-04 (external review, Round 8 M10).
+  //
+  // `/environments` carries `spawnClaim.state` on every row, computed by the same rule `/spawn`
+  // refuses on and against the SERVICE's clock -- the one that will actually decide. Recomputing it
+  // here put the verdict on the HOST's clock instead: a host running ahead refuses a spawnable
+  // environment, a host running behind calls a good stamp unreadable, and neither is a real
+  // condition. `service/new_dashboard/status.js` already made this move and says why in its own
+  // words: "The doctor and the `comms_envs` MCP tool each grew their OWN copy of that rule and each
+  // got it wrong once, in the same direction." This is those two, stopping.
+  //
+  // THE LOCAL COMPUTATION STAYS AS THE FALLBACK, for a service too old to send the field. Removing
+  // it would blind the doctor against exactly the deployment an operator runs it to investigate.
+  const answered = String(env?.spawnClaim?.state || "").trim();
+  if (answered === BRIDGE_STAMP_FRESH || answered === BRIDGE_STAMP_STALE
+      || answered === BRIDGE_STAMP_ABSENT || answered === BRIDGE_STAMP_INVALID) {
+    return answered;
+  }
   const stamp = String(env?.metadata?.bridgeLastSeen || "").trim();
   if (!stamp) return BRIDGE_STAMP_ABSENT;
   const at = Date.parse(stamp);

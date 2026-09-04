@@ -110,9 +110,25 @@ class TurnLivenessPolicyTests(unittest.TestCase):
 
         Without an anchor the renewable branch computes `seen = max(usable_touch, 0)`, which IS the
         touch column -- exactly what the unverified branch falls back to -- and both then face the
-        same `age <= strict_seconds`. So an anchorless turn is already bounded by the STRICT rule,
-        which is tighter than the ceiling it skips. The ceiling only ever bites a turn that HAS an
-        anchor, and there it applies.
+        same `age <= strict_seconds`.
+
+        THE ORIGINAL REASONING WENT ON TO SAY the strict rule is "tighter than the ceiling it skips",
+        AND THAT IS WRONG -- corrected 2026-09-04 by external review, Round 8 M12. The two bound
+        DIFFERENT quantities: strict bounds the SILENCE GAP since anything last touched the row, and
+        the ceiling bounds the DURATION of the turn. A turn touched every thirty seconds for a week
+        never trips strict, and the ceiling that would have stopped it is exactly the one being
+        skipped. `turn_liveness_policy`'s own docstring says the touch column cannot bound a turn.
+
+        AND THIS TEST DOES NOT GUARD THE CONCLUSION EITHER. It asserts that a renewable row answers
+        the same as an unverified one -- and an UNBOUNDED pair answers the same too, because both say
+        live. It measures parity, and parity is not the property. Kept because parity IS worth
+        holding, and renamed in the mind rather than the file: what it proves is that verification
+        adds nothing here, not that anything is bounded.
+
+        WHAT MAKES DISP-L1 A NON-DEFECT is that no anchorless busy row is ever WRITTEN: one writer of
+        `turn_busy = 1`, and it binds `turn_started_at` in the same statement.
+        `test_every_busy_turn_has_a_start_anchor.py` is the gate for that, and it is where the real
+        protection now lives.
 
         Two repairs were written and both were wrong. Bounding against `started_epoch or
         touched_epoch` measures the ceiling from the column a timer-driven poster refreshes, so it
