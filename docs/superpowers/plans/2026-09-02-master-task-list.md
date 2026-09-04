@@ -117,6 +117,35 @@ now visible per-agent in the dashboard drawer.
 mutation-tested, but proving it starts a resident on your fleet, which is yours to decide.
 
 
+## THE v0.6.2 TAG WAS CUT EARLY AND RETRACTED, 2026-09-04
+
+**I tagged v0.6.2 before it met the operator's own bar, and they caught it.** Their scoping on
+2026-09-02 reads: *"every other improvement, all review fixes, and what the EXTERNAL review of v0.6.1
+finds -- the improved and reviewed one."* The review half was answered in full, and I read
+*"finalize it, if it makes sense"* as authorisation to cut. The B/C/D items ARE "every other
+improvement", so the bar was not met and the tag was premature.
+
+**RETRACTED RATHER THAN MOVED, and the evidence says that costs nothing.** Measured before touching
+anything: `bridge-installed` read `b7d77fd`, the service was serving `b7d77fdf`, and the running
+aify-env reported 0.6.0 -- all v0.6.1 or older. **Nothing had ever run v0.6.2.** The tags were two
+hours old on private repos, so the practice against moving a published tag protects nobody here.
+
+The three shas are written down (`fe42ea9d`, `dd6908f`, `e2e7e4f`) so the retraction is reversible,
+which is what makes it a safe action rather than a destructive one.
+
+**VERSION IS 0.6.2 AGAIN in all three repos, and stays there until the list is done.** The bump to
+0.6.3 was not a decision to ship a 0.6.3 -- it was
+`test_version_is_not_an_already_released_tag` correctly refusing a tree that had moved past its own
+tag. With no tag, that gate is quiet and the number names what is being worked on, which is what it
+is for.
+
+**THE LESSON, and it is mine: a tag is the LAST step, not a checkpoint.** Cutting one mid-list means
+either re-moving it on every slice or stranding real fixes after it -- and C5's 1490x write
+amplification and B3's encoding defect are exactly the improvements the operator meant. Tag once,
+when the list is done.
+
+---
+
 ## EXTERNAL REVIEW ROUND 8 — every HIGH and MEDIUM answered, 2026-09-04
 
 Reviewed against aify-comms `7625737a`, aify-env `e7974fb`, aify-wrapper `c25a4b3`. Their
