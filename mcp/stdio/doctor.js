@@ -327,7 +327,14 @@ async function checkEnvBridge() {
           ? `. ${advertised} of them read \`online\`, which means aify-env is DESCRIBING that host, not that a bridge is live on it.`
           : "")
       : "No environment bridge is registered — dashboard-managed spawns cannot run.";
-    add("env-bridge", false, "none", detail, "Start one on the host: `aify-comms`.");
+    // THE REMEDY NAMES THE COMMAND THAT EXISTS. This said "Start one on the host: `aify-comms`"
+    // until 2026-09-04 (external review, Round 8 M11) -- a command that has exited 2 and named
+    // aify-env since v0.6.1. This is the one row whose whole job is saying what to do next, and it
+    // was sending the operator to a refusal.
+    add("env-bridge", false, "none", detail,
+      "Start the host tier: `aify-env` on that host (it claims spawns now; `aify-comms` starts "
+      + "nothing and refuses). Ask with `aify-env doctor` before starting one -- supersession reaps "
+      + "the predecessor's workers.");
     // AND STILL REPORT bridge-current, which used to VANISH here. This `return` took the whole
     // rest of the function with it, so whenever no env bridge was online the report simply had no
     // `bridge-current` row — not a skip, not a failure, absent. An operator counting checks saw ten

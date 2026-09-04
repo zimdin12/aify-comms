@@ -109,11 +109,29 @@ _END_SUMMARY_WAS = chr(10).join([
 # returns before its UPDATE. So it is answered in the route, and the block sits between the two
 # lines the earlier edit had declared, which is why this entry was regenerated rather than appended
 # to: a declaration that no longer appears verbatim undoes nothing, and the gate says so.
+#: DECLARED EDIT, 2026-09-04 (external review, Round 8 M6). An EMPTY liveness frame could take
+#: over a virtual-rpc terminal and REVIVE a stopped row: the settlement ran before the liveness
+#: branch, and its revive rests on "an arriving POST is hard proof the new bridge is driving
+#: this" -- which a frame with no bytes and no status is precisely not. Guarded at the call
+#: site. Undone here rather than re-captured, so the pre-split baseline survives.
+#:
+#: TWO EARLIER SHAPES OF THIS FIX WERE WITHDRAWN, and this gate rejected both -- which is the
+#: gate doing its job rather than being in the way. Adding a `carries_content` parameter put an
+#: extra guard inside the HELPER, and the reconstruction inlines that helper's body, so it
+#: appeared in the rebuilt function. Moving the `status` local above the call then broke
+#: `_EXIT_RECORD_NOW`, an unrelated declared edit whose own text begins with that line. The
+#: version that landed moves nothing and touches no helper.
+_M6_EDIT = [(
+    '        # A LIVENESS FRAME SETTLES NOTHING, and this guard is the whole of the 2026-09-04 change\n        # (external review, Round 8 M6).\n        #\n        # `_settle_bridge_takeover_for_output` adopts a virtual-rpc terminal from another bridge and\n        # REVIVES a stopped row, and the reasoning it gives is exact: an arriving POST is HARD PROOF\n        # the new bridge is actively driving this terminal. It rescued a real incident --\n        # supersession racing an in-flight dispatch on 2026-05-22, the row reading stopped while\n        # frames arrived and the dashboard saying "terminal is not running" while the agent replied.\n        #\n        # A FRAME WITH NO BYTES AND NO STATUS IS NOT THAT PROOF. It is the host saying "this process\n        # is still mine" -- a claim, not evidence -- so `{output: ""}` was enough to adopt a terminal\n        # and resurrect a stopped row. Every case the rescue was built for carries real output, so\n        # none of them is affected.\n        #\n        # SKIPPED, NOT REFUSED. A 409 here would reintroduce the race the rescue exists for, on a\n        # path where being wrong shows as a console reading dead while an agent works. The row is\n        # left exactly as it was and the next real frame settles it.\n        #\n        # NOT AN AUTHORISATION FIX, and it does not pretend to be: the operator ruled on 2026-09-04\n        # that there are no per-agent tokens, so a key holder can still drive terminals. What is\n        # removed is a CONTENTLESS message being treated as work.\n        #\n        # `req.status` IS READ DIRECTLY rather than through the `status` local below, which is\n        # deliberate: moving that line above this guard broke an unrelated declared edit in\n        # `test_append_terminal_output_split_is_inert.py`, whose own text begins with it. A split\n        # proof that has to be re-declared for a change that did not need to move anything is a cost\n        # with nothing bought.\n        if req.output or str(req.status or "").strip():\n            await _settle_bridge_takeover_for_output(\n                db, terminal, terminal_id, new_bridge_id, existing_bridge_id, is_virtual_rpc,\n            )\n',
+    '        await _settle_bridge_takeover_for_output(\n            db, terminal, terminal_id, new_bridge_id, existing_bridge_id, is_virtual_rpc,\n        )\n',
+)]
+
 _PROMPT_EDITS = [
     ("        chunk_text = req.output or \"\"\n        # A LIVENESS FRAME CARRIES NEITHER, and it is the only thing the host sends that says \"this\n        # process is still mine\". It is answered here rather than passed on, because both guards\n        # downstream drop it -- the queue returns 0 for a frame with no output and no status, and\n        # `_append_terminal_output` returns before its UPDATE. See `_record_host_reported_alive`\n        # for what that silence cost.\n        if not chunk_text and not status:\n            await _record_host_reported_alive(db, terminal)\n            await db.commit()\n            reported = _terminal_session_to_dict(terminal)\n            # The row's OWN sequence, never the 0 the queue would have answered: a client that took\n            # that for a real seq would see the stream jump backwards on the next chunk.\n            reported[\"outputSeq\"] = int(terminal[\"output_seq\"] or 0)\n            return {\"ok\": True, \"terminal\": reported}\n        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            chunk_text,", "        next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(\n            terminal_id,\n            req.output or \"\","),
     ("        if status in _TERMINAL_END_STATUSES:\n            _forget_answered_prompts(terminal_id)\n", ""),
 ]
-EDITED_SINCE = [(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)] + _PROMPT_EDITS
+EDITED_SINCE = ([(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)]
+                + _PROMPT_EDITS + _M6_EDIT)
 EXTRACTIONS = ["_settle_bridge_takeover_for_output", "_close_out_terminal_on_end_status"]
 
 #: Where each helper is expected to be declared. PER HELPER, over every module below.

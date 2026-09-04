@@ -444,7 +444,25 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
   const stale = [];
   const behindByNonBridge = [];
   let unknown = 0;
+  // THE HOST TIER IS NOT A SILENT BRIDGE, and conflating the two made this row red for ever on a
+  // correctly-configured host. External review, Round 8 M11.
+  //
+  // aify-env sends `bridgeId`, `bridgeVersion` and `bridgeStartedAt`, and NO `bridgeBuild` -- by
+  // design, because it is not built from this checkout and has no sha of this repo to be current
+  // with. Counting it as "did not report" made `unknown-all` permanent and `--strict` exit 1 on a
+  // host doing exactly the right thing. A red that can never clear gets switched off, and it takes
+  // the real signal with it -- and the real signal here is a bridge RUNNING old code, which is the
+  // hazard the whole H4 finding turns on.
+  //
+  // "No evidence is not a pass" still holds; it was being applied to the wrong fact. A bridge that
+  // should report its build and does not is no evidence. A tier that was never going to report one
+  // is not silence, it is a different kind of thing.
+  const hostTier = [];
   for (const env of live) {
+    if (String(env?.metadata?.bridgeKind || "").trim().toLowerCase() === "aify-env") {
+      hostTier.push(env);
+      continue;
+    }
     const build = String(env?.metadata?.bridgeBuild || "").trim();
     if (!build || build === "unknown" || build === "no-git" || build === "unknown-ref") {
       unknown += 1;
@@ -480,7 +498,21 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
   // So the two absences must not share a verdict. Some-current-some-silent is degraded reporting
   // on a partially proven fleet. ZERO current evidence is not a partial result, it is NO result,
   // and a check with no result must not be counted as a passed one.
-  if (unknown === live.length) {
+  // EVERY LIVE ENVIRONMENT IS A HOST TIER: there is no bridge here to be stale, so there is nothing
+  // to report and nothing to fail. Said as its own code rather than folded into `ok` with an empty
+  // detail, because "this check does not apply here" and "this check passed" are different answers
+  // and an operator reading the report deserves the first one.
+  if (hostTier.length && hostTier.length === live.length) {
+    return {
+      ok: true,
+      code: "host-tier",
+      detail: `${hostTier.length} live environment(s), all served by the aify-env host tier, which `
+        + "reports no build of this repo because it is not built from it. Nothing here can be "
+        + "running stale aify-comms bridge code, because no bridge is running.",
+      fix: "",
+    };
+  }
+  if (unknown === live.length - hostTier.length && unknown > 0) {
     return {
       ok: false,
       code: "unknown-all",

@@ -113,7 +113,17 @@ class TombstoneFreshnessTests(unittest.TestCase):
         agent_gate = (root / "service/api_core/registration_gates.py").read_text(encoding="utf-8")
         env_gate = (root / "service/routers/environments.py").read_text(encoding="utf-8")
         self.assertIn("incoming_started = _parsed_timestamp(req.bridgeStartedAt)", agent_gate)
-        self.assertIn('return _parsed_timestamp(metadata.get("bridgeStartedAt"))', env_gate)
+        # THE PARSER, not the whole line. This pinned the exact statement until 2026-09-04, when the
+        # M1 clamp gave that expression a name and a ceiling -- so a gate about WHICH HELPER IS
+        # CALLED went red for a change that kept calling it. The property is the strict parser; the
+        # surrounding statement is not this test's business.
+        self.assertIn('_parsed_timestamp(metadata.get("bridgeStartedAt"))', env_gate)
+        # AND THE FUTURE-START CEILING GOES THROUGH IT TOO. These values are compared LEXICALLY, so a
+        # ceiling built with a different formatter would sort wrongly against them -- `...15Z` sorts
+        # above `...15+00:00`, which would make a clamped value outrank an identical real one.
+        self.assertIn("_ceiling = _parsed_timestamp(", env_gate,
+                      "the future-start-time ceiling is not built with the same parser as the value "
+                      "it is compared against")
         self.assertNotIn("incoming_started = _timestamp_sort_key(req.bridgeStartedAt)", agent_gate)
         self.assertNotIn('return _timestamp_sort_key(metadata.get("bridgeStartedAt"))', env_gate)
 

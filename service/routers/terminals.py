@@ -432,9 +432,37 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         existing_bridge_id = str(terminal["bridge_id"] or "").strip()
         terminal_command = str(terminal["command"] or "")
         is_virtual_rpc = terminal_command in VIRTUAL_RPC_COMMAND_SET
-        await _settle_bridge_takeover_for_output(
-            db, terminal, terminal_id, new_bridge_id, existing_bridge_id, is_virtual_rpc,
-        )
+        # A LIVENESS FRAME SETTLES NOTHING, and this guard is the whole of the 2026-09-04 change
+        # (external review, Round 8 M6).
+        #
+        # `_settle_bridge_takeover_for_output` adopts a virtual-rpc terminal from another bridge and
+        # REVIVES a stopped row, and the reasoning it gives is exact: an arriving POST is HARD PROOF
+        # the new bridge is actively driving this terminal. It rescued a real incident --
+        # supersession racing an in-flight dispatch on 2026-05-22, the row reading stopped while
+        # frames arrived and the dashboard saying "terminal is not running" while the agent replied.
+        #
+        # A FRAME WITH NO BYTES AND NO STATUS IS NOT THAT PROOF. It is the host saying "this process
+        # is still mine" -- a claim, not evidence -- so `{output: ""}` was enough to adopt a terminal
+        # and resurrect a stopped row. Every case the rescue was built for carries real output, so
+        # none of them is affected.
+        #
+        # SKIPPED, NOT REFUSED. A 409 here would reintroduce the race the rescue exists for, on a
+        # path where being wrong shows as a console reading dead while an agent works. The row is
+        # left exactly as it was and the next real frame settles it.
+        #
+        # NOT AN AUTHORISATION FIX, and it does not pretend to be: the operator ruled on 2026-09-04
+        # that there are no per-agent tokens, so a key holder can still drive terminals. What is
+        # removed is a CONTENTLESS message being treated as work.
+        #
+        # `req.status` IS READ DIRECTLY rather than through the `status` local below, which is
+        # deliberate: moving that line above this guard broke an unrelated declared edit in
+        # `test_append_terminal_output_split_is_inert.py`, whose own text begins with it. A split
+        # proof that has to be re-declared for a change that did not need to move anything is a cost
+        # with nothing bought.
+        if req.output or str(req.status or "").strip():
+            await _settle_bridge_takeover_for_output(
+                db, terminal, terminal_id, new_bridge_id, existing_bridge_id, is_virtual_rpc,
+            )
         status = str(req.status or "").strip()
         # HOW IT ENDED, written straight to the row rather than through the output queue.
         #

@@ -129,8 +129,14 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
     """
     text = _read_hermes_wrapper()
     # Locate the unified gateway-host branch (agent id present, no passthrough args).
+    # LOCATED BY ITS TWO DEFINING CONDITIONS, not by the whole line. The condition grew a third
+    # clause on 2026-09-04 -- `&& [ "$HERMES_AIFY_SHARED" != true ]`, so `--shared` reaches the host
+    # instead of being swallowed here (external review, Round 8 H6) -- and an exact-line search then
+    # reported the branch as MISSING and this test failed for a change that did not touch what it is
+    # about. What identifies this branch is an agent id with no passthrough args; anything else in
+    # the condition is that branch deciding when to yield, which is not this test's subject.
     idx = text.find(
-        'if [ -n "$HERMES_AIFY_AGENT_ID" ] && [ ${#HERMES_ARGS[@]} -eq 0 ]; then'
+        'if [ -n "$HERMES_AIFY_AGENT_ID" ] && [ ${#HERMES_ARGS[@]} -eq 0 ]'
     )
     assert idx > 0, "bash gateway-host (resident/managed) branch not found"
     # Bound the branch by the stable sentinel comment that immediately follows its closing

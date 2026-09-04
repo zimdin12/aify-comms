@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, Request
@@ -36,6 +37,8 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
+from service.clock import ISO_SECONDS
+from service.env_status import BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS
 from service.db import get_db
 from service.env_status import ENVIRONMENT_REGISTRABLE_STATUSES
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -211,11 +214,30 @@ HOST_OWNED_METADATA = tuple(
 
 
 def _bridge_started_at(metadata: Any) -> str:
+    """When the sending bridge says it started, as stored.
+
+    `_parsed_timestamp`: this value comes from the registering bridge and decides whether a FORGOTTEN
+    environment may come back. A sort key keeps an unparseable string as itself and letters sort above
+    digits, so "now" beat every real `forgottenAt`. Same hole as the agent tombstone gate, in the
+    guard that explicitly says it "mirrors" it -- both fixed together.
+
+    THE CEILING IS APPLIED WHERE THE VALUE IS WRITTEN, not here. External review, Round 8 M1: a
+    `bridgeStartedAt` in the future outranked every real bridge until the clock caught up with it,
+    which needs no bad actor -- this project has measured a container clock 4.1 seconds ahead of its
+    host, and a machine with a badly set clock sends a start time days out.
+
+    A READER IS THE WRONG PLACE FOR IT, and both of my first two attempts proved it. A ceiling
+    evaluated on every read MOVES WITH THE CLOCK, so a poisoned row reads as "now" for ever and still
+    outranks every honestly-timed bridge -- "holds the row until 2099" becomes "holds it permanently".
+    And a ceiling of exactly `now` here pulled a genuinely fresh relaunch back below the `forgottenAt`
+    it had to beat, so a forgotten environment could not be brought back; `test_lifecycle_phase7`
+    caught that within the same run.
+
+    Bounded on the way IN, once, against the clock at that moment, a poisoned row also repairs itself:
+    the next heartbeat from that bridge carries its own start time and replaces the stored one. So no
+    migration is needed here, and this reader stays exactly what it was.
+    """
     if isinstance(metadata, dict):
-        # `_parsed_timestamp`: this value comes from the registering bridge and decides whether a
-        # FORGOTTEN environment may come back. A sort key keeps an unparseable string as itself and
-        # letters sort above digits, so "now" beat every real `forgottenAt`. Same hole as the agent
-        # tombstone gate, in the guard that explicitly says it "mirrors" it -- both fixed together.
         return _parsed_timestamp(metadata.get("bridgeStartedAt"))
     return ""
 
@@ -282,6 +304,32 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
     cwd_roots = _normalize_roots(req.cwdRoots) if req.cwdRoots is not None else None
     runtimes = _canonical_runtimes(req.runtimes) if req.runtimes is not None else None
     metadata = req.metadata or {}
+    # A START TIME IN THE FUTURE IS BOUNDED ON THE WAY IN, once, against the clock as it is now.
+    # External review, Round 8 M1: arbitration prefers the LATER start time and nothing bounded how
+    # late, so a value in the future outranked every correctly clocked bridge until real time caught
+    # up with it. Bounding it at READ time was tried and is worse -- see `_bridge_started_at`.
+    if isinstance(metadata, dict) and metadata.get("bridgeStartedAt"):
+        _claimed_start = _parsed_timestamp(metadata.get("bridgeStartedAt"))
+        # PAST THE SKEW TOLERANCE, not past `now`. This clamped at exactly now until a test caught
+        # it, and a zero-tolerance future check is a shape this repo has already paid for: doctor's
+        # `env-bridge` read a container clock 4.1 seconds ahead of its host and reported every fresh
+        # heartbeat as bogus. An ordinary host a few seconds out is not making a claim about the
+        # future; it is a host with a clock.
+        #
+        # `BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS` is the number this service already uses for exactly
+        # this question in `env_status.py`, so the two answers cannot drift apart. A second constant
+        # here would be a rule to keep in step, which is a defect with a delay on it.
+        _ceiling = _parsed_timestamp(
+            (datetime.now(timezone.utc)
+             + timedelta(seconds=BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS)).strftime(ISO_SECONDS)
+        )
+        if _claimed_start and _ceiling and _claimed_start > _ceiling:
+            logger.info(
+                "environment %s: bridge %s reported starting at %s, which is in the future; "
+                "recording %s instead. Check that host's clock.",
+                env_id, str(req.bridgeId or "") or "(none)", metadata.get("bridgeStartedAt"), _ceiling,
+            )
+            metadata = {**metadata, "bridgeStartedAt": _ceiling}
     if req.terminal is not None:
         metadata["terminal"] = bool(req.terminal)
     if req.pty is not None:

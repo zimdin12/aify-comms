@@ -133,9 +133,31 @@ test("THE GATE: this repo consumes exactly the pin it declares", () => {
   if (existsSync(path.join(installed, ".git"))) {
     installedPin = execFileSync("git", ["rev-parse", "HEAD"], { cwd: installed, encoding: "utf8" }).trim();
   } else if (existsSync(installed)) {
-    // npm strips .git for a git dependency, so the installed tree cannot name its own sha. The lock
-    // is then the only record of what was fetched, and the comparison above still has one witness.
-    installedPin = packagePin;
+    // npm strips `.git` from a git dependency, so the installed TREE cannot name its own sha -- but
+    // `node_modules/.package-lock.json` can, and it is written by the install that actually
+    // happened. This read `installedPin = packagePin` until 2026-09-04 (external review, Round 8
+    // M14), which made the comparison pin-to-LOCK and never pin-to-DISK: the gate passed by
+    // construction on exactly the failure it exists to catch.
+    //
+    // THAT FAILURE IS DOCUMENTED IN THIS REPO AND WAS MEASURED: bumping the sha in both package
+    // files and running `npm install` reported success and left `node_modules/aify-wrapper` holding
+    // the PREVIOUS code, because npm trusts a tree that matches the lock it was just handed. This
+    // gate was green throughout.
+    const installedLock = path.join(BRIDGE, "node_modules", ".package-lock.json");
+    if (existsSync(installedLock)) {
+      const tree = JSON.parse(readFileSync(installedLock, "utf8"));
+      const entry = Object.entries(tree?.packages || {})
+        .find(([name]) => name.endsWith("node_modules/aify-wrapper"));
+      const resolved = String(entry?.[1]?.resolved || "");
+      const at = resolved.lastIndexOf("#");
+      // Only a real 40-char sha counts. A `resolved` naming a branch or a tag says nothing about
+      // which commit is on disk, and reading it as one would rebuild the same false pass.
+      const sha = at >= 0 ? resolved.slice(at + 1) : "";
+      if (/^[0-9a-f]{40}$/.test(sha)) installedPin = sha;
+    }
+    // STILL NO WITNESS: leave it empty rather than substituting the pin. `consumedPinVerdict` is
+    // then comparing two values instead of three, which is honest; fabricating a third that AGREES
+    // BY CONSTRUCTION is what made this gate vacuous.
   }
   const verdict = consumedPinVerdict({ packagePin, lockPin, installedPin });
   assert.ok(verdict.ok, `${verdict.detail}\n${verdict.fix}`);

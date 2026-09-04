@@ -222,4 +222,66 @@ test("stale wins over behind-by-docs when both are present", () => {
   assert.doesNotMatch(v.detail, /docsonly/, "the clean one must not be named as needing a restart");
 });
 
+// ── the host tier is not a silent bridge ─────────────────────────────────────────────────────────
+//
+// EXTERNAL REVIEW, Round 8 M11. This verdict read only `metadata.bridgeBuild`, and aify-env sends
+// `bridgeId`, `bridgeVersion` and `bridgeStartedAt` and NO `bridgeBuild` -- by design, because it is
+// not built from this checkout and has no sha of this repo to be current with. So on a host running
+// aify-env correctly, `unknown-all` fired for ever and `--strict` exited 1.
+//
+// A RED THAT CAN NEVER CLEAR GETS SWITCHED OFF, and it takes the real signal with it. The real
+// signal here is a bridge RUNNING old code, which is the hazard the whole H4 finding turns on.
+//
+// "No evidence is not a pass" still holds and is not being weakened: it was applied to the wrong
+// fact. A bridge that should report its build and does not is silence. A tier that was never going
+// to report one is a different kind of thing, and the tests below keep them apart.
+
+/** A live environment served by the aify-env HOST TIER: a bridge stamp, no build, and a kind. */
+const hostTier = (id) => env(id, undefined, {});
+const asHostTier = (row) => ({ ...row, metadata: { ...row.metadata, bridgeKind: "aify-env" } });
+
+test("a host that runs ONLY aify-env is not reported as unverified", () => {
+  const v = bridgeCurrentVerdict({
+    environments: [asHostTier(hostTier("windows:host:default"))], headSha: HEAD, headShort: SHORT,
+  });
+  assert.equal(v.ok, true,
+    `a correctly-configured aify-env host reports ${v.code}. --strict then exits 1 for ever, and a `
+    + "check that can never go green is one an operator switches off");
+  assert.equal(v.code, "host-tier",
+    "the answer must say WHY it passed. 'does not apply here' and 'passed' are different facts, and "
+    + "folding them together is how this row stops being readable");
+  assert.match(v.detail, /no bridge is running/i, "the detail must say what was actually established");
+});
+
+test("a SILENT BRIDGE beside a host tier still fails, because that one really is unverified", () => {
+  // THE CONTROL, and the reason the fix is an exclusion rather than a relaxation. If `bridgeKind`
+  // made the whole row pass, a genuine bridge running old code would be hidden by the presence of an
+  // aify-env on another host -- which is precisely the hazard H4 is about.
+  const v = bridgeCurrentVerdict({
+    environments: [asHostTier(hostTier("windows:host:default")), env("wsl:other:default", undefined)],
+    headSha: HEAD, headShort: SHORT,
+  });
+  assert.equal(v.ok, false,
+    "a bridge that reports no build was excused because an aify-env host was in the same list");
+  assert.equal(v.code, "unknown-all");
+});
+
+test("a STALE bridge beside a host tier is still called stale", () => {
+  const v = bridgeCurrentVerdict({
+    environments: [asHostTier(hostTier("windows:host:default")), env("wsl:other:default", "999999999999")],
+    headSha: HEAD, headShort: SHORT,
+  });
+  assert.equal(v.ok, false, "a bridge running old code was hidden by a host tier in the same list");
+});
+
+test("a CURRENT bridge beside a host tier still passes", () => {
+  // The fourth cell, so the table is complete rather than sampled: excluding the host tier must not
+  // change the answer for a bridge that is doing everything right.
+  const v = bridgeCurrentVerdict({
+    environments: [asHostTier(hostTier("windows:host:default")), env("wsl:other:default", HEAD)],
+    headSha: HEAD, headShort: SHORT,
+  });
+  assert.equal(v.ok, true, `a current bridge was failed: ${v.code} ${v.detail}`);
+});
+
 console.log("doctor-bridge-current.test.js: all assertions passed");

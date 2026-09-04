@@ -110,3 +110,86 @@ class HostTierOutranksLegacyBridgeTests(FastApiTestCase):
             claimer.get("accepted"), False,
             "an unrecognised bridgeKind was allowed to outrank the host tier",
         )
+
+
+class AFutureStartTimeCannotWinForEverTests(FastApiTestCase):
+    """A `bridgeStartedAt` in the future outranked every real bridge until the clock caught up.
+
+    EXTERNAL REVIEW, Round 8 M1. Supersession prefers the LATER start time and nothing bounded how
+    late. That needs no bad actor: this project has already measured a container clock 4.1 seconds
+    ahead of its host -- enough to make `doctor` report every fresh heartbeat as bogus -- and a host
+    with a badly set clock sends a start time days out. It then holds the environment against every
+    correct bridge, and the only remedy is waiting.
+
+    CLAMPED TO NOW, NOT REFUSED. Refusing would lock a skewed host out of its own environment
+    entirely; treating "I started in the future" as "I started now" leaves it able to take an idle row
+    and unable to outrank a live incumbent for ever. That is the safe direction to be wrong in.
+    """
+
+    DB_NAME = "aify-test-future-start.db"
+    ENV = "windows:clockskew:default"
+
+    def _beat(self, bridge_id: str, started_at: str):
+        return self._client.post(
+            "/api/v1/environments/heartbeat",
+            json={
+                "id": self.ENV, "kind": "windows", "os": "windows",
+                "machineId": "win32:clockskew",
+                "bridgeId": bridge_id,
+                "metadata": {"bridgeStartedAt": started_at, "bridgeKind": "aify-env"},
+            },
+        )
+
+    def _stored_start(self):
+        """What the row actually RECORDS as this bridge's start time."""
+        answer = self._client.get("/api/v1/environments")
+        rows = (answer.json() or {}).get("environments") or []
+        row = next((r for r in rows if r.get("id") == self.ENV), None)
+        assert row is not None, f"the environment was not stored at all: {answer.text}"
+        return str(((row.get("metadata") or {}).get("bridgeStartedAt")) or "")
+
+    def test_a_future_start_time_is_NOT_STORED_as_sent(self):
+        # THE PROPERTY, AND THE ONE MY FIRST TEST GOT WRONG. It asserted that an honestly-clocked
+        # bridge sending an EARLIER time would win against the skewed incumbent -- which is false by
+        # design and should be: arbitration prefers the later start, and a value clamped to `now` did
+        # effectively start more recently than a bridge that started at noon. Asserting that would
+        # have demanded the clamp break supersession.
+        #
+        # What the clamp actually guarantees is that the stored value is BOUNDED, so real time moves
+        # past it and the next genuinely-later bridge wins normally. Unclamped, nothing could take
+        # this row until 2099.
+        self._beat("skewed", "2099-01-01T00:00:00.000Z")
+        stored = self._stored_start()
+        self.assertNotIn(
+            "2099", stored,
+            f"the row recorded {stored!r}. Arbitration prefers the later start time, so this bridge "
+            "holds the environment against every correctly-clocked one for seventy-three years.",
+        )
+        self.assertTrue(stored, "the start time was dropped entirely rather than bounded")
+
+    def test_the_clamp_is_at_WRITE_time_so_it_expires_instead_of_following_the_clock(self):
+        # WHY THIS IS A SEPARATE TEST: clamping only in the READER was my first fix, and it is worse
+        # than it looks. A reader's ceiling moves with the clock, so a poisoned row reads as "now" on
+        # every arbitration for ever -- converting "holds the row until 2099" into "holds the row
+        # permanently". The stored value is what proves the bound was taken once.
+        self._beat("skewed", "2099-01-01T00:00:00.000Z")
+        first = self._stored_start()
+        self._beat("skewed", "2099-01-01T00:00:00.000Z")
+        second = self._stored_start()
+        self.assertEqual(
+            first[:16], second[:16],
+            f"the recorded start time moved from {first!r} to {second!r} across two beats. A ceiling "
+            "that tracks the clock never expires, so the skewed bridge keeps outranking everything.",
+        )
+
+    def test_an_ORDINARY_later_start_time_still_wins_though(self):
+        # THE CONTROL. A clamp that also flattened real start times would break supersession
+        # outright -- a restarted bridge must still take over from its predecessor.
+        self._beat("older", "2026-09-04T10:00:00.000Z")
+        answer = self._beat("newer", "2026-09-04T11:00:00.000Z")
+        claimer = (answer.json() or {}).get("claimer") or {}
+        self.assertIsNot(
+            claimer.get("accepted"), False,
+            "an ordinary restart could no longer supersede its predecessor; the clamp is eating real "
+            "start times",
+        )

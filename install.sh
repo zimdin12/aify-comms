@@ -2700,12 +2700,10 @@ fi
 # Settled BEFORE the first config that carries it. NOT gated on `--with-api-key`: that flag asks for a
 # key to be GENERATED, and gating the carry left configured clients beside an aify-env holding no
 # credential, 401'ing while both reported healthy. See test_install_carries_the_key_to_the_env*.
-if [ "$WITH_API_KEY" = true ]; then
-  RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --generate)"     || { echo "ERROR: --with-api-key was requested but no key could be generated." >&2; exit 1; }
-  echo "API key in place (.env). Until you run 'docker compose up -d' the service still accepts unauthenticated requests."
-else
-  RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key.sh" --ask || true)"
-fi
+# ONE SCRIPT ANSWERS "what key does this install use", generate and resolve alike. It also DECIDES:
+# a bare `|| true` here read a conflict and an unparseable .env as "no key, carry on" (Round 8 H8).
+[ "$WITH_API_KEY" = true ] && KEY_MODE=--generate || KEY_MODE=
+RESOLVED_API_KEY="$(bash "$SCRIPT_DIR/scripts/api-key-for-install.sh" $KEY_MODE)" || exit 1
 if [ -n "${RESOLVED_API_KEY:-}" ]; then
   export CLAUDE_MCP_API_KEY="$RESOLVED_API_KEY" AIFY_API_KEY="$RESOLVED_API_KEY"
   export CREDENTIAL_REF="$(printf '%s' "$RESOLVED_API_KEY" | bash "$SCRIPT_DIR/scripts/credential-carrier.sh" || true)"

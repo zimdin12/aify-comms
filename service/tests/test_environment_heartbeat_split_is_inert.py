@@ -205,6 +205,26 @@ EDITED_SINCE = [
     ),
 ]
 
+#: DECLARED ADDITION, 2026-09-04 (external review, Round 8 M1). A `bridgeStartedAt` in the
+#: future outranked every correctly clocked bridge until real time caught up with it, so it is
+#: bounded once on the way in. Declared as a deletion, so the pre-split baseline survives.
+#:
+#: ONE ENTRY, NOT FIVE, and finding that out is the useful part. My first attempt declared the
+#: H4 arbitration rule, the host-tier reader and two import lines as well, and the gate answered
+#: "0 occurrences" -- because these pairs are applied IN ORDER and an earlier one already
+#: consumes the region the H4 rule sits in, while module-level additions never appear in the
+#: FUNCTION this gate compares at all. Inserting a pair at the TOP of the list is worse still:
+#: it changes what every later pair sees, and the reconstruction lost a 112-line block.
+#:
+#: So a declaration is written against the source as it stands AFTER the existing edits, and
+#: appended. The block below was extracted by diffing that text against the fixture rather than
+#: transcribed -- this repo's rule about exact-match strings, applied to the tool that enforces
+#: exact-match strings.
+EDITED_SINCE = EDITED_SINCE + [
+    ('    # A START TIME IN THE FUTURE IS BOUNDED ON THE WAY IN, once, against the clock as it is now.\n    # External review, Round 8 M1: arbitration prefers the LATER start time and nothing bounded how\n    # late, so a value in the future outranked every correctly clocked bridge until real time caught\n    # up with it. Bounding it at READ time was tried and is worse -- see `_bridge_started_at`.\n    if isinstance(metadata, dict) and metadata.get("bridgeStartedAt"):\n        _claimed_start = _parsed_timestamp(metadata.get("bridgeStartedAt"))\n        # PAST THE SKEW TOLERANCE, not past `now`. This clamped at exactly now until a test caught\n        # it, and a zero-tolerance future check is a shape this repo has already paid for: doctor\'s\n        # `env-bridge` read a container clock 4.1 seconds ahead of its host and reported every fresh\n        # heartbeat as bogus. An ordinary host a few seconds out is not making a claim about the\n        # future; it is a host with a clock.\n        #\n        # `BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS` is the number this service already uses for exactly\n        # this question in `env_status.py`, so the two answers cannot drift apart. A second constant\n        # here would be a rule to keep in step, which is a defect with a delay on it.\n        _ceiling = _parsed_timestamp(\n            (datetime.now(timezone.utc)\n             + timedelta(seconds=BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS)).strftime(ISO_SECONDS)\n        )\n        if _claimed_start and _ceiling and _claimed_start > _ceiling:\n            logger.info(\n                "environment %s: bridge %s reported starting at %s, which is in the future; "\n                "recording %s instead. Check that host\'s clock.",\n                env_id, str(req.bridgeId or "") or "(none)", metadata.get("bridgeStartedAt"), _ceiling,\n            )\n            metadata = {**metadata, "bridgeStartedAt": _ceiling}\n', ''),
+]
+
+
 
 class EnvironmentHeartbeatSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
