@@ -228,7 +228,7 @@ a test.
 
 ```bash
 python -m pytest service/tests -q -n 8 --dist loadfile # 5409 tests (+10585 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 389 suites, 1 skipped test (named in its output)
+cd mcp/stdio && node tests/run-all.mjs                 # 391 suites, 1 skipped test (named in its output)
 cd service/new_dashboard && node --test *.test.mjs     # 1586 tests
 ```
 
