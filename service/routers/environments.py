@@ -220,6 +220,23 @@ def _bridge_started_at(metadata: Any) -> str:
     return ""
 
 
+#: What a host-tier claimer calls itself. `aify-env` sends this in `metadata.bridgeKind`; a legacy
+#: aify-comms environment bridge sends nothing, which is exactly what makes the absence meaningful.
+HOST_TIER_BRIDGE_KIND = "aify-env"
+
+
+def _is_host_tier(metadata: Any) -> bool:
+    """Whether this beat comes from the HOST TIER rather than a legacy environment bridge.
+
+    ABSENT MEANS LEGACY, and that is the whole reason this reads a positive marker rather than a
+    version. Every pre-0.6.2 sender is silent here, so a missing value is a fact about the sender and
+    not a gap in the data.
+    """
+    if isinstance(metadata, dict):
+        return str(metadata.get("bridgeKind") or "").strip().lower() == HOST_TIER_BRIDGE_KIND
+    return False
+
+
 def _normalize_roots(roots: Optional[list[str]]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -399,6 +416,45 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                         existing_metadata.get("bridgeLastSeen") or "never", incoming_bridge_id,
                     )
                     existing_started = None
+                # THE HOST TIER OUTRANKS A BRIDGE, whatever the start times say. Added 2026-09-04
+                # (external review, Round 8 H4).
+                #
+                # Arbitration was start-time-only, so a LEGACY aify-comms environment bridge -- one
+                # on a host that has not re-run install.sh -- took this row simply by starting later,
+                # and then became the only party `_claim_spawn_request_once` would let claim. Two
+                # spawners on one host is the collision the environment tier exists to end, and
+                # v0.6.2 deleting that cluster makes every surviving bridge old code nobody tracks.
+                #
+                # ABSENT MEANS LEGACY, so a fleet that has not upgraded behaves exactly as before,
+                # and so does an older aify-env against this service. When both sides are the same
+                # kind, this says nothing and the start-time rule below decides, unchanged.
+                incoming_is_host_tier = _is_host_tier(metadata)
+                existing_is_host_tier = _is_host_tier(existing_metadata)
+                if incoming_is_host_tier and not existing_is_host_tier:
+                    logger.info(
+                        "environment %s: host tier %s takes the row from legacy bridge %s "
+                        "(kind outranks start time)",
+                        env_id, incoming_bridge_id, existing_bridge_id,
+                    )
+                    superseded_bridge_id = existing_bridge_id
+                    existing_started = None
+                elif existing_is_host_tier and not incoming_is_host_tier:
+                    # REFUSED, and it says why in the words the reader needs: this is not a clock
+                    # problem and re-registering will not help. The bridge is the thing that should
+                    # not be running.
+                    return {
+                        "ok": True,
+                        "environment": _environment_record_to_dict(existing),
+                        "claimer": {
+                            "accepted": False,
+                            "bridgeId": existing_bridge_id,
+                            "reason": (
+                                "this environment is held by the aify-env host tier, which outranks "
+                                "an aify-comms environment bridge. That bridge is retired: re-run "
+                                "install.sh on this host and relaunch its wrappers."
+                            ),
+                        },
+                    }
                 if existing_started and (not incoming_started or incoming_started < existing_started):
                     # REFUSED, AND IT SAYS SO. `ok: True` alone is what a heartbeat that was
                     # ACCEPTED returns, so a bridge whose beat was arbitrated away could not tell

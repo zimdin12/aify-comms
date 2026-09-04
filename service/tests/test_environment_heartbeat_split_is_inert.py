@@ -94,6 +94,22 @@ def _module_constants(path: Path) -> set[str]:
 #: the pre-split baseline survives.
 EDITED_SINCE = [
     (
+        # DECLARED ADDITION, 2026-09-04 (external review, Round 8 H4). Supersession arbitrated on
+        # START TIME alone, so a retired aify-comms environment bridge on a host that had not
+        # re-run install.sh took the row from the aify-env host tier simply by starting later --
+        # and then became the only party allowed to claim a spawn. The service had no signal to
+        # ignore: both identities carry the same three fields, so aify-env now sends
+        # `metadata.bridgeKind` and this reads it. Declared as a deletion so the pre-split
+        # baseline survives, like every entry above.
+        '                # THE HOST TIER OUTRANKS A BRIDGE, whatever the start times say. Added 2026-09-04\n                # (external review, Round 8 H4).\n                #\n                # Arbitration was start-time-only, so a LEGACY aify-comms environment bridge -- one\n                # on a host that has not re-run install.sh -- took this row simply by starting later,\n                # and then became the only party `_claim_spawn_request_once` would let claim. Two\n                # spawners on one host is the collision the environment tier exists to end, and\n                # v0.6.2 deleting that cluster makes every surviving bridge old code nobody tracks.\n                #\n                # ABSENT MEANS LEGACY, so a fleet that has not upgraded behaves exactly as before,\n                # and so does an older aify-env against this service. When both sides are the same\n                # kind, this says nothing and the start-time rule below decides, unchanged.\n                incoming_is_host_tier = _is_host_tier(metadata)\n                existing_is_host_tier = _is_host_tier(existing_metadata)\n                if incoming_is_host_tier and not existing_is_host_tier:\n                    logger.info(\n                        "environment %s: host tier %s takes the row from legacy bridge %s "\n                        "(kind outranks start time)",\n                        env_id, incoming_bridge_id, existing_bridge_id,\n                    )\n                    superseded_bridge_id = existing_bridge_id\n                    existing_started = None\n                elif existing_is_host_tier and not incoming_is_host_tier:\n                    # REFUSED, and it says why in the words the reader needs: this is not a clock\n                    # problem and re-registering will not help. The bridge is the thing that should\n                    # not be running.\n                    return {\n                        "ok": True,\n                        "environment": _environment_record_to_dict(existing),\n                        "claimer": {\n                            "accepted": False,\n                            "bridgeId": existing_bridge_id,\n                            "reason": (\n                                "this environment is held by the aify-env host tier, which outranks "\n                                "an aify-comms environment bridge. That bridge is retired: re-run "\n                                "install.sh on this host and relaunch its wrappers."\n                            ),\n                        },\n                    }\n',
+        '',
+    ),
+    (
+        # The reader that entry depends on, module-level and therefore also declared.
+        '#: What a host-tier claimer calls itself. `aify-env` sends this in `metadata.bridgeKind`; a legacy\n#: aify-comms environment bridge sends nothing, which is exactly what makes the absence meaningful.\nHOST_TIER_BRIDGE_KIND = "aify-env"\n\n\ndef _is_host_tier(metadata: Any) -> bool:\n    """Whether this beat comes from the HOST TIER rather than a legacy environment bridge.\n\n    ABSENT MEANS LEGACY, and that is the whole reason this reads a positive marker rather than a\n    version. Every pre-0.6.2 sender is silent here, so a missing value is a fact about the sender and\n    not a gap in the data.\n    """\n    if isinstance(metadata, dict):\n        return str(metadata.get("bridgeKind") or "").strip().lower() == HOST_TIER_BRIDGE_KIND\n    return False\n',
+        '',
+    ),
+    (
         # OWNERSHIP AT THE BOUNDARY. Preservation restored a stored bridge key only when the caller
         # stayed SILENT about it -- `next_metadata` starts as a copy of the caller`s metadata, so a
         # caller that SENT `bridgeBuild` already had the key present and its forged value won. A beat
