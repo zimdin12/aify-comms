@@ -98,7 +98,7 @@ export function renderRuns() {
   }
   byId('run-list').innerHTML = runs.map((run) => `
     <article class="run-row" data-kind="run" data-id="${esc(run.id)}">
-      <input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(run.id)}" data-diagnostic-kind="run"${state.selectedDiagnosticIds.has(diagnosticKey('run', run.id)) ? ' checked' : ''} title="Select run">
+      <input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(run.id)}" data-diagnostic-kind="run"${state.selectedDiagnosticIds.has(diagnosticKey('run', run.id)) ? ' checked' : ''} aria-label="Select run ${esc(run.id)}" title="Select run">
       ${renderStatusChip(run.status, statusWhyContext('run', run, run.status))}
       <span>${esc(run.targetAgentId || run.target_agent || '')}</span>
       <div><strong class="clip">${esc(run.subject || run.id)}</strong><p class="preview">${esc(run.summary || run.error || '')}</p></div>

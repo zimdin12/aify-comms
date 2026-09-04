@@ -1865,6 +1865,27 @@ solved it by narrowing to one runtime. See D9.
   fixed and one more has been seen to fail; the other ~14 are the same shape and are latent. Worth a
   pass, one test at a time, each with the presence/absence split above.
 
+  **THE PYTHON FLAKES HAVE A CANDIDATE CAUSE NOW, and it is NOT the same one as the JS flakes.**
+  Measured 2026-09-05: **27 test files invoke the real `install.sh` in a subprocess**, and under
+  `-n 8` several of them run at once against one repo and one home directory. `--dist loadfile` keeps
+  a FILE on one worker and does nothing about that -- which is the hazard CLAUDE.md already names
+  ("two files on DIFFERENT workers touching one external resource ... needs pinning, not a retry").
+
+  The evidence that fits: `test_install_carries_the_key_to_the_environment_tier.py` has failed twice
+  in this session and passes alone every time (68s for four tests, so it is doing real installer
+  work); its assertion is about what the installer CALLED, not about timing; and its subprocess
+  budget is 900s, so a timeout is not it. The other two python flakes seen
+  (`e2e/test_message_to_work.py`, `test_spawn_dead_terminal_finalize.py`) are not installer tests, so
+  this explains some of the set and not all of it.
+
+  **NOT PROVEN -- no collision has been demonstrated.** What would settle it is running the 27
+  installer files serially (an xdist group, or a lock) and seeing whether the flake stops. If it
+  does, pinning them is the fix and it is cheap; if it does not, this hypothesis joins the disproved
+  ones above rather than being left standing.
+
+  **A FIFTH FLAKE, seen once:** bridge `tests/pi-runtime.test.js` failed in a full run and passed
+  alone. Not characterised.
+
   **A NOTE ON MUTATION-PROVING THESE.** That file has TEN identical `postTurnEnd: async () => {
   ends++; },` lines. Mutating "the first one" hits a different test and reddens nothing, which reads
   as a test that cannot catch its own bug. Scope the mutation to the target test's block.

@@ -170,9 +170,9 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
          <div class="console-find" hidden>
            <input class="console-find-input" type="search" placeholder="Find in scrollback…" aria-label="Find in console scrollback" spellcheck="false" autocomplete="off">
            <span class="console-find-summary" aria-live="polite"></span>
-           <button class="ghost" data-console-action="find-prev" title="Previous match — Shift+Enter">↑</button>
-           <button class="ghost" data-console-action="find-next" title="Next match — Enter">↓</button>
-           <button class="ghost" data-console-action="find-close" title="Close find — Escape">✕</button>
+           <button class="ghost" data-console-action="find-prev" aria-label="Previous match" title="Previous match — Shift+Enter">↑</button>
+           <button class="ghost" data-console-action="find-next" aria-label="Next match" title="Next match — Enter">↓</button>
+           <button class="ghost" data-console-action="find-close" aria-label="Close find" title="Close find — Escape">✕</button>
          </div>
          <div id="${esc(ptyContainerId)}" class="xterm-host"></div>
        </div>`
@@ -246,7 +246,7 @@ export function renderSessionConsole(session, targetEl, opts = {}, { mountXtermF
          </div>
          <div class="codex-console-stream" aria-live="polite"></div>
          <form class="codex-console-input" data-action="codex-console-send" data-agent-id="${esc(agentIdForCodex)}">
-           <input type="text" placeholder="${codexThreadId ? 'Type to send turn/start into this thread...' : 'No threadId — read-only.'}" ${codexThreadId ? '' : 'disabled'}>
+           <input type="text" aria-label="Send a turn to this codex thread" placeholder="${codexThreadId ? 'Type to send turn/start into this thread...' : 'No threadId — read-only.'}" ${codexThreadId ? '' : 'disabled'}>
            <button type="submit" class="primary" ${codexThreadId ? '' : 'disabled'}>Send</button>
            <button type="button" class="ghost" data-action="codex-console-disconnect" data-agent-id="${esc(agentIdForCodex)}">Disconnect</button>
          </form>

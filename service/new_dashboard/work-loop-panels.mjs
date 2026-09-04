@@ -40,7 +40,7 @@ export function contractCard(contract, { selectable = true } = {}) {
   const checked = state.selectedDiagnosticIds.has(key) ? ' checked' : '';
   return `
     <article class="contract" data-kind="contract" data-id="${esc(contract.id)}">
-      ${selectable ? `<input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(contract.id)}" data-diagnostic-kind="contract"${checked} title="Select Work Loop item">` : ''}
+      ${selectable ? `<input class="diagnostic-check" type="checkbox" data-diagnostic-select="${esc(contract.id)}" data-diagnostic-kind="contract"${checked} aria-label="Select Work Loop item ${esc(contract.id)}" title="Select Work Loop item">` : ''}
       <div>
         <div class="item-title">
           <strong class="clip">${esc(contract.subject || contract.id)}</strong>

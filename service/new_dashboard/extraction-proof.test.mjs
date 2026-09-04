@@ -684,6 +684,12 @@ const EXTRACTIONS = [
         // LAST key of a repeated name, so a second one is silently discarded and the gate then fails
         // with the declared edit apparently ignored -- which is what happened writing this entry.
         editedSince: [
+        // 2026-09-05, B2: an accessible name. This control is one of dozens in a list and a
+        // screen reader announced only its TYPE -- "checkbox" -- with nothing to say which row.
+        {
+          was: ["            <input class=\"session-check\" type=\"checkbox\" data-session-checkbox=\"${esc(id)}\"${checked} title=\"Select session\">"],
+          now: ["            <input class=\"session-check\" type=\"checkbox\" data-session-checkbox=\"${esc(id)}\"${checked} aria-label=\"Select session ${esc(id)}\" title=\"Select session\">"],
+        },
           {
             was: [
               "              <p class=\"preview session-path\">${esc(session.workspace || session.cwd || '')}</p>",
@@ -893,7 +899,16 @@ const EXTRACTIONS = [
     importLine: "import { contractCard, diagnosticKey, filtered, renderActivityFeed, renderAttention, renderContractBoard } from './work-loop-panels.mjs';",
     items: [
       { name: "filtered", at: 911, marker: "// filtered moved to ./work-loop-panels.mjs in v0.5.4." },
-      { name: "contractCard", at: 1386, marker: "// contractCard moved to ./work-loop-panels.mjs in v0.5.4." },
+      { name: "contractCard", at: 1386, marker: "// contractCard moved to ./work-loop-panels.mjs in v0.5.4.",
+        // 2026-09-05, B2: an accessible name. This checkbox is one of dozens in a list and a screen
+        // reader announced only its TYPE -- "checkbox" -- with nothing to say which row it selects.
+        editedSince: [
+          {
+            was: ["      ${selectable ? `<input class=\"diagnostic-check\" type=\"checkbox\" data-diagnostic-select=\"${esc(contract.id)}\" data-diagnostic-kind=\"contract\"${checked} title=\"Select Work Loop item\">` : ''}"],
+            now: ["      ${selectable ? `<input class=\"diagnostic-check\" type=\"checkbox\" data-diagnostic-select=\"${esc(contract.id)}\" data-diagnostic-kind=\"contract\"${checked} aria-label=\"Select Work Loop item ${esc(contract.id)}\" title=\"Select Work Loop item\">` : ''}"],
+          },
+        ],
+      },
       { name: "renderAttention", at: 1416, marker: "// renderAttention moved to ./work-loop-panels.mjs in v0.5.4.",
         // The strip's count moved into the HEADER, which is the only part `.collapsed` leaves
         // visible -- so the panel could not say whether anything needed attention in the state an
@@ -2415,6 +2430,13 @@ const EXTRACTIONS = [
               "    sessionMode: normalizedSessionMode,",
             ],
           },
+          // 2026-09-05, B2: the codex thread input had only a PLACEHOLDER, which is not a label --
+          // it disappears the moment the operator types, so the one moment they might need reminding
+          // what the field is, is the one moment it is gone.
+          {
+            was: ["           <input type=\"text\" placeholder=\"${codexThreadId ? 'Type to send turn/start into this thread...' : 'No threadId \u2014 read-only.'}\" ${codexThreadId ? '' : 'disabled'}>"],
+            now: ["           <input type=\"text\" aria-label=\"Send a turn to this codex thread\" placeholder=\"${codexThreadId ? 'Type to send turn/start into this thread...' : 'No threadId \u2014 read-only.'}\" ${codexThreadId ? '' : 'disabled'}>"],
+          },
           // 2026-09-04, B1: the console can be SEARCHED. 5,000 lines of scrollback and no way to
           // look through them -- the operator could scroll, and that was all. Two edits, both in
           // this template: a Find button beside Copy (which already uses the same shifted chord,
@@ -2438,9 +2460,9 @@ const EXTRACTIONS = [
               "         <div class=\"console-find\" hidden>",
               "           <input class=\"console-find-input\" type=\"search\" placeholder=\"Find in scrollback\u2026\" aria-label=\"Find in console scrollback\" spellcheck=\"false\" autocomplete=\"off\">",
               "           <span class=\"console-find-summary\" aria-live=\"polite\"></span>",
-              "           <button class=\"ghost\" data-console-action=\"find-prev\" title=\"Previous match \u2014 Shift+Enter\">\u2191</button>",
-              "           <button class=\"ghost\" data-console-action=\"find-next\" title=\"Next match \u2014 Enter\">\u2193</button>",
-              "           <button class=\"ghost\" data-console-action=\"find-close\" title=\"Close find \u2014 Escape\">\u2715</button>",
+              "           <button class=\"ghost\" data-console-action=\"find-prev\" aria-label=\"Previous match\" title=\"Previous match \u2014 Shift+Enter\">\u2191</button>",
+              "           <button class=\"ghost\" data-console-action=\"find-next\" aria-label=\"Next match\" title=\"Next match \u2014 Enter\">\u2193</button>",
+              "           <button class=\"ghost\" data-console-action=\"find-close\" aria-label=\"Close find\" title=\"Close find \u2014 Escape\">\u2715</button>",
               "         </div>",
               "         <div id=\"${esc(ptyContainerId)}\" class=\"xterm-host\"></div>",
             ],
@@ -2832,6 +2854,12 @@ const EXTRACTIONS = [
         // agent whose last run fell off the page is unselectable, while the empty state invited the
         // operator to adjust the filters.
         editedSince: [
+        // 2026-09-05, B2: an accessible name. This control is one of dozens in a list and a
+        // screen reader announced only its TYPE -- "checkbox" -- with nothing to say which row.
+        {
+          was: ["      <input class=\"diagnostic-check\" type=\"checkbox\" data-diagnostic-select=\"${esc(run.id)}\" data-diagnostic-kind=\"run\"${state.selectedDiagnosticIds.has(diagnosticKey('run', run.id)) ? ' checked' : ''} title=\"Select run\">"],
+          now: ["      <input class=\"diagnostic-check\" type=\"checkbox\" data-diagnostic-select=\"${esc(run.id)}\" data-diagnostic-kind=\"run\"${state.selectedDiagnosticIds.has(diagnosticKey('run', run.id)) ? ' checked' : ''} aria-label=\"Select run ${esc(run.id)}\" title=\"Select run\">"],
+        },
         {
           was: [
             "    note.textContent = `Showing ${runs.length} most recent matching ${status}run${runs.length === 1 ? '' : 's'}.`;",

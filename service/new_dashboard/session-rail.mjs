@@ -142,7 +142,7 @@ export function renderSessionRail() {
         const checked = state.selectedSessionIds.has(id) ? ' checked' : '';
         return `
           <article class="session-row${active}" data-session-select="${esc(id)}" data-kind="session" data-id="${esc(id)}">
-            <input class="session-check" type="checkbox" data-session-checkbox="${esc(id)}"${checked} title="Select session">
+            <input class="session-check" type="checkbox" data-session-checkbox="${esc(id)}"${checked} aria-label="Select session ${esc(id)}" title="Select session">
             <div class="session-row-body">
               <div class="item-title">
                 <strong class="clip">${esc(sessionAgentId(session) || id)}</strong>

@@ -151,7 +151,7 @@ export function createChatController(deps) {
         // I7: add-member select (agents not already in the channel) + per-member remove chips.
         const candidates = readOnly ? [] : (state.agents || []).map((a) => a.id).filter((aid) => aid && aid !== 'dashboard' && !members.includes(aid));
         const addControl = candidates.length
-          ? `<select id="chat-add-member-${esc(id)}" class="chat-add-member"><option value="">+ Add member…</option>${candidates.map((aid) => `<option value="${esc(aid)}">${esc(aid)}</option>`).join('')}</select><button class="ghost" data-channel-add-member="${esc(id)}">Add</button>`
+          ? `<select id="chat-add-member-${esc(id)}" class="chat-add-member" aria-label="Add a member to ${esc(id)}"><option value="">+ Add member…</option>${candidates.map((aid) => `<option value="${esc(aid)}">${esc(aid)}</option>`).join('')}</select><button class="ghost" data-channel-add-member="${esc(id)}">Add</button>`
           : '';
         actions.innerHTML = `<span class="chat-members" title="${esc(members.join(', '))}">${count} member${count === 1 ? '' : 's'}</span>`
           + (readOnly ? '' : (isMember
