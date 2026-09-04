@@ -679,7 +679,30 @@ solved it by narrowing to one runtime. See D9.
 
   Note anything landing in aify-env is inert until a restart, which is the operator's call.
 
-  **Explicitly NOT closed by any of this:** "encoding issues" and "feels slow" still have no repro.
+  **"ENCODING ISSUES" IS REPRODUCED AND FIXED, 2026-09-04** -- aify-env `d2e57d1`. `Runner`'s emitter
+  turned every chunk into text with `String(chunk)`. On the pty path node-pty hands back a string and
+  that was a no-op, but `child.stdout.on("data")` and `child.stderr.on("data")` deliver BUFFERS, and
+  a multi-byte character straddling a read boundary is decoded as two partial sequences:
+
+      original      "progress: ✻ done ─ 100%"
+      String(chunk) "progress: �� done ─ 100%"
+
+  Agents print box-drawing, spinners and progress glyphs constantly and every one is multi-byte, so
+  the only question was where the read boundary fell. Invisible to every existing test, because they
+  all feed whole strings. `StringDecoder`, one PER STREAM -- shared, it would splice stdout's partial
+  character onto stderr's next chunk and invent one neither sent. Inert until an aify-env restart.
+
+  **"FEELS SLOW" HAS A MEASURED CANDIDATE CAUSE, AND IT IS NOT CLOSED.** C5 found the terminal write
+  path costing **640 KB/s per busy agent** against a database with ONE writer -- an upper bound of
+  12.5 MB/s across the 20 consoles this host runs, on the same lock every dashboard poll, status read
+  and dispatch write queues behind. That is a mechanism which would produce exactly this symptom, and
+  it is now roughly 1.2 MB/s.
+
+  **SAID AS A CANDIDATE RATHER THAN A FIX, deliberately.** "Feels slow" was never reproduced, so
+  nothing here proves it was the cause -- only that a large contention source existed and is now ten
+  times smaller. The operator's own confirmation is the evidence that settles it, and it is available
+  free: if the dashboard feels better after the rebuild, this was it; if not, the cause is elsewhere
+  and this measurement has narrowed rather than answered the question.
   Width explains re-wrapping; it does not explain a wrong glyph. One diagnosis must not close three
   complaints.
 
