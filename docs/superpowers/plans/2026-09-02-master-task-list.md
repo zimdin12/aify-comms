@@ -1039,9 +1039,34 @@ solved it by narrowing to one runtime. See D9.
   at most a second of scrollback if the service is killed abruptly -- which is what the operator meant
   by *"just as rolling memory of what was on screen. but we depend on it less thx to lazy right."*
 
-  **CARE REQUIRED AT THE SEAM.** The same UPDATE carries `output`, `output_seq` and `status`, and the
-  seq is what the dashboard's dedupe reads -- slowing that would drop frames and scramble the console,
-  which is the very complaint B3 is about. Only the `output` column may lag.
+  **BUILT 2026-09-04. Measured 1023.5x -> 5.1x on the same fixture**, which is the test's compressed
+  timeline; in production the bound is one tail write per second per terminal, so the 640 KB/s figure
+  above becomes roughly 64 KB/s. `service/api_core/terminal_tail_buffer.py` holds the tail and the
+  append writes it when the interval has elapsed, when the terminal ENDS, or on its first write.
+
+  **THE SEAM, AND MY FIRST NOTE ON IT WAS WRONG.** I wrote "only the `output` column may lag". Reading
+  the dashboard proved that dangerous: `xterm-mount.mjs` seeds `lastSeq` from the row's `outputSeq`
+  and `realtime-socket.mjs` drops any live frame with `seq <= lastSeq`, so an eagerly-written seq
+  beside a lagging output tells the client it already holds content it has never seen and the frames
+  filling the gap are dropped -- which IS the scrambled console of B3. `output` and `output_seq` lag
+  TOGETHER; `status`, `updated_at` and `stopped_at` never lag.
+
+  **NO CONSOLE GAP, checked rather than assumed.** A quiet terminal's last fragment sits unflushed for
+  up to a second, and that would matter if the console seeded from this column -- it does not.
+  `GET /terminals/{id}` renders the LIVE SCREEN first and replays the stored log only as a fallback.
+
+  **D13's CONTROL STARTED PASSING, and its docstring pre-registered exactly that**: "if this ever
+  starts passing, the read-modify-write has been made safe some other way and the lock above may be
+  reconsidered." Re-derived rather than assumed: it passes because the critical section stopped
+  yielding -- the old read was `await self._row(db)`, and the tail now comes from the shared buffer
+  with NO await between the read and the write, verified by walking the AST. So the interleaving is
+  impossible by construction. The lock stays anyway (SQLite has one writer, and atomicity by code
+  SHAPE is one edit from gone), and the control is re-targeted at that shape rather than deleted.
+
+  **AND I SHIPPED A FALSE GREEN FOR TEN MINUTES.** The amplification tripwire counted `params[0]` as
+  the tail; my UPDATE reorders the columns, so it was counting a 20-character timestamp and passed
+  whatever the code did -- a mutation that should have reddened it did not. The accounting now finds
+  the `output` column by POSITION in the SET clause, and the mutation reddens.
 - **C6. `comms_send` unslop. DONE 2026-09-03**, and the surface it lives on is now gated.
 
   `COMMS_SEND_TOOL_DESCRIPTION` went 2,638 -> 1,794 characters, a 32% cut, with the reply contract

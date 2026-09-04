@@ -28,6 +28,12 @@ from service.api_core.console_prompts import (
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_status import _terminal_status_transition
 from service.clock import now as _now
+from service.api_core.terminal_tail_buffer import (
+    current_tail,
+    forget,
+    mark_flushed,
+    record,
+)
 from service.api_core.serialization import _json_loads_or
 from service.terminal_snapshot import feed_live_screen as _feed_live_terminal_screen
 from service.terminal_snapshot import render_live_screen
@@ -56,7 +62,13 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     chunk = str(output or "")
     if not chunk and not status:
         return
-    current = terminal["output"] if "output" in terminal.keys() else ""
+    # THE BUFFER IS THE TRUTH BETWEEN FLUSHES. The tail is written on a slower cadence than the
+    # stream (see `terminal_tail_buffer`), so the ROW is stale whenever a write was skipped --
+    # accumulating onto it would drop every chunk since the last flush. `current_tail` answers with
+    # what is held, and falls back to the row for a terminal this process has not written yet, which
+    # is every terminal after a restart and exactly what the column exists for.
+    stored = terminal["output"] if "output" in terminal.keys() else ""
+    current = current_tail(str(terminal["id"]), stored)
     next_output = _trim_terminal_output(f"{current or ''}{chunk}")
 
     # LIVE SCREEN (2026-07-14). Feed this chunk into the terminal's persistent screen, the way a
@@ -79,18 +91,41 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
             )
         except Exception:
             logger.debug("live screen feed failed for terminal=%s", terminal["id"], exc_info=True)
-    updates = ["output = ?", "updated_at = ?"]
-    params: list[Any] = [next_output, _now()]
-    if seq is not None:
-        updates.append("output_seq = ?")
-        params.append(int(seq))
     next_status = _terminal_status_transition(terminal["status"] if "status" in terminal.keys() else "", status)
+    # AN ENDING TERMINAL FLUSHES, whatever the cadence says: the last screen of a worker that died is
+    # the one an operator reads to find out why, and it is the one the tail's whole 24-hour TTL is
+    # about. `terminal_diagnostics` reads it to say which line explains the death.
+    ending = next_status in {"stopped", "failed"}
+    write_tail = record(str(terminal["id"]), next_output, seq) or ending
+
+    # `updated_at` NEVER LAGS. It is the freshness a reporting host is recognised by --
+    # `_active_terminal_for_agent` keys ownership on it -- so a lazy tail must not make a live worker
+    # look unowned. Same for `status` below.
+    updates = ["updated_at = ?"]
+    params: list[Any] = [_now()]
+    if write_tail:
+        # `output` AND `output_seq` TOGETHER, AND THAT PAIRING IS THE DESIGN. `xterm-mount.mjs` seeds
+        # `lastSeq` from this row's `outputSeq` and `realtime-socket.mjs` drops any live frame with
+        # `seq <= lastSeq`. A seq written EAGERLY beside a lagging output would tell the client it
+        # already holds content it has never seen, and the frames filling the gap would be dropped --
+        # missing output, a desynchronised ANSI stream, and the scrambled console of complaint B3.
+        # Lagging them together keeps the row self-consistent.
+        updates.append("output = ?")
+        params.append(next_output)
+        if seq is not None:
+            updates.append("output_seq = ?")
+            params.append(int(seq))
+        mark_flushed(str(terminal["id"]))
     if next_status:
         updates.append("status = ?")
         params.append(next_status)
-        if next_status in {"stopped", "failed"}:
+        if ending:
             updates.append("stopped_at = COALESCE(stopped_at, ?)")
             params.append(_now())
+            # A DEAD TERMINAL HOLDS NO MEMORY. Its final tail has just been written above, so the
+            # buffer has nothing left to protect and keeping it would leak 64 KB per ended terminal
+            # for the life of the process.
+            forget(str(terminal["id"]))
     params.append(terminal["id"])
     await db.execute(
         f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE id = ?",
