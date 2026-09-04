@@ -970,8 +970,27 @@ solved it by narrowing to one runtime. See D9.
   fails roughly one run in three under the full 1,075-test suite and passes every time alone. It is
   properly isolated (`--port 0`, a sealed `AIFY_ENV_PROCESS_RECORD` in a temp dir, its own registry),
   so it does NOT touch the operator's daemon; that was checked by reading it, because a test that
-  starts an aify-env is the shape that reaped five agents once. The candidate cause is its 20s
+  starts an aify-env is the shape that reaped five agents once. The candidate cause was its 20s
   daemon-start budget on a loaded host -- NOT diagnosed, just the first thing to look at.
+
+  **THAT CANDIDATE IS DISPROVED, 2026-09-04.** Instrumented and measured across thirteen daemon
+  starts: **111-306ms alone, 157-413ms under the full suite, slowest observed anywhere 1002ms.**
+  Twenty times inside the budget at its worst, in the condition the hypothesis blamed. The start
+  budget is not the constraint and this flake remains undiagnosed -- the next person should start
+  somewhere else, and the obvious somewhere-else is the doctor's own 1000ms `AIFY_PROBE_TIMEOUT_MS`,
+  which is twenty times tighter than the budget that was suspected.
+
+  **AND THE HUNT FOUND A DIFFERENT FLAKE, with a worse defect under it.** Six full-suite runs to
+  reproduce the one above instead reddened `dashboard.test.js` -- "a frame that throws does not kill
+  the loop". Two findings, fixed at aify-env `773c13d`:
+
+  - **The budget was below its own cost.** The assertion needs THREE timer firings (the second frame
+    is swallowed by design, so frames = ticks - 1) against a 60ms sleep and Windows' ~15ms timer
+    floor. Eleven runs: 4-5 ticks idle, 4-5 under load, one at 2. It waits for the CONDITION now.
+  - **The test could never have failed for its stated reason.** It threw from the FETCH, and `knock`
+    catches a failed fetch BY DESIGN and paints an "unreachable" panel -- so `draw()` always
+    resolved and the `.catch` under test never ran. Mutating the loop to die on a rejected frame
+    left it GREEN. It throws from `write` now, and that mutation reddens it.
 - **B6. A login prompt instead of a URL parameter.** DONE 2026-09-02, deployed and verified.
 
 ---
