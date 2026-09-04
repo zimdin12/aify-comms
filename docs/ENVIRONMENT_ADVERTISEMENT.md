@@ -133,8 +133,12 @@ Measured 2026-08-30 on the operator's machine, positive and negative control in 
 `opencode`'s branch returned a hardcoded `{ available: true, message: "OpenCode SDK available" }`,
 describing a launch path its own adapter does not take: the map in `runtimes.js` records
 `adapters/opencode.js -> "opencode-aify --resume <id>"`, and aify-wrapper ships no opencode template.
-`managed-environment-sync.mjs` reads exactly this field to decide what may be started, so both wrong
-yeses became spawns that fail with no cause attached.
+`managed-environment-sync.mjs` read exactly this field to decide what may be started, so both wrong
+yeses became spawns that fail with no cause attached. **That module was deleted with the
+environment bridge on 2026-09-04**; aify-env decides what may be started now, and reads the same
+advertisement. The defect is worth keeping written down because it is a property of the FIELD, not
+of the reader: a probe that answers `available` for a launch path its own adapter does not take
+misleads whoever asks, and the question moved rather than closing.
 
 Fixed in aify-comms so all five probe the file a spawn would run, gated by a test that runs the real
 probe with a sealed PATH — the existing suite injected `availabilityFor` and so was green throughout.

@@ -1,5 +1,17 @@
 # `mcp/stdio/server.js` — decomposition proof packet
 
+> **THE CODE BELOW WAS DELETED ON 2026-09-04, and this file is kept as the RECORD OF WHY.**
+> v0.6.2 removed the environment-bridge cluster from `mcp/stdio` -- the spawn, environment-control,
+> terminal-control and managed-environment-sync loops, all four managed-teardown sweeps, the
+> terminal manager and its exit report, the ownership readers, the survivor reaper and the console
+> pulse. aify-env owns processes, PTYs, spawn claiming and console streaming now, PROVEN on real
+> hardware 2026-09-03 with no bridge running at all.
+>
+> So every file path below that names one of those modules resolves to nothing. The TRACES ARE
+> STILL TRUE of the code as it stood, which is the whole value of keeping them: they record what
+> the behaviour was and how it was measured. Read them as history, and look for the behaviour in
+> aify-env.
+
 **Status:** submitted for ruling. Measured at `37401488` on the 6,331-line `server.js`. **No extraction
 performed.** The reviewer ruled server.js LAST and required a reviewed packet before any work; this is that
 packet, written while the delivery-loop seam ruling is outstanding because measurement is read-only.

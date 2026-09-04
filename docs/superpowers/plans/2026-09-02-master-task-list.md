@@ -76,7 +76,8 @@ question is still open, which is what a lazy refresh looks like rather than a st
 | restart aify-env | ~13-15 commits inert until then, incl. the pty-size fix, `aify-env run`, and D16's TUI fix |
 
 **3. DECISIONS, each blocking something specific.**
-- **Per-agent consumption collector** -- blocks deleting ~1,800 lines of retired bridge modules. Move
+- **Per-agent consumption collector -- ANSWERED 2026-09-04, and the deletion it blocked is DONE
+  (`779099d7`).** Parked, not deleted, waiting for a caller in aify-env or aify-dashboard. Move
   it to aify-env, retire the analytics panel, or leave it reading zeros.
 - **C7's rationale** -- the hook-source reversal is recorded as decided with no reason, and the
   commit it reverses argues the opposite. Say which and it is ten minutes.
@@ -234,10 +235,34 @@ four agents still running through all of it.
   round-trips through the real reader, and all three clients are reinstalled with `skills-installed`
   and `bridge-installed` green. Mutation: restoring the exec reddens three of nine new tests.
 
-  **DELIBERATELY NOT DONE, and it is a v0.6.2 item.** Deleting them touches `server.js`, which every
-  running wrapper loads as its MCP server. Measured before deciding: nothing live is lost by the
-  removal -- `managed-orphans` reports no delivery loops, `bridge-current` reads `unknown-all`,
-  `usage/consumption` is empty, and the OpenAI pool is collected by the SERVICE.
+  **THE CLUSTER IS DELETED. DONE 2026-09-04, aify-comms `779099d7`.** Sixteen modules, twenty-nine
+  test files and 289 lines of `server.js` (990 -> 701, off the watch list it had sat near the top of
+  since 2026-08-25). The nine mapped below plus `console-pulse`, `terminal-control`,
+  `terminal-exit-report`, `terminal-attach-notice`, `terminals-are-possible`,
+  `managed-teardown-ownership` and `managed-ownership` -- the map was a floor, not a ceiling, because
+  it traced imports FROM `server.js` and several members were reached only from each other.
+
+  Measured before deciding, and it held: nothing live was lost -- `managed-orphans` reports no
+  delivery loops, `bridge-current` reads `unknown-all`, `usage/consumption` is empty, and the OpenAI
+  pool is collected by the SERVICE. Deleting them touched `server.js`, which every running wrapper
+  loads as its MCP server, so the change is INERT until `install.sh` is re-run and each wrapper
+  relaunches -- the operator's action, not the agent's.
+
+  Five suites green on the commit: python 5409 (+10585 subtests), bridge 389 suites, dashboard 1586,
+  aify-wrapper 202, aify-env 1095.
+
+  **WHAT THE GATES CAUGHT is the part worth carrying forward.** Five separate gates went red, and
+  each one had the same shape: a population that was hand-typed or pointed at a real file, holding a
+  number or a name the deletion invalidated. `every-loop-consults-the-shutdown-gate` and `loop-gate`
+  held five loops where one survives; `test_terminal_status_vocabulary` lost two of six senders AND
+  the only live instances of two of the three producer shapes its controls exercised;
+  `moved-names-resolve` found eleven breadcrumbs pointing at deleted files;
+  `server-import-does-not-boot-a-bridge` counted two `if (__isEntrypoint)` blocks where one now
+  exists; `test_bridge_write_bodies_are_declared` and `test_prose_paths_resolve` each held one stale
+  name. Every floor was RE-MEASURED to the real number rather than dropped, because each of those
+  files is satisfied by an EMPTY population -- a scan that stopped matching would pass loudest
+  exactly when it had broken. The status-vocabulary controls were re-based onto a fixture, since
+  controls that name a live file per shape are disarmed the day that file is deleted.
 
   **THE REACHABILITY MAP, measured 2026-09-03 and pinned by
   `mcp/stdio/tests/the-bridge-cluster-has-one-way-in.test.js`.** NINE modules, not the eight this
@@ -307,9 +332,18 @@ four agents still running through all of it.
      produces.
   3. **Leave it.** The panel keeps reading zeros, as it has been.
 
-  Nothing here should be deleted until that is answered -- removing the call sites first would leave
-  `collectConsumptionOnce` a tested, working, uncallable implementation, which is the exact defect
-  this project found four times in two days. `usage-collector.js` STAYS regardless: the doctor imports
+  **ANSWERED 2026-09-04: option 1, with the destination left open.** The operator's first call was
+  "leave it in aify-comms, I will maybe move it to aify-dashboard later"; their own follow-up
+  sharpened it -- *"if harness is in env then it should come from env also"* -- which points at an
+  aify-env plugin rather than at aify-dashboard. Either way the collector KEEPS its implementation
+  and waits for a caller in another tier, so it was PARKED rather than deleted: `usage-collector.js`
+  carries a header saying both functions are deliberately caller-less, why, and that a dead-code
+  sweep must not take them. Their tests still run and still prove the behaviour, which is what makes
+  parking cheap.
+
+  That is the one case where "a tested, working, uncallable implementation" is the right answer
+  rather than the defect this project found four times in two days -- and the difference is written
+  down where the code is, not remembered. `usage-collector.js` STAYS regardless: the doctor imports
   `checkOpenAiUsageAccess` from it.
 
   **The first measurement of this was WRONG, which is why the gate matches both quote styles.** A grep
@@ -317,11 +351,12 @@ four agents still running through all of it.
   `server.js` imports on line 116 with single quotes. A reachability claim is the kind that gets acted
   on destructively; the instrument has to be right before the conclusion is.
 
-  **The gate exists because the risk is re-entanglement, not decay.** Code imported by exactly one
+  **The gate existed because the risk was re-entanglement, not decay.** Code imported by exactly one
   caller is an afternoon's deletion; the same code with a second caller is a refactor nobody
-  schedules, and that is how dead code becomes permanent. It fails if anything outside the cluster
-  starts importing it. Mutations: making the scan quote-sensitive again reddens the quote test;
-  adding one stray import in `aify-service-endpoint.mjs` reddens two.
+  schedules, and that is how dead code becomes permanent. It held the cluster deletable for the day
+  it took to answer the collector question, and it was deleted WITH the cluster on 2026-09-04 -- a
+  gate whose whole population is gone measures nothing, and keeping it would have been a green test
+  over an empty set.
 
 - **T3. Review and update ALL skills and docs** (operator, 2026-09-02). After the SoC move, most of
   what the docs and skills say about component boundaries is wrong -- CLAUDE.md, ARCHITECTURE.md,
