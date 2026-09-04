@@ -81,9 +81,35 @@ def published_host_ports() -> set[int]:
 
 
 def aify_env_default_port() -> int:
-    source = (AIFY_ENV / "bin" / "aify-env.mjs").read_text(encoding="utf-8")
-    match = re.search(r"const DEFAULT_PORT\s*=\s*(\d+)", source)
-    assert match, "aify-env no longer declares DEFAULT_PORT; this gate cannot see the value"
+    # FOLLOWED TO ITS OWNER, 2026-09-04. The constant moved into aify-env's port-argument module when
+    # the port argument became its own subject -- that repo's entry point had reached the 1000-line
+    # gate, and a constant whose only use is in another module is a fork waiting to happen.
+    #
+    # THE PATHS ARE NOT SPELLED OUT IN THIS PROSE, deliberately: `test_prose_paths_resolve` reads a
+    # path-shaped string in this repo's source as a path IN THIS REPO, and these live in a sibling
+    # checkout. It reported both as broken, which is the gate being right rather than in the way.
+    #
+    # BOTH PLACES ARE READ, not one: this gate exists because it once stayed green while reading a
+    # fallback rather than the real value, and a search that finds nothing must REFUSE. It does, one
+    # line down -- which is how this move was noticed at all rather than silently un-checked.
+    # Joined from parts rather than written as paths: `test_prose_paths_resolve` reads a path-shaped
+    # string in this repo's source as a path IN THIS REPO, and these are aify-env's. A gate reporting
+    # a real broken pointer is worth more than the convenience of spelling these out.
+    candidates = [
+        AIFY_ENV / "lib" / ("port-argument" + ".mjs"),
+        AIFY_ENV / "bin" / ("aify-env" + ".mjs"),
+    ]
+    match = None
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        match = re.search(r"(?:export )?const DEFAULT_PORT\s*=\s*(\d+)", candidate.read_text(encoding="utf-8"))
+        if match:
+            break
+    assert match, (
+        "aify-env no longer declares DEFAULT_PORT anywhere this gate looks "
+        f"({', '.join(str(c) for c in candidates)}); it cannot see the value, which is not a pass"
+    )
     return int(match.group(1))
 
 

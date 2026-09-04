@@ -117,6 +117,73 @@ now visible per-agent in the dashboard drawer.
 mutation-tested, but proving it starts a resident on your fleet, which is yours to decide.
 
 
+## EXTERNAL REVIEW ROUND 8 — every HIGH and MEDIUM answered, 2026-09-04
+
+Reviewed against aify-comms `7625737a`, aify-env `e7974fb`, aify-wrapper `c25a4b3`. Their
+checkpoint is an ancestor of this branch, so every finding was verified at the cited lines
+before anything was changed. **Eight HIGHs and sixteen MEDIUMs: all fixed, except the two that
+are decisions rather than defects, which are recorded as such below.**
+
+**The two that would have cost the operator a fleet:**
+
+- **H3** — a 404 on the liveness frame killed a live worker with NO quiet veto. The end-status
+  route carries the veto the file calls "the most important line in this function"; the 404
+  route had none, and its own comment lists "a database restored from backup" as an intended
+  route — exactly when a 404 is not evidence the work is over. A restored or reset database, or
+  any proxy answering 404, killed every live session on the host in one pass. aify-env `b1075ee`.
+- **H2** — one failed report ended claiming for the life of the process, INVISIBLY. Both
+  `api.report` calls were bare awaits, `claimForever` had no catch, and the caller was a one-shot
+  `.catch`. The heartbeat is a SEPARATE loop, so `bridgeLastSeen` stayed fresh, `claimer.accepted`
+  kept passing, `/spawn` kept accepting, and the queue never drained. Trigger is ordinary: a 409
+  when the operator cancels between claim and report. aify-env `b1075ee`.
+
+**The rest, by number.** H1 the seal gate (a duplicate retired, plus a second registry resolver
+in the daemon); H4 the host tier outranks a retired bridge, both ends; H5 `--shared` carries the
+caller's environment; H6 hermes `--shared` reaches the host; H7 `aify-env tui` stays on screen;
+H8 the installer decides instead of carrying on. M1 a future start time is bounded; M2 launchers
+are 755; M3 terminal output arrives in order; M4 a refused claimer stands down; M5 the end-status
+vocabulary is the service's; M6 an empty liveness frame settles nothing; M8 the page says when it
+cannot tell; M9 the doctor sees taken-and-undone work; M10 the host reads the service's verdict;
+M11 the doctor stops failing on a correct host; M12 the real invariant is gated; M13 codex reaps
+its app-server; M14 the pin gate reads what is installed; M15 a refused takeover describes
+nothing; M16 a test cannot block a terminal. Plus the ENV-H2 residue and four LOWs with teeth.
+
+**M7 IS A BOUNDARY, NOT A BUG, and it is recorded rather than fixed.** The composed launch is
+trusted verbatim for argv, cwd and env values; only the launcher FILE is allowlisted. Key names
+are fixed so PATH/LD_PRELOAD injection is not possible, but argv is the service's word across a
+network with one shared key. **D7 settled this on 2026-09-04**: no per-agent tokens, everybody
+with the key is trusted. So this is an accepted risk with a decision behind it, and changing it
+means reopening D7 rather than patching the seam.
+
+**CRED-L1's shared-key half is the same decision.** Any shared-key caller sending a non-empty
+`bridgeId` keeps its `bridgeBuild` and gets `bridgeLastSeen=now`. That is what a shared secret
+means, and D7 chose it. The half that was NOT a decision — an unbounded future `bridgeStartedAt`
+— is fixed as M1.
+
+**What the review got right that I would not have found.** Three of these were invisible from
+inside: H2's dead claim loop (every instrument green because each asked a different question),
+M14's vacuous pin gate (green by construction on the exact failure this repo documents), and
+M12's non-protective pin (parity holds for the unbounded pair too). The pattern in all three is
+a check that cannot fail, which is this project's own recurring defect arriving from outside.
+
+**What I found while fixing, that the review did not have in view.** H1's gate was a DUPLICATE —
+a sibling already enforced it per-spawn, so the repair was a deletion rather than a second
+correct implementation. H4 needed a change in aify-env too: the service had no signal to ignore,
+because both identities carried the same three fields. And the `environment_controls` stop queue
+the review notes as unread has no reader BY CONSTRUCTION — its consumer was the environment-
+control loop deleted in v0.6.2 — so M4 stands down on heartbeat STATE instead.
+
+**LOW items not taken, and why.** The remaining LOW list is largely reporting polish and
+pre-existing conditions the operator has already ruled on (the 6-character API key, the
+dashboard's localStorage trade, `--dangerously-skip-permissions` on managed codex). Four were
+taken because they had teeth: the ENV-H2 sibling-agent reap, `--port` crashing on a typo,
+claude leaking a file holding the decoded key, and hermes' trap. The rest are left NAMED in the
+review record rather than silently dropped.
+
+**Nothing here has reached the running fleet.** All of it is inert until `install.sh` is re-run,
+the wrappers relaunch, aify-env restarts and the container is rebuilt — the operator's actions.
+The operator's spawn claim was checked after every full aify-env suite run and stayed intact.
+
 ## v0.6.1 CLOSE-OUT, RE-VERIFIED 2026-09-04 — four of five were already done
 
 The standing work order still lists these as remaining, so each was checked against the code rather
