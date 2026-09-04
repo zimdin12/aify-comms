@@ -12,19 +12,20 @@ evidence.
 
 ---
 
-## WAITING ON THE OPERATOR, as of 2026-09-03 17:30 UTC
+## WAITING ON THE OPERATOR, as of 2026-09-04 00:20 UTC
 
 Consolidated because it was scattered across seven places in this file, and none of it is mine to
 do. Ordered by whether it has a clock on it.
 
-**1. A CLOCK: the claude login.** `refreshTokenExpiresAt` is **2026-09-04 11:57 UTC**. Past it no
-automatic renewal is possible and a human must run `claude` and log in; 21 claude-code agents share
-the grant. Whether a refresh EXTENDS that window is unresolved -- it answers itself around 23:09 UTC
-tonight, when the access token expires and a refresh is actually due.
+**1. A CLOCK: the claude login.** `refreshTokenExpiresAt` is **2026-09-04 11:57:46 UTC** and **it is
+FIRM** -- measured, not assumed; the working below. Past it no automatic renewal is possible and a
+human must run `claude` and log in; 21 claude-code agents share the grant. **There is nothing to wait
+for**: a refresh renews the access token and leaves this deadline exactly where it is, so no amount
+of fleet activity moves it.
 
-  **ANSWERED 2026-09-03 23:57 UTC, AND THE ANSWER IS THE BAD ONE: A REFRESH DOES NOT EXTEND THE
-  REFRESH WINDOW.** The open question all night was whether the lazy refresh, when it fired, would
-  push the 11:57 deadline out. It fired between 21:47 and 23:57 and it did not:
+  **THE WORKING, measured 2026-09-03 23:57 UTC.** The open question all night was whether the lazy
+  refresh, when it fired, would push the 11:57 deadline out. It fired between 21:47 and 23:57 and it
+  did not:
 
   | | before | after |
   |---|---|---|
