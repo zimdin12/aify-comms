@@ -988,11 +988,33 @@ solved it by narrowing to one runtime. See D9.
   until each is reinstalled, and `--with-api-key` deliberately REUSES an existing key rather than
   rotating for exactly that reason. Worth a deliberate rotation the next time the fleet is being
   reinstalled anyway.
-- **C5. Terminal write path, the full fix** (operator chose the full option 09-02): move the two
-  status-path readers off the stored tail, then write it lazily. Scoped: both readers want the
-  rendered screen, and the live screen is already rendered, so they skip a pyte render as well as a
-  database read. `claim_block_reason.py` stays on the raw log -- it compares marker POSITIONS in the
-  stream and a rendered screen loses that ordering.
+- **C5. Terminal write path. THE READERS ARE DONE AND PROVEN; the lazy WRITE is what is left.**
+  Measured 2026-09-04 rather than remembered -- I had this filed as "not started" and half of it had
+  already shipped.
+
+  **DONE:** both status-path readers take the LIVE SCREEN first and fall back to the stored tail --
+  `liveness.py`'s `_terminal_awaiting_input_hint` and `status_inputs.py`'s `terminal_input_hint`.
+  Each skips a pyte reconstruction of up to 64 KB per status refresh, not merely a SELECT. The
+  fallback stays because the live screen is a process global and is empty for any terminal this
+  process has not seen since it started -- which is exactly what the tail is for, and dropping it
+  would make status WRONG for a window after each restart rather than merely slower. Proven by
+  `test_status_reads_the_live_screen_not_the_stored_tail.py`, 8 tests, whose own controls refuse to
+  pass via the tail.
+
+  `claim_block_reason.py` stays on the raw log and is not a third reader to move: it compares marker
+  POSITIONS in the stream, and a rendered screen loses that ordering.
+
+  **LEFT: the write.** `_append_terminal_output` is a read-modify-write of the WHOLE tail --
+  `current + chunk`, trimmed to 64 KB at a line boundary, UPDATEd. The write queue already coalesces
+  (4 ms idle, 24 ms ceiling, 16 KB batches), so the remaining cost is re-writing up to 64 KB per
+  flush for a busy agent. Lazy means flushing the DB copy on a slower cadence than the stream, since
+  it is a restart fallback and not a live read any more -- which is exactly what the operator meant
+  by *"just as rolling memory of what was on screen. but we depend on it less thx to lazy right."*
+
+  **MEASURE THE COST BEFORE BUILDING IT.** Wall-clock A/B is unmeasurable on this host (the same code
+  timed 44-47 ms then 22-25 ms minutes apart, with the live fleet as the load), so the number to take
+  is DB round-trips and bytes written per second of agent output. A change that saves nothing
+  measurable is not worth the durability it spends.
 - **C6. `comms_send` unslop. DONE 2026-09-03**, and the surface it lives on is now gated.
 
   `COMMS_SEND_TOOL_DESCRIPTION` went 2,638 -> 1,794 characters, a 32% cut, with the reply contract
