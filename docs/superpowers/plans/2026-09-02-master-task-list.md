@@ -798,14 +798,52 @@ solved it by narrowing to one runtime. See D9.
   first measurement here reinvented it by reaching for the bridge's `spawn-claimer.mjs`, which is the
   doctor's caller of the same question.
 
-  **SO B4 IS 2 OF 4 DONE, 1 REFUSED, 1 REMAINING:**
+  **SO B4 IS 3 OF 4 ANSWERED, 1 NOT SURFACEABLE** (was 2 of 4 until 2026-09-04, when the `bridge-current` question was answered by a new row rather than by re-pointing that check):
 
   | check | state |
   |---|---|
   | `session-handles` | DONE 2026-09-03 -- per-agent, in the drawer, with an agreement test |
   | `env-bridge` | ALREADY DONE -- service-computed `spawnClaim`, displayed in three places |
-  | `bridge-current` | NOT SURFACEABLE -- `bridgeBuild` no longer arrives; root-caused above |
+  | `bridge-current` | ANSWERED 2026-09-04 BY A DIFFERENT ROW -- the check is unchanged; the QUESTION moved to `codeCurrency`, below |
   | `context-window` | REMAINING -- neither computed service-side nor in the dashboard |
+
+  **THE `bridge-current` DECISION WAS TAKEN 2026-09-04, and it is the second option above: re-point
+  the QUESTION at the host tier's build, without re-pointing the CHECK.** Folding a second subject
+  into one verdict is the gate-granularity defect that cost this project six instances in two days --
+  a verdict coarser than the things it judges cannot say which of them is wrong -- so `bridge-current`
+  is untouched and still says exactly what it said, and the new question got its own row.
+
+  **What was missing was never the comparison, it was that a HUMAN had to make it.** aify-env already
+  computed a content hash of its own source at boot (`lib/build-identity.mjs`), and `aify-env
+  --version` computed the same thing off disk, and the module states the rule in its own words:
+  *equal means current, different means restart*. Somebody had to run a command and compare eight hex
+  characters by eye. Now the daemon reports both and three readers do the comparing:
+
+  | reader | what it shows |
+  |---|---|
+  | `aify-env doctor` | a `code-current` row, PROVEN on a real daemon in both directions |
+  | `/health` | `build` (loaded) beside `codeOnDisk` (on disk) |
+  | the environment card | a badge when they differ, from a service-computed `codeCurrency` |
+
+  **BOTH IDENTITIES TRAVEL, never a boolean**, because the remedy is a restart and restarting an
+  environment tier REAPS ITS MANAGED WORKERS. Advice with that price attached has to be arguable, and
+  an operator who doubts the verdict needs the two numbers to check it with.
+
+  **`unknown` IS THE STATE THAT MATTERS AND IT DRAWS NOTHING.** An advertiser too old to report the
+  pair is no evidence either way -- the case every host is in mid-upgrade, which is exactly when this
+  is read. A badge then would fire fleet-wide and be ignored; an all-clear would be the false green
+  this repo shipped twice. The absence of a badge is deliberately NOT a claim that a host is current.
+
+  **The defect this found, which no test asked for.** `sourceFiles` swallows an unreadable directory
+  on purpose, so a broken tree does not throw -- it yields `[]`, and hashing nothing returns the
+  sha256 of the empty string: a well-formed build id that differs from every real one. A host whose
+  package went briefly unreadable would have advertised `restart me`, and acting on that false alarm
+  costs a working fleet. The try/catch guarding it could never have fired. Zero files is now an
+  absence, and both halves read it as `cannot tell`.
+
+  **Operator-owned before any of this is visible:** `scripts/stamp.sh` + a container rebuild for the
+  service field, and an aify-env restart before a running daemon advertises the pair at all. Until
+  then every host reads `unknown`, correctly.
 
   **`context-window` IS NOT SURFACEABLE EITHER, measured 2026-09-03 -- so B4 is CLOSED as far as it
   can honestly go.** The check reads the runtime's own footer (`820.3k/900k`). Searched every
