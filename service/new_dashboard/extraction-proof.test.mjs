@@ -1065,12 +1065,15 @@ const EXTRACTIONS = [
         // machine_id, so the `||` branch could never be taken.
         // Also names a bridge running a different build than the service -- the blind spot that sent
         // the operator into two aify-env restarts for something only a bridge relaunch fixes.
+        // And a host running code its own DISK has moved past, which is a different question from
+        // the one above: that compares two components that differ routinely, this compares one
+        // host against itself, where a difference always means a fix that is not running.
         editedSince: [{
           was: [
             "      <p class=\"preview\">${esc(env.kind || env.os || '')} · ${esc(env.machineId || env.machine_id || '')}</p>",
           ],
           now: [
-            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${unknownProcessBadge(env)}</p>",
+            "      <p class=\"preview\">${esc(env.kind || env.os || '')} \u00b7 ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${staleCodeBadge(env)}${unknownProcessBadge(env)}</p>",
           ],
         }, {
           // A SECOND PAIR, not an amendment to the first: this edit covers a DIFFERENT line. `was`

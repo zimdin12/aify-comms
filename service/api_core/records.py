@@ -38,6 +38,7 @@ from service.api_core.reply_contract import (
     _dispatch_reply_pending,
     _dispatch_reply_state,
 )
+from service.api_core.code_currency import code_currency
 from service.api_core.serialization import _dedupe_preserve, _row_require_reply
 
 
@@ -91,6 +92,13 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
         # `/spawn` judges a claimer by `SPAWN_CLAIMER_FRESH_SECONDS`. Passing the caller's number
         # here would let a raised setting make this field say claimable while the endpoint refuses --
         # the drift this field exists to remove, reintroduced through the field itself.
+        # IS THIS ENVIRONMENT RUNNING THE CODE ON ITS OWN DISK -- the question `bridge-current`
+        # used to answer before v0.6.1 retired the tier that reported a build of this repo. The
+        # advertiser sends two identities computed the same way and this compares them, so the
+        # dashboard reads a verdict rather than reimplementing the comparison in a browser bundle.
+        # Three states, never a boolean: `unknown` is the ordinary case mid-upgrade, which is
+        # exactly when somebody is reading this, and it must not collapse into `current`.
+        "codeCurrency": code_currency(metadata),
         "spawnClaim": {
             "state": claim_state,
             "canClaim": claim_state == _BRIDGE_STAMP_FRESH,

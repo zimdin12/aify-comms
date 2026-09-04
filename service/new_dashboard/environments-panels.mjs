@@ -113,6 +113,42 @@ export function staleBridgeBadge(env, serviceBuild = serviceBuildShort()) {
 }
 
 /**
+ * A badge when this environment is running code its own disk has moved past.
+ *
+ * WHY THIS EXISTS. `bridge-current` used to answer a version of this and its SUBJECT MOVED OUT FROM
+ * UNDER IT: it compared each bridge's `bridgeBuild` against the repo, and v0.6.1 retired the tier
+ * that reported one. The useful question outlived the check -- an environment tier running code
+ * older than its own checkout means every fix since is inert -- and the operator will not run a
+ * command to find out. So the tier advertises both identities and this shows the answer where they
+ * already look.
+ *
+ * READ, NOT DERIVED. `codeCurrency` is computed service-side on the environment row, the same way
+ * `spawnClaim` is. The doctor and `comms_envs` each grew their own copy of the claim rule and each
+ * got it wrong once; a comparison reimplemented in a browser bundle is that again.
+ *
+ * SILENT UNLESS STALE. `current` needs no badge and `unknown` must not draw one -- an advertiser too
+ * old to report the pair is no evidence either way, and a badge that appears on every host until
+ * everything is upgraded is one nobody reads twice. Absence of a badge here is not a claim that a
+ * host is current; the doctor row says which of the two it is.
+ *
+ * BOTH IDENTITIES IN THE TITLE, because the remedy is a restart and restarting an environment tier
+ * reaps the managed workers it is running. Advice that costs somebody their agents has to be
+ * arguable, and an operator who doubts the badge needs the two numbers to check it with.
+ */
+export function staleCodeBadge(env) {
+  const currency = env && env.codeCurrency;
+  if (!currency || currency.state !== 'stale') return '';
+  const running = String(currency.running || '').trim();
+  const onDisk = String(currency.onDisk || '').trim();
+  if (!running || !onDisk) return '';
+  const title = `This host is running build ${running}, but the code on its disk is ${onDisk}. It `
+    + `loaded its files before they changed, so anything fixed since is NOT live here. Restarting `
+    + `the environment picks it up -- and reaps the managed workers it is currently running, so do `
+    + `it when losing them is acceptable.`;
+  return `<span class="mb mb-warn" title="${esc(title)}">running ${esc(running)} \u2260 disk ${esc(onDisk)}</span>`;
+}
+
+/**
  * Why this environment cannot open a terminal, when it cannot.
  *
  * THIS IS THE OTHER HALF OF A FIX, and without it that fix would have been a trade. The bridge used
@@ -160,7 +196,7 @@ export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
-      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${unknownProcessBadge(env)}</p>
+      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${staleCodeBadge(env)}${unknownProcessBadge(env)}</p>
       ${terminalReasonNote(env)}
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}
