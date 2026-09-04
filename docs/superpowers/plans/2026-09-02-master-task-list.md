@@ -79,19 +79,35 @@ question is still open, which is what a lazy refresh looks like rather than a st
 - **Per-agent consumption collector -- ANSWERED 2026-09-04, and the deletion it blocked is DONE
   (`779099d7`).** Parked, not deleted, waiting for a caller in aify-env or aify-dashboard. Move
   it to aify-env, retire the analytics panel, or leave it reading zeros.
-- **C7's rationale** -- the hook-source reversal is recorded as decided with no reason, and the
-  commit it reverses argues the opposite. Say which and it is ten minutes.
-- **C5** -- writing the terminal tail lazily is a durability trade-off; wall-clock here is noise, so
-  the question is how much tail loss is acceptable.
-- **D7, per-agent authority** -- open by your decision, and it blocks SSE-M1, CRED-L1, Row 4 F4 and
-  dashboard terminal input.
+- **C7 -- CLOSED 2026-09-04 as decided against.** The operator's answer was to go with the
+  recommendation, and the recommendation was to leave `e8856126` standing: the installed copy is what
+  the fleet actually runs, and sourcing hooks from the repo would make a checkout's state reach
+  processes that never opted into it. The reversal is not done and will not be. The rationale gap
+  that made this a question is now the answer.
+- **C5 -- ANSWERED 2026-09-04: lazy, and KEEP the tail.** The operator's first instinct was that
+  no database write is needed at all; I pushed back with eleven readers of the stored tail and they
+  accepted keep-tail-plus-lazy -- *"just as rolling memory of what was on screen. but we depend on it
+  less thx to lazy right. sure keep tail and lazy stuff also."* So: render only what is visible,
+  fetch the tail when asked, keep writing it. NOT YET BUILT -- see C5 below.
+- **D7 -- CLOSED 2026-09-04 by operator decision: NO per-agent tokens.** *"it is just to connect
+  components together... i do not want per agent tokens. they have id for identification. we trust
+  everybody with a key."* The shared secret proves fleet membership and that is all it is asked to
+  prove. This UNBLOCKS SSE-M1, CRED-L1, Row 4 F4 and dashboard terminal input, each now carrying the
+  accepted risk rather than waiting on a decision. The threat model is explicit and personal-scale:
+  the key exists so that someone else downloading this stack cannot reach agents with whole-PC
+  access, not to separate one agent's authority from another's.
 - **The API key is 6 characters** against this project's own floor of 32. Rotating 401s every
   installed bridge until each is reinstalled, so it wants to ride along with a reinstall.
-- **`hasTrustDialogAccepted`** -- the last third of v0.6.1 (c). Writing `~/.claude.json` needs a lock
-  or a single writer: it has corrupted before under concurrent writes, on a host running a dozen
-  claude processes.
-- **`bridge-current`** -- retire it, or re-point it at the host tier's build. It cannot answer as it
-  stands, and ten inert aify-env commits are exactly the signal a re-pointed version would give.
+- **`hasTrustDialogAccepted` -- CLOSED 2026-09-04 as NOT NEEDED**, on the operator's *"check and
+  decide yourself"*. MEASURED before deciding: 21 of the 22 projects in `~/.claude.json` already have
+  the flag set, and the one that does not is the HOME DIRECTORY, where no agent runs. So the write
+  this item proposed would change nothing for any agent, while taking on a concurrent-write risk that
+  has corrupted that file before on a host running a dozen claude processes. v0.6.1 (c) is complete
+  at two thirds because the third was unnecessary, not because it was skipped.
+- **`bridge-current` -- ANSWERED 2026-09-04: re-point it at aify-env's build.** The operator went
+  with the recommendation. The check's question is still the right one -- "is the tier that owns
+  processes running the code on disk" -- and it is aify-env that answers it now; a permanent
+  `unknown-all` is a row nobody reads, which is worse than no row. NOT YET BUILT.
 
 **4. YOUR PROCESSES AND DATA.** 18 hermes gateway hosts with no worker behind them; 18 agent
 identities silent for over 30 days (three for 126); 3 sessions each claimed by more than one agent,
@@ -112,7 +128,7 @@ done, or not done, is how eight days were lost.
 | (a) `comms_remove_agent` must stop its worker, not orphan it | **DONE, and tested** | `routers/agents/identity.py` `DELETE /agents/{id}`: for a MANAGED agent it sets `status='stopped'`, calls `_request_stop_agent_terminals(..., reap_triad=True)` and **commits that in its own transaction** before `_remove_agent_record` — because deleting the agent cascades to `terminal_controls` and would wipe a control emitted in the same one. Residents are skipped on purpose. Three tests in `test_hermes_remove_triad_reap.py`, all passing. |
 | (b) remove the `aify-comms` environment-bridge command | **COMMAND HALF DONE** | `install.sh:1524` renders a launcher that prints "this command starts nothing. The host tier is aify-env." and `exit 2`. |
 | (b) …and the dead code behind it | **DELIBERATELY NOT DONE** | `server.js` still carries 4 references to `spawn-loop` / `terminal-control-loop`. That is the ~1,800-line cluster, blocked on the consumption-collector decision in the operator list above — not an oversight. |
-| (c) console-prompt rules into the service; write `hasTrustDialogAccepted` | **PART DONE** | The rules moved. Writing `~/.claude.json` needs a lock or a single writer (it has corrupted before under concurrent writes on a host running a dozen claude processes), which is an operator decision. |
+| (c) console-prompt rules into the service; write `hasTrustDialogAccepted` | **DONE 2026-09-04** | The rules moved. The write is closed as NOT NEEDED, measured rather than assumed: 21 of 22 projects in `~/.claude.json` already carry the flag and the one that does not is the home directory, where no agent runs -- so the write would change nothing while taking on a concurrent-write risk that has corrupted that file before. |
 | (d) full docs + skills pass | **DONE** | `10a202f2` — CLAUDE.md, README, ARCHITECTURE, TARGET_ARCHITECTURE, PHASE8_STATUS, AIFY_ENV_BOUNDARY, BRIDGE_SETUP, all five install guides, both skill mirrors. |
 | (e) cut and push the v0.6.1 tag | **DONE** | `v0.6.1` → `b7d77fdf`, 2026-09-03. |
 
@@ -997,7 +1013,13 @@ solved it by narrowing to one runtime. See D9.
   mirrors, `mcp/stdio/send-tools.mjs` AND `service/sse/send_tools.py` -- and derives the bound type
   set from the SQL in `_contract_list_query` rather than hardcoding it. That is exactly the test that
   caught the cut above. No new test: a second test of the same property is cost without coverage.
-- **C7. Hook source: repo rather than the installed copy** (decided 09-01, reverses `e8856126`).
+- **C7. Hook source: repo rather than the installed copy. CLOSED 2026-09-04 AS DECIDED
+  AGAINST** -- `e8856126` STANDS and this reversal will not be made. The item existed because a
+  09-01 note recorded the reversal as decided while giving no reason, and the commit it reverses
+  argues the opposite case. Asked with a recommendation; the operator took it. The installed copy
+  is what the fleet actually runs, so sourcing hooks from the repo would let a checkout's state
+  reach processes that never opted into it -- the same silent-deploy shape this repo has been
+  bitten by from the other direction. Left below as the record of a decision, not a task.
   **NOT EXECUTED -- the decision is recorded, the REASON is not, and the two point opposite ways.**
 
   What the launcher does today: `claude-aify` writes a temporary `--settings` file wiring
@@ -1184,7 +1206,14 @@ solved it by narrowing to one runtime. See D9.
   that encoding ended would return. That design is worth building when a service actually needs strict
   mode WITH a credential. Inventing it speculatively inside a package aify-dashboard and
   aify-project-graph are about to consume is not. **Open, and now impossible to ship silently.**
-- **D7. Per-agent authority.** A shared secret proves fleet membership, never "may act AS agent X".
+- **D7. Per-agent authority. CLOSED 2026-09-04: NO per-agent tokens, by operator decision.** A
+  shared secret proves fleet membership, never "may act AS agent X" -- and that is all it is
+  being asked to prove. *"it is just to connect components together... i do not want per agent
+  tokens. they have id for identification. we trust everybody with a key."* The threat model is
+  explicit and personal-scale: the key exists so somebody else downloading this stack cannot
+  reach agents that have whole-PC access. UNBLOCKS SSE-M1, CRED-L1, Row 4 F4 and dashboard
+  terminal input, each now carrying this as an accepted risk. The analysis below stands as the
+  record of what was traded away.
   Blocks SSE-M1 (console input's actor is forgeable by construction), CRED-L1, Row 4 F4, and Row 1
   (dashboard terminal input). The operator's 09-02 answer described the INSTALL-TIME key (C4), which
   does not close this. Recorded as open by decision, not by oversight.
@@ -1725,14 +1754,25 @@ the fifth is two-thirds done -- so the list was the stale thing, not the work.
   the row's disappearance. The handler's own comment names the trap it avoids: deleting the agent
   cascades agents -> agent_sessions -> terminal_sessions -> terminal_controls, so a control emitted
   in the same request would be wiped by the same delete. Residents are skipped, being the operator's
-  own session. Tested both sides: `test_hermes_remove_triad_reap.py` for the server contract,
-  `hermes-stop-triad-teardown.test.js` for the bridge teardown.
+  own session. `test_hermes_remove_triad_reap.py` covers the server contract and is now the WHOLE
+  of it: `hermes-stop-triad-teardown.test.js` proved the bridge-side teardown and was deleted with
+  the environment bridge on 2026-09-04, because the triad reap ran there only while the bridge
+  owned the processes. aify-env owns them now, so what the server test asserts is a contract with
+  aify-env's plugin.
 
 - **(b) Remove the `aify-comms` environment-bridge command. DONE for the COMMAND.** A bare run exits
-  2 and names aify-env. The ~1,800 lines behind it are mapped and gated but NOT deleted, blocked on
+  2 and names aify-env. **The lines behind it are DELETED as of 2026-09-04 (`779099d7`) -- sixteen
+  modules and twenty-nine test files, more than the ~1,800 mapped, because the map traced imports
+  FROM `server.js` and several members were reached only from each other.** It was blocked on
   one operator decision (the per-agent consumption collector) -- see T2 above.
 
-- **(c) Console-prompt rules into the service + `hasTrustDialogAccepted`. TWO-THIRDS DONE.**
+- **(c) Console-prompt rules into the service + `hasTrustDialogAccepted`. DONE 2026-09-04 --
+  two thirds built, the third measured as unnecessary.** The rules moved. The write did not
+  happen and should not: MEASURED before deciding, 21 of the 22 projects in `~/.claude.json`
+  already carry the flag, and the one that does not is the HOME DIRECTORY, where no agent runs.
+  So the proposed write would change nothing for any agent while taking on a concurrent-write
+  risk that has corrupted that file before on a host running a dozen claude processes. Closed on
+  the operator's *"check and decide yourself"*.**
   `service/api_core/console_prompts.py` holds the rules and argues the layer in the operator's own
   terms: a host about to run processes for aify-dashboard and aify-project-graph must not carry one
   service's screen model. It records that the rules were briefly in aify-env at 5am on 2026-09-03,
