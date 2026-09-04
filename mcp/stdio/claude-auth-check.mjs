@@ -16,6 +16,21 @@
 // requires a human, so only that one decides the verdict. The access token's age is reported as
 // context, never as a verdict.
 //
+// BOTH HALVES OF THAT WERE A HYPOTHESIS WHEN THIS WAS WRITTEN. They were WATCHED HAPPEN on
+// 2026-09-03/04, on this host, across readings taken every few minutes from 18:40 to 23:57 UTC:
+//
+//   access  2026-09-03T23:09:47.365Z  ->  2026-09-04T07:04:49.396Z   renewed, +7.9h, no human
+//   refresh 2026-09-04T11:57:46.365Z  ->  2026-09-04T11:57:46.396Z   NOT extended
+//
+// So the access token does renew itself, and a renewal does NOT push the refresh deadline out. The
+// milliseconds are what make the second half evidence rather than an absence: the field was
+// REWRITTEN (.365 -> .396) while its value stayed put, which separates "no refresh has happened yet"
+// from "a refresh happened and did not extend it". Every reading before the renewal showed both
+// stamps identical, so the pair is a real before/after.
+//
+// THAT IS WHY THIS ROW IS WORTH HAVING. The deadline is absolute from the moment of login: nothing
+// the fleet does moves it, so there is no self-healing to wait for and no signal other than this one.
+//
 // IT NEVER READS THE TOKENS. Only the two expiry stamps beside them. A health check that handles a
 // credential is a credential in one more place, and this one is called by a tool whose whole output
 // is meant to be pasted into a report.
