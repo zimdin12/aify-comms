@@ -110,22 +110,56 @@ test("importing server.js REGISTERS NOTHING — the property the fleet outage wa
   );
 });
 
-test("the guard is the SAME one that already gates main(), not a second assumption", () => {
-  // Read the source rather than the behaviour, because the point is provenance: this change is safe
-  // precisely because it reuses a guard the process already depends on. If `__isEntrypoint` were wrong
-  // for a real launch, main() would not run and the bridge would already be dead — so the guard is
-  // proven correct in production by the thing it already gates.
+test("NOTHING starts the environment bridge, because the code that could is not here", () => {
+  // v0.6.2 REPLACED this test's subject. It used to require TWO `if (__isEntrypoint)` blocks -- the
+  // boot block and main() -- to prove the boot block had not grown a second condition. The boot block
+  // was deleted with the bridge, so counting guards now measures nothing: one is the honest number and
+  // a floor of one passes on a file that gates nothing at all.
+  //
+  // So it asks the question the guard was standing in for. The two tests above prove an import starts
+  // no timers and calls nothing; this one proves the SOURCE cannot, by requiring the bridge's four
+  // starters to be absent as CODE. A mention in a comment is not a call, so the scan reads statements:
+  // the header comment above deliberately names `ensureEnvironmentHeartbeat`, and a test that fired on
+  // that would be unfixable except by deleting the history.
   const source = readFileSync(path.join(STDIO, "server.js"), "utf8");
-  const guards = source.match(/if \(__isEntrypoint\)/g) || [];
-  assert.ok(
-    guards.length >= 2,
-    "the boot block and main() must be gated by the SAME guard. If the boot block grew its own "
-    + "condition, this change stopped being 'reuse an assumption the process already makes' and became "
-    + "a new one that nothing has verified.",
+  const code = source
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const STARTERS = [
+    "ensureEnvironmentHeartbeat",
+    "bootstrapEnvironmentBridge",
+    "ensureSpawnLoop",
+    "ensureEnvironmentControlLoop",
+    "ensureUsageCollector",
+  ];
+  const present = STARTERS.filter((name) => new RegExp(`\\b${name}\\b`).test(code));
+  assert.deepEqual(
+    present, [],
+    `server.js names ${present.join(", ")} as code. Each of these REGISTERED THIS PROCESS AS THE `
+    + "ENVIRONMENT BRIDGE or started one of its loops, and aify-env is the host tier now -- a second "
+    + "bridge on this host supersedes the live one and reaps its managed workers.",
   );
+
+  // POSITIVE CONTROL, in the same run: the scan must find a name that IS there, or its empty answer
+  // above is the instrument being broken rather than the bridge being gone.
   assert.ok(
-    !/^ensureEnvironmentHeartbeat\(\);/m.test(source),
-    "ensureEnvironmentHeartbeat is being called at module top level again. That registers the importing "
-    + "process as the environment bridge — the exact call behind 'never run a bare aify-comms'.",
+    /\bensureDispatchLoop\b/.test(code),
+    "the scan cannot see `ensureDispatchLoop`, which server.js does call -- so its zero above is not "
+    + "evidence of anything",
+  );
+  // NEGATIVE CONTROL, on a SYNTHETIC fixture rather than on server.js: the stripper must be able to
+  // say ABSENT for a name that appears only in prose. Its first version read a real comment in
+  // server.js, and rewriting that comment -- in the same change -- took the fixture with it, so the
+  // control failed for a reason that had nothing to do with the property. A control that a nearby edit
+  // can silently disarm is not one.
+  const proseOnly = "// ensureEnvironmentHeartbeat();\n/* ensureSpawnLoop(); */\nconst x = 1;\n";
+  const strippedProse = proseOnly
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(
+    !/ensureEnvironmentHeartbeat|ensureSpawnLoop/.test(strippedProse),
+    "the comment stripper leaves commented-out calls behind, so the scan above would fire on history "
+    + "rather than on code -- and the only way to quiet it would be to delete the incident this file "
+    + "is written to preserve",
   );
 });

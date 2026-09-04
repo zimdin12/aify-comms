@@ -48,7 +48,6 @@ BODIES_BUILT_ELSEWHERE = {
     "mcp/stdio/registration-tool.mjs": "agentData, assembled from the tool's arguments",
     "mcp/stdio/required-reply-handoff.mjs": "the owed-reply body built above the call",
     "mcp/stdio/run-callbacks.mjs": "the external-refs patch built from what the runtime returned",
-    "mcp/stdio/server.js": "environmentHeartbeatPayload / the usage payload",
     "mcp/stdio/virtual-terminals.mjs": "updateTerminalControl's caller supplies the patch",
 }
 

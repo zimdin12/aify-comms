@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isActiveManagedSessionStatus } from "../session-predicates.mjs";
+import { isActiveManagedSessionStatus, localAgentNeedsDispatchHosting } from "../session-predicates.mjs";
 
 test("every ACTIVE status is recognised — the list is asserted, not sampled", () => {
   // Each of these is a real lifecycle state a managed worker passes through. Dropping any one makes a
@@ -54,4 +54,46 @@ test("absent, empty and non-string values are inactive rather than throwing", ()
   }
   assert.doesNotThrow(() => isActiveManagedSessionStatus({}));
   assert.doesNotThrow(() => isActiveManagedSessionStatus([]));
+});
+
+// ── does this process have to poll for its own work? ─────────────────────────────────────────
+//
+// MOVED HERE with its subject in v0.6.2. `localAgentNeedsDispatchHosting` lived in
+// `managed-teardown-ownership.js` beside the environment bridge's ownership and bootstrap
+// machinery; that went with the bridge and this predicate was the only survivor.
+//
+// GETTING IT BACKWARDS IS NOT SYMMETRIC. A false "needs hosting" leaves a resident with no dispatch
+// loop and no channel to wake it -- silently deaf, which is the shape this repo has paid for
+// repeatedly. A true one starts a loop that is merely redundant.
+
+test("a resident with an id AND channels does NOT need its own loop", () => {
+  // The channel wakes it; a second poller is redundant work against the service.
+  assert.equal(localAgentNeedsDispatchHosting({ agentId: "sc-lead", channelsEnabled: true }), false);
+});
+
+test("EVERY OTHER COMBINATION NEEDS ONE, because nothing else would wake it", () => {
+  for (const args of [
+    { agentId: "sc-lead", channelsEnabled: false },
+    { agentId: "", channelsEnabled: true },
+    { agentId: "   ", channelsEnabled: true },
+    { agentId: "sc-lead" },
+    {},
+    undefined,
+  ]) {
+    assert.equal(
+      localAgentNeedsDispatchHosting(args), true,
+      `${JSON.stringify(args)} was left with no dispatch loop and nothing to wake it`,
+    );
+  }
+});
+
+test("channels must be LITERALLY true, not merely truthy", () => {
+  // A string "false" or a 1 arriving from an environment variable is exactly how a flag stops
+  // meaning what it says; the predicate compares identity for that reason.
+  for (const channelsEnabled of ["true", "1", 1, {}]) {
+    assert.equal(
+      localAgentNeedsDispatchHosting({ agentId: "sc-lead", channelsEnabled }), true,
+      `a ${typeof channelsEnabled} was accepted as channels being enabled`,
+    );
+  }
 });

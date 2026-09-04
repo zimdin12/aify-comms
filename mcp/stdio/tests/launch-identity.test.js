@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "../launch-identity.mjs";
-import { declaringModules } from "./bridge-sources.mjs";
+import { bridgeSources, declaringModules } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -185,7 +185,34 @@ test("exactly one module declares IS_ENVIRONMENT_BRIDGE, and server.js reads it 
     declaringModules("IS_ENVIRONMENT_BRIDGE"), [{ file: "launch-identity.mjs", kind: "binding" }],
     "a second declaration would let two parts of the bridge disagree about what this process is",
   );
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.match(server, /(?<![\w.])IS_ENVIRONMENT_BRIDGE(?![\w])/, "server.js is still its main reader");
-  assert.doesNotMatch(server, /^const IS_ENVIRONMENT_BRIDGE/m, "…and must not re-declare it");
+  // SERVER.JS NO LONGER READS IT, and that is the v0.6.2 change rather than a regression. Every
+  // consumer there was a bridge loop, and they went with the bridge. What remains are three readers
+  // that all test it NEGATED -- "if this is not a bridge, do the resident thing" -- so the flag is
+  // now a vestige whose every branch is the one a resident takes.
+  //
+  // ASSERTED AS A SHRINKING SET rather than a fixed list: retiring the flag entirely is the follow-up
+  // this points at, and a reader appearing again would mean the bridge is being rebuilt.
+  //
+  // `loop-gate.mjs` is in the list and is NOT a reader -- it names the flag in a comment describing
+  // what callers pass as `eligible`. The scan is deliberately textual: stripping comments would make
+  // it miss a flag read from a template or a computed name, and this list is short enough that one
+  // documented exception is cheaper than a parser.
+  const FLAG = /(?<![\w.])IS_ENVIRONMENT_BRIDGE(?![\w])/;
+  const readers = bridgeSources()
+    .filter(([file]) => file !== "launch-identity.mjs")
+    .filter(([, text]) => FLAG.test(text))
+    .map(([file]) => file);
+  assert.deepEqual(
+    readers.sort(),
+    ["auto-registration.mjs", "bridge-main.mjs", "loop-gate.mjs", "resident-runtime-lost.mjs"],
+    "the IS_ENVIRONMENT_BRIDGE readers changed. It is a vestige of the deleted environment bridge and "
+      + "the list may only shrink; a NEW reader means something is keying on a flag that can no "
+      + "longer be true in any supported configuration.",
+  );
+  // The no-second-declaration half, now asked of every module rather than of server.js alone --
+  // which is stronger, and is what the `declaringModules` assertion above already establishes.
+  for (const [file, text] of bridgeSources()) {
+    if (file === "launch-identity.mjs") continue;
+    assert.doesNotMatch(text, /^const IS_ENVIRONMENT_BRIDGE/m, `${file} re-declares the flag`);
+  }
 });

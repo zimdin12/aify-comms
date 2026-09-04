@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import tempfile
 import re
 import unittest
 
@@ -61,6 +62,9 @@ from service.api_core.terminal_status import (
 REPO = pathlib.Path(__file__).resolve().parents[2]
 PRUNE = {"node_modules", "fixtures", "__pycache__", ".git", ".venv", "tests"}
 
+#: Written rather than escaped, so no editing path can collapse it into a literal newline.
+NL = chr(10)
+
 #: The bridge's terminal-status literals, by file. Two shapes reach the same column: a direct
 #: `POST .../output` body, and the second argument of `_pushTerminalFrame`, which the virtual
 #: terminal sink forwards into that same body.
@@ -69,19 +73,27 @@ BRIDGE_SENDERS = {
     "mcp/stdio/hermes-managed-gateway-session.js": {"running"},
     "mcp/stdio/hermes-session.js": {"failed", "running"},
     "mcp/stdio/pi-session.js": {"running", "stopped"},
-    # `attached` only since 2026-08-26: the exit body moved to `terminal-exit-report.js` when the
-    # exit code and signal were added to it, so the two end statuses now live one file over. The
-    # scan follows the spread rather than being told, which is why that file appears below on its
-    # own rather than as an exception here.
-    "mcp/stdio/terminal-manager.mjs": {"attached"},
-    "mcp/stdio/terminal-exit-report.js": {"failed", "stopped"},
+    # SIX UNTIL v0.6.2. `terminal-manager.mjs` (`attached`) and `terminal-exit-report.js`
+    # (`failed`/`stopped`) were the environment bridge's and were deleted with it, so this bridge no
+    # longer writes an end status for a terminal at all -- aify-env owns the processes and reports
+    # their exits through its own plugin. The four that remain are the per-runtime sessions, which a
+    # resident still runs.
 }
 
 
-def _bridge_terminal_status_literals() -> dict[str, set[str]]:
+def _bridge_terminal_status_literals(root=None, base=None) -> dict[str, set[str]]:
+    """Terminal-status literals by file, under `root`, keyed relative to `base`.
+
+    THE ROOT IS A PARAMETER so the shape controls can hand it a synthetic tree. They used to name a
+    real file per shape, which made each control depend on that file continuing to be written that
+    way -- and v0.6.2 deleted the only live ternary and the only live spread at once, disarming both
+    controls while the branches that read them stayed in this function.
+    """
+    root = (REPO / "mcp" / "stdio") if root is None else pathlib.Path(root)
+    base = REPO if base is None else pathlib.Path(base)
     found: dict[str, set[str]] = {}
-    for path in sorted((REPO / "mcp" / "stdio").rglob("*.*js")):
-        rel = path.relative_to(REPO)
+    for path in sorted(root.rglob("*.*js")):
+        rel = path.relative_to(base)
         if PRUNE & set(rel.parts) or ".test." in path.name or path.suffix not in (".js", ".mjs"):
             continue
         src = path.read_text(encoding="utf-8")
@@ -116,7 +128,7 @@ def _bridge_terminal_status_literals() -> dict[str, set[str]]:
                 helper_path = path.parent / imported.group(1)
                 if not helper_path.exists():
                     continue
-                helper_key = helper_path.resolve().relative_to(REPO.resolve()).as_posix()
+                helper_key = helper_path.resolve().relative_to(base.resolve()).as_posix()
                 helper_src = helper_path.read_text(encoding="utf-8")
                 for field in re.findall(r"^\s*status:\s*([^\n]*)", helper_src, re.M):
                     for value in re.findall(r'"([a-z-]+)"', field):
@@ -246,28 +258,91 @@ class TerminalStatusVocabularyTests(unittest.TestCase):
 
     def test_the_scans_are_not_silently_matching_nothing(self):
         literals = _bridge_terminal_status_literals()
-        self.assertGreaterEqual(len(literals), 5, "the bridge scan found almost no senders")
-        self.assertIn("attached", literals.get("mcp/stdio/terminal-manager.mjs", set()))
-        # The ternary MOVED on 2026-08-26 and this control moved with it. It is the same property --
-        # a two-literal ternary must be read whole -- checked where the ternary now lives. Leaving it
-        # pointed at the old file would have made it a control over nothing, passing on a scan that
-        # had stopped reading ternaries entirely.
-        exit_report = literals.get("mcp/stdio/terminal-exit-report.js", set())
-        self.assertIn(
-            "stopped", exit_report,
-            "the ternary `status: error ? \"failed\" : \"stopped\"` carries TWO literals in one "
-            "field; a scan that reads only the first sees half the senders",
-        )
-        self.assertIn(
-            "failed", exit_report,
-            "the exit body is SPREAD into the POST from a helper module. A scan that reads only the "
-            "call site sees `attached` and concludes the exit statuses are gone rather than moved",
-        )
+        # FOUR SINCE v0.6.2, six before it. The floor is the real number and may only rise: every
+        # assertion in this file is satisfied by an EMPTY census, so a scan that stopped matching
+        # would pass loudest exactly when it had broken.
+        self.assertGreaterEqual(len(literals), 4, "the bridge scan found almost no senders")
         self.assertIn(
             "running", literals.get("mcp/stdio/codex-session.js", set()),
             "`_pushTerminalFrame(text, \"running\")` reaches the same column through the virtual "
-            "terminal sink — a scan that only reads direct POSTs misses four files",
+            "terminal sink \u2014 a scan that only reads direct POSTs misses four files",
         )
+
+    def test_the_scan_reads_every_shape_it_claims_to_read(self):
+        """All three producer shapes, on a fixture rather than on whichever file happens to use one.
+
+        THIS WAS THREE CONTROLS POINTED AT REAL FILES until v0.6.2, and the deletion disarmed two of
+        them in one stroke: `terminal-manager.mjs` held the only spread and `terminal-exit-report.js`
+        the only ternary, and both went with the environment bridge. The branches that read those
+        shapes are still in the scanner, so a control over them is still worth having -- it just
+        cannot be a control over code that no longer exists.
+
+        A fixture also says something the old controls could not: the scan is ready for a shape to
+        COME BACK. A new sender writing a ternary tomorrow is read on its first day.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            # SHAPE 1: the frame helper, the only shape live code still uses.
+            (root / "frame-sender.js").write_text(
+                '_pushTerminalFrame(text, "running");' + NL, encoding="utf-8",
+            )
+            # SHAPE 2: a direct POST whose status field is a TERNARY -- two literals in one field.
+            (root / "ternary-sender.js").write_text(
+                'await post(`/terminals/${id}/output`, {' + NL
+                + '  bridgeId,' + NL
+                + '  status: error ? "failed" : "stopped",' + NL
+                + '});' + NL,
+                encoding="utf-8",
+            )
+            # SHAPE 3: the body SPREAD from a helper, so the literal lives in another module.
+            (root / "spread-sender.js").write_text(
+                'import { exitReport } from "./exit-helper.js";' + NL
+                + 'await post(`/terminals/${id}/output`, {' + NL
+                + '  bridgeId,' + NL
+                + '  ...exitReport(detail),' + NL
+                + '});' + NL,
+                encoding="utf-8",
+            )
+            (root / "exit-helper.js").write_text(
+                'export function exitReport(detail) {' + NL
+                + '  return {' + NL
+                + '    status: "stopped",' + NL
+                + '  };' + NL
+                + '}' + NL,
+                encoding="utf-8",
+            )
+            # NEGATIVE CONTROL, in the same tree: a status literal that reaches no terminal output
+            # must NOT be collected. Without it every assertion below is satisfied by a scan that
+            # simply harvests every quoted word in the directory.
+            (root / "not-a-sender.js").write_text(
+                'const runStatus = { status: "cancelled" };' + NL,
+                encoding="utf-8",
+            )
+            found = _bridge_terminal_status_literals(root=root, base=root)
+
+        self.assertEqual(
+            found.get("frame-sender.js"), {"running"},
+            "the scan stopped reading `_pushTerminalFrame`, which is the ONLY shape live bridge code "
+            "uses \u2014 so the census would report the bridge as writing no statuses at all",
+        )
+        self.assertEqual(
+            found.get("ternary-sender.js"), {"failed", "stopped"},
+            "a ternary carries TWO literals in one field; a scan that reads only the first sees half "
+            "the senders",
+        )
+        self.assertEqual(
+            found.get("exit-helper.js"), {"stopped"},
+            "the body is SPREAD into the POST from a helper module. A scan that reads only the call "
+            "site concludes those statuses are GONE rather than moved \u2014 and attribution belongs to "
+            "the module the literal lives in, because 'which file can introduce a status' is what "
+            "this census is for",
+        )
+        self.assertNotIn(
+            "not-a-sender.js", found,
+            "the scan collected a status literal that never reaches a terminal-output body, so its "
+            "answers above are a word count rather than a census",
+        )
+
         # THE PYTHON SIDE HAS THE SAME KIND OF SECOND SHAPE, and it was unread until 2026-08-26.
         # `terminal_runs.py` writes `status = 'stopped'` inside an F-STRING -- it has to be one,
         # because the WHERE clause interpolates a placeholder list -- and a scan that accepts only

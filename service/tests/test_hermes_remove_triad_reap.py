@@ -10,8 +10,11 @@ not just the console PTY.
     the triad-reap intent forward. REMOVE must emit this control BEFORE deleting
     the agent (while terminal_sessions still exists).
 
-These are server-contract tests; the bridge-side teardown wiring is covered by
-mcp/stdio/tests/hermes-stop-triad-teardown.test.js.
+These are server-contract tests, and they are now the WHOLE of this contract's coverage. The
+bridge-side teardown wiring had its own suite until v0.6.2 deleted the environment bridge: the
+triad reap ran there because the bridge OWNED the processes, and aify-env owns them now. So what
+these tests assert -- that the control is emitted, and that REMOVE stamps the sentinel before the
+agent row is gone -- is a contract with aify-env's plugin rather than with a bridge in this repo.
 """
 
 import asyncio

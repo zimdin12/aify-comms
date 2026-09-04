@@ -111,17 +111,13 @@ test("the exported term list matches what the guard actually enforces", () => {
 // pass `false` forever and the shutdown gate would never fire again — which is precisely the defect
 // `ef89bd6c` was written to fix. So the shells are asserted to re-read it per call.
 
-import { runSpawnLoop } from "../spawn-loop.mjs";
-import { runEnvironmentControlLoop } from "../environment-control-loop.mjs";
-import { runTerminalControlLoop } from "../terminal-control-loop.mjs";
-import { syncManagedEnvironmentAgents } from "../managed-environment-sync.mjs";
 import { runDispatchLoop } from "../dispatch-loop.mjs";
 
+// ONE SHELL, not five, since v0.6.2 deleted the environment bridge. `runSpawnLoop`,
+// `runEnvironmentControlLoop`, `runTerminalControlLoop` and `syncManagedEnvironmentAgents` were that
+// bridge's loops and went with it; `runDispatchLoop` is the one a resident still runs. The property
+// is unchanged and still worth asserting -- it is the shell, not the loop, that this guards.
 const SHELLS = [
-  ["runSpawnLoop", runSpawnLoop],
-  ["runEnvironmentControlLoop", runEnvironmentControlLoop],
-  ["runTerminalControlLoop", runTerminalControlLoop],
-  ["syncManagedEnvironmentAgents", syncManagedEnvironmentAgents],
   ["runDispatchLoop", runDispatchLoop],
 ];
 
@@ -141,13 +137,15 @@ test("a shell never reaches its pass while shutting down — observed, not infer
   // asserted only that two `shutdownStarted: true` calls did not reject, which a shell ignoring the flag
   // entirely would also satisfy.
   let reached = 0;
-  await assert.doesNotReject(() => runSpawnLoop({
+  await assert.doesNotReject(() => runDispatchLoop({
     shutdownStarted: true,
+    AUTO_REREGISTER_AFTER_FAILURES: 4,
     CLAIM_OPTS: {},
     CLAIM_WAIT_MS: 0,
     MACHINE_ID: "m",
-    ensureDispatchLoop: () => {},
-    effectiveEnvironmentPayload: () => { reached += 1; return { id: "env-1", cwdRoots: [] }; },
+    terminateResidentHost: () => {},
+    // The observable: the pass reaches for this, the gate returns before it can.
+    reportResidentRuntimeLost: () => { reached += 1; },
   }));
   assert.equal(reached, 0, "a shutting-down shell must not reach its pass");
 });

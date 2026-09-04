@@ -7,7 +7,6 @@
 //   - Local: filesystem-based message bus in .messages/ directory
 //
 
-import { spawn } from "child_process";
 
 import {
   API_KEY,
@@ -23,9 +22,6 @@ import {
   shouldArmResidentHermesTurnDetector,
 } from "./resident-gateway-status.mjs";
 import {
-  environmentHeartbeatPayload,
-} from "./environment-identity.mjs";
-import {
   INBOX_DIR, MESSAGES_DIR, SHARED_DIR,
 } from "./local-store.mjs";
 import {
@@ -38,7 +34,6 @@ import { AIFY_HERMES_GATEWAY_URL } from "./hermes-gateway-config.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { armClaudeTurnEndDetector, stopClaudeTurnEndDetector } from "./claude-turn-detector-state.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
-import { AIFY_AGENT_ID, IS_ENVIRONMENT_BRIDGE, cleanEnvPlaceholder } from "./launch-identity.mjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -72,13 +67,8 @@ import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
 import { shutdownAllHermesSessions } from "./hermes-session.js";
 import { shutdownAllHermesGatewaySessions } from "./hermes-managed-gateway-session.js";
-import { buildEnvironmentPayload } from "./environment-advertisement.mjs";
-import { probeEnvTerminal } from "./terminal-capability.mjs";
-import { bridgeTerminalSupported } from "./terminal-runtime.js";
-import {
-  bootstrapManagedEnvironmentBridge,
-  localAgentNeedsDispatchHosting,
-} from "./managed-teardown-ownership.js";
+import { AIFY_AGENT_ID, cleanEnvPlaceholder } from "./launch-identity.mjs";
+import { localAgentNeedsDispatchHosting } from "./session-predicates.mjs";
 import { startSessionHandleHeartbeat, makeDefaultHandlePoster } from "./session-handle-heartbeat.js";
 import {
   TURN_BUSY_HEARTBEAT_MS,
@@ -90,18 +80,10 @@ import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import { gatewayIndexUrlFromWs, makeGatewayReachabilityProbe, reportGatewayDead } from "./hermes-gateway.mjs";
 import { startHermesGatewayTurnDetector } from "./hermes-gateway-turn-detector.js";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
-import { collectOnce as collectUsageOnce, collectConsumptionOnce } from "./usage-collector.js";
 import { AIFY_VERSION } from "./version.js";
-import { createManagedOwnershipReader } from "./managed-ownership.mjs";
-import { createManagedTeardownSweeps } from "./managed-teardown-sweeps.mjs";
-import { parseEffectiveCwdRoots, withEffectiveCwdRoots } from "./environment-cwd-roots.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
 import { main } from "./bridge-main.mjs";
 import { runDispatchLoop } from "./dispatch-loop.mjs";
-import { runEnvironmentControlLoop } from "./environment-control-loop.mjs";
-import { syncManagedEnvironmentAgents } from "./managed-environment-sync.mjs";
-import { runSpawnLoop } from "./spawn-loop.mjs";
-import { ensureTerminalControlLoop, stopTerminalControlLoop } from "./terminal-control-loop.mjs";
 import { reportResidentRuntimeLost as reportResidentRuntimeLostImpl } from "./resident-runtime-lost.mjs";
 import { registerAllTools } from "./register-tools.mjs";
 import {
@@ -112,8 +94,6 @@ import {
 } from "./poll-intervals.mjs";
 import { VIRTUAL_TERMINALS_BY_AGENT, VIRTUAL_TERMINAL_INPUT } from './virtual-terminals.mjs';
 
-import { TERMINAL_MANAGER } from './terminal-manager.mjs';
-import { runBootTombstonedMarkerSweep } from './boot-marker-sweep.mjs';
 
 // Nested-bridge guard: when a runtime adapter launches an RPC child (e.g.
 // `omp --mode rpc --resume <session>`), that child inherits the aify
@@ -421,24 +401,14 @@ if (AIFY_HERMES_GATEWAY_URL) {
 }
 
 let shutdownStarted = false;
-let reportEnvironmentOffline = async () => {};
-// The synchronous process.on('exit') cleanup may only act on agent ids that the
-// graceful path confirmed from a fresh service snapshot. A cached managed entry
-// can be stale after managed→resident takeover; using it can kill the resident
-// delivery loop and its gateway host while leaving the visible TUI attached to a
-// dead websocket. Unexpected exits leave this null and rely on the boot sweep.
-// confirmedManagedTeardownAgentIds moved to ./managed-teardown-sweeps.mjs in v0.5.4 — the two
-// sweeps that write and read it are its only users, so they own it.
+// DELETED IN v0.6.2 with the environment bridge: confirmedManagedTeardownAgentIds, and the two managed-teardown
+// sweeps that were its only users. A resident owns no managed workers, so there is nothing to reap.
 
 // interruptActiveRuns moved to ./bridge-agent-state.mjs in v0.5.4.
 
 function cleanupOnExit() {
   for (const run of ACTIVE_RUNS.values()) {
     try { run?.controller?.interrupt?.("Bridge process exiting"); } catch { /* best effort */ }
-  }
-  if (environmentHeartbeatTimer) {
-    clearInterval(environmentHeartbeatTimer);
-    environmentHeartbeatTimer = null;
   }
   try { __stopHandleHeartbeat(); } catch { /* best effort */ }
   try { __stopTurnBusyHeartbeat(); } catch { /* best effort */ }
@@ -447,16 +417,6 @@ function cleanupOnExit() {
   try { __stopResidentHermesTurnDetector(); } catch { /* best effort */ }
   try { stopClaudeTurnEndDetector(); } catch { /* best effort */ }
   try { __stopCodexTurnDetector(); } catch { /* best effort */ }
-  if (spawnLoopTimer) {
-    clearInterval(spawnLoopTimer);
-    spawnLoopTimer = null;
-  }
-  stopTerminalControlLoop();
-  TERMINAL_MANAGER.stopAll("bridge process exiting").catch(() => {});
-  // Synchronous best-effort triad reap may only reuse targets freshly confirmed
-  // by runManagedTeardownForBridge. An unexpected exit has no safe ownership
-  // snapshot, so it reaps nothing and the next boot sweep is the backstop.
-  try { runManagedTeardownSync("bridge exit"); } catch { /* best effort */ }
   // Remove codex runtime marker
   if (codexMarkerCwd) {
     try { removeRuntimeMarker("codex", codexMarkerCwd); } catch { /* best effort */ }
@@ -499,17 +459,10 @@ async function shutdownWithStatus(code) {
       ]);
     } catch { /* best effort */ }
   }
-  try { await reportEnvironmentOffline(); } catch { /* best effort */ }
-  // R9: await stopAll so each terminal flushes a final stopped/failed POST
-  // before we exit. cleanupOnExit() (and the sync process.on('exit') path)
-  // still fire stopAll best-effort for the non-graceful case; that second
-  // call is a no-op for terminals already stopped here.
-  try { await TERMINAL_MANAGER.stopAll("bridge process exiting"); } catch { /* best effort */ }
   // WS2: restart = clean slate. After the in-memory PTYs are stopped, reap every
   // DETACHED managed-hermes triad survivor (gateway host, delivery loop, daemon)
   // this env bridge owns — the processes engineered to outlive the launcher.
   // Scoped strictly to ownedManagedAgentIds(); never a resident/other-env process.
-  try { await runManagedTeardownForBridge("graceful shutdown"); } catch { /* best effort */ }
   try { await shutdownAllPiSessions("bridge exiting"); } catch { /* best effort */ }
   try { await shutdownAllCodexSessions("bridge exiting"); } catch { /* best effort */ }
   try { await shutdownAllHermesSessions("bridge exiting"); } catch { /* best effort */ }
@@ -533,40 +486,20 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // DISPATCH_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 // TERMINAL_CONTROL_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 let dispatchLoopTimer = null;
-let environmentHeartbeatTimer = null;
-let environmentBridgeBootstrapped = false;
-let environmentBridgeBootstrapPromise = null;
-let usageCollectorTimer = null;
-let environmentControlTimer = null;
-let spawnLoopTimer = null;
 // spawnClaimFailureCount / spawnClaimLastLogAt moved to ./claim-failure-tracker.mjs in v0.5.4.
-let remoteEffectiveCwdRoots = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 // RESIDENT_BINDING_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
 // RESIDENT_BINDING_LOST_AFTER_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
-// TERMINAL_TURN_BUSY_REMIT_MS moved to ./terminal-manager.mjs in v0.5.4.
-// TERMINAL_TURN_BUSY_QUIET_MS moved to ./terminal-manager.mjs in v0.5.4.
-// TERMINAL_TURN_BUSY_TIMERS moved to ./terminal-manager.mjs in v0.5.4.
-// pulseTerminalTurnBusy moved to ./terminal-manager.mjs in v0.5.4.
-
-// CONSOLE_WORKING_REMIT_MS moved to ./terminal-manager.mjs in v0.5.4.
-// How recently a console-working pulse must have fired for a subsequent "unknown" footer frame
-// to count as mid-turn (and thus refresh the lease). Shorter than the server console-working
-// lease so a genuinely ended turn still lets the lease lapse rather than self-extending forever.
-// CONSOLE_WORKING_TURN_WINDOW_MS moved to ./terminal-manager.mjs in v0.5.4.
-// CONSOLE_WORKING_TIMERS moved to ./terminal-manager.mjs in v0.5.4.
-
-// Refresh the server-side console-working lease while the claude spinner footer is
-// visible. Debounced to ~once / CONSOLE_WORKING_REMIT_MS so a per-second spinner redraw
-// does not spam the endpoint. No clear timer: the lease self-expires server-side (TTL).
-// pulseConsoleWorking moved to ./terminal-manager.mjs in v0.5.4.
+// DELETED IN v0.6.2 with the environment bridge: the console turn-busy and console-working pulses, with
+// `terminal-manager.mjs` itself. Only the bridge held PTYs to pulse for; aify-env owns them now and
+// reports their state through its own plugin.
 // ensureVirtualTerminal moved to ./virtual-terminals.mjs in v0.5.4.
 
 // dispatchVirtualTerminalLine moved to ./virtual-terminals.mjs in v0.5.4.
 
 // createVirtualTerminalSink moved to ./virtual-terminals.mjs in v0.5.4.
 
-// TERMINAL_MANAGER moved to ./terminal-manager.mjs in v0.5.4.
+// DELETED IN v0.6.2 with the environment bridge: TERMINAL_MANAGER. It was only ever populated by cluster code.
 
 // ── Local filesystem paths (used only in local mode) ─────────────────────────
 
@@ -676,232 +609,20 @@ function terminateResidentHost(reason = "Resident session stopped from dashboard
 }
 
 // Tear down every managed-hermes triad survivor (gateway host, delivery loop,
-// daemon, console PTY) this env bridge owns. Targets come from a FRESH service
-// ownership read — NEVER the long-lived REMOTE_AGENT_STATE cache, because a
-// managed→resident switch can make that cache stale until the next heartbeat.
-// async: awaits the port-kill/stopDaemon promises so the kills land before
-// process.exit. If the service is unavailable, fail safe and reap nothing; the
-// next boot sweep handles genuine managed survivors after ownership is readable.
-// runManagedTeardownForBridge moved to ./managed-teardown-sweeps.mjs in v0.5.4.
-
-// runSingleAgentManagedTeardown moved to ./single-agent-teardown.mjs in v0.5.4.
-
-// Synchronous best-effort variant for the process.on('exit') path
-// (cleanupOnExit), where no async work can run. Fires spawnSync kills (taskkill
-// /t /f for loops + console-style trees; the gateway port-kill is the async
-// path's job — here we kill the tracked daemon pid + delivery-loop trees, the
-// processes most likely to be orphaned). Scoped identically; never throws.
+// DELETED IN v0.6.2 with the environment bridge: every managed-teardown sweep -- graceful, sync-exit,
+// single-agent and boot-marker -- with the ownership reader that fed them. They reaped the workers a
+// DYING BRIDGE owned, and a resident owns none. aify-env holds the processes and reaps its own.
 //
-// NOTE: this sync exit path CANNOT port-kill gateway hosts (defaultKillByPort is
-// async and nothing can await on process exit), so a SIGKILLed/crashed bridge's
-// gateway-host survivors are not reaped here. The env-bridge BOOT survivor sweep
-// (runBootSurvivorSweep) is their backstop — and now that the sweep correctly
-// keys ownerLive on owning-bridge freshness (not agent status), it reaps those
-// gateway survivors on the next bridge start, so this gap is self-healing.
-// runManagedTeardownSync moved to ./managed-teardown-sweeps.mjs in v0.5.4.
-
-// Build per-agent ownership records for the boot sweep: managed agents in THIS
-// environment (within cwdRoots) with their owning bridge id + whether that
-// OWNING ENVIRONMENT BRIDGE is alive. Derived from /agents + /sessions +
-// /environments. Throws on HTTP failure so the sweep fail-safes to reaping
-// nothing.
-//
-// ownerLive must NOT be derived from the agent's status: after a SIGKILL/crash
-// the survivor's detached delivery loop keeps heartbeating + holds its claimer
-// lease, so the agent stays online/working. A status-based signal would mark the
-// DEAD owner as live and the sweep would skip exactly the orphans it exists to
-// kill. Instead we key on owning-bridge freshness: the agent's stored
-// runtimeState.bridgeInstanceId vs the CURRENT bridgeId of an ONLINE environment
-// (GET /environments — the host-side mirror of the server's
-// _resident_bridge_is_fresh check). See bridgeOwnerIsLive.
-// fetchManagedOwnershipForEnv moved to ./managed-ownership.mjs in v0.5.4.
-// `effectiveEnvironmentPayload` is injected: it reads `remoteEffectiveCwdRoots`, whose only writer
-// is `heartbeatEnvironment` below, so the state stays here with its writer.
-const fetchManagedOwnershipForEnv = createManagedOwnershipReader({ effectiveEnvironmentPayload });
-
-// Env-bridge BOOT survivor sweep (before ensureSpawnLoop). Reaps managed-triad
-// survivors of dead/crashed predecessors so "restart = zero survivors" holds
-// even after SIGKILL — while NEVER touching an agent owned by a currently-live
-// different bridge. Fail-safe: if ownership can't be fetched, reaps nothing.
-// runBootSurvivorSweep moved to ./managed-teardown-sweeps.mjs in v0.5.4.
-// The factory call sits HERE, after the fetchManagedOwnershipForEnv binding it consumes: a const
-// cannot be read before its initialiser, and the two markers above are earlier in the file.
-const { runManagedTeardownForBridge, runManagedTeardownSync, runBootSurvivorSweep } =
-  createManagedTeardownSweeps({ fetchManagedOwnershipForEnv });
-
-// runBootTombstonedMarkerSweep moved to ./boot-marker-sweep.mjs in v0.5.4.
+// THE REASONING IS NOT LOST, it moved with the code: aify-env's teardown keys ownerLive on owning-
+// bridge freshness rather than on agent status, for the reason this block used to give -- a crashed
+// owner's detached loop keeps heartbeating, so a status-based signal skips exactly the orphans the
+// sweep exists to kill.
 
 // readManagedViaWrapperRuntimes moved to ./managed-wrapper-cache.mjs in v0.5.4.
 
 // _replyCaptureFallbackCache moved to ./required-reply-handoff.mjs in v0.5.4.
 // readReplyCaptureFallback moved to ./required-reply-handoff.mjs in v0.5.4.
 
-// The merge moved to ./environment-cwd-roots.mjs in v0.6 Phase 1; the STATE stays here, because
-// `remoteEffectiveCwdRoots` is written by heartbeatEnvironment below and splitting a mutable across two
-// modules leaves it with no owner.
-
-// WHAT aify-env LAST SAID: whether it can open terminals, and what it is running. One `/health`
-// answer, written by heartbeatEnvironment and read by the synchronous callers below -- same owner,
-// same reason as `remoteEffectiveCwdRoots` above.
-//
-// NULL IS NOT A VALUE ON EITHER. An unanswered aify-env advertises no terminal (a bridge that has
-// not yet probed says no for one beat, which is the honest answer to a question nobody has asked),
-// and it accounts for no processes rather than for zero of them.
-let lastEnvTerminalHealth = null;
-let lastEnvProcesses = null;
-//: FALSE, not null, and for a different reason from the two above. Those distinguish "no answer" from
-//: a value; this one does not need to, because every no-answer path leads where false does: this
-//: bridge keeps describing the host.
-let lastEnvAdvertising = false;
-
-/** The registration this bridge would send now. The DECISION is environment-advertisement.mjs's. */
-function environmentPayloadNow() {
-  return buildEnvironmentPayload({
-    terminalManager: TERMINAL_MANAGER,
-    envHealthy: lastEnvTerminalHealth,
-    envProcesses: lastEnvProcesses,
-    envAdvertising: lastEnvAdvertising,
-    localTerminal: bridgeTerminalSupported(),
-  });
-}
-
-function effectiveEnvironmentPayload() {
-  return withEffectiveCwdRoots(environmentPayloadNow(), remoteEffectiveCwdRoots);
-}
-
-async function heartbeatEnvironment({ syncManaged = true } = {}) {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: false, shuttingDown: shutdownStarted })) return false;
-  try {
-    // ASKED EVERY BEAT, of the tier that would actually open the terminal. One loopback GET, and
-    // it is the difference between advertising what we can do and advertising what we could do
-    // before spawning moved out of this process.
-    const envHealth = await probeEnvTerminal(TERMINAL_MANAGER.envDelegation);
-    lastEnvTerminalHealth = envHealth.terminal;
-    lastEnvAdvertising = envHealth.advertising === true;
-    lastEnvProcesses = envHealth.processes;
-    const response = await httpCall(
-      "POST",
-      "/environments/heartbeat",
-      environmentPayloadNow(),
-    );
-    // `null` means the service said nothing about roots — keep what we had. An empty ARRAY means it
-    // said there are none, which is a different fact. See environment-cwd-roots.mjs.
-    const roots = parseEffectiveCwdRoots(response);
-    if (roots !== null) {
-      remoteEffectiveCwdRoots = roots;
-    }
-    if (syncManaged) await syncManagedEnvironmentAgents({ MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted });
-    return true;
-  } catch (error) {
-    // Bootstrap must fail closed: without registration there is no authoritative
-    // handover snapshot, so managed adoption/spawn waits for the next retry.
-    return false;
-  }
-}
-
-async function bootstrapEnvironmentBridge() {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return { started: false, skipped: "not-environment-bridge" };
-  if (environmentBridgeBootstrapped) return { started: true };
-  if (environmentBridgeBootstrapPromise) return environmentBridgeBootstrapPromise;
-
-  environmentBridgeBootstrapPromise = bootstrapManagedEnvironmentBridge({
-    // Publish this bridge as the environment's current owner first. That makes a
-    // superseded predecessor non-live in the ownership snapshot while leaving the
-    // managed agents bound to the predecessor until the sweep has reaped them.
-    registerEnvironment: () => heartbeatEnvironment({ syncManaged: false }),
-    sweepSurvivors: runBootSurvivorSweep,
-    sweepTombstones: runBootTombstonedMarkerSweep,
-    // A CLOSURE, not the bare reference. `syncManagedEnvironmentAgents` destructures its
-    // dependency bag with no default, so handing the bootstrap the function itself made it
-    // invoke it with NO arguments: "Cannot destructure property 'MACHINE_ID' of 'undefined'",
-    // thrown inside the bootstrap's catch, which fails closed -- so the environment bridge
-    // reaped its boot survivors and then never came up. Reported live 2026-08-18.
-    //
-    // The v0.5.4 extraction gave this function injected dependencies and updated the direct
-    // caller (the heartbeat above) but not this callback. No fidelity gate can see that: the
-    // body is byte-identical, and what changed is that it now REQUIRES arguments. Every
-    // sibling here is either zero-arg or already a closure -- `registerEnvironment` is the
-    // pattern this now matches.
-    syncManagedAgents: () => syncManagedEnvironmentAgents({
-      MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted,
-    }),
-    startSpawnLoop: ensureSpawnLoop,
-  })
-    .then((result) => {
-      if (result?.started) environmentBridgeBootstrapped = true;
-      return result;
-    })
-    .catch((error) => {
-      console.error("[aify] environment bridge bootstrap failed:", error?.message || error);
-      return { started: false, skipped: "bootstrap-error", error };
-    })
-    .finally(() => {
-      environmentBridgeBootstrapPromise = null;
-    });
-  return environmentBridgeBootstrapPromise;
-}
-
-reportEnvironmentOffline = async () => {
-  if (!IS_REMOTE || !IS_ENVIRONMENT_BRIDGE) return;
-  const payload = environmentHeartbeatPayload();
-  await httpCall("POST", "/environments/heartbeat", {
-    ...payload,
-    status: "offline",
-    metadata: {
-      ...(payload.metadata || {}),
-      exitPid: process.pid,
-      exitAt: new Date().toISOString(),
-    },
-  });
-};
-
-function ensureEnvironmentHeartbeat() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(environmentHeartbeatTimer), shuttingDown: shutdownStarted })) return;
-  bootstrapEnvironmentBridge().catch((error) => console.error("[aify] environment bridge bootstrap error:", error));
-  const intervalMs = Math.max(5000, Number(process.env.AIFY_ENVIRONMENT_HEARTBEAT_MS || 30000));
-  environmentHeartbeatTimer = setInterval(() => {
-    if (!environmentBridgeBootstrapped) {
-      bootstrapEnvironmentBridge().catch((error) => console.error("[aify] environment bridge bootstrap error:", error));
-      return;
-    }
-    heartbeatEnvironment();
-  }, intervalMs);
-}
-
-// Usage/quota collector (2026-06-26): poll each subscription pool's remaining %% on
-// this host (~3 min) and POST to /usage. Env-bridge only — it has the host creds and
-// reads the rollouts. Best-effort; a failed poll never disturbs the bridge.
-function ensureUsageCollector() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(usageCollectorTimer), shuttingDown: shutdownStarted })) return;
-  const tick = () => {
-    collectUsageOnce({ post: (p) => httpCall("POST", "/usage", p) }).catch(() => {});
-    collectConsumptionOnce({
-      getAgents: () => httpCall("GET", "/agents").then((r) => (r && r.agents) || {}),
-      post: (rows) => httpCall("POST", "/usage/consumption", { rows }),
-    }).catch(() => {});
-  };
-  tick();
-  const intervalMs = Math.max(60000, Number(process.env.AIFY_USAGE_POLL_MS || 180000));
-  usageCollectorTimer = setInterval(tick, intervalMs);
-}
-
-function ensureEnvironmentControlLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(environmentControlTimer), shuttingDown: shutdownStarted })) return;
-  runEnvironmentControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, shutdownStarted, shutdownWithStatus }).catch((error) => console.error("[aify] environment control loop error:", error));
-  environmentControlTimer = setInterval(() => {
-    runEnvironmentControlLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, shutdownStarted, shutdownWithStatus }).catch((error) => console.error("[aify] environment control loop error:", error));
-  }, DISPATCH_POLL_MS);
-}
-
-// runEnvironmentControlLoop's shell and its busy flag moved to ./environment-control-loop.mjs in v0.5.4; the timer stays here.
-
-function ensureSpawnLoop() {
-  if (shouldSkipLoop({ eligible: IS_REMOTE && IS_ENVIRONMENT_BRIDGE, alreadyActive: Boolean(spawnLoopTimer), shuttingDown: shutdownStarted })) return;
-  runSpawnLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted }).catch((error) => console.error("[aify] spawn loop error:", error));
-  spawnLoopTimer = setInterval(() => {
-    runSpawnLoop({ CLAIM_OPTS, CLAIM_WAIT_MS, MACHINE_ID, effectiveEnvironmentPayload, ensureDispatchLoop, shutdownStarted }).catch((error) => console.error("[aify] spawn loop error:", error));
-  }, DISPATCH_POLL_MS);
-}
 
 
 // updateTerminalControl moved to ./virtual-terminals.mjs in v0.5.4.
@@ -916,9 +637,9 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 
 // handleVirtualTerminalControl moved to ./virtual-terminals.mjs in v0.5.4.
 
-// reportDeadOwnedTerminals moved to ./terminal-manager.mjs in v0.5.4.
+// DELETED IN v0.6.2 with the environment bridge: reportDeadOwnedTerminals.
 
-// runTerminalControlLoop's shell and its busy flag moved to ./terminal-control-loop.mjs in v0.5.4; the timer stays here.
+// DELETED IN v0.6.2 with the environment bridge: the terminal-control loop.
 
 // noteSpawnClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
@@ -926,9 +647,10 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 
 // isActiveManagedSessionStatus moved to ./session-predicates.mjs in v0.5.4.
 
-// syncManagedEnvironmentAgents's shell and its busy flag moved to ./managed-environment-sync.mjs in v0.5.4; the timer stays here.
+// DELETED IN v0.6.2 with the environment bridge: the managed-environment sync loop.
 
-// runSpawnLoop's shell and its busy flag moved to ./spawn-loop.mjs in v0.5.4; the timer stays here.
+// DELETED IN v0.6.2 with the environment bridge: the spawn loop. aify-env claims spawns, PROVEN on real
+// hardware 2026-09-03 with no bridge running at all.
 
 function ensureDispatchLoop() {
   if (shouldSkipLoop({ eligible: IS_REMOTE, alreadyActive: Boolean(dispatchLoopTimer), shuttingDown: shutdownStarted })) return;
@@ -941,29 +663,18 @@ function ensureDispatchLoop() {
   }, DISPATCH_POLL_MS);
 }
 
-// THE BOOT BLOCK IS UNDER THE GUARD TOO, since v0.6 Phase 1. It used to run UNCONDITIONALLY at import,
-// which is why nothing in this file has ever been tested: importing it started four loops and — via
-// `ensureEnvironmentHeartbeat` — REGISTERED THIS PROCESS AS THE ENVIRONMENT BRIDGE, superseding the
-// live one and reaping its managed workers. That is the documented reason for the standing rule
-// "never run a bare `aify-comms`", and it is what took the whole managed fleet down on 2026-08-11.
+// THE BOOT BLOCK IS GONE, v0.6.2. It ran UNCONDITIONALLY at import until v0.6 Phase 1, which is why
+// nothing in this file could ever be tested: importing it started four loops and registered this
+// process as the ENVIRONMENT BRIDGE, superseding the live one and reaping its managed workers. That is
+// the standing rule "never run a bare `aify-comms`", and what took the whole managed fleet down on
+// 2026-08-11. Phase 1 put it under the guard that already gates main(); v0.6.1 made the command refuse;
+// v0.6.2 deleted the block and every module it started, because aify-env is the host tier and there is
+// no second bridge for this process to be.
 //
-// Moving these four under the SAME guard that already gates main() is safe by the guard's own
-// evidence: if `__isEntrypoint` were ever wrong for a real launch, main() would not run either and the
-// bridge would already be dead. So the guard is proven correct in production by the thing it already
-// gates — this change does not introduce a new assumption, it stops exempting four calls from an
-// assumption the process already depends on.
-if (__isEntrypoint) {
-  ensureEnvironmentControlLoop();
-  ensureUsageCollector();
-  // Register the replacement bridge, reap the predecessor's managed survivors,
-  // then adopt managed ownership and start spawning. The serialized bootstrap
-  // closes the live-old-bridge handover gap and retries on later heartbeats when
-  // the service or ownership snapshot is unavailable.
-  ensureEnvironmentHeartbeat();
-  ensureTerminalControlLoop({
-    CLAIM_OPTS, CLAIM_WAIT_MS, effectiveEnvironmentPayload, extractTerminalSessionHandle, shutdownStarted,
-  });
-}
+// `tests/server-import-does-not-boot-a-bridge.test.js` is the receipt and OUTLIVES the deletion: it
+// imports this module in a child process and requires zero timers and zero calls to the service. The
+// property it measures is the one that mattered — what an import DOES — and it holds for a file with
+// nothing left to gate exactly as it held for a file with a guarded block.
 
 // runDispatchLoop's shell and its busy flag moved to ./dispatch-loop.mjs in v0.5.4; the timer stays here.
 

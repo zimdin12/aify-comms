@@ -41,13 +41,23 @@ const modules = bridgeSources().map(([file, raw]) => {
 // ── the population is real ───────────────────────────────────────────────────────────────────
 {
   const withBusy = modules.filter((m) => m.busy.length);
+  // ONE, NOT FIVE, SINCE v0.6.2. Four of the five re-entry-guarded loops were the environment
+  // bridge's -- spawn, environment-control, terminal-control and managed-env-sync -- and went with
+  // it. `dispatch-loop.mjs` is the one a resident still runs.
+  //
+  // THE FLOOR IS KEPT RATHER THAN DROPPED, because its job is unchanged: every assertion below is
+  // satisfied by an empty population, so a scan that stopped matching the pattern would make this
+  // gate pass loudest exactly when it had broken. Lowered to the real number, and it may only rise.
   assert.ok(
-    withBusy.length >= 5,
+    withBusy.length >= 1,
     `only ${withBusy.length} modules declare a re-entry flag — the pattern was renamed and this gate `
       + "is now scanning for something that no longer exists",
   );
   const totalCalls = modules.reduce((n, m) => n + m.gateCalls, 0);
-  assert.ok(totalCalls >= 14, `only ${totalCalls} shouldSkipLoop call sites; there were fourteen gates`);
+  // FOURTEEN BEFORE v0.6.2, four after: the environment bridge owned the other ten, across its four
+  // loops and the ensure* wrappers that armed them. Same floor, re-measured against the code that
+  // remains, and it may only rise.
+  assert.ok(totalCalls >= 4, `only ${totalCalls} shouldSkipLoop call sites; there were four gates`);
 }
 
 // ── every re-entry-guarded loop also consults the shutdown gate ──────────────────────────────
@@ -67,12 +77,11 @@ const modules = bridgeSources().map(([file, raw]) => {
 {
   // An exact set, not a count: a module dropping its gate while another gains one would keep any
   // total unchanged.
+  // FOUR NAMES LEFT THIS LIST IN v0.6.2 -- environment-control-loop, managed-environment-sync,
+  // spawn-loop and terminal-control-loop were the environment bridge's and were deleted with it.
+  // The list is still exact rather than a count, for the reason above.
   const expected = [
     "dispatch-loop.mjs",
-    "environment-control-loop.mjs",
-    "managed-environment-sync.mjs",
-    "spawn-loop.mjs",
-    "terminal-control-loop.mjs",
   ];
   for (const file of expected) {
     const found = modules.find((m) => m.file === file);
@@ -95,7 +104,9 @@ const modules = bridgeSources().map(([file, raw]) => {
   const callers = bridgeSources()
     .map(([file, raw]) => [file, raw.replace(/\r\n/g, "\n")])
     .filter(([file, src]) => file !== "loop-gate.mjs" && /shouldSkipLoop\s*\(/.test(src));
-  assert.ok(callers.length >= 5, `only ${callers.length} modules call the gate`);
+  // FIVE BEFORE v0.6.2, two after -- the bridge owned three of them. The floor stays because an
+  // empty caller set satisfies every per-caller assertion below for free.
+  assert.ok(callers.length >= 2, `only ${callers.length} modules call the gate`);
   for (const [file, src] of callers) {
     assert.match(
       src,

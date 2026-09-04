@@ -1,4 +1,18 @@
-// Usage / quota collector for the aify-comms env-bridge.
+// Usage / quota collector.
+//
+// NOTHING CALLS `collectOnce` OR `collectConsumptionOnce` IN PRODUCTION, DELIBERATELY, since
+// v0.6.2. Their only caller was `ensureUsageCollector` in the environment bridge, deleted with it.
+// The module is still reached -- doctor.js and usage-preflight.js import `checkOpenAiUsageAccess`
+// -- so a sweep that judges FILES sees a live module while a sweep that judges FUNCTIONS sees two
+// orphans. Both readings are right; the collectors are PARKED, not dead.
+//
+// THEY ARE WAITING FOR A CALLER IN ANOTHER TIER. The operator's call on 2026-09-04 was to leave
+// usage collection here for now and move it to aify-dashboard later; the follow-up observation was
+// that the credentials these read belong to the HARNESS, which lives in the environment tier, so
+// the destination may instead be an aify-env plugin. That is undecided and does not need deciding
+// to keep the code: what it must not do is get swept as unreachable in the meantime.
+//
+// Their tests still run and still prove the behaviour, which is what makes parking cheap.
 //
 // Reads per-POOL subscription quota (% used) from the two sources on this host and
 // normalizes them to a common shape the service caches and the dashboards render:
@@ -85,6 +99,7 @@ async function defaultFetchCodex() {
   return (await fetchChatGptUsageLive()) || (await fetchCodexUsage());
 }
 
+// PARKED -- no production caller since v0.6.2. See the module header.
 export async function collectOnce({ fetchAnthropic = fetchAnthropicUsage, fetchCodex = defaultFetchCodex, post } = {}) {
   const settled = await Promise.allSettled([fetchAnthropic(), fetchCodex()]);
   for (const s of settled) {
@@ -96,6 +111,7 @@ export async function collectOnce({ fetchAnthropic = fetchAnthropicUsage, fetchC
 }
 
 // Enumerate agents, compute each one's consumption (where readable), and POST the rows.
+// PARKED -- no production caller since v0.6.2. See the module header.
 export async function collectConsumptionOnce({ getAgents, post, readConsumption = readAgentConsumption } = {}) {
   let agents;
   try { agents = await getAgents(); } catch { return; }

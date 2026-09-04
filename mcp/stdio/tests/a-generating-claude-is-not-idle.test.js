@@ -30,7 +30,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { classifyClaudeConsoleTail } from "../claude-console-spinner.js";
-import { decideConsolePulse } from "../console-pulse.mjs";
+import { TerminalProcessManager } from "../terminal-runtime.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TAIL = readFileSync(join(HERE, "fixtures", "claude-generating-console-tail.txt"), "utf8");
@@ -50,16 +50,24 @@ test("a claude generating for minutes classifies as WORKING, not unknown", () =>
   );
 });
 
-test("and that classification is what produces the pulse", () => {
+test("and the PRODUCTION path carries that classification, not just the classifier", async () => {
   // THE CALL SITE, because the classification is worthless if nothing acts on it. A pure test of the
   // classifier alone would have passed while the pulse still never fired.
-  const decision = decideConsolePulse({
-    runtime: "claude-code",
-    consoleClass: classifyClaudeConsoleTail(TAIL),
-    agentId: "sc-claude",
-  });
-  assert.equal(decision.kind, "console-working");
-  assert.equal(decision.agentId, "sc-claude");
+  //
+  // THE ACTOR CHANGED IN v0.6.2 AND THE PROPERTY DID NOT. This used to call `decideConsolePulse`,
+  // which turned `working` into a console-working lease; that function was the environment bridge's
+  // (`terminal-manager.mjs` was its only caller) and was deleted with it. `_handleOutput` is what
+  // classifies a live console now, and aify-env owns the pulse. So the question is asked of the code
+  // that answers it today: does THIS tail, fed the way a real PTY feeds it, come out working?
+  const mgr = new TerminalProcessManager({ onOutput: async () => {} });
+  const state = { id: "t-gen", runtime: "claude-code", agentId: "sc-claude", outputTail: "" };
+  mgr.terminals.set("t-gen", state);
+  await mgr._handleOutput("t-gen", state, TAIL);
+  assert.equal(
+    mgr.stateFor("t-gen").consoleClass, "working",
+    "the operator's own captured console reached the runtime and came out un-classified, so nothing "
+      + "downstream can tell a seven-minute generation from an idle prompt",
+  );
 });
 
 test("the OLD footer shape still works, so nothing was traded away", () => {

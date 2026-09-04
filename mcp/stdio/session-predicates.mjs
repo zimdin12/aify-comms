@@ -11,3 +11,18 @@
 export function isActiveManagedSessionStatus(status) {
   return ["starting", "running", "recovering", "restarting"].includes(String(status || "").toLowerCase());
 }
+
+/**
+ * Whether THIS process must host its own dispatch loop.
+ *
+ * MOVED HERE in v0.6.2 from `managed-teardown-ownership.js`, which held it beside the environment
+ * bridge's ownership and bootstrap machinery. That machinery went with the bridge and this was the
+ * only survivor -- a three-line predicate in a file named for teardown ownership is a file nobody
+ * would look in, so it sits with the other session predicate instead.
+ *
+ * A resident with an agent id AND channels enabled is woken by its channel; anything else has to
+ * poll for its own work.
+ */
+export function localAgentNeedsDispatchHosting({ agentId = "", channelsEnabled = false } = {}) {
+  return !(String(agentId || "").trim() && channelsEnabled === true);
+}

@@ -120,15 +120,10 @@ const sourceOf = (rel) => readFileSync(path.join(STDIO, rel), "utf-8").replace(/
 
 // ── nothing between the router and the dispatcher checks the runtime ─────────────────────────
 {
-  const loop = sourceOf("terminal-control-loop.mjs");
-  const call = loop.indexOf("handleVirtualTerminalControl(");
-  assert.ok(call > 0, "the virtual-control call moved; repoint this test");
-  const before = loop.slice(Math.max(0, call - 600), call);
-  assert.doesNotMatch(
-    before, /runtime/i,
-    "a runtime check appeared before handleVirtualTerminalControl — if non-pi controls are now "
-      + "filtered, this file's premise is out of date",
-  );
+  // THE ROUTER HALF WENT WITH THE ENVIRONMENT BRIDGE in v0.6.2. It read
+  // `terminal-control-loop.mjs` to prove that nothing between the control loop and
+  // `handleVirtualTerminalControl` checked the runtime. That loop is deleted, so the handler
+  // asserted below is now the whole path rather than half of it.
 
   const virt = sourceOf("virtual-terminals.mjs");
   const handler = virt.slice(virt.indexOf("export async function handleVirtualTerminalControl"));
