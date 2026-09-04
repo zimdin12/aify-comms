@@ -148,71 +148,12 @@ test("managed-dispatch mode is a launch fact, read from the environment at start
   }
 });
 
-test("IS_ENVIRONMENT_BRIDGE is set by EITHER the flag or the env var", () => {
-  // Two ways in because there are two ways to start one: an operator runs it by hand with
-  // `--environment-bridge`, and a wrapper sets `AIFY_ENVIRONMENT_BRIDGE`. Both must work, and the flag must
-  // work even when the env says nothing — a bridge that silently came up as an ordinary agent bridge would
-  // leave the environment with no host for dashboard-managed spawns, which fail with nothing to point at.
-  const read = (env, argv = []) => execFileSync(
-    process.execPath,
-    ["--input-type=module", "-e",
-      "const m = await import(" + JSON.stringify(LEAF)
-      + "); process.stdout.write(String(m.IS_ENVIRONMENT_BRIDGE));",
-      // `--` first: without it node parses `--environment-bridge` as one of ITS options and exits
-      // "bad option". The separator is what makes it reach `process.argv`, which is what the flag path reads.
-      "--", ...argv],
-    { env: { ...sealedChildEnv(), AIFY_ENVIRONMENT_BRIDGE: env }, encoding: "utf-8" },
-  ).trim();
-
-  assert.equal(read("", ["--environment-bridge"]), "true", "the flag alone must be enough");
-  for (const truthy of ["1", "true", "yes", "TRUE", "Yes"]) {
-    assert.equal(read(truthy), "true", `${truthy} must enable environment-bridge mode`);
-  }
-  // OFF is the safe default, and the same near-misses as managed-dispatch above. Starting as an environment
-  // bridge by accident is the worse direction: it supersedes the bridge already serving the environment and
-  // reaps its managed workers. That has taken a fleet down once.
-  for (const falsy of ["", "0", "false", "no", "maybe", "TRUE ", "1 "]) {
-    assert.equal(read(falsy), "false", `${JSON.stringify(falsy)} must NOT enable environment-bridge mode`);
-  }
-  // A near-miss on the FLAG must not count either — argv is matched exactly, not by prefix.
-  for (const wrong of ["--environment-bridge=1", "-environment-bridge", "--environment_bridge"]) {
-    assert.equal(read("", [wrong]), "false", `${wrong} must not be mistaken for the flag`);
-  }
-});
-
-test("exactly one module declares IS_ENVIRONMENT_BRIDGE, and server.js reads it back", () => {
-  assert.deepEqual(
-    declaringModules("IS_ENVIRONMENT_BRIDGE"), [{ file: "launch-identity.mjs", kind: "binding" }],
-    "a second declaration would let two parts of the bridge disagree about what this process is",
-  );
-  // SERVER.JS NO LONGER READS IT, and that is the v0.6.2 change rather than a regression. Every
-  // consumer there was a bridge loop, and they went with the bridge. What remains are three readers
-  // that all test it NEGATED -- "if this is not a bridge, do the resident thing" -- so the flag is
-  // now a vestige whose every branch is the one a resident takes.
-  //
-  // ASSERTED AS A SHRINKING SET rather than a fixed list: retiring the flag entirely is the follow-up
-  // this points at, and a reader appearing again would mean the bridge is being rebuilt.
-  //
-  // `loop-gate.mjs` is in the list and is NOT a reader -- it names the flag in a comment describing
-  // what callers pass as `eligible`. The scan is deliberately textual: stripping comments would make
-  // it miss a flag read from a template or a computed name, and this list is short enough that one
-  // documented exception is cheaper than a parser.
-  const FLAG = /(?<![\w.])IS_ENVIRONMENT_BRIDGE(?![\w])/;
-  const readers = bridgeSources()
-    .filter(([file]) => file !== "launch-identity.mjs")
-    .filter(([, text]) => FLAG.test(text))
-    .map(([file]) => file);
-  assert.deepEqual(
-    readers.sort(),
-    ["auto-registration.mjs", "bridge-main.mjs", "loop-gate.mjs", "resident-runtime-lost.mjs"],
-    "the IS_ENVIRONMENT_BRIDGE readers changed. It is a vestige of the deleted environment bridge and "
-      + "the list may only shrink; a NEW reader means something is keying on a flag that can no "
-      + "longer be true in any supported configuration.",
-  );
-  // The no-second-declaration half, now asked of every module rather than of server.js alone --
-  // which is stronger, and is what the `declaringModules` assertion above already establishes.
-  for (const [file, text] of bridgeSources()) {
-    if (file === "launch-identity.mjs") continue;
-    assert.doesNotMatch(text, /^const IS_ENVIRONMENT_BRIDGE/m, `${file} re-declares the flag`);
-  }
-});
+// TWO TESTS STOOD HERE AND WERE RETIRED WITH THEIR SUBJECT in v0.6.2. They proved that
+// `IS_ENVIRONMENT_BRIDGE` was set by either `--environment-bridge` or `AIFY_ENVIRONMENT_BRIDGE`,
+// that exactly one module declared it, and that its reader list could only shrink. The second one
+// said so in as many words -- "retiring the flag entirely is the follow-up this points at" -- and
+// that follow-up landed: the flag is deleted, and every property worth keeping moved to
+// `tests/the-environment-bridge-flag-is-retired.test.js`, which asserts NO product file reads it,
+// this module does not export it, and the three env-var scrubs stay until the running fleet is on
+// post-deletion code. Kept as a pointer rather than deleted silently, because a reader who
+// remembers these tests should find out where the coverage went rather than conclude it was lost.

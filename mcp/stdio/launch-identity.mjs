@@ -50,10 +50,9 @@ export const IS_MANAGED_DISPATCH =
 // detail of any one of them, and every future extraction that touches those would have had to import it
 // upward from the file it was leaving.
 //
-// UNLIKE the two above it reads `process.argv` as well as the environment, because the flag is how an
-// operator starts one by hand and the env var is how a wrapper does. Both are fixed for the process's life,
-// so re-deriving it elsewhere would agree — but 22 readers of an unowned name is the shape this series
-// exists to remove, not a duplication risk to weigh.
-export const IS_ENVIRONMENT_BRIDGE =
-  process.argv.includes("--environment-bridge") ||
-  ["1", "true", "yes"].includes(String(process.env.AIFY_ENVIRONMENT_BRIDGE || "").toLowerCase());
+// `IS_ENVIRONMENT_BRIDGE` STOOD HERE AND WAS RETIRED IN v0.6.2. It read `--environment-bridge` from
+// argv and `AIFY_ENVIRONMENT_BRIDGE` from the environment, and 22 readers of that unowned name are
+// why this module exists at all. v0.6.1 made the `aify-comms` command refuse to start a bridge and
+// v0.6.2 deleted the cluster it gated, leaving three readers that all consulted it NEGATED -- so the
+// flag had no true branch left anywhere, and the only thing it could still do was make the RESIDENT
+// path worse. See `tests/the-environment-bridge-flag-is-retired.test.js`.

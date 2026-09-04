@@ -16,7 +16,6 @@
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { REMOTE_AGENT_STATE, forgetRemoteAgent } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
-import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { normalizeRuntime } from "./runtimes.js";
 
 export async function reportResidentRuntimeLost(
@@ -38,7 +37,10 @@ export async function reportResidentRuntimeLost(
     console.error(`[aify] failed to report resident runtime loss for "${agentId}": ${error?.message || error}`);
   } finally {
     forgetRemoteAgent(agentId, reason);
-    if (!IS_ENVIRONMENT_BRIDGE && REMOTE_AGENT_STATE.size === 0) {
+    // The `!IS_ENVIRONMENT_BRIDGE` half of this condition was retired in v0.6.2 with the flag: a
+    // bridge served many agents and must not exit when one is lost, and there is no bridge now.
+    // Holding an empty resident open was the failure mode this shutdown exists to end.
+    if (REMOTE_AGENT_STATE.size === 0) {
       setTimeout(() => { shutdownWithStatus(0); }, 50).unref();
     }
   }

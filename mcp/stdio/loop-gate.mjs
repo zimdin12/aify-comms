@@ -28,7 +28,7 @@ const TERMS = ["eligible", "alreadyActive", "shuttingDown"];
  *
  * @param {object} gate
  * @param {boolean} gate.eligible      the loop's OWN preconditions, already conjoined by the caller —
- *                                     `IS_REMOTE`, `IS_ENVIRONMENT_BRIDGE`, `bridgeTerminalSupported()`.
+ *                                     `IS_REMOTE`, `bridgeTerminalSupported()`.
  *                                     Passed as one boolean so each loop keeps its own eligibility rule
  *                                     verbatim instead of this module growing a copy of all of them.
  * @param {boolean} gate.alreadyActive the loop's timer or busy flag — it is already armed or mid-tick.

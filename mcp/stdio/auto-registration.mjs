@@ -28,7 +28,6 @@ import { mayClaimEnvironmentOwnership } from "./environment-ownership-claim.mjs"
 import {
   AIFY_AGENT_ID,
   AIFY_AGENT_ROLE,
-  IS_ENVIRONMENT_BRIDGE,
   IS_MANAGED_DISPATCH,
   cleanEnvPlaceholder,
 } from "./launch-identity.mjs";
@@ -76,12 +75,12 @@ export async function computeInitialSessionHandle({ adapter, envHandle }) {
 // factory rather than an extra parameter.
 export function makeAutoRegister({ ensureDispatchLoop }) {
   async function autoRegisterConfiguredAgent(_retriesLeft = 8) {
-    // Audit 2026-06-28: the environment bridge must NEVER auto-register as an agent. It's always
-    // remote and not managed-dispatch, so if it inherits a parent agent's AIFY_AGENT_ID (the known
-    // gotcha) it would self-register as a resident agent and clobber that agent's real registration.
-    // The launcher scrubs the env, but guard in-code too (belt-and-suspenders, like the line-5832
-    // harness-death guard which already excludes the env-bridge).
-    if (IS_ENVIRONMENT_BRIDGE) return;
+    // Audit 2026-06-28: the environment bridge must NEVER auto-register as an agent, because
+    // inheriting a parent agent's AIFY_AGENT_ID would make it self-register as a resident and
+    // clobber that agent's real registration. RETIRED IN v0.6.2 with the flag: there is no
+    // environment bridge to exclude, and the guard could only ever fire on a resident that had
+    // inherited the flag by accident -- silently refusing to register the agent the operator
+    // launched. The three lines below carry the registration's real conditions.
     if (!IS_REMOTE || IS_MANAGED_DISPATCH || !AIFY_AGENT_ID) return;
     try { validateName(AIFY_AGENT_ID, "agent ID"); } catch (error) {
       console.error(`[aify] AIFY_AGENT_ID ignored: ${error.message}`);

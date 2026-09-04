@@ -12,7 +12,6 @@
 
 import { IS_REMOTE, SERVER_URL } from "./aify-service-endpoint.mjs";
 import { makeAutoRegister } from "./auto-registration.mjs";
-import { IS_ENVIRONMENT_BRIDGE } from "./launch-identity.mjs";
 import { MESSAGES_DIR } from "./local-store.mjs";
 import { DEFAULT_CWD } from "./registration-inputs.mjs";
 import { AIFY_VERSION } from "./version.js";
@@ -37,8 +36,11 @@ export async function main({
   // poll the ORIGINAL parent pid, so reparenting (ppid -> init/Relay after the
   // harness dies) doesn't hide the death. stdin-EOF would be cleaner, but the MCP
   // SDK transport reads stdin via 'data' only and never propagates EOF (verified).
-  // EXCLUDED for the environment bridge: top-level process, its own lifecycle.
-  if (!IS_ENVIRONMENT_BRIDGE && ORIGINAL_PARENT_PID > 1) {
+  // The environment bridge was excluded from this, being a top-level process with its own
+  // lifecycle. RETIRED IN v0.6.2 with the flag: every process reaching this line is an MCP child of
+  // a harness, which is the case the guard is for. `ORIGINAL_PARENT_PID > 1` is the real condition
+  // and always was -- a top-level process reparented to init reads 1.
+  if (ORIGINAL_PARENT_PID > 1) {
     let parentMisses = 0;
     const harnessGuard = setInterval(() => {
       let alive = true;
