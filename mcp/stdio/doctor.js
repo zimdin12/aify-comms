@@ -37,6 +37,7 @@ import { fileURLToPath } from "node:url";
 
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
+import { tierVersionVerdict } from "./tier-version-check.mjs";
 import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
@@ -619,6 +620,15 @@ await checkSpawnDelegation();
 {
   const verdict = await spawnQueueVerdict({ list: () => get("/api/v1/spawn-requests") });
   add("spawn-queue", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+}
+// IS THE TIER SERVING THIS HOST NEW ENOUGH FOR THE CODE INSTALLED ON IT. Three repos ship one
+// product and nothing compared them until 2026-09-04 -- external review, Round 8. `bridgeVersion`
+// was already on the wire and read by nobody, which is a field with no reader: the same defect
+// as M8, from the other end.
+{
+  const rows = (await get("/api/v1/environments"))?.environments || [];
+  const verdict = tierVersionVerdict({ environments: rows, isLive: envCanClaimASpawn });
+  add("tier-version", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 await checkManagedOrphans();
 // WHAT IS HOLDING HERMES' FILES. Its sibling above watches the DELIVERY LOOPS; nothing watched the
