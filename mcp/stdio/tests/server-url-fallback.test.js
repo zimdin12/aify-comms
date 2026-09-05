@@ -37,10 +37,17 @@ for (const source of [endpoint]) {
   assert.doesNotMatch(source, /192\.168\.\d+\.\d+["'`]/, "no hardcoded LAN IP fallback literals");
 }
 
-// These stay in server.js: they are claim/spawn bookkeeping that READS the latch through the
-// `activeServerUrl()` accessor rather than owning it.
-assert.match(server, /noteControlClaimFailure/);
-assert.match(server, /noteControlClaimSuccess/);
+// THESE TWO ASSERTIONS ARE GONE, and how they were passing is the lesson. They claimed
+// `noteControlClaimFailure` and `noteControlClaimSuccess` 'stay in server.js' -- but both MOVED to
+// `claim-failure-tracker.mjs` in v0.5.4, and what kept the match green afterwards was the one-line
+// `moved to` MARKER COMMENT left behind, not any code. A source regex asserting where something
+// LIVES proves only that a line was written, which is this repo's recorded `location pins hide
+// defects` rule, caught here by its own example.
+//
+// The module they moved to was deleted on 2026-09-05 with the rest of the retired
+// environment-bridge tier, so there is no longer a name to pin anywhere. The invariant this section
+// exists for -- the latch has ONE owner and everyone else reaches it through the accessor -- is
+// asserted directly above and by two external witnesses.
 
 // `logTransientOrError` WAS in that list and has moved to `aify-service-endpoint.mjs` — flagged rather than
 // done quietly, because this comment recorded it as staying put. It is not claim bookkeeping: it is how a

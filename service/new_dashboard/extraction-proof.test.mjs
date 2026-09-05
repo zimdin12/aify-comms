@@ -4654,7 +4654,7 @@ test("widening the head patterns did not make them match a bare identifier", () 
   assert.equal(declarationSpan("const gen = 1;\n", "gen").end, 0, "a real const still wins");
 });
 
-test("the five bridge classes are measurable, and the sizes are cross-checked", () => {
+test("the four bridge classes are measurable, and the sizes are cross-checked", () => {
   // Not a synthetic case: these are the declarations the old parser was blind to. `PiSession` at 960
   // lines matches the figure recorded independently while measuring that file by other means, which
   // is what makes this a correctness check rather than merely a non-null one.
@@ -4664,76 +4664,15 @@ test("the five bridge classes are measurable, and the sizes are cross-checked", 
     ["mcp/stdio/pi-session.js", "PiSession", 960],
     ["mcp/stdio/codex-session.js", "CodexSession", 684],
     ["mcp/stdio/hermes-session.js", "HermesSession", 529],
-    // 626 -> 648 -> 654 -> 740 -> 785 -> 799 across v0.6 Phase 8: the delegation seam, a correction to
-    // its comment, then startDelegated -- the method that actually routes a terminal into aify-env --
-    // and now choosing the launcher FILE over whatever Windows would execute. RE-MEASURED independently
-    // each time by brace-matching from the class header, never taken from the assertion's "actual": a
-    // figure copied out of a failure message records whatever the change produced rather than what is
-    // true.
+    // A FIFTH CASE LIVED HERE, `TerminalProcessManager` in `mcp/stdio/terminal-runtime.js`, and it
+    // was the most-revised row in this list -- 626 -> 910 across v0.6 Phase 8, every step
+    // re-measured by brace-matching rather than copied out of a failure message. The whole file was
+    // deleted on 2026-09-05 with the environment-bridge tier v0.6.2 retired: it ran PTYs for spawns
+    // aify-comms no longer hosts, and no production path reached it.
     //
-    // +14 on 2026-08-25, and the arithmetic is the third check: resolving `claude-aify` on Windows
-    // returns the generated .cmd shim, which carries no shebang and no HARNESS_WRAPPER_VERSION, so
-    // aify-env refused every delegated spawn while the command resolved and the file existed. The 14
-    // lines are the selection and its refusal message. Cause, count and measurement agree.
-    //
-  // 799 -> 803 on 2026-08-25: the delegated spawn now sends a `label` -- the agent id -- so aify-env's
-  // view can name the row instead of showing `p2  pid 129340  aify-comms`, which cannot tell an
-  // operator which of their agents that is. Four lines: the value and the note explaining that the
-  // string is displayed and never interpreted. Re-measured by brace-matching from the class header,
-  // and the arithmetic agrees with the diff.
-  // 817 as of 2026-08-25, and the +14 is accounted for rather than copied out of the failure:
-  // two 7-line comments explaining why an unreachable catch is deliberately empty. Re-measured
-  // with declarationSpan before changing this, per the cross-check rule in CLAUDE.md.
-    // 817 -> 826 on 2026-08-25: the delegated spawn now strips the never-inherited markers at the
-    // boundary instead of relying on `terminalChildEnv` having run upstream. Nine lines: the changed
-    // env argument plus the note explaining why the strip is repeated here and why an absent env is
-    // passed through rather than normalised to {}. Re-measured with declarationSpan (826), and the
-    // arithmetic agrees with the diff -- one line replaced by ten.
-    // 826 -> 829 on 2026-08-26: the DELEGATED exit callback now takes `(code, signal)` and forwards
-    // both, instead of passing a hardcoded `signal: null`. Three lines: the changed callback plus the
-    // note saying why the old form was honest when written and stopped being so once aify-env had a
-    // signal to send. Re-measured TWO ways before this number was touched -- `declarationSpan` says
-    // 829, and a brace-match from the class header gives lines 71..899, which is 829 -- rather than
-    // copying the 829 out of the failure message, which is what CLAUDE.md's cross-check rule forbids.
-    // 829 -> 843 on 2026-08-26: a comment correction, no code change. The B3 descendant reap said
-    // "Harmless no-op if the root is already gone", which is false on Windows -- the root is gone by
-    // definition there and `taskkill /T` on a recycled number takes a stranger's tree. The same wrong
-    // belief had just cost a day one tier down, so the correction is fourteen lines and worth them.
-    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 843, and a
-    // brace-match from the class header gives lines 71..913, which is 843.
-    // 843 -> 849 on 2026-08-26: the delegated spawn's `label` stopped falling back to the TERMINAL id.
-    // Six lines: the changed expression plus the note saying why a `term_...` string under a column
-    // headed AGENT is worse than an empty one. Re-measured two ways -- `declarationSpan` says 849 and
-    // a brace-match from the class header gives lines 71..919, which is 849.
-    // 849 -> 896 on 2026-08-28: `_settleDelegatedExit`, which stops an unobserved stream end being
-    // reported as an exit. Traced from a terminal's own event log after the operator killed
-    // aify-env: every delegated stream ended at once, every terminal was finalised, and the
-    // processes survived -- so the control plane said `stopped` about a live, owned process.
-    // Re-measured TWO ways rather than copied from the failure message: `declarationSpan` says 896,
-    // and a brace-match from the class header gives lines 72..967, which is 896.
-    // 896 -> 881 on 2026-08-29: `settleDelegatedExit` and `reattachLostStreams` moved out to
-    // delegated-stream.mjs, leaving two one-line methods behind. They went because the file crossed
-    // the 1000-line gate and the gate was right about the reason -- that module is
-    // delegated-environment POLICY, this file is terminal-process mechanics.
-    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 881, and a
-    // brace-match from the class header gives lines 72..952, which is 881.
-    // 881 -> 898 on 2026-08-29: `stop()` now AWAITS a delegated stop and reads the answer. It used
-    // the shim's fire-and-forget kill, so a refusal reached console.error while stop() deleted the
-    // terminal and returned `{ stopped: true }` -- a Stop pressed while aify-env was down left the
-    // process running and this bridge with no memory of it.
-    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 898, and a
-    // brace-match from the class header gives lines 72..969, which is 898.
-    // 898 -> 910 on 2026-09-01: the console-keepalive tick became its own method,
-    // `_consoleKeepaliveTick`, so a test can DRIVE it instead of sleeping and counting how often a
-    // 5ms `setInterval` had fired. Windows floors timers at ~15.6ms, so the old 40-60ms windows
-    // bought 3 or 4 ticks where the assertions needed 4 AND needed one to land on a re-probe
-    // multiple: 2 failures in 6 runs, measured, and it had just reddened a whole bridge suite.
-    // Behaviour is unchanged; only the reachability of the tick is. The twelve lines are the method
-    // signature, the rebuilt `_armConsoleKeepalive`, and the note explaining why the schedule and
-    // the work are now separate things.
-    // Re-measured TWO ways rather than copied from the failure: `declarationSpan` says 910, and a
-    // brace-match from the class header gives lines 72..981, which is 910.
-    ["mcp/stdio/terminal-runtime.js", "TerminalProcessManager", 910],
+    // FOUR CASES STILL CROSS-CHECK THE PARSER, which is what this test is for. The point was never
+    // the fifth class; it was that `declarationSpan` measures real declarations the old parser could
+    // not see, and four independently-measured spans establish that as well as five did.
   ];
   for (const [rel, name, expected] of cases) {
     const span = declarationSpan(read(rel), name);

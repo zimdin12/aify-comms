@@ -129,9 +129,19 @@ class FixturesAreTrackedTests(unittest.TestCase):
 
     def test_the_sweep_actually_finds_fixtures(self):
         """A tracking check over an empty list passes vacuously — the same class of nothing-burger
-        this whole test exists to prevent."""
+        this whole test exists to prevent.
+
+        THE FLOOR CAME DOWN 3 -> 2 on 2026-09-05, and the reason is a shrinking POPULATION rather
+        than a broken instrument. The v0.6.2 residue deletion removed 62 files belonging to the
+        retired environment-bridge tier, and one of them named a fixture. What the sweep still finds
+        was checked by hand at the same time -- `mcp/stdio/package-lock.json` and
+        `service/contracts/operator_notify_cases.json`, each named by a live test -- so the
+        discovery demonstrably still works, which is the only thing this floor is for.
+
+        If it ever reaches ZERO the instrument IS broken, and that is what this catches.
+        """
         self.assertGreaterEqual(
-            len(_named_fixtures()), 3, "the fixture discovery found almost nothing; it is broken"
+            len(_named_fixtures()), 2, "the fixture discovery found almost nothing; it is broken"
         )
 
 

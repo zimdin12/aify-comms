@@ -486,7 +486,6 @@ process.on("SIGTERM", () => { shutdownWithStatus(143); });
 // DISPATCH_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 // TERMINAL_CONTROL_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 let dispatchLoopTimer = null;
-// spawnClaimFailureCount / spawnClaimLastLogAt moved to ./claim-failure-tracker.mjs in v0.5.4.
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 // RESIDENT_BINDING_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
 // RESIDENT_BINDING_LOST_AFTER_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.
@@ -531,12 +530,9 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // This list is intentionally narrow. If you add a new POST endpoint that can
 // be retried without creating duplicate side effects, add it here explicitly.
 
-// CONTROL_CLAIM_FAILURES moved to ./claim-failure-tracker.mjs in v0.5.4 — its only direct readers
 // are the two functions above, so they own it.
 
-// noteControlClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
-// noteControlClaimSuccess moved to ./claim-failure-tracker.mjs in v0.5.4.
 
 // Plan 6 A2 (2026-05-26): runtime-authoritative session-handle resolver
 // used at the initial register path (mirrors A1's heartbeat reversal).
@@ -641,9 +637,7 @@ function extractTerminalSessionHandle(runtime = "", command = "") {
 
 // DELETED IN v0.6.2 with the environment bridge: the terminal-control loop.
 
-// noteSpawnClaimFailure moved to ./claim-failure-tracker.mjs in v0.5.4.
 
-// noteSpawnClaimSuccess moved to ./claim-failure-tracker.mjs in v0.5.4.
 
 // isActiveManagedSessionStatus moved to ./session-predicates.mjs in v0.5.4.
 

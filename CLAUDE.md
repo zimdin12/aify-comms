@@ -250,10 +250,18 @@ your file (`79b878c4`). And two files on DIFFERENT workers touching one external
 not cover; a test that reaches outside its own sandbox needs pinning, not a retry.
 
 **AND THE TWO SIBLING REPOS, because a change here can redden them and a change there can redden this
-one.** They are not optional extras: `env-client-against-real-aify-env.test.js` and
-`delegated-terminal-against-real-aify-env.test.js` in the BRIDGE suite start a real aify-env from the
-checkout, so an aify-env edit is verified by running aify-comms' tests, and an aify-comms edit to the
-seam is only verified by having aify-env present.
+one.** They are not optional extras:
+`the-credential-ref-we-write-is-one-aify-env-resolves.test.js` in the BRIDGE suite starts a real
+aify-env from the checkout, so an aify-env edit is verified by running aify-comms' tests, and an
+aify-comms edit to the seam is only verified by having aify-env present.
+
+**IT USED TO BE SIX SUCH TESTS AND IS NOW ONE**, which is a real reduction and worth knowing before
+you rely on this. Five of them drove aify-comms' own `env-client` and `terminal-runtime` against a
+real aify-env, and both modules belonged to the environment-bridge tier v0.6.2 retired -- so those
+five proved a seam that no longer exists, and they were deleted with it on 2026-09-05. The survivor
+proves something still true: the credential reference this service writes is the one aify-env
+resolves. If a future change needs stronger cross-repo evidence, it has to be built against the
+seam that is actually load-bearing now -- aify-env's own plugin talking to this service's HTTP API.
 
 ```bash
 cd ~/projects/aify-wrapper && node --test tests/*.test.js   # 208 tests
@@ -278,13 +286,22 @@ vacuous.
 
 **Exit status alone cannot tell a proof from a skip, so the runner reads what each file reported.** A
 file whose tests all SKIPPED exits 0 and used to read as passed — and
-`delegated-terminal-against-real-aify-env.test.js`, the standing evidence that Phase 8's seam reaches a
-real environment tier, skips itself when the aify-env checkout is absent. On any other machine that
+`the-credential-ref-we-write-is-one-aify-env-resolves.test.js`, the standing evidence that this
+service and the host tier agree, skips itself when the aify-env checkout is absent.
+
+**THAT SENTENCE NAMED TWO DIFFERENT TESTS UNTIL 2026-09-05, and both were deleted that day.** It
+cited `env-client-against-real-aify-env.test.js` and `delegated-terminal-against-real-aify-env.test.js`
+-- which drove aify-comms' OWN `env-client` and `terminal-runtime` against a real aify-env. Those
+two modules were part of the tier v0.6.2 retired and no production path reached either, so the
+"standing evidence" was a proof about a seam that no longer existed. Five of the six tests that
+drove a real aify-env went with them; the one named above survives because what it proves -- that
+the credential reference this service writes is the one aify-env resolves -- is still a live seam. On any other machine that
 proof ran nothing while the runner said everything passed. Skipped files are now NAMED under "skipped,
 so NOT verified here" and never folded into the pass total; a file with no TAP summary counts as zero
 skips, not as a skip, because 109 of them print none. Its sibling
-`env-client-against-real-aify-env.test.js` goes further and FAILS when the checkout is missing, and the
-delegated one does too now — for a cross-repo proof, "unverified" must not read as green.
+`the-credential-ref-we-write-is-one-aify-env-resolves.test.js` carries the same property — for a
+cross-repo proof, "unverified" must not read as green. (The two tests this sentence named until
+2026-09-05 were deleted with the tier they exercised.)
 
 Those counts are a **measured snapshot** (2026-08-27), not a target: they are there so a wrong invocation is
 obvious (a `node --test` that reports 200 did not discover the suite). They rot with every slice — the run is
@@ -307,28 +324,35 @@ declared.
 So a bridge edit can redden python AND dashboard; an `install.sh` edit reaches all three. **The targeted
 run is the trap** — it is green because it did not look. v0.6 Phase 8 hit exactly this: the seam grew
 `TerminalProcessManager`, the bridge suite was green, and `extraction-proof.test.mjs` — a DASHBOARD test
-that cross-checks `declarationSpan` against five BRIDGE classes — sat red until the next full sweep.
+that cross-checks `declarationSpan` against four BRIDGE classes — sat red until the next full sweep.
+(It was five until 2026-09-05; the fifth was `TerminalProcessManager`, deleted with the tier.)
 When one of those cross-checks fails, RE-MEASURE the value independently and record it, rather than
 copying the number out of the failure message: that number is whatever the change produced, not what is
 true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
 
-**Re-measured 2026-09-05, closest to the limit first**, by the walk described below — the gates' own
+**Re-measured 2026-09-05 after the residue deletion, closest to the limit first**, by the walk described below — the gates' own
 `SKIP_DIRS`, extensions and counting convention, so this is the population they actually judge:
 
 | lines | file | headroom |
 |---|---|---|
 | 993 | `mcp/stdio/pi-session.js` | 7 |
 | 987 | `service/new_dashboard/app.js` | 13 |
-| 981 | `mcp/stdio/terminal-runtime.js` | 19 |
 | 893 | `service/control_plane.py` | 107 |
 | 885 | `mcp/stdio/doctor-predicates.js` | 115 |
 | 803 | `mcp/stdio/codex-session.js` | 197 |
 | 780 | `service/routers/environments.py` | 220 |
 | 755 | `service/api_core/status_inputs.py` | 245 |
+| 728 | `mcp/stdio/hermes-managed-host.js` | 272 |
 
-540 files, none at or over the limit. THREE are within 19 lines of it.
+522 files, none at or over the limit. TWO are within 19 lines of it.
+
+**`terminal-runtime.js` HAS LEFT THIS TABLE BY BEING DELETED**, and it was third at 981 with 19
+lines of headroom -- so until 2026-09-05 this table told the next person to watch a file no
+production path could reach. It was part of the environment-bridge tier v0.6.2 retired, and its
+presence here is the clearest example of why a stale row is worse than no row: somebody budgeting
+a refactor against it would have been budgeting for dead code.
 
 **`server.js` HAS LEFT THIS TABLE, and that is the largest movement it has ever recorded**: it was
 SECOND at 990 with ten lines of headroom, and v0.6.2's deletion of the environment-bridge cluster

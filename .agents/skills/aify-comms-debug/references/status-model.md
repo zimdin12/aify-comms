@@ -74,7 +74,7 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
   identically. If a managed agent shows `working` long after its turn ended, the service is
   pre this fix.
 - **M-C — interrupt-hint false-positive (2026-06-05).** The console spinner classifier
-  (`claude-console-spinner.js`) treated a bare `esc to interrupt` ANYWHERE as `working`, so
+  (the spinner rules, now `service/api_core/status_inputs.py`) treated a bare `esc to interrupt` ANYWHERE as `working`, so
   claude writing that phrase in PROSE manufactured a `working` lease (worsened by the 12s→20s
   lease TTL). It now requires a real spinner glyph on the SAME LINE as the hint — keeps both
   live-footer shapes, rejects prose.

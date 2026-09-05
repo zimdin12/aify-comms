@@ -147,7 +147,7 @@ its in-process MCP to register a wrapper-child / channel-sidecar bridge. Read th
 (`comms_console_tail`) to see which prompt it's stuck on.
 
 **Fix (2026-06-05, updated 2026-07-25).** The host bridge auto-answers these via a centralized rules layer
-(`claude-console-prompts.js`): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
+(`service/api_core/console_prompts.py`, the service's now — the bridge's copy went with v0.6.2): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
 to **managed claude only** (never a resident/operator session), requires an interactive menu
 cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a NEW prompt
 appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
