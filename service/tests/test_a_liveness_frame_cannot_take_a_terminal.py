@@ -135,3 +135,43 @@ class ALivenessFrameCannotTakeATerminalTests(FastApiTestCase):
         owner, status = self._row()
         self.assertEqual((owner, status), ("bridge-A", "running"),
                          "a host reporting its own terminal alive changed the row")
+
+    def test_a_liveness_frame_RECORDS_the_host_that_is_running_an_active_terminal(self):
+        """The other half of the M6 guard, added 2026-09-05, and the boundary between them is status.
+
+        The guard above is right that a contentless frame is not evidence anything is being DRIVEN.
+        But the service separately RULES that a reporting host is the owner --
+        `_active_terminal_for_agent` says "A HOST THAT IS STILL REPORTING THIS TERMINAL OWNS IT,
+        WHATEVER ITS ID SAYS", and rejects `bridge_id` as a proxy because aify-env mints a fresh one
+        on every start, so after a restart EVERY terminal mismatches. That rule is what stops a
+        restart releasing every live terminal.
+
+        WHAT IT LEFT BEHIND was a row naming a bridge that no longer exists, and one layer along
+        nothing re-derives the rule: `terminal_controls` are queued with the ROW's `bridge_id` and
+        claimed by an EXACT match, so console input and resize are addressed to a bridge nobody
+        presents. The terminal is alive, the dashboard shows it, and typing into it does nothing.
+
+        So the row learns what the service already believes -- one owner of the ownership question,
+        recorded once, rather than every reader deriving it and one of them getting it wrong.
+        """
+        self._seed(status="running", bridge_id="bridge-A")
+        self._frame("bridge-B", output="")
+        owner, status = self._row()
+        self.assertEqual(
+            owner, "bridge-B",
+            "the host actively reporting this terminal is not recorded as its owner, so a control "
+            "queued for it is addressed to a bridge that no longer exists and can never be claimed",
+        )
+        self.assertEqual(
+            status, "running",
+            "recording the owner must not touch status -- a liveness frame carries none precisely so "
+            "it cannot reopen what an operator or a reconciler closed",
+        )
+
+    def test_an_ANONYMOUS_liveness_frame_claims_nothing(self):
+        """A sender that does not identify itself is not making a claim. Reading absence as a
+        takeover would let any caller blank a terminal's owner."""
+        self._seed(status="running", bridge_id="bridge-A")
+        self._frame("", output="")
+        owner, _status = self._row()
+        self.assertEqual(owner, "bridge-A")

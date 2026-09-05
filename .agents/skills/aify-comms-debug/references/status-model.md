@@ -74,7 +74,7 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
   identically. If a managed agent shows `working` long after its turn ended, the service is
   pre this fix.
 - **M-C — interrupt-hint false-positive (2026-06-05).** The console spinner classifier
-  (the spinner rules, now `service/api_core/status_inputs.py`) treated a bare `esc to interrupt` ANYWHERE as `working`, so
+  (`service/api_core/status_inputs.py`) treated a bare `esc to interrupt` ANYWHERE as `working`, so
   claude writing that phrase in PROSE manufactured a `working` lease (worsened by the 12s→20s
   lease TTL). It now requires a real spinner glyph on the SAME LINE as the hint — keeps both
   live-footer shapes, rejects prose.
@@ -86,7 +86,7 @@ event-driven path was built — read "new" as "the (now sole) `derive()` path".
   incident). Now `working` = the LIVE footer only (glyph + `esc to interrupt` on one line);
   a spinner-shaped line WITHOUT the hint is the turn-ended residue and counts as IDLE
   evidence. Bridge-side: the fix only applies to consoles hosted by a bridge process started
-  after reinstall — a stuck agent means its environment bridge predates the fix; restart the
+  after reinstall — a stuck agent means its host tier predates the fix; restart the
   `aify-comms` wrapper.
 - **Pure-event decouple + claude Stop-gate (2026-06-19).** The `working`→`online`→`working`
   flicker (hermes sc-coder AND claude sc-claude) was a SHARED server-side premature clear:

@@ -484,6 +484,52 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         # `_append_terminal_output` returns before its UPDATE. See `_record_host_reported_alive`
         # for what that silence cost.
         if not chunk_text and not status:
+            # AND THE REPORTING HOST IS RECORDED AS THE OWNER, because the service already RULES that
+            # it is one and only the row disagreed.
+            #
+            # `_active_terminal_for_agent` says it in as many words: "A HOST THAT IS STILL REPORTING
+            # THIS TERMINAL OWNS IT, WHATEVER ITS ID SAYS", and rejects `bridge_id` as a proxy
+            # because aify-env mints a fresh one every start, so after a restart EVERY terminal
+            # mismatches. That rule kept the terminal alive — and left the row naming a bridge that
+            # no longer exists.
+            #
+            # WHAT THE STALE ID COSTS is one layer along, where nothing re-derives the rule:
+            # `terminal_controls` are queued with the ROW's `bridge_id` and claimed by an EXACT match
+            # (`terminal_controls_io`), so console input and resize for that terminal are addressed to
+            # a bridge nobody presents, and sit pending until they fail. The terminal is alive, the
+            # dashboard shows it, and typing into it does nothing.
+            #
+            # SO THE ROW LEARNS WHAT THE SERVICE ALREADY BELIEVES — one owner of the ownership
+            # question, recorded once, instead of every reader re-deriving it and one of them getting
+            # it wrong. This is strictly narrower than the takeover guarded above: it moves an id on a
+            # terminal a host says it is RUNNING, and never revives a stopped row or changes a status.
+            # ONLY FOR A TERMINAL THAT IS ACTIVE, and the boundary is the point rather than a
+            # concession. Ownership has consequences only while something is running: it decides who
+            # may claim the controls. On a STOPPED row it decides nothing, and moving it there would
+            # edge into exactly the revive semantics the guard above exists to refuse — which is why
+            # `a liveness frame cannot take a terminal` seeds a stopped row and asserts the owner
+            # stays put. That assertion is untouched by this.
+            terminal_active = (
+                str(terminal["status"] or "").strip().lower() in _TERMINAL_ACTIVE_STATUSES
+            )
+            if (
+                terminal_active
+                and new_bridge_id
+                and existing_bridge_id
+                and new_bridge_id != existing_bridge_id
+            ):
+                await db.execute(
+                    "UPDATE terminal_sessions SET bridge_id = ? WHERE id = ?",
+                    (new_bridge_id, terminal_id),
+                )
+                # AUDITED, like the virtual-rpc takeover beside it: an ownership move an operator
+                # cannot see is one nobody can explain afterwards.
+                await _append_terminal_event(
+                    db,
+                    terminal_id,
+                    "terminal_owner_reported",
+                    json.dumps({"from": existing_bridge_id, "to": new_bridge_id}),
+                )
             await _record_host_reported_alive(db, terminal)
             await db.commit()
             reported = _terminal_session_to_dict(terminal)

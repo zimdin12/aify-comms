@@ -64,7 +64,12 @@ const CEILINGS = {
   // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
   // paragraph above it already said.
   "aify-comms-debug/references/dashboard-console.md": 18_426,
-  "aify-comms-debug/references/dispatch-bridges.md": 26_968,  // 25_917 -> 27_139 on
+    // 26_968 -> 26_955 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
+  // than leaving the ceiling slack: two references cited files deleted with the
+  // environment-bridge tier and now name the service modules that own those questions, and
+  // instructions to `restart the environment bridge` became `restart aify-env` -- the component
+  // v0.6.1 removed, told to an operator following a troubleshooting page.
+  "aify-comms-debug/references/dispatch-bridges.md": 26_955,  // 25_917 -> 27_139 on
   // 2026-09-02 -> 27_131 -> 26_968 on 2026-09-03. The second paydown is v0.6.1 removing the
   // environment-bridge command: the fleet-death entry no longer has to teach a reader that a bare
   // `aify-comms` is dangerous, because it refuses. What it teaches instead is shorter and more
@@ -99,7 +104,12 @@ const CEILINGS = {
   "aify-comms-debug/references/hermes-turns.md": 15_996,
   "aify-comms-debug/references/lifecycle.md": 6_704,
   "aify-comms-debug/references/pi.md": 7_316,
-  "aify-comms-debug/references/status-model.md": 21_920,
+    // 21_920 -> 21_919 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
+  // than leaving the ceiling slack: two references cited files deleted with the
+  // environment-bridge tier and now name the service modules that own those questions, and
+  // instructions to `restart the environment bridge` became `restart aify-env` -- the component
+  // v0.6.1 removed, told to an operator following a troubleshooting page.
+  "aify-comms-debug/references/status-model.md": 21_919,
   "aify-comms-debug/references/status-symptoms.md": 19_427,
 };
 

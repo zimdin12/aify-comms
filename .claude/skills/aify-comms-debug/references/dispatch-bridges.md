@@ -133,7 +133,7 @@ node -e 'fetch("http://127.0.0.1:8800/health",{signal:AbortSignal.timeout(5000)}
 
 **Cause.** Old builds allowed a generic environment bridge to claim wrapper-backed channel work. That bridge lacks the local app-server/gateway context and can only fail or fork hidden work.
 
-**Fix.** Current builds require Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the current active wrapper `terminal_id`, before the runtime's delivery owner can claim channel work. If you see this symptom, rebuild/redeploy the service, restart the environment bridge, then restart the managed session so a fresh delivery owner registers.
+**Fix.** Current builds require Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the current active wrapper `terminal_id`, before the runtime's delivery owner can claim channel work. If you see this symptom, rebuild/redeploy the service, restart aify-env, then restart the managed session so a fresh delivery owner registers.
 
 ## Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 
@@ -147,7 +147,7 @@ its in-process MCP to register a wrapper-child / channel-sidecar bridge. Read th
 (`comms_console_tail`) to see which prompt it's stuck on.
 
 **Fix (2026-06-05, updated 2026-07-25).** The host bridge auto-answers these via a centralized rules layer
-(`service/api_core/console_prompts.py`, the service's now — the bridge's copy went with v0.6.2): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
+(`service/api_core/console_prompts.py`): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
 to **managed claude only** (never a resident/operator session), requires an interactive menu
 cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a NEW prompt
 appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
@@ -162,7 +162,7 @@ auto compacts each time"). Now: channel-enter matches only the dialog's own ques
 (`Enter channel to receive …`); any visible resume-menu text suppresses ALL blind-Enter rules
 until the cursor-aware resume rule can answer; matching is recency-first (the latest dialog
 text in the stream wins, so a scrolled-away menu can never re-claim a live dialog). If a
-managed claude still loses context on restart, its PTY-hosting environment bridge predates
+managed claude still loses context on restart, its PTY-hosting host tier predates
 this fix — restart the `aify-comms` wrapper.
 
 **Dev-channels acknowledgment (2026-07-03, `c1e1704`) — up-but-deaf on FIRST spawn.** The
