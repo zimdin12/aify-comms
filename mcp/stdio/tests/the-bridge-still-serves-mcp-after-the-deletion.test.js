@@ -29,6 +29,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { countToolRegistrations } from "./tool-surface-size.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -151,12 +152,20 @@ test("it lists its tools, which is the whole of what a wrapper asks it for", asy
   assert.equal(list.error, undefined, `tools/list returned an error: ${JSON.stringify(list.error)}`);
   const tools = list.result?.tools || [];
 
-  // A FLOOR, NOT A COUNT. The exact number is `tool-surface-ratchet`'s job and it moves with every
-  // tool added; what this file must catch is a registration path that broke and left a handful.
-  assert.ok(
-    tools.length >= 30,
-    `only ${tools.length} tool(s) registered. registerAllTools reaches many modules, and one of them `
-    + "failing to contribute is invisible to every unit test of those modules.",
+  // EVERY TOOL WRITTEN IN THE TREE MUST ACTUALLY REGISTER, and this used to be a floor of 30
+  // (external review, Round 9 LOW). A floor cannot see the case it exists for: `tool-surface-ratchet`
+  // measures the SOURCE, this measures the RUNTIME, and with 37 tools written a floor of 30 let seven
+  // of them fail to register while both gates stayed green. The two instruments now have to agree.
+  //
+  // DERIVED, so adding a tool needs no edit here -- and a tool that is written but never reaches
+  // `tools/list` fails immediately rather than after somebody notices it missing in the dashboard.
+  const written = countToolRegistrations();
+  assert.ok(written >= 30, `only ${written} registrations found in the tree; the counter is broken`);
+  assert.equal(
+    tools.length, written,
+    `${written} tools are registered in the tree and ${tools.length} answered tools/list. `
+    + "registerAllTools reaches many modules, and one of them failing to contribute is invisible to "
+    + "every unit test of those modules.",
   );
 
   // The named ones are the load-bearing surface: an agent that cannot send, read or register is a
