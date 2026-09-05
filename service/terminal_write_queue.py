@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from typing import Any
+from typing import Any, Optional
 
 from service.api_core.terminal_output import _append_terminal_output
 from service.api_core.terminal_tail_buffer import TAIL_FLUSH_INTERVAL_SECONDS, pending
@@ -229,10 +229,17 @@ class TerminalOutputWriteQueue:
         held = pending(terminal_id)
         if held is None:
             return
+        # A SETTLE MUST NOT WRITE A SEQ IT DOES NOT HAVE. `int(held.get("seq") or 0)` turned a held
+        # tail with no sequence into a literal 0, and `_append_terminal_output` writes the column for
+        # any non-None value -- so the row's `output_seq` went BACKWARDS. A client then seeds
+        # `lastSeq` from that 0 and the next live frame is a gap, which is R9-H1's repaint storm
+        # arriving by a different door. None leaves the column alone, which is what the settle wants:
+        # it is flushing bytes, not renumbering them. (External review, Round 9 LOW.)
+        held_seq = held.get("seq")
         try:
             async with self._write_lock:
                 await self._write_terminal_output(
-                    terminal_id, "", seq=int(held.get("seq") or 0), settle=True,
+                    terminal_id, "", seq=(int(held_seq) if held_seq is not None else None), settle=True,
                 )
         except Exception:
             # BEST EFFORT. A settle that fails leaves the tail held, and the next chunk or the next
@@ -300,7 +307,7 @@ class TerminalOutputWriteQueue:
             await _append_terminal_output(db, terminal if terminal else fallback, output, status=status)
 
     async def _write_terminal_output(
-        self, terminal_id: str, output: str, *, status: str = "", seq: int = 0, settle: bool = False,
+        self, terminal_id: str, output: str, *, status: str = "", seq: Optional[int] = 0, settle: bool = False,
     ) -> None:
         db = await get_db()
         try:

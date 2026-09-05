@@ -1736,6 +1736,23 @@ solved it by narrowing to one runtime. See D9.
   the lock, and appending to the caller's row rather than the re-read one. The inert-split gate
   declares the edit rather than being relaxed.
 
+  **TWO CORRECTIONS FROM AN EXTERNAL REVIEW, 2026-09-06, and neither undoes the fix.**
+
+  *What actually closes the lost update is no longer the lock.* Since the lazy tail landed, the
+  read-modify-write is `current_tail(...)` then `record(...)` in `api_core/terminal_output.py`, with
+  NO `await` between them -- so on a single event loop it cannot interleave, whatever the lock does.
+  The lock and the re-read are still correct and still what the tests pin, but an entry that says
+  the lock is the reason will send the next reader to the wrong place when they change one of them.
+  Removing the lock today would not reproduce the original interleaving; removing the tail buffer's
+  synchronous window would.
+
+  *And `_write_lock` is ONE lock for every terminal*, not one per terminal: it is a single
+  `asyncio.Lock()` on the queue instance. That is a fair trade for SQLite's single writer and it is
+  what the comment beside it argues for -- but it means one terminal's 5-second busy wait stalls
+  every other terminal's flush, and the entry above reads as though the serialisation were
+  per-terminal. Worth knowing before anyone treats a stall on one console as a problem with that
+  console.
+
   **AND THE CALL SITE IS COVERED, checked because I nearly concluded it was not.** A first grep said
   no test drives `PATCH /terminals/controls/{id}` with an output field; it was reading which FILES
   contain the word rather than which PATCHes carry it. Re-run properly -- 18 control-PATCH sites,
@@ -1773,8 +1790,27 @@ solved it by narrowing to one runtime. See D9.
   a fixture that breaks it -- worth knowing before writing the next scanner in a directory that has
   several.
 
-- **D15. `agents.runtime_state` IS THE SAME SHAPE AS D13, WITH NINE WRITERS AND NO LOCK. Measured
-  2026-09-03, NOT fixed, and NOT demonstrated to have lost anything.**
+- **D15. `agents.runtime_state` IS THE SAME SHAPE AS D13, WITH TWENTY-TWO WRITERS AND NO LOCK.
+  Re-measured 2026-09-06, NOT fixed, and NOT demonstrated to have lost anything.**
+
+  **THE COUNT BELOW SAID NINE AND WAS WRONG BY MORE THAN HALF.** An external reviewer re-ran it on
+  2026-09-06: 22 `UPDATE agents ... runtime_state` sites across 20 files, not 9 across 8. The list
+  that follows is the original nine; the thirteen it missed are in `agent_registration_writes.py`,
+  `resident_takeover_writes.py`, `session_mode_writes.py`, `session_restart.py`,
+  `terminal_controls_io.py`, `dispatch_claim.py`, `pi_resident_flip.py`,
+  `routers/agents/environment_assignment.py`, `session_handle.py`, `session_lease.py`,
+  `virtual_terminal.py`, `routers/dispatch_messages/dispatch.py` and `routers/environments.py`.
+
+  That matters even though nothing is being fixed: the whole entry is an argument about how much
+  latent risk this shape carries, and anyone sizing it against nine writers was sizing it against
+  less than half the population.
+
+  **AND THE INVARIANT COVERS ONE KEY.** `test_runtime_state_handles.py` pins the session-handle keys
+  (`sessionId` / `threadId` / `sessionKey` / `sessionFile`) and nothing else. `bridgeInstanceId`,
+  `environmentId` and `resumePolicy` all have consequential readers -- 14, 33 and 3 product lines
+  respectively -- and no invariant says which agent should carry which, so a lost update to any of
+  them is unfalsifiable rather than absent. "The invariant is now checkable" below is true only of
+  the handle.
 
   Found by auditing for D13's shape elsewhere. `runtime_state` is a JSON blob, and every writer does
   the same three steps: `SELECT runtime_state`, `_json_loads_or(...)`, mutate the dict,

@@ -175,3 +175,47 @@ class FailedTailWriteDoesNotDuplicateTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettleDoesNotRegressTheSeqTests(unittest.IsolatedAsyncioTestCase):
+    """A settle flushes BYTES; it must not renumber them.
+
+    External review 2026-09-06 (LOW). `settle_terminal_tail` passed
+    `seq=int(held.get("seq") or 0)`, and `_append_terminal_output` writes the column for any non-None
+    value -- so a held tail carrying no sequence wrote a literal 0 and the row's `output_seq` went
+    BACKWARDS. A client seeds `lastSeq` from that, and the next live frame reads as a gap: R9-H1's
+    repaint storm arriving through a different door.
+    """
+
+    def setUp(self) -> None:
+        tail.reset_for_tests()
+        self.addCleanup(tail.reset_for_tests)
+
+    async def test_a_settle_with_no_held_seq_leaves_the_column_alone(self) -> None:
+        db = await _seeded()
+        try:
+            await _append_terminal_output(db, await _row(db), "AAA", status="running", seq=41)
+            self.assertEqual(int((await _row(db))["output_seq"]), 41)
+
+            # A chunk held with NO sequence, then a settle. The row must keep 41.
+            tail.record(TERMINAL_ID, "AAABBB", None)
+            await _append_terminal_output(db, await _row(db), "", status="", seq=None, settle=True)
+
+            self.assertEqual(
+                int((await _row(db))["output_seq"]), 41,
+                "the settle wrote a sequence it did not have and the row went backwards",
+            )
+        finally:
+            await db.close()
+
+    async def test_a_settle_WITH_a_held_seq_still_writes_it(self) -> None:
+        """The control: skipping the column unconditionally would strand the sequence a real settle
+        exists to carry."""
+        db = await _seeded()
+        try:
+            await _append_terminal_output(db, await _row(db), "AAA", status="running", seq=41)
+            tail.record(TERMINAL_ID, "AAABBB", 42)
+            await _append_terminal_output(db, await _row(db), "", status="", seq=42, settle=True)
+            self.assertEqual(int((await _row(db))["output_seq"]), 42)
+        finally:
+            await db.close()

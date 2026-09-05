@@ -37,5 +37,5 @@ This is `aify-comms`: a FastAPI service and dashboard for agent communication, l
 - Keep messaging/channel/dispatch APIs compatible.
 - Prefer live wake over inbox-only compatibility paths.
 - Environment bridges execute runtime CLIs; the container stores state and exposes APIs.
-- Do not make ordinary MCP client sessions advertise themselves as dashboard spawn targets. Only the `aify-comms` launcher should set `AIFY_ENVIRONMENT_BRIDGE=1`.
+- Do not make ordinary MCP client sessions advertise themselves as dashboard spawn targets. `AIFY_ENVIRONMENT_BRIDGE=1` no longer has a legitimate setter: v0.6.1 removed the launcher behaviour it enabled and v0.6.2 deleted the tier. Setting it in a test once turned that test into the environment bridge and reaped seven live gateway hosts, so leave it unset. aify-env is the host tier.
 - Dashboard-spawned agents must carry environment, workspace, runtime, spawn spec, session state, and owner metadata.
