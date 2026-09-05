@@ -16,6 +16,7 @@ export class TerminalSearch {
   #query = '';
   #caseSensitive = false;
   #matches = [];
+  #lines = [];
   #current = -1;
   //: WHICH TERMINAL THESE MATCHES DESCRIBE. Absolute buffer rows mean nothing against a different
   //: terminal, and the dashboard disposes and remounts one on every session switch — from four call
@@ -81,8 +82,12 @@ export class TerminalSearch {
       this.#current = -1;
     }
     const buffer = terminal?.buffer?.active;
-    this.#matches = buffer && this.#query
-      ? findMatches(logicalLines(buffer), this.#query, { caseSensitive: this.#caseSensitive })
+    // THE LINES ARE KEPT, not just the matches: each carries the per-physical-row lengths that turn
+    // an offset into an exact screen position. Dividing by the terminal width instead assumes every
+    // wrapped row contributed a full screenful, which trimming makes false.
+    this.#lines = buffer && this.#query ? logicalLines(buffer) : [];
+    this.#matches = this.#lines.length
+      ? findMatches(this.#lines, this.#query, { caseSensitive: this.#caseSensitive })
       : [];
     // The buffer may have scrolled matches out from under the cursor; keep it inside the new list
     // rather than pointing past the end.
@@ -98,6 +103,7 @@ export class TerminalSearch {
   clear() {
     this.#query = '';
     this.#matches = [];
+    this.#lines = [];
     this.#current = -1;
     const terminal = this.#getTerminal();
     try { terminal?.clearSelection?.(); } catch { /* a disposed terminal has nothing to clear */ }
@@ -115,7 +121,7 @@ export class TerminalSearch {
       return;
     }
     if (!terminal) return;
-    const { row, col } = matchPosition(match, terminal.cols);
+    const { row, col } = matchPosition(match, terminal.cols, this.#lines[match.line]);
     // EVERY CALL IS GUARDED SEPARATELY. These reach into a live xterm, and a terminal disposed
     // between the buffer read above and this line throws from whichever call gets there first. A
     // find that throws would break the console it is searching, which is a far worse outcome than

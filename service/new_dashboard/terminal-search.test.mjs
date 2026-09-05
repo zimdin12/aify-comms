@@ -134,3 +134,35 @@ test('a terminal that has not been fitted yet does not divide by zero', () => {
   assert.deepEqual(matchPosition({ row: 3, index: 7 }, 0), { row: 3, col: 7 });
   assert.deepEqual(matchPosition({ row: 3, index: 7 }, undefined), { row: 3, col: 7 });
 });
+
+test('A TRIMMED WRAPPED ROW maps back exactly, which dividing by cols cannot', () => {
+  // `translateToString(true)` trims the right, so a row that wrapped after trailing spaces hands
+  // over FEWER than `cols` characters. Dividing the offset by `cols` assumed every wrapped row gave
+  // a full screenful, so every offset past a trimmed row resolved one row too high — on precisely
+  // the long wrapped matches the join exists to find. The segments record what each physical row
+  // actually contributed, which makes the mapping exact instead of an assumption.
+  const buffer = bufferOf([
+    { text: 'short' },                       // 5 of a 20-column terminal: trimmed
+    { text: 'NEEDLE follows here', wrapped: true },
+  ]);
+  const lines = logicalLines(buffer);
+  const hits = findMatches(lines, 'NEEDLE');
+  assert.equal(hits.length, 1);
+
+  const exact = matchPosition(hits[0], 20, lines[hits[0].line]);
+  assert.deepEqual(exact, { row: 1, col: 0 },
+    'the hit is at the start of the second physical row, and the mapping said otherwise');
+
+  // The control: the OLD arithmetic, with no segments, gets it wrong — so this test is not passing
+  // by describing something that was already true.
+  const guessed = matchPosition(hits[0], 20);
+  assert.notDeepEqual(guessed, exact,
+    'dividing by cols already agreed, so the segments guard nothing — re-derive rather than delete');
+});
+
+test('CONTROL: an unwrapped hit is unmoved by the segment mapping', () => {
+  const buffer = bufferOf([{ text: 'plain target here' }]);
+  const lines = logicalLines(buffer);
+  const hit = findMatches(lines, 'target')[0];
+  assert.deepEqual(matchPosition(hit, 80, lines[hit.line]), { row: 0, col: 6 });
+});

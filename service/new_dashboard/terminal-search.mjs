@@ -55,10 +55,17 @@ export function logicalLines(buffer) {
     if (!line) continue;
     const text = line.translateToString(true);
     if (line.isWrapped && out.length > 0) {
-      out[out.length - 1].text += text;
+      const previous = out[out.length - 1];
+      previous.text += text;
+      previous.segments.push({ row, length: text.length });
       continue;
     }
-    out.push({ text, row });
+    // WHAT EACH PHYSICAL ROW ACTUALLY CONTRIBUTED. Mapping an offset back by dividing by `cols`
+    // assumes every wrapped row handed over exactly a screenful — and `translateToString(true)`
+    // TRIMS THE RIGHT, so a row that wrapped after trailing spaces contributes fewer. Every offset
+    // past such a row then resolved one row too high, on precisely the long wrapped matches the join
+    // exists to find. Recording the lengths makes the mapping exact instead of an assumption.
+    out.push({ text, row, segments: [{ row, length: text.length }] });
   }
   return out;
 }
@@ -141,10 +148,28 @@ export function matchSummary(count, current) {
  * A NON-POSITIVE WIDTH LEAVES THE MATCH WHERE IT IS rather than dividing by zero. `cols` comes from
  * a live terminal and is 0 before the first fit completes.
  */
-export function matchPosition(match, cols) {
-  const width = Number(cols);
+export function matchPosition(match, cols, line = null) {
   const index = Number(match?.index) || 0;
   const row = Number(match?.row) || 0;
+
+  // THE SEGMENTS ARE EXACT AND THE WIDTH IS A GUESS, so prefer them whenever the caller has them.
+  // Each segment says how many characters one physical row contributed to the joined line, which is
+  // the only thing that survives `translateToString(true)` trimming the right of a wrapped row.
+  const segments = Array.isArray(line?.segments) ? line.segments : null;
+  if (segments && segments.length) {
+    let remaining = index;
+    for (const segment of segments) {
+      const length = Number(segment?.length) || 0;
+      if (remaining < length || segment === segments[segments.length - 1]) {
+        return { row: Number(segment?.row) || row, col: remaining };
+      }
+      remaining -= length;
+    }
+  }
+
+  // FALLBACK, for a caller with no segments: divide by the terminal width. Inexact for a wrapped row
+  // that was trimmed, which is why the segments exist.
+  const width = Number(cols);
   if (!Number.isFinite(width) || width <= 0) return { row, col: index };
   return { row: row + Math.floor(index / width), col: index % width };
 }
