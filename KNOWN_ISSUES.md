@@ -4,6 +4,47 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## A hard kill of the host tier leaves every gateway host running, and the only reaper died with it (2026-09-05)
+
+Measured tonight, and it answers a question `gateway-orphans` has carried as "still unknown": an
+orphaned gateway host lived **2 days 18 hours** (spawned 09-03 05:58, still running 09-05 23:40 when
+it was killed by hand). Its lifetime was bounded by nothing.
+
+The operator killed aify-env and closed every agent, then found `hermes update` refusing to run. Six
+processes across two hermes trees were still up, holding ports 9545 and 9547 and locking the venv's
+`.pyd` files.
+
+**The chain, all three parts already in the source:**
+
+1. `hermes-gateway.mjs` spawns the gateway host with `detached: true` and then `unref()`s it. That is
+   deliberate, and it is what lets a gateway survive a bridge RESTART so agents keep working.
+2. `hermes-managed-host.js` says the wrapper SIGTERMs the delivery loop when the visible TUI closes,
+   and the loop's `installTeardown` reaps the gateway host it owns -- "but a SIGKILL'd terminal (or a
+   hard `kill -9` of the wrapper) BYPASSES that trap".
+3. The backstop for exactly that case is the loop self-detecting that no TUI is attached. It also
+   lives inside the delivery loop.
+
+So every reaper for a detached gateway host runs inside a process that dies at the same instant the
+gateway is orphaned. PTY-backed workers die correctly, because they are spawned `detached: false` and
+aify-env owns their ConPTY. The gateway hosts, which are deliberately not, survive.
+
+**What makes it accumulate rather than self-correct:** the only remaining collector is the boot
+survivor sweep, and `doctor-predicates.js` says so in its own fix text ("relaunch the environment
+bridge, whose boot survivor sweep collects them all"). That puts the operator in a bind worth naming.
+Not restarting aify-env means orphans accumulate with no upper bound. Restarting it runs the sweep,
+but supersession reaps whatever the incumbent was running -- the hazard
+[starting-aify-env-reaps-the-running-fleet] exists for. Neither choice is free, and today the escape
+is that a sweep is safe precisely when there is nothing left to lose.
+
+**Not fixed, and the fix is not obvious.** A reaper that must survive a SIGKILL of its own process
+cannot live in that process. The candidates are a Windows Job Object with kill-on-close (which would
+also kill the gateway on an intentional bridge restart, defeating the reason it is detached), a
+periodic sweep in the service rather than the host, or having the gateway host self-exit when its
+owning agent stops heartbeating. Each is a real design decision.
+
+**Meanwhile `gateway-orphans` reports it.** That row is the instrument; it named all six by pid and
+port, and read `none` immediately after they were killed.
+
 ## The managed-claude console keepalive was deleted, and its lease is still tuned to it (2026-09-05)
 
 Found while reading the docs after v0.6.2, not from a report. Nobody has seen this misbehave yet.
