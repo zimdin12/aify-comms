@@ -45,7 +45,27 @@ export async function spawnQueueVerdict({ list, now = Date.now } = {}) {
     };
   }
 
+  // A NULL ANSWER IS NOT AN EMPTY QUEUE, and the `catch` above cannot tell you so: the doctor's
+  // `get()` swallows 401, 403, every non-2xx and every transport failure, and RETURNS NULL. So the
+  // unknown-all branch above is unreachable from the only call site there is, and an unreadable
+  // service fell through to `rows = []` and printed "no spawn requests on this service" -- a claim
+  // about a queue nothing read. `session-handle-check.mjs` already asks this question correctly.
+  if (answer === null || answer === undefined) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: "the service did not answer with a readable spawn-request listing, so no claimed "
+        + "request was aged against anything. This is NOT \"the queue is empty\".",
+      fix: "Check the `service` row above -- a wrong or missing API key reports here too, because "
+        + "an unauthorised read and an empty queue arrive as the same thing.",
+    };
+  }
+
   const rows = Array.isArray(answer?.spawnRequests) ? answer.spawnRequests : [];
+  // A WINDOW IS NOT THE WHOLE QUEUE. The endpoint caps its listing and says so; a claim stuck
+  // behind a hundred newer requests is outside the page and invisible. `env-processes-check.mjs`
+  // reads the same flag for the same reason.
+  const truncated = Boolean(answer?.truncated);
   const stuck = [];
   for (const row of rows) {
     const status = String(row?.status || "").trim().toLowerCase();
@@ -64,10 +84,12 @@ export async function spawnQueueVerdict({ list, now = Date.now } = {}) {
   if (!stuck.length) {
     return {
       ok: true,
-      code: rows.length ? "ok" : "empty",
+      code: truncated ? "partial" : (rows.length ? "ok" : "empty"),
       detail: rows.length
         ? `${rows.length} spawn request(s); none claimed and unstarted past ${CLAIMED_GRACE_SECONDS}s.`
         : "no spawn requests on this service.",
+      // SAY THAT IT WAS A WINDOW. Reporting a page as though it were the queue is how a stuck
+      // claim behind newer requests reads as nothing wrong.
       fix: "",
     };
   }

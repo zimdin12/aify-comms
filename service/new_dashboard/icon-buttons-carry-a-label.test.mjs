@@ -50,7 +50,14 @@ export function unlabelledButtons(text, file = '?') {
     const head = whole.slice(0, whole.indexOf('>') + 1);
     const inner = match[1].replace(/<[^>]+>/g, '');
     if (inner.includes('${')) continue;                       // named at runtime; unreadable here
-    if (/\b(aria-label|title)\s*=/i.test(head)) continue;      // named outright
+    // AN ACCESSIBLE NAME, WHICH `title` IS NOT RELIABLY. This accepted `title` until 2026-09-05, and
+    // that acceptance is what this upgrade retires. `title` is a last-resort name: some assistive
+    // tech ignores it, it is never surfaced on touch, and engines differ on whether they expose it.
+    // The tooltip stays for sighted hover; the NAME has to be explicit.
+    //
+    // NON-EMPTY, because `aria-label=""` is worse than no attribute at all: it supplies no name AND
+    // suppresses the content fallback, so the element announces as nothing.
+    if (/\baria-label(?:ledby)?\s*=\s*"[^"]+"/i.test(head)) continue;      // named outright
     if (/[A-Za-z]{2,}/.test(inner)) continue;                  // its own text is the name
     found.push({ file, head, inner: inner.trim() });
   }
@@ -73,7 +80,14 @@ test('the scan can say a button IS unlabelled', () => {
 test('the scan does not flag a button that names itself three ways', () => {
   assert.deepEqual(unlabelledButtons('<button>Cancel reply</button>'), [], 'own text');
   assert.deepEqual(unlabelledButtons('<button aria-label="Cancel reply">✕</button>'), [], 'aria-label');
-  assert.deepEqual(unlabelledButtons('<button title="Cancel reply">✕</button>'), [], 'title');
+  // `title` IS NO LONGER A NAME. It was accepted until 2026-09-05, when a second gate written that
+  // day refused it — two derived gates over one population with contradictory rules, which is worse
+  // than either. The stricter rule won and lives here, beside the incident that started this file.
+  assert.equal(unlabelledButtons('<button title="Cancel reply">✕</button>').length, 1, 'title alone');
+  assert.deepEqual(unlabelledButtons('<button aria-label="Close" title="Close">✕</button>'), [],
+    'aria-label plus a tooltip is the shape to aim for');
+  assert.equal(unlabelledButtons('<button aria-label="">✕</button>').length, 1,
+    'an empty aria-label supplies no name AND suppresses the content fallback');
   assert.deepEqual(unlabelledButtons('<button>${label}</button>'), [], 'named at runtime');
 });
 

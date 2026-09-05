@@ -60,6 +60,19 @@ export function compareVersions(a, b) {
  * @param {(env: object) => boolean} deps.isLive  whether a row's tier is actually alive
  */
 export function tierVersionVerdict({ environments = [], minimum = MINIMUM_AIFY_ENV_VERSION, isLive } = {}) {
+  // `null` MEANS THE LISTING COULD NOT BE READ, and it is a different fact from an empty fleet.
+  // The doctor's `get()` returns null for 401, 403, any non-2xx and any transport failure, so
+  // without this the caller's `?.environments || []` turned an unreachable service into
+  // "no live environment tier" and printed it green.
+  if (environments === null || environments === undefined) {
+    return {
+      ok: false,
+      code: "unknown-all",
+      detail: "the service did not answer with a readable environment listing, so no tier version "
+        + "was compared against anything.",
+      fix: "Check the `service` row above; a wrong or missing API key reports here too.",
+    };
+  }
   // ONLY LIVE ROWS. A registered-but-dead environment's version is a fact about a process that is not
   // running, and reporting it would make this row red for a host nobody is using -- the cry-wolf that
   // gets a check switched off.
@@ -75,6 +88,12 @@ export function tierVersionVerdict({ environments = [], minimum = MINIMUM_AIFY_E
 
   const older = [];
   const silent = [];
+  // HOW MANY ROWS WERE ACTUALLY JUDGED. Every live row that declares a kind other than `aify-env`
+  // is skipped, and if that were ever ALL of them both lists would stay empty and the final return
+  // would announce "every live aify-env is new enough" after examining nothing. No third kind
+  // exists today, so this is unreachable -- but it is exactly the scoped-out-population bug this
+  // file's header describes, and the first version of this check shipped it for real.
+  let examined = 0;
   for (const env of live) {
     const kind = String(env?.metadata?.bridgeKind || "").trim().toLowerCase();
     const reported = String(env?.bridgeVersion || env?.metadata?.bridgeVersion || "").trim();
@@ -91,6 +110,7 @@ export function tierVersionVerdict({ environments = [], minimum = MINIMUM_AIFY_E
     // So an undeclared row is reported as no evidence. The legacy-bridge reading of it is covered by
     // its own rows, with their own remedies: H4's refusal and `bridge-current`.
     if (kind && kind !== "aify-env") continue;
+    examined += 1;
 
     const order = compareVersions(reported, minimum);
     if (order === null) {
@@ -125,10 +145,27 @@ export function tierVersionVerdict({ environments = [], minimum = MINIMUM_AIFY_E
       fix: "Restart aify-env on that host; it reports its version on every heartbeat from then on.",
     };
   }
+  if (!examined) {
+    // NOTHING WAS JUDGED, so it must not read as agreement -- but it is not a failure either, and
+    // that distinction took a test to get right. A live row declaring some OTHER tier is deliberately
+    // this check's non-business: a legacy bridge is H4's refusal and `bridge-current`'s row, and
+    // reporting it here too gives an operator two rows and one action, which teaches them to skim
+    // both. So the honest answer is the one this file already has for "there is no aify-env here" --
+    // NOT `ok, every live aify-env is new enough`, which is a claim about a population nothing looked
+    // at, and which is the scoped-out-population shape that made the first version of this check
+    // report green on a host whose tier was two versions behind.
+    return {
+      ok: true,
+      code: "none-live",
+      detail: `${live.length} live environment(s), none of them an aify-env this check can judge; `
+        + "`env-bridge` and `bridge-current` are the rows that report those.",
+      fix: "",
+    };
+  }
   return {
     ok: true,
     code: "ok",
-    detail: `every live aify-env is ${minimum} or newer.`,
+    detail: `every live aify-env is ${minimum} or newer (${examined} judged).`,
     fix: "",
   };
 }

@@ -626,7 +626,11 @@ await checkSpawnDelegation();
 // was already on the wire and read by nobody, which is a field with no reader: the same defect
 // as M8, from the other end.
 {
-  const rows = (await get("/api/v1/environments"))?.environments || [];
+  // THE NULL MUST SURVIVE. `get()` returns null for an unreachable or refusing service, and
+  // `?.environments || []` turned that into an empty fleet -- which the verdict below read as
+  // "nothing to check" and printed green underneath a failing `service` row.
+  const envListing = await get("/api/v1/environments");
+  const rows = envListing ? (envListing.environments || []) : null;
   const verdict = tierVersionVerdict({ environments: rows, isLive: envCanClaimASpawn });
   add("tier-version", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
