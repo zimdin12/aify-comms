@@ -197,7 +197,21 @@ test("resident wiring: working → sustained idle posts exactly one turn-start t
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 80));
+  // WAIT FOR THE CONDITION, NOT FOR A DURATION. 80ms at intervalMs 5 against Windows' ~15ms timer
+  // floor buys about five ticks, and this needs the working edge plus a two-poll idle debounce.
+  // Idle it fits; under the full suite it sometimes does not, and it failed there on 2026-09-05
+  // while passing alone every time. This is the second turn-detector test in this suite with that
+  // shape and the same remedy.
+  //
+  // TWO DIFFERENT WAITS, because the assertions ask different things. `starts >= 1 && ends >= 1` is
+  // a PRESENCE and is polled for, so a slow host takes longer instead of failing. `exactly one` is
+  // an ABSENCE and cannot be polled for: it needs real elapsed time in which a second could have
+  // fired, so that grace stays a fixed wait.
+  const deadline = Date.now() + 5_000;
+  while ((starts < 1 || ends < 1) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  await new Promise((r) => setTimeout(r, 60));
   stop();
   assert.equal(starts, 1, "exactly one turn-start on the gateway 'working' edge");
   assert.equal(ends, 1, "exactly one turn-end on sustained gateway idle");
