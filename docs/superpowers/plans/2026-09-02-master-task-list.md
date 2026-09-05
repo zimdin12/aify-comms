@@ -682,6 +682,35 @@ solved it by narrowing to one runtime. See D9.
   **STILL OPEN under B1:** the remaining "good" is B2's design pass, and nothing here has been seen
   in a browser -- 31 tests drive the logic and the DOM layer through fake elements, which is how this
   repo tests dashboard modules, but the rendered result is unverified until someone opens it.
+- **THE TWO OPERATOR DECISIONS WERE DELEGATED TO ME 2026-09-05 AND ARE BOTH TAKEN.**
+
+  **(b) THE ORPHANED MODULES ARE DELETED** -- 18 modules and 44 test files, 9,407 lines, at
+  `ac6d6e82`. Not a tidiness call: what remained was aify-comms' own copy of what aify-env owns --
+  PTY handling, host advertisement, process ownership, spawn claiming, the delegation client -- and
+  a second implementation of another component's question is the shape this repo has unwound three
+  times already. v0.6.2's guarantee is that aify-comms starts nothing; its spawn and PTY machinery
+  sitting in the tree contradicted that.
+
+  Measured four ways first: a reachability walk from all 26 entry points with controls both
+  directions; the same walk against the v0.6.1 tree, which SPLIT the set decisively (18 had a
+  production importer the deletion removed, 6 never had one); a check that no survivor imports a
+  candidate; and a re-walk afterwards finding no second wave.
+
+  **SIX ARE KEPT AND THAT IS DELIBERATE.** `wrapper-pin-freshness.mjs` is a GATE, not dead code --
+  deleting it would remove a check this repo documents as load-bearing. The other five predate
+  v0.6.2 entirely: `unowned-process-decision.mjs`, `transcript-activity.js`, `wrapper-pool.js`,
+  `controllers/hermes-single-shot-controller.js`, `scripts/dump-capabilities.mjs`. Deleting
+  unrelated code inside a release commit makes it harder to review and to revert. **They are the
+  next pass's work, and the measurement is done.**
+
+  **(a) THE OWNERSHIP 409 IS RESOLVED WITHOUT REVERTING THE M6 GUARD**, at `f3236e5b`. The guard is
+  right -- a contentless frame is not proof anything is being driven -- and reverting it brings back
+  the 2026-09-03 incident. The real gap was older: the service RULES that a reporting host owns the
+  terminal (`_active_terminal_for_agent` says so and rejects `bridge_id` as a proxy), and the row
+  never recorded it, so `terminal_controls` queued with the stale id were claimable by nobody. The
+  row now records what the service already believes. **The boundary is status** -- ownership matters
+  only while something is running -- and both directions are mutation-proven.
+
 - **E2-PARTIAL: A FIVE-WAY INDEPENDENT REVIEW OF THIS SESSION'S OWN WORK, 2026-09-05.** Five
   reviewers on disjoint slices -- the terminal write path, aify-env, the service, the dashboard
   console, the bridge and doctor. Every finding below was VERIFIED against the source before being
