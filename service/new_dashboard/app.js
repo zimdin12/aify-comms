@@ -48,7 +48,7 @@ import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption
 import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
-import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
+import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
@@ -164,6 +164,7 @@ const chatController = createChatController({
   mountChatConsole: (agentId, hostEl) => mountChatConsole(agentId, hostEl),
   loadPulse: (mins) => api(`/analytics/pulse?window_minutes=${encodeURIComponent(mins)}`),
   persistDrafts: () => persistChatDrafts(),
+  restoreDraft: () => restoreChatDraft(),
   // Replying to a peer clears their unread badge — quiet, since the send already toasts.
   markConversationRead: (agentId, opts) => markConversationRead(agentId, opts),
   // Keep the details drawer pointed at whatever the operator just selected — otherwise its
@@ -192,6 +193,10 @@ async function chatCreateChannel(name) {
   state.chat.selected = `channel:${clean}`;
   try { await chatLoadConversation(clean); } catch (_) {}
   chatController.render();
+  // This path selects a conversation WITHOUT going through open(), so it needs open()'s draft
+  // handling too: a brand-new channel has no draft, and without this the previous chat's
+  // half-written message stays in the box and is one Enter away from the wrong recipient.
+  restoreChatDraft();
   toast(`Created #${clean}`, 'ok');
 }
 // chatChannelAction moved to ./message-actions.mjs in v0.5.4.

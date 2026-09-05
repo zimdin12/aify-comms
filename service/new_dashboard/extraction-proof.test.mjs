@@ -48,6 +48,43 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: entry after it left.
 const CARRIER_EDITS = [
   {
+    // v0.6.3 draft restore: app.js consumes one more name from chat-prefs.
+    now: [
+      "import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
+    ],
+    was: [
+      "import { persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
+    ],
+  },
+  {
+    // The controller is handed the restorer beside the persister that was already there --
+    // the two halves of one promise, which shipped with only the writing half.
+    now: [
+      "  persistDrafts: () => persistChatDrafts(),",
+      "  restoreDraft: () => restoreChatDraft(),",
+    ],
+    was: [
+      "  persistDrafts: () => persistChatDrafts(),",
+    ],
+  },
+  {
+    // chatCreateChannel selects a conversation WITHOUT going through open(), so it needed
+    // open()'s draft handling too. Anchored on the line above, since `chatController.render()`
+    // is not unique in app.js.
+    now: [
+      "  try { await chatLoadConversation(clean); } catch (_) {}",
+      "  chatController.render();",
+      "  // This path selects a conversation WITHOUT going through open(), so it needs open()'s draft",
+      "  // handling too: a brand-new channel has no draft, and without this the previous chat's",
+      "  // half-written message stays in the box and is one Enter away from the wrong recipient.",
+      "  restoreChatDraft();",
+    ],
+    was: [
+      "  try { await chatLoadConversation(clean); } catch (_) {}",
+      "  chatController.render();",
+    ],
+  },
+  {
     // The payload gate learned to see `session?.x` and every `.js` module beside app.js, and named
     // this: /sessions emits `workspace`, never `cwd`, so the alternate could never fire.
     now: ["  byId('session-subtitle').textContent = session.workspace || 'Live terminal and lifecycle for this session.';"],

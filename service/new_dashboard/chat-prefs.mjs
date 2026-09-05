@@ -56,6 +56,37 @@ export function persistChatDrafts() {
   } catch { /* ignore quota/serialization */ }
 }
 
+/**
+ * Put the saved draft back into the composer for the selected conversation.
+ *
+ * THE HALF THAT WAS MISSING, and its absence was worse than never saving at all. Every keystroke was
+ * written to `state.chat.drafts` and mirrored to localStorage; the rail rendered a badge reading
+ * "Half-written message saved for this chat"; a successful send deleted the entry. Nothing ever
+ * assigned the text back to the textarea -- there was no `chat-composer-body.value =` anywhere in the
+ * dashboard. So the page PROMISED the message was safe and then never returned it.
+ *
+ * OPERATOR-REPORTED, and the path that makes it bite: a 401 mounts the API-key prompt, whose accepted
+ * handler calls `location.reload()`. A reload the operator did not ask for then destroyed whatever
+ * they had typed, which is why the workaround was "copy the text, refresh, paste it back".
+ *
+ * CALLED ON SELECTION, not on every render. A render can happen mid-typing -- the poll repaints the
+ * rail every cycle -- and assigning `value` then would move the caret to the end of the operator's
+ * own sentence, or overwrite a keystroke that had not yet reached `state`. Switching conversation is
+ * the one moment the box is meant to change under them.
+ */
+export function restoreChatDraft(doc) {
+  // Resolved INSIDE the body, never as a default parameter: `no-module-scope-browser-globals` reads
+  // the signature line as module scope, and it is right to -- a module that touches `document` while
+  // it loads is as unimportable as the app.js this was extracted from.
+  const target = doc || globalThis.document;
+  const el = target?.getElementById?.('chat-composer-body');
+  if (!el) return '';
+  const key = state.chat.selected;
+  const draft = key ? String((state.chat.drafts || {})[key] || '') : '';
+  el.value = draft;
+  return draft;
+}
+
 // The two chat-shell toggles, moved out of app.js's delegated click handler in v0.5.4. They belong here
 // because every line of them already did: both flip a flag on `state.chat` and then call this module's own
 // persist + chip-sync pair. app.js keeps each `closest()` guard and its `return;`.

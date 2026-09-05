@@ -24,7 +24,7 @@ import {
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
 // refresh, loadConversation, loadAgentAnalytics, ... } (channel loading is driven from app.js).
 export function createChatController(deps) {
-  const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts } = deps;
+  const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts, restoreDraft } = deps;
   // Answering a peer marks their messages read (see send()). Defaulted to a no-op so the unit tests
   // can construct the controller without stubbing the read API.
   const markConversationRead = typeof deps.markConversationRead === 'function'
@@ -321,6 +321,12 @@ export function createChatController(deps) {
       try { await loadConversation(name); } catch (_) { /* toast handled upstream */ }
     }
     render();
+    // THE SAVED DRAFT COMES BACK. Every keystroke was already written to localStorage and the rail
+    // badges the conversation "draft" — but nothing ever put the text back in the box, so the page
+    // promised the message was safe and never returned it. Restored AFTER render so the repaint
+    // cannot overwrite it, and only here, on a deliberate conversation switch: a poll-driven render
+    // mid-typing would move the caret to the end of the operator's own sentence.
+    restoreDraft?.();
     onSelectionChange();
   }
 

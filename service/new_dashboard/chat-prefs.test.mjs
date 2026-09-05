@@ -14,6 +14,7 @@ import test from "node:test";
 import { state } from "./state.mjs";
 import {
   persistChatDrafts,
+  restoreChatDraft,
   persistChatPrefs,
   syncChatChips,
   toggleChatCompact,
@@ -300,5 +301,71 @@ test("both toggles survive a page with no chat chips rendered", () => {
   // or pressing a toggle outside the chat page would break every branch after it in the handler.
   withChatToggles(() => {
     assert.doesNotThrow(() => { toggleChatCompact(); toggleChatPeek(); });
+  });
+});
+
+// restoreChatDraft — the half that was missing until 2026-09-05.
+//
+// The operator reported losing typed messages: "when I try to send then it gives me an error, then I
+// have to copy and refresh and paste". Every keystroke was already saved and the rail already badged
+// the conversation as holding a draft; nothing ever put the text back in the box. These tests fail on
+// the code that shipped for months, because there was no restorer at all.
+
+function withComposer(run) {
+  const el = { value: "SOMETHING THE TEST DID NOT PUT THERE" };
+  const doc = { getElementById: (id) => (id === "chat-composer-body" ? el : null) };
+  return run(doc, el);
+}
+
+test("restoreChatDraft puts the selected conversation's saved draft into the composer", () => {
+  withComposer((doc, el) => {
+    state.chat.selected = "dm:manager";
+    state.chat.drafts = { "dm:manager": "half a sentence about the deploy", "dm:other": "not this one" };
+    assert.equal(restoreChatDraft(doc), "half a sentence about the deploy");
+    assert.equal(el.value, "half a sentence about the deploy");
+  });
+});
+
+test("restoreChatDraft CLEARS the composer when the opened conversation has no draft", () => {
+  // Otherwise the previous conversation's half-written message follows you into the next one and is
+  // sent to the wrong agent -- a worse bug than the one being fixed.
+  withComposer((doc, el) => {
+    state.chat.selected = "dm:manager";
+    state.chat.drafts = { "dm:someone-else": "text belonging to another chat" };
+    assert.equal(restoreChatDraft(doc), "");
+    assert.equal(el.value, "");
+  });
+});
+
+test("restoreChatDraft is inert with no conversation selected and with no composer on the page", () => {
+  withComposer((doc) => {
+    state.chat.selected = null;
+    state.chat.drafts = { "dm:manager": "text" };
+    assert.equal(restoreChatDraft(doc), "");
+  });
+  // Every page shares one boot path; a page without the chat composer must not throw.
+  assert.equal(restoreChatDraft({ getElementById: () => null }), "");
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  delete globalThis.document;
+  try {
+    assert.equal(restoreChatDraft(undefined), "", "no argument and no document is a page without a composer");
+  } finally {
+    if (hadDoc) globalThis.document = prevDoc;
+  }
+});
+
+test("what persistChatDrafts SAVES is what restoreChatDraft GIVES BACK", () => {
+  // The round trip, because the two halves were written months apart and only agree by construction.
+  withStorage((store) => {
+    state.chat.selected = "channel:ops";
+    state.chat.drafts = { "channel:ops": "  a draft with surrounding space  " };
+    persistChatDrafts();
+    const reloaded = JSON.parse(store.get("aifyChatDrafts"));
+    state.chat.drafts = reloaded; // exactly what boot-wiring does on the next page load
+    withComposer((doc, el) => {
+      restoreChatDraft(doc);
+      assert.equal(el.value, "  a draft with surrounding space  ");
+    });
   });
 });

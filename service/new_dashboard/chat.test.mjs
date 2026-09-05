@@ -199,6 +199,7 @@ function pulseHarness({ selected = "", analytics = { agent: "", data: null }, lo
     },
   };
   const loaded = [];
+  const restored = [];
   const controller = createChatController({
     state,
     byId: (id) => els[id] || null,
@@ -208,8 +209,9 @@ function pulseHarness({ selected = "", analytics = { agent: "", data: null }, lo
     loadPulse,
     loadAgentAnalytics,
     persistDrafts: () => {},
+    restoreDraft: () => { restored.push(state.chat.selected); },
   });
-  return { controller, state, els, loaded };
+  return { controller, state, els, loaded, restored };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -425,3 +427,20 @@ test("the note names the count it can prove and no other", async () => {
   const html = await railWith({ showing: 41, truncated: true });
   assert.match(html, /Showing the 41 most recent messages/);
 });
+
+// THE CALL SITE, not just the helper. A restorer nothing calls is exactly the defect being fixed:
+// the SAVE half had worked for months and the operator still lost every draft, because the two ends
+// were never connected. Proving `restoreChatDraft` in isolation would reproduce that mistake.
+test("open() asks for the saved draft back, after the render that would have overwritten it", () => withStubDocument(async () => {
+  const h = pulseHarness({ selected: "dm:alice" });
+  await h.controller.open("dm:bob");
+  assert.deepEqual(h.restored, ["dm:bob"], "opening a conversation must restore ITS draft, not the previous one's");
+}));
+
+test("open() restores on re-selecting the conversation already open", () => withStubDocument(async () => {
+  // The reload path: a 401 reloads the page, the operator clicks back into the chat they were in,
+  // and that click is the only moment their text can come back.
+  const h = pulseHarness({ selected: "dm:alice" });
+  await h.controller.open("dm:alice");
+  assert.deepEqual(h.restored, ["dm:alice"]);
+}));
