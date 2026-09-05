@@ -220,7 +220,8 @@ looking at it.
 
 ### The HTTPS proxy needs its CA trusted once per device
 
-**Expect the browser to call `https://<host>:8443` insecure until you do this.** Caddy issues the
+**Expect the browser to call `https://<host>:<HTTPS_PORT>` insecure until you do this** (`HTTPS_PORT`
+defaults to 8443; set it in `.env` and it must match the port inside `HTTPS_SITES`). Caddy issues the
 certificate from a local CA it manages (`tls internal`) — there is no public domain and no ACME, which
 is right for a service that runs on your own network, and the cost is that nothing trusts that CA
 until you say so. A warning here is the design working, not a misconfiguration.
