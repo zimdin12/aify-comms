@@ -136,3 +136,77 @@ test('no query means no selection is disturbed', () => {
   assert.equal(terminal.calls.selected.length, 0, 'an empty query selected something');
   assert.equal(search.summary, 'no results');
 });
+
+test('A DIFFERENT TERMINAL VOIDS THE POSITION, so a session switch cannot drive the new console', () => {
+  // The dashboard disposes and remounts one xterm on every session switch, from four call sites, and
+  // none of them clears this search — it is a module singleton they know nothing about. So the rows
+  // held here described a buffer that was gone, and `stepConsoleFind` skips its re-search whenever
+  // `count` is non-zero: pressing Enter after switching scrolled the NEW console somewhere arbitrary
+  // and highlighted an unrelated block, with nothing thrown and no clue.
+  let terminal = fakeTerminal(linesOf('alpha hit', 'beta', 'gamma hit'));
+  const search = new TerminalSearch({ getTerminal: () => terminal });
+  assert.equal(search.run('hit').count, 2);
+
+  // The operator switches session: a new terminal, and this one has no such text.
+  terminal = fakeTerminal(linesOf('a wholly different console'));
+  const stepped = search.step(1);
+  assert.equal(stepped.count, 0, 'it stepped through matches belonging to a terminal that is gone');
+  assert.deepEqual(terminal.calls.selected, [], 'it highlighted a block of the NEW console');
+});
+
+test('hits do not DRIFT when the buffer scrolls under them', () => {
+  // The console is live and its scrollback is capped, so once full every new line shifts every
+  // absolute row down by one — and reveal is by absolute row. Stepping a list taken at the last
+  // keystroke put the highlight further from the real hit with every press.
+  const rows = linesOf('needle here', 'filler');
+  const terminal = fakeTerminal(rows);
+  const search = new TerminalSearch({ getTerminal: () => terminal });
+  search.run('needle');
+  assert.deepEqual(terminal.calls.selected.at(-1), { col: 0, row: 0, length: 6 });
+
+  // The agent prints, and the line the hit is on moves down.
+  rows.unshift({ text: 'new output' }, { text: 'more output' });
+  search.step(1);
+  assert.deepEqual(terminal.calls.selected.at(-1), { col: 0, row: 2, length: 6 },
+    'the highlight kept pointing at the row the hit USED to be on');
+});
+
+test('CLEARING THE QUERY drops the highlight, or the clipboard copies it', () => {
+  // `clipboard.mjs` copies the selection when there is one and only falls back to the whole buffer
+  // when there is not. So a hit left highlighted after the box was emptied meant the next
+  // Ctrl+Shift+C silently copied six stale characters instead of the console.
+  const terminal = fakeTerminal(linesOf('target here'));
+  const search = new TerminalSearch({ getTerminal: () => terminal });
+  search.run('target');
+  assert.equal(terminal.calls.selected.length, 1);
+
+  const before = terminal.calls.cleared;
+  search.run('');
+  assert.ok(terminal.calls.cleared > before,
+    'emptying the box left the previous hit selected on a live console');
+});
+
+test('CONTROL: a query that simply has no hits also clears, and does not select', () => {
+  const terminal = fakeTerminal(linesOf('nothing relevant'));
+  const search = new TerminalSearch({ getTerminal: () => terminal });
+  search.run('absent');
+  assert.equal(search.summary, 'no results');
+  assert.deepEqual(terminal.calls.selected, []);
+});
+
+test('switching console restarts the search AT THE TOP, not where you were in the other one', () => {
+  // The re-read alone stops a switch driving the new console from the old buffer's rows. What the
+  // terminal-identity check adds is the POSITION: without it the cursor keeps whatever index it had
+  // in the previous console, so "next" resumes in the middle of a list the operator has not seen.
+  // Written because removing the check left every other test in this file green — untested code is
+  // code nobody can defend.
+  let terminal = fakeTerminal(linesOf('hit', 'hit', 'hit'));
+  const search = new TerminalSearch({ getTerminal: () => terminal });
+  search.run('hit');
+  search.step(1);
+  assert.equal(search.summary, '2 of 3', 'the operator is partway through this console');
+
+  terminal = fakeTerminal(linesOf('hit', 'hit', 'hit'));   // a different console, same query
+  assert.equal(search.step(1).summary, '1 of 3',
+    'the search resumed mid-list in a console the operator had not searched yet');
+});

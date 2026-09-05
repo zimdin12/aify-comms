@@ -71,13 +71,42 @@ def derive_usage_source(runtime: Any, runtime_config: Any = None) -> Optional[st
 _CONSUMPTION_ROWS: list[dict[str, Any]] = []
 
 
+#: WHEN THE ROWS ABOVE WERE LAST SET, or None because nothing has ever set them.
+#:
+#: `usage-collector.js`'s `collectConsumptionOnce` is PARKED and has had no caller since v0.6.2, and
+#: nothing else in either repo posts to `/usage/consumption` -- I grepped both. So this endpoint has
+#: been answering `{"agents": []}`, which a reader cannot tell from "these agents consumed nothing".
+#: The sibling pool degrades honestly (`usage_all` stamps `stale` from `updated_at`); this one had no
+#: stamp to degrade from, so the one confident-looking answer in the pair was the unmeasured one.
+_CONSUMPTION_AT: str | None = None
+
+
 def consumption_set(rows: list[dict[str, Any]]) -> None:
-    global _CONSUMPTION_ROWS
+    global _CONSUMPTION_ROWS, _CONSUMPTION_AT
     _CONSUMPTION_ROWS = list(rows or [])
+    # The same shape this module already parses back in `_age_seconds`, so the two agree.
+    _CONSUMPTION_AT = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def consumption_summary() -> dict[str, Any]:
-    return summarize_consumption(_CONSUMPTION_ROWS)
+    """The per-agent consumption summary, WITH whether anybody ever measured it.
+
+    `measuredAt` is None when nothing has posted, and a caller that renders a bare zero for that is
+    making a claim about agents it never looked at. An empty result and an unmeasured one are
+    different facts; this repo has shipped them as the same one three times in its health checks, and
+    the rule is no weaker for a data endpoint than for a doctor row.
+    """
+    summary = dict(summarize_consumption(_CONSUMPTION_ROWS))
+    summary["measuredAt"] = _CONSUMPTION_AT
+    summary["measured"] = _CONSUMPTION_AT is not None
+    return summary
+
+
+def reset_consumption_for_tests() -> None:
+    """The rows are a process global, so a test that posts leaks into the next one."""
+    global _CONSUMPTION_ROWS, _CONSUMPTION_AT
+    _CONSUMPTION_ROWS = []
+    _CONSUMPTION_AT = None
 
 
 def usage_set(source_id: str, payload: dict[str, Any]) -> None:
