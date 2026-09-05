@@ -21,6 +21,8 @@ import json
 import logging
 
 from service.api_core.events import _append_terminal_event  # v0.5.1i: the leaf owner
+from service.api_core.terminal_tail_buffer import forget as _forget_tail, held_ids as _held_tail_ids
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.terminal_controls_io import _clear_console_terminal_binding
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.clock import now as _now
@@ -30,6 +32,43 @@ logger = logging.getLogger(__name__)
 
 
 
+
+
+async def _release_tail_buffers_for_dead_terminals(db) -> int:
+    """Drop held output tails for terminals that are no longer active.
+
+    R9-M4, external review 2026-09-06. The in-memory tail is released by `forget()`, which has
+    exactly ONE caller: the ending branch of `_append_terminal_output`. A terminal that ends any
+    other way -- a reaper, a bridge supersede, a lifecycle stop, a session teardown, the retention
+    wipe -- keeps its buffer, and each one holds up to 64 KB for the life of the process.
+
+    STATE-BASED, NOT EVENT-BASED, which is this repo's own rule for cleanup that has to hold on every
+    path. There are 108 places that write a terminal status; adding `forget()` to each is a fix that
+    lasts until the 109th, and the leak would come back silently. Asking which terminals are still
+    active and releasing everything else cannot be bypassed by a new write site.
+
+    ONE QUERY, and it reads the ACTIVE set rather than the held ids. Passing the held ids in an IN
+    clause would grow with the leak this exists to drain, which is the wrong way round.
+
+    A terminal whose row has been deleted outright is released too: it is not in the active set.
+    """
+    held = _held_tail_ids()
+    if not held:
+        return 0
+    # DERIVED, NOT TYPED. `test_inline_literal_set_duplication_is_frozen` caught the first version
+    # spelling the five statuses out and said exactly the right thing: an already-known duplicate
+    # copied again is unruled debt, not a pattern to follow. `_TERMINAL_ACTIVE_STATUSES` is the owner.
+    active = tuple(sorted(_TERMINAL_ACTIVE_STATUSES))
+    cursor = await db.execute(
+        f"SELECT id FROM terminal_sessions WHERE status IN ({', '.join('?' for _ in active)})",
+        active,
+    )
+    alive = {str(row["id"]) for row in await cursor.fetchall()}
+    released = 0
+    for terminal_id in held - alive:
+        _forget_tail(terminal_id)
+        released += 1
+    return released
 
 
 async def _repair_terminal_session_consistency(db) -> int:

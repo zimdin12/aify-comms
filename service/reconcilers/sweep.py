@@ -62,6 +62,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.undeliverable_queued_runs import _reap_undeliverable_queued_runs
     from service.reconcilers.terminal_controls import _reconcile_ended_terminal_controls
     from service.reconcilers.terminal_history import _prune_terminal_history
+    from service.reconcilers.terminal_consistency import _release_tail_buffers_for_dead_terminals
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
     # v0.5 slice 4.
@@ -156,6 +157,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             if len(batch) < 500:
                 break
         pruned = await _commit_step(await _prune_terminal_history(db))
+        # RELEASE THE TAILS OF TERMINALS THAT ARE NO LONGER ALIVE (R9-M4). `forget()` has one caller,
+        # the ending branch of the output path, while 108 places write a terminal status -- so every
+        # terminal ended by a reaper, a supersede, a lifecycle stop or the retention wipe above kept
+        # its 64 KB buffer for the life of the process. Keyed on STATE so a new write site cannot
+        # bypass it, which is the rule this repo already carries for cleanup that must always hold.
+        # Frees memory only; it touches no row, so it is not a `_commit_step`.
+        released_tails = await _release_tail_buffers_for_dead_terminals(db)
         # Supersede bridge rows whose process died without a clean supersede BEFORE the
         # prune below — otherwise a crashed bridge lingers superseded_by='' forever,
         # counted "live" by every status/dispatch scan (idle-CPU + orphan re-accumulation,
@@ -386,6 +394,9 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "orphan_workers_still_orphaned": managed_hygiene.get("orphan_workers_still_orphaned", 0),
             "resurrected_consoles": resurrected_consoles,
             "reaped_orphan_bridges": reaped_orphan_bridges,
+            # A METRIC THAT MOVES IS HOW A LEAK BECOMES VISIBLE. A number nobody reports is a sweep
+            # nobody can tell ran, and this one exists because the previous release path was silent.
+            "released_terminal_tails": released_tails,
             "pruned_superseded_bridges": pruned_bridges,
             "pruned_orphaned_dispatch_runs": pruned_orphaned_runs,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},

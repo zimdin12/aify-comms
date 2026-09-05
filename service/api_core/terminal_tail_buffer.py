@@ -181,6 +181,23 @@ def forget(terminal_id: str) -> None:
     _BUFFERS.pop(str(terminal_id or ""), None)
 
 
+def held_ids() -> set[str]:
+    """Every terminal this process is holding a tail for.
+
+    FOR STATE-BASED CLEANUP, which is the only kind that can work here (R9-M4, external review
+    2026-09-06). `forget()` has exactly ONE caller -- the ending branch of `_append_terminal_output`
+    -- while 108 places in the service write a terminal status. Every terminal ended by a reaper, a
+    supersede, a lifecycle stop or a session teardown therefore left its 64 KB held for the life of
+    the process.
+
+    Calling `forget()` at each of those sites is the fix that rots: it holds until somebody adds the
+    109th. DECISIONS.md already carries the rule this follows -- cleanup that must hold for ALL paths
+    keys on the STATE, not on an event -- so the sweep asks which terminals are still active and
+    releases the rest.
+    """
+    return set(_BUFFERS.keys())
+
+
 def reset_for_tests() -> None:
     """A process-global needs an explicit reset, or one test's terminal leaks into the next."""
     _BUFFERS.clear()
