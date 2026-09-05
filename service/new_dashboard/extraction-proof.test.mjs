@@ -58,7 +58,7 @@ const CARRIER_EDITS = [
     ],
   },
   {
-    // v0.6.3 draft restore: app.js consumes one more name from chat-prefs.
+    // v0.6.2 draft restore: app.js consumes one more name from chat-prefs.
     now: [
       "import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
     ],

@@ -49,7 +49,7 @@ const CEILINGS = {
   // instrument is the cheapest way to shrink a skill: the guidance it needed goes away.
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
-  "aify-comms/references/operations.md": 11_550,
+  "aify-comms/references/operations.md": 11_520,
   "aify-comms/references/teamwork.md": 15_981,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
@@ -63,7 +63,7 @@ const CEILINGS = {
   // `terminalRuntimes` paragraph named the bridge as the advertiser, which is now only true when
   // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
   // paragraph above it already said.
-  "aify-comms-debug/references/dashboard-console.md": 18_426,
+  "aify-comms-debug/references/dashboard-console.md": 18_025,
     // 26_968 -> 26_955 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
   // than leaving the ceiling slack: two references cited files deleted with the
   // environment-bridge tier and now name the service modules that own those questions, and
@@ -110,7 +110,7 @@ const CEILINGS = {
   // instructions to `restart the environment bridge` became `restart aify-env` -- the component
   // v0.6.1 removed, told to an operator following a troubleshooting page.
   "aify-comms-debug/references/status-model.md": 21_919,
-  "aify-comms-debug/references/status-symptoms.md": 19_427,
+  "aify-comms-debug/references/status-symptoms.md": 19_372,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

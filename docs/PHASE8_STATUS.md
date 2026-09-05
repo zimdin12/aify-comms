@@ -41,6 +41,8 @@ today's behaviour and stop before flipping it.
 ## Built
 
 **`mcp/stdio/env-client.mjs`** and its tests — start, stop, list, health and output against aify-env.
+**Deleted in v0.6.2 with the rest of the environment-bridge tier**, so do not go looking for it: the
+traffic runs the other way now, and aify-env's own plugin calls this service's HTTP API.
 
 > **SUPERSEDED 2026-08-25: delegation is ON.** The operator took the call on an idle fleet. What
 > follows describes the state while it was off, and the section at the end of this file records the

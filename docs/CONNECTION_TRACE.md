@@ -17,8 +17,18 @@ server and a server tested against a fake client are both green while the pair i
 | 3 | registry → aify-wrapper → launcher | a fingerprint of what it was built from | `install-chain-across-three-repos.test.js` |
 | 4 | launcher → `aify-wrapper-check` | is it still current | same test: install, drift, **stale**, reinstall, **healed** |
 | 5 | registry → aify-env | which services exist | fixture test in aify-env, **same bytes pinned here** |
-| 6 | aify-comms client → aify-env server | start / list / health / output / stop / refusal | `env-client-against-real-aify-env.test.js`, over a real socket |
+| 6 | aify-comms → aify-env | the credential reference we write is the one it resolves | `the-credential-ref-we-write-is-one-aify-env-resolves.test.js`, against a real aify-env |
 | 7 | aify-env doctor → aify-comms | `/health` | **verified live** — see below |
+
+**Link 6 reversed in v0.6.2, and the row above is its second version.** It used to read "aify-comms
+client to aify-env server", proved by `env-client-against-real-aify-env.test.js` over a real socket.
+That client was `mcp/stdio/env-client.mjs`, part of the environment-bridge tier v0.6.2 retired, and
+it was deleted along with five of the six tests that drove a real aify-env. Traffic now runs the
+other way. aify-env's own plugin calls this service's HTTP API, claims spawns and streams consoles.
+
+The row was left standing for a day after the deletion, citing a test file that was no longer in the
+repo. A trace whose evidence column names something that does not exist is worse than a blank cell,
+because a reader checks the claim by reading the row rather than by running the test.
 
 ## Link 7, verified against the running service
 

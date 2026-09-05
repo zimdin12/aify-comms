@@ -208,7 +208,7 @@ Read `references/operations.md` only when you need:
 
 - install/update steps, wrapper flags, or multi-instance rules
 - managed runtime policy and permissions
-- environment bridge behavior, stale bridge repair, or session ownership transfer
+- how aify-env hosts managed workers, stale-session repair, or ownership transfer
 - dashboard operator behavior and issue/work-loop semantics
 - status meanings, role suggestions, or debug handoffs
 

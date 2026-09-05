@@ -57,8 +57,8 @@ container. A copied file is not a reloaded long-running process.
 After every install/update:
 
 1. Rerun the install command from the repo install doc.
-2. Restart the affected CLI wrapper/client and long-running `aify-comms` environment bridge.
-3. For resident/operator-open sessions only, re-register from the exact live session you want other agents to trigger, or launch with `--aify-agent <agentId>` so the wrapper registers it automatically. Dashboard-managed agents are registered by the environment bridge and should not call `comms_register` from delivered runs.
+2. Restart the affected CLI wrapper or client. Restarting aify-env is the OPERATOR's action: a second one supersedes the first and reaps its workers.
+3. For resident/operator-open sessions only, re-register from the exact live session you want other agents to trigger, or launch with `--aify-agent <agentId>` so the wrapper registers it automatically. Dashboard-managed agents are registered by aify-env's aify-comms plugin and should not call `comms_register` from delivered runs.
 4. Confirm with `comms_agent_info(agentId="...")`.
 
 Never replace `comms_register` with raw `curl`/Node `POST /api/v1/agents` for
@@ -72,12 +72,11 @@ Wrapper auto mode:
 - `claude-aify -auto` adds `--dangerously-skip-permissions`.
 - `omp-aify` / `pi-aify` has no special `-auto` permission mode; model/thinking defaults come from Oh My Pi unless Dashboard Runtime settings or runtime config supplies model/effort.
 - `claude-aify --aify-agent <agentId> --resume <session-id>`, `codex-aify --aify-agent <agentId> ...`, and `hermes-aify --aify-agent <agentId> --resume <session-id>` auto-register live resident sessions. `omp-aify` / `pi-aify` can auto-register presence/metadata for a human-open or standalone Pi terminal, but triggerable Pi delivery uses managed RPC.
-- Claude Code's valid skip-permissions flag is `--dangerously-skip-permissions`; `--permanently-skip-permissions` is not valid.
 
 ## Managed Runtime Policy
 
-- Dashboard-managed identities are registered by the environment bridge. Delivered managed runs must not call `comms_register`.
-- The bridge owns managed backings; Browser Console attaches to that backing and is not another owner.
+- Dashboard-managed identities are registered by aify-env, which claims the spawn and runs the worker. Delivered managed runs must not call `comms_register`.
+- aify-env owns managed backings, including the PTY. Browser Console attaches to that backing and is not another owner.
 - Branch on advertised capabilities, not runtime names. Unsupported resident mode or interrupt must fail visibly rather than create an undeliverable session.
 - Use Dashboard Settings for operator policy. Runtime flags and controller internals belong in [the architecture plan](../../../../docs/ARCHITECTURE_PLAN.md), not in an agent's routine context.
 
@@ -105,11 +104,11 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 
 ## Environment Bridges
 
-- **`aify-comms` with no arguments STARTS AN ENVIRONMENT BRIDGE.** It is not an info command and not a
-  smoke test. The new instance supersedes the live one for that environment, and when it exits it
-  reaps the managed workers the superseded bridge was hosting — running it "just to check" has taken
-  down a whole managed fleet. To inspect without starting anything use `aify-comms --check` (reports
-  what a launch would do, starts nothing), `aify-comms --help`, or `aify-comms doctor`.
+- **`aify-comms` verifies and starts nothing.** `doctor`, `--check`, `--version`, `--help`; anything
+  else exits 2 and names aify-env. Before v0.6.1 a bare run started a bridge that superseded the live
+  one and reaped its workers, taking down a fleet twice. Enforced now, not remembered.
+- **Starting aify-env is the operator's action**, and it carries that same hazard: a second one
+  supersedes the first and reaps its workers. Ask `aify-env doctor` instead of starting one.
 - After install/update: `aify-comms doctor --json` for the bridge, `aify-env doctor` for whether `node-pty` loads here. Package presence proves neither.
 - A newer bridge instance supersedes the older instance for its environment. Current bridge identity owns new terminal controls; stale controls must not cross that boundary.
 - The current directory is an allowed workspace root; extra roots are optional boundaries.

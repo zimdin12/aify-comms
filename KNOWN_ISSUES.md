@@ -4,6 +4,31 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## The managed-claude console keepalive was deleted, and its lease is still tuned to it (2026-09-05)
+
+Found while reading the docs after v0.6.2, not from a report. Nobody has seen this misbehave yet.
+
+A managed claude only re-emits its spinner footer while its PTY is actively rendered. With the
+dashboard Console closed it goes quiet, the console-working lease expires, and the status dot drops
+from `working` to `online` while the agent is still working. That was fixed on 2026-06-05 by a
+repaint keepalive in `terminal-runtime._armConsoleKeepalive`, which SIGWINCHed the PTY every ~4s so
+the footer kept streaming whether or not anyone watched. The lease TTL was widened to 20s to span
+that cadence.
+
+**v0.6.2 deleted `terminal-runtime.js` with the environment-bridge tier, and the keepalive went with
+it.** Searched 2026-09-05: no `SIGWINCH` in aify-comms' or aify-env's live code, so nothing pokes a
+managed PTY any more. `service/api_core/liveness.py` still carries the 20s lease.
+
+**What is NOT established:** whether the flap returned. The console path moved to aify-env in the
+same release, so the PTY may now be driven differently, and no one has watched a managed claude with
+its Console closed since. Two facts are proven (the producer is gone, the constant that spanned it
+remains) and the consequence is not.
+
+To settle it: leave a managed claude working, close its Console, and watch the dot for a minute. If
+it falls to `online`, whatever replaces the keepalive has to solve the same problem, and the section
+in `aify-comms-debug/references/status-symptoms.md` records what the old one did and why a time-grace
+cannot substitute for it.
+
 ## An interrupt reaches the agent as a permission refusal (2026-08-25)
 
 `comms_interrupt` works: three separate live processes were killed within five seconds of it, each

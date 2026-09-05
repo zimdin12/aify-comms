@@ -42,8 +42,10 @@ for far longer than any real turn (a live detector emits KEEP-FRESH or KEEP-CLEA
 silence = no detector), while its `bridge_instances.last_seen` stays fresh. And
 `/tmp/aify-claude-session-<agent>.json` is **absent** while every healthy agent has one.
 
-**Anonymous bridges that are NOT this bug:** the environment bridge (`--environment-bridge`) and
-a plain unregistered `claude` session with the comms MCP attached. Both are legitimately id-less.
+**Anonymous bridges that are NOT this bug:** a plain unregistered `claude` session with the comms
+MCP attached is legitimately id-less. This used to name the environment bridge
+(`--environment-bridge`) as a second such case; v0.6.1 removed that command and v0.6.2 deleted the
+tier, so an anonymous bridge no longer has that excuse available.
 
 **Fix.** You cannot repair a running process — re-registering does NOT help (`comms_register`
 writes DB rows; `AIFY_AGENT_ID` is read once at bridge boot), and neither does Claude Code's
@@ -248,29 +250,29 @@ PTY, the lease expires, and the dot falls to `online`. Opening the Console sends
 claude repaints → the footer streams again → the lease refreshes (hence the correlation with
 "having the terminal open").
 
-**Fix (2026-06-05).** The bridge now runs a managed-claude PTY **repaint keepalive**
-(`terminal-runtime._armConsoleKeepalive`): every ~4s it SIGWINCHes the PTY so claude re-emits
-its footer whether or not anyone watches, and the lease TTL was widened to 20s to span the
-keepalive cadence. claude-managed-only, best-effort, no visible flicker (the resize shrinks one
-column then restores synchronously, so claude redraws an identical frame). To deploy: re-run
-`install.sh --client claude` (re-copies the bridge) **and** restart the env bridge / claude
-wrapper, then rebuild the service for the TTL. Kill-switch `AIFY_NO_CONSOLE_KEEPALIVE=1`;
-cadence override `AIFY_CONSOLE_KEEPALIVE_MS`. If it still flaps after deploy: confirm the
-keepalive is armed (managed claude PTY) and the service carries the 20s TTL. *Note — not a
-time-grace:* a deaf/stale console can be recent too, so no age threshold distinguishes "working
-but unwatched" from "wedged"; forcing the signal to keep flowing is the only truthful fix.
+> **THE MECHANISM BELOW WAS DELETED IN v0.6.2 AND NOTHING REPLACED IT.** The old
+> terminal-runtime module went with the environment-bridge tier in v0.6.2, and it owned the keepalive. Searched on that date:
+> no `SIGWINCH` anywhere in aify-comms' or aify-env's live code, so nothing pokes a managed PTY any
+> more. `service/api_core/liveness.py` still carries the 20s lease that was widened to span a cadence
+> that has stopped.
+>
+> What that means is NOT established. Nobody has watched a managed claude with the Console closed
+> since the deletion, so whether the flap came back is unobserved, and the console
+> path itself moved to aify-env in the same release. Treat the rest as the shape of a problem that may have
+> returned, not a fix in place. To check it: leave a managed claude working, close its
+> Console, and watch the dot for a minute.
 
-**Update (idle-grace → re-probe, 2026-06-18, `cf6ef25`).** The keepalive doesn't nudge at the full
-~4s rate forever: after a sustained run of idle-prompt ticks it would drop to a SLOW re-probe
-cadence (`consoleKeepaliveIdleReprobeTicks`, ~16s — below the 20s lease) instead of stopping
-entirely. The earlier "stop after grace" let a turn RESUMING after a long idle never be
-re-discovered (quiet PTY never re-emits a working footer → lease lapses → false `online`, the #224
-residual); the re-probe re-discovers resumed work within the lease window with negligible churn (an
-idle console only re-emits its idle residue → no working pulse). Defense-in-depth: a transient
-`consoleClass==='unknown'` footer refreshes the lease only when a turn is known in-flight. If a
-managed claude still flips to `online` mid-turn: confirm the bridge carries `cf6ef25` (re-run
-`install.sh` + restart the env bridge) — the transcript turn-state detector is the primary backstop,
-this keepalive is the console-lease layer.
+**What the fix did, 2026-06-05 to 2026-06-18, since deleted.** A managed-claude PTY repaint keepalive
+SIGWINCHed the PTY every ~4s so claude re-emitted its footer whether or not anyone watched, and the
+console lease widened to 20s to span that cadence. The resize shrank one column and restored it in the
+same breath, so claude redrew an identical frame and nothing flickered. After a run of idle ticks it
+slowed to a ~16s re-probe rather than stopping, because stopping left a turn that resumed after a long
+idle undiscovered: a quiet PTY never re-emits a working footer, the lease lapses, and the dot lies.
+
+**Why a time-grace cannot replace it.** A deaf or wedged console can be recent too, so no age threshold
+separates "working but unwatched" from "stuck". Only forcing the signal to keep flowing tells them
+apart. Whatever replaces the keepalive has to keep that property, and the transcript turn-state
+detector remains the primary backstop either way.
 
 ## Managed claude showed `blocked` mid-generation (2026-06-07)
 

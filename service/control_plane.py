@@ -200,11 +200,19 @@ from service.api_core.vocabulary import (
 # Console-working lease (2026-06-05): the managed-claude PTY spinner footer refreshes
 # this lease every TERMINAL re-emit. When the dashboard Console is CLOSED, claude would
 # otherwise go quiet on the PTY (it only re-emits its footer while actively rendered), so
-# the bridge runs a ~4s repaint keepalive (terminal-runtime._armConsoleKeepalive) that
-# SIGWINCHes the PTY to force a footer re-emit. The TTL spans that keepalive cadence — a
-# small multiple of ~4s so a missed poke or two never drops `working`, yet it still
-# self-expires within seconds of claude truly stopping. ADDITIVE only: OR'd into derived
-# `working`, it never clears turn_busy.
+# the bridge ran a ~4s repaint keepalive (terminal-runtime._armConsoleKeepalive) that
+# SIGWINCHed the PTY to force a footer re-emit. The TTL was sized to span that keepalive
+# cadence — a small multiple of ~4s so a missed poke or two never drops `working`, yet it
+# still self-expires within seconds of claude truly stopping. ADDITIVE only: OR'd into
+# derived `working`, it never clears turn_busy.
+#
+# THE KEEPALIVE IS GONE AND THIS TTL IS NOW TUNED TO NOTHING. `terminal-runtime.js` was
+# deleted with the environment-bridge tier in v0.6.2 (2026-09-05) and it owned that timer.
+# Measured the same day: no SIGWINCH in aify-comms' or aify-env's live code, so nothing
+# pokes a managed PTY. A constant whose justification has been deleted is the shape this
+# repo keeps getting caught by, so it is said here rather than left for the next reader to
+# infer. Whether managed-claude status actually flaps again is UNOBSERVED — see
+# KNOWN_ISSUES.md, "The managed-claude console keepalive was deleted".
 # CONSOLE_WORKING_LEASE_SECONDS moved to service/api_core/liveness.py in v0.5.4, with the
 # predicates that apply it — a threshold apart from its predicate is how they drift.
 # pure-event-status change #3 (2026-06-02): STATUS is now PURE-EVENT. The
