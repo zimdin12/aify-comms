@@ -161,3 +161,38 @@ test("anchoredScrollTop keeps the operator's place when history is prepended abo
   // Garbage in from a detached element must not produce NaN, which the DOM would take as 0 silently.
   assert.equal(anchoredScrollTop(undefined, 0, 500), 0);
 });
+
+test("a re-fetched history row takes the server's REFRESHED copy, not the one already held", async () => {
+  // R9-M11. The cursor is inclusive, so every page boundary re-fetches a row the store already has.
+  // Keeping the held copy discarded its own refresh: read state, edits and unsends on paged-in
+  // messages stayed frozen until a full reload, and an unsent message kept rendering.
+  const pages = [
+    { messages: [msg("a", 300), msg("b", 200, { read: false, body: "before" })], truncated: true },
+    { messages: [msg("b", 200, { read: true, body: "AFTER" }), msg("c", 100)], truncated: false },
+  ];
+  let n = 0;
+  const history = new MessageHistory(async () => pages[n++]);
+  const live = [msg("z", 400)];
+
+  await history.loadOlder(live);
+  await history.loadOlder(live);
+
+  const b = history.combined(live).find((m) => m.id === "b");
+  assert.equal(b.body, "AFTER", "the refreshed copy was dropped in favour of the stale one");
+  assert.equal(b.read, true, "read state on a paged-in row stayed frozen");
+});
+
+test("...but the LIVE window still outranks history, which is the opposite rule", async () => {
+  // The two directions are deliberate and easy to conflate. Inside the store the incoming page is
+  // fresher; against the poll the live row is. Collapsing them either way loses one of the fixes.
+  const history = new MessageHistory(async () => ({
+    messages: [msg("a", 100, { read: false, body: "history copy" })],
+    truncated: false,
+  }));
+  const live = [msg("a", 100, { read: true, body: "live copy" })];
+  await history.loadOlder(live);
+
+  const a = history.combined(live).find((m) => m.id === "a");
+  assert.equal(a.body, "live copy", "a stale history copy overwrote the live row");
+  assert.equal(a.read, true, "and would have marked a read message unread again");
+});

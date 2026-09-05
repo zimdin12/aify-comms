@@ -23,6 +23,31 @@
 /** The service's own grace window before a claimed-but-unstarted request is considered orphaned. */
 export const CLAIMED_GRACE_SECONDS = 180;
 
+/**
+ * The marker the SERVICE writes on a claim it gave up on, and the only durable evidence there is.
+ *
+ * WHY THIS CHECK NEEDED IT. Ageing live rows was not enough, and the window was 60 seconds wide.
+ * `spawn_lifecycle.py` fails every `claimed` row past the SAME 180s grace this check uses, with no
+ * live-bridge carve-out (that carve-out is explicitly `stuck_status != "claimed"`), on a 60s
+ * reconcile loop. So a stuck claim was visible only between 180s and about 240s: at t=300s the row
+ * read `failed`, this check ignored `failed`, and the doctor went green over exactly the incident
+ * it was built for. Found by an external reviewer, 2026-09-05.
+ *
+ * The string is pinned against the writer by `test_the_abandonment_marker_agrees_across_repos.py`,
+ * so a reworded error message fails a test rather than silently emptying this check.
+ */
+export const ABANDONED_MARKER = "Abandoned: claimed at";
+
+/**
+ * How far back an abandoned claim still counts as news.
+ *
+ * A failed row is permanent. Counting every one forever would leave this row red for the life of
+ * the database after a single incident, and a check that can never go green gets switched off.
+ * An hour is long enough to survive the reconcile that erased the live row and short enough that
+ * the report describes now.
+ */
+export const ABANDONED_WINDOW_SECONDS = 3600;
+
 /** Statuses that mean the request has been taken by a host but is not yet a running process. */
 export const TAKEN_NOT_RUNNING = Object.freeze(["claimed", "starting"]);
 
@@ -67,8 +92,20 @@ export async function spawnQueueVerdict({ list, now = Date.now } = {}) {
   // reads the same flag for the same reason.
   const truncated = Boolean(answer?.truncated);
   const stuck = [];
+  const abandoned = [];
   for (const row of rows) {
     const status = String(row?.status || "").trim().toLowerCase();
+    // THE ROW THE SERVICE ALREADY GAVE UP ON. This is the same failure as `stuck` below, one
+    // reconcile pass later, and it is the form the evidence survives in. Counting only live
+    // `claimed` rows made this check true for 60 seconds and green forever after.
+    if (status === "failed" && String(row?.error || "").includes(ABANDONED_MARKER)) {
+      const endedAt = Date.parse(String(row?.finishedAt || row?.finished_at || "").trim());
+      const sinceSeconds = Number.isNaN(endedAt) ? null : Math.round((now() - endedAt) / 1000);
+      if (sinceSeconds !== null && sinceSeconds <= ABANDONED_WINDOW_SECONDS) {
+        abandoned.push({ id: String(row?.id || ""), sinceSeconds, environmentId: String(row?.environmentId || "") });
+      }
+      continue;
+    }
     if (!TAKEN_NOT_RUNNING.includes(status)) continue;
     // THE CLAIM TIME, not the creation time: a request can sit `queued` for as long as the operator
     // likes without anything being wrong. What this measures is the gap between a host TAKING the
@@ -81,7 +118,7 @@ export async function spawnQueueVerdict({ list, now = Date.now } = {}) {
     }
   }
 
-  if (!stuck.length) {
+  if (!stuck.length && !abandoned.length) {
     return {
       ok: true,
       code: truncated ? "partial" : (rows.length ? "ok" : "empty"),
@@ -97,13 +134,30 @@ export async function spawnQueueVerdict({ list, now = Date.now } = {}) {
   const named = stuck
     .sort((a, b) => b.ageSeconds - a.ageSeconds)
     .map((r) => `${r.id || "(no id)"} ${r.status} for ${r.ageSeconds}s on ${r.environmentId || "(no env)"}`);
+  const namedAbandoned = abandoned
+    .sort((a, b) => a.sinceSeconds - b.sinceSeconds)
+    .map((r) => `${r.id || "(no id)"} failed ${r.sinceSeconds}s ago on ${r.environmentId || "(no env)"}`);
+
+  const parts = [];
+  if (stuck.length) {
+    parts.push(`${stuck.length} spawn request(s) were CLAIMED by a host and never started: ${named.join(", ")}`);
+  }
+  if (abandoned.length) {
+    parts.push(`${abandoned.length} were already given up on by the service: ${namedAbandoned.join(", ")}`);
+  }
   return {
     ok: false,
-    code: "stuck-claims",
-    detail: `${stuck.length} spawn request(s) were CLAIMED by a host and never started: ${named.join(", ")}. `
-      + "The host took the work and did not do it, which every other row in this report reads as "
-      + "healthy -- the heartbeat is a separate loop from the claim loop.",
-    fix: "Check that host's aify-env log for a claim loop that stopped. Restarting aify-env there "
-      + "releases the claims; the service requeues them after its own grace window.",
+    code: stuck.length ? "stuck-claims" : "abandoned-claims",
+    detail: `${parts.join("; ")}. The host took the work and did not do it, which every other row `
+      + "in this report reads as healthy -- the heartbeat is a separate loop from the claim loop.",
+    // WHAT ACTUALLY HAPPENS TO THE ROW, which this text used to get wrong. It said "the service
+    // requeues them after its own grace window". Nothing requeues a spawn_request anywhere in the
+    // service -- `spawn_lifecycle` marks it `failed`, and the only requeue sites are dispatch_runs.
+    // An operator who waited for a requeue that cannot come would wait for ever.
+    fix: "Check that host's aify-env log for a claim loop that stopped. The service does NOT requeue "
+      + "a spawn request -- it marks the row `failed` about a minute after the grace window, which is "
+      + "why this row also counts rows it already failed. Re-request the spawn once the host is "
+      + "claiming again; restarting aify-env there is the operator's call, since it reaps that "
+      + "host's running workers.",
   };
 }

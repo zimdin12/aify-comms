@@ -16,6 +16,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ABANDONED_MARKER,
+  ABANDONED_WINDOW_SECONDS,
   CLAIMED_GRACE_SECONDS,
   TAKEN_NOT_RUNNING,
   spawnQueueVerdict,
@@ -112,4 +114,92 @@ test("a claim with an UNREADABLE timestamp is skipped rather than guessed at", a
     now,
   });
   assert.equal(verdict.ok, true, "an unparseable claim time was treated as an old one");
+});
+
+// R9-H3: THE ROW SURVIVES THE RECONCILE, SO THE CHECK MUST TOO.
+//
+// The window this check was born with was 60 seconds wide. `spawn_lifecycle.py` fails every
+// `claimed` row past the SAME 180s grace, with no live-bridge carve-out, on a 60s loop -- so a
+// stuck claim was reportable between about 180s and 240s and invisible after that. At t=300s the
+// row read `failed`, this check skipped `failed`, and the doctor went green over the exact incident
+// it exists to report. Found by an external reviewer 2026-09-05.
+//
+// The marker below is pinned against the writer by `test_the_abandonment_marker_agrees_across_repos.py`.
+
+const ABANDONED_ERROR =
+  "Abandoned: claimed at 2026-09-04T11:50:00Z and never started. Real claims start in under 10 "
+  + "seconds; failed by reconcile so sends to this agent stop being refused as already in flight.";
+
+test("a claim the SERVICE already gave up on is still reported", async () => {
+  const verdict = await spawnQueueVerdict({
+    list: listing([{
+      id: "sr-9", status: "failed", environmentId: "windows:host:default",
+      error: ABANDONED_ERROR, finishedAt: agoSeconds(300),
+    }]),
+    now,
+  });
+  assert.equal(verdict.ok, false, "the doctor went green one reconcile pass after the failure");
+  assert.equal(verdict.code, "abandoned-claims");
+  assert.match(verdict.detail, /sr-9/, "the row must still be named after the service failed it");
+});
+
+test("an ORDINARY failure is not an abandoned claim", async () => {
+  // The negative control. Spawns fail for real reasons all the time; reporting every failed row
+  // would make this check permanently red and it would be switched off.
+  const verdict = await spawnQueueVerdict({
+    list: listing([{
+      id: "sr-10", status: "failed", environmentId: "e",
+      error: "launcher exited 127: claude-aify not found", finishedAt: agoSeconds(300),
+    }]),
+    now,
+  });
+  assert.equal(verdict.ok, true, "an unrelated spawn failure was reported as an abandoned claim");
+});
+
+test("an abandoned claim from LAST WEEK is history, not news", async () => {
+  // A failed row is permanent. Counting them for ever leaves this row red for the life of the
+  // database after one incident, and a check that can never go green gets ignored.
+  const verdict = await spawnQueueVerdict({
+    list: listing([{
+      id: "sr-11", status: "failed", environmentId: "e",
+      error: ABANDONED_ERROR, finishedAt: agoSeconds(7 * 24 * 3600),
+    }]),
+    now,
+  });
+  assert.equal(verdict.ok, true, "a week-old abandoned claim was reported as a current problem");
+});
+
+test("the fix text does not promise a requeue that never happens", async () => {
+  // It used to say "the service requeues them after its own grace window". Nothing requeues a
+  // spawn_request anywhere in the service -- the row is marked `failed` and the only requeue sites
+  // are dispatch_runs. An operator waiting for that requeue waits for ever.
+  const verdict = await spawnQueueVerdict({
+    list: listing([{
+      id: "sr-12", status: "claimed", environmentId: "e",
+      claimedAt: agoSeconds(CLAIMED_GRACE_SECONDS + 60),
+    }]),
+    now,
+  });
+  assert.equal(verdict.ok, false);
+  assert.doesNotMatch(verdict.fix, /requeues them/, "the fix text promises a requeue that cannot happen");
+  assert.match(verdict.fix, /does NOT requeue/, "and must say so, since the old text taught the opposite");
+});
+
+test("the two constants R9-H3 added mean what the rest of this file assumes", async () => {
+  // The marker is the exact text `spawn_lifecycle.py` writes onto a claim it gave up on. It is a
+  // string shared across a language boundary, so it is ALSO pinned against the writer by
+  // `service/tests/test_the_abandonment_marker_agrees_across_repos.py`; a reword there fails a test
+  // rather than quietly emptying this check.
+  assert.equal(typeof ABANDONED_MARKER, "string");
+  assert.ok(ABANDONED_MARKER.length > 10, "too short a marker would match unrelated errors");
+  assert.match(ABANDONED_MARKER, /^Abandoned: claimed/, "this is the service's own wording");
+
+  // The window keeps a permanent `failed` row from making this check permanently red. It must be
+  // longer than the reconcile pass that creates the row (60s) or the evidence would expire before
+  // the doctor could ever see it.
+  assert.ok(Number.isFinite(ABANDONED_WINDOW_SECONDS));
+  assert.ok(
+    ABANDONED_WINDOW_SECONDS > CLAIMED_GRACE_SECONDS + 60,
+    "the window closes before the service has even failed the row",
+  );
 });

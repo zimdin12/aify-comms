@@ -124,7 +124,15 @@ export class MessageHistory {
       // counting it as progress would let the no-advance guard below never fire, which is the loop it
       // exists to break.
       const before = this.combined(live).length;
-      this.#rows = mergeById(this.#rows, rows);
+      // THE INCOMING PAGE WINS HERE, and that is the opposite of `combined()` on purpose.
+      //
+      // `combined()` lets the LIVE window win because the poll's copy is the fresher one. Inside the
+      // store the freshness runs the other way: `rows` is what the server just said, and `this.#rows`
+      // is whatever it said last time. Keeping the old copy meant a re-fetched row -- and the cursor
+      // is inclusive, so every page boundary re-fetches one -- silently discarded its own refresh,
+      // freezing read state, edits and unsends on paged-in messages until a reload. R9-M11, external
+      // review 2026-09-05; I had documented only the half of this rule I had thought about.
+      this.#rows = mergeById(rows, this.#rows);
       const added = this.combined(live).length - before;
 
       // TWO WAYS TO BE DONE, and both are needed. `truncated: false` is the server saying this page

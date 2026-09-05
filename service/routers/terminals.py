@@ -533,9 +533,11 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             await _record_host_reported_alive(db, terminal)
             await db.commit()
             reported = _terminal_session_to_dict(terminal)
-            # The row's OWN sequence, never the 0 the queue would have answered: a client that took
-            # that for a real seq would see the stream jump backwards on the next chunk.
-            reported["outputSeq"] = int(terminal["output_seq"] or 0)
+            # NO OVERRIDE HERE ANY MORE. This used to re-read `terminal["output_seq"]` so a client
+            # never took the 0 the queue would have answered for a real seq. The serialiser now
+            # answers with the LIVE seq and falls back to that same row value when this process holds
+            # nothing, so the original guarantee stands and re-reading the row would only put the
+            # stale half back -- which is the pairing bug this whole change exists to close.
             return {"ok": True, "terminal": reported}
         next_seq = await TERMINAL_OUTPUT_WRITES.enqueue(
             terminal_id,

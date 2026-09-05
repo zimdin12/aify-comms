@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from service.api_core.terminal_tail_buffer import current_seq, current_tail
 from service.api_core.capabilities import _row_capabilities
 from service.api_core.liveness import _agent_wake_mode
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
@@ -195,8 +196,12 @@ def _terminal_session_to_dict(row) -> dict[str, Any]:
         # form here", which every consumer already has to handle -- an operator-supplied command has
         # none, because splitting a human's shell string is the parse this design avoids.
         "argv": _decoded_argv(row["argv"] if "argv" in keys else ""),
-        "output": (row["output"] if "output" in keys else "") or "",
-        "outputSeq": int((row["output_seq"] if "output_seq" in keys else 0) or 0),
+        # THE LIVE PAIR, OR THE ROW'S PAIR, NEVER ONE OF EACH. The lazy tail writes `output` and
+        # `output_seq` to the row together, once a second; this responder is read continuously. A
+        # client seeded with live content and a row seq sees its next frame as a gap and resyncs,
+        # which is the repaint storm the lazy-tail change introduced. Both come from the same place.
+        "output": current_tail(str(row["id"]), (row["output"] if "output" in keys else "") or ""),
+        "outputSeq": current_seq(str(row["id"]), (row["output_seq"] if "output_seq" in keys else 0) or 0),
         "cols": int((row["cols"] if "cols" in keys else 0) or 0),
         "rows": int((row["rows"] if "rows" in keys else 0) or 0),
         "status": row["status"] or "",

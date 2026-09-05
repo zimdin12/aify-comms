@@ -72,6 +72,32 @@ def current_tail(terminal_id: str, stored: str) -> str:
     return held["tail"] if held else str(stored or "")
 
 
+def current_seq(terminal_id: str, stored: Optional[int]) -> int:
+    """The seq DESCRIBING what `current_tail` would return for this terminal.
+
+    THE HALF THAT WAS MISSING, and its absence was a repaint storm on every busy console. The read
+    path served the live screen as `snapshot` while taking `outputSeq` from the ROW, which the lazy
+    tail only writes once a second. `xterm-mount.mjs` seeds `lastSeq` from that value and
+    `realtime-socket.mjs` resyncs on `seq > lastSeq + 1` -- STRICT CONTIGUITY, not just monotonicity
+    -- so a seq even one frame behind made the very next live frame look like a gap. The resync
+    re-fetched, got the same stale seq, and the console reset() and fully rewrote itself at frame
+    rate until the terminal fell quiet for a flush interval.
+
+    `_append_terminal_output`'s comment argues that `output` and `output_seq` must lag TOGETHER, and
+    that is still true of the ROW. What it missed is that the client is not seeded from the row: the
+    snapshot comes from the live screen, which every chunk feeds. Pairing has to hold across what is
+    actually SERVED, so the read path now answers with the live tail and the live seq or with the
+    row's pair, never one of each.
+
+    Falls back to `stored` for a terminal this process holds nothing for -- every terminal after a
+    restart, which is the case the column exists for.
+    """
+    held = _BUFFERS.get(str(terminal_id or ""))
+    if held and held.get("seq") is not None:
+        return int(held["seq"])
+    return int(stored or 0)
+
+
 def record(terminal_id: str, tail: str, seq: Optional[int], *, now: Optional[float] = None) -> bool:
     """Hold `tail` for this terminal and answer whether it should be WRITTEN now.
 
