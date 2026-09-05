@@ -682,6 +682,48 @@ solved it by narrowing to one runtime. See D9.
   **STILL OPEN under B1:** the remaining "good" is B2's design pass, and nothing here has been seen
   in a browser -- 31 tests drive the logic and the DOM layer through fake elements, which is how this
   repo tests dashboard modules, but the rendered result is unverified until someone opens it.
+- **E2-PARTIAL: A FIVE-WAY INDEPENDENT REVIEW OF THIS SESSION'S OWN WORK, 2026-09-05.** Five
+  reviewers on disjoint slices -- the terminal write path, aify-env, the service, the dashboard
+  console, the bridge and doctor. Every finding below was VERIFIED against the source before being
+  acted on, and three reviewer claims needed correcting rather than applying.
+
+  **NOTHING WAS DEPLOYED**, so all of it was caught before reaching the fleet: the service still
+  serves the pre-C5 build and aify-env has not restarted.
+
+  **THE MOST SERIOUS DEFECTS WERE MINE, from the previous two days.**
+
+  | defect | where | fixed |
+  |---|---|---|
+  | the lazy tail never stored a quiet terminal's last frame, while three readers take that column with no live-screen path | C5 | `6ba04d18` |
+  | a PARTIAL source walk produced a confident wrong build id -> false `stale` -> restart -> reaped workers | aify-env | `6936331` |
+  | `PackageBuild`'s constructor could stop the daemon starting at all | aify-env | `6936331` |
+  | one StringDecoder shared across stdout and stderr, which its own comment forbade | aify-env | `6936331` |
+  | the console find bar was permanently visible | dashboard | `6ba04d18` |
+  | two doctor rows printed green about a service they never reached | bridge | `e666160d` |
+  | the console search drove a new terminal from the old buffer's rows | dashboard | `193a945f` |
+  | a wrapped hit mapped to the wrong row when the row was trimmed | dashboard | `06d678df` |
+  | `/usage/consumption` could not say it had never measured | service | `193a945f` |
+
+  **AND I HAD BUILT A DUPLICATE GATE.** `icon-buttons-carry-a-label.test.mjs` had derived the same
+  button population since 2026-08-26 and DISAGREED with mine about `title`. Two derived gates over
+  one population with contradictory rules is worse than either, because the cheap way out is to
+  relax the strict one and end up with a silent duplicate. The stricter rule moved into the older
+  file beside its incident; mine keeps only the form-control half.
+
+  **THREE REVIEWER CLAIMS WERE WRONG OR TOO STRONG, and the tests caught two of them:**
+  ABSENT is not UNREADABLE (a package with no `bin/` is a smaller program, not an unmeasured one);
+  a row belonging to another tier is deliberately NOT `tier-version`'s business, so `none-live` is
+  the honest verdict rather than `unknown-all`; and my own first flush test passed under its own
+  mutation because it delivered every byte and so never exercised the flush.
+
+  **STILL OPEN, AND THEY ARE THE OPERATOR'S:**
+  (a) `terminals.py`'s output guard also removed the ownership 409, which can leave a real PTY
+  live-but-unaddressable -- console input queued to a bridge id nobody presents. The reviewer's
+  point is that the trade is real and nobody consciously made it.
+  (b) 21 modules / 3,716 lines were orphaned by the v0.6.2 deletion, including `terminal-runtime.js`
+  (981 lines, which this repo's own line-count table tells people to watch), and the two cross-repo
+  proofs CLAUDE.md calls "standing evidence" now exercise unreachable code. Delete or keep.
+
 - **B2. CLOSED BY THE OPERATOR 2026-09-05.** Asked whether the remaining visual/UX half was about
   the dashboard and told: *"if so then lets skip it"*. The MEASURABLE half shipped at `5b9dafee`
   (accessible names for nine controls, two derived censuses); the taste half is not being done, and
