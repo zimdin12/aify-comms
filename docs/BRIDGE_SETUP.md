@@ -70,11 +70,11 @@ Leave the process running while you use the dashboard. Stop it with `Ctrl+C`.
 
 The bridge heartbeats every 30 seconds. This is now an unconditional liveness beat — it fires regardless of activity, so an idle-but-alive agent stays `online` rather than decaying as it goes quiet (the beat stops immediately if the bridge's controlling parent process dies, so an orphan does not fake liveness). A graceful `Ctrl+C` marks the environment offline immediately; a hard kill, crash, or machine sleep is inferred from missed heartbeats and normally appears offline within about 90 seconds. The dashboard sorts environments by status and name, not by heartbeat time, so cards should not swap places during normal refresh.
 
-If you start `aify-comms` again for the same environment before killing an older bridge, the newer bridge becomes the current bridge for that environment. Older bridge heartbeats are ignored once the server has seen the newer bridge's `bridgeStartedAt` metadata, and the server queues a stop control for the older bridge. Current bridge builds log the replacement bridge, PID, and cwd before exiting, so a terminal that closes with an "environment was superseded" message is not a runtime crash; another bridge for the same environment became current. The older OS process may still exist if it is hung and no longer polling, but it should not own spawn claims anymore.
+If you start `aify-env` again for the same environment before stopping the older one, the newer instance becomes current for that environment — and reaps the predecessor's managed workers, which is why starting one is the operator's action. Older bridge heartbeats are ignored once the server has seen the newer bridge's `bridgeStartedAt` metadata, and the server queues a stop control for the older bridge. Current bridge builds log the replacement bridge, PID, and cwd before exiting, so a terminal that closes with an "environment was superseded" message is not a runtime crash; another bridge for the same environment became current. The older OS process may still exist if it is hung and no longer polling, but it should not own spawn claims anymore.
 
 If a bridge is superseded immediately after spawning or messaging a managed runtime agent, update and reinstall the bridge launcher. Older launchers used an inherited `AIFY_ENVIRONMENT_BRIDGE=1` environment variable; managed child MCP servers could inherit it and briefly impersonate the environment bridge from the agent workspace. Current launchers pass `--environment-bridge` only to the real bridge process, and managed child processes strip bridge-only environment variables.
 
-Killing a bridge stops the execution target, not the agent identity. Managed agents that were backed by that environment are marked offline/detached and their active sessions become lost; chats and identity records remain. Restart the bridge, or assign the agent to another online environment from **Sessions -> Identity Directory**, then restart from **Sessions**.
+Killing a bridge stops the execution target, not the agent identity. Managed agents that were backed by that environment are marked offline/detached and their active sessions become lost; chats and identity records remain. Restart aify-env, or assign the agent to another online environment from **Sessions -> Identity Directory**, then restart from **Sessions**.
 
 Forgetting an environment hides that execution target from normal dashboard lists. It does not delete agent identities, chats, saved spawn specs, or session records. A forgotten environment can reappear if its bridge starts heartbeating again.
 
@@ -87,7 +87,7 @@ cd /path/to/aify-comms
 bash install.sh --client codex http://localhost:8800 --with-hook
 
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
 
 The installer verifies that the copied native `node-pty` module loads, attempts one rebuild,
@@ -95,11 +95,13 @@ and fails the install if PTY support is still unavailable. If an older/manual br
 no PTY support, rerun the installer and restart that bridge. For source-checkout diagnosis:
 
 ```bash
-node -e "import('./mcp/stdio/terminal-runtime.js').then(m=>console.log(m.bridgeTerminalSupported()))"
-npm --prefix mcp/stdio rebuild node-pty
+aify-env doctor            # its `terminal` row answers whether this host can open a PTY
 ```
 
-Restart the `aify-comms` bridge after a successful repair.
+**The old one-liner here imported `mcp/stdio/terminal-runtime.js`, which no longer exists.** PTY
+support is the host tier's question and aify-env answers it directly; that module was aify-comms'
+own copy and was deleted with the rest of the retired tier on 2026-09-05. Restart aify-env after a
+successful repair -- the operator's action, since a second instance reaps the first one's workers.
 
 For WSL, run this from the WSL distro that owns the runtime CLI and workspace paths. Use Linux paths such as `/mnt/c/Docker/project`, not `C:/Docker/project`. Add extra roots only when you want one host to cover multiple workspace trees:
 

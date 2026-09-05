@@ -60,12 +60,18 @@ node --check service/new_dashboard/app.js
 
 ## Bridge Setup Model
 
-Run the service once. Then run one environment bridge per host/OS boundary you want the dashboard to control:
+Run the service once. Then run one HOST TIER per host/OS boundary you want the dashboard to control:
 
 ```bash
 cd /path/to/workspace-or-workspace-parent
-aify-comms
+aify-env
 ```
+
+**`aify-comms` is not that command and has not been since v0.6.1** -- it starts nothing and exits 2.
+The words above used to start an environment bridge that SUPERSEDED the one already serving the host,
+so its managed workers were reaped; that took a whole fleet down twice. **Starting the tier is the
+operator's action** for the same reason: ask with `aify-env doctor` rather than starting one to find
+out whether one is already running.
 
 On native Windows:
 

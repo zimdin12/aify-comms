@@ -68,6 +68,20 @@ def commands_in(text: str):
         match = INVOCATION.match(bare)
         if match:
             yield line_no, line.strip(), match.group(1)
+            continue
+        # A BARE `aify-comms` IS THE WORST CASE AND THIS GATE MISSED IT ENTIRELY until 2026-09-05.
+        #
+        # The matcher above requires an ARGUMENT, so `aify-comms` alone slipped through -- and that is
+        # precisely the command that took the fleet down twice, in the incidents this file's docstring
+        # describes. Two operator-facing pages still carried it under the words "run one environment
+        # bridge per host", and this gate was green over both.
+        #
+        # A LINE CARRYING A COMMENT IS DOCUMENTATION, not an instruction: `aify-comms   # refuses, and
+        # points at aify-env` is a page SHOWING the refusal, which is the behaviour worth documenting.
+        # That is the same rule as the trailing-comment exemption above, and it is why the split is on
+        # the comment rather than on the words around it.
+        if re.match(r"^\s*(?:\$\s*)?aify-comms\s*$", bare) and "#" not in line:
+            yield line_no, line.strip(), "(no argument — this STARTED A BRIDGE before v0.6.1)"
 
 
 def allowed_arguments() -> set[str]:
@@ -115,6 +129,13 @@ class NoDocTeachesARemovedCommand(unittest.TestCase):
         # A DIAGRAM IS NOT A COMMAND. This exact shape — an ASCII system diagram in a ```text fence —
         # is what the second version of this gate wrongly flagged.
         self.assertEqual(list(commands_in("```text\naify-comms environment bridge\n```")), [])
+        # A BARE INVOCATION IS CAUGHT, and it is the one that reaped fleets. This gate required an
+        # ARGUMENT until 2026-09-05 and was therefore green over two operator-facing pages that told
+        # the reader to run exactly this under the words "run one environment bridge per host".
+        self.assertEqual(len(list(commands_in("```bash\naify-comms\n```"))), 1)
+        # ...but a bare invocation shown WITH a comment is a page documenting the refusal, which is
+        # the behaviour worth documenting rather than a defect.
+        self.assertEqual(list(commands_in("```bash\naify-comms   # refuses\n```")), [])
 
     def test_no_document_tells_a_reader_to_run_a_removed_command(self):
         allowed = allowed_arguments()

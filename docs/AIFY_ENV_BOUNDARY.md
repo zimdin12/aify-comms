@@ -39,6 +39,11 @@ not which process the string starts. Nothing it can do now is destructive.
 
 ## The cut, measured
 
+**THE CUT IS COMPLETE AS OF 2026-09-05**: `terminal-runtime.js` and the files named beside it were
+deleted from this repo, because the tier they belonged to is aify-env's. The argument below is kept
+as the RECORD OF WHY the line was drawn where it was -- it reads in the present tense because it was
+written before the move.
+
 `terminal-runtime.js` already holds both execution paths, and neither knows what claude is:
 
 ```js
