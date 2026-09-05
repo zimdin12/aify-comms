@@ -162,22 +162,27 @@ available only for debugging:
 AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.0.2.10:8800
 ```
 
-## Start The Environment Bridge
+## Start The Environment Tier
 
-Start the bridge from a directory that should be allowed as a dashboard workspace root:
+**`aify-comms` starts nothing.** It is a verifier -- `doctor`, `--check`, `--version`,
+`--help` -- and anything else exits 2 naming aify-env. Until v0.6.1 the words below started an
+environment bridge that SUPERSEDED the one already serving the host, so its managed workers
+were reaped; that took a whole fleet down twice. The host tier is `aify-env` now.
 
 ```bash
 cd /path/to/workspace-or-parent
-aify-comms http://192.0.2.10:8800
+aify-env                       # serves this host: processes, PTYs, spawn claims
 ```
 
-You can advertise additional roots:
+**Starting it is the operator's action, not an agent's**, and for the same reason as above:
+a second instance supersedes the first and reaps its workers. To find out whether one is
+already running, ASK rather than start one:
 
 ```bash
-aify-comms http://192.0.2.10:8800 /path/to/extra/root
+aify-env doctor                # answers without starting anything
 ```
 
-The dashboard can spawn Hermes only in workspaces under the bridge's advertised roots.
+The dashboard can spawn Hermes only in workspaces under the roots this host advertises.
 
 ## Spawn A Managed Hermes Agent
 

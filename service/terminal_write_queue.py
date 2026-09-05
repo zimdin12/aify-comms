@@ -28,6 +28,7 @@ from collections import deque
 from typing import Any
 
 from service.api_core.terminal_output import _append_terminal_output
+from service.api_core.terminal_tail_buffer import TAIL_FLUSH_INTERVAL_SECONDS, pending
 from service.api_core.terminal_status import TERMINAL_STOPPABLE_STATUSES
 from service.clock import now as _now
 from service.db import get_db
@@ -50,6 +51,7 @@ class TerminalOutputWriteQueue:
         self._pending: dict[str, dict[str, Any]] = {}
         self._idle_handles: dict[str, asyncio.Handle] = {}
         self._max_handles: dict[str, asyncio.Handle] = {}
+        self._settle_handles: dict[str, asyncio.Handle] = {}
         self._flush_tasks: dict[str, asyncio.Task] = {}
         # Highest seq ever issued per terminal. Guarantees strict monotonicity
         # across pending-state recreation even if a concurrent request reads a
@@ -179,6 +181,64 @@ class TerminalOutputWriteQueue:
         except BaseException:
             await self._requeue_front(terminal_id, output, status=status, seq=seq)
             raise
+        # THE STREAM MAY HAVE JUST STOPPED. The tail is written on the NEXT chunk once the interval
+        # has passed -- and when output stops there is no next chunk, so the last frame was held for
+        # ever. Two readers ask exactly then: the idle-prompt hint that closes a finished run, and
+        # the hermes resume check that gates claiming channel work. Both read the stored column with
+        # no live-screen path, so both saw a tail ending before the frame they needed.
+        self._schedule_settle(terminal_id)
+
+    def _schedule_settle(self, terminal_id: str) -> None:
+        """Write the held tail shortly, unless more output writes it first.
+
+        SCHEDULED FROM THE FLUSH, which is already coalesced, so a terminal streaming at ten
+        chunks a second schedules one settle per flush rather than per chunk. Each supersedes the
+        last, and one that finds nothing held returns without touching the database.
+
+        A LITTLE OVER THE INTERVAL, so an ordinary write that is about to happen anyway wins the
+        race and the settle becomes the no-op it should be.
+        """
+        if pending(terminal_id) is None:
+            return
+        handle = self._settle_handles.pop(terminal_id, None)
+        if handle:
+            handle.cancel()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return          # no loop (a synchronous test); the next chunk still writes it
+        self._settle_handles[terminal_id] = loop.call_later(
+            TAIL_FLUSH_INTERVAL_SECONDS + 0.25, self._settle_from_timer, terminal_id,
+        )
+
+    def _settle_from_timer(self, terminal_id: str) -> None:
+        self._settle_handles.pop(terminal_id, None)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self.settle_terminal_tail(terminal_id))
+
+    async def settle_terminal_tail(self, terminal_id: str) -> None:
+        """Write a held tail for a terminal whose output has stopped.
+
+        UNDER THE SAME WRITE LOCK as every other write to this column: the read-modify-write in
+        `_append_terminal_output` loses one of two concurrent writers outright, which is what that
+        lock exists for.
+        """
+        held = pending(terminal_id)
+        if held is None:
+            return
+        try:
+            async with self._write_lock:
+                await self._write_terminal_output(
+                    terminal_id, "", seq=int(held.get("seq") or 0), settle=True,
+                )
+        except Exception:
+            # BEST EFFORT. A settle that fails leaves the tail held, and the next chunk or the next
+            # settle writes it -- the state before this existed. Raising here would surface inside a
+            # bare timer task with nobody to catch it.
+            pass
 
     async def _requeue_front(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
         if not output and not status:
@@ -239,7 +299,9 @@ class TerminalOutputWriteQueue:
             # caller already had rather than silently writing nothing, which is what it did before.
             await _append_terminal_output(db, terminal if terminal else fallback, output, status=status)
 
-    async def _write_terminal_output(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
+    async def _write_terminal_output(
+        self, terminal_id: str, output: str, *, status: str = "", seq: int = 0, settle: bool = False,
+    ) -> None:
         db = await get_db()
         try:
             terminal = await (await db.execute(
@@ -252,7 +314,10 @@ class TerminalOutputWriteQueue:
             )).fetchone()
             if not terminal:
                 return
-            await _append_terminal_output(db, terminal, output, status=status, seq=seq or int(terminal["output_seq"] or 0))
+            await _append_terminal_output(
+                db, terminal, output, status=status,
+                seq=seq or int(terminal["output_seq"] or 0), settle=settle,
+            )
             norm_status = str(status or "").strip().lower()
             if norm_status in {"stopped", "failed"}:
                 await db.execute(

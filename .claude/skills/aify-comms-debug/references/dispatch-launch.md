@@ -63,9 +63,9 @@ claimer. (c) Episodic-memory SessionStart hooks remain the WSL-crash risk and sh
 
 **Cause.** For old data/old bridge builds, the common managed-run cause was using Claude Code's `--session-id` flag for a session that already had a transcript file; `--session-id` is for creating a specific new session, while `--resume <id>` continues an existing one. A less common Windows cause is a stale headless Claude process that still owns the backing session after a crash or duplicate restart. Current dashboard-managed Claude work is PTY/channel backed and no longer uses `claude -p`.
 
-**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions -> Actions -> Reset (fresh context)** when you intentionally want the next run to start with a fresh backing session. Restart the Windows `aify-comms` bridge after updating so it loads the fixed runtime adapter.
+**Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions -> Actions -> Reset (fresh context)** when you intentionally want the next run to start with a fresh backing session. Restart aify-env after updating so it loads the fixed adapter.
 
-**Resume behavior.** Current bridge builds start interactive Claude Code through the managed PTY/channel path and pass `--resume <session-id>` when a saved handle exists. Pull latest, rerun the installer, and restart the Windows `aify-comms` bridge so it loads that path.
+**Resume behavior.** Current bridge builds start interactive Claude Code through the managed PTY/channel path and pass `--resume <session-id>` when a saved handle exists. Pull latest, rerun the installer, and restart aify-env.
 
 **Hidden-process caveat.** The duplicate owner may still be an old headless managed `claude -p` child, not a visible CLI tab. Older bridge builds on Windows launched Claude through `cmd.exe /c`; killing or superseding the bridge could kill `cmd.exe` without killing the Claude child, leaving a stale process behind. Current bridge code terminates the whole process tree on timeout, stop, interrupt, and bridge shutdown. When a managed Claude run still hits the error after the transcript/resume check, the Windows bridge first looks for a process command line containing the exact locked session ID, excludes interactive `claude-aify` / `--resume` commands, kills that process tree, and retries once. If the session ID is not visible in the process command line, it also checks aify runtime markers for the same workspace and stops a marked Claude parent only when that parent looks headless (`-p`, `--print`, or `--session-id`).
 
@@ -90,7 +90,7 @@ Get-CimInstance Win32_Process |
   Format-List
 ```
 
-Then restart the Windows `aify-comms` bridge and restart the dashboard session. Use **Reset (fresh context)** only when you accept losing that native Claude memory.
+Then restart aify-env and the dashboard session. Use **Reset (fresh context)** only when you accept losing that native Claude memory.
 
 **Visibility caveat.** Dashboard-managed Claude Code is now a managed `claude-aify` PTY backing. Browser Console can attach to that PTY, and a separate native CLI can still be opened with the dashboard's copyable resume command (`claude-aify --resume <session-id>`) after the backing has recorded a resume ID.
 
@@ -156,22 +156,23 @@ tr '\0' '\n' < /proc/<pid>/environ | grep -E '^(AIFY|PATH|HOME)='
 cd /home/dev/aify-comms && git rev-parse --short HEAD
 ```
 
-Then stop every old bridge/wrapper for that host and start a fresh bridge from the intended checkout:
+Then stop every old wrapper for that host and start the host tier from the intended checkout:
 
 ```bash
 pkill -f 'mcp/stdio/server.js'
-pkill -f 'aify-comms'
+# NOT `pkill -f aify-comms`: it matches the checkout path below, so it kills your own shell.
 pkill -f 'claude-aify'
 pkill -f 'omp-aify'
 cd /home/dev/aify-comms
 git pull
 bash install.sh --client codex http://192.0.2.10:8800 --with-hook
 bash install.sh --client claude http://192.0.2.10:8800 --with-hook
-# Pi/OMP wrapper install is disabled; managed Pi uses the environment bridge plus `omp --mode rpc`.
-aify-comms /path/to/workspace-root
+# Pi/OMP wrapper install is disabled; managed Pi uses the host tier plus `omp --mode rpc`.
+# OPERATOR-ONLY: a second aify-env reaps the first one's workers.
+aify-env /path/to/workspace-root
 ```
 
-The next dashboard failure/success diagnostic should report the new build tag. If it does not, the dashboard is still talking to another bridge process or another checkout.
+The next dashboard diagnostic should report the new build tag. If not, it is reading another checkout.
 
 ## Machine ID shows `win32:unknown-host`
 

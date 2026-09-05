@@ -98,7 +98,13 @@ def record(terminal_id: str, tail: str, seq: Optional[int], *, now: Optional[flo
 
 
 def pending(terminal_id: str) -> Optional[dict]:
-    """What is held and not yet written, or None. Used to flush on the way out."""
+    """What is held and not yet written, or None.
+
+    THE SETTLE WRITE'S SEAM. This existed with no caller for two days, and its absence was the
+    regression: a terminal that stops producing output has a held tail that the next chunk was
+    supposed to write, and there is no next chunk. `terminal_write_queue` now asks this after every
+    flush and schedules one write when the answer is not None.
+    """
     held = _BUFFERS.get(str(terminal_id or ""))
     if not held or not held["dirty"]:
         return None

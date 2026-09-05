@@ -26,9 +26,10 @@ from service.api_core.console_prompts import (
     should_answer,
 )
 from service.api_core.events import _append_terminal_control, _append_terminal_event
-from service.api_core.terminal_status import _terminal_status_transition
+from service.api_core.terminal_status import _TERMINAL_END_STATUSES, _terminal_status_transition
 from service.clock import now as _now
 from service.api_core.terminal_tail_buffer import (
+    pending,
     current_tail,
     forget,
     mark_flushed,
@@ -58,9 +59,19 @@ def _trim_terminal_output(text: str, max_chars: int = 65536) -> str:
     return tail
 
 
-async def _append_terminal_output(db, terminal, output: str, *, status: str = "", seq: Optional[int] = None):
+async def _append_terminal_output(
+    db, terminal, output: str, *, status: str = "", seq: Optional[int] = None, settle: bool = False,
+):
     chunk = str(output or "")
-    if not chunk and not status:
+    if not chunk and not status and not settle:
+        return
+    # A SETTLE IS A WRITE WITH NO NEW BYTES, for a terminal that has gone quiet. The held tail was
+    # going to be written by the next chunk and no next chunk is coming; `current_tail` below
+    # returns it, so nothing here needs special-casing except knowing to proceed.
+    #
+    # NOTHING HELD MEANS NOTHING TO DO. Output that arrived after the settle was scheduled has
+    # already written it, which is the common case on a busy terminal.
+    if settle and pending(str(terminal["id"])) is None:
         return
     # THE BUFFER IS THE TRUTH BETWEEN FLUSHES. The tail is written on a slower cadence than the
     # stream (see `terminal_tail_buffer`), so the ROW is stale whenever a write was skipped --
@@ -95,8 +106,13 @@ async def _append_terminal_output(db, terminal, output: str, *, status: str = ""
     # AN ENDING TERMINAL FLUSHES, whatever the cadence says: the last screen of a worker that died is
     # the one an operator reads to find out why, and it is the one the tail's whole 24-hour TTL is
     # about. `terminal_diagnostics` reads it to say which line explains the death.
-    ending = next_status in {"stopped", "failed"}
-    write_tail = record(str(terminal["id"]), next_output, seq) or ending
+    # DERIVED, NOT RETYPED. This read `{"stopped", "failed"}` while the vocabulary has six
+    # members, so a terminal ending as `ended`, `cancelled`, `lost` or `completed` got neither the
+    # forced final write nor the `forget()` that releases its buffer -- and `routers/terminals.py`
+    # closes such a terminal out using the full set on the same request, so the two disagreed
+    # about what "ended" means.
+    ending = next_status in _TERMINAL_END_STATUSES
+    write_tail = record(str(terminal["id"]), next_output, seq) or ending or settle
 
     # `updated_at` NEVER LAGS. It is the freshness a reporting host is recognised by --
     # `_active_terminal_for_agent` keys ownership on it -- so a lazy tail must not make a live worker

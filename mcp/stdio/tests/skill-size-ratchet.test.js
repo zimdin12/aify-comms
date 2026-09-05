@@ -88,7 +88,13 @@ const CEILINGS = {
   //
   // Paid by being the shortest thing that changes the reader's first move: it names the two commands
   // that answer the question and the three shapes the failure takes, and nothing else.
-  "aify-comms-debug/references/dispatch-launch.md": 14_926,
+  // 14_926 -> 14_867 on 2026-09-05. It went DOWN while GAINING two safety facts, so record why
+  // rather than leaving the ceiling slack. Added: `pkill -f aify-comms` matches the CHECKOUT PATH
+  // two lines below it in the same recipe, so it kills the operator's own shell and no service;
+  // and starting a second aify-env reaps the first one's workers. Paid for by retiring four stale
+  // instructions to `restart the Windows aify-comms bridge` -- a component v0.6.1 removed, so the
+  // file was telling an operator to restart something that does not exist.
+  "aify-comms-debug/references/dispatch-launch.md": 14_867,
   "aify-comms-debug/references/hermes-session.md": 27_285,
   "aify-comms-debug/references/hermes-turns.md": 15_996,
   "aify-comms-debug/references/lifecycle.md": 6_704,

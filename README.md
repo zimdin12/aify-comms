@@ -397,7 +397,7 @@ fresh checkout has to fetch dependencies once before it can render a launcher.
 | `service/runtimes/` | Python mirror of `mcp/stdio/adapters/` — runtime capabilities + Plan 3 console/delivery (per-language adapter packages so server and bridge can each own their concerns). See `docs/superpowers/specs/2026-05-25-runtime-adapter-plan2-capabilities-design.md`. |
 | `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
 | `.claude/skills/aify-comms*/` | Agent-facing usage + debug skills. Mirrored under `.agents/skills/` for Codex. |
-| `install.sh` | Client installer. Targets Claude, Codex, and Hermes via `--client`. Pi and OpenCode client/resident wrapper installs are disabled; their managed runtimes use a shared environment bridge installed by a supported client. |
+| `install.sh` | Client installer. Targets Claude, Codex, and Hermes via `--client`. Pi and OpenCode client/resident wrapper installs are disabled; their managed runtimes are hosted by aify-env, the host tier, which a supported client's install sets up. |
 | `redeploy.sh` | Plan 4 helper. Auto-detects installed `*-aify` wrappers at `~/.local/bin/` and re-runs `install.sh --client X SERVER_URL` for each. Run after pulling new aify-comms changes to refresh wrappers. |
 
 ## Setup
@@ -420,7 +420,7 @@ bash install.sh --client hermes http://localhost:8800 --with-hook
 # OpenCode wrapper/config install is intentionally disabled until it gets a
 # focused integration validation pass.
 # Pi/OMP wrapper install is intentionally disabled: managed Pi uses the
-# environment bridge plus persistent `omp --mode rpc`, not `omp-aify`.
+# host tier (aify-env) plus persistent `omp --mode rpc`, not `omp-aify`.
 ```
 
 After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills. As a convenience after `git pull`, run `./redeploy.sh` — it auto-detects every `*-aify` wrapper installed at `~/.local/bin/` and re-runs `install.sh --client X` for each, so you don't have to remember which clients are installed on the host.

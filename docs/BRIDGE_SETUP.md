@@ -101,11 +101,15 @@ npm --prefix mcp/stdio rebuild node-pty
 
 Restart the `aify-comms` bridge after a successful repair.
 
-For WSL, run this from the WSL distro that owns the runtime CLI and workspace paths. Use Linux paths such as `/mnt/c/Docker/project`, not `C:/Docker/project`. Add extra roots only when you want one bridge command to cover multiple workspace trees:
+For WSL, run this from the WSL distro that owns the runtime CLI and workspace paths. Use Linux paths such as `/mnt/c/Docker/project`, not `C:/Docker/project`. Add extra roots only when you want one host to cover multiple workspace trees:
 
 ```bash
-aify-comms /mnt/c/Docker /home/you/work
+aify-env /mnt/c/Docker /home/you/work
 ```
+
+**`aify-comms` no longer takes roots, or anything else.** It is a verifier and starts nothing;
+the words above used to start an environment bridge that superseded the running one and reaped
+its managed workers. The host tier is aify-env.
 
 If `aify-comms` is not found in WSL, add the install directory to PATH for the current shell:
 
@@ -204,14 +208,21 @@ System shape:
 Dashboard/service (:8800)
   |  chats, agents, sessions, runs, artifacts
   v
-aify-comms environment bridge
-  |  claims managed spawn/run work for one host/runtime environment
+aify-env  (the HOST TIER, one per host)
+  |  owns processes and PTYs; claims managed spawn/run work; streams consoles
+  |  its aify-comms plugin is the only part that knows this service exists
   v
 Runtime adapter
   |  Claude Code / Codex / Hermes / OpenCode / Oh My Pi in a selected workspace
   v
 Agent session
 ```
+
+This diagram said `aify-comms environment bridge` in that middle box until 2026-09-05, which is the
+shape v0.6.1 retired: `aify-comms` starts nothing now and exits 2 naming aify-env. Two spawners on
+one host is the collision the environment tier exists to end, so a spawn fails loudly rather than
+falling back — which means a reader following the old shape would be looking for a component that is
+deliberately absent.
 
 ### Moving Between Managed And Resident
 

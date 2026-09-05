@@ -682,7 +682,12 @@ solved it by narrowing to one runtime. See D9.
   **STILL OPEN under B1:** the remaining "good" is B2's design pass, and nothing here has been seen
   in a browser -- 31 tests drive the logic and the DOM layer through fake elements, which is how this
   repo tests dashboard modules, but the rendered result is unverified until someone opens it.
-- **B2. A design / UI / UX pass** (08-30, and 08-25's *"easy improvement oportunities (also in
+- **B2. CLOSED BY THE OPERATOR 2026-09-05.** Asked whether the remaining visual/UX half was about
+  the dashboard and told: *"if so then lets skip it"*. The MEASURABLE half shipped at `5b9dafee`
+  (accessible names for nine controls, two derived censuses); the taste half is not being done, and
+  that is a decision rather than an omission. Do not reopen it without the operator asking.
+
+  Original entry: A design / UI / UX pass (08-30, and 08-25's *"easy improvement oportunities (also in
   dashboard web ui/ux)"*). Row 2 shipped three dead CSS rules and triage-tile keyboard access, which
   is not this.
 - **B3. The console complaints, from May and never closed:** text gets scrambled, encoding issues,
