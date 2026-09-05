@@ -57,10 +57,26 @@ LITERAL_CALL = re.compile(r"""api\(\s*['"`](?P<path>/[^'"`]*\blimit=[^'"`]*)['"`
 #: `/dispatch/runs`: `runQueryPath` assembles its limit with URLSearchParams, so no literal exists.
 PRODUCER_CALL = re.compile(r"""api\(\s*(?P<name>[A-Za-z_$][\w$]*)\s*\(""")
 
+def _recent_page_limit() -> str:
+    """The dashboard's message page size, READ FROM THE MODULE THAT DECLARES IT.
+
+    Writing `80` here would make this file a second place the number lives, and the gate would then
+    govern a path the dashboard had stopped requesting the moment anybody changed one of them. The
+    constant exists precisely because the poll and the history pager must not each carry their own.
+    """
+    source = (DASHBOARD / "message-history.mjs").read_text(encoding="utf-8")
+    found = re.search(r"export const RECENT_PAGE_LIMIT\s*=\s*(\d+)\s*;", source)
+    assert found, "message-history.mjs no longer declares RECENT_PAGE_LIMIT, so this gate cannot resolve its path"
+    return found.group(1)
+
+
 #: Placeholders the dashboard interpolates into literal paths.
 SUBSTITUTIONS = {
     "${encodeURIComponent(name)}": "gate-channel",
     "${encodeURIComponent(state.chat.identity)}": "gate-agent",
+    "${RECENT_PAGE_LIMIT}": _recent_page_limit(),
+    # The history pager's cursor: a millisecond timestamp, so any real one exercises the same route.
+    "${encodeURIComponent(before)}": "1756000000000",
 }
 
 

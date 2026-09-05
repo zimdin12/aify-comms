@@ -483,8 +483,21 @@ export function moduleScopeBrowserRefs(source) {
       // Braced bodies are already excluded by the depth counter, on their own lines. Everything after a
       // braceless `=>` is deferred for the same reason and is not scanned. Over-strict elsewhere is the
       // safe direction: this can only fail a module that was importable, never pass one that is not.
-      const arrow = line.indexOf("=>");
-      const scanned = arrow !== -1 && !line.slice(arrow).includes("{") ? line.slice(0, arrow) : line;
+      // A MODULE SPECIFIER IS NOT A REFERENCE. `import { X } from './message-history.mjs';` matches
+      // /\bhistory\b/ inside the PATH, and an import specifier dereferences nothing — the statement is
+      // declarative and hoisted. It reported `refresh-cycle.mjs` as unimportable for importing a module
+      // whose FILENAME contains a browser global, which no amount of care in that module could fix.
+      //
+      // ONLY THE QUOTED PATH IS REMOVED, not the line. `import x from './a.mjs'; history.back();` is
+      // legal on one line and must still be caught; the test below pins that, so this exemption cannot
+      // widen into "an import line is never scanned".
+      const withoutSpecifier = /^(?:import|export)\b/.test(bare)
+        ? line.replace(/(\bfrom\s*|^\s*import\s*)(['"])[^'"]*\2/, "$1$2$2")
+        : line;
+      const arrow = withoutSpecifier.indexOf("=>");
+      const scanned = arrow !== -1 && !withoutSpecifier.slice(arrow).includes("{")
+        ? withoutSpecifier.slice(0, arrow)
+        : withoutSpecifier;
       for (const g of BROWSER_GLOBALS) {
         if (!new RegExp(`\\b${g}\\b`).test(scanned)) continue;
         // `typeof X !== 'undefined' ? X : null` does NOT run browser code on import: `typeof` is the one

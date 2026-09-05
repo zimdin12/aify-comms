@@ -251,7 +251,12 @@ class NewDashboardAppTest(unittest.TestCase):
         self.assertEqual(html.count('id="run-list"'), 1)
         self.assertIn("function renderSessionWorkspace", script)
         self.assertIn("function groupedSessionsByEnvironment", script)
-        self.assertIn("/messages/recent?limit=80", script)
+        # THE PATH, NOT ITS PAGE SIZE. This pinned `/messages/recent?limit=80` as literal text, so it
+        # went red when the 80 became `${RECENT_PAGE_LIMIT}` — a constant introduced precisely so the
+        # poll and the history pager could not drift apart. The assertion here is that the dashboard
+        # still asks this endpoint for a bounded page; how the bound is spelled is not this test's
+        # business, and `test_a_capped_list_says_it_is_capped.py` governs the number itself.
+        self.assertRegex(script, r"/messages/recent\?limit=(?:\d+|\$\{[A-Za-z_$][\w$]*\})")
         self.assertIn("function renderSessionBulkToolbar", script)
         self.assertIn("function selectedSessionIds", script)
         self.assertIn("function requestBulkSessionControl", script)

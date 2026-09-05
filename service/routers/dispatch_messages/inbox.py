@@ -177,8 +177,29 @@ async def get_inbox(
 async def recent_messages(
     request: Request,
     limit: int = Query(80, ge=1, le=250),
+    before: int | None = Query(None, ge=0),
 ):
-    """Recent human-scale message activity without channel fanout duplicates."""
+    """Recent human-scale message activity without channel fanout duplicates.
+
+    `before` PAGES BACKWARDS INTO HISTORY, and it exists because there was no way to. The dashboard
+    holds ONE global window of the newest `limit` rows and filters it per conversation, so an
+    operator whose manager sent 137 messages could see the 43 that happened to fall inside the
+    newest 80 -- and reported it as messages being deleted. Nothing was deleted; the other 94 were
+    never asked for, and no parameter existed to ask.
+
+    INCLUSIVE (`<=`), not exclusive, and the client de-duplicates by id. `timestamp` is
+    milliseconds and ids are unique, but two messages CAN share a millisecond -- a channel fanout
+    writes several in one loop. An exclusive cursor drops every row tying with the page boundary,
+    which is silent message loss of exactly the kind being fixed here; an inclusive one re-sends a
+    row the client already holds, which costs nothing. Given the choice between a gap and an
+    overlap in a history view, the overlap is the only safe one.
+
+    ORDER BY IS DELIBERATELY UNCHANGED. Making the sort a compound `(timestamp, id)` would give a
+    total order and let the cursor be exclusive, but `idx_messages_timestamp` indexes `timestamp`
+    alone -- so the planner would fall back to `USE TEMP B-TREE FOR ORDER BY` over the 33k rows this
+    predicate matches, on an endpoint every open tab polls every 15s. That is the exact regression
+    the `+m.source` comment below exists to prevent, and it is not worth buying an exclusive cursor.
+    """
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -187,6 +208,8 @@ async def recent_messages(
             FROM messages m
             LEFT JOIN read_receipts rr ON rr.message_id = m.id AND rr.agent_id = m.to_agent
             WHERE
+              (? IS NULL OR m.timestamp <= ?)
+              AND
               -- `+m.source` TELLS SQLite NOT TO INDEX THESE TWO TERMS, and that is the whole
               -- optimisation. Indexed, the planner takes `MULTI-INDEX OR` over
               -- `idx_messages_source` and then `USE TEMP B-TREE FOR ORDER BY`: it materialises and
@@ -194,12 +217,14 @@ async def recent_messages(
               -- 2026-08-29 -- 33,619 of 34,107 messages match this predicate, so that is a 33,619-row
               -- sort per poll, growing with a table that has no retention. Un-indexed, it walks
               -- `idx_messages_timestamp` in order and stops at 81. Same 81 rows, same order, verified.
-              (+m.source = 'direct' AND m.to_agent IS NOT NULL)
-              OR (+m.source = 'channel' AND m.to_agent IS NULL)
+              (
+                (+m.source = 'direct' AND m.to_agent IS NOT NULL)
+                OR (+m.source = 'channel' AND m.to_agent IS NULL)
+              )
             ORDER BY m.timestamp DESC
             LIMIT ?
             """,
-            (limit + 1,),
+            (before, before, limit + 1),
         )
         # ONE ROW WIDER THAN THE PAGE, so the response can say whether this is the whole answer -- the
         # same shape as /sessions, /dispatch/runs, /contracts and /terminals.
@@ -245,7 +270,7 @@ async def recent_messages(
         # three repos, so this is a removal made on the evidence available, not on proof of absence.
         #
         # `truncated` answers the question the name was reaching for, exactly, and costs nothing.
-        return {"ok": True, "messages": messages, "truncated": truncated, "limit": limit}
+        return {"ok": True, "messages": messages, "truncated": truncated, "limit": limit, "before": before}
     finally:
         await db.close()
 

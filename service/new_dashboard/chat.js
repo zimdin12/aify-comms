@@ -11,6 +11,7 @@ import { fleetPulseHtml } from './analytics.js';
 // went to `chat-render.mjs` before them. What remains here is the controller — the part that needs
 // a document — and it is the only caller of both.
 import { chatConversationItems, dmMessages, sortChronological } from './chat-select.mjs';
+import { anchoredScrollTop } from './message-history.mjs';
 // The pure HTML builders left for `chat-render.mjs` in v0.5.4 — data in, string out, no app state and
 // no DOM. The controller below is their only caller here; `chat.test.mjs` imports them from their new
 // owner rather than through this module, so nothing re-exports them.
@@ -24,7 +25,7 @@ import {
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
 // refresh, loadConversation, loadAgentAnalytics, ... } (channel loading is driven from app.js).
 export function createChatController(deps) {
-  const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts, restoreDraft } = deps;
+  const { state, byId, sendMessage, refresh, loadConversation, loadAgentAnalytics, mountChatConsole, loadPulse, persistDrafts, restoreDraft, history } = deps;
   // Answering a peer marks their messages read (see send()). Defaulted to a no-op so the unit tests
   // can construct the controller without stubbing the read API.
   const markConversationRead = typeof deps.markConversationRead === 'function'
@@ -203,7 +204,10 @@ export function createChatController(deps) {
     // idempotent for channel rows (already roughly ordered), and stable across polls.
     const allMsgs = sortChronological(isChannel
       ? (state.chat.channelMessages?.[id] || [])
-      : dmMessages(state.messages, id, state.chat.identity));
+      // THE LIVE WINDOW PLUS PAGED-IN HISTORY. `state.messages` is the newest 80 rows across the
+      // WHOLE FLEET, so a busy day pushes one peer's older messages out of a window they were
+      // never individually allotted -- which the operator read as messages being deleted.
+      : dmMessages(history ? history.combined(state.messages) : state.messages, id, state.chat.identity));
     // Per-message search within the open conversation (WS-H2).
     const msgFilter = String(state.chat.msgFilter || '').trim().toLowerCase();
     const search = byId('chat-msg-search');
@@ -217,9 +221,17 @@ export function createChatController(deps) {
     const nearBottom = (timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight) < 80;
     const pinBottom = forceScrollBottom;
     forceScrollBottom = false; // one-shot: consumed by this render
+    // WHAT THE TOP OF THE TIMELINE SAYS while paging back. Only on DMs: channels load their own
+    // newest-80 per channel, which is a per-conversation depth rather than a shared fleet window,
+    // so they have nothing to page.
+    const olderBanner = (!isChannel && history && !msgFilter && allMsgs.length)
+      ? (history.loading
+          ? '<p class="chat-search-banner">Loading older messages…</p>'
+          : (history.exhausted ? '<p class="chat-search-banner">Beginning of this conversation.</p>' : ''))
+      : '';
     const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
     timeline.innerHTML = allMsgs.length
-      ? searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
+      ? olderBanner + searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
     if (pinBottom || (nearBottom && !msgFilter)) {
       timeline.scrollTop = timeline.scrollHeight;
@@ -230,6 +242,31 @@ export function createChatController(deps) {
       if (pinBottom && typeof requestAnimationFrame === 'function') {
         requestAnimationFrame(() => { timeline.scrollTop = timeline.scrollHeight; });
       }
+    }
+    // SCROLLING TO THE TOP LOADS OLDER MESSAGES, which is what the operator asked for: "mb it
+    // should not load immidietly, load in when scrolling in chat". Wired once on the element, the
+    // same way the scroll-to-newest button below is -- a listener added per render would fire N
+    // times per scroll after N polls.
+    if (history && !timeline.dataset.olderWired) {
+      timeline.dataset.olderWired = '1';
+      timeline.addEventListener('scroll', () => {
+        // CHECKED AT FIRE TIME, never captured: this listener outlives the render that added it, so
+        // the conversation on screen when it runs is not the one that wired it.
+        if (!String(state.chat.selected || '').startsWith('dm:')) return;
+        if (history.loading || history.exhausted) return;
+        if (timeline.scrollTop > 120) return;
+        const prevHeight = timeline.scrollHeight;
+        const prevTop = timeline.scrollTop;
+        // The banner has to appear straight away, or a slow page reads as a dead scroll.
+        const inFlight = history.loadOlder(state.messages);
+        render();
+        inFlight.then((added) => {
+          render();
+          // Older messages are prepended ABOVE the reading position, so holding scrollTop would
+          // teleport the operator backwards by exactly the height just inserted.
+          if (added) timeline.scrollTop = anchoredScrollTop(prevHeight, prevTop, timeline.scrollHeight);
+        }).catch(() => { render(); /* the store already released its in-flight guard */ });
+      }, { passive: true });
     }
     // Scroll-to-newest button: wire its scroll listener + click once, and refresh visibility now.
     const scrollBtn = byId('chat-scroll-bottom');

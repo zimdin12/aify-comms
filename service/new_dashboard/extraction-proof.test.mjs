@@ -48,6 +48,16 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: entry after it left.
 const CARRIER_EDITS = [
   {
+    // The paging store is imported beside the modules the orchestrator already consumes.
+    now: [
+      "import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
+      "import { createMessageHistory } from './message-history.mjs';",
+    ],
+    was: [
+      "import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
+    ],
+  },
+  {
     // v0.6.3 draft restore: app.js consumes one more name from chat-prefs.
     now: [
       "import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';",
@@ -62,6 +72,9 @@ const CARRIER_EDITS = [
     now: [
       "  persistDrafts: () => persistChatDrafts(),",
       "  restoreDraft: () => restoreChatDraft(),",
+      "  // OLDER MESSAGES, ON DEMAND. The poll owns the newest page and replaces it every cycle; this",
+      "  // owns everything older and is only appended to, so the two cannot fight over one array.",
+      "  history: createMessageHistory(api),",
     ],
     was: [
       "  persistDrafts: () => persistChatDrafts(),",
@@ -2532,6 +2545,17 @@ const EXTRACTIONS = [
         ],
                 editedSince: [
           {
+            // ONE OWNER FOR THE PAGE SIZE. `limit=80` was a literal here while the pager that walks
+            // back through history needed the same number; two literals agree until somebody changes
+            // one, and the symptom is a scrollback that skips a block at every page boundary.
+            was: [
+              "    api('/messages/recent?limit=80'),                                     // 3",
+            ],
+            now: [
+              "    api(`/messages/recent?limit=${RECENT_PAGE_LIMIT}`),                     // 3",
+            ],
+          },
+          {
             was: [
               "      const agentId = session.agentId || session.agent_id;",
             ],
@@ -3995,6 +4019,21 @@ test("the browser-globals check separates LOAD-TIME access from a deferred funct
     "…and must not be excused by an arrow appearing LATER on the same line");
   assert.equal(moduleScopeBrowserRefs(["const f = () => {", "document.title = 1;", "};"].join(LF)).length, 0,
     "a braced body was already excluded by the depth counter; that behaviour is unchanged");
+
+  // A MODULE SPECIFIER IS A PATH, NOT A DEREFERENCE. `message-history.mjs` contains the browser
+  // global `history`, so importing it was reported as module-scope browser code -- a verdict the
+  // importing module could do nothing about.
+  assert.deepEqual(moduleScopeBrowserRefs("import { RECENT_PAGE_LIMIT } from './message-history.mjs';"), [],
+    "an import PATH containing a global's name is not a reference to it");
+  assert.deepEqual(moduleScopeBrowserRefs("export { x } from './window-utils.mjs';"), [], "…re-exports too");
+  assert.deepEqual(moduleScopeBrowserRefs("import './document-styles.mjs';"), [], "…and a side-effect import");
+
+  // AND THE EXEMPTION IS THE PATH, NOT THE LINE. Two statements on one line are legal, and an import
+  // must not become a place to hide a load-time dereference.
+  assert.equal(moduleScopeBrowserRefs("import x from './a.mjs'; history.back();").length, 1,
+    "code after an import on the same line is still module-scope browser access");
+  assert.equal(moduleScopeBrowserRefs("import { document } from './a.mjs';").length, 1,
+    "a BINDING named after a global is still flagged; only the quoted path is excused");
 });
 
 test("the browser-globals check honours a typeof guard, but only for the global it guards", () => {

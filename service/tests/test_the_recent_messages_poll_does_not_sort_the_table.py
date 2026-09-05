@@ -84,7 +84,7 @@ class TheRecentMessagesPollDoesNotSortTheTableTests(unittest.TestCase):
         db = _seeded()
         try:
             plan = [row[-1] for row in db.execute(
-                "EXPLAIN QUERY PLAN " + _recent_messages_statement(), (81,)
+                "EXPLAIN QUERY PLAN " + _recent_messages_statement(), (None, None, 81)
             )]
         finally:
             db.close()
@@ -107,7 +107,7 @@ class TheRecentMessagesPollDoesNotSortTheTableTests(unittest.TestCase):
         self.assertNotEqual(indexed, _recent_messages_statement(), "the hint is already gone")
         db = _seeded()
         try:
-            plan = " | ".join(row[-1] for row in db.execute("EXPLAIN QUERY PLAN " + indexed, (81,)))
+            plan = " | ".join(row[-1] for row in db.execute("EXPLAIN QUERY PLAN " + indexed, (None, None, 81)))
         finally:
             db.close()
         self.assertIn("TEMP B-TREE", plan, (
@@ -121,8 +121,8 @@ class TheRecentMessagesPollDoesNotSortTheTableTests(unittest.TestCase):
         indexed = sql.replace("+m.source", "m.source")
         db = _seeded()
         try:
-            hinted_rows = [r[0] for r in db.execute(sql, (81,))]
-            indexed_rows = [r[0] for r in db.execute(indexed, (81,))]
+            hinted_rows = [r[0] for r in db.execute(sql, (None, None, 81))]
+            indexed_rows = [r[0] for r in db.execute(indexed, (None, None, 81))]
         finally:
             db.close()
         self.assertEqual(hinted_rows, indexed_rows)

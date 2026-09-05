@@ -49,6 +49,7 @@ import { copyActiveConsole, copyText } from './clipboard.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
 import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
+import { createMessageHistory } from './message-history.mjs';
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
@@ -165,6 +166,9 @@ const chatController = createChatController({
   loadPulse: (mins) => api(`/analytics/pulse?window_minutes=${encodeURIComponent(mins)}`),
   persistDrafts: () => persistChatDrafts(),
   restoreDraft: () => restoreChatDraft(),
+  // OLDER MESSAGES, ON DEMAND. The poll owns the newest page and replaces it every cycle; this
+  // owns everything older and is only appended to, so the two cannot fight over one array.
+  history: createMessageHistory(api),
   // Replying to a peer clears their unread badge — quiet, since the send already toasts.
   markConversationRead: (agentId, opts) => markConversationRead(agentId, opts),
   // Keep the details drawer pointed at whatever the operator just selected — otherwise its

@@ -22,6 +22,7 @@ import { runQueryPath } from './run-helpers.mjs';
 import { applyTheme } from './theme.js';
 import { byId } from './ui.js';
 import { state } from './state.mjs';
+import { RECENT_PAGE_LIMIT } from './message-history.mjs';
 
 export async function runRefreshCycle({
   armRefreshTimer,
@@ -55,7 +56,7 @@ export async function runRefreshCycle({
     api('/agents'),                                                       // 0
     api('/contracts?limit=80'),                                           // 1
     Promise.resolve(null),                                                // 2 — fetched below, only if needed
-    api('/messages/recent?limit=80'),                                     // 3
+    api(`/messages/recent?limit=${RECENT_PAGE_LIMIT}`),                     // 3
     api(runQueryPath()),                                                  // 4
     api('/sessions?limit=80'),                                            // 5
     api('/environments'),                                                 // 6
