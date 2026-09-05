@@ -25,6 +25,6 @@
     "@opencode-ai/sdk": "^1.4.3",
     "node-pty": "^1.1.0",
     "ws": "^8.18.3",
-    "aify-wrapper": "github:zimdin12/aify-wrapper#e2e7e4f2ac4db51979dcdd1d940a64869348ac50"
+    "aify-wrapper": "github:zimdin12/aify-wrapper#00cc470ab764c5dcd6460d92ba610be8692bb113"
   }
 }
