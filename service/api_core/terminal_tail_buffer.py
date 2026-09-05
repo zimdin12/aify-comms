@@ -137,6 +137,38 @@ def pending(terminal_id: str) -> Optional[dict]:
     return {"tail": held["tail"], "seq": held["seq"]}
 
 
+def snapshot(terminal_id: str) -> Optional[dict]:
+    """A copy of everything held for this terminal, for restoring after a failed write.
+
+    R9-M2, external review 2026-09-06. `_append_terminal_output` folds the chunk into the held tail,
+    marks it flushed and may `forget()` it, and only THEN runs the UPDATE. When that UPDATE throws --
+    the `database is locked` family past the 5s busy timeout is the live trigger -- the write queue
+    requeues the SAME chunk at the front. By then `current_tail` already includes it, so the retry
+    appends it a SECOND time, and `record()` answers False because the interval was just marked, so
+    the retry writes nothing at all. Duplicated bytes in the stored tail, and no write to carry them.
+
+    On the ending path the same failure loses the buffer outright: `forget()` has already run, so the
+    final screen of a worker that died -- the one an operator reads to find out why -- is gone.
+
+    RESTORING BEATS REORDERING. Moving every mutation after the UPDATE would put the live-screen feed
+    after `_answer_console_prompt`, which reads that screen, and would split `record`'s hold from its
+    due-decision on the hottest path in the service. A snapshot and a rollback touch one call site.
+    """
+    held = _BUFFERS.get(str(terminal_id or ""))
+    return dict(held) if held else None
+
+
+def restore(terminal_id: str, snap: Optional[dict]) -> None:
+    """Put a terminal's buffer back exactly as `snapshot` found it, including having held nothing."""
+    key = str(terminal_id or "")
+    if not key:
+        return
+    if snap is None:
+        _BUFFERS.pop(key, None)
+    else:
+        _BUFFERS[key] = dict(snap)
+
+
 def mark_flushed(terminal_id: str, *, now: Optional[float] = None) -> None:
     held = _BUFFERS.get(str(terminal_id or ""))
     if held:

@@ -119,6 +119,8 @@ TERMINAL_SESSION_MIGRATIONS = {
     "argv": "ALTER TABLE terminal_sessions ADD COLUMN argv TEXT DEFAULT ''",
     "output": "ALTER TABLE terminal_sessions ADD COLUMN output TEXT DEFAULT ''",
     "output_seq": "ALTER TABLE terminal_sessions ADD COLUMN output_seq INTEGER DEFAULT 0",
+    # WHEN THE TAIL LAST CHANGED, which is NOT what `updated_at` means (R9-M3).
+    "output_at": "ALTER TABLE terminal_sessions ADD COLUMN output_at TEXT DEFAULT ''",
     # HOW A TERMINAL ENDED, which nothing recorded until 2026-08-26. node-pty hands the bridge
     # `{exitCode, signal}`, `terminal-runtime.js` spreads both into the exit detail, and
     # `terminal-manager.mjs` then posted only an output marker and a status -- so the two numbers that

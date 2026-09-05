@@ -374,6 +374,7 @@ CREATE TABLE IF NOT EXISTS terminal_sessions (
     argv TEXT DEFAULT '',
     output TEXT DEFAULT '',
     output_seq INTEGER DEFAULT 0,
+    output_at TEXT DEFAULT '',
     status TEXT DEFAULT 'starting',
     requested_by TEXT DEFAULT '',
     process_id TEXT DEFAULT '',

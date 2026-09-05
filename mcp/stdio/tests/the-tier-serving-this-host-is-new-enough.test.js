@@ -118,3 +118,43 @@ test("the minimum is a real version and is DECLARED WITH ITS REASON", () => {
     "the declared minimum no longer says WHICH capability it is about. A version with no reason "
     + "attached is one nobody can decide to raise or lower.");
 });
+
+test("A KINDLESS ROW REPORTING A HIGH VERSION IS STILL UNVERIFIED", () => {
+  // R9-M6, external review 2026-09-06, and it is the same false green wearing a different hat.
+  //
+  // The test above pins a kindless row with NO version. The branch handled that, and handled a
+  // version that was OLDER or UNPARSEABLE -- and let one that parses NEWER fall straight through
+  // recorded as nothing, which the verdict counts as agreement.
+  //
+  // The number is not hypothetical. Before the VERSION file existed the legacy aify-comms bridge
+  // hardcoded `4.0.0` in eight places, and this host still has kindless rows reporting exactly that.
+  // `4.0.0 >= 0.6.2`, so every one of them was being counted as a compliant aify-env.
+  const verdict = tierVersionVerdict({
+    environments: [{ id: "windows:legacy:default", bridgeVersion: "4.0.0", metadata: {} }],
+    isLive: allLive,
+  });
+  assert.equal(
+    verdict.ok, false,
+    "a row that declares no tier kind was counted as a compliant aify-env because the version it "
+    + "reported happened to sort high. Nothing about that row says it is an aify-env at all.",
+  );
+  assert.equal(verdict.code, "unknown-all");
+  assert.match(verdict.detail, /4\.0\.0/, "the operator has to see WHICH version was disbelieved");
+});
+
+test("a kindless row does not drag a properly declared aify-env down with it", () => {
+  // The control. If an undeclared row poisoned the whole verdict, an operator with one legacy row
+  // could never see a green tier-version and would stop reading it.
+  const kindless = { id: "windows:legacy:default", bridgeVersion: "4.0.0", metadata: {} };
+  const declared = row("windows:good:default", { kind: "aify-env", version: "9.9.9" });
+  const both = tierVersionVerdict({ environments: [kindless, declared], isLive: allLive });
+  const alone = tierVersionVerdict({ environments: [declared], isLive: allLive });
+
+  assert.equal(alone.ok, true, "a declared, new-enough aify-env must read green on its own");
+  assert.equal(alone.code, "ok");
+  // With both present the honest answer is still "something here was not verified" -- but it must
+  // name the kindless row, not the healthy one.
+  assert.equal(both.ok, false);
+  assert.match(both.detail, /legacy/, "the unverified row is the one that must be named");
+  assert.doesNotMatch(both.detail, /9\.9\.9/, "the healthy aify-env must not be reported as a problem");
+});

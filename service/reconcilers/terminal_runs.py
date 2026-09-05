@@ -225,7 +225,18 @@ async def _close_idle_claude_terminal_run_without_reply(db, row, *, quiet_second
     hint = _terminal_idle_prompt_hint(terminal["output"] or "")
     if not hint:
         return False
-    updated_epoch = _iso_to_epoch(str(terminal["updated_at"] or "").strip())
+    # THE TAIL'S OWN CLOCK, not the row's (R9-M3, external review 2026-09-06).
+    #
+    # This read `updated_at`, which means "a host reported this terminal" and is bumped by every
+    # contentless liveness frame -- one per handled terminal per aify-env control pass. So the
+    # twenty seconds of quiet this gate waits for were reset by traffic that carries no output at
+    # all, and a run whose agent had gone idle sat `running` for extra sweeps or indefinitely.
+    #
+    # `output_at` moves only when the stored tail moves. Falls back to `updated_at` for a row written
+    # before the column existed: that is the old behaviour, which is wrong in the same direction as
+    # before rather than newly wrong, and it self-corrects on the terminal's next chunk.
+    output_at = str((terminal["output_at"] if "output_at" in terminal.keys() else "") or "").strip()
+    updated_epoch = _iso_to_epoch(output_at or str(terminal["updated_at"] or "").strip())
     run_epoch = max(
         _iso_to_epoch(row["started_at"] if "started_at" in row.keys() else ""),
         _iso_to_epoch(row["claimed_at"] if "claimed_at" in row.keys() else ""),
@@ -298,7 +309,18 @@ async def _close_idle_pi_terminal_run_without_reply(db, row, *, quiet_seconds: i
     hint = _terminal_pi_idle_prompt_hint(terminal["output"] or "")
     if not hint:
         return False
-    updated_epoch = _iso_to_epoch(str(terminal["updated_at"] or "").strip())
+    # THE TAIL'S OWN CLOCK, not the row's (R9-M3, external review 2026-09-06).
+    #
+    # This read `updated_at`, which means "a host reported this terminal" and is bumped by every
+    # contentless liveness frame -- one per handled terminal per aify-env control pass. So the
+    # twenty seconds of quiet this gate waits for were reset by traffic that carries no output at
+    # all, and a run whose agent had gone idle sat `running` for extra sweeps or indefinitely.
+    #
+    # `output_at` moves only when the stored tail moves. Falls back to `updated_at` for a row written
+    # before the column existed: that is the old behaviour, which is wrong in the same direction as
+    # before rather than newly wrong, and it self-corrects on the terminal's next chunk.
+    output_at = str((terminal["output_at"] if "output_at" in terminal.keys() else "") or "").strip()
+    updated_epoch = _iso_to_epoch(output_at or str(terminal["updated_at"] or "").strip())
     run_epoch = max(
         _iso_to_epoch(row["started_at"] if "started_at" in row.keys() else ""),
         _iso_to_epoch(row["claimed_at"] if "claimed_at" in row.keys() else ""),

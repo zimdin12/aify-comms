@@ -32,6 +32,8 @@ from service.api_core.terminal_tail_buffer import (
     pending,
     current_tail,
     forget,
+    restore,
+    snapshot,
     mark_flushed,
     record,
 )
@@ -112,6 +114,11 @@ async def _append_terminal_output(
     # closes such a terminal out using the full set on the same request, so the two disagreed
     # about what "ended" means.
     ending = next_status in _TERMINAL_END_STATUSES
+    # WHAT THE BUFFER HELD BEFORE THIS CALL TOUCHED IT (R9-M2). `record` below folds the chunk in and
+    # marks the interval; `forget` on the ending path drops it entirely. Both happen BEFORE the UPDATE,
+    # and the write queue requeues the same chunk when that UPDATE throws -- so without this the retry
+    # appends the chunk a second time and `record` answers False, writing nothing.
+    held_before = snapshot(str(terminal["id"]))
     write_tail = record(str(terminal["id"]), next_output, seq) or ending or settle
 
     # `updated_at` NEVER LAGS. It is the freshness a reporting host is recognised by --
@@ -128,6 +135,18 @@ async def _append_terminal_output(
         # Lagging them together keeps the row self-consistent.
         updates.append("output = ?")
         params.append(next_output)
+        # WHEN THE TAIL CHANGED, recorded because `updated_at` cannot answer that question (R9-M3,
+        # external review 2026-09-06). `updated_at` is deliberately the freshness a REPORTING HOST is
+        # recognised by, and `_record_host_reported_alive` bumps it on every contentless liveness
+        # frame -- one per handled terminal per aify-env control pass, at most 25s apart. The
+        # idle-close gates in `terminal_runs` wanted 20 seconds of OUTPUT quiet and read that field,
+        # so control traffic alone kept resetting their clock and terminal-mode runs to claude and pi
+        # sat `running` for extra sweeps or indefinitely.
+        #
+        # Written HERE, beside `output` and `output_seq`, so all three move together or not at all --
+        # the same pairing the lazy tail already depends on.
+        updates.append("output_at = ?")
+        params.append(_now())
         if seq is not None:
             updates.append("output_seq = ?")
             params.append(int(seq))
@@ -143,10 +162,18 @@ async def _append_terminal_output(
             # for the life of the process.
             forget(str(terminal["id"]))
     params.append(terminal["id"])
-    await db.execute(
-        f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE id = ?",
-        tuple(params),
-    )
+    try:
+        await db.execute(
+            f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE id = ?",
+            tuple(params),
+        )
+    except BaseException:
+        # THE BUFFER GOES BACK EXACTLY AS IT WAS, so the requeued chunk is folded in once rather than
+        # twice and the retry still finds the interval un-marked. On the ending path this also puts
+        # back the tail `forget` dropped -- the final screen of a worker that died, which is the one
+        # an operator reads to find out why.
+        restore(str(terminal["id"]), held_before)
+        raise
     if chunk:
         await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])
         # ANSWERED HERE, WHERE THE SCREEN IS CURRENT, and that placement is the whole fix.

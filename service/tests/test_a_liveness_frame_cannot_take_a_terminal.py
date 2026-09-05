@@ -37,7 +37,7 @@ TERMINAL = "term-m6"
 class ALivenessFrameCannotTakeATerminalTests(FastApiTestCase):
     DB_NAME = "aify-test-liveness-frame-takeover.db"
 
-    def _seed(self, *, status: str, bridge_id: str):
+    def _seed(self, *, status: str, bridge_id: str, command: str = VIRTUAL_RPC):
         # THE AGENT AND SESSION EXIST FIRST. `terminal_sessions` carries foreign keys, so seeding the
         # terminal alone fails with `FOREIGN KEY constraint failed` -- which reads like the route
         # refusing the frame rather than the fixture being incomplete.
@@ -66,7 +66,7 @@ class ALivenessFrameCannotTakeATerminalTests(FastApiTestCase):
                     "INSERT OR REPLACE INTO terminal_sessions (id, agent_id, session_id, "
                     "environment_id, runtime, bridge_id, command, workspace, status, output, error, "
                     "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (TERMINAL, "a1", "s1", "e1", "codex", bridge_id, VIRTUAL_RPC, "C:/work",
+                    (TERMINAL, "a1", "s1", "e1", "codex", bridge_id, command, "C:/work",
                      status, "", "", "2026-09-04T00:00:00Z", "2026-09-04T00:00:00Z"),
                 )
                 await db.commit()
@@ -175,3 +175,40 @@ class ALivenessFrameCannotTakeATerminalTests(FastApiTestCase):
         self._frame("", output="")
         owner, _status = self._row()
         self.assertEqual(owner, "bridge-A")
+
+    def test_AN_EMPTY_FRAME_CANNOT_TAKE_A_REAL_PTY(self):
+        """R9-M5, external review 2026-09-06, and the guard above was mine.
+
+        Recording the reporting host as owner had no `is_virtual_rpc` check, so an EMPTY frame could
+        take a real PTY that a byte-carrying frame from the same host is 409'd on.
+        `_settle_bridge_takeover_for_output` refuses that case in as many words: "A real PTY has one
+        owner, and silently accepting output from a second bridge would interleave two processes into
+        one screen." Input and resize then routed to the new id, and the real owner's next byte frame
+        409'd -- so a contentless frame ended up with MORE authority than one carrying bytes.
+
+        The synth-terminal case above is unaffected: that is the one this guard was built for, where a
+        fresh bridge id after an aify-env restart is ordinary and no process is at stake.
+        """
+        self._seed(status="running", bridge_id="bridge-A", command="claude --dangerously-skip-permissions")
+        self._frame("bridge-B", output="")
+        owner, status = self._row()
+        self.assertEqual(
+            owner, "bridge-A",
+            "an empty frame took ownership of a REAL PTY. A frame carrying bytes would have been "
+            "409'd for exactly this, so the contentless one must not do more.",
+        )
+        self.assertEqual(status, "running", "and it must not have touched status either")
+
+    def test_a_BYTE_frame_is_still_refused_on_that_same_real_PTY(self):
+        """The control that makes the assertion above mean something: the settlement path's 409 is
+        what this guard is being brought into line with, so it has to actually fire here."""
+        self._seed(status="running", bridge_id="bridge-A", command="claude --dangerously-skip-permissions")
+        response = self._client.post(
+            f"/api/v1/terminals/{TERMINAL}/output",
+            json={"output": "hello", "bridgeId": "bridge-B"},
+        )
+        self.assertEqual(
+            response.status_code, 409,
+            "the settlement path no longer refuses a second bridge on a real PTY, so the rule this "
+            "guard was aligned with has moved and the alignment needs revisiting",
+        )

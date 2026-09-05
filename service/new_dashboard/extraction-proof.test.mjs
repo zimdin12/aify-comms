@@ -2317,6 +2317,81 @@ const EXTRACTIONS = [
         editedSince: [
           {
             was: [
+              "    if (state.activeXterm) { state.activeXterm.renderedCols = term.cols; state.activeXterm.fitCols = term.cols; }",
+            ],
+            now: [
+              "    if (stillMine()) { mine.renderedCols = term.cols; mine.fitCols = term.cols; }",
+            ],
+          },
+          {
+            was: [
+              "  state.activeXterm = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput, webgl: webglAddon, _themeAccent: terminalAccentColor() };",
+            ],
+            now: [
+              "  // THE ENTRY THIS MOUNT PUBLISHED, held so everything below can ask whether it is still the live",
+              "  // console. `_mountGen` guards the font await at the top and is never consulted again, but three",
+              "  // more awaits follow -- the double rAF, the snapshot GET, and the 700ms resize settle with its",
+              "  // second GET. A session switch inside any of them leaves this continuation writing into the NEXT",
+              "  // console's entry (R9-M1, external review 2026-09-06).",
+              "  //",
+              "  // IDENTITY, NOT A GENERATION COUNTER. `state.activeXterm === mine` asks the question directly and",
+              "  // cannot drift out of step with a counter someone forgets to bump.",
+              "  const mine = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput, webgl: webglAddon, _themeAccent: terminalAccentColor() };",
+              "  state.activeXterm = mine;",
+              "",
+              "  /** True while this mount still owns the console pane. False once a newer mount has replaced it. */",
+              "  const stillMine = () => state.activeXterm === mine;",
+            ],
+          },
+          {
+            was: [
+              "    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);",
+            ],
+            now: [
+              "    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);",
+              "    // SUPERSEDED WHILE THE SNAPSHOT WAS IN FLIGHT. Returning here stops the resize, the 700ms",
+              "    // settle and the second GET as well, all of which would address the PREVIOUS terminal.",
+              "    if (!stillMine()) return;",
+            ],
+          },
+          {
+            was: [
+              "    applyRenderedWidth(state.activeXterm, term, container, data, ownsPty);",
+              "    if (state.activeXterm) state.activeXterm.ownsPty = ownsPty;",
+            ],
+            now: [
+              "    // WRITING `ownsPty` INTO SOMEONE ELSE'S ENTRY IS THE WORST OF THESE. A stale `managed` verdict",
+              "    // landing on a RESIDENT console makes the dashboard resize the operator's own terminal, which",
+              "    // the mode check exists to prevent.",
+              "    if (!stillMine()) return;",
+              "    applyRenderedWidth(mine, term, container, data, ownsPty);",
+              "    mine.ownsPty = ownsPty;",
+            ],
+          },
+          {
+            was: [
+              "    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? state.activeXterm.lastSeq);",
+            ],
+            now: [
+              "    // AND THE SEQ LAST. A previous terminal's seq written here is almost always HIGHER than the new",
+              "    // console's, and `realtime-socket.mjs` drops every frame at or below `lastSeq` -- so the new",
+              "    // console renders its snapshot and then never moves again.",
+              "    if (stillMine()) mine.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? mine.lastSeq);",
+            ],
+          },
+          {
+            was: [
+              "        await new Promise((res) => setTimeout(res, 700));   // let the app repaint",
+              "        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);",
+            ],
+            now: [
+              "        await new Promise((res) => setTimeout(res, 700));   // let the app repaint",
+              "        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);",
+              "        if (!stillMine()) return;",
+            ],
+          },
+          {
+            was: [
               "    const _tid = String(terminalId || '');",
               "    const _sess = (state.sessions || []).find(",
               "      (x) => String(x?.terminalId || x?.terminal?.id || x?.terminal_id || '') === _tid);",

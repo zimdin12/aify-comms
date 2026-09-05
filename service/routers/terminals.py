@@ -512,8 +512,22 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             terminal_active = (
                 str(terminal["status"] or "").strip().lower() in _TERMINAL_ACTIVE_STATUSES
             )
+            # AND ONLY A VIRTUAL-RPC TERMINAL, which is R9-M5 (external review 2026-09-06).
+            #
+            # This block had no `is_virtual_rpc` check, so an EMPTY frame could take ownership of a
+            # real PTY that a byte-carrying frame from the same host would have been 409'd on --
+            # `_settle_bridge_takeover_for_output` refuses that case in as many words: "A real PTY
+            # has one owner, and silently accepting output from a second bridge would interleave two
+            # processes into one screen." Input and resize then routed to the new id and the real
+            # owner's next byte frame 409'd. A contentless frame ending up with MORE authority than
+            # one carrying bytes is the wrong way round, and it was my own guard that did it.
+            #
+            # ONE RULE FOR OWNERSHIP, not two that disagree. The settlement path decides who owns a
+            # real PTY; this decides only the synth terminals it already governs, where a fresh
+            # bridge id after an aify-env restart is the ordinary case and no process is at stake.
             if (
                 terminal_active
+                and is_virtual_rpc
                 and new_bridge_id
                 and existing_bridge_id
                 and new_bridge_id != existing_bridge_id

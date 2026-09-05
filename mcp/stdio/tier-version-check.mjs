@@ -110,14 +110,32 @@ export function tierVersionVerdict({ environments = [], minimum = MINIMUM_AIFY_E
     // So an undeclared row is reported as no evidence. The legacy-bridge reading of it is covered by
     // its own rows, with their own remedies: H4's refusal and `bridge-current`.
     if (kind && kind !== "aify-env") continue;
+
+    // A KINDLESS ROW IS NEVER COMPLIANT, WHATEVER VERSION IT REPORTS (R9-M6, external review
+    // 2026-09-06). The paragraph above already says an undeclared row is unverified rather than
+    // skipped, and the code below implemented that for a version that was UNPARSEABLE or OLDER --
+    // and let one that parses NEWER fall through recorded as nothing, which is counted as agreement.
+    //
+    // That is not hypothetical arithmetic. The legacy aify-comms bridge hardcoded `4.0.0` in eight
+    // places before the version file existed, and this host still has kindless rows reporting it.
+    // `4.0.0 >= 0.6.2`, so every one of them was being counted as a compliant aify-env -- the exact
+    // false green this check was rewritten once already to remove.
+    //
+    // There is no version a kindless row can report that settles the question, because the two
+    // things it might be -- an aify-env too old to declare a kind, and a legacy bridge that is not
+    // an aify-env at all -- are indistinguishable from here. So it is evidence of nothing.
+    if (!kind) {
+      silent.push(
+        `${env?.id || "(no id)"} declares no tier kind`
+        + `${reported ? ` (reported "${reported}")` : " and no version"}`,
+      );
+      continue;
+    }
     examined += 1;
 
     const order = compareVersions(reported, minimum);
     if (order === null) {
-      silent.push(
-        `${env?.id || "(no id)"}${reported ? ` reported "${reported}"` : " reported no version"}`
-        + `${kind ? "" : " and no tier kind"}`,
-      );
+      silent.push(`${env?.id || "(no id)"}${reported ? ` reported "${reported}"` : " reported no version"}`);
     } else if (order < 0) {
       older.push(`${env?.id || "(no id)"} is running aify-env ${reported}`);
     }

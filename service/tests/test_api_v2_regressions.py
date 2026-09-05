@@ -5739,7 +5739,12 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(agent["status"], "working")
         self.assertNotIn("Awaiting console input", agent["statusNote"])
 
-    def test_idle_claude_prompt_closes_terminal_run_without_explicit_reply(self):
+    def _seed_idle_claude_terminal_run(self):
+        """A managed claude terminal-mode run whose console has returned to an idle prompt.
+
+        Extracted so the R9-M3 regression below drives the same scenario rather than a similar one.
+        Returns (run_id, terminal_id); the caller decides how to age the row.
+        """
         self._create_running_session(
             terminal=True,
             runtime="claude-code",
@@ -5778,7 +5783,17 @@ class ApiV2RegressionTests(FastApiTestCase):
             "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
             ("2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z", run_id),
         )
-        self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", ("2000-01-01T00:00:20Z", terminal_id))
+        return run_id, terminal_id
+
+    def test_idle_claude_prompt_closes_terminal_run_without_explicit_reply(self):
+        run_id, terminal_id = self._seed_idle_claude_terminal_run()
+        # QUIET MEANS THE TAIL STOPPED MOVING, and since R9-M3 the field that says so is `output_at`.
+        # Backdating `updated_at` alone said "no host has reported for twenty seconds", which is a
+        # different claim -- and the one a liveness frame refutes every control pass.
+        self._execute(
+            "UPDATE terminal_sessions SET updated_at = ?, output_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:20Z", "2000-01-01T00:00:20Z", terminal_id),
+        )
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
@@ -5791,6 +5806,40 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = listed.json()["agents"]["console-agent"]
         self.assertEqual(agent["status"], "online")
         self.assertFalse(agent["dispatchState"]["hasActiveRun"])
+
+    def test_A_LIVENESS_FRAME_DOES_NOT_RESET_THE_IDLE_CLOSE_CLOCK(self):
+        """R9-M3, external review 2026-09-06.
+
+        The idle-close gate waits for twenty seconds of quiet and used to read `updated_at`. That
+        field means "a host reported this terminal", and `_record_host_reported_alive` bumps it on
+        every contentless liveness frame -- aify-env posts one per handled terminal per control pass,
+        at most 25s apart. So control traffic alone kept resetting a clock that was supposed to be
+        measuring the absence of OUTPUT, and terminal-mode runs to claude sat `running` for extra
+        sweeps or, under steady control traffic, indefinitely.
+
+        This drives the real route: go quiet, then send the empty frame aify-env sends.
+        """
+        run_id, terminal_id = self._seed_idle_claude_terminal_run()
+        self._execute(
+            "UPDATE terminal_sessions SET updated_at = ?, output_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:20Z", "2000-01-01T00:00:20Z", terminal_id),
+        )
+
+        # The liveness frame: no bytes, no status. It refreshes `updated_at` and must not touch the
+        # tail's own clock.
+        beat = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"output": "", "bridgeId": "bridge-live"},
+        )
+        self.assertEqual(beat.status_code, 200, beat.text)
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        run = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))
+        self.assertEqual(
+            run["status"], "completed",
+            "a contentless liveness frame reset the idle-close clock, so the run stayed open even though the terminal had produced nothing for twenty seconds",
+        )
 
     def test_busy_claude_terminal_output_does_not_close_running_turn(self):
         self._create_running_session(
