@@ -94,6 +94,24 @@ def _module_constants(path: Path) -> set[str]:
 #: the pre-split baseline survives.
 EDITED_SINCE = [
     (
+        # DECLARED EDIT, 2026-09-06. The `bridge_version` COLUMN was fed from `req.bridgeVersion`,
+        # which nothing has sent since v0.6.2 deleted the environment-bridge cluster -- aify-env
+        # puts its version in `metadata` with the rest of its identity. Measured on the operator's
+        # host: metadata said 0.6.2, the column said 0.6.0, and `tier-version` read the column.
+        # Undone here rather than re-captured, so the pre-split baseline survives.
+        '        #: WHERE THE VERSION ACTUALLY ARRIVES, which is not where this column was reading it.\n        #:\n        #: MEASURED 2026-09-06 on the operator\'s own host: `metadata.bridgeVersion` read `0.6.2` and\n        #: the `bridge_version` COLUMN read `0.6.0`, on one row, written by one live claimer. So\n        #: `tier-version` reported the host tier two versions behind while aify-env was current --\n        #: the exact false red that makes a check get switched off.\n        #:\n        #: aify-env sends `bridgeId` TOP-LEVEL and the rest of its identity inside `metadata`, and\n        #: `api.mjs` says why in its own comment: sending `bridgeStartedAt` at the top level looked\n        #: right and was silently ignored, because the arbitration reads it from `metadata`.\n        #: `bridgeVersion` rides in that same identity object -- and this column was fed from\n        #: `req.bridgeVersion`, which NOTHING has sent since v0.6.2 deleted the environment-bridge\n        #: cluster. `_kept()` then did its job perfectly: it preserved the last value a legacy bridge\n        #: wrote, and froze it there for good.\n        #:\n        #: BOTH ENDS OF THE FIELD, which is this repo\'s own rule: a value with no reader and a reader\n        #: with no writer are one defect from opposite sides. The identity\'s home is `metadata`; the\n        #: column is its projection, so it reads from where the value lives.\n        #:\n        #: SAFE BECAUSE OWNERSHIP IS ALREADY ENFORCED AT THE BOUNDARY. `environment_heartbeat` drops\n        #: the caller\'s whole `bridge*` namespace when it sends no `bridgeId`, so a value reaching\n        #: `next_metadata` here has already proved it came from a claimer. An advertiser cannot\n        #: forge one.\n        incoming_bridge_version = (\n            str(req.bridgeVersion or "").strip()\n            or str((next_metadata or {}).get("bridgeVersion") or "").strip()\n        )\n',
+        '',
+    ),
+    (
+        # The two call sites that read it. Same edit, declared where they sit.
+        '            preserved_bridge_version = _kept(incoming_bridge_version, "bridge_version")',
+        '            preserved_bridge_version = _kept(req.bridgeVersion, "bridge_version")',
+    ),
+    (
+        '                    incoming_bridge_version,',
+        '                    req.bridgeVersion or "",',
+    ),
+    (
         # DECLARED ADDITION, 2026-09-04 (external review, Round 8 H4). Supersession arbitrated on
         # START TIME alone, so a retired aify-comms environment bridge on a host that had not
         # re-run install.sh took the row from the aify-env host tier simply by starting later --
