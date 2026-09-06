@@ -570,7 +570,7 @@ in the file and the one the operator has raised most often.
   defect. It was my probe -- I built the snapshot from `/processes`, which carries `startedAtMs`, and
   the dashboard reads `/health`, which derives `uptimeMs`. Checked before reporting.
 - **A2. Control a managed agent's TUI directly from aify-env** (09-02). The operator names
-  [herdr](https://github.com/ogulcancelik/herdr) as the model: a persistent headless server plus a
+  [herdr](https://github.com/herdrdev/herdr) ([herdr.dev](https://herdr.dev/)) as the model: a persistent headless server plus a
   TUI client that attaches to REAL terminals, not redraws.
   ~~**Open design question, settle before building:** whose PTY is it?~~ **SETTLED BY EVENTS
   2026-09-03: aify-env owns every managed PTY, because it starts them.** The bridge owned none by
