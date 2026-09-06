@@ -83,7 +83,10 @@ async def _managed_owning_environment_row(
 
     Resolution order (the agent's STORED binding):
       1. the already-resolved id (session row / runtime_state.environmentId), then
-      2. runtime_config.environmentId (the spawn-time binding), then
+      2. the spawn-time binding, from runtime_config.environmentId or
+         runtime_state.environmentId -- aify-env's claim writes the SECOND of those,
+         and reading only the first left every spawn-registered agent unresolvable,
+         then
       3. the environment on the agent's machine_id that advertises its runtime.
 
     Returns the environments row, or None if no owning environment can be
@@ -92,11 +95,42 @@ async def _managed_owning_environment_row(
     """
     # 1. already-resolved id.
     env_id = str(resolved_environment_id or "").strip()
-    # 2. spawn-time binding stored in runtime_config.
+    # 2. THE SPAWN-TIME BINDING, FROM EITHER CARRIER IT MAY HAVE ARRIVED IN.
+    #
+    # `runtime_config` was the only one read, and NOTHING WRITES IT. aify-env's claim reports
+    # `runtimeState: {environmentId, spawnRequestId, mode, resumePolicy}` -- `claim.mjs` builds that
+    # object and the service stores it as `runtime_state`. So this step, whose whole job is to
+    # recover the binding a spawn recorded, read a key that has never been populated and fell
+    # through every time.
+    #
+    # MEASURED 2026-09-06 on the operator's host. Four managed agents, one host, all four carrying
+    # `runtime_state.environmentId = windows:StevenZ-L:default`:
+    #
+    #     sc-critic   machine_id set, session running  -> resolved  -> available
+    #     sc-lead     no machine_id, session stopped   -> None      -> OFFLINE
+    #     sc-coder    no machine_id, session stopped   -> None      -> OFFLINE
+    #     sc-tester   no machine_id, session stopped   -> None      -> OFFLINE
+    #
+    # Every one of them knew its environment. The three that read `offline` were unresolvable only
+    # because the two steps that could still have answered had both aged out: step 2.5 needs a LIVE
+    # session, and step 3 needs a `machine_id` that a spawn-registered agent never receives. So an
+    # agent whose host is up, advertising and able to run it reported `offline` -- and `offline`
+    # tells the operator there is no cold start to be had, while `available` promises one. The host
+    # was ready the whole time.
+    #
+    # A STORED BINDING BEATS A LIVE ONE HERE PRECISELY BECAUSE IT DOES NOT AGE. The live-session and
+    # machine_id steps below both answer "where is it running now", which is the wrong question for
+    # an agent that is not running -- and that is the only case this whole resolution exists for.
     if not env_id:
         try:
             runtime_config = _json_loads_or(agent_row["runtime_config"], {})
             env_id = str(runtime_config.get("environmentId") or "").strip()
+        except Exception:
+            env_id = ""
+    if not env_id:
+        try:
+            runtime_state = _json_loads_or(agent_row["runtime_state"], {})
+            env_id = str(runtime_state.get("environmentId") or "").strip()
         except Exception:
             env_id = ""
     # 2.5 (2026-06-17, Phase I flip parity): the agent's LIVE session binding. The
