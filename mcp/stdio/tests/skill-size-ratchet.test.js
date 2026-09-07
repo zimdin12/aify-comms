@@ -77,7 +77,12 @@ const CEILINGS = {
   // environment-bridge tier and now name the service modules that own those questions, and
   // instructions to `restart the environment bridge` became `restart aify-env` -- the component
   // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/dispatch-bridges.md": 26_506,  // LOWERED 2026-09-07: the
+  "aify-comms-debug/references/dispatch-bridges.md": 26_375,  // LOWERED 2026-09-08: the
+  // prompt-answering paragraph described four behaviours the service does not have -- resume and
+  // compaction auto-answer, a managed-claude gate, a not-mid-turn gate and once-per-appearance --
+  // and told the reader to reinstall wrappers to deploy a change to SERVICE Python. It now says
+  // what `console_prompts.py` actually does: one dialog, resume menus refused wholesale, deduped
+  // per terminal per rule. Shorter because the truth is smaller than the promise was.  // LOWERED 2026-09-07: the
   // "wrapper-backed channel claim" section described a symptom whose cause was a generic
   // ENVIRONMENT BRIDGE claiming the run -- a component v0.6.2 deleted, so the symptom cannot
   // recur -- and closed by telling the reader to restart aify-env, which ends every managed

@@ -146,13 +146,13 @@ claimer", even the coldstart rescue re-hits the same stall) — because the work
 its in-process MCP to register a wrapper-child / channel-sidecar bridge. Read the console tail
 (`comms_console_tail`) to see which prompt it's stuck on.
 
-**Fix (2026-06-05, updated 2026-07-25).** The host bridge auto-answers these via a centralized rules layer
-(`service/api_core/console_prompts.py`): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
-to **managed claude only** (never a resident/operator session), requires an interactive menu
-cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. Matched against the pyte-RENDERED
-screen, never the raw stream: claude moves the cursor instead of sending spaces, so a matcher run on
-raw bytes looks for a string that is never transmitted. If a NEW prompt appears after a claude
-update, capture the rendered frame and add a rule.
+**Fix.** The SERVICE answers ONE dialog: the development-channels acknowledgment
+(`service/api_core/console_prompts.py`). It REFUSES resume menus wholesale — a wrong keystroke there
+is unrecoverable — and answers nothing else, so compaction and permission dialogs still park a worker
+until somebody attaches. Answered once per terminal per rule. Matched against the pyte-RENDERED
+screen: claude moves the cursor instead of sending spaces, so a matcher on raw bytes looks for a
+string that is never transmitted. It is SERVICE Python, so it deploys by rebuilding the container —
+reinstalling wrappers changes nothing here.
 
 **Hardened (2026-06-12, `aca7562`) — the silent auto-compact-on-resume.** The channel-enter
 rule once matched the bare substring `development-channels`, which also appears in the

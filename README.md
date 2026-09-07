@@ -100,10 +100,10 @@ looking at somebody's running work — and each row carries its own `fix`:
 
 | check | the row is telling you |
 |---|---|
-| `tier-version` | an aify-env serving this host is older than the aify-comms installed on it, so a feature is silently taking a legacy path |
+| `tier-version` | an aify-env serving this host is below the MINIMUM this build needs — not a check that the two versions match. The tiers are separate products on separate cadences, so a newer aify-env is fine; what this catches is one too old to send a field the service now depends on, which makes a feature take a legacy path with both sides reporting healthy |
 | `spawn-queue` | a host CLAIMED a spawn request and never started it — work taken and not done, which every other row reads as healthy |
 | `session-handles` | more than one agent is pointing at one conversation; every message to the loser is refused and relayed |
-| `context-window` | an agent's conversation has outgrown its model. It reads `online`, its `lastSeen` refreshes, and it is dead |
+| `context-window` | an agent's conversation is near or past its model's limit. A near-full agent may still be answering, so this is a warning to compact rather than an instruction to reset — read the agent before acting. `unknown-all` means no console could be read, which is no evidence rather than a healthy fleet |
 | `managed-orphans` / `gateway-orphans` | delivery loops and hermes gateway hosts still running for agents that no longer have a live bridge. Nothing else collects these between restarts |
 | `claude-login` | the one OAuth grant every claude-code agent on this host shares is running out. Keys on the REFRESH window, which is the deadline that matters |
 | `usage-openai` | the ChatGPT quota token no longer works — asked by calling the API, since an expired token passes a file check |
