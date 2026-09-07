@@ -1,5 +1,10 @@
 # herdr as aify-env's pane surface
 
+**SEQUENCED BEHIND v0.6.3.** Fixes ship first; this is v0.6.4. See
+[2026-09-07-v0.6.3-fixes-then-v0.6.4-herdr.md](2026-09-07-v0.6.3-fixes-then-v0.6.4-herdr.md), which
+also carries the three operator revisions of 2026-09-07 (the locked pane runs `aify-env` rather than
+`aify-env tui`; herdr's own sidebar is the picker; the measured performance budget).
+
 **Status:** planned, nothing built. **Owner decision taken 2026-09-07:** do not build a multiplexer;
 drive one. **Blocked on Stage 0**, which is half a day and settles whether the rest is worth doing.
 
@@ -218,6 +223,12 @@ what differs is **who asked** and **what aify-comms thinks it is**:
 | survives closing the window | yes | yes | **no** |
 | in `/processes`, the TUI, this plan | yes | **yes** | no |
 | `AIFY_SESSION_MODE` | managed | resident | resident |
+
+**THE OPERATOR'S SIMPLIFICATION IS THE RIGHT ONE** (2026-09-07): *"--shared is functionally same as
+managed. it is hosted by our managing software (aify-env). but it has one more interaction point."*
+Exactly — and the equivalence is literal: `claude-aify --shared` is the same end state as starting
+aify-env, spawning a managed agent, and running `aify-env attach` on it. Same host, same PTY
+ownership, same survival of a closed window. The table above splits hairs the hosting does not.
 
 So `--shared` is a RESIDENT identity with MANAGED-style hosting. That is why it is in scope here, and
 why an auto-opening pane would have collided with the operator's own keyboard.
