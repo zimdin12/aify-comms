@@ -103,9 +103,9 @@ ports, or wrapper flags — the defaults are correct and the report names any th
 
 ## Two things that will bite
 
-**Never run a bare `aify-comms` to check whether something works.** It starts the environment bridge,
-supersedes the one already serving this host, and its managed workers are reaped. Use
-`aify-comms --check` (validates and registers nothing) or `aify-comms doctor`.
+**Never run a bare `aify-comms` to check whether something works.** Since v0.6.1 it refuses with
+exit 2, but this skill installs onto machines that may carry an older build, where a bare run reaps
+the host's managed workers. Use `aify-comms doctor` or `--check`.
 
 **Editing `mcp/stdio/` or `.claude/skills/` changes nothing until `install.sh` runs again.** Both are
 COPIED to `~/.aify-comms` and `~/.claude/skills`; the checkout is not what executes.

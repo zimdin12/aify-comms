@@ -49,14 +49,22 @@ const CEILINGS = {
   // instrument is the cheapest way to shrink a skill: the guidance it needed goes away.
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
-  "aify-comms/references/operations.md": 11_520,
+  // RAISED 2026-09-07 -- a DECISION, argued here as this file requires. An independent docs
+  // audit found these files instructing an agent to restart aify-env as a routine remedy (it
+  // ends every managed worker on the host), naming `api_v2.py` for a constant that lives in
+  // `channel_delivery.py`, and defining `stopped` in a way that contradicts the other skill.
+  // ~1.9 KB of stale-tier prose was DELETED to pay for the corrections; these 205 characters
+  // are what is left, and what they buy is a recipe that no longer sends a reader to rebuild a
+  // healthy service and three warnings that a step is the operator's, not an agent's.
+  "aify-comms/references/operations.md": 11_604,
   "aify-comms/references/teamwork.md": 15_981,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
   // to the machine in front of you. Most of that is a question about the HOST, and
   // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
   // read rather than skimmed.
-  "aify-comms-install/SKILL.md": 4_850,
+  // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
+  "aify-comms-install/SKILL.md": 4_846,
   "aify-comms-debug/SKILL.md": 3_117,
   "aify-comms-debug/references/codex.md": 14_114,
   // 18_454 -> 18_426 on 2026-08-30. It went DOWN while gaining a correction, so record why: the
@@ -69,7 +77,7 @@ const CEILINGS = {
   // environment-bridge tier and now name the service modules that own those questions, and
   // instructions to `restart the environment bridge` became `restart aify-env` -- the component
   // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/dispatch-bridges.md": 26_955,  // 25_917 -> 27_139 on
+  "aify-comms-debug/references/dispatch-bridges.md": 26_971,  // 25_917 -> 27_139 on
   // 2026-09-02 -> 27_131 -> 26_968 on 2026-09-03. The second paydown is v0.6.1 removing the
   // environment-bridge command: the fleet-death entry no longer has to teach a reader that a bare
   // `aify-comms` is dangerous, because it refuses. What it teaches instead is shorter and more
@@ -82,7 +90,7 @@ const CEILINGS = {
   // `bridgeLastSeen` answer different questions. The day after, the tool was fixed to ask the
   // right one -- so the entry no longer has to teach a reader to distrust it, and the section
   // shrank while gaining the note about which bridge builds still show the split.
-  "aify-comms-debug/references/dispatch-delivery.md": 26_577,
+  "aify-comms-debug/references/dispatch-delivery.md": 26_579,
   // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
   //
   // Managed spawns are delegated to aify-env from that date, and it is REQUIRED: the bridge refuses
@@ -99,7 +107,7 @@ const CEILINGS = {
   // and starting a second aify-env reaps the first one's workers. Paid for by retiring four stale
   // instructions to `restart the Windows aify-comms bridge` -- a component v0.6.1 removed, so the
   // file was telling an operator to restart something that does not exist.
-  "aify-comms-debug/references/dispatch-launch.md": 14_867,
+  "aify-comms-debug/references/dispatch-launch.md": 14_970,
   "aify-comms-debug/references/hermes-session.md": 27_285,
   "aify-comms-debug/references/hermes-turns.md": 15_996,
   "aify-comms-debug/references/lifecycle.md": 6_704,

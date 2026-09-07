@@ -24,7 +24,7 @@ fixes it). Nobody could see the line, so it went to a human to read out loud.
 
 **Read the result honestly.** `NOT LIVE` means the worker is gone — do not treat that output as the
 state of a running session. If it says `nothing was recorded`, the worker died before printing, and
-the next reads are the spawn request's `error` and the environment bridge's own startup output.
+the next reads are the spawn request's `error` and aify-env's own output.
 
 **Then, and only then, retry.** A dead worker no longer suppresses its own respawn (v0.2), so once
 you have fixed the named cause an ordinary `comms_send` cold-starts a fresh worker.
@@ -65,7 +65,7 @@ claimer. (c) Episodic-memory SessionStart hooks remain the WSL-crash risk and sh
 
 **Fix (current build).** Managed Claude runs detect this exact failure and stop instead of silently creating a fresh session. Silent session replacement discards native Claude chat memory, so it is now an explicit operator choice. Close the duplicate Claude process that owns the session, or use Dashboard **Sessions -> Actions -> Reset (fresh context)** when you intentionally want the next run to start with a fresh backing session. Restart aify-env after updating so it loads the fixed adapter.
 
-**Resume behavior.** Current bridge builds start interactive Claude Code through the managed PTY/channel path and pass `--resume <session-id>` when a saved handle exists. Pull latest, rerun the installer, and restart aify-env.
+**Resume behavior.** Current bridge builds start interactive Claude Code through the managed PTY/channel path and pass `--resume <session-id>` when a saved handle exists. Pull latest and rerun the installer; picking it up needs the operator's aify-env restart.
 
 **Hidden-process caveat.** The duplicate owner may still be an old headless managed `claude -p` child, not a visible CLI tab. Older bridge builds on Windows launched Claude through `cmd.exe /c`; killing or superseding the bridge could kill `cmd.exe` without killing the Claude child, leaving a stale process behind. Current bridge code terminates the whole process tree on timeout, stop, interrupt, and bridge shutdown. When a managed Claude run still hits the error after the transcript/resume check, the Windows bridge first looks for a process command line containing the exact locked session ID, excludes interactive `claude-aify` / `--resume` commands, kills that process tree, and retries once. If the session ID is not visible in the process command line, it also checks aify runtime markers for the same workspace and stops a marked Claude parent only when that parent looks headless (`-p`, `--print`, or `--session-id`).
 
@@ -90,7 +90,7 @@ Get-CimInstance Win32_Process |
   Format-List
 ```
 
-Then restart aify-env and the dashboard session. Use **Reset (fresh context)** only when you accept losing that native Claude memory.
+Then ask the operator to restart aify-env (it ends every managed worker, so it is never an agent's step) and restart the dashboard session. Use **Reset (fresh context)** only when you accept losing that native Claude memory.
 
 **Visibility caveat.** Dashboard-managed Claude Code is now a managed `claude-aify` PTY backing. Browser Console can attach to that PTY, and a separate native CLI can still be opened with the dashboard's copyable resume command (`claude-aify --resume <session-id>`) after the backing has recorded a resume ID.
 

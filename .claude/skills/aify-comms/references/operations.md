@@ -97,7 +97,7 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 
 - `available` means an online environment can cold-start the managed worker on send. Do not pre-spawn it.
 - `online` means a live worker is between turns. `working`/`blocked` mean a live worker has an open turn.
-- `offline` has no current wake path. `stopped` is operator-disabled and does not auto-start.
+- `offline` has no current wake path. `stopped` does not auto-start, and is not always the operator's doing (see the table).
 - Ordinary sends use the runtime's live path and may steer a busy capable runtime. `queueIfBusy=true` deliberately waits for the next turn.
 - A queued, claimed, or delivered run is transport evidence only. Read `comms_run_status`, the linked reply, runtime events, or console before claiming execution.
 - Browser Console is an attachment to the managed backing. Do not use console input as a second messaging path.
@@ -154,7 +154,7 @@ through `aify-comms-debug` rather than inventing another status.
 | `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send; it is already on its way |
 | `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
 | `offline` | No current wake path | restore bridge/environment or switch ownership |
-| `stopped` | Operator-disabled | restart/resume only when intended |
+| `stopped` | Operator-disabled, or a resident that closed cleanly (`resident-lost`) | restart/resume only when intended |
 | `misconfigured` | Identity exists but can never start | a human must fix the config; sending will not work |
 
 There are no live `idle` or `stale` states. A long-quiet live worker remains `online`.

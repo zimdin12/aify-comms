@@ -133,7 +133,7 @@ node -e 'fetch("http://127.0.0.1:8800/health",{signal:AbortSignal.timeout(5000)}
 
 **Cause.** Old builds allowed a generic environment bridge to claim wrapper-backed channel work. That bridge lacks the local app-server/gateway context and can only fail or fork hidden work.
 
-**Fix.** Current builds require Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the current active wrapper `terminal_id`, before the runtime's delivery owner can claim channel work. If you see this symptom, rebuild/redeploy the service, restart aify-env, then restart the managed session so a fresh delivery owner registers.
+**Fix.** Current builds require Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the current active wrapper `terminal_id`, before the runtime's delivery owner can claim channel work. If you see this symptom, rebuild/redeploy the service, ask the operator to restart aify-env (it ends every managed worker), then restart the managed session so a fresh delivery owner registers.
 
 ## Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 
@@ -163,7 +163,7 @@ auto compacts each time"). Now: channel-enter matches only the dialog's own ques
 until the cursor-aware resume rule can answer; matching is recency-first (the latest dialog
 text in the stream wins, so a scrolled-away menu can never re-claim a live dialog). If a
 managed claude still loses context on restart, its PTY-hosting host tier predates
-this fix — restart the `aify-comms` wrapper.
+this fix.
 
 **Dev-channels acknowledgment (2026-07-03, `c1e1704`) — up-but-deaf on FIRST spawn.** The
 wrapper launches claude with `--dangerously-load-development-channels server:aify-comms-channel`,

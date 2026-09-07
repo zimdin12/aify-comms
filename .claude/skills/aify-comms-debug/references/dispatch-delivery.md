@@ -156,14 +156,17 @@ for r in c.execute(\"SELECT id, runtime, status, execution_mode, claim_bridge_id
 "
 ```
 
-If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_bridge_id=''` more than a few seconds old, this is the Plan 5 Section B gap: the server routed the run to channel-mode but the bridge whitelist (`_CHANNEL_CLAIM_RUNTIMES` in `api_v2.py`) didn't include that runtime, so its bridge can't claim.
+If you see rows with `status='queued'`, `execution_mode='channel'`, and `claim_bridge_id=''` more than a few seconds old, this is the Plan 5 Section B gap: the server routed the run to channel-mode but the bridge whitelist (`_CHANNEL_CLAIM_RUNTIMES` in `service/api_core/channel_delivery.py`) didn't include that runtime, so its bridge can't claim.
 
 **Fix.**
 1. Confirm Plan 5 is deployed — grep the container for `_CHANNEL_CLAIM_RUNTIMES`:
    ```bash
-   docker exec aify-comms-service grep -n "_CHANNEL_CLAIM_RUNTIMES" /app/service/control_plane.py
+   docker exec aify-comms-service grep -n "_CHANNEL_CLAIM_RUNTIMES" /app/service/api_core/channel_delivery.py
    ```
-   Expect a line defining the set as `_CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes", "pi"}`. Missing → rebuild the service.
+   Expect `_CHANNEL_CLAIM_RUNTIMES = _CHANNEL_MANAGED_RUNTIMES | {"codex", "hermes"}`. Missing → rebuild the service.
+
+   Until 2026-09-07 this grepped `control_plane.py`, which holds only a moved-to comment -- so the
+   hit was not a definition and a reader on a healthy service rebuilt for nothing.
 2. Check that the affected runtime is in `managed_via_wrapper`:
    ```bash
    curl -s http://localhost:8800/api/v1/settings | python -m json.tool | grep -A3 managed_via_wrapper
@@ -185,11 +188,11 @@ or closed the run.
 
 **Fix (2026-06-02, `a76afb5` + lifecycle batch).** Two layers now prevent this:
 
-- **Restart = clean slate.** Restarting `aify-comms` is no longer the trigger for a
-  stranded team — it is the cure. The env bridge tears down all managed sessions it
-  owns on shutdown and boot-sweeps any survivors of a crashed predecessor (see
-  "Restarting aify-comms kills all managed sessions (by design)"), so a restart
-  leaves no dead claimer holding a busy agent. Managed sessions re-spawn fresh.
+- **There is no `aify-comms` to restart.** This bullet described the v0.5 environment
+  bridge, which v0.6.1 removed: `aify-comms` is a verifier and refuses with exit 2. The
+  teardown-and-boot-sweep it credits now belongs to aify-env, and RESTARTING THAT IS THE
+  OPERATOR'S CALL -- it ends every managed worker on the host rather than curing anything.
+  For a stranded team, prefer the requeue below, which needs no restart at all.
 - **Requeue + queued-run backstop.** The 60s reconcile loop requeues a run that is
   `claimed` (claimed > 90s ago), has no `delivered` event, and whose claiming bridge
   (`claim_bridge_id`) is dead → back to `queued` so a live bridge re-claims and
@@ -222,15 +225,15 @@ $env:Path += ";$env:USERPROFILE\.local\bin"
 
 If Claude is installed but `claude.cmd` is missing, the wrapper falls back to `claude` when available. Prefer the native Windows Claude Code install when possible, then restart Claude/Codex after reinstalling aify-comms.
 
-If Hermes shows unavailable while `hermes-aify.cmd` exists, check the underlying runtime separately. The wrapper is not the Hermes executable. The environment bridge advertises Hermes only when `hermes` resolves from the bridge process PATH, or when `AIFY_HERMES_COMMAND` / `HERMES_COMMAND` points at the real executable. From PowerShell, run `Get-Command hermes` and `Get-Command hermes-aify.cmd`; if only the wrapper is found, set `AIFY_HERMES_COMMAND` to the absolute Hermes executable path and restart the Windows bridge.
+If Hermes shows unavailable while `hermes-aify.cmd` exists, check the underlying runtime separately. The wrapper is not the Hermes executable. Whichever tier describes this host advertises Hermes only when `hermes` resolves from ITS process PATH, or when `AIFY_HERMES_COMMAND` / `HERMES_COMMAND` points at the real executable. Run `Get-Command hermes`; if only the wrapper is found, set `AIFY_HERMES_COMMAND` to the absolute path in the environment that STARTS the host tier.
 
 ## Send to resident Claude rejected as "no live wake path"
 
 **Symptom.** `comms_send(...)` to a resident claude-code agent returns "Message was not sent because one or more recipients cannot start live work now" even though the wrapper is running and `comms_agent_info` shows the agent online with a recent `last_seen`.
 
-**Cause.** The agent's `runtime_config.channelEnabled` is not `true`, so `_row_capabilities` at `api_v2.py` strips `resident-run`, `interrupt`, and `steer` from the capabilities at every read. Preflight then sees `["managed-run","resume"]` and concludes there's no live wake path. This used to require manual DB patches every time a claude-aify session re-registered.
+**Cause.** The agent's `runtime_config.channelEnabled` is not `true`, so `_row_capabilities` (`service/api_core/capabilities.py`) strips `resident-run`, `interrupt`, and `steer` from the capabilities at every read. Preflight then sees `["managed-run","resume"]` and concludes there's no live wake path.
 
-**Fix.** Restart the claude-aify wrapper from a current install — current `claude-aify` exports `AIFY_CHANNELS_ENABLED=1`, and `mcp/stdio/server.js` includes `runtime_config.channelEnabled=true` in the `/agents` register call. Then re-register from the live wrapper or launch it with `--aify-agent <id>`. Do not repair this by hand-editing the database; rebuild/redeploy and restart the wrapper so the bridge heartbeat, runtimeConfig, and claim loop all match.
+**Fix.** Restart the claude-aify wrapper from a current install — current `claude-aify` exports `AIFY_CHANNELS_ENABLED=1`, and `mcp/stdio/server.js` includes `runtime_config.channelEnabled=true` in the `/agents` register call. Then re-register from the live wrapper or launch it with `--aify-agent <id>`. Do not hand-edit the database.
 
 ## In-flight run cancelled with "bridge X is not the current agent bridge Y"
 
