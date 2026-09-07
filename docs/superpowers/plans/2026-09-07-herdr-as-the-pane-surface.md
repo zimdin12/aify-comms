@@ -80,6 +80,38 @@ what a dialog looks like.
 Windows**. Node's `net.connect({ path })` speaks both, so this needs no native module and **aify-env
 stays zero-dependency** (`node-pty` remains its only, optional, dep).
 
+## A PANE PER AGENT IS OUT. Measured 2026-09-07.
+
+The first sketch opened a pane for every managed process. **An idle Node process on this host is
+48 MB**, and each pane runs one `aify-env attach` client:
+
+| fleet | attach clients | floor |
+|---|---|---|
+| 3 agents | 3 | ~144 MB |
+| 21 agents (this project's documented fleet size) | 21 | **~1 GB**, plus 21 SSE streams and 21 PTY fan-outs |
+
+That is not a tuning problem, it is the wrong design. It is also unusable: twenty panes is not a
+view, and herdr's own model does not work that way either -- its sidebar lists agents while panes
+show the one or two you are working on.
+
+**So the reconciler is asymmetric, and the asymmetry is the whole idea:**
+
+- **CLOSING IS AUTOMATIC AND ALWAYS ON.** A pane whose process is gone must go. It costs nothing, it
+  is the half that removes ghosts, and it is pure state reconciliation.
+- **OPENING IS ON DEMAND.** You pick an agent and a pane opens. Nothing opens by itself.
+- **ONE EXCEPTION, LATER AND OPT-IN: ATTENTION.** herdr derives `blocked` from the pane's own screen.
+  Auto-opening a pane for an agent that is *waiting on a human* is rare, and it is the only case
+  where a pane appearing unasked is a help rather than an ambush. Stage 3 at the earliest.
+
+**THE PICKER ALREADY EXISTS.** `aify-env tui` grew `g` -> filter -> Enter in September 2026. That is
+exactly the selection surface this needs: select an agent in the status pane, and a herdr pane opens
+for it. No new UI, and the keyboard work already done pays for itself here.
+
+**AND THIS DISSOLVES THE `--shared` CAVEAT.** Nothing opens automatically, so a `--shared` session you
+are already driving can never get a second pane fighting you for its keyboard. Recording the process
+ORIGIN (`claimed` vs `run`) drops from a blocker to a nicety -- worth doing so the picker can mark
+"you are already attached to this one", not worth blocking on.
+
 ## Design rules, each paid for by a scar in this repo
 
 1. **RECONCILE, DO NOT REACT.** Converge aify-env's process list onto `pane.list` on a loop. Events
@@ -118,9 +150,39 @@ stays zero-dependency** (`node-pty` remains its only, optional, dep).
 - **Someone else's roadmap.** This adds a second optional third-party API to the host tier. 36k
   stars, Apache-2.0 and a published schema is about as good as that gets; it is still a dependency.
 
+## Installing it: every repo installs its own, and points at the next
+
+The operator's rule, 2026-09-07: *"each repo is responsible for installing its own components, if
+something external is needed then that external thing should have its own installation instructions
+that agent can follow."* This chain already matches where `docs/TARGET_ARCHITECTURE.md` was heading
+(two installers: backend is docker compose, frontend is aify-env plus aify-wrapper).
+
+```
+aify-comms install.sh
+   └─ "do you want the client side on this machine?"  -> aify-env's OWN install guide
+aify-env install
+   └─ "do you want herdr as the pane surface?"        -> herdr's OWN installer
+                                                         https://herdr.dev/install.sh (PowerShell on Windows)
+```
+
+Nobody installs anybody else's product. aify-comms does not `npm i -g aify-env`; it names the guide
+and the agent follows it. aify-env does not curl herdr; it names herdr's installer.
+
+**`aify-env herdr` EXISTS WHETHER OR NOT HERDR DOES.** A command that is missing when the thing it
+needs is missing teaches nothing. With no herdr on PATH it says so, in one line, with the install
+command -- the same shape as `--shared` refusing without aify-env (`exit 69`, "Install it, or run
+without `--shared`"). Never silently do nothing, and never install something on the operator's behalf.
+
+**It is a subcommand, not a fourth binary.** `aify-env` already refuses a fourth name on PATH: one
+product, one command, subcommands underneath. `aify-env herdr` sits beside `tui`, `attach`, `doctor`,
+`run` and `credential`.
+
 ## Stages
 
 **Stage 0 — PROBE. Half a day. Nothing else is worth planning until this answers.**
+*Partly de-risked already: the operator ran `aify-env attach sc-coder` against the live fleet on
+2026-09-07 and it worked. That proves the client and one PTY layer. herdr is NOT installed on this
+host, so the second layer is still unproven and Stage 0 still gates everything.*
 A throwaway Node script in the scratchpad: find the socket, connect, `ping`, `pane.list`, then open
 one pane running `aify-env attach <id>` against a THROWAWAY process and resize the window. Answers:
 does the transport work from Node on Windows, what is the framing, does resize survive two PTY
@@ -141,6 +203,24 @@ status marks; `aify-env focus <agent>` as a one-liner over `pane.focus`.
 **Stage 4 — THE SHRINK, a product decision.** With herdr surfacing panes, does aify-env's built-in
 view shrink to a *status* pane — the list, the marks, the doctor panel — and stop growing toward a
 multiplexer? Everything except that status view composes with herdr for free. Recommendation: yes.
+
+## What `--shared` actually is, since it keeps coming up
+
+Not "managed with a PTY" — a managed worker has a PTY too. The wrapper and the hosting are identical;
+what differs is **who asked** and **what aify-comms thinks it is**:
+
+| | managed | `--shared` resident | plain resident |
+|---|---|---|---|
+| who starts it | aify-comms spawn request, claimed by aify-env | the human, at a shell | the human, at a shell |
+| who hosts the process | **aify-env** | **aify-env** (`aify-env run`) | the operator's shell |
+| PTY owner | aify-env | aify-env | the terminal |
+| a human attached | no | **yes, from the start** | yes, it IS the terminal |
+| survives closing the window | yes | yes | **no** |
+| in `/processes`, the TUI, this plan | yes | **yes** | no |
+| `AIFY_SESSION_MODE` | managed | resident | resident |
+
+So `--shared` is a RESIDENT identity with MANAGED-style hosting. That is why it is in scope here, and
+why an auto-opening pane would have collided with the operator's own keyboard.
 
 ## What this plan deliberately does not do
 
