@@ -152,7 +152,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // carrier, and a gate fails any test file that skips it.
 import { sealedChildEnv } from "./_child-env.mjs";
 
-const HTTP_MODULE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "aify-http.mjs");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const HTTP_MODULE = path.join(HERE, "..", "aify-http.mjs");
+// THE MODULE THAT WAS ACTUALLY BROKEN. `server.js`, `claude-channel.js`, `hermes-channel.js`,
+// `hermes-managed-host.js`, `notify-check.js` and `runtimes-codex.js` import `API_KEY` from HERE,
+// not from aify-http. Fixing only aify-http repaired the delivery loops and left every MCP tool
+// returning 401 — reported by the reviewer as "native comms_send returned HTTP401 twice this turn,
+// despite incoming delivery working". A test for one call site would have missed the other.
+const ENDPOINT_MODULE = path.join(HERE, "..", "aify-service-endpoint.mjs");
 
 /** A throwaway home holding just a registry and the credential it names. */
 function homeWithCredential(secret) {
@@ -168,12 +175,12 @@ function homeWithCredential(secret) {
 }
 
 /** Import aify-http.mjs in a fresh process and report the key it resolved. */
-function resolvedKeyWith(env) {
+function resolvedKeyWith(env, moduleFile = HTTP_MODULE, name = "AIFY_API_KEY") {
   // `pathToFileURL` rather than building the URL by hand: a Windows path needs its separators and
   // drive letter encoded, and hand-rolling that is how this line was wrong the first time.
-  const url = pathToFileURL(HTTP_MODULE).href;
+  const url = pathToFileURL(moduleFile).href;
   return execFileSync(process.execPath, [
-    "-e", `import(${JSON.stringify(url)}).then(m => process.stdout.write(m.AIFY_API_KEY))`,
+    "-e", `import(${JSON.stringify(url)}).then(m => process.stdout.write(m[${JSON.stringify(name)}]))`,
   ], { env, encoding: "utf8" }).trim();
 }
 
@@ -229,4 +236,30 @@ test("the store's layout is named, not inlined", () => {
   // The doctor's report quotes this and the resolver opens it; two spellings would drift.
   assert.equal(CREDENTIAL_DIR_NAME, "credentials");
   assert.equal(REGISTRY_ENV_NAME, "AIFY_SERVICE_REGISTRY");
+});
+
+test("THE OTHER CALL SITE: aify-service-endpoint's API_KEY reads the store too", () => {
+  // This is the one `server.js` and every channel sidecar import. It resolved the environment alone
+  // while aify-http resolved its own copy — so the first fix repaired inbound delivery and left the
+  // MCP tools 401ing. There is one resolver now, and this test is what would catch it splitting again.
+  const home = homeWithCredential("from-the-store");
+  const env = sealedChildEnv({
+    HOME: home, USERPROFILE: home,
+    AIFY_SERVICE_REGISTRY: path.join(home, ".aify", "services.json"),
+  });
+  assert.equal(resolvedKeyWith(env, ENDPOINT_MODULE, "API_KEY"), "from-the-store",
+    "server.js and the channel sidecars still cannot authenticate without an environment key");
+});
+
+test("the two modules resolve the SAME key, because one of them is an alias", () => {
+  const home = homeWithCredential("one-key");
+  const env = sealedChildEnv({
+    HOME: home, USERPROFILE: home,
+    AIFY_SERVICE_REGISTRY: path.join(home, ".aify", "services.json"),
+  });
+  assert.equal(
+    resolvedKeyWith(env, HTTP_MODULE, "AIFY_API_KEY"),
+    resolvedKeyWith(env, ENDPOINT_MODULE, "API_KEY"),
+    "aify-http and aify-service-endpoint disagree about the key — they are two spellings again",
+  );
 });

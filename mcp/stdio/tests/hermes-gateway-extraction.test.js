@@ -196,12 +196,7 @@ const EXTRACTIONS = [
           // declaration was private before extraction (`pristineExported` is false here), and the edit
           // is applied to the stripped body -- so declaring the exported spelling matches nothing.
           was: ['const AIFY_API_KEY = process.env.CLAUDE_MCP_API_KEY || process.env.AIFY_API_KEY || "";'],
-          now: [
-            "const AIFY_API_KEY = apiKeyFrom()",
-            "  || keyFromCredentialStore({",
-            "    env: process.env, readFile: (f) => readFileSync(f, \"utf8\"), join, homeDir: homedir(),",
-            "  }).key;",
-          ],
+          now: ["const AIFY_API_KEY = API_KEY;"],
         }],
       },
       { name: "HTTP_TIMEOUT_MS", at: 119, marker: "// HTTP_TIMEOUT_MS moved to ./aify-http.mjs in v0.5.4." },

@@ -22,12 +22,7 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run and the wrappers relaunch.
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
-import { apiKeyFrom } from "./aify-service-endpoint.mjs";
-import { keyFromCredentialStore } from "./registry-credential.mjs";
+import { API_KEY } from "./aify-service-endpoint.mjs";
 
 function coerceLoopbackToIPv4(url) {
   return String(url || "").replace(/^(https?:\/\/)localhost(?=[:\/]|$)/i, "$1127.0.0.1");
@@ -37,26 +32,15 @@ export const AIFY_SERVER_URL = coerceLoopbackToIPv4(
   process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "",
 ).replace(/\/+$/, "");
 /**
- * The key this process authenticates with: the environment first, then the credential aify-env holds.
+ * The key this process authenticates with, RE-EXPORTED rather than resolved again.
  *
- * THE FALLBACK IS THE FIX FOR A REAL OUTAGE, 2026-09-07. Environment alone is enough for anything
- * launched as an MCP child -- claude's channel sidecar gets its key from the `env` block in
- * `~/.claude.json`. It is NOT enough for a STANDALONE claimer: `hermes-managed-host.js run <agent>`
- * is spawned by the launcher, inherits `AIFY_SERVER_URL` and no key, and no launcher exports one.
- * Once the service began enforcing `API_KEY`, every one of that loop's 30-second liveness beats
- * returned 401 and was swallowed, so five hermes agents read `online` while claiming nothing.
- *
- * The credential was on disk the whole time -- the registry named it and the file authenticates.
- * Only this line was missing.
- *
- * ENVIRONMENT STILL WINS, so an operator or a test can override without touching the store, and a
- * host with no registry behaves exactly as before. Resolved ONCE at module load: it is two small
- * synchronous reads, and only when no environment key was supplied.
+ * IT WAS RESOLVED HERE TOO, and that was the defect. `aify-http.mjs` read the environment while
+ * `aify-service-endpoint.mjs` read it separately for `API_KEY` -- so fixing the credential-store
+ * fallback here repaired the delivery loops and left every MCP tool still returning 401, because
+ * `server.js` and the channel sidecars import `API_KEY` from THERE. Two spellings of one fact.
+ * The resolution now lives at the source and this is the alias its old readers keep.
  */
-export const AIFY_API_KEY = apiKeyFrom()
-  || keyFromCredentialStore({
-    env: process.env, readFile: (f) => readFileSync(f, "utf8"), join, homeDir: homedir(),
-  }).key;
+export const AIFY_API_KEY = API_KEY;
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 
 

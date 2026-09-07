@@ -16,13 +16,24 @@
 // redesign. It must stay one instance: two copies would let the bridge and its callers disagree about which
 // server is live, silently.
 //
-// API_KEY IS ENV-DERIVED AND STAYS THAT WAY. It is read from the environment here and never logged, never
-// captured in a fixture, never returned. Naming the binding is the whole of what this comment does.
+// API_KEY IS NEVER LOGGED, never captured in a fixture, never returned. Naming the binding is the whole
+// of what this comment does. It said "env-derived and STAYS that way" until 2026-09-07; it is now env
+// first and then the credential the registry names, for the reason written above `API_KEY` itself --
+// a standalone claimer has no environment to inherit a key from, and five agents went deaf proving it.
 //
 // DEPLOYMENT: host code. Nothing here is live until `install.sh` is re-run (sequentially, never in parallel)
 // AND every wrapper relaunches. Running bridges keep executing the copy they loaded at boot, so a green
 // suite proves the repo, not the fleet. `aify-comms doctor`'s `bridge-current` will read red until the
 // relaunch, and that red is accurate.
+
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// The credential aify-env holds for this service, read the way that daemon stores it. See
+// `API_KEY` below for why the environment alone was not enough.
+import { keyFromCredentialStore } from "./registry-credential.mjs";
+
 
 /**
  * The environment names that carry the key opening that service, in precedence order.
@@ -51,7 +62,37 @@ export function apiKeyFrom(env = process.env) {
   return API_KEY_ENV_NAMES.map((name) => env[name]).find(Boolean) || "";
 }
 
-const API_KEY = apiKeyFrom();
+/**
+ * The key this process authenticates with: the environment first, then the credential aify-env holds.
+ *
+ * THE COMMENT ABOVE SAID "ENV-DERIVED AND STAYS THAT WAY" UNTIL 2026-09-07, and this is the change
+ * that argues with it rather than quietly contradicting it. Its security claim -- read here, never
+ * logged, never captured in a fixture, never returned -- is untouched. What changed is the SOURCE,
+ * because environment alone is not reachable by every process that needs a key.
+ *
+ * WHAT ENV-ONLY COST. A standalone claimer (`nohup node hermes-managed-host.js run <agent>`, from the
+ * launcher) inherits `AIFY_SERVER_URL` and no key: no launcher exports one and the wrapper template
+ * has no placeholder for it. Once the service enforced `API_KEY`, every 30-second liveness beat came
+ * back 401 and was swallowed, so five hermes agents read `online` while claiming nothing.
+ *
+ * AND FIXING ONLY `aify-http.mjs` FIXED HALF OF IT. That module resolves its own `AIFY_API_KEY`,
+ * while `server.js`, `claude-channel.js`, `hermes-channel.js`, `hermes-managed-host.js`,
+ * `notify-check.js` and `runtimes-codex.js` all import `API_KEY` from HERE. The delivery loops
+ * recovered and the MCP tools kept returning 401 -- reported by the reviewer as "native comms_send
+ * returned HTTP401 twice this turn, despite incoming delivery working". Two spellings of one fact,
+ * which is this repo's most familiar defect; there is now one.
+ *
+ * THE REGISTRY IS THE SAFER SOURCE, on this file's own argument. The paragraph above warns that a key
+ * name this bridge reads but the registry does not declare is INHERITED from whatever launched the
+ * runtime, so "one service's key reaches another service's bridge". A credential the registry NAMES
+ * for this service is the opposite of that: scoped by declaration rather than by inheritance.
+ *
+ * Environment still wins, so an operator or a test can override without touching the store, and a
+ * host with no registry behaves exactly as before. Resolved once, and only when env carried nothing.
+ */
+const API_KEY = apiKeyFrom() || keyFromCredentialStore({
+  env: process.env, readFile: (f) => readFileSync(f, "utf8"), join, homeDir: homedir(),
+}).key;
 
 // Windows + Docker Desktop: `localhost` resolves to IPv6 ::1 first, but
 // Docker Desktop's IPv6 port forwarding is unreliable — HTTP requests
