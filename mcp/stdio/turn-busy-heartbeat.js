@@ -68,6 +68,7 @@ export function makeDefaultTurnBusyPoster(baseUrl, apiKey = "", bridgeId = "") {
     const turnRes = await fetch(`${root}/api/v1/agents/${encoded}/turn-start`, {
       method: "POST",
       headers,
+      redirect: "manual",   // a 302 would hand the key to whatever it points at
       body: JSON.stringify({ source: "bridge-heartbeat" }),
     });
     if (!turnRes.ok && turnRes.status !== 404) {
@@ -77,6 +78,7 @@ export function makeDefaultTurnBusyPoster(baseUrl, apiKey = "", bridgeId = "") {
       const beatRes = await fetch(`${root}/api/v1/agents/${encoded}/heartbeat`, {
         method: "POST",
         headers,
+        redirect: "manual",   // a 302 would hand the key to whatever it points at
         body: JSON.stringify({ bridgeId: bid }),
       });
       if (!beatRes.ok && beatRes.status !== 404) {

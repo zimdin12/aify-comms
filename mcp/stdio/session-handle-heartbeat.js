@@ -60,6 +60,7 @@ export function makeDefaultHandlePoster(baseUrl, apiKey = "") {
     const res = await fetch(url, {
       method: "PATCH",
       headers,
+      redirect: "manual",   // a 302 would hand the key to whatever it points at
       body: JSON.stringify({ sessionHandle, requestedBy: "bridge-heartbeat" }),
     });
     if (!res.ok) {

@@ -200,7 +200,22 @@ const EXTRACTIONS = [
         }],
       },
       { name: "HTTP_TIMEOUT_MS", at: 119, marker: "// HTTP_TIMEOUT_MS moved to ./aify-http.mjs in v0.5.4." },
-      { name: "makeAifyHttpCall", at: 342, marker: "// makeAifyHttpCall moved to ./aify-http.mjs in v0.5.4." },
+      {
+        name: "makeAifyHttpCall", at: 342,
+        marker: "// makeAifyHttpCall moved to ./aify-http.mjs in v0.5.4.",
+        // REDIRECTS REFUSED, 2026-09-08. `fetch` follows them by default and re-sends the
+        // headers, so a 302 handed `X-API-Key` to whatever it pointed at -- reproduced by review
+        // against a synthetic receiver on BOTH http clients.
+        editedSince: [{
+          was: ["      const res = await fetch(url, { ...options, signal: controller.signal });"],
+          now: [
+            "      // NEVER FOLLOWED. `fetch` follows redirects by default and re-sends the headers, so a 302",
+            "      // hands `X-API-Key` to whatever it points at. Review reproduced it here and in",
+            "      // `aify-service-endpoint.mjs` after I had fixed only the doctor. A 3xx fails `res.ok`.",
+            "      const res = await fetch(url, { ...options, redirect: \"manual\", signal: controller.signal });",
+          ],
+        }],
+      },
     ],
   },
   {

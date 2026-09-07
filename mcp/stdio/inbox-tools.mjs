@@ -157,7 +157,8 @@ export function registerInboxTools(server, z) {
         const options = { headers: {}, signal: AbortSignal.timeout((maxWait + 10) * 1000) };
         if (API_KEY) options.headers["X-API-Key"] = API_KEY;
         try {
-          const res = await fetch(url, options);
+          // NEVER FOLLOWED: a redirect re-sends the headers, which carry the key.
+          const res = await fetch(url, { ...options, redirect: "manual" });
           const r = await res.json();
           if (!r.messages || r.messages.length === 0) {
             return { content: [{ type: "text", text: "No messages received (timeout). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };

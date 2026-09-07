@@ -273,7 +273,14 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
         const keyHere = keyForUrl(baseUrl);
         if (keyHere) headers["X-API-Key"] = keyHere;
         const options = { ...baseOptions, headers, signal: controller.signal };
-        const res = await fetch(url, options);
+        // NEVER FOLLOWED, and this is a credential boundary rather than a nicety. `fetch` follows
+        // redirects by DEFAULT and re-sends the request headers, so a service answering 302 --
+        // compromised, misconfigured, or simply a proxy somebody put in front of it -- collects
+        // `X-API-Key` from a client that was authorised to send it somewhere else entirely.
+        // Review reproduced exactly that against a synthetic receiver, on BOTH http clients,
+        // AFTER I had fixed only the doctor's probes. A 3xx now arrives intact and fails `res.ok`
+        // like any other non-2xx, which is the honest answer: a redirect is not an API response.
+        const res = await fetch(url, { ...options, redirect: "manual" });
         if (!res.ok) {
           const text = await res.text();
           const err = new Error(`HTTP ${res.status}: ${text}`);

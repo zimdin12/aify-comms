@@ -1,0 +1,117 @@
+[
+  {
+    "case": "matching-positive",
+    "good": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ],
+    "foreign": [],
+    "broken": [],
+    "redirect": []
+  },
+  {
+    "case": "primary-mismatch",
+    "good": [],
+    "foreign": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": false,
+        "hasKey": false
+      }
+    ],
+    "broken": [],
+    "redirect": []
+  },
+  {
+    "case": "claude-precedence-mismatch",
+    "good": [],
+    "foreign": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": false,
+        "hasKey": false
+      }
+    ],
+    "broken": [],
+    "redirect": []
+  },
+  {
+    "case": "store-failover",
+    "good": [],
+    "foreign": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": false,
+        "hasKey": false
+      }
+    ],
+    "broken": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ],
+    "redirect": []
+  },
+  {
+    "case": "env-failover-control",
+    "good": [],
+    "foreign": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ],
+    "broken": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ],
+    "redirect": []
+  },
+  {
+    "case": "endpoint-client-redirect",
+    "good": [],
+    "foreign": [
+      {
+        "url": "/redirect-target",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ],
+    "broken": [],
+    "redirect": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ]
+  },
+  {
+    "case": "standalone-client-redirect",
+    "good": [],
+    "foreign": [
+      {
+        "url": "/redirect-target",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ],
+    "broken": [],
+    "redirect": [
+      {
+        "url": "/api/v1/review-synthetic",
+        "keyMatches": true,
+        "hasKey": true
+      }
+    ]
+  }
+]

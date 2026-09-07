@@ -88,7 +88,9 @@ try {
   // (operator-reported 2026-05-24: surface body content so agents auto-
   // process incoming comms_send messages without the extra round trip).
   const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3`;
-  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(3000) });
+  // NEVER FOLLOWED: `fetch` re-sends headers on a redirect, so a 302 hands the key to whatever it
+  // points at. A 3xx fails `res.ok` like any other non-2xx. See aify-service-endpoint.mjs.
+  const resp = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(3000) });
   if (!resp.ok) process.exit(0);
   // Server is up — clear any previous down marker
   try { fs.unlinkSync(DOWN_FILE); } catch {}
@@ -113,6 +115,7 @@ try {
     fetch(`${SERVER_URL}/api/v1/agents/${agentId}/heartbeat`, {
       method: "POST",
       headers,
+      redirect: "manual",   // a 302 would hand the key to whatever it points at
       signal: AbortSignal.timeout(2000),
     }).catch(() => {});
   }

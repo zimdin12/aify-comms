@@ -82,7 +82,9 @@ export function registerArtifactTools(server, z) {
           parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
           const bodyParts = [Buffer.from(parts.join("\r\n")), fileData, Buffer.from(`\r\n--${boundary}--\r\n`)];
           headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
-          const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: Buffer.concat(bodyParts) });
+          // NEVER FOLLOWED: a redirect re-sends `headers`, which carry the key.
+          const res = await fetch(`${SERVER_URL}/api/v1/shared`,
+            { method: "POST", headers, redirect: "manual", body: Buffer.concat(bodyParts) });
           const r = await res.json().catch(() => ({}));
           // A rejected upload (413/422/500) still returns a JSON body, so res.json()
           // doesn't throw — report the FAILURE instead of a false success that leaves
@@ -96,7 +98,8 @@ export function registerArtifactTools(server, z) {
         let body = content;
         if (filePath && !content) { try { body = fs.readFileSync(filePath, "utf-8"); } catch { return { content: [{ type: "text", text: `Cannot read file: ${filePath}` }], isError: true }; } }
         const formData = new URLSearchParams({ from_agent: from, name, description: description || "", content: body });
-        const res = await fetch(`${SERVER_URL}/api/v1/shared`, { method: "POST", headers, body: formData });
+        const res = await fetch(`${SERVER_URL}/api/v1/shared`,
+          { method: "POST", headers, redirect: "manual", body: formData });
         const r = await res.json().catch(() => ({}));
         if (!res.ok) return { content: [{ type: "text", text: `Share failed (HTTP ${res.status}): ${r.detail || r.error || "server rejected the upload"}` }], isError: true };
         return { content: [{ type: "text", text: `Shared "${r.name || name}" on server.` }] };
@@ -147,7 +150,7 @@ export function registerArtifactTools(server, z) {
         const url = `${SERVER_URL}/api/v1/shared/${encodeURIComponent(name)}`;
         const options = { headers: {} };
         if (API_KEY) options.headers["X-API-Key"] = API_KEY;
-        const res = await fetch(url, options);
+        const res = await fetch(url, { ...options, redirect: "manual" });
         if (!res.ok) {
           return { content: [{ type: "text", text: `Artifact "${name}" not found.` }], isError: true };
         }

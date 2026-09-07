@@ -164,7 +164,9 @@ function makeAifyHttpCall(baseUrl, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
     try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
+  // NEVER FOLLOWED: `fetch` re-sends headers on a redirect, so a 302 hands the key to whatever it
+  // points at. A 3xx fails `res.ok` like any other non-2xx. See aify-service-endpoint.mjs.
+      const res = await fetch(url, { ...options, redirect: "manual", signal: controller.signal });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         const error = new Error(`HTTP ${res.status}: ${text}`);

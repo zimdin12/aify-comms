@@ -57,7 +57,10 @@ export function makeAifyHttpCall(baseUrl, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
+      // NEVER FOLLOWED. `fetch` follows redirects by default and re-sends the headers, so a 302
+      // hands `X-API-Key` to whatever it points at. Review reproduced it here and in
+      // `aify-service-endpoint.mjs` after I had fixed only the doctor. A 3xx fails `res.ok`.
+      const res = await fetch(url, { ...options, redirect: "manual", signal: controller.signal });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         const error = new Error(`HTTP ${res.status}: ${text}`);

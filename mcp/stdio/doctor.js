@@ -116,7 +116,9 @@ const get = async (path) => {
     // WITH THE KEY. This sent nothing until 2026-09-01, which was invisible while no key was set and
     // blinded every service-reading check the moment one was. See doctor-api-key.mjs.
     const headers = DOCTOR_API_KEY.key ? { "X-API-Key": DOCTOR_API_KEY.key } : {};
-    const res = await fetch(`${SERVER_URL}${path}`, { headers, signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${SERVER_URL}${path}`, {
+      headers, redirect: "manual", signal: AbortSignal.timeout(5000),
+    });
     if (res.status === 401 || res.status === 403) {
       serviceRefusedTheKey = true;
       return null;
@@ -474,7 +476,7 @@ await checkEnvProcesses({
   skip,
   fetchJson: async (url) => {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(3000) });
       return response.ok ? await response.json() : null;
     } catch {
       return null;
@@ -509,7 +511,7 @@ await checkApiExposure({
   baseUrl: SERVER_URL,
   fetchJson: async (url) => {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(3000) });
       // A 401 body is the GOOD answer here and must reach the verdict rather than being flattened to
       // null the way an unreachable service is.
       return await response.json();
@@ -643,7 +645,8 @@ async function checkSpawnDelegation() {
   const { on: delegating, endpoint } = launcherDelegation(launcherText);
   if (delegating && endpoint) {
     try {
-      const response = await fetch(`${endpoint}/health`, { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(`${endpoint}/health`,
+        { redirect: "manual", signal: AbortSignal.timeout(3000) });
       endpointAnswered = response.ok;
     } catch {
       endpointAnswered = false;
