@@ -77,7 +77,14 @@ const CEILINGS = {
   // environment-bridge tier and now name the service modules that own those questions, and
   // instructions to `restart the environment bridge` became `restart aify-env` -- the component
   // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/dispatch-bridges.md": 26_971,  // 25_917 -> 27_139 on
+  "aify-comms-debug/references/dispatch-bridges.md": 26_506,  // LOWERED 2026-09-07: the
+  // "wrapper-backed channel claim" section described a symptom whose cause was a generic
+  // ENVIRONMENT BRIDGE claiming the run -- a component v0.6.2 deleted, so the symptom cannot
+  // recur -- and closed by telling the reader to restart aify-env, which ends every managed
+  // worker on the host. What survived is the live half in five lines: which bridge_kind may
+  // claim, and why. It also paid for 77 bytes spent saying that the prompt rules match the
+  // RENDERED screen rather than the raw stream, which is the distinction that made the first
+  // implementation match nothing while its tests were green. 25_917 -> 27_139 on
   // 2026-09-02 -> 27_131 -> 26_968 on 2026-09-03. The second paydown is v0.6.1 removing the
   // environment-bridge command: the fleet-death entry no longer has to teach a reader that a bare
   // `aify-comms` is dangerous, because it refuses. What it teaches instead is shorter and more

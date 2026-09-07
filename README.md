@@ -2,7 +2,7 @@
 
 Dashboard-driven communication and control plane for AI coding teams.
 
-`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run an `aify-comms` bridge in each execution environment, open the dashboard, spawn persistent managed identities into chosen workspaces, then coordinate through chat.
+`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run `aify-env` on each host that will run agents, open the dashboard, spawn persistent managed identities into chosen workspaces, then coordinate through chat. (`aify-comms` itself starts nothing — since v0.6.1 it is a verifier, and any other invocation exits 2 naming aify-env.)
 
 The dashboard is the product surface. Messages are the work interface; runs, sessions, bridges, and handoffs are operational telemetry around those messages.
 
@@ -374,9 +374,12 @@ host, so more than one service can start agents there without two spawners fight
 PTYs. Which concern lives where, and why, is
 [docs/AIFY_ENV_BOUNDARY.md](docs/AIFY_ENV_BOUNDARY.md).
 
-You need neither of the others to run aify-comms today: the launchers arrive as a dependency, and
-delegation to aify-env is built but off behind two environment variables
-([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+The launchers arrive as a dependency, so aify-wrapper needs nothing from you. **aify-env does: it
+is REQUIRED on any host that spawns agents.** Delegation is not a flag any more — it has been on
+since v0.6.1, and a spawn fails loudly rather than falling back, because two spawners on one host is
+the collision the environment tier exists to end
+([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)). `aify-comms doctor`'s `spawn-delegation` says
+whether aify-env is answering.
 
 The launchers come from [zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper), a separate
 package this repo DEPENDS ON. They used to live here under `wrappers/` as a byte-identical copy of the

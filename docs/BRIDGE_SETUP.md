@@ -298,11 +298,7 @@ Read by the bridge with sane defaults; most operators never set them. Set them i
 | `AIFY_DISPATCH_POLL_MS` | `3000` | Resident dispatch poll cadence. |
 | `AIFY_COMMS_CHANNEL_POLL_MS` | `3000` | Channel-sidecar poll cadence (legacy aliases `AIFY_CLAUDE_CHANNEL_POLL_MS` / `AIFY_HERMES_CHANNEL_POLL_MS`). |
 | `AIFY_SESSION_HEARTBEAT_MS` | `60000` | Per-session liveness heartbeat. |
-| `AIFY_ENVIRONMENT_HEARTBEAT_MS` | `30000` | Environment-bridge heartbeat. |
 | `AIFY_TERMINAL_CONTROL_POLL_MS` | `800` | Terminal-control poll cadence. |
-| `AIFY_NO_AUTO_ANSWER` | unset | `=1` disables managed-claude TUI boot-prompt auto-answer. |
-| `AIFY_NO_CONSOLE_KEEPALIVE` / `AIFY_CONSOLE_KEEPALIVE_MS` | on / `4000` | Kill-switch / cadence for the managed-claude PTY repaint keepalive. |
-| `AIFY_TERMINAL_BRIDGE` | `1` | `=0` disables bridge-owned PTY support (forces native controller fallback). |
 | `AIFY_BRIDGE_DISABLED` | unset | `=1` kill-switch for the whole bridge. |
 | `AIFY_FORCE_REGISTER` | unset | Force re-register on boot. |
 | `AIFY_HERMES_FS_UNSAFE` | unset | `=1` disables FS path-safety in the hermes ACP session (use with care). |

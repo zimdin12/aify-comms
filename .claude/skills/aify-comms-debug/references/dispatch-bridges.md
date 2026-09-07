@@ -127,13 +127,13 @@ node -e 'fetch("http://127.0.0.1:8800/health",{signal:AbortSignal.timeout(5000)}
   ```
   Current `codex-aify` and `hermes-aify` deliberately do not rediscover from historical runtime state on fresh launch; explicit `--resume <id>` is the only wrapper-side handle export. For Hermes, a fresh visible session becomes wakeable after the TUI writes the active-session file and the live bridge registers/heartbeats it.
 
-## Fixed check: wrapper-backed channel claim must be delivery-owner-owned
+## Who may claim wrapper-backed channel work
 
-**Symptom.** A wrapper-backed Codex/Hermes dispatch is routed through `executionModes=["channel","resident"]`, but the environment bridge claims the run before the bridge-spawned delivery owner is fully registered. The dashboard may show the run as claimed/running while the visible wrapper terminal never receives the message.
-
-**Cause.** Old builds allowed a generic environment bridge to claim wrapper-backed channel work. That bridge lacks the local app-server/gateway context and can only fail or fork hidden work.
-
-**Fix.** Current builds require Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the current active wrapper `terminal_id`, before the runtime's delivery owner can claim channel work. If you see this symptom, rebuild/redeploy the service, ask the operator to restart aify-env (it ends every managed worker), then restart the managed session so a fresh delivery owner registers.
+Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the
+current active wrapper `terminal_id`. A run claimed by anything else fails or forks hidden work,
+because only the delivery owner holds the local app-server/gateway context. If a run reads
+claimed/running while the visible wrapper terminal never receives the message, restart the managed
+session so a fresh delivery owner registers.
 
 ## Managed claude freezes on boot at a prompt (resume / compaction / permissions)
 
@@ -149,9 +149,10 @@ its in-process MCP to register a wrapper-child / channel-sidecar bridge. Read th
 **Fix (2026-06-05, updated 2026-07-25).** The host bridge auto-answers these via a centralized rules layer
 (`service/api_core/console_prompts.py`): resume and the three-option compaction recommendation → **full session** (cursor-aware ↓+Enter from the default), simple confirmation dialogs → Enter. Gated
 to **managed claude only** (never a resident/operator session), requires an interactive menu
-cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. If a NEW prompt
-appears after a claude update, capture the frame into `mcp/stdio/tests/fixtures/claude-console/`
-and add a rule. Kill-switch: `AIFY_NO_AUTO_ANSWER=1` (set in the wrapper env) disables it.
+cursor (`❯`) and that claude is NOT mid-turn, fires once per appearance. Matched against the pyte-RENDERED
+screen, never the raw stream: claude moves the cursor instead of sending spaces, so a matcher run on
+raw bytes looks for a string that is never transmitted. If a NEW prompt appears after a claude
+update, capture the rendered frame and add a rule.
 
 **Hardened (2026-06-12, `aca7562`) — the silent auto-compact-on-resume.** The channel-enter
 rule once matched the bare substring `development-channels`, which also appears in the
