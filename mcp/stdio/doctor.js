@@ -155,6 +155,9 @@ const DOCTOR_API_KEY = resolveDoctorApiKey({
   // and there is no `.env` to read -- which cost EIGHT checks their answer against a service that
   // was up and rejecting them. aify-env holds the key for this service; the registry names it.
   homeDir: homedir(),
+  // AND THE ENDPOINT IT WILL ACTUALLY ASK, so the store's key is paired with the destination the
+  // registry named it for rather than with whatever this run is pointed at (R2).
+  endpoint: SERVER_URL,
 });
 
 // ── 1. service container: is it serving the build you think it is? ──────────────────

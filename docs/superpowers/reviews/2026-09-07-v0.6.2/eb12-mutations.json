@@ -1,0 +1,72 @@
+[
+  {
+    "arm": "original",
+    "scope": "shipped",
+    "exit": 0,
+    "source_sha256": "b1078f22239ad0d87a00a012360724c144b340076f736b01c2847ad079be00f6",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-original-shipped.log"
+  },
+  {
+    "arm": "original",
+    "scope": "independent",
+    "exit": 0,
+    "source_sha256": "b1078f22239ad0d87a00a012360724c144b340076f736b01c2847ad079be00f6",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-original-independent.log"
+  },
+  {
+    "arm": "predecessor",
+    "scope": "shipped",
+    "exit": 1,
+    "source_sha256": "f5ffe33d5bea5a84376671ba8a5c4610d0ff706c14a93613a19a1f8930d516bd",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-predecessor-shipped.log"
+  },
+  {
+    "arm": "predecessor",
+    "scope": "independent",
+    "exit": 1,
+    "source_sha256": "f5ffe33d5bea5a84376671ba8a5c4610d0ff706c14a93613a19a1f8930d516bd",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-predecessor-independent.log"
+  },
+  {
+    "arm": "no-update-predicate",
+    "scope": "shipped",
+    "exit": 0,
+    "source_sha256": "3fa9d306312e42e3a73aa320290725817e81a960ea61b196b8310e886a5ba865",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-no-update-predicate-shipped.log"
+  },
+  {
+    "arm": "no-update-predicate",
+    "scope": "independent",
+    "exit": 1,
+    "source_sha256": "3fa9d306312e42e3a73aa320290725817e81a960ea61b196b8310e886a5ba865",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-no-update-predicate-independent.log"
+  },
+  {
+    "arm": "no-commit",
+    "scope": "shipped",
+    "exit": 0,
+    "source_sha256": "e15bca6f59da337816eef6ebb27e5c8209799fb6902dfca43041aff773590bb1",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-no-commit-shipped.log"
+  },
+  {
+    "arm": "no-commit",
+    "scope": "independent",
+    "exit": 1,
+    "source_sha256": "e15bca6f59da337816eef6ebb27e5c8209799fb6902dfca43041aff773590bb1",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-no-commit-independent.log"
+  },
+  {
+    "arm": "restore-order-control",
+    "scope": "shipped",
+    "exit": 0,
+    "source_sha256": "6a9c5fc827a96d1318a32124b73f9f4c1ddcff14e3ae2a0f32aa7cbe1c600df1",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-restore-order-control-shipped.log"
+  },
+  {
+    "arm": "restore-order-control",
+    "scope": "independent",
+    "exit": 0,
+    "source_sha256": "6a9c5fc827a96d1318a32124b73f9f4c1ddcff14e3ae2a0f32aa7cbe1c600df1",
+    "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\aify-v062-review\\eb12-restore-order-control-independent.log"
+  }
+]

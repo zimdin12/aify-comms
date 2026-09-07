@@ -30,9 +30,13 @@ import { test } from "node:test";
 
 import {
   CREDENTIAL_DIR_NAME,
+  MAX_CREDENTIAL_BYTES,
   REGISTRY_ENV_NAME,
   credentialRefIn,
-  keyFromCredentialStore,
+  decodeCredentialBytes,
+  keyForEndpoint,
+  registryEntryFor,
+  sameEndpoint,
 } from "../registry-credential.mjs";
 import { SERVICE_NAME } from "../service-name.mjs";
 import { SERVICE_NAME as REGISTRY_SERVICE_NAME } from "../service-registry.mjs";
@@ -40,6 +44,7 @@ import { SERVICE_NAME as REGISTRY_SERVICE_NAME } from "../service-registry.mjs";
 const HOME = "/home/op";
 const REGISTRY = "/home/op/.aify/services.json";
 const CREDENTIAL = "/home/op/.aify/credentials/aify-comms-abc123.key";
+const ENDPOINT = "http://127.0.0.1:8800";
 
 const join = (...parts) => parts.join("/");
 
@@ -58,8 +63,17 @@ const REAL_HOST = fsWith({
   [CREDENTIAL]: "s3cret\n",
 });
 
+/**
+ * The reader as the resolver calls it: ENDPOINT-BOUND, because a key is now only ever resolved for
+ * the destination the registry named it for. `realpath` is the identity here so the on-disk-name
+ * check always agrees; the tests that care about it inject their own.
+ */
+const read = (readFile, extra = {}) => keyForEndpoint({
+  env: {}, readFile, join, homeDir: HOME, endpoint: ENDPOINT, realpath: (x) => x, ...extra,
+});
+
 test("THE FIX: a claimer with an empty environment finds the key the registry names", () => {
-  const { key, source } = keyFromCredentialStore({ env: {}, readFile: REAL_HOST, join, homeDir: HOME });
+  const { key, source } = read(REAL_HOST);
   assert.equal(key, "s3cret", "the standalone claimer still cannot authenticate");
   assert.match(source, /credential store/, "the source must say where the key came from");
 });
@@ -68,7 +82,7 @@ test("it defaults to THIS service's name rather than making the caller retype it
   // `SERVICE_NAME` has one owner by design -- "a second hand-typed copy of an identity is how two
   // files come to disagree about who you are". A caller that had to pass "aify-comms" would be that
   // second copy.
-  assert.equal(keyFromCredentialStore({ env: {}, readFile: REAL_HOST, join, homeDir: HOME }).key, "s3cret");
+  assert.equal(read(REAL_HOST).key, "s3cret");
 });
 
 test("NEGATIVE CONTROL: another service's credential is not ours", () => {
@@ -80,7 +94,7 @@ test("NEGATIVE CONTROL: another service's credential is not ours", () => {
     }),
     "/home/op/.aify/credentials/aify-dashboard-xyz.key": "not-ours",
   });
-  assert.equal(keyFromCredentialStore({ env: {}, readFile: other, join, homeDir: HOME }).key, "");
+  assert.equal(read(other).key, "");
 });
 
 test("A REF THAT IS A PATH IS REFUSED, not opened", () => {
@@ -88,11 +102,11 @@ test("A REF THAT IS A PATH IS REFUSED, not opened", () => {
   // function opens whatever it is handed. It uses the same grammar aify-env applies at read time.
   for (const ref of ["../../etc/passwd", "sub/dir.key", "/abs.key", ".", ".."]) {
     const hostile = fsWith({
-      [REGISTRY]: JSON.stringify({ services: { "aify-comms": { credentialRef: ref } } }),
+      [REGISTRY]: JSON.stringify({ services: { "aify-comms": { endpoint: ENDPOINT, credentialRef: ref } } }),
       [CREDENTIAL]: "s3cret",
       "/home/op/.aify/credentials/../../etc/passwd": "root:x:0:0",
     });
-    const { key } = keyFromCredentialStore({ env: {}, readFile: hostile, join, homeDir: HOME });
+    const { key } = read(hostile);
     assert.equal(key, "", `a ref of ${JSON.stringify(ref)} was resolved instead of refused`);
   }
 });
@@ -105,31 +119,76 @@ test("every missing piece reads as no key, and NOTHING throws", () => {
     "registry is not JSON": fsWith({ [REGISTRY]: "{{{ not json" }),
     "registry names no ref": fsWith({ [REGISTRY]: JSON.stringify({ services: { "aify-comms": {} } }) }),
     "credential file absent": fsWith({
-      [REGISTRY]: JSON.stringify({ services: { "aify-comms": { credentialRef: "aify-comms-abc123.key" } } }),
+      [REGISTRY]: JSON.stringify({ services: { "aify-comms": { endpoint: ENDPOINT, credentialRef: "aify-comms-abc123.key" } } }),
     }),
     "credential file empty": fsWith({
-      [REGISTRY]: JSON.stringify({ services: { "aify-comms": { credentialRef: "aify-comms-abc123.key" } } }),
+      [REGISTRY]: JSON.stringify({ services: { "aify-comms": { endpoint: ENDPOINT, credentialRef: "aify-comms-abc123.key" } } }),
       [CREDENTIAL]: "   \n",
     }),
   };
   for (const [name, readFile] of Object.entries(cases)) {
-    assert.doesNotThrow(() => keyFromCredentialStore({ env: {}, readFile, join, homeDir: HOME }), name);
-    assert.equal(keyFromCredentialStore({ env: {}, readFile, join, homeDir: HOME }).key, "", name);
+    assert.doesNotThrow(() => read(readFile), name);
+    assert.equal(read(readFile).key, "", name);
   }
-  assert.equal(keyFromCredentialStore().key, "", "called with nothing, it invented a key");
+  assert.equal(keyForEndpoint().key, "", "called with nothing, it invented a key");
 });
 
 test("AIFY_SERVICE_REGISTRY relocates the registry", () => {
   const elsewhere = fsWith({
     "/opt/registry.json": JSON.stringify({
-      services: { "aify-comms": { credentialRef: "aify-comms-abc123.key" } },
+      services: { "aify-comms": { endpoint: ENDPOINT, credentialRef: "aify-comms-abc123.key" } },
     }),
-    [CREDENTIAL]: "s3cret",
+    [CREDENTIAL]: "s3cret\n",
   });
-  const { key } = keyFromCredentialStore({
-    env: { AIFY_SERVICE_REGISTRY: "/opt/registry.json" }, readFile: elsewhere, join, homeDir: HOME,
-  });
+  const { key } = read(elsewhere, { env: { AIFY_SERVICE_REGISTRY: "/opt/registry.json" } });
   assert.equal(key, "s3cret");
+});
+
+// ── the two security findings the review reproduced ─────────────────────────────────────────────
+
+test("R2: a key is NEVER paired with an endpoint the registry did not name it for", () => {
+  // Reproduced by review with synthetic receivers: the URL came from ambient environment variables
+  // while the key came from the registry, so a stale or foreign endpoint received a credential that
+  // had never been on this process's HTTP path. Refusing is the only safe answer — a service secret
+  // must not be handed to an arbitrary inherited destination.
+  assert.equal(read(REAL_HOST, { endpoint: "http://10.1.2.3:9999" }).key, "",
+    "the stored key was sent to an endpoint the registry never named");
+  assert.equal(read(REAL_HOST, { endpoint: "" }).key, "",
+    "a caller that cannot say where it is sending was still given a secret");
+  // ...and not so strict that it refuses the ordinary case: one destination, three spellings.
+  for (const spelling of ["http://localhost:8800", "http://127.0.0.1:8800/", "http://127.0.0.1:8800"]) {
+    assert.equal(read(REAL_HOST, { endpoint: spelling }).key, "s3cret", `refused ${spelling}`);
+  }
+  assert.equal(sameEndpoint("not a url", "not a url"), false, "unparseable compared equal to itself");
+});
+
+test("R3: the store's decoding contract, not readFileSync().trim()", () => {
+  // Every one of these was ACCEPTED by the first version of this reader and REFUSED by aify-env's.
+  // A credential that differs from what the store wrote is not this service's key.
+  assert.equal(decodeCredentialBytes(Buffer.from("s3cret\n")), "s3cret", "the ordinary case broke");
+  assert.equal(decodeCredentialBytes(Buffer.from("s3cret")), "", "no trailing newline was accepted");
+  assert.equal(decodeCredentialBytes(Buffer.from("s3cret\r\n")), "", "CRLF was accepted");
+  assert.equal(decodeCredentialBytes(Buffer.from("s3cret\n\n")), "", "a stray extra newline was accepted");
+  assert.equal(decodeCredentialBytes(Buffer.from("s3c\u0000ret\n")), "", "an embedded NUL was accepted");
+  assert.equal(decodeCredentialBytes(Buffer.from([0xff, 0xfe, 0x0a])), "", "invalid UTF-8 was accepted");
+  assert.equal(decodeCredentialBytes(Buffer.from(`${"k".repeat(MAX_CREDENTIAL_BYTES + 1)}\n`)), "",
+    "an oversized credential was accepted");
+  assert.equal(decodeCredentialBytes(Buffer.from(" s3cret \n")), "", "surrounding whitespace was accepted");
+  assert.equal(decodeCredentialBytes(null), "");
+});
+
+test("R3: a file whose REAL name differs only in case is refused", () => {
+  // On Windows and on macOS's default volume `Foo.key` and `foo.key` are ONE file, so two services
+  // whose refs differ only in case silently share a credential and each reads the other's. aify-env
+  // returns CREDENTIAL_INSECURE for that spelling mismatch; a grammar check alone cannot see it.
+  const cased = (real) => read(REAL_HOST, { realpath: (p) => p.replace("aify-comms-abc123.key", real) });
+  assert.equal(cased("aify-comms-abc123.key").key, "s3cret", "the matching case was refused");
+  assert.equal(cased("AIFY-COMMS-ABC123.KEY").key, "",
+    "a file whose on-disk name differs only in case was read as ours");
+});
+
+test("R3: a path that cannot be canonicalised is not one to read a secret from", () => {
+  assert.equal(read(REAL_HOST, { realpath: () => { throw new Error("EPERM"); } }).key, "");
 });
 
 // ── the CALL SITE, not just the helper ──────────────────────────────────────────────────────────
@@ -189,8 +248,11 @@ test("THE CALL SITE: aify-http resolves the store key when the environment carri
   // The registry is a SEALED FILE CARRIER: the helper points it at a sealed path rather than
   // unsetting it, because unset would fall back to the real home. A test wanting a real registry
   // names one through `extra`, which wins.
+  // AIFY_SERVER_URL is required now, and that is the fix, not an inconvenience: a process that
+  // cannot say where it is sending is not given a secret to send there.
   const env = sealedChildEnv({
     HOME: home, USERPROFILE: home,
+    AIFY_SERVER_URL: "http://127.0.0.1:8800",
     AIFY_SERVICE_REGISTRY: path.join(home, ".aify", "services.json"),
   });
   assert.equal(resolvedKeyWith(env), "from-the-store",
@@ -203,6 +265,7 @@ test("THE CALL SITE: the environment still wins over the store", () => {
   const home = homeWithCredential("from-the-store");
   const env = sealedChildEnv({
     HOME: home, USERPROFILE: home, AIFY_API_KEY: "from-the-env",
+    AIFY_SERVER_URL: "http://127.0.0.1:8800",
     AIFY_SERVICE_REGISTRY: path.join(home, ".aify", "services.json"),
   });
   assert.equal(resolvedKeyWith(env), "from-the-env");
@@ -243,8 +306,11 @@ test("THE OTHER CALL SITE: aify-service-endpoint's API_KEY reads the store too",
   // while aify-http resolved its own copy — so the first fix repaired inbound delivery and left the
   // MCP tools 401ing. There is one resolver now, and this test is what would catch it splitting again.
   const home = homeWithCredential("from-the-store");
+  // AIFY_SERVER_URL is required now, and that is the fix, not an inconvenience: a process that
+  // cannot say where it is sending is not given a secret to send there.
   const env = sealedChildEnv({
     HOME: home, USERPROFILE: home,
+    AIFY_SERVER_URL: "http://127.0.0.1:8800",
     AIFY_SERVICE_REGISTRY: path.join(home, ".aify", "services.json"),
   });
   assert.equal(resolvedKeyWith(env, ENDPOINT_MODULE, "API_KEY"), "from-the-store",
@@ -253,8 +319,11 @@ test("THE OTHER CALL SITE: aify-service-endpoint's API_KEY reads the store too",
 
 test("the two modules resolve the SAME key, because one of them is an alias", () => {
   const home = homeWithCredential("one-key");
+  // AIFY_SERVER_URL is required now, and that is the fix, not an inconvenience: a process that
+  // cannot say where it is sending is not given a secret to send there.
   const env = sealedChildEnv({
     HOME: home, USERPROFILE: home,
+    AIFY_SERVER_URL: "http://127.0.0.1:8800",
     AIFY_SERVICE_REGISTRY: path.join(home, ".aify", "services.json"),
   });
   assert.equal(

@@ -83,6 +83,17 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
 
         asyncio.run(_go())
 
+    def _with_db(self, body):
+        """Run `body(db)` on its own connection, so a test reads what the route committed."""
+        async def _go():
+            from service.db import get_db
+            db = await get_db()
+            try:
+                return await body(db)
+            finally:
+                await db.close()
+        return asyncio.run(_go())
+
     def _claim(self, *, delete_on_commit: bool):
         """Run the real claim, optionally letting a removal win at the exact instant of the commit."""
         from service.api_core import terminal_controls_io as io
@@ -154,6 +165,54 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["controls"], [], "it claimed a control another bridge already held")
 
+
+    def test_THE_CLAIM_PRESERVES_THE_ORDER_THE_HOST_WILL_APPLY(self):
+        """`RETURNING` gives no order, and the host applies this response SEQUENTIALLY.
+
+        The reviewer's producer sequence, not invented ids: resize(80) -> input -> resize(100). The
+        third control COALESCES onto the existing resize row and refreshes its timestamp, so
+        `requested_at ASC` puts the input FIRST -- while RETURNING handed back the resize first. That
+        is input typed into a terminal of the wrong width.
+        """
+        self._seed()
+
+        async def _produce(db):
+            from service.api_core import events
+
+            # TIME HAS TO MOVE. `_now()` is ISO SECONDS, so three appends in one test tick share a
+            # timestamp and nothing can diverge -- the first version of this test passed against the
+            # unfixed code for exactly that reason. Real production writes are seconds apart, and the
+            # coalescing UPDATE is what carries the resize row's `requested_at` PAST the input's.
+            ticks = iter([
+                "2026-09-07T00:00:01Z", "2026-09-07T00:00:02Z", "2026-09-07T00:00:03Z",
+            ])
+            real_now = events._now
+            events._now = lambda: next(ticks)
+            try:
+                for action, body, cols in (("resize", "", 80), ("input", "hello", 0), ("resize", "", 100)):
+                    await events._append_terminal_control(
+                        db, terminal_id=TERMINAL_ID, environment_id=ENV_ID, bridge_id=BRIDGE_ID,
+                        action=action, requested_by="test", body=body, cols=cols, rows=24,
+                    )
+            finally:
+                events._now = real_now
+            await db.commit()
+            cursor = await db.execute(
+                """
+                SELECT id, action FROM terminal_controls
+                WHERE environment_id = ? AND COALESCE(bridge_id, '') = ? AND status = 'pending'
+                ORDER BY requested_at ASC, id ASC
+                """,
+                (ENV_ID, BRIDGE_ID),
+            )
+            return [row["action"] for row in await cursor.fetchall()]
+
+        expected = self._with_db(_produce)
+        claimed = [c["action"] for c in self._claim(delete_on_commit=False)["controls"]]
+        self.assertEqual(
+            claimed, expected,
+            "the claim reordered the controls; the host applies them in the order it receives them",
+        )
 
 class _CommitHookedDb:
     """The real connection, with a removal wired to land on the first commit.

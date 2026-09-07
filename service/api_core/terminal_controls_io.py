@@ -92,7 +92,7 @@ async def _claim_terminal_controls_once(req: TerminalControlClaim):
             # could not tell a row this call won from one a concurrent claimer had already taken --
             # the re-read returned the row either way, whoever owned it.
             marks = ", ".join("?" for _ in ids)
-            controls = await (await db.execute(
+            claimed = await (await db.execute(
                 f"""
                 UPDATE terminal_controls SET status = 'claimed', claimed_at = ?
                 WHERE id IN ({marks}) AND status = 'pending'
@@ -100,6 +100,15 @@ async def _claim_terminal_controls_once(req: TerminalControlClaim):
                 """,
                 (now, *ids),
             )).fetchall()
+            # RETURNING GIVES NO ORDER, so the SELECT's `ORDER BY requested_at ASC, id ASC` is put
+            # back here. The host applies this response SEQUENTIALLY, so order is behaviour, not
+            # presentation: a real producer sequence of resize(80) -> input -> resize(100) coalesces
+            # onto the existing resize row and updates its timestamp, which makes the SELECT order
+            # [input, resize] while RETURNING handed back [resize, input] -- the input typed into a
+            # terminal of the wrong width. Found by review on eb12fbd8 with that exact reproduction;
+            # it was a regression introduced by the fix for the payload loss.
+            rank = {control_id: position for position, control_id in enumerate(ids)}
+            controls = sorted(claimed, key=lambda row: rank[row["id"]])
         # Attach the target terminal's stored PTY root pid so a claiming bridge
         # can kill-by-pid when its in-memory terminals Map misses (orphaned PTY,
         # owning bridge gone). The claim is already env+bridge scoped, so the pid

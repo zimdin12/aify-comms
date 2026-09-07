@@ -1,0 +1,316 @@
+[
+  {
+    "repo": "C:/Docker/aify-comms",
+    "sha": "5f286d6632b727b448e92d0c1ec466c6c1e23bdd",
+    "base": "9955e1514c12fad0bc3e67cbf30699ad19c801ad",
+    "changed_count": 42,
+    "paths": [
+      {
+        "path": ".agents/skills/aify-comms-debug/references/dispatch-bridges.md",
+        "lane": "docs",
+        "sha256": "0c080355bdb85f58dfd70c1a435bc79542f2cd76243d9997e560d0fbb1c47ff8"
+      },
+      {
+        "path": ".agents/skills/aify-comms-debug/references/dispatch-delivery.md",
+        "lane": "docs",
+        "sha256": "017b99307ac256baf19e6e6fd5f77a99e2e18ec21f3e26db598b736855870a45"
+      },
+      {
+        "path": ".agents/skills/aify-comms-debug/references/dispatch-launch.md",
+        "lane": "docs",
+        "sha256": "fb24acd5fa31ee3ec5363a3cc841155c894e505864801c47b3113c898ce3639b"
+      },
+      {
+        "path": ".agents/skills/aify-comms-install/SKILL.md",
+        "lane": "docs",
+        "sha256": "b07076da170c21848bf35e6976f40bbf1196056ffe1457e8514f92c645226a9a"
+      },
+      {
+        "path": ".agents/skills/aify-comms/references/operations.md",
+        "lane": "docs",
+        "sha256": "98d9a8b489ca8cd62c988488faec6e76a3712f2b4a3147fec3f5d7fda978da81"
+      },
+      {
+        "path": ".claude/skills/aify-comms-debug/references/dispatch-bridges.md",
+        "lane": "docs",
+        "sha256": "0c080355bdb85f58dfd70c1a435bc79542f2cd76243d9997e560d0fbb1c47ff8"
+      },
+      {
+        "path": ".claude/skills/aify-comms-debug/references/dispatch-delivery.md",
+        "lane": "docs",
+        "sha256": "017b99307ac256baf19e6e6fd5f77a99e2e18ec21f3e26db598b736855870a45"
+      },
+      {
+        "path": ".claude/skills/aify-comms-debug/references/dispatch-launch.md",
+        "lane": "docs",
+        "sha256": "fb24acd5fa31ee3ec5363a3cc841155c894e505864801c47b3113c898ce3639b"
+      },
+      {
+        "path": ".claude/skills/aify-comms-install/SKILL.md",
+        "lane": "docs",
+        "sha256": "b07076da170c21848bf35e6976f40bbf1196056ffe1457e8514f92c645226a9a"
+      },
+      {
+        "path": ".claude/skills/aify-comms/references/operations.md",
+        "lane": "docs",
+        "sha256": "98d9a8b489ca8cd62c988488faec6e76a3712f2b4a3147fec3f5d7fda978da81"
+      },
+      {
+        "path": "CLAUDE.md",
+        "lane": "docs",
+        "sha256": "83b3ef42e7bbf80382d5dff7d81381abc9d3ed1ea18cdf30f98d81938490178e"
+      },
+      {
+        "path": "DECISIONS.md",
+        "lane": "docs",
+        "sha256": "b645e020c71e3fa5ad99203c1caafecc76e546f76a54b158151c6ab99bb55501"
+      },
+      {
+        "path": "README.md",
+        "lane": "docs",
+        "sha256": "5cc75c5967fe2b7c3b78571828793e4b7d521937864a5820e4fe69c8602a78be"
+      },
+      {
+        "path": "docs/BRIDGE_SETUP.md",
+        "lane": "docs",
+        "sha256": "35294f27a205ff05592bb33712a7e98b8ad99548aa25f3ffb5b76b45a5ce323e"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-09-07-herdr-as-the-pane-surface.md",
+        "lane": "docs",
+        "sha256": "bc77ba99431183db28f766e563be2f4f4894e7a93ff5de8d8098049629142cc7"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-09-07-v0.6.3-fixes-then-v0.6.4-herdr.md",
+        "lane": "docs",
+        "sha256": "5a25529ef2928111673554a580ad2b5c35a2625c3907a169b7a11dc90190ab7e"
+      },
+      {
+        "path": "install.claude.md",
+        "lane": "docs",
+        "sha256": "c260345322ea91b155297f7c6124c910e547684c6f93083a6f3b18ee8db231ee"
+      },
+      {
+        "path": "install.codex.md",
+        "lane": "docs",
+        "sha256": "6d792743cdc261ddc2d42ccf8b8491cda36e90cecc4aa2924e2e412424951ca4"
+      },
+      {
+        "path": "install.hermes.md",
+        "lane": "docs",
+        "sha256": "4425ab2e10a97c6948e070b9c91b0485836f597a2fb95b913fcd763db55af08f"
+      },
+      {
+        "path": "install.pi.md",
+        "lane": "docs",
+        "sha256": "b9e8814e3683d366436cf2906900c0afd50f0f9e2ff89c91fc7a7fca8c729fdc"
+      },
+      {
+        "path": "install.sh",
+        "lane": "docs",
+        "sha256": "b1417cb3516a6481ca32b39ea365933e880e8b2704e81b3a3d46b8b75c8b7859"
+      },
+      {
+        "path": "mcp/stdio/aify-http.mjs",
+        "lane": "auth",
+        "sha256": "7e54a9aa029e4de7b69b229e9731806bbbd9b1196d52a2dcda5ccafceb5d189c"
+      },
+      {
+        "path": "mcp/stdio/client-api-key-check.mjs",
+        "lane": "auth",
+        "sha256": "00cfcedd2f0a5cc43e41e057ee7c254846f0711f194f9d94affac26d93b5a11b"
+      },
+      {
+        "path": "mcp/stdio/doctor-api-key.mjs",
+        "lane": "auth",
+        "sha256": "8008a4051bc7259a3b67342a650a819d8d275154ede785b0c3c9857f7ae09b32"
+      },
+      {
+        "path": "mcp/stdio/doctor.js",
+        "lane": "auth",
+        "sha256": "9c189cee120e3559671e767ffa94910be585f97795afd69d1ae52c37972cf738"
+      },
+      {
+        "path": "mcp/stdio/registry-credential.mjs",
+        "lane": "auth",
+        "sha256": "8060eb6e3a5dc83491112e98907e91a65bc092eba0fb0369b5a2c5a558d23077"
+      },
+      {
+        "path": "mcp/stdio/service-name.mjs",
+        "lane": "auth",
+        "sha256": "c31a10c6938e189bb405b632d6190ecb7f45af838051c67a45e93a49d0ca39a2"
+      },
+      {
+        "path": "mcp/stdio/service-registry.mjs",
+        "lane": "auth",
+        "sha256": "46662b61ddca28f3bea5ab8da8e26ec04cf839b5ae9f84962077e33b6ac7dd4a"
+      },
+      {
+        "path": "mcp/stdio/tests/a-standalone-claimer-can-find-its-key.test.js",
+        "lane": "auth",
+        "sha256": "212b914dfa2210c5c34b3fa50965eee5f3e8e2d7746ea71c140f03c01b771f1b"
+      },
+      {
+        "path": "mcp/stdio/tests/client-api-key-check.test.js",
+        "lane": "auth",
+        "sha256": "10470444e27ea5f7051b00bc5849cab78dd1642b52f62154de659293b6b0b76a"
+      },
+      {
+        "path": "mcp/stdio/tests/hermes-gateway-extraction.test.js",
+        "lane": "docs",
+        "sha256": "8bb0768903879a77a5b4438f327a9df2f0c7844b75e1bf3475161f1a9d2039c5"
+      },
+      {
+        "path": "mcp/stdio/tests/skill-size-ratchet.test.js",
+        "lane": "docs",
+        "sha256": "114dce16dbc7fe49885dcd27b0f6869b597a3c07475a173111ffd7ff003f27e2"
+      },
+      {
+        "path": "service/api_core/agent_terminal_ops.py",
+        "lane": "parent-python",
+        "sha256": "b63c8951cf92b55ed64d8398885b8d009f767a5ab3046231b3729029a0b5c649"
+      },
+      {
+        "path": "service/api_core/environment_registration.py",
+        "lane": "parent-python",
+        "sha256": "b024d4c4d484ca7984b0c12477bb77101a9b0652e9bb4a774acb1e83bb2fcd2b"
+      },
+      {
+        "path": "service/api_core/managed_env.py",
+        "lane": "parent-python",
+        "sha256": "786c2609ae9c9f77c0a950f088ef9fa43745d551fb87c4cc22b893bc228c4d5f"
+      },
+      {
+        "path": "service/api_core/serialization.py",
+        "lane": "parent-python",
+        "sha256": "2ebcdedd894f225936ba8264b142ac20bcc8a7906afd6ab2d5e95e5483edc036"
+      },
+      {
+        "path": "service/routers/agents/identity.py",
+        "lane": "parent-python",
+        "sha256": "f16f9452d7ea086294eb85a1e809070994f5f0d697bee9c690fea404597d6d37"
+      },
+      {
+        "path": "service/tests/test_a_removal_does_not_delete_the_stop_it_just_wrote.py",
+        "lane": "parent-python",
+        "sha256": "be90335c2733764aa8a8ac9337c4a61d5f28c8266efd4b1e04f344e5f61fc28b"
+      },
+      {
+        "path": "service/tests/test_a_spawned_agent_keeps_the_binding_its_host_recorded.py",
+        "lane": "docs",
+        "sha256": "8882f451f65f1ddd574cf881f1fc11506731a92208588e48b08b683083c115f2"
+      },
+      {
+        "path": "service/tests/test_environment_heartbeat_split_is_inert.py",
+        "lane": "docs",
+        "sha256": "629bd0e5b97a2021415143a3455b8297045ba464e90e6c8fcd39771958fa6af9"
+      },
+      {
+        "path": "service/tests/test_skill_mirror_parity.py",
+        "lane": "docs",
+        "sha256": "5dbafd9a4f26309d331fb4be5a1d0e824f934c572da9522f52a7382fbf368de6"
+      },
+      {
+        "path": "service/tests/test_the_version_column_reads_where_the_version_is_sent.py",
+        "lane": "parent-python",
+        "sha256": "3c9b821cf624b996dd2f69f91f8f366e344807193147c0473a4983db23ea9fcd"
+      }
+    ]
+  },
+  {
+    "repo": "C:/Users/Administrator/projects/aify-env",
+    "sha": "ce9d7947218a6fa06aa1fddf9fa9d6ebeae1551b",
+    "base": "dd37e5fd7b6290976160c0b2639e3a4aff92900f",
+    "changed_count": 14,
+    "paths": [
+      {
+        "path": "README.md",
+        "lane": "env",
+        "sha256": "7809d7a54f4258b9d3c84aadf874f0fc4e90ddbfba70709ac949d301871f3630"
+      },
+      {
+        "path": "bin/aify-env-tui.mjs",
+        "lane": "env",
+        "sha256": "a6e996f9f77961151bb0947de59c170596a17d6e4bab418a7b055b79d76634d8"
+      },
+      {
+        "path": "lib/console-view.mjs",
+        "lane": "env",
+        "sha256": "9df9ca1042f7db1575bda96460d1ff78b5b341fb2916bb7568e66334ad5fdb8e"
+      },
+      {
+        "path": "lib/daemon-view.mjs",
+        "lane": "env",
+        "sha256": "75430a3d5927d9132bba5f018e5fb155febaa68a302f6559a6529f4087d20bdf"
+      },
+      {
+        "path": "lib/dashboard.mjs",
+        "lane": "env",
+        "sha256": "8db06fa6f3f09f624e40a4fa955d1153f02733df76ea248239d1804e7e41b94a"
+      },
+      {
+        "path": "lib/keys.mjs",
+        "lane": "env",
+        "sha256": "1d0f408760cdba727e9ffd84c148a644e3312256a5878461fc39e201e86e6795"
+      },
+      {
+        "path": "lib/pane-buffer.mjs",
+        "lane": "env",
+        "sha256": "8e68656d60d1f57f3d13a6901cf0d6b0bf40dc10f462aaa4fd80ed9e8e18ea9d"
+      },
+      {
+        "path": "lib/process-registry.mjs",
+        "lane": "env",
+        "sha256": "b3d19a2ee01a914d105c750c2c50cc251c656e799112ef3cd027d69410ce3cdf"
+      },
+      {
+        "path": "lib/text-width.mjs",
+        "lane": "env",
+        "sha256": "3c0562089291ab4662419e8e31f728034a8a7089b8cdc8c1cc8bb8180a4c7c9d"
+      },
+      {
+        "path": "lib/tui.mjs",
+        "lane": "env",
+        "sha256": "1c120af012da0b0e9db6dd343e4b1505ba371531bc032d72d56c89b2ac47f37c"
+      },
+      {
+        "path": "tests/a-pane-does-not-pretend-to-draw-a-tui.test.js",
+        "lane": "env",
+        "sha256": "696ea4e940c36914cf293f31f9424deeb6398569a3c1f29692798081dd2e1f94"
+      },
+      {
+        "path": "tests/text-width.test.js",
+        "lane": "env",
+        "sha256": "c0560539932ebc3db0b31cab966010b0af88404f5126ac61810fc6f15e93eccc"
+      },
+      {
+        "path": "tests/the-view-fits-the-terminal-it-is-drawn-on.test.js",
+        "lane": "env",
+        "sha256": "b64b5df627733ab43f398eef244753a5246c6f8c3fab2c5333a0c5888322ba2b"
+      },
+      {
+        "path": "tests/the-view-survives-a-resize-and-a-smeared-screen.test.js",
+        "lane": "env",
+        "sha256": "958ce49106f7f79c2cd47ae0a1ea8cd4e62374ecda85b49c3551d5ccb0ec6997"
+      }
+    ]
+  },
+  {
+    "repo": "C:/Users/Administrator/projects/aify-wrapper",
+    "sha": "2df47866bc22cee90b650a18837db5f8edc3b4e5",
+    "base": "5c62d91cd613def2ce67f8c4d7f0ae34f24d42fd",
+    "changed_count": 2,
+    "paths": [
+      {
+        "path": "docs/REGISTRY.md",
+        "lane": "docs",
+        "sha256": "14318cd02f44ddc0986fd15a8fb71acf5c54454da1d3b563e1dd1e06498513ca"
+      },
+      {
+        "path": "tests/the-registry-doc-names-the-functions-that-exist.test.js",
+        "lane": "docs",
+        "sha256": "b6a8a0863d6ebd366548b3e967aad6d0630213048db3297f48eb844d5213c9ea"
+      }
+    ]
+  }
+]

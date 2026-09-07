@@ -30,7 +30,7 @@ import { SERVICE_NAME } from "./service-registry.mjs";
 // which is how five hermes agents went deaf with the working key sitting on disk beside them.
 import {
   CREDENTIAL_DIR_NAME,
-  keyFromCredentialStore,
+  keyForEndpoint,
 } from "./registry-credential.mjs";
 export { CREDENTIAL_DIR_NAME };
 
@@ -93,7 +93,9 @@ export function apiKeyInEnvFile(text) {
  * @param {{env?: object, repoDir?: string, readFile?: (path: string) => string, join?: Function}} deps
  * @returns {{key: string, source: string}} source is "" when no key was found anywhere
  */
-export function resolveDoctorApiKey({ env = {}, repoDir = "", readFile, join, homeDir = "" } = {}) {
+export function resolveDoctorApiKey({
+  env = {}, repoDir = "", readFile, join, homeDir = "", endpoint = "", realpath,
+} = {}) {
   const exported = apiKeyFrom(env);
   if (exported) return { key: exported, source: "the environment" };
 
@@ -124,5 +126,13 @@ export function resolveDoctorApiKey({ env = {}, repoDir = "", readFile, join, ho
   //
   // LAST, NOT FIRST, and that ordering is deliberate: this is purely additive. Where a checkout is
   // present the resolution is byte-for-byte what it was, so nothing that works today changes.
-  return keyFromCredentialStore({ env, readFile, join, homeDir, serviceName: SERVICE_NAME });
+  // ENDPOINT-BOUND, like every other reader of the store. A credential the registry names for one
+  // service instance must not be paired with whatever URL this doctor run happens to be pointed at
+  // -- that was R2, and the doctor is not exempt from it just because it only reads.
+  return keyForEndpoint({
+    env, readFile, join, homeDir, endpoint, serviceName: SERVICE_NAME,
+    // Forwarded so a test can drive the on-disk-name check without a real filesystem; the
+    // resolver's own default is the real `realpath.native` when this is undefined.
+    ...(realpath ? { realpath } : {}),
+  });
 }
