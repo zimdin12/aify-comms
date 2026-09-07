@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 
+from service.api_core.serialization import version_text as _version_text
+
 
 async def _record_environment_registration(
     db, existing, env_id, req, effective_roots, runtimes, requested_status, next_metadata,
@@ -51,13 +53,42 @@ async def _record_environment_registration(
         #: with no writer are one defect from opposite sides. The identity's home is `metadata`; the
         #: column is its projection, so it reads from where the value lives.
         #:
-        #: SAFE BECAUSE OWNERSHIP IS ALREADY ENFORCED AT THE BOUNDARY. `environment_heartbeat` drops
-        #: the caller's whole `bridge*` namespace when it sends no `bridgeId`, so a value reaching
-        #: `next_metadata` here has already proved it came from a claimer. An advertiser cannot
-        #: forge one.
+        #: ONLY A CALLER THAT DECLARES A BRIDGE MAY SET THIS, WHICHEVER CARRIER IT USES.
+        #:
+        #: An independent review, 2026-09-07, found the first version of this claiming a safety
+        #: property it did not have. The reasoning was that `environment_heartbeat` drops the whole
+        #: `bridge*` METADATA namespace from a caller that sends no `bridgeId` -- true, and it covers
+        #: one of the two carriers. The TOP-LEVEL `req.bridgeVersion` is stripped by nothing and was
+        #: read FIRST, so the forgery the negative control was written to close stood open through
+        #: the other door. Reproduced against a row held by a live host tier:
+        #:
+        #:     POST /environments/heartbeat  {"id": ENV, "bridgeVersion": "9.9.9"}   # no bridgeId
+        #:     -> column 9.9.9, metadata.bridgeVersion still 0.6.2, bridge_id still the real claimer
+        #:
+        #: `tier-version` reads the column first, so that reports GREEN on a host whose tier is
+        #: behind -- the exact false green that check was rewritten once to remove, reachable by an
+        #: unauthenticated call on a keyless deployment.
+        #:
+        #: PRE-EXISTING, NOT INTRODUCED: before this change `req.bridgeVersion` was the only source,
+        #: so the hole is older than the fix and the fix narrowed it (the incumbent's next beat now
+        #: repairs a forged value instead of it freezing forever). What was new was the CLAIM. Both
+        #: carriers are gated now, so the claim is true rather than nearly true.
+        #:
+        #: `bridgeId` IS A SELF-ASSERTED STRING, not an authenticated identity -- possession of any
+        #: non-blank one passes. It is the same gate the metadata namespace already uses and no
+        #: weaker; saying it "proves" anything was the second overstatement here.
+        declares_a_bridge = bool(str(req.bridgeId or "").strip())
         incoming_bridge_version = (
-            str(req.bridgeVersion or "").strip()
-            or str((next_metadata or {}).get("bridgeVersion") or "").strip()
+            (
+                str(req.bridgeVersion or "").strip()
+                #: STRINGIFIED DEFENSIVELY. `metadata` is `dict[str, Any]`, so unlike the pydantic
+                #: `Optional[str]` above it can carry a dict or a list -- which `str()` would write
+                #: into the column as a Python repr (`{'evil': 1}`). It fails safe downstream, but a
+                #: column holding a repr is a column nothing can parse, and it persists via `_kept`
+                #: until a well-formed beat replaces it.
+                or _version_text((next_metadata or {}).get("bridgeVersion"))
+            )
+            if declares_a_bridge else ""
         )
         if existing:
             # A HEARTBEAT THAT DECLARES NO BRIDGE KEEPS THE ONE ON THE ROW.

@@ -99,7 +99,10 @@ class SpawnedAgentKeepsItsBindingTests(FastApiTestCase):
         """`sc-critic`'s shape, and the one that always worked. Every assertion below is "the
         environment resolved"; a resolver that had stopped resolving anything would fail here first,
         so a green result elsewhere could not be mistaken for the fix."""
-        self._seed([("with-machine", MACHINE, {"environmentId": ENV_ID}, {})])
+        # NO runtime_state BINDING, which is the whole point of this control. Seeded with one, the
+        # NEW step answered first and step 3 was never reached -- deleting step 3 entirely left all
+        # five tests here green. A positive control that the fix itself satisfies is not a control.
+        self._seed([("with-machine", MACHINE, {}, {})])
         row = self._resolve("with-machine")
         self.assertIsNotNone(row, "the machine_id path no longer resolves")
         self.assertEqual(row["id"], ENV_ID)

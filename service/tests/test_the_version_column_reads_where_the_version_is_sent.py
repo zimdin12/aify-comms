@@ -86,6 +86,42 @@ class TheVersionColumnReadsWhereTheVersionIsSentTests(FastApiTestCase):
             "failing on a host that is fully up to date",
         )
 
+    def test_AN_ADVERTISER_CANNOT_FORGE_A_VERSION_THROUGH_THE_TOP_LEVEL_FIELD(self):
+        """THE HOLE THIS FILE'S OWN NEGATIVE CONTROL MISSED, found by an independent review.
+
+        The control below proves the METADATA carrier is gated, because `environment_heartbeat`
+        drops a bridgeless caller's whole `bridge*` namespace. The top-level `bridgeVersion` is
+        stripped by nothing and was read FIRST, so the same forgery walked in through the other
+        door -- and `tier-version` reads this column before the metadata, so it would report GREEN
+        on a host whose tier is behind. That is the false green the check was rewritten once to
+        remove, reachable here by an unauthenticated call on a keyless deployment.
+
+        A negative control that covers one of two carriers is the shape this repo keeps meeting:
+        the population was right and the verdict was narrower than the thing it judged.
+        """
+        self._beat({"id": ENV_ID, "bridgeId": "real-claimer", "bridgeVersion": "0.6.2"})
+        after = self._beat({"id": ENV_ID, "bridgeVersion": "9.9.9"})
+        self.assertEqual(
+            after["bridgeVersion"], "0.6.2",
+            "a caller that declared no bridge overwrote the claimer's version through the "
+            "top-level field, so tier-version would read a forged value first",
+        )
+
+    def test_a_non_string_version_is_refused_rather_than_stringified(self):
+        """`metadata` is `dict[str, Any]`, so `str()` on it writes a Python repr into a column every
+        consumer parses. It fails safe downstream -- the doctor reports `unknown-all`, not a false
+        green -- and then persists, because `_kept` keeps it until a well-formed beat arrives.
+
+        A number is refused rather than coerced on purpose: `0.62` is not `"0.6.2"`.
+        """
+        self._beat({"id": ENV_ID, "bridgeId": "b-1", "bridgeVersion": "0.6.2"})
+        for junk in ({"evil": 1}, ["a", "b"], 0.62, True):
+            after = self._beat({"id": ENV_ID, "bridgeId": "b-1", "metadata": {"bridgeVersion": junk}})
+            self.assertEqual(
+                after["bridgeVersion"], "0.6.2",
+                f"{junk!r} reached the column as a repr instead of being refused",
+            )
+
     def test_AN_ADVERTISER_WITH_NO_BRIDGE_ID_CANNOT_SET_IT(self):
         """NEGATIVE CONTROL, and the reason this fix is safe to make at all.
 

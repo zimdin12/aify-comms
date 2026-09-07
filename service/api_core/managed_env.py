@@ -127,12 +127,6 @@ async def _managed_owning_environment_row(
             env_id = str(runtime_config.get("environmentId") or "").strip()
         except Exception:
             env_id = ""
-    if not env_id:
-        try:
-            runtime_state = _json_loads_or(agent_row["runtime_state"], {})
-            env_id = str(runtime_state.get("environmentId") or "").strip()
-        except Exception:
-            env_id = ""
     # 2.5 (2026-06-17, Phase I flip parity): the agent's LIVE session binding. The
     # event-engine status callers (_gather_status_inputs / the _compute_live_status_cache
     # byproduct) pass resolved_environment_id="" — they don't pre-resolve the session env
@@ -163,6 +157,36 @@ async def _managed_owning_environment_row(
         row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))).fetchone()
         if row:
             return row
+    # 2.9 THE SPAWN-TIME BINDING FROM `runtime_state`, read AFTER the live session and not before it.
+    #
+    # Placed above 2.5 at first, which inverted a precedence this module promises elsewhere: a LIVE
+    # session is where the agent is running NOW, and a stored id is where it was told to run. An
+    # independent review drove the divergent shape -- a `running` session on the online host beside a
+    # stale `runtime_state` pointing at a dead one -- and got the DEAD environment out of this
+    # resolver where the pre-change code gave the live one. No user-visible wrong answer was
+    # demonstrated and the shape may not occur today, but it also put `_gather_status_inputs` and the
+    # `_compute_live_status_cache` byproduct on different answers, and those two agreeing is a
+    # promise this module keeps deliberately.
+    #
+    # Below the live session it still fixes the case it was added for: an agent with NO live session
+    # and no machine_id, which is every managed agent whose worker has died -- and the only case this
+    # whole resolution exists for.
+    if not env_id:
+        try:
+            runtime_state = _json_loads_or(agent_row["runtime_state"], {})
+            env_id = str(runtime_state.get("environmentId") or "").strip()
+        except Exception:
+            env_id = ""
+    # ITS OWN LOOKUP, because the one above already ran. Moving this step below the live-session
+    # branch put it after that branch's `if env_id: return row`, so it resolved an id nothing then
+    # read and every spawn-registered agent fell through to the machine_id step it has no id for --
+    # the original defect, restored by the reorder that was supposed to be safe. Its own test caught
+    # it immediately, which is the only reason this paragraph is not a bug report.
+    if env_id:
+        row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))).fetchone()
+        if row:
+            return row
+
     # 3. machine_id + runtime match (the environment that advertises this runtime
     #    on the agent's machine). Mirrors how spawn picks an environment.
     machine_id = str(agent_row["machine_id"] or "").strip()

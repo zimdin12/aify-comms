@@ -218,3 +218,17 @@ def _iso_add_seconds(value: str, seconds: int) -> str:
     if not epoch:
         return ""
     return _iso_from_ms(int((epoch + max(0, int(seconds))) * 1000))
+
+
+def version_text(value) -> str:
+    """A version string, or "" for anything that is not one.
+
+    `metadata` is `dict[str, Any]` and reaches this module unvalidated, so `str()` on it would write
+    a Python repr into a column every consumer parses -- `{'evil': 1}`, `['a', 'b']`, `0.62`. That
+    fails safe (the doctor reports `unknown-all` rather than a false green) and then persists,
+    because `_kept` preserves whatever is there until a well-formed beat arrives.
+
+    A number is deliberately refused rather than coerced: `0.62` is not `"0.6.2"`, and guessing which
+    one a caller meant is how a version column starts lying quietly.
+    """
+    return value.strip() if isinstance(value, str) else ""
