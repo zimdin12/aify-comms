@@ -50,6 +50,7 @@ from service.api_core.registration_gates import (
     _enforce_live_worker_gate,
 )
 from service.api_core.agent_terminal_ops import (
+    _await_stop_claims,
     _request_stop_agent_terminals,
 )
 from service.api_core.agent_removal import _remove_agent_record
@@ -185,10 +186,23 @@ async def unregister_agent(agent_id: str, request: Request):
                 "UPDATE agents SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ? WHERE id = ?",
                 ("Removed from dashboard; tearing down managed session.", now, agent_id),
             )
-            await _request_stop_agent_terminals(
+            signalled = await _request_stop_agent_terminals(
                 db, agent_id, requested_by="api", now=now, reap_triad=True,
             )
             await db.commit()
+            # AND WAIT, BRIEFLY, FOR THE HOST TO TAKE IT. The comment above says this path depends on
+            # the stop control being "claimed before the tombstone delete" -- and nothing made that
+            # true. `terminal_controls` cascades from `terminal_sessions`, which cascades from
+            # `agents`, so the delete below WIPES the control this request just wrote. The two
+            # commits are milliseconds apart and it lost three times on 2026-09-07: aify-env streamed
+            # into 404s for ten minutes, correctly refusing to kill workers that were still
+            # producing, until its own silence guard stopped them.
+            #
+            # A BOUND, NOT A GUARANTEE. A host that is not listening cannot block a removal for ever;
+            # the deadline expires and the delete proceeds exactly as it did before, so this is never
+            # worse than the behaviour it replaces. See `_await_stop_claims`.
+            if signalled:
+                await _await_stop_claims(db, agent_id)
         deleted = await _remove_agent_record(
             db,
             agent_id,

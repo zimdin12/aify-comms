@@ -16,6 +16,8 @@ DB ACCESS: `db` is passed in. No connection opened, no commit, no rollback.
 
 from __future__ import annotations
 
+import asyncio
+
 
 from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL, TERMINAL_STOPPABLE_STATUS_SQL
 from service.api_core.events import _append_terminal_control
@@ -124,3 +126,70 @@ async def _resolve_live_console_terminal(db, agent_id: str):
             (agent_id,),
         )
     ).fetchone()
+
+#: How long a REMOVE waits for the host to take the stop it just wrote. See `_await_stop_claims`.
+#:
+#: A live claimer holds a long-poll open, so it takes the control in MILLISECONDS -- this budget is
+#: for the gap, not the normal case. Two seconds is long enough that a busy host still wins and short
+#: enough that an operator clicking Remove does not think the button is broken.
+STOP_CLAIM_WAIT_SECONDS = 2.0
+
+#: How often to look. Fifty reads over the budget, each a single indexed COUNT.
+_STOP_CLAIM_POLL_SECONDS = 0.04
+
+
+async def _pending_stop_controls(db, agent_id: str) -> int:
+    """Stop controls for this agent's terminals that no host has taken yet."""
+    cursor = await db.execute(
+        """
+        SELECT COUNT(*) FROM terminal_controls c
+        JOIN terminal_sessions t ON t.id = c.terminal_id
+        WHERE t.agent_id = ? AND c.action = 'stop' AND c.status = 'pending'
+        """,
+        (agent_id,),
+    )
+    row = await cursor.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+async def _await_stop_claims(
+    db, agent_id: str, *,
+    budget_seconds: float = STOP_CLAIM_WAIT_SECONDS,
+    poll_seconds: float = _STOP_CLAIM_POLL_SECONDS,
+    sleep=asyncio.sleep,
+    monotonic=None,
+) -> bool:
+    """Wait, briefly, for the host to take the stop before the agent row is tombstoned.
+
+    THE RACE THIS CLOSES, and it lost three times on the operator's host on 2026-09-07. `REMOVE` is
+    STOP-then-tombstone: it writes a stop control, commits, then deletes the agent. But
+    `terminal_controls` has `ON DELETE CASCADE` from `terminal_sessions`, which cascades from
+    `agents` -- so THE DELETE WIPES THE CONTROL THE SAME REQUEST JUST WROTE. `unregister_agent`'s own
+    comment admitted the design depended on the control being "claimed before the tombstone delete",
+    and the two commits are milliseconds apart.
+
+    When it loses, nothing tells the host anything. aify-env kept streaming into 404s for ten
+    minutes, correctly refusing to kill workers that were still producing, until its own silence
+    guard stopped them. Three managed workers, and the only reason it was not worse is that the host
+    guards itself.
+
+    A BOUND, NOT A GUARANTEE, and the difference is deliberate. A host that is not listening must not
+    be able to block a removal for ever, so the deadline expires and the delete proceeds exactly as
+    it does today -- never worse than the behaviour this replaces. What it buys is the ordinary case:
+    a live claimer holds a long-poll open and takes the control in milliseconds.
+
+    READ-ONLY WHILE WAITING. The caller commits before calling this, so nothing here holds a write
+    transaction open against the single writer.
+
+    @returns whether every stop was claimed before the deadline
+    """
+    if budget_seconds <= 0:
+        return await _pending_stop_controls(db, agent_id) == 0
+    clock = monotonic or asyncio.get_event_loop().time
+    deadline = clock() + budget_seconds
+    while True:
+        if await _pending_stop_controls(db, agent_id) == 0:
+            return True
+        if clock() >= deadline:
+            return False
+        await sleep(poll_seconds)
