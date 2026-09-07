@@ -39,7 +39,10 @@ import { parseRegistry } from "aify-wrapper/lib/registry.mjs";
  * file needed it; the bridge now has to ask aify-env "are you advertising to ME?", and a second
  * hand-typed copy of an identity is how two files come to disagree about who you are.
  */
-export const SERVICE_NAME = "aify-comms";
+// MOVED to ./service-name.mjs 2026-09-07 and re-exported here, so this file remains the owner
+// every caller imports from while a module that wants only the NAME can skip the registry parser
+// this one loads. See service-name.mjs for why that mattered.
+export { SERVICE_NAME } from "./service-name.mjs";
 
 export function upsertService(existingText, serviceName, entry) {
   const errors = [];
