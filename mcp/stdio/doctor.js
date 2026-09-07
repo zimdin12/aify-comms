@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
 import { tierVersionVerdict } from "./tier-version-check.mjs";
+import { clientApiKeyVerdict, entryCarriesKey } from "./client-api-key-check.mjs";
 import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
@@ -525,6 +526,49 @@ checkNativeBridge();
 // live one, which is how this fleet lost nine managed agents.
 // Managed delivery loops running for agents that belong to no live bridge. READ-ONLY: it enumerates
 // and names them, and never kills. See `managedOrphanVerdict` for why reporting is the whole job.
+/**
+ * The two facts `client-api-key` needs, gathered from the real host.
+ *
+ * THE PROBE CARRIES NO KEY, deliberately. `get()` sends the key this process holds, and a request
+ * carrying one can only ever answer "yes, with a key" -- which is not the question. `api-exposure`
+ * carries its own fetch for exactly this reason.
+ *
+ * A NON-401 IS A NO. Only 401/403 mean "this service demands credentials"; a timeout or a 500 is an
+ * unreachable or broken service, which is the `service` row's business, and answering it here would
+ * make this row red for a reason it cannot fix.
+ */
+async function gatherClientApiKeyEvidence() {
+  let serviceRequiresKey = null;
+  try {
+    const res = await fetch(`${SERVER_URL}/api/v1/agents`, { signal: AbortSignal.timeout(5000) });
+    serviceRequiresKey = res.status === 401 || res.status === 403;
+  } catch {
+    serviceRequiresKey = null;
+  }
+
+  // DERIVED FROM WHAT IS ON DISK, not from a list of clients we believe are installed: a host with no
+  // hermes must not be reported as a hermes with no key.
+  const candidates = [
+    { name: "claude", path: join(homedir(), ".claude.json"), format: "json" },
+    { name: "hermes", path: join(homedir(), ".hermes", "config.yaml"), format: "yaml" },
+  ];
+  const clients = [];
+  for (const candidate of candidates) {
+    let text = null;
+    try {
+      text = readFileSync(candidate.path, "utf8");
+    } catch {
+      continue;  // absent is not installed, and not a finding
+    }
+    const carriesKey = entryCarriesKey(text, candidate.format);
+    // A config with no aify-comms entry at all is not this row's business -- `bridge-installed`
+    // reports an uninstalled client -- so it is dropped rather than counted as keyless.
+    if (carriesKey === null) continue;
+    clients.push({ name: candidate.name, path: candidate.path, carriesKey });
+  }
+  return { serviceRequiresKey, clients };
+}
+
 async function checkManagedOrphans() {
   // The enumerator is imported lazily so a host that cannot list processes fails HERE, with the
   // reason, rather than taking doctor's module load with it.
@@ -637,6 +681,16 @@ await checkSpawnDelegation();
   const rows = envListing ? (envListing.environments || []) : null;
   const verdict = tierVersionVerdict({ environments: rows, isLive: envCanClaimASpawn });
   add("tier-version", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+}
+// CAN THE CLIENTS ON THIS HOST ACTUALLY AUTHENTICATE. A service that refuses unauthenticated calls
+// plus a client whose MCP entry carries no key means every call from that runtime's agents returns
+// 401 -- and nothing else here would say so. The agents keep registering, so `lastSeen` refreshes and
+// every status badge stays green; a mute agent is indistinguishable from an idle one. Claude and
+// hermes hold their keys in different files, so half a fleet can be broken while the other half is
+// fine. ASKED WITHOUT A KEY on purpose: a probe carrying one can only answer "yes, with a key".
+{
+  const verdict = clientApiKeyVerdict(await gatherClientApiKeyEvidence());
+  add("client-api-key", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 await checkManagedOrphans();
 // WHAT IS HOLDING HERMES' FILES. Its sibling above watches the DELIVERY LOOPS; nothing watched the
