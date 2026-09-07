@@ -80,7 +80,7 @@ export function createHermesApiServerClient() {
   async function health({ baseUrl = DEFAULT_BASE_URL } = {}) {
     const url = `${trimTrailingSlash(baseUrl)}/health`;
     try {
-      const res = await fetch(url, { method: "GET" });
+      const res = await fetch(url, { method: "GET", redirect: "manual" });
       if (!res.ok) return { ok: false, status: res.status };
       const body = await res.json().catch(() => ({}));
       return { ok: body.status === "ok", status: body.status, version: body.version };
@@ -95,6 +95,7 @@ export function createHermesApiServerClient() {
     if (!id) throw new Error("ensureSession requires an explicit session id");
     const url = `${trimTrailingSlash(baseUrl)}/api/sessions`;
     const res = await fetch(url, {
+      redirect: "manual",   // a redirect would re-send the Bearer token
       method: "POST",
       headers: bearerHeaders(key, { "Content-Type": "application/json" }),
       body: JSON.stringify({ id }),
@@ -147,6 +148,7 @@ export function createHermesApiServerClient() {
 
     try {
       const res = await fetch(url, {
+        redirect: "manual",   // a redirect would re-send the Bearer token
         method: "POST",
         headers,
         body: JSON.stringify({ message: text }),
@@ -211,7 +213,10 @@ export function createHermesApiServerClient() {
     if (instructions) body.instructions = instructions;
     if (sessionId) body.session_id = sessionId;
     if (model) body.model = model;
-    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    const res = await fetch(url, {
+      redirect: "manual",   // a redirect would re-send the Bearer token
+      method: "POST", headers, body: JSON.stringify(body),
+    });
     const text = await res.text().catch(() => "");
     if (res.status !== 202 && res.status !== 200) {
       if (res.status === 401) throw authError(res.status, text);
@@ -229,6 +234,7 @@ export function createHermesApiServerClient() {
     if (!runId) throw new Error("runEvents requires a runId");
     const url = `${trimTrailingSlash(baseUrl)}/v1/runs/${encodeURIComponent(runId)}/events`;
     const res = await fetch(url, {
+      redirect: "manual",   // a redirect would re-send the Bearer token
       method: "GET",
       headers: bearerHeaders(key, { "Accept": "text/event-stream" }),
     });
@@ -275,7 +281,10 @@ export function createHermesApiServerClient() {
   async function stopRun({ baseUrl = DEFAULT_BASE_URL, key, runId }) {
     if (!runId) throw new Error("stopRun requires a runId");
     const url = `${trimTrailingSlash(baseUrl)}/v1/runs/${encodeURIComponent(runId)}/stop`;
-    const res = await fetch(url, { method: "POST", headers: bearerHeaders(key) });
+    const res = await fetch(url, {
+      redirect: "manual",   // a redirect would re-send the Bearer token
+      method: "POST", headers: bearerHeaders(key),
+    });
     const text = await res.text().catch(() => "");
     if (!res.ok) {
       if (res.status === 401) throw authError(res.status, text);

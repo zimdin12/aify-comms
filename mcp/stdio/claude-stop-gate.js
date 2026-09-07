@@ -56,7 +56,7 @@ async function postTurnEnd() {
   try {
     // No body → stays the authoritative harness Stop signal (server distinguishes a
     // bridge-detector turn-end by its bridgeId; a bodyless POST is the Stop hook).
-    await fetch(url, { method: "POST", signal: ctrl.signal });
+    await fetch(url, { method: "POST", redirect: "manual", signal: ctrl.signal });
   } catch {
     /* best-effort, exactly like the original `|| true` curl */
   } finally {

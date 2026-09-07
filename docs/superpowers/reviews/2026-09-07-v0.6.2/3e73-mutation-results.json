@@ -1,0 +1,52 @@
+[
+  {
+    "label": "baseline-gate",
+    "exit": 0,
+    "sha256": "5343b616e4a20bc40f878e6dd311bca4c44dc1409c771391cd64dfbd9dbbdd9d"
+  },
+  {
+    "label": "baseline-runtime",
+    "exit": 0,
+    "sha256": "caf0419f26aaa5e6be478724e6a29a7a41a778e77c3c7e9d2b087aa7e2dd19e4"
+  },
+  {
+    "label": "literal-delete-gate",
+    "exit": 1,
+    "sha256": "8f2feff67e8170ec574f979080a30a4180236f93a7468f850e48ef359ed6e2dc"
+  },
+  {
+    "label": "literal-delete-runtime",
+    "exit": 0,
+    "sha256": "47c5a39949d6f61448738ff118317c42bb33695abd865adbe9c924139674abea"
+  },
+  {
+    "label": "comment-only-gate",
+    "exit": 0,
+    "sha256": "5b2915986f74da6a99e07c421209bc02bc3abac487690f312e4bacda2778a930"
+  },
+  {
+    "label": "comment-only-runtime",
+    "exit": 0,
+    "sha256": "47c5a39949d6f61448738ff118317c42bb33695abd865adbe9c924139674abea"
+  },
+  {
+    "label": "spread-follow-gate",
+    "exit": 0,
+    "sha256": "763eef0252e450056888ecc1acac3b49163dde3712f0dc729e5d3706ac0b1e4a"
+  },
+  {
+    "label": "spread-follow-runtime",
+    "exit": 0,
+    "sha256": "47c5a39949d6f61448738ff118317c42bb33695abd865adbe9c924139674abea"
+  },
+  {
+    "label": "lowercase-header-gate",
+    "exit": 0,
+    "sha256": "b58a6cea41ae5f9049505235ee2729654273d827af7a7d43b186f34fddba8a60"
+  },
+  {
+    "label": "lowercase-header-runtime",
+    "exit": 0,
+    "sha256": "0041ca9d11bfb61eb68141ba5b2b3e4bbff77fc54dbac71fa0add5e3caccc1a8"
+  }
+]

@@ -1,0 +1,111 @@
+{
+  "subject": "3e7387a6f6cf8a001c0f8372e9a70ff1b96244c2",
+  "baseline": "b28a23e41f9a5b5c0b7e688409308509508843e5",
+  "files": [
+    {
+      "name": "3e73-added-policy-census.json",
+      "bytes": 2676,
+      "sha256": "ca49cdfc2960b75b739cc708159b6a0e288a2283e67270e3533a8518d4a39d2c"
+    },
+    {
+      "name": "3e73-baseline-gate.log",
+      "bytes": 663,
+      "sha256": "5343b616e4a20bc40f878e6dd311bca4c44dc1409c771391cd64dfbd9dbbdd9d"
+    },
+    {
+      "name": "3e73-baseline-runtime.log",
+      "bytes": 1476,
+      "sha256": "caf0419f26aaa5e6be478724e6a29a7a41a778e77c3c7e9d2b087aa7e2dd19e4"
+    },
+    {
+      "name": "3e73-comment-only-gate.log",
+      "bytes": 664,
+      "sha256": "5b2915986f74da6a99e07c421209bc02bc3abac487690f312e4bacda2778a930"
+    },
+    {
+      "name": "3e73-comment-only-runtime.log",
+      "bytes": 1466,
+      "sha256": "47c5a39949d6f61448738ff118317c42bb33695abd865adbe9c924139674abea"
+    },
+    {
+      "name": "3e73-focus-setup-invalid.log",
+      "bytes": 8370,
+      "sha256": "d4d9866d8b845c7e5c649437a4afd6dd9358aff28214f27c0ef898599a30cb35"
+    },
+    {
+      "name": "3e73-focus.log",
+      "bytes": 12207,
+      "sha256": "d646f8d41a70aa0056037c7ebd800b95899abc855bc4b186c24331151e8f6fd8"
+    },
+    {
+      "name": "3e73-gate-attacks.py",
+      "bytes": 2103,
+      "sha256": "fdab441742c7c4eeb8c2fb400fdbcd8ac0df11e0ea3934770a121ada1796f5c5"
+    },
+    {
+      "name": "3e73-literal-delete-gate.log",
+      "bytes": 1906,
+      "sha256": "8f2feff67e8170ec574f979080a30a4180236f93a7468f850e48ef359ed6e2dc"
+    },
+    {
+      "name": "3e73-literal-delete-runtime.log",
+      "bytes": 1466,
+      "sha256": "47c5a39949d6f61448738ff118317c42bb33695abd865adbe9c924139674abea"
+    },
+    {
+      "name": "3e73-lowercase-header-gate.log",
+      "bytes": 664,
+      "sha256": "b58a6cea41ae5f9049505235ee2729654273d827af7a7d43b186f34fddba8a60"
+    },
+    {
+      "name": "3e73-lowercase-header-runtime.log",
+      "bytes": 1466,
+      "sha256": "0041ca9d11bfb61eb68141ba5b2b3e4bbff77fc54dbac71fa0add5e3caccc1a8"
+    },
+    {
+      "name": "3e73-mutation-results.json",
+      "bytes": 1464,
+      "sha256": "73cf23793392dac25d86069b10f58fe06abffe3b96d669f732379ec32f3b6396"
+    },
+    {
+      "name": "3e73-redirect-probe.mjs",
+      "bytes": 3268,
+      "sha256": "6774239061f88572e76bfe910ce8e281bb2253c6820075fc68a7ab6886bbe1ba"
+    },
+    {
+      "name": "3e73-restored-gate.log",
+      "bytes": 664,
+      "sha256": "cc3755d76fd5960c9b1f1e247b06816975b8ee46be98151f26edcf7aa2d9ed34"
+    },
+    {
+      "name": "3e73-REVIEW.md",
+      "bytes": 6662,
+      "sha256": "9d4d0179b636a4ab962d0f16b8680050ed838ae8eb43898917bf8f2235abb7f3"
+    },
+    {
+      "name": "3e73-spread-follow-gate.log",
+      "bytes": 664,
+      "sha256": "763eef0252e450056888ecc1acac3b49163dde3712f0dc729e5d3706ac0b1e4a"
+    },
+    {
+      "name": "3e73-spread-follow-runtime.log",
+      "bytes": 1466,
+      "sha256": "47c5a39949d6f61448738ff118317c42bb33695abd865adbe9c924139674abea"
+    }
+  ],
+  "runtime_case_counts": {
+    "baseline": 12,
+    "literal-delete": 12,
+    "comment-only": 12,
+    "spread-follow": 12,
+    "lowercase-header": 12
+  },
+  "runtime_case_total": 60,
+  "baseline_foreign_requests": 0,
+  "mutant_foreign_requests": {
+    "literal-delete": 5,
+    "comment-only": 5,
+    "spread-follow": 5,
+    "lowercase-header": 5
+  }
+}

@@ -1,0 +1,70 @@
+[
+  {
+    "path": "mcp/stdio/aify-http.mjs",
+    "line": "      const res = await fetch(url, { ...options, redirect: \"manual\", signal: controller.signal });"
+  },
+  {
+    "path": "mcp/stdio/aify-service-endpoint.mjs",
+    "line": "        const res = await fetch(url, { ...options, redirect: \"manual\" });"
+  },
+  {
+    "path": "mcp/stdio/artifact-tools.mjs",
+    "line": "            { method: \"POST\", headers, redirect: \"manual\", body: Buffer.concat(bodyParts) });"
+  },
+  {
+    "path": "mcp/stdio/artifact-tools.mjs",
+    "line": "          { method: \"POST\", headers, redirect: \"manual\", body: formData });"
+  },
+  {
+    "path": "mcp/stdio/artifact-tools.mjs",
+    "line": "        const res = await fetch(url, { ...options, redirect: \"manual\" });"
+  },
+  {
+    "path": "mcp/stdio/claude-channel.js",
+    "line": "      const res = await fetch(url, { ...options, redirect: \"manual\", signal: controller.signal });"
+  },
+  {
+    "path": "mcp/stdio/doctor.js",
+    "line": "      headers, redirect: \"manual\", signal: AbortSignal.timeout(5000),"
+  },
+  {
+    "path": "mcp/stdio/doctor.js",
+    "line": "      const response = await fetch(url, { redirect: \"manual\", signal: AbortSignal.timeout(3000) });"
+  },
+  {
+    "path": "mcp/stdio/doctor.js",
+    "line": "      const response = await fetch(url, { redirect: \"manual\", signal: AbortSignal.timeout(3000) });"
+  },
+  {
+    "path": "mcp/stdio/doctor.js",
+    "line": "        { redirect: \"manual\", signal: AbortSignal.timeout(3000) });"
+  },
+  {
+    "path": "mcp/stdio/hermes-channel.js",
+    "line": "      const res = await fetch(url, { ...options, redirect: \"manual\", signal: controller.signal });"
+  },
+  {
+    "path": "mcp/stdio/inbox-tools.mjs",
+    "line": "          const res = await fetch(url, { ...options, redirect: \"manual\" });"
+  },
+  {
+    "path": "mcp/stdio/notify-check.js",
+    "line": "  const resp = await fetch(url, { headers, redirect: \"manual\", signal: AbortSignal.timeout(3000) });"
+  },
+  {
+    "path": "mcp/stdio/notify-check.js",
+    "line": "      redirect: \"manual\",   // a 302 would hand the key to whatever it points at"
+  },
+  {
+    "path": "mcp/stdio/session-handle-heartbeat.js",
+    "line": "      redirect: \"manual\",   // a 302 would hand the key to whatever it points at"
+  },
+  {
+    "path": "mcp/stdio/turn-busy-heartbeat.js",
+    "line": "      redirect: \"manual\",   // a 302 would hand the key to whatever it points at"
+  },
+  {
+    "path": "mcp/stdio/turn-busy-heartbeat.js",
+    "line": "        redirect: \"manual\",   // a 302 would hand the key to whatever it points at"
+  }
+]
