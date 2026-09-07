@@ -32,7 +32,7 @@ import { join } from "node:path";
 
 // The credential aify-env holds for this service, read the way that daemon stores it. See
 // `API_KEY` below for why the environment alone was not enough.
-import { keyForEndpoint } from "./registry-credential.mjs";
+import { keyForEndpoint, sameEndpoint } from "./registry-credential.mjs";
 
 
 /**
@@ -126,13 +126,39 @@ const SERVER_URL = coerceLoopbackToIPv4(
  * Environment still wins, so an operator or a test can override without touching the store, and a
  * host with no registry behaves exactly as before. Resolved once, and only when env carried nothing.
  */
-const API_KEY = apiKeyFrom() || keyForEndpoint({
+//: The operator's explicit choice. An exported key applies to whatever destinations they configured.
+const ENV_API_KEY = apiKeyFrom();
+
+//: The credential aify-env holds, and the ONE endpoint the registry authorises it for.
+const STORE_CREDENTIAL = ENV_API_KEY ? { key: "", source: "", endpoint: "" } : keyForEndpoint({
   env: process.env,
   readFile: (f) => readFileSync(f),
   join,
   homeDir: homedir(),
   endpoint: SERVER_URL,
-}).key;
+});
+
+/**
+ * The key authorised for ONE destination.
+ *
+ * PER-DESTINATION, NOT PER-PROCESS, and that distinction is the whole of finding R2's second half.
+ * Binding the credential once to `SERVER_URL` was not enough: `httpCall` FAILS OVER across
+ * `SERVER_URLS`, and the header was attached before that loop -- so a matching primary returning 503
+ * sent the registry's credential on to the next destination in the list. Review reproduced a foreign
+ * receiver getting the key that way. Configuring a fallback is not authority to reuse a credential
+ * there; the registry names one endpoint, and that is the only one it opens.
+ *
+ * An environment key is different in kind: the operator exported it, which is a choice about their
+ * own configuration, so it travels wherever they pointed this process.
+ */
+function keyForUrl(url) {
+  if (ENV_API_KEY) return ENV_API_KEY;
+  return sameEndpoint(STORE_CREDENTIAL.endpoint, url) ? STORE_CREDENTIAL.key : "";
+}
+
+//: What this process sends to its PRIMARY endpoint. Exported for the callers bound to `SERVER_URL`;
+//: anything iterating destinations must ask `keyForUrl` per destination instead.
+const API_KEY = keyForUrl(SERVER_URL);
 
 // Whether this bridge talks to a remote service over HTTP or drives the local filesystem store.
 //
@@ -226,7 +252,8 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
   // (and trip its failure counter) while the server is legitimately holding the request.
   const callTimeoutMs = Math.max(1, Number(opts.timeoutMs) || HTTP_TIMEOUT_MS);
   const baseOptions = { method, headers: {} };
-  if (API_KEY) baseOptions.headers["X-API-Key"] = API_KEY;
+  // NO CREDENTIAL HERE. It is attached per destination inside the loop below, because this request
+  // may fail over to a URL the registry never authorised its key for (R2).
   if (body) {
     baseOptions.headers["Content-Type"] = "application/json";
     baseOptions.body = JSON.stringify(body);
@@ -241,7 +268,11 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
       try {
-        const options = { ...baseOptions, headers: { ...baseOptions.headers }, signal: controller.signal };
+        const headers = { ...baseOptions.headers };
+        // AUTHORISED FOR THIS DESTINATION, asked again for each one.
+        const keyHere = keyForUrl(baseUrl);
+        if (keyHere) headers["X-API-Key"] = keyHere;
+        const options = { ...baseOptions, headers, signal: controller.signal };
         const res = await fetch(url, options);
         if (!res.ok) {
           const text = await res.text();

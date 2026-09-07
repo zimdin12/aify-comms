@@ -184,7 +184,7 @@ const storeAt = (ref) => `${HOME}/.aify/credentials/${ref}`;
 test("WITH NO REPO, the key comes from aify-env's credential store", () => {
   const got = resolveDoctorApiKey({
     env: {}, repoDir: "", homeDir: HOME, join: joinAll, endpoint: ENDPOINT,
-    realpath: (x) => x,
+    realpath: (x) => x, custody: () => "",
     readFile: filesystem({ [REGISTRY]: registrySaying("aify-comms.key"), [storeAt("aify-comms.key")]: "stored-key\n" }),
   });
   assert.deepEqual(got, { key: "stored-key", source: "aify-env's credential store" });
@@ -195,7 +195,7 @@ test("THE CHECKOUT STILL WINS over the store, so nothing that works today change
   // is the assertion that says so -- both sources are present and readable here.
   const got = resolveDoctorApiKey({
     env: {}, repoDir: "/repo", homeDir: HOME, join: joinAll, endpoint: ENDPOINT,
-    realpath: (x) => x,
+    realpath: (x) => x, custody: () => "",
     readFile: filesystem({
       "/repo/.env": "API_KEY=from-dotenv",
       [REGISTRY]: registrySaying("aify-comms.key"),
@@ -210,7 +210,7 @@ test("a repo whose .env says nothing FALLS THROUGH to the store", () => {
   // the search; the store is a further source, not a replacement for a missing file.
   const got = resolveDoctorApiKey({
     env: {}, repoDir: "/repo", homeDir: HOME, join: joinAll, endpoint: ENDPOINT,
-    realpath: (x) => x,
+    realpath: (x) => x, custody: () => "",
     readFile: filesystem({
       "/repo/.env": "# nothing here\nOTHER=1",
       [REGISTRY]: registrySaying("aify-comms.key"),
@@ -234,7 +234,7 @@ test("A REF THAT IS A PATH IS REFUSED, not opened", () => {
     env: {}, repoDir: "", homeDir: HOME, join: joinAll, readFile,
     // An endpoint is required for the lookup to happen at all now, so the refusal being tested
     // here is the REF GRAMMAR and not the endpoint guard.
-    endpoint: ENDPOINT, realpath: (x) => x,
+    endpoint: ENDPOINT, realpath: (x) => x, custody: () => "",
   });
   assert.deepEqual(got, { key: "", source: "" });
   assert.deepEqual(opened, [REGISTRY], "a path-shaped credentialRef was opened");
@@ -244,6 +244,7 @@ test("AIFY_SERVICE_REGISTRY points the lookup elsewhere", () => {
   const got = resolveDoctorApiKey({
     env: { AIFY_SERVICE_REGISTRY: "/elsewhere/services.json" },
     repoDir: "", homeDir: HOME, join: joinAll, endpoint: ENDPOINT, realpath: (x) => x,
+    custody: () => "",
     readFile: filesystem({
       "/elsewhere/services.json": registrySaying("other.key"),
       // The store writes a trailing newline; a fixture without one is now correctly refused.
@@ -256,7 +257,7 @@ test("AIFY_SERVICE_REGISTRY points the lookup elsewhere", () => {
 test("every way the store can say nothing is quiet, not an error", () => {
   const quiet = (files) => resolveDoctorApiKey({
     env: {}, repoDir: "", homeDir: HOME, join: joinAll, endpoint: ENDPOINT,
-    realpath: (x) => x, readFile: filesystem(files),
+    realpath: (x) => x, custody: () => "", readFile: filesystem(files),
   });
   // No registry at all -- the ordinary state on a host that never installed aify-env.
   assert.deepEqual(quiet({}), { key: "", source: "" });

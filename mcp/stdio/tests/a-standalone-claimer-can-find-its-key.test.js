@@ -69,7 +69,12 @@ const REAL_HOST = fsWith({
  * check always agrees; the tests that care about it inject their own.
  */
 const read = (readFile, extra = {}) => keyForEndpoint({
-  env: {}, readFile, join, homeDir: HOME, endpoint: ENDPOINT, realpath: (x) => x, ...extra,
+  env: {}, readFile, join, homeDir: HOME, endpoint: ENDPOINT, realpath: (x) => x,
+  // Custody is satisfied by default so these cases exercise the check each is NAMED for; the custody
+  // test below injects its own verdicts. The real `custodyProblemFor` runs against a real filesystem
+  // and would refuse every fixture path here, which would make every test pass for the wrong reason.
+  custody: () => "",
+  ...extra,
 });
 
 test("THE FIX: a claimer with an empty environment finds the key the registry names", () => {
@@ -199,7 +204,7 @@ test("R3: a path that cannot be canonicalised is not one to read a secret from",
 // leaves every test above passing. So this one drives the real module, in a real process, with a
 // real home directory.
 
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -229,7 +234,22 @@ function homeWithCredential(secret) {
   }));
   // A trailing newline on purpose: aify-env writes one, and the resolver has to trim it. A fixture
   // without it would pass while the real store failed.
-  writeFileSync(path.join(home, ".aify", "credentials", "aify-comms-t.key"), secret + "\n");
+  const file = path.join(home, ".aify", "credentials", "aify-comms-t.key");
+  writeFileSync(file, secret + "\n");
+  // AND LOCKED DOWN, as aify-env's writer leaves it. Without this the child's REAL custody check
+  // refuses the fixture -- correctly, since a temp file inherits broad grants -- and the test would
+  // fail for a reason unrelated to what it measures. Locking it here means the call-site tests
+  // exercise the custody path end to end rather than around it.
+  try {
+    if (process.platform === "win32") {
+      execFileSync("icacls", [file, "/inheritance:r", "/grant:r", `${process.env.USERNAME}:(F)`],
+        { stdio: "ignore" });
+    } else {
+      chmodSync(file, 0o600);
+    }
+  } catch {
+    // A host that cannot lock it down sees the custody refusal, which is the honest outcome.
+  }
   return home;
 }
 
@@ -331,4 +351,25 @@ test("the two modules resolve the SAME key, because one of them is an alias", ()
     resolvedKeyWith(env, ENDPOINT_MODULE, "API_KEY"),
     "aify-http and aify-service-endpoint disagree about the key — they are two spellings again",
   );
+});
+
+test("R3: CUSTODY IS CHECKED, and a file the store would refuse yields no key", () => {
+  // The half I skipped and review disproved: a credential written by aify-env's real writer was
+  // accepted by both readers until Everyone was granted read, at which point aify-env returned
+  // CREDENTIAL_INSECURE and this reader still handed back the key.
+  assert.equal(read(REAL_HOST, { custody: () => "readable by Everyone (a group)" }).key, "",
+    "a group-readable credential was still read");
+  // ...and a custody check that cannot run is a refusal, never a pass.
+  assert.equal(read(REAL_HOST, { custody: () => "could not inspect the file: EPERM" }).key, "");
+  assert.equal(read(REAL_HOST, { custody: () => "" }).key, "s3cret", "a private file was refused");
+});
+
+test("R2: the resolver reports WHICH endpoint its key is authorised for", () => {
+  // `httpCall` fails over across several destinations, and the header used to be attached before that
+  // loop -- so a matching primary returning 503 sent the registry credential to the next URL in the
+  // list. The caller can only authorise per destination if the resolver says which one it meant.
+  const resolved = read(REAL_HOST);
+  assert.equal(resolved.endpoint, ENDPOINT, "the key came back without the endpoint it opens");
+  assert.equal(read(REAL_HOST, { endpoint: "http://10.1.2.3:9999" }).endpoint, "",
+    "a refusal still named an endpoint");
 });

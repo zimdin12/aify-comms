@@ -94,7 +94,7 @@ export function apiKeyInEnvFile(text) {
  * @returns {{key: string, source: string}} source is "" when no key was found anywhere
  */
 export function resolveDoctorApiKey({
-  env = {}, repoDir = "", readFile, join, homeDir = "", endpoint = "", realpath,
+  env = {}, repoDir = "", readFile, join, homeDir = "", endpoint = "", realpath, custody,
 } = {}) {
   const exported = apiKeyFrom(env);
   if (exported) return { key: exported, source: "the environment" };
@@ -129,10 +129,17 @@ export function resolveDoctorApiKey({
   // ENDPOINT-BOUND, like every other reader of the store. A credential the registry names for one
   // service instance must not be paired with whatever URL this doctor run happens to be pointed at
   // -- that was R2, and the doctor is not exempt from it just because it only reads.
-  return keyForEndpoint({
+  // `{key, source}` ONLY. `keyForEndpoint` also reports the endpoint its key is authorised for --
+  // which `httpCall` needs to authorise per destination -- but this function's contract is the pair
+  // its callers destructure, and widening it silently broke two of their assertions.
+  const { key, source } = keyForEndpoint({
     env, readFile, join, homeDir, endpoint, serviceName: SERVICE_NAME,
     // Forwarded so a test can drive the on-disk-name check without a real filesystem; the
     // resolver's own default is the real `realpath.native` when this is undefined.
     ...(realpath ? { realpath } : {}),
+    // Injected for the same reason as `realpath`: the real check reads a real filesystem, and a
+    // fixture path would be refused for a reason the test is not about.
+    ...(custody ? { custody } : {}),
   });
+  return { key, source };
 }

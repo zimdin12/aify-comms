@@ -41,6 +41,10 @@ import path from "node:path";
 
 import { credentialRefProblem } from "./credential-ref.mjs";
 import { SERVICE_NAME } from "./service-name.mjs";
+// The custody half of the store's contract -- ACL, ownership, links, mode. Skipping it was
+// finding R3: review granted Everyone read on a real credential and this reader still
+// handed back the key while aify-env returned CREDENTIAL_INSECURE.
+import { custodyProblemFor } from "./credential-custody.mjs";
 
 //: aify-env's own layout: `<home>/.aify/credentials/<ref>`.
 export const CREDENTIAL_DIR_NAME = "credentials";
@@ -169,9 +173,9 @@ function pathIsWhatWasAskedFor(target, realpath) {
  */
 export function keyForEndpoint({
   env = {}, readFile, join, homeDir = "", endpoint = "",
-  serviceName = SERVICE_NAME, realpath = realpathSync.native,
+  serviceName = SERVICE_NAME, realpath = realpathSync.native, custody = custodyProblemFor,
 } = {}) {
-  const nothing = { key: "", source: "" };
+  const nothing = { key: "", source: "", endpoint: "" };
   if (typeof readFile !== "function" || typeof join !== "function" || !homeDir || !serviceName) {
     return nothing;
   }
@@ -194,11 +198,16 @@ export function keyForEndpoint({
 
   const file = join(homeDir, ".aify", CREDENTIAL_DIR_NAME, entry.ref);
   if (!pathIsWhatWasAskedFor(file, realpath)) return nothing;
+  // CUSTODY BEFORE BYTES. A file granted to a group is one several people can read, and its contents
+  // are not this service's secret however well-formed they are.
+  if (custody(file)) return nothing;
   let value;
   try {
     value = decodeCredentialBytes(readFile(file));
   } catch {
     return nothing;
   }
-  return value ? { key: value, source: "aify-env's credential store" } : nothing;
+  return value
+    ? { key: value, source: "aify-env's credential store", endpoint: entry.endpoint }
+    : nothing;
 }

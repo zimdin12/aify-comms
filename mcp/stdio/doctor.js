@@ -546,7 +546,16 @@ async function gatherClientApiKeyEvidence() {
   const ask = async (headers) => {
     try {
       const res = await fetch(`${SERVER_URL}/api/v1/agents`, {
-        headers, signal: AbortSignal.timeout(5000),
+        headers,
+        // REDIRECTS ARE NOT FOLLOWED, and this is a credential boundary rather than a nicety.
+        // `fetch` follows them by default, and review reproduced both halves of what that cost: a
+        // 302 to an unrelated 200 became a green `no-key-required`, and -- worse -- an authenticated
+        // probe followed the redirect and delivered `X-API-Key` TO THE UNRELATED RECEIVER. My claim
+        // that "a redirect reads as unknown" was false: the classifier never saw the 3xx, because
+        // fetch had already resolved it to the 200 behind it. With `manual` the 3xx arrives intact
+        // and the verdict reads it as unknown, which is what it always should have been.
+        redirect: "manual",
+        signal: AbortSignal.timeout(5000),
       });
       return { status: res.status };
     } catch {
