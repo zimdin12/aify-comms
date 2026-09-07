@@ -88,17 +88,18 @@ async def _claim_terminal_controls_once(req: TerminalControlClaim):
         controls = await cursor.fetchall()
         if controls:
             ids = [row["id"] for row in controls]
-            await db.executemany(
-                "UPDATE terminal_controls SET status = 'claimed', claimed_at = ? WHERE id = ? AND status = 'pending'",
-                [(now, control_id) for control_id in ids],
-            )
-            await db.commit()
-            refreshed = []
-            for control_id in ids:
-                row = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
-                if row:
-                    refreshed.append(row)
-            controls = refreshed
+            # ONE STATEMENT, AND IT RETURNS WHAT IT ACTUALLY CLAIMED. `executemany` + a re-SELECT
+            # could not tell a row this call won from one a concurrent claimer had already taken --
+            # the re-read returned the row either way, whoever owned it.
+            marks = ", ".join("?" for _ in ids)
+            controls = await (await db.execute(
+                f"""
+                UPDATE terminal_controls SET status = 'claimed', claimed_at = ?
+                WHERE id IN ({marks}) AND status = 'pending'
+                RETURNING *
+                """,
+                (now, *ids),
+            )).fetchall()
         # Attach the target terminal's stored PTY root pid so a claiming bridge
         # can kill-by-pid when its in-memory terminals Map misses (orphaned PTY,
         # owning bridge gone). The claim is already env+bridge scoped, so the pid
@@ -125,6 +126,15 @@ async def _claim_terminal_controls_once(req: TerminalControlClaim):
             out.append(_terminal_control_to_dict(
                 row, pid=pid, agent_id=agent_id, runtime=runtime, session_mode=session_mode,
             ))
+        # COMMIT LAST, once the whole payload is frozen. It used to commit immediately after the
+        # UPDATE and then re-read the controls and their terminals -- and publishing the claim is
+        # exactly what releases `_await_stop_claims`, so a removal could cascade-delete every row
+        # between the commit and those reads. The host got `ok: true, controls: []`: an on-time,
+        # SUCCESSFUL claim that delivered nothing, which no budget on the wait could repair.
+        # Found by review on 5f286d66 with a deterministic reproduction -- pause the claimant after
+        # its commit, let the removal finish, resume the refetch.
+        if controls:
+            await db.commit()
         return {"ok": True, "controls": out}
     finally:
         await db.close()
