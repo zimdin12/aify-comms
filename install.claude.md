@@ -230,6 +230,13 @@ comms_inbox(agentId="my-agent", mode="headers")
 comms_inbox(agentId="my-agent", messageId="<message id>")
 ```
 
+## Keeping the session when you close the terminal
+
+Add `--shared` to the launcher: `claude-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
+HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
+needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
+`aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
+
 ## How the install works (and updating)
 
 `install.sh` copies the bridge runtime (`mcp/stdio` + its `node_modules`) into a native folder at `~/.aify-comms` (override with `AIFY_HOME`) and points the wrappers and MCP config at that copy — not at this repo checkout. This keeps bridge startup fast on slow/bind-mounted filesystems. Consequence: after `git pull`, changes under `mcp/stdio/` only take effect once you **re-run `install.sh`** (refreshes the copy) and restart the wrapper/bridge. Updating the runtime CLI itself (e.g. a hermes or claude update) does not require reinstalling aify-comms — the two write disjoint files.

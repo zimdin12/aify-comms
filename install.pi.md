@@ -107,6 +107,13 @@ The Phase-4 watchdog above already captures the `pi-session-state` response body
 
 Most operators don't need the flag — running `omp-aify` from a terminal Just Works as a presence/standalone operator session, and managed dashboard delivery uses the bridge's persistent RPC child. Use `--resident` or `--managed` only when debugging wrapper metadata; it does not turn an open OMP TUI into a multi-client resident injection target.
 
+## Keeping the session when you close the terminal
+
+Add `--shared` to the launcher: `pi-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
+HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
+needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
+`aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
+
 ## Quick Start
 
 ```text

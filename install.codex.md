@@ -263,6 +263,13 @@ Current Codex CLI note:
 - Resident triggering only works when the bridge talks to the same Codex installation/thread store that created the live session. A Windows desktop session and a WSL CLI session are different stores.
 - `codex-aify` avoids the extra hidden-resume hop by pointing both the visible TUI and aify at the same local WebSocket app-server.
 
+## Keeping the session when you close the terminal
+
+Add `--shared` to the launcher: `codex-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
+HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
+needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
+`aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
+
 ## Quick Start
 
 ```text

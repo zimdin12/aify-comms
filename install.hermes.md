@@ -456,6 +456,13 @@ TUI attached to its real session. Re-run `install.sh --client hermes`, restart
 that `hermes-aify` terminal, and re-register from inside the same visible
 session.
 
+## Keeping the session when you close the terminal
+
+Add `--shared` to the launcher: `hermes-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
+HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
+needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
+`aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.
