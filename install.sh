@@ -1810,8 +1810,8 @@ EOF
 }
 
 _patch_hermes_config_at() {
-  # Patch a single hermes config.yaml with the aify-comms MCP entry.
-  # Idempotent: skips if `aify-comms:` already exists under `mcp_servers:`.
+  # Patch a hermes config.yaml with the aify-comms MCP entry. It REPLACES an existing entry rather
+  # than skipping it, so re-running this IS the fix for a config written before the env block grew.
   local config_file="$1"
   local config_dir=""
   local node_config_file=""
