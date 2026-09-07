@@ -1,170 +1,131 @@
-// The service demands an API key and an installed client holds none.
+// Can this host actually authenticate against the service it is pointed at?
 //
-// WHY IT EXISTS, and the honest version: it was built on 2026-09-07 from a diagnosis that turned out
-// to be WRONG. A hermes agent was returning HTTP 401 on every outbound call -- its own console said
-// "Ping was not sent: aify-comms rejected it with HTTP 401" -- and a `grep -A 20` of the aify-comms
-// block in `~/.hermes/config.yaml` found no key. The key was on line 22. The grep stopped at 20, the
-// zero looked like a finding, and a five-day fleet outage was inferred from it. The config carries a
-// working key; the real cause of that agent's 401 is UNRESOLVED.
+// THIS CHECK ASKED THE WRONG QUESTION UNTIL 2026-09-08, and the review that found out said it best:
+// "Key presence alone never proves authentication, and MCP configs do not prove standalone-process
+// credentials." The first version parsed `~/.claude.json` and `~/.hermes/config.yaml` looking for a
+// key NAME. Two things were wrong with that, and the second is the fatal one.
 //
-// THE CHECK SURVIVED ITS OWN FALSE PREMISE, which is the argument for keeping it. Everything the
-// mistake relied on was true: the service does refuse unauthenticated calls, a keyless client would
-// 401 on every call, and NOTHING would have reported it. Claude and hermes hold their keys in
-// different files, so half a fleet can go mute while every status row stays green -- a quiet agent is
-// indistinguishable from an idle one, because `lastSeen` refreshes on registration and `Last
-// produced` only says when an agent last SENT. The failure mode is real even though that instance of
-// it was not.
+// IT WAS FULL OF FALSE GREENS (R6). The detector returned true for `# AIFY_API_KEY: old-key`, for
+// `AIFY_API_KEY: "" # no key`, for `NOT_AIFY_API_KEY`, for the token appearing in a description
+// outside `env`, and for an `aify-comms` block under the wrong root -- while a correctly quoted entry
+// returned null and was then discarded. The gatherer was no better (R5): HTTP 500 and 404 both read
+// as "no key required", malformed JSON and EACCES both read as "no clients installed", `HERMES_HOME`
+// was ignored so only the legacy path was searched, and a client configured for a DIFFERENT endpoint
+// was judged against this service and blamed as keyless.
 //
-// IT FIRES ONLY ON THE COMBINATION, like `api-exposure` and for the same reason. Running with no
-// `API_KEY` is a configuration, not a defect, and a client holding no key is correct against such a
-// service. What is never correct is a service that refuses unauthenticated calls plus a client with
-// nothing to authenticate with.
+// AND EVEN CORRECT, IT WOULD HAVE MISSED THE DEFECT IT WAS BUILT DURING. The outage was a STANDALONE
+// process -- `hermes-managed-host.js run <agent>`, spawned by the launcher -- whose environment
+// carried no key at all. No MCP config describes that process. The check would have read both configs,
+// found their keys, and reported green while five agents sat unable to claim anything.
 //
-// ASKED WITHOUT A KEY, DELIBERATELY. The probe must be an unauthenticated request: asking with a key
-// can only ever answer "yes, with a key", which is not the question. `api-exposure` learned this the
-// same way and carries its own fetch for it.
+// SO IT ASKS THE REAL QUESTION NOW, and it has no parser to be wrong. It resolves the key exactly as
+// the runtime does -- environment first, then the endpoint-bound credential store, through the same
+// module every bridge component uses -- and then TRIES it against the service. That is the same move
+// `api-exposure` makes and for the same reason: a question about credentials is answered by making a
+// request, not by reading a file and hoping the two agree.
 //
-// AND IT READS THE BLOCK, NEVER A WINDOW OF IT. The bug that produced the false diagnosis is the one
-// this module must not repeat: `entryCarriesKey` walks the entry to its end by indentation rather
-// than sampling N lines after it.
-
-import { API_KEY_ENV_NAMES } from "./aify-service-endpoint.mjs";
-
-/**
- * Does this client's `aify-comms` MCP entry carry one of the key names the bridge actually reads?
- *
- * SCOPED TO THE ENTRY, never the whole file, and that is the difference between a check and a
- * rumour. `~/.claude.json` holds every MCP server the operator has ever installed; a file-wide search
- * for `AIFY_API_KEY` passes on a key belonging to somebody else's server and reports our entry
- * healthy. The population a gate reads has to be the population it judges.
- *
- * @param {string} text     the config file's contents
- * @param {"json"|"yaml"} format
- * @returns {boolean|null}  null when the entry is absent or the file cannot be parsed -- that is
- *                          "no evidence", which the verdict must not read as a pass
- */
-export function entryCarriesKey(text, format) {
-  const body = String(text || "");
-  if (!body.trim()) return null;
-  return format === "json" ? jsonEntryCarriesKey(body) : yamlEntryCarriesKey(body);
-}
-
-function jsonEntryCarriesKey(body) {
-  let parsed;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  const entry = parsed?.mcpServers?.["aify-comms"];
-  if (!entry) return null;
-  const env = entry.env || {};
-  return API_KEY_ENV_NAMES.some((name) => String(env[name] || "").trim());
-}
+// UNAUTHENTICATED FIRST, ALWAYS. A probe carrying a key can only ever answer "yes, with a key", which
+// is not the question. Only a successful unauthenticated response establishes that this endpoint
+// accepts requests without credentials.
+//
+// EVERY FAILURE IS TYPED. A transport error, a 500 and a 404 are not evidence that no key is needed;
+// they are evidence of nothing, and this row says `unknown` rather than green. That distinction is
+// one this repo has already paid for twice, in `env-bridge` and `bridge-current`.
 
 /**
- * The `aify-comms:` block of a hermes config, by indentation.
+ * What an unauthenticated request tells us about this endpoint.
  *
- * No YAML parser, and that is a decision rather than laziness: this repo ships no YAML dependency,
- * and the question is narrow enough to answer by structure -- take the lines under `aify-comms:` that
- * are indented deeper than it, and stop at the first that is not. The same walk `install.sh`'s own
- * `configWithAifyEntry` uses to replace the block, so the two agree about where it ends.
+ * @param {{status: number}|null} response  null when the request could not be made at all
+ * @returns {"required"|"open"|"unknown"}
  */
-function yamlEntryCarriesKey(body) {
-  const lines = body.replace(/\s*$/, "").split(/\r?\n/);
-  const start = lines.findIndex((line) => /^[ \t]+aify-comms:[ \t]*$/.test(line));
-  if (start < 0) return null;
-  const baseIndent = (lines[start].match(/^[ \t]+/) || [""])[0].length;
-  const block = [];
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (lines[i].trim() === "") continue;
-    const indent = (lines[i].match(/^[ \t]*/) || [""])[0].length;
-    if (indent <= baseIndent) break;
-    block.push(lines[i]);
-  }
-  return block.some((line) => {
-    const named = API_KEY_ENV_NAMES.find((name) => line.includes(`${name}:`));
-    if (!named) return false;
-    const value = line.slice(line.indexOf(`${named}:`) + named.length + 1).trim();
-    // An empty or quote-only value is not a key. `AIFY_API_KEY: ""` would satisfy a name search and
-    // authenticate with nothing, which is the state this check exists to find.
-    return Boolean(value.replace(/^["']|["']$/g, "").trim());
-  });
+export function credentialPolicyFrom(response) {
+  if (!response || typeof response.status !== "number") return "unknown";
+  const { status } = response;
+  if (status === 401 || status === 403) return "required";
+  if (status >= 200 && status < 300) return "open";
+  // A 500 says the service is broken and a 404 says we asked the wrong thing. Neither says anything
+  // about credentials, and reading either as "open" is how this check reported green on a service
+  // that was refusing every call.
+  return "unknown";
 }
 
 /**
  * @param {object} deps
- * @param {boolean|null} deps.serviceRequiresKey  from an UNAUTHENTICATED probe; null = could not ask
- * @param {Array<{name: string, path: string, carriesKey: boolean|null}>|null} deps.clients
- *        one row per installed client config found on this host; null = could not look
+ * @param {"required"|"open"|"unknown"} deps.policy   what the unauthenticated probe established
+ * @param {string} deps.endpoint                      the service this host is pointed at
+ * @param {boolean} deps.hasKey                       whether this host resolved a key at all
+ * @param {string} deps.keySource                     where that key came from, for the report
+ * @param {{status: number}|null} deps.authed         the same request carrying the resolved key
  */
-export function clientApiKeyVerdict({ serviceRequiresKey = null, clients = null } = {}) {
-  if (serviceRequiresKey === null || serviceRequiresKey === undefined) {
+export function clientApiKeyVerdict({
+  policy = "unknown", endpoint = "", hasKey = false, keySource = "", authed = null,
+} = {}) {
+  if (policy === "unknown") {
     return {
       ok: false,
       code: "unknown-all",
-      detail: "could not ask the service whether it requires an API key, so no client was judged "
-        + "against anything.",
-      fix: "Check the `service` row above — if the service is unreachable this row cannot answer.",
+      detail: `could not establish whether ${endpoint || "the service"} requires an API key -- an `
+        + "unauthenticated probe answered with neither a refusal nor a success, so nothing was "
+        + "verified.",
+      fix: "Check the `service` row above; an unreachable or erroring service reports here too.",
     };
   }
-  if (serviceRequiresKey === false) {
+  if (policy === "open") {
     return {
       ok: true,
       code: "no-key-required",
-      detail: "the service accepts unauthenticated calls, so a client holding no key is correct. "
+      detail: `${endpoint} accepts unauthenticated calls, so a host holding no key is correct. `
         + "`api-exposure` is the row that reports what running open costs.",
       fix: "",
     };
   }
-  if (clients === null || clients === undefined) {
+  // policy === "required" from here.
+  if (!hasKey) {
     return {
       ok: false,
-      code: "unknown-all",
-      detail: "the service requires an API key, but no installed client config could be read, so "
-        + "nothing was verified.",
-      fix: "Check that this host has an installed client; `bridge-installed` reports that.",
+      code: "no-key-resolved",
+      detail: `${endpoint} refuses unauthenticated calls and this host resolves NO key -- every call `
+        + "it makes comes back 401. A standalone worker fails this way silently: it keeps "
+        + "registering, so its `lastSeen` refreshes and its status stays green while it claims "
+        + "nothing.",
+      fix: "Check that aify-env holds a credential for this endpoint (`aify-env credential`), or "
+        + "export AIFY_API_KEY for this process. Re-run install.sh if the registry entry is missing.",
     };
   }
-  if (!clients.length) {
-    return {
-      ok: true,
-      code: "none-installed",
-      detail: "the service requires an API key and no client config is installed on this host.",
-      fix: "",
-    };
-  }
-
-  const keyless = clients.filter((client) => client.carriesKey === false);
-  const unreadable = clients.filter((client) => client.carriesKey !== true && client.carriesKey !== false);
-
-  if (keyless.length) {
-    const names = keyless.map((client) => client.name).join(", ");
-    return {
-      ok: false,
-      code: "client-has-no-key",
-      detail: `the service refuses unauthenticated calls, and the aify-comms MCP entry for ${names} `
-        + `carries no API key — every call those agents make comes back HTTP 401. `
-        + keyless.map((client) => client.path).join("; "),
-      fix: `Re-run install.sh --client ${keyless[0].name}, then restart that runtime's agents. `
-        + "It replaces the existing entry and resolves the key from .env.",
-    };
-  }
-  if (unreadable.length) {
+  if (!authed || typeof authed.status !== "number") {
     return {
       ok: false,
       code: "partial",
-      detail: "the service requires an API key and "
-        + `${unreadable.map((client) => client.name).join(", ")} could not be read, so those clients `
-        + "were not verified. " + unreadable.map((client) => client.path).join("; "),
-      fix: "Check the file exists and is valid; re-run install.sh for that client to rewrite it.",
+      detail: `${endpoint} requires a key and this host resolved one from ${keySource || "an unnamed "
+        + "source"}, but the authenticated probe could not be completed, so it was never proven to work.`,
+      fix: "Re-run when the service is reachable.",
+    };
+  }
+  if (authed.status === 401 || authed.status === 403) {
+    return {
+      ok: false,
+      code: "key-refused",
+      detail: `${endpoint} REFUSED the key this host resolves (from ${keySource || "an unnamed source"}). `
+        + "Clients hold one key and the service runs on another, which reads as a total outage while "
+        + "both halves look correctly configured.",
+      fix: "Re-run install.sh so the client and the service agree, or check API_KEY in the service's "
+        + ".env against aify-env's credential for this endpoint.",
+    };
+  }
+  if (authed.status >= 200 && authed.status < 300) {
+    return {
+      ok: true,
+      code: "authenticated",
+      detail: `${endpoint} requires a key and the one this host resolves (from ${keySource || "an "
+        + "unnamed source"}) is accepted.`,
+      fix: "",
     };
   }
   return {
-    ok: true,
-    code: "keys-present",
-    detail: `the service requires an API key and all ${clients.length} installed client config(s) `
-      + "carry one.",
-    fix: "",
+    ok: false,
+    code: "partial",
+    detail: `${endpoint} requires a key and the authenticated probe answered ${authed.status}, which `
+      + "neither accepts nor refuses the credential.",
+    fix: "Check the `service` row above.",
   };
 }

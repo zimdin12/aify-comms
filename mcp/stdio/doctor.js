@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
 import { tierVersionVerdict } from "./tier-version-check.mjs";
-import { clientApiKeyVerdict, entryCarriesKey } from "./client-api-key-check.mjs";
+import { clientApiKeyVerdict, credentialPolicyFrom } from "./client-api-key-check.mjs";
 import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
@@ -530,46 +530,39 @@ checkNativeBridge();
 // Managed delivery loops running for agents that belong to no live bridge. READ-ONLY: it enumerates
 // and names them, and never kills. See `managedOrphanVerdict` for why reporting is the whole job.
 /**
- * The two facts `client-api-key` needs, gathered from the real host.
+ * The evidence `client-api-key` needs, gathered by MAKING THE REQUESTS.
  *
- * THE PROBE CARRIES NO KEY, deliberately. `get()` sends the key this process holds, and a request
- * carrying one can only ever answer "yes, with a key" -- which is not the question. `api-exposure`
- * carries its own fetch for exactly this reason.
+ * NO CONFIG PARSING. The previous version read `~/.claude.json` and `~/.hermes/config.yaml` looking
+ * for a key name, and was wrong in both halves: the parser reported a commented-out key as present
+ * (R6), and this gatherer turned a 500, a 404, malformed JSON and EACCES all into green (R5). It also
+ * could not have seen the defect it was written during -- a standalone worker's environment is
+ * described by no MCP config at all.
  *
- * A NON-401 IS A NO. Only 401/403 mean "this service demands credentials"; a timeout or a 500 is an
- * unreachable or broken service, which is the `service` row's business, and answering it here would
- * make this row red for a reason it cannot fix.
+ * UNAUTHENTICATED FIRST, with its own fetch rather than doctor's `get`: a probe carrying a key can
+ * only answer "yes, with a key". Then the SAME request with the key this host actually resolves,
+ * through the same module every bridge component uses, so what is tested is what the fleet sends.
  */
 async function gatherClientApiKeyEvidence() {
-  let serviceRequiresKey = null;
-  try {
-    const res = await fetch(`${SERVER_URL}/api/v1/agents`, { signal: AbortSignal.timeout(5000) });
-    serviceRequiresKey = res.status === 401 || res.status === 403;
-  } catch {
-    serviceRequiresKey = null;
-  }
-
-  // DERIVED FROM WHAT IS ON DISK, not from a list of clients we believe are installed: a host with no
-  // hermes must not be reported as a hermes with no key.
-  const candidates = [
-    { name: "claude", path: join(homedir(), ".claude.json"), format: "json" },
-    { name: "hermes", path: join(homedir(), ".hermes", "config.yaml"), format: "yaml" },
-  ];
-  const clients = [];
-  for (const candidate of candidates) {
-    let text = null;
+  const ask = async (headers) => {
     try {
-      text = readFileSync(candidate.path, "utf8");
+      const res = await fetch(`${SERVER_URL}/api/v1/agents`, {
+        headers, signal: AbortSignal.timeout(5000),
+      });
+      return { status: res.status };
     } catch {
-      continue;  // absent is not installed, and not a finding
+      return null;   // a transport failure is not a policy; the verdict reads it as unknown
     }
-    const carriesKey = entryCarriesKey(text, candidate.format);
-    // A config with no aify-comms entry at all is not this row's business -- `bridge-installed`
-    // reports an uninstalled client -- so it is dropped rather than counted as keyless.
-    if (carriesKey === null) continue;
-    clients.push({ name: candidate.name, path: candidate.path, carriesKey });
-  }
-  return { serviceRequiresKey, clients };
+  };
+
+  const policy = credentialPolicyFrom(await ask({}));
+  const key = DOCTOR_API_KEY.key || "";
+  return {
+    policy,
+    endpoint: SERVER_URL,
+    hasKey: Boolean(key),
+    keySource: DOCTOR_API_KEY.source || "",
+    authed: policy === "required" && key ? await ask({ "X-API-Key": key }) : null,
+  };
 }
 
 async function checkManagedOrphans() {

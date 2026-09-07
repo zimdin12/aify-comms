@@ -1,168 +1,124 @@
 #!/usr/bin/env node
-// A service that demands a key, and a client that holds none.
+// Can this host authenticate against the service it is pointed at?
 //
-// BUILT FROM A WRONG DIAGNOSIS, and that is worth stating where the next reader will meet it. On
-// 2026-09-07 a hermes agent was 401ing on every outbound call and a `grep -A 20` of the aify-comms
-// block in `~/.hermes/config.yaml` found no API key. The key was on line 22 -- the window ended at
-// 20 -- and the config's key authenticates against the live service. That agent's 401 is still
-// UNEXPLAINED; it was not this.
+// THE CHECK THIS REPLACES ASKED A PROXY QUESTION and was wrong twice over. It parsed
+// `~/.claude.json` and `~/.hermes/config.yaml` for a key NAME, and review reproduced the detector
+// returning true for `# AIFY_API_KEY: old-key`, for `AIFY_API_KEY: "" # no key`, for
+// `NOT_AIFY_API_KEY`, for the token in a description outside `env`, and for an `aify-comms` block
+// under the wrong root -- while a correctly quoted entry returned null and was discarded. Its
+// gatherer turned HTTP 500, 404, malformed JSON and EACCES all into green, ignored `HERMES_HOME`, and
+// judged clients configured for other endpoints against this service.
 //
-// WHAT IS STILL TRUE, and why the check stayed: the service does refuse unauthenticated calls, a
-// keyless client would 401 on every call, and no existing row would report it. Claude and hermes keep
-// their keys in different files, so half a fleet can go mute while every badge stays green -- a quiet
-// agent looks exactly like an idle one, since `lastSeen` refreshes on registration and `Last
-// produced` only records when an agent last SENT.
+// AND CORRECT, IT STILL WOULD HAVE MISSED THE OUTAGE IT WAS WRITTEN DURING: the process that could
+// not authenticate was a STANDALONE worker whose environment no MCP config describes.
 //
-// SO THESE TESTS RULE OUT THE SHAPE THAT PRODUCED THE MISTAKE: a check that reports because it did
-// not look properly. The parse is controlled BOTH ways -- it must find a key that is there, and still
-// say no when the key is absent, empty, or belongs to a different MCP server in the same file -- and
-// it walks the entry to its end by indentation rather than sampling a fixed window after it.
+// So the question is now the direct one -- resolve the key the way the runtime does, and TRY it --
+// and these tests are about the only thing that can now go wrong: reading a failure as an answer.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { clientApiKeyVerdict, entryCarriesKey } from "../client-api-key-check.mjs";
+import { clientApiKeyVerdict, credentialPolicyFrom } from "../client-api-key-check.mjs";
 
-const HERMES_WITH_KEY = [
-  "mcp_servers:",
-  "  aify-comms:",
-  "    command: \"node\"",
-  "    env:",
-  "      AIFY_AGENT_ID: \"${AIFY_AGENT_ID}\"",
-  "      AIFY_API_KEY: \"abc123\"",
-  "      AIFY_SERVER_URL: \"http://127.0.0.1:8800\"",
-].join("\n");
+const ENDPOINT = "http://127.0.0.1:8800";
 
-// The shape a keyless entry has: the env vars an install writes, with no key among them. NOT a
-// copy of the operator's file -- theirs carries a key, which is the correction above.
-const HERMES_WITHOUT_KEY = [
-  "mcp_servers:",
-  "  aify-comms:",
-  "    command: \"node\"",
-  "    env:",
-  "      AIFY_AGENT_ID: \"${AIFY_AGENT_ID}\"",
-  "      AIFY_SESSION_MODE: \"${AIFY_SESSION_MODE}\"",
-  "      AIFY_SERVER_URL: \"http://127.0.0.1:8800\"",
-].join("\n");
+// ── what an unauthenticated probe establishes ───────────────────────────────────────────────────
 
-// ── the parse ───────────────────────────────────────────────────────────────────────────────────
-
-test("POSITIVE CONTROL: it finds a key that is there", () => {
-  // Every assertion below is about saying NO. A parse that always returned false would satisfy them
-  // all and report the whole fleet broken, which is the opposite failure and just as useless.
-  assert.equal(entryCarriesKey(HERMES_WITH_KEY, "yaml"), true);
-  assert.equal(entryCarriesKey(JSON.stringify({
-    mcpServers: { "aify-comms": { env: { AIFY_API_KEY: "abc123" } } },
-  }), "json"), true);
+test("POSITIVE CONTROL: a refusal means a key is required, a success means it is not", () => {
+  // Every assertion below is about NOT over-reading a response. A classifier that answered "unknown"
+  // to everything would satisfy them all and make the check permanently silent.
+  assert.equal(credentialPolicyFrom({ status: 401 }), "required");
+  assert.equal(credentialPolicyFrom({ status: 403 }), "required");
+  assert.equal(credentialPolicyFrom({ status: 200 }), "open");
 });
 
-test("a keyless entry reads as keyless", () => {
-  assert.equal(entryCarriesKey(HERMES_WITHOUT_KEY, "yaml"), false);
-});
-
-test("either key name counts, because the bridge reads both", () => {
-  // Derived from API_KEY_ENV_NAMES rather than typed here — a check that knew a different set of
-  // names than the bridge would disagree with it the day one is added.
-  const withClaudeName = HERMES_WITH_KEY.replace("AIFY_API_KEY", "CLAUDE_MCP_API_KEY");
-  assert.equal(entryCarriesKey(withClaudeName, "yaml"), true);
-});
-
-test("AN EMPTY VALUE IS NOT A KEY", () => {
-  // `AIFY_API_KEY: ""` satisfies a name search and authenticates with nothing — exactly the state
-  // this check exists to find, wearing the costume of a fix.
-  for (const empty of ['AIFY_API_KEY: ""', "AIFY_API_KEY: ''", "AIFY_API_KEY:"]) {
-    const text = HERMES_WITH_KEY.replace('AIFY_API_KEY: "abc123"', empty);
-    assert.equal(entryCarriesKey(text, "yaml"), false, `${empty} was accepted as a key`);
+test("A 500 OR A 404 IS NOT EVIDENCE THAT NO KEY IS NEEDED", () => {
+  // R5, reproduced by review: both read as "no key required" and printed green while the service was
+  // refusing every call. A broken service and an open one are not the same fact.
+  for (const status of [500, 404, 502, 302, 418]) {
+    assert.equal(credentialPolicyFrom({ status }), "unknown", `${status} was read as a policy`);
   }
 });
 
-test("A KEY ON SOMEBODY ELSE'S SERVER DOES NOT COUNT", () => {
-  // ~/.claude.json holds every MCP server the operator ever installed. A file-wide search passes on
-  // a key belonging to another server and calls our entry healthy.
-  const yaml = [
-    "mcp_servers:",
-    "  some-other-tool:",
-    "    env:",
-    "      AIFY_API_KEY: \"belongs-to-someone-else\"",
-    "  aify-comms:",
-    "    env:",
-    "      AIFY_SERVER_URL: \"http://127.0.0.1:8800\"",
-  ].join("\n");
-  assert.equal(entryCarriesKey(yaml, "yaml"), false, "a neighbouring server's key was counted as ours");
-
-  const json = JSON.stringify({
-    mcpServers: {
-      "other": { env: { AIFY_API_KEY: "belongs-to-someone-else" } },
-      "aify-comms": { env: { AIFY_SERVER_URL: "http://127.0.0.1:8800" } },
-    },
-  });
-  assert.equal(entryCarriesKey(json, "json"), false);
-});
-
-test("no entry, or an unparseable file, is NULL — not false", () => {
-  // "I could not tell" and "there is no key" lead to different verdicts, and collapsing them would
-  // report a missing config as a broken one.
-  assert.equal(entryCarriesKey("mcp_servers:\n  other:\n    env: {}", "yaml"), null);
-  assert.equal(entryCarriesKey("{not json", "json"), null);
-  assert.equal(entryCarriesKey("", "yaml"), null);
+test("a request that could not be made at all is unknown, not open", () => {
+  for (const nothing of [null, undefined, {}, { status: "200" }]) {
+    assert.equal(credentialPolicyFrom(nothing), "unknown");
+  }
 });
 
 // ── the verdict ─────────────────────────────────────────────────────────────────────────────────
 
-const KEYED = { name: "claude", path: "~/.claude.json", carriesKey: true };
-const KEYLESS = { name: "hermes", path: "~/.hermes/config.yaml", carriesKey: false };
-
-test("THE COMBINATION: a keyed service plus a keyless client FAILS and names it", () => {
-  const v = clientApiKeyVerdict({ serviceRequiresKey: true, clients: [KEYED, KEYLESS] });
+test("THE DEFECT THIS EXISTS FOR: a key is required and this host resolves none", () => {
+  // The shape of the real outage: a standalone worker with no key in its environment, beating into
+  // 401s while its status stayed green because registration is a separate signal.
+  const v = clientApiKeyVerdict({ policy: "required", endpoint: ENDPOINT, hasKey: false });
   assert.equal(v.ok, false);
-  assert.equal(v.code, "client-has-no-key");
-  assert.match(v.detail, /hermes/);
+  assert.equal(v.code, "no-key-resolved");
   assert.match(v.detail, /401/, "the row does not say what the operator will actually see");
-  assert.match(v.fix, /install\.sh --client hermes/, "the fix does not name the one command that repairs it");
+  assert.match(v.fix, /credential|AIFY_API_KEY/, "the fix names no way out");
+});
+
+test("THE OTHER REAL SHAPE: the service refuses the key this host resolves", () => {
+  // Clients holding one key while the service runs on another reads as a total outage with both
+  // halves looking correctly configured -- the failure `scripts/api-key.sh` exists for.
+  const v = clientApiKeyVerdict({
+    policy: "required", endpoint: ENDPOINT, hasKey: true, keySource: ".env", authed: { status: 401 },
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "key-refused");
+  assert.match(v.detail, /\.env/, "the row does not say WHICH key was refused");
+});
+
+test("a key that works is the pass, and it names its source", () => {
+  const v = clientApiKeyVerdict({
+    policy: "required", endpoint: ENDPOINT, hasKey: true,
+    keySource: "aify-env's credential store", authed: { status: 200 },
+  });
+  assert.equal(v.ok, true);
+  assert.equal(v.code, "authenticated");
+  assert.match(v.detail, /credential store/);
 });
 
 test("A SERVICE WITH NO KEY IS NOT A DEFECT", () => {
   // Running open is a configuration. Firing here would make this row red on every developer machine
   // that never set API_KEY, which is how a check gets switched off before the day it matters.
-  const v = clientApiKeyVerdict({ serviceRequiresKey: false, clients: [KEYLESS] });
+  const v = clientApiKeyVerdict({ policy: "open", endpoint: ENDPOINT, hasKey: false });
   assert.equal(v.ok, true);
   assert.equal(v.code, "no-key-required");
 });
 
-test("both halves present is a pass", () => {
-  const v = clientApiKeyVerdict({ serviceRequiresKey: true, clients: [KEYED] });
-  assert.equal(v.ok, true);
-  assert.equal(v.code, "keys-present");
-});
-
-test("NO EVIDENCE IS NOT A PASS — either half missing reads unknown-all", () => {
-  // The rule this repo already paid for twice (`env-bridge`, `bridge-current`): a check that
-  // gathered nothing must not look like one that verified something.
-  for (const deps of [
-    { serviceRequiresKey: null, clients: [KEYLESS] },
-    { serviceRequiresKey: true, clients: null },
-  ]) {
-    const v = clientApiKeyVerdict(deps);
-    assert.equal(v.ok, false, `${JSON.stringify(deps)} reported ok`);
-    assert.equal(v.code, "unknown-all");
-  }
+test("NO EVIDENCE IS NOT A PASS", () => {
+  // The rule this repo has already paid for twice (`env-bridge`, `bridge-current`).
+  const v = clientApiKeyVerdict({ policy: "unknown", endpoint: ENDPOINT });
+  assert.equal(v.ok, false);
+  assert.equal(v.code, "unknown-all");
   assert.equal(clientApiKeyVerdict().code, "unknown-all", "called with nothing, it claimed something");
 });
 
-test("an unreadable client is PARTIAL, not a pass and not a failure", () => {
-  // It has some evidence (one client verified) and a gap, which is a third state — collapsing it
-  // into either neighbour loses the distinction `no-evidence-is-not-a-pass` exists to keep.
-  const v = clientApiKeyVerdict({
-    serviceRequiresKey: true,
-    clients: [KEYED, { name: "hermes", path: "~/.hermes/config.yaml", carriesKey: null }],
-  });
-  assert.equal(v.ok, false);
-  assert.equal(v.code, "partial");
-  assert.match(v.detail, /hermes/);
+test("an authenticated probe that did not complete is PARTIAL, not a pass", () => {
+  // Some evidence (the policy) and a gap (whether our key works) is a third state; collapsing it into
+  // either neighbour loses the distinction.
+  for (const authed of [null, { status: 500 }]) {
+    const v = clientApiKeyVerdict({
+      policy: "required", endpoint: ENDPOINT, hasKey: true, keySource: ".env", authed,
+    });
+    assert.equal(v.ok, false, `authed=${JSON.stringify(authed)} reported ok`);
+    assert.equal(v.code, "partial");
+  }
 });
 
-test("a host with no client installed is not broken", () => {
-  const v = clientApiKeyVerdict({ serviceRequiresKey: true, clients: [] });
-  assert.equal(v.ok, true);
-  assert.equal(v.code, "none-installed");
+test("every verdict names the endpoint it judged", () => {
+  // R5's last item: a client configured for a DIFFERENT endpoint was judged against this service and
+  // blamed as keyless. There is one endpoint now -- the one actually probed -- and every row says
+  // which, so a reader can never wonder who was being judged.
+  const cases = [
+    { policy: "open", endpoint: ENDPOINT, hasKey: false },
+    { policy: "required", endpoint: ENDPOINT, hasKey: false },
+    { policy: "required", endpoint: ENDPOINT, hasKey: true, authed: { status: 401 } },
+    { policy: "required", endpoint: ENDPOINT, hasKey: true, authed: { status: 200 } },
+  ];
+  for (const deps of cases) {
+    assert.match(clientApiKeyVerdict(deps).detail, /127\.0\.0\.1:8800/,
+      `a verdict did not say which endpoint it judged: ${JSON.stringify(deps)}`);
+  }
 });
