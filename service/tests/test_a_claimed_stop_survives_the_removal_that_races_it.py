@@ -94,14 +94,17 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
                 await db.close()
         return asyncio.run(_go())
 
-    def _claim(self, *, delete_on_commit: bool):
+    def _claim(self, *, delete_on_commit: bool, before_update=None):
         """Run the real claim, optionally letting a removal win at the exact instant of the commit."""
         from service.api_core import terminal_controls_io as io
 
         real_get_db = io.get_db
 
         async def _patched(*args, **kwargs):
-            return _CommitHookedDb(await real_get_db(*args, **kwargs), delete_on_commit=delete_on_commit)
+            return _CommitHookedDb(
+                await real_get_db(*args, **kwargs),
+                delete_on_commit=delete_on_commit, before_update=before_update,
+            )
 
         io.get_db = _patched
         try:
@@ -214,6 +217,57 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
             "the claim reordered the controls; the host applies them in the order it receives them",
         )
 
+    def test_A_ROW_ANOTHER_CLAIMER_TAKES_MID_FLIGHT_IS_NOT_REPORTED_AS_OURS(self):
+        """The `AND status = 'pending'` predicate, witnessed rather than assumed.
+
+        The sibling test above steals the row BEFORE the initial SELECT, which the PREDECESSOR also
+        passed -- review showed that deleting the predicate leaves it green, so it witnesses nothing.
+        The schedule that matters is: our SELECT sees the row pending, ANOTHER claimer takes it, THEN
+        our UPDATE runs. Without the predicate we would report a control we did not win, and two
+        hosts would act on one stop.
+        """
+        self._seed()
+
+        async def _steal():
+            # A SEPARATE CONNECTION, so this is a real second claimer and not our own transaction
+            # writing to itself.
+            from service.db import get_db
+            other = await get_db()
+            try:
+                await other.execute(
+                    "UPDATE terminal_controls SET status = 'claimed', claimed_at = ? WHERE terminal_id = ?",
+                    ("2026-09-07T00:00:01Z", TERMINAL_ID),
+                )
+                await other.commit()
+            finally:
+                await other.close()
+
+        # The hook fires on the claim's FIRST write, which is after its SELECT and before its UPDATE.
+        result = self._claim(delete_on_commit=False, before_update=_steal)
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["controls"], [],
+            "a control another claimer won between our SELECT and our UPDATE was reported as ours",
+        )
+
+    def test_THE_CLAIM_IS_DURABLE_not_just_returned(self):
+        """Deleting the final commit left all three earlier tests green: the hook never fired and
+        nothing observed publication. So this one asks a SECOND, FRESH claim what it sees.
+
+        A claim that returns rows but never commits hands the same control out again on the next poll,
+        and two hosts act on one stop -- invisible to any test that only inspects the first response.
+        """
+        self._seed()
+        first = self._claim(delete_on_commit=False)
+        self.assertEqual(len(first["controls"]), 1, "the fixture produced nothing to claim")
+
+        second = self._claim(delete_on_commit=False)
+        self.assertEqual(
+            second["controls"], [],
+            "a second claim was handed the same control -- the first one never committed, so the "
+            "stop is not durable and two hosts would act on it",
+        )
+
 class _CommitHookedDb:
     """The real connection, with a removal wired to land on the first commit.
 
@@ -221,10 +275,21 @@ class _CommitHookedDb:
     this test proves is a property of the shipped code path and not of a stand-in.
     """
 
-    def __init__(self, inner, *, delete_on_commit: bool):
+    def __init__(self, inner, *, delete_on_commit: bool, before_update=None):
         self._inner = inner
         self._delete_on_commit = delete_on_commit
+        self._before_update = before_update
         self._fired = False
+        self._interleaved = False
+
+    async def execute(self, sql, *args, **kwargs):
+        # FIRES BETWEEN THE SELECT AND THE UPDATE, which is the schedule that witnesses the
+        # `status = 'pending'` predicate. Stealing the row before the claim starts proves nothing --
+        # the predecessor passed that too.
+        if self._before_update and not self._interleaved and "UPDATE terminal_controls" in str(sql):
+            self._interleaved = True
+            await self._before_update()
+        return await self._inner.execute(sql, *args, **kwargs)
 
     async def commit(self):
         if self._delete_on_commit and not self._fired:
