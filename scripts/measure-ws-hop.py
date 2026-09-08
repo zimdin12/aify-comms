@@ -145,6 +145,8 @@ class Listener(threading.Thread):
         # control's prefix.
         self.expected: set[str] = set()
         self.unexpected = 0
+        self.negative = 0
+        self.died = ""
         self.foreign_seen = 0
         self.unreadable = 0
         self.duplicates = 0
@@ -156,6 +158,17 @@ class Listener(threading.Thread):
         self._sock = None
 
     def run(self) -> None:
+        # WHATEVER KILLS THIS THREAD IS AN ARM-INVALID OUTCOME, and until review demonstrated it there
+        # was no way for one to be reported at all. An unhashable marker raised TypeError OUTSIDE the
+        # parse guard, the thread died, the run closed cleanly and published -- and if the crash
+        # happens AFTER the expected frames have landed, every figure looks complete. A receiver that
+        # stopped for a reason nobody recorded cannot certify what it collected.
+        try:
+            self._collect()
+        except BaseException as failure:  # noqa: BLE001 - recorded, then refused by _account
+            self.died = f"{type(failure).__name__}: {failure}"
+
+    def _collect(self) -> None:
         with ws_connect(self.url) as sock:
             self._sock = sock
             self.ready.set()
@@ -176,7 +189,13 @@ class Listener(threading.Thread):
                 if marker is None or t0 is None:
                     self.unreadable += 1
                     continue
-                if str(marker).startswith("foreign-"):
+                # A MARKER IS A STRING. Anything else is a frame this run did not shape, and looking
+                # one up in a set raises for the unhashable ones -- which is how a JSON list killed
+                # the receiver rather than being counted.
+                if not isinstance(marker, str):
+                    self.unreadable += 1
+                    continue
+                if marker.startswith("foreign-"):
                     self.foreign_seen += 1
                     continue
                 if marker not in self.expected:
@@ -199,6 +218,13 @@ class Listener(threading.Thread):
                 # then PASSED the control's `>= 20ms` check, because `nan < 20.0` is False.
                 if not math.isfinite(elapsed):
                     self.unreadable += 1
+                    continue
+                # AND NOT NEGATIVE, which is a SEPARATE obligation from being a number. A receive
+                # clock behind the stamp produced -1000ms, `isfinite` said yes, and it was published
+                # as a live sample beside a valid control. Nothing else downstream would have
+                # objected: a negative drags a p50 down rather than raising a flag.
+                if elapsed < 0:
+                    self.negative += 1
                     continue
                 self.landed[marker] = elapsed
 
@@ -291,6 +317,13 @@ def _account(arm: Arm, who: str, refusals: list[str]) -> None:
                         f"{f'; e.g. received-but-never-emitted {only_received}' if only_received else ''}")
     if subject.unexpected:
         refusals.append(f"{who}: {subject.unexpected} frame(s) carried a marker this run never emitted")
+    if subject.negative:
+        refusals.append(f"{who}: {subject.negative} sample(s) had a NEGATIVE elapsed time, so the "
+                        f"receive clock ran behind the stamp and nothing here is trustworthy")
+    if subject.died:
+        refusals.append(f"{who}: the receiving thread died ({subject.died}), so whatever it "
+                        f"collected cannot certify itself -- including if it died after the last "
+                        f"expected frame arrived")
     if subject.foreign_seen == 0:
         refusals.append(f"{who}: the foreign frame never arrived, so nothing demonstrates the "
                         f"collector can decline one")
