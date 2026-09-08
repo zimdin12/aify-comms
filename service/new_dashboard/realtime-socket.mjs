@@ -172,10 +172,17 @@ export function applyRealtimeEvent(event, data = {}) {
         updateAwaitPill();
       } catch {}
     }
-    // NOTE: do NOT refreshSoon() here. terminal_output streams every 1-4s; a full data
-    // refetch per frame made the api-status chip flap 'refreshing'↔'live' every second and
-    // wasted the 9-endpoint refetch. Live bytes are written to xterm above; agent/roster data
-    // changes arrive via the granular agent_status / other WS events below.
+    // NOTE: do NOT refreshSoon() here. A full data refetch per frame made the api-status chip flap
+    // 'refreshing'<->'live' every second and wasted the 9-endpoint refetch. Live bytes are written to
+    // xterm above; agent/roster data changes arrive via the granular agent_status / other WS events
+    // below.
+    //
+    // THIS SAID "every 1-4s" UNTIL 2026-09-08 AND IT WAS WRONG BY AN ORDER OF MAGNITUDE, which made
+    // the argument above sound far weaker than it is. Measured on the live fleet, 50 paired samples
+    // across two clocks: `outputSeq` advances every ~150-250ms for a busy agent, and at the moment it
+    // advances the producer's newest byte is 42-275ms old. So a refetch per frame would be several
+    // per second per console, not one every few seconds -- the reason this line exists is stronger
+    // than the number it cited, and a wrong number invites somebody to decide the rule is cheap.
     return;
   }
   // Granular consumption (Phase 1.2): a status change patches the agent in place and

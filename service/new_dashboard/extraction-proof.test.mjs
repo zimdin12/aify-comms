@@ -2907,6 +2907,35 @@ const EXTRACTIONS = [
       {
         name: "applyRealtimeEvent",
         editedSince: [{
+          // The cadence this comment cited was WRONG BY AN ORDER OF MAGNITUDE, which made its own
+          // argument sound far weaker than it is: measured on the live fleet 2026-09-08, `outputSeq`
+          // advances every ~150-250ms for a busy agent, not "every 1-4s". A refetch per frame would
+          // be several per second per console. A wrong number invites somebody to decide the rule is
+          // cheap.
+          //
+          // APPENDED TO THIS ENTRY'S EXISTING ARRAY rather than added as a second `editedSince:` key,
+          // which the plan's own header warns is legal JS and SILENT -- the later key would replace
+          // the earlier one and the edit it described would stop being verified.
+          was: [
+            "    // NOTE: do NOT refreshSoon() here. terminal_output streams every 1-4s; a full data",
+            "    // refetch per frame made the api-status chip flap 'refreshing'↔'live' every second and",
+            "    // wasted the 9-endpoint refetch. Live bytes are written to xterm above; agent/roster data",
+            "    // changes arrive via the granular agent_status / other WS events below.",
+          ],
+          now: [
+            "    // NOTE: do NOT refreshSoon() here. A full data refetch per frame made the api-status chip flap",
+            "    // 'refreshing'<->'live' every second and wasted the 9-endpoint refetch. Live bytes are written to",
+            "    // xterm above; agent/roster data changes arrive via the granular agent_status / other WS events",
+            "    // below.",
+            "    //",
+            "    // THIS SAID \"every 1-4s\" UNTIL 2026-09-08 AND IT WAS WRONG BY AN ORDER OF MAGNITUDE, which made",
+            "    // the argument above sound far weaker than it is. Measured on the live fleet, 50 paired samples",
+            "    // across two clocks: `outputSeq` advances every ~150-250ms for a busy agent, and at the moment it",
+            "    // advances the producer's newest byte is 42-275ms old. So a refetch per frame would be several",
+            "    // per second per console, not one every few seconds -- the reason this line exists is stronger",
+            "    // than the number it cited, and a wrong number invites somebody to decide the rule is cheap.",
+          ],
+        }, {
           // The eleven-name refresh allowlist became a declared disposition per event. Anything
           // not in that array fell off the end of this function and was dropped -- 35 of the 49
           // names the service broadcasts. realtime-dispositions.mjs now answers for every one, and
