@@ -332,12 +332,22 @@ class _HeldOpenDb:
 class TheTRANSACTIONOwnsTheRollbackTests(unittest.IsolatedAsyncioTestCase):
     """`_append_terminal_output` guards its own UPDATE. The transaction is bigger than that.
 
-    FOUND BY REVIEW, executed rather than inferred, and it reproduces against the ORIGINAL v0.6.1
-    source as well -- so it is long-standing rather than introduced by this version's console work.
-    Seed AA, append B, refuse EITHER the event INSERT or the COMMIT, and let the connection roll
-    back: the durable row returns to AA while the held cache still says AAB. The retry then appends
-    B to a tail that already claimed it and persists AABB. Wrong bytes on disk is worse than a wrong
-    screen, because nothing later repaints it.
+    FOUND BY REVIEW, executed rather than inferred. Seed AA, append B, refuse EITHER the event INSERT
+    or the COMMIT, and let the connection roll back: the durable row returns to AA while the held
+    cache still says AAB. The retry then appends B to a tail that already claimed it and persists
+    AABB. Wrong bytes on disk is worse than a wrong screen, because nothing later repaints it.
+
+    TWO POPULATIONS, AND MERGING THEM WAS MY ERROR. I first recorded this whole finding as
+    long-standing because it "reproduces against v0.6.1". Review corrected it against the baseline
+    JSON and the correction is the useful half:
+
+      * the SCREEN duplication is pre-existing -- the original base shows durable AAB and screen AABB
+      * the DURABLE duplication is a REGRESSION of the held-tail work, which put an in-memory cache
+        in front of the column: the original base has no cache to disagree with the row, so its
+        durable bytes stayed correct
+
+    So the rollback added here repairs a regression on the durable side and a pre-existing defect on
+    the screen side, and calling both "long-standing" would have retired a regression by vocabulary.
     """
 
     ESC = chr(27)
