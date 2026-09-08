@@ -91,6 +91,87 @@ def test_every_file_a_skill_points_at_exists():
     )
 
 
+# A backticked `thing()`. Prose names a function to explain a mechanism, so what must be true is that
+# the name EXISTS -- not that it lives anywhere in particular.
+#
+# THE FILE HALF ABOVE AND THIS ONE ANSWER THE SAME QUESTION about different tokens, which is why they
+# live together. A second implementation elsewhere would agree with this one until one of them was
+# fixed; that is this repo's standing reason for not writing the second.
+SYMBOL_REF = re.compile(r"`([A-Za-z_][A-Za-z0-9_]{2,})\(\)`")
+
+# Names that are somebody else's, each saying whose. The same rule as EXTERNAL above: an unexplained
+# exemption is how a gate stops meaning anything.
+EXTERNAL_SYMBOLS = {
+    "fetch": "the platform builtin",
+    "spawn": "node:child_process",
+    "derive": "named as a concept in the status model, not as an export",
+    "discover_mcp_tools": "hermes's own tool discovery",
+}
+
+SYMBOL_ROOTS = ("service", "mcp", "scripts")
+SYMBOL_SKIP = {"tests", "fixtures", "__pycache__", "node_modules", ".git", ".pytest_cache"}
+
+
+def _symbol_sources() -> list[str]:
+    out: list[str] = []
+    for root in SYMBOL_ROOTS:
+        base = REPO / root
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            if not path.is_file() or path.suffix not in (".py", ".js", ".mjs"):
+                continue
+            if any(part in SYMBOL_SKIP for part in path.parts):
+                continue
+            out.append(path.read_text(encoding="utf-8", errors="ignore"))
+    return out
+
+
+def test_every_function_a_skill_names_appears_in_source():
+    """A skill naming a function nobody implements describes behaviour nobody has.
+
+    THAT IS NOT HYPOTHETICAL HERE. Two paragraphs in `dispatch-bridges.md` described a `channel-enter`
+    mechanism present in NO source file, and were deleted this version -- but only because somebody
+    read them, which is not a mechanism. This is the same check the file half makes, on the other kind
+    of pointer.
+
+    TESTS DO NOT COUNT AS AN IMPLEMENTATION: a name appearing only in a test is a name nothing
+    implements, which is exactly the condition being looked for.
+    """
+    sources = _symbol_sources()
+    assert len(sources) > 200, f"the source walk found only {len(sources)} files; it is measuring nothing"
+
+    missing: dict[str, list[str]] = {}
+    for path in _skill_files():
+        text = path.read_text(encoding="utf-8")
+        for name in set(SYMBOL_REF.findall(text)):
+            if name in EXTERNAL_SYMBOLS:
+                continue
+            if not any(name in body for body in sources):
+                missing.setdefault(name, []).append(path.relative_to(SKILLS).as_posix())
+
+    assert not missing, "skills name functions that appear in no source file:\n" + "\n".join(
+        f"  {name}()  cited in: {', '.join(sorted(where))}" for name, where in sorted(missing.items())
+    )
+
+
+def test_the_symbol_scan_can_say_absent_and_present():
+    """POSITIVE AND NEGATIVE CONTROL, in the same run. A probe that cannot return ABSENT cannot return
+    PRESENT -- and the sweep above passes trivially if the source walk came back empty."""
+    sources = _symbol_sources()
+    assert any("rowResumeKey" in body for body in sources), "the walk cannot find a function that exists"
+    assert not any("aFunctionNobodyDefines_xyzzy" in body for body in sources)
+
+
+def test_every_external_symbol_exemption_is_still_referenced():
+    """Same rule as the file exemptions: a name nobody mentions should leave the list."""
+    mentioned: set[str] = set()
+    for path in _skill_files():
+        mentioned |= set(SYMBOL_REF.findall(path.read_text(encoding="utf-8")))
+    unused = sorted(name for name in EXTERNAL_SYMBOLS if name not in mentioned)
+    assert not unused, f"declared external and mentioned by no skill: {', '.join(unused)}"
+
+
 def test_every_external_exemption_is_still_referenced():
     """An exemption for a name nobody mentions any more is dead policy pretending to be coverage."""
     mentioned: set[str] = set()
