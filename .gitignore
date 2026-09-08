@@ -96,3 +96,6 @@ certs/
 # nobody wrote. Ignored rather than merely deleted: the leak is possible again on any red run, and a
 # rule beats remembering.
 mcp/stdio/.tmp-sandbox-*
+
+# Scratch snapshots taken by mutation runs. `cp` aside, restore, delete -- never commit one.
+*.mutation-backup
