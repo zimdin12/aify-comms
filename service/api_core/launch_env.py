@@ -124,6 +124,10 @@ def managed_launch_env(
     model = _text(agent.get("model")) or _text(runtime_config.get("model"))
     effort = _text(runtime_config.get("effort")) or _text(runtime_config.get("thinking"))
     resume_policy = _text(runtime_state.get("resumePolicy")).lower()
+    # A Reset asks for a fresh context. Composing the stored handle beside that flag made every
+    # launcher that did not read the flag resume the session the operator had just discarded --
+    # for hermes, a session pinned to a retired model that died 16s after agent_init.
+    resume_handle = "" if resume_policy == "fresh_context" else handle
 
     env: dict[str, str] = {
         "AIFY_RUNTIME": runtime,
@@ -135,7 +139,7 @@ def managed_launch_env(
         "AIFY_COMMS_AGENT_ID": _text(terminal.get("agentId")) or _text(agent.get("id")),
         "AIFY_AGENT_ROLE": _text(agent.get("role")) or _text(terminal.get("role")),
         "AIFY_AGENT_CWD": workspace or "",
-        "AIFY_SESSION_HANDLE": handle,
+        "AIFY_SESSION_HANDLE": resume_handle,
         # This worker is a WORKER. A bridge flag inherited into one is how a test process once became
         # the environment bridge and reaped seven live gateway hosts.
         "AIFY_ENVIRONMENT_BRIDGE": "0",
@@ -157,7 +161,7 @@ def managed_launch_env(
         env["AIFY_MANAGED_EFFORT"] = effort
 
     for name in session_env_vars_for(runtime):
-        env[name] = handle
+        env[name] = resume_handle
     return env
 
 
