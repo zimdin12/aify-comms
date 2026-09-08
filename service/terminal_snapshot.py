@@ -232,11 +232,18 @@ _ALT_LEAVE_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)l")
 
 
 class _LiveScreen:
-    __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt", "_pending")
+    __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt",
+                 "_pending", "seq")
 
     def __init__(self, cols: int, rows: int) -> None:
         self.cols = cols
         self.rows = rows
+        # WHICH OUTPUT THIS SCREEN HAS CONSUMED, held HERE because this is the object whose lifetime
+        # it describes. It was read from the tail buffer instead, and that buffer is FORGOTTEN when a
+        # terminal ends while the screen is not -- so a GET on an ending terminal rendered the new
+        # screen beside the old number, which is the tear review constructed. None means "no number
+        # covers what is on this screen", which a reader must treat as unknown rather than as zero.
+        self.seq = None
         # HistoryScreen (not Screen): keeps the lines that scroll off the top, which IS the
         # console's scrollback. Without it there is nothing to scroll back to after a reset.
         self.screen = pyte.HistoryScreen(cols, rows, history=_HISTORY_LINES, ratio=0.5)
@@ -333,7 +340,8 @@ def _clamp_grid(cols: Any, rows: Any) -> tuple[int, int]:
     )
 
 
-def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any = 0, seed: str = "") -> bool:
+def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any = 0, seed: str = "",
+                     seq: Any = None) -> bool:
     """Feed one live PTY chunk into this terminal's persistent screen.
 
     `seed` is used ONLY when creating the screen for a terminal we have not been tracking
@@ -342,6 +350,11 @@ def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any =
     scrolls the imperfect rows away. A PTY started after this code is correct from byte 0.
     Best-effort throughout: any failure drops the live screen and the caller falls back to the
     replay path. Returns True when the chunk was accepted.
+
+    `seq` NUMBERS WHAT THIS CHUNK PUT ON THE SCREEN, and an UNNUMBERED chunk clears the number
+    rather than leaving the previous one standing. `append_outside_the_queue` passes none, and a
+    screen that has moved past the last number anybody gave it is not described by that number --
+    so the reader is told "unknown" and falls back, which is what it did before this existed.
     """
     if not _HAVE_PYTE or not terminal_id:
         return False
@@ -365,10 +378,27 @@ def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any =
             live.resize(c, r)
         if chunk:
             live.feed(chunk)
+            # SET AFTER THE FEED, so a chunk that threw leaves no number claiming to describe it.
+            live.seq = None if seq is None else int(seq)
         return True
     except Exception:
         _LIVE_SCREENS.pop(tid, None)  # never serve a corrupt screen
         return False
+
+
+def live_screen_seq(terminal_id: str) -> Optional[int]:
+    """The output sequence this terminal's live screen has consumed, or None when unknown.
+
+    READ IMMEDIATELY AFTER `render_live_screen`, WITH NO AWAIT BETWEEN, and the pair is one
+    generation: both come from this module's own dictionary, and `feed_live_screen` sets the screen
+    and the number with nothing between them either.
+
+    None is a real answer and not a zero. It means either that no live screen is tracked, or that
+    the last chunk fed into one carried no number -- and a caller that turned that into 0 would tell
+    a browser it holds nothing, which starts a repaint of everything.
+    """
+    live = _LIVE_SCREENS.get(str(terminal_id or ""))
+    return None if live is None else live.seq
 
 
 def render_live_screen(terminal_id: str) -> Optional[tuple[str, int, int]]:

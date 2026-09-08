@@ -275,18 +275,35 @@ class TerminalOutputWriteQueue:
         `_append_terminal_output` loses one of two concurrent writers outright, which is what that
         lock exists for.
         """
-        held = pending(terminal_id)
-        if held is None:
+        # A CHEAP LOOK BEFORE THE LOCK, and it is only that. This runs on a timer for every terminal
+        # that falls quiet, and taking the write lock to discover there is nothing to do would put
+        # idle terminals in the way of live ones. It decides whether to BOTHER; it decides nothing
+        # that is written.
+        if pending(terminal_id) is None:
             return
-        # A SETTLE MUST NOT WRITE A SEQ IT DOES NOT HAVE. `int(held.get("seq") or 0)` turned a held
-        # tail with no sequence into a literal 0, and `_append_terminal_output` writes the column for
-        # any non-None value -- so the row's `output_seq` went BACKWARDS. A client then seeds
-        # `lastSeq` from that 0 and the next live frame is a gap, which is R9-H1's repaint storm
-        # arriving by a different door. None leaves the column alone, which is what the settle wants:
-        # it is flushing bytes, not renumbering them. (External review, Round 9 LOW.)
-        held_seq = held.get("seq")
         try:
             async with self._write_lock:
+                # THE GENERATION IS RESOLVED UNDER THE LOCK THAT PROTECTS CONSUMPTION, and it was
+                # not. Review constructed the tear: publish A/1 and B/2, let C/3 take the write lock
+                # and stall, then start a settle -- it captured seq 2 outside the lock, waited, and
+                # after C released it wrote the tail as it now stood (ABC) with the sequence it had
+                # read before C existed. The queue said 3, the row and the response said 2, and the
+                # held tail was marked clean, so nothing would correct it. A client seeded from that
+                # pair holds bytes its sequence does not cover.
+                #
+                # Reading here costs one dictionary lookup and makes the pair one generation: no
+                # other writer can be between this read and the write, because they take this lock.
+                held = pending(terminal_id)
+                if held is None:
+                    return
+                # A SETTLE MUST NOT WRITE A SEQ IT DOES NOT HAVE. `int(held.get("seq") or 0)` turned
+                # a held tail with no sequence into a literal 0, and `_append_terminal_output` writes
+                # the column for any non-None value -- so the row's `output_seq` went BACKWARDS. A
+                # client then seeds `lastSeq` from that 0 and the next live frame is a gap, which is
+                # R9-H1's repaint storm arriving by a different door. None leaves the column alone,
+                # which is what the settle wants: it is flushing bytes, not renumbering them.
+                # (External review, Round 9 LOW.)
+                held_seq = held.get("seq")
                 await self._write_terminal_output(
                     terminal_id, "", seq=(int(held_seq) if held_seq is not None else None), settle=True,
                 )

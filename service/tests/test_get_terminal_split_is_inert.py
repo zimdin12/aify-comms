@@ -130,30 +130,43 @@ _CONSOLE_VIEW_BRANCH_WAS = "        return {"
 #: in the picture and not in the number, and a browser seeded with the pair would be sent bytes it
 #: already had. Read with no await between it and the render, which is what makes it a pair.
 _LIVE_SEQ_NOW = chr(10).join([
-    '            term_dict["renderedRows"] = live_rows',
+    "            term_dict[\"renderedRows\"] = live_rows",
     "            # THE BYTES AND THE SEQUENCE COME FROM ONE GENERATION, and until 2026-09-08 they did",
     "            # not. The whole-diff review constructed the tear: `_terminal_session_to_dict` reads",
-    "            # `outputSeq` from the live buffer, the caller then AWAITS the agent's role lookup, and",
-    "            # this render happens after it. Output appended during that await is IN the screen and",
-    "            # NOT in the number, so the response seeds a browser with a picture already containing",
-    "            # bytes it is about to be sent again -- and for a TUI a second write of the same bytes",
-    "            # is a cursor movement nobody asked for, which is the corruption class the sequence",
-    "            # exists to prevent. The next quiescent GET then returns the higher sequence with the",
-    "            # identical snapshot, which is how the tear hides.",
+    "            # `outputSeq`, the caller then AWAITS the agent's role lookup, and this render happens",
+    "            # after it. Output appended during that await is IN the screen and NOT in the number, so",
+    "            # the response seeds a browser with a picture already containing bytes it is about to be",
+    "            # sent again -- and for a TUI a second write of the same bytes is a cursor movement",
+    "            # nobody asked for, which is the corruption class the sequence exists to prevent. The",
+    "            # next quiescent GET then returns the higher sequence with the identical snapshot, which",
+    "            # is how the tear hides.",
     "            #",
-    "            # RE-READ HERE, NOT MOVED EARLIER. Moving the await only narrows the window. This is a",
-    "            # synchronous read taken with no await between it and the render above, and",
-    "            # `_append_terminal_output` feeds the screen and records the sequence with no await",
-    "            # between those either -- so on one event loop the pair cannot be split.",
-    '            term_dict["outputSeq"] = current_seq(str(term_dict["id"]), term_dict.get("outputSeq"))',
+    "            # THE NUMBER COMES FROM THE SCREEN'S OWN MODULE, and the first repair did not. It read",
+    "            # the TAIL BUFFER, which closed the active case and left the ENDING one open: an",
+    "            # appending write on a terminal that is stopping feeds the screen and then FORGETS the",
+    "            # buffer, so the fallback handed back the stale serialized number while the screen",
+    "            # carried the new bytes. Review reproduced exactly that with `status=stopped`. The",
+    "            # buffer and the screen have different lifetimes, so only one of them can answer this,",
+    "            # and it has to be the one whose lifetime the picture shares.",
+    "            #",
+    "            # READ HERE RATHER THAN EARLIER: no await sits between it and the render above, and",
+    "            # `feed_live_screen` sets the screen and its number with nothing between them either.",
+    "            #",
+    "            # NONE IS UNKNOWN, NOT ZERO. An unnumbered chunk clears the screen's number, and the",
+    "            # response then keeps the sequence it was serialised with -- which is what it did before",
+    "            # any of this existed.",
+    "            live_seq = _live_terminal_screen_seq(str(term_dict[\"id\"]))",
+    "            if live_seq is not None:",
+    "                term_dict[\"outputSeq\"] = live_seq",
 ])
 
 _LIVE_SEQ_WAS = '            term_dict["renderedRows"] = live_rows'
 
-#: The import the read above needs. `terminal_tail_buffer` is a dependency-free leaf and is the
-#: OWNER of the sequence, which is why the layering gate below admits it by name.
+#: The import the read above needs. It is the SAME module the render helpers already come from --
+#: the live screen owns both the picture and the number that describes it -- so the layering list
+#: below is one entry, as it was before this fix went looking for the number in the wrong place.
 _LIVE_SEQ_IMPORT_NOW = chr(10).join([
-    "from service.api_core.terminal_tail_buffer import current_seq",
+    "from service.terminal_snapshot import live_screen_seq as _live_terminal_screen_seq",
     "from service.terminal_snapshot import (",
 ])
 
@@ -184,9 +197,8 @@ EDITED_SINCE = [
 #: on every entry is DERIVED in `test_every_module_on_that_list_is_ITSELF_a_leaf`, so a name approved
 #: once cannot carry a cycle in later.
 ALLOWED_IMPORTS = {
-    "service.terminal_snapshot": "the tested, dependency-free owner of the render helpers",
-    "service.api_core.terminal_tail_buffer":
-        "the owner of the sequence the rendered screen has to be paired with, in one generation",
+    "service.terminal_snapshot": "the tested, dependency-free owner of the render helpers AND, "
+                                 "since 2026-09-08, of the sequence each live screen has consumed",
 }
 
 EXTRACTIONS = ["_attach_terminal_snapshot"]
@@ -259,12 +271,17 @@ class GetTerminalSplitIsInertTests(unittest.TestCase):
         anywhere else — a router's shared module, say — would have worked and would have re-created
         the layering problem that blocked the turn-busy extraction for a release.
 
-        THE SECOND ENTRY ARRIVED 2026-09-08 and it is a decision, not a widening to make a red test
-        green. The snapshot and the sequence describing it have to be read with no await between
-        them or they are two generations, which review constructed; the sequence's owner is
-        `terminal_tail_buffer`, so the read has to happen where the render happens. The list stays a
-        LIST because each entry needs a reason a person wrote down — and the verdict on each entry
-        is derived below rather than taken on trust.
+        A SECOND ENTRY WAS ADDED AND THEN REMOVED AGAIN ON 2026-09-08, and the round trip is worth
+        recording. The snapshot and the sequence describing it must be read with no await between
+        them or they are two generations. The first repair took the number from
+        `terminal_tail_buffer` and widened this list to admit it — which closed the ACTIVE case and
+        left the ENDING one open, because that buffer is forgotten when a terminal ends while the
+        screen is not. The number now comes from the screen's own module, whose lifetime the picture
+        shares, and this list is one entry again. A widening that was needed only because the value
+        was being read from the wrong owner is a signal, not a cost of doing business.
+
+        The list stays a LIST because each entry needs a reason a person wrote down — and the
+        verdict on each entry is derived below rather than taken on trust.
         """
         modules = {
             node.module for node in ast.walk(ast.parse(VIEW.read_text(encoding="utf-8")))

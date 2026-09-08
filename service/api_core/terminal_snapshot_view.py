@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 
-from service.api_core.terminal_tail_buffer import current_seq
+from service.terminal_snapshot import live_screen_seq as _live_terminal_screen_seq
 from service.terminal_snapshot import (
     TERMINAL_MAX_COLS,
     TERMINAL_MAX_ROWS,
@@ -59,19 +59,31 @@ async def _attach_terminal_snapshot(term_dict, cols, rows) -> None:
             term_dict["renderedRows"] = live_rows
             # THE BYTES AND THE SEQUENCE COME FROM ONE GENERATION, and until 2026-09-08 they did
             # not. The whole-diff review constructed the tear: `_terminal_session_to_dict` reads
-            # `outputSeq` from the live buffer, the caller then AWAITS the agent's role lookup, and
-            # this render happens after it. Output appended during that await is IN the screen and
-            # NOT in the number, so the response seeds a browser with a picture already containing
-            # bytes it is about to be sent again -- and for a TUI a second write of the same bytes
-            # is a cursor movement nobody asked for, which is the corruption class the sequence
-            # exists to prevent. The next quiescent GET then returns the higher sequence with the
-            # identical snapshot, which is how the tear hides.
+            # `outputSeq`, the caller then AWAITS the agent's role lookup, and this render happens
+            # after it. Output appended during that await is IN the screen and NOT in the number, so
+            # the response seeds a browser with a picture already containing bytes it is about to be
+            # sent again -- and for a TUI a second write of the same bytes is a cursor movement
+            # nobody asked for, which is the corruption class the sequence exists to prevent. The
+            # next quiescent GET then returns the higher sequence with the identical snapshot, which
+            # is how the tear hides.
             #
-            # RE-READ HERE, NOT MOVED EARLIER. Moving the await only narrows the window. This is a
-            # synchronous read taken with no await between it and the render above, and
-            # `_append_terminal_output` feeds the screen and records the sequence with no await
-            # between those either -- so on one event loop the pair cannot be split.
-            term_dict["outputSeq"] = current_seq(str(term_dict["id"]), term_dict.get("outputSeq"))
+            # THE NUMBER COMES FROM THE SCREEN'S OWN MODULE, and the first repair did not. It read
+            # the TAIL BUFFER, which closed the active case and left the ENDING one open: an
+            # appending write on a terminal that is stopping feeds the screen and then FORGETS the
+            # buffer, so the fallback handed back the stale serialized number while the screen
+            # carried the new bytes. Review reproduced exactly that with `status=stopped`. The
+            # buffer and the screen have different lifetimes, so only one of them can answer this,
+            # and it has to be the one whose lifetime the picture shares.
+            #
+            # READ HERE RATHER THAN EARLIER: no await sits between it and the render above, and
+            # `feed_live_screen` sets the screen and its number with nothing between them either.
+            #
+            # NONE IS UNKNOWN, NOT ZERO. An unnumbered chunk clears the screen's number, and the
+            # response then keeps the sequence it was serialised with -- which is what it did before
+            # any of this existed.
+            live_seq = _live_terminal_screen_seq(str(term_dict["id"]))
+            if live_seq is not None:
+                term_dict["outputSeq"] = live_seq
         elif cols and rows and term_dict.get("output"):
             try:
                 loop = asyncio.get_event_loop()

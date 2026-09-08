@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from service.api_core.terminal_tail_buffer import forget, pending, record
 from service.terminal_write_queue import TerminalOutputWriteQueue
 
 TERMINAL = "term-1"
@@ -49,13 +50,14 @@ class RecordingQueue(TerminalOutputWriteQueue):
         # pending state before the failed batch is handed back.
         self._on_attempt = on_attempt
 
-    async def _write_terminal_output(self, terminal_id, output, *, status="", seq=0):
+    async def _write_terminal_output(self, terminal_id, output, *, status="", seq=0, settle=False):
         self.attempts += 1
         if self._on_attempt is not None:
             await self._on_attempt(self, self.attempts)
         if self.attempts <= self._fail_times:
             raise RuntimeError("database is locked")
-        self.writes.append({"terminalId": terminal_id, "output": output, "status": status, "seq": seq})
+        self.writes.append({"terminalId": terminal_id, "output": output, "status": status,
+                            "seq": seq, "settle": settle})
 
 
 def run(coro):
@@ -339,3 +341,64 @@ class TerminalWriteQueueTests(unittest.TestCase):
             return await queue.enqueue(TERMINAL, "", status="")
 
         self.assertEqual(run(body()), 0)
+
+    # ── the settle resolves its generation under the lock ────────────────────────────────────
+
+    def test_a_settle_writes_the_GENERATION_THAT_EXISTS_WHEN_IT_WRITES(self):
+        """FOUND BY REVIEW, 2026-09-08, and constructed rather than caught.
+
+        `settle_terminal_tail` read the held tail and its sequence BEFORE taking `_write_lock`. A
+        writer already holding that lock can fold another chunk in and advance the sequence while
+        the settle waits -- and the settle then wrote the tail as it now stands with the number it
+        read before that writer existed. The row and every response say 2 for bytes numbered 3, and
+        the held tail is marked clean, so nothing corrects it. A client seeded from that pair holds
+        bytes its sequence does not cover, which is the same tear as the snapshot one on the read
+        side, arriving through the writer.
+
+        THE LOCK IS THE ONLY THING THAT ORDERS THESE, so the read has to be inside it.
+        """
+        queue = self._queue()
+        seen = []
+
+        async def body():
+            # A DIRTY HELD TAIL: the first record is a fresh key and reports itself due, the second
+            # lands inside the flush interval and is what `pending` will hand the settle.
+            record(TERMINAL, "AB", 1)
+            record(TERMINAL, "AB", 2)
+            self.assertEqual(pending(TERMINAL), {"tail": "AB", "seq": 2},
+                             "the fixture did not leave a dirty held tail to settle")
+            async with queue._write_lock:
+                settling = asyncio.create_task(queue.settle_terminal_tail(TERMINAL))
+                # The settle is now waiting for the lock this block holds, which is exactly where
+                # review's paused writer sits.
+                await asyncio.sleep(0.02)
+                seen.append(len(queue.writes))
+                record(TERMINAL, "ABC", 3)
+            await settling
+
+        try:
+            run(body())
+        finally:
+            forget(TERMINAL)
+
+        self.assertEqual(seen, [0], "the settle wrote while another writer held the lock")
+        self.assertEqual(len(queue.writes), 1, f"expected one settle write, got {queue.writes}")
+        self.assertTrue(queue.writes[0]["settle"], "the write did not go through the settle path")
+        self.assertEqual(queue.writes[0]["seq"], 3,
+                         f"the settle wrote sequence {queue.writes[0]['seq']} for a tail that had "
+                         f"advanced to 3 while it waited for the lock")
+
+    def test_a_settle_with_NOTHING_HELD_writes_nothing(self):
+        """NEGATIVE CONTROL for the test above: the assertion there is about WHICH generation is
+        written, and it would read the same if the settle simply always wrote."""
+        queue = self._queue()
+
+        async def body():
+            forget(TERMINAL)
+            await queue.settle_terminal_tail(TERMINAL)
+
+        try:
+            run(body())
+        finally:
+            forget(TERMINAL)
+        self.assertEqual(queue.writes, [], "a settle with nothing held still wrote")

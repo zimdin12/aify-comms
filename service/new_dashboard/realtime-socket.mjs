@@ -140,6 +140,27 @@ export function wireRealtimeResumeReconnect() {
 //: the snapshot alone, which is what it did before any of this existed.
 const MAX_HELD_FRAMES = 512;
 
+/**
+ * Put one frame aside for the recovery to place, or mark the queue overflowed.
+ *
+ * ONE PLACE, because there are now two reasons to hold: a frame that arrived GAPPED, and any frame
+ * that arrived while a fetch was outstanding. They must bound and overflow identically -- two copies
+ * of a cap is a cap that eventually disagrees with itself.
+ *
+ * BOUNDED, because a recovery that never finishes must not grow memory. Past the cap the queue is
+ * abandoned and a marker is left: the drain then resumes from the snapshot alone, which is what the
+ * console did before frames were held at all and therefore never worse.
+ */
+function holdFrame(entry, seq, output) {
+  if (!Array.isArray(entry.pendingFrames)) entry.pendingFrames = [];
+  if (entry.pendingFrames.length >= MAX_HELD_FRAMES) {
+    entry.pendingFrames = [];
+    entry.pendingOverflowed = true;
+    return;
+  }
+  entry.pendingFrames.push({ seq, output: String(output) });
+}
+
 export function applyRealtimeEvent(event, data = {}) {
   // Fire-and-forget, and deliberately BEFORE the routing below: a notification must never depend
   // on which branch the event takes, and must never be able to break the dashboard's own handling
@@ -166,6 +187,20 @@ export function applyRealtimeEvent(event, data = {}) {
       // Drop frames we've already painted; on a gap (missed a frame, e.g. WS reconnect blip)
       // re-fetch the authoritative buffer instead of painting out-of-order bytes.
       const seq = Number(data.seq);
+      // THE WHOLE OUTSTANDING-FETCH WINDOW IS HELD, not only the frames that arrive gapped.
+      //
+      // FOUND BY REVIEW, 2026-09-08, after a narrower fix. A recovery ends with `term.reset()` and
+      // the snapshot alone, so ANY frame painted while the fetch is in flight is about to be wiped
+      // -- and a CONTIGUOUS one took the painting path below, advanced `lastSeq`, and was gone. The
+      // sequence fix made its retransmission admissible; nothing causes a retransmission, so on a
+      // terminal that then falls quiet those bytes are lost for the life of the console. Review's
+      // trace is exactly this: resync at 4, contiguous 5 and 6 arrive and paint, snapshot 4 lands,
+      // final `lastSeq` 4, no pending frames, one fetch, and 5 and 6 nowhere.
+      //
+      // Held here they are replayed by the drain against whatever the snapshot turns out to cover,
+      // which is the same machinery a gapped frame already used. Classification is the recovery's
+      // job, and it can only be done once the snapshot's own sequence is known.
+      if (Number.isFinite(seq) && entry.resyncing) { holdFrame(entry, seq, data.output); return; }
       if (Number.isFinite(seq) && entry.lastSeq >= 0) {
         if (seq <= entry.lastSeq) { return; }
         if (seq > entry.lastSeq + 1) {
@@ -186,13 +221,7 @@ export function applyRealtimeEvent(event, data = {}) {
           // BOUNDED, because a recovery that never finishes must not grow memory. Past the cap the
           // queue is abandoned and a marker is left: the drain then resumes from the snapshot alone,
           // which is exactly today's behaviour and therefore never worse than it.
-          if (!Array.isArray(entry.pendingFrames)) entry.pendingFrames = [];
-          if (entry.pendingFrames.length >= MAX_HELD_FRAMES) {
-            entry.pendingFrames = [];
-            entry.pendingOverflowed = true;
-          } else {
-            entry.pendingFrames.push({ seq, output: String(data.output) });
-          }
+          holdFrame(entry, seq, data.output);
           resyncActiveConsole().catch(() => {});
           return;
         }

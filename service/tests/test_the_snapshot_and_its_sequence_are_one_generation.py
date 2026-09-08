@@ -114,7 +114,7 @@ class TheSnapshotAndItsSequenceAreOneGenerationTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()["terminal"]
 
-    def _produce_during_the_await(self, terminal_id: str = "", chunk: str = ""):
+    def _produce_during_the_await(self, terminal_id: str = "", chunk: str = "", status: str = ""):
         """Append output through the REAL producer, at the existing await, exactly once.
 
         Wrapping `_attach_terminal_snapshot` puts the injection between the serialisation that reads
@@ -147,7 +147,7 @@ class TheSnapshotAndItsSequenceAreOneGenerationTests(FastApiTestCase):
                     # a tear at all -- which is what the first version of this test did.
                     seq = current_seq(target, row["output_seq"] or 0) + 1
                     body = chunk or (ESC + "[10;1H" + INJECTED + ESC + "[0m")
-                    await _append_terminal_output(db, row, body, seq=seq)
+                    await _append_terminal_output(db, row, body, seq=seq, status=status)
                     await db.commit()
                 finally:
                     await db.close()
@@ -190,6 +190,40 @@ class TheSnapshotAndItsSequenceAreOneGenerationTests(FastApiTestCase):
                          f"the response carried sequence {torn['outputSeq']} for a screen the next "
                          f"quiescent read describes as {quiet['outputSeq']} -- the browser is seeded "
                          f"with bytes it will be sent again")
+        self.assertGreater(torn["outputSeq"], before["outputSeq"],
+                           "the sequence did not move at all, so nothing was actually appended")
+
+    def test_a_terminal_that_is_ENDING_pairs_them_too(self):
+        """THE HALF THE FIRST REPAIR LEFT OPEN, and review reproduced it with `status=stopped`.
+
+        That repair took the number from the TAIL BUFFER. An appending write on a terminal that is
+        stopping feeds the live screen and then `forget()`s the buffer -- so the read fell through to
+        the stale serialised value while the screen carried the new bytes. Served sequence 1 with the
+        new generation on screen; the next quiescent GET, sequence 2, identical snapshot.
+
+        THE BUFFER AND THE SCREEN HAVE DIFFERENT LIFETIMES. Only the one whose lifetime the picture
+        shares can describe the picture, so the number lives on the screen now.
+        """
+        self._write(PAINT + "before the end")
+        before = self._get()
+
+        patcher, state = self._produce_during_the_await(status="stopped")
+        with patcher:
+            torn = self._get()
+        self.assertTrue(state["injected"], "the producer never ran, so nothing was interleaved")
+
+        self.assertIn(INJECTED, torn["snapshot"],
+                      "the injected output is not in the rendered screen, so this response is not "
+                      "the torn pair the test is about")
+        self.assertNotIn(INJECTED, before["snapshot"])
+
+        quiet = self._get()
+        self.assertEqual(torn["snapshot"], quiet["snapshot"],
+                         "the two reads rendered different screens, so this comparison is not "
+                         "about the sequence")
+        self.assertEqual(torn["outputSeq"], quiet["outputSeq"],
+                         f"an ENDING terminal served sequence {torn['outputSeq']} for a screen the "
+                         f"next read describes as {quiet['outputSeq']}")
         self.assertGreater(torn["outputSeq"], before["outputSeq"],
                            "the sequence did not move at all, so nothing was actually appended")
 

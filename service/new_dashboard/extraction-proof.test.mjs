@@ -2960,16 +2960,37 @@ const EXTRACTIONS = [
             "          // BOUNDED, because a recovery that never finishes must not grow memory. Past the cap the",
             "          // queue is abandoned and a marker is left: the drain then resumes from the snapshot alone,",
             "          // which is exactly today's behaviour and therefore never worse than it.",
-            "          if (!Array.isArray(entry.pendingFrames)) entry.pendingFrames = [];",
-            "          if (entry.pendingFrames.length >= MAX_HELD_FRAMES) {",
-            "            entry.pendingFrames = [];",
-            "            entry.pendingOverflowed = true;",
-            "          } else {",
-            "            entry.pendingFrames.push({ seq, output: String(data.output) });",
-            "          }",
+            "          holdFrame(entry, seq, data.output);",
             "          resyncActiveConsole().catch(() => {});",
             "          return;",
             "        }",
+          ],
+        }, {
+          // THE WHOLE OUTSTANDING-FETCH WINDOW, not only the frames that arrive gapped. A recovery
+          // ends with `term.reset()` and the snapshot alone, so a CONTIGUOUS frame that painted
+          // while the fetch was in flight was wiped and never came back — review's trace: resync at
+          // 4, 5 and 6 paint, snapshot 4 lands, final lastSeq 4, one fetch, and 5 and 6 nowhere.
+          was: [
+            "      const seq = Number(data.seq);",
+            "      if (Number.isFinite(seq) && entry.lastSeq >= 0) {",
+          ],
+          now: [
+            "      const seq = Number(data.seq);",
+            "      // THE WHOLE OUTSTANDING-FETCH WINDOW IS HELD, not only the frames that arrive gapped.",
+            "      //",
+            "      // FOUND BY REVIEW, 2026-09-08, after a narrower fix. A recovery ends with `term.reset()` and",
+            "      // the snapshot alone, so ANY frame painted while the fetch is in flight is about to be wiped",
+            "      // -- and a CONTIGUOUS one took the painting path below, advanced `lastSeq`, and was gone. The",
+            "      // sequence fix made its retransmission admissible; nothing causes a retransmission, so on a",
+            "      // terminal that then falls quiet those bytes are lost for the life of the console. Review's",
+            "      // trace is exactly this: resync at 4, contiguous 5 and 6 arrive and paint, snapshot 4 lands,",
+            "      // final `lastSeq` 4, no pending frames, one fetch, and 5 and 6 nowhere.",
+            "      //",
+            "      // Held here they are replayed by the drain against whatever the snapshot turns out to cover,",
+            "      // which is the same machinery a gapped frame already used. Classification is the recovery's",
+            "      // job, and it can only be done once the snapshot's own sequence is known.",
+            "      if (Number.isFinite(seq) && entry.resyncing) { holdFrame(entry, seq, data.output); return; }",
+            "      if (Number.isFinite(seq) && entry.lastSeq >= 0) {",
           ],
         }, {
           // The cadence this comment cited was WRONG BY AN ORDER OF MAGNITUDE, which made its own

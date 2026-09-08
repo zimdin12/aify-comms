@@ -98,6 +98,10 @@ async def _append_terminal_output(
             _feed_live_terminal_screen(
                 str(terminal["id"]),
                 chunk,
+                # THE NUMBER TRAVELS WITH THE BYTES. The screen and its sequence are read together
+                # by the terminal GET, and until 2026-09-08 the reader took the number from the tail
+                # buffer -- which is FORGOTTEN when a terminal ends while the screen is not.
+                seq=seq,
                 cols=(terminal["cols"] if "cols" in keys else 0),
                 rows=(terminal["rows"] if "rows" in keys else 0),
                 seed=str(current or ""),  # only used when the screen does not exist yet

@@ -291,6 +291,35 @@ test("A LATE SNAPSHOT MOVES THE SEQUENCE BACK, because the SCREEN moved back", a
   }, { snapshotSeq: 4 });
 });
 
+test("CONTIGUOUS FRAMES ARRIVING DURING A FETCH ARE HELD TOO, not painted onto a screen about to reset", async () => {
+  // REVIEW'S TRACE, and the one the first version of this fix did not close. A recovery ends with
+  // `term.reset()` and the snapshot alone, so ANY frame painted while the fetch is outstanding is
+  // about to be wiped -- and a CONTIGUOUS one took the painting path, advanced `lastSeq`, and was
+  // gone. Making the sequence follow the snapshot made its retransmission ADMISSIBLE; nothing
+  // causes a retransmission, so on a terminal that then falls quiet those bytes were lost for the
+  // life of the console. Actual writes were FRAME_5, FRAME_6, reset, SNAPSHOT_4, and that was all.
+  //
+  // Classification belongs to the recovery, which is the only thing that knows what the snapshot
+  // covers. The socket's job while a fetch is outstanding is to keep the bytes.
+  await withRealResync(async ({ fetches }) => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    resyncActiveConsole().catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));      // the fetch is now in flight
+    frame(5, "five");
+    frame(6, "six");
+    assert.deepEqual(painted, [],
+      `frames arriving during the fetch were painted onto a screen about to reset: ${JSON.stringify(painted)}`);
+    assert.equal(entry.pendingFrames.length, 2, "the contiguous frames were not held");
+
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(fetches.length, 1, `one snapshot covered it; ${fetches.length} fetches were made`);
+    const afterSnapshot = painted.slice(painted.lastIndexOf("SNAPSHOT") + 1);
+    assert.deepEqual(afterSnapshot, ["five", "six"],
+      `the held frames were not replayed after the snapshot: ${JSON.stringify(painted)}`);
+    assert.equal(entry.lastSeq, 6, "the console resumed behind the frames it had just painted");
+  }, { snapshotSeq: 4, delayMs: 25 });
+});
+
 test("A RECOVERY THAT CANNOT PLACE WHAT IT HELD FETCHES AGAIN, without waiting for another frame", async () => {
   // FOUND BY REVIEW, and the quiet agent is what makes it permanent. With a snapshot at 5 and 9/10
   // held, the replay correctly refuses to cross the gap -- and the first version of that fix then
