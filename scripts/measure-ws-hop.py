@@ -21,14 +21,23 @@ there is no skew to argue about and no second round trip to pay for.
 
 THE LISTENER HAS ITS OWN THREAD, AND THAT IS A CORRECTION, NOT A PREFERENCE. The first working
 version ran the emitter and the receiver on ONE event loop and reported a p50 of 0.25ms with a tail
-of 17-30ms at every fan-out, including a single client. That tail was the INSTRUMENT: between emits
-it did `await asyncio.sleep(0.004)`, this platform's timer granularity is ~15.6ms, and the receiving
-coroutine could not be scheduled until the sleep expired. The delay was paid on the send side and
-measured on the receive side -- the same "control the extractor" failure this project has now made
-in three separate probes. A thread cannot be blocked by another thread's sleep.
+of 17-30ms at every fan-out, including a single client. Moving the listener onto its own thread --
+changing nothing else -- took the worst sample from 29.5ms to 1.8ms. So the tail travelled with the
+SHARED LOOP and not with the transport, which is what disqualifies the first figures.
 
-EACH BROADCAST IS MATCHED TO ITS OWN FRAME, BY MARKER. A frame with no marker, an unknown marker or
-a duplicate is a REJECTION -- counted, printed, and never aged against another sample.
+THE MECHANISM IS NOT ESTABLISHED HERE, and the first version of this paragraph claimed it was. It
+said the emitter's `await asyncio.sleep(0.004)` prevented the receiver from being scheduled --
+but awaiting a sleep YIELDS, so the receiver is free to run during it, and the sleep's duration
+alone establishes nothing about scheduling. What the experiment supports is the association above.
+That it is the third probe in this block to be corrected for measuring its own extractor is the
+part worth carrying forward.
+
+EACH BROADCAST IS MATCHED TO ITS OWN FRAME, BY MARKER, AND THE AGREEMENT IS EXACT IN BOTH
+DIRECTIONS. An unknown marker, a non-finite stamp, a duplicate or a landed set that differs from the
+emitted set is a REFUSAL -- counted, printed, and never aged against another sample. The first
+version checked only for MISSING markers, so a frame the run never emitted became a datum; and it
+admitted a stamp of NaN, which then PASSED the control's lower bound because `nan < 20.0` is False.
+A finite figure is an obligation of its own, separate from being above a threshold.
 
 THE CONTROLS ARE IN THE SAME RUN. A delivery that really is slow must show up as a slow hop or the
 instrument cannot see one: the `slow` arm wraps every `send_text` in a 20ms sleep and its p50 must
@@ -45,6 +54,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sys
 import threading
 import time
@@ -131,18 +141,25 @@ class Listener(threading.Thread):
         self.url = url
         self.recording = recording
         self.landed: dict[str, float] = {}
+        # WHAT THIS LISTENER ASKED FOR. Admission is agreement with this set, not absence from the
+        # control's prefix.
+        self.expected: set[str] = set()
+        self.unexpected = 0
         self.foreign_seen = 0
         self.unreadable = 0
         self.duplicates = 0
         self.ready = threading.Event()
-        self._stop = threading.Event()
+        # NOT `_stop`: that is `Thread._stop`, and shadowing it makes close/join raise
+        # "Event object is not callable" on 3.11. It happens to work on 3.14, which is how a
+        # published run stayed green over a real defect.
+        self.finished = threading.Event()
         self._sock = None
 
     def run(self) -> None:
         with ws_connect(self.url) as sock:
             self._sock = sock
             self.ready.set()
-            while not self._stop.is_set():
+            while not self.finished.is_set():
                 try:
                     raw = sock.recv()
                 except Exception:
@@ -162,13 +179,31 @@ class Listener(threading.Thread):
                 if str(marker).startswith("foreign-"):
                     self.foreign_seen += 1
                     continue
+                if marker not in self.expected:
+                    # AN UNKNOWN MARKER IS NOT A SAMPLE. Excluding only the control's prefix let any
+                    # unique string become a datum, so a frame nobody emitted was indistinguishable
+                    # from one that was. The collector knows what it asked for; anything else is
+                    # counted and refused.
+                    self.unexpected += 1
+                    continue
                 if marker in self.landed:
                     self.duplicates += 1
                     continue
-                self.landed[marker] = (t1 - float(t0)) * 1000.0
+                try:
+                    elapsed = (t1 - float(t0)) * 1000.0
+                except (TypeError, ValueError):
+                    self.unreadable += 1
+                    continue
+                # NON-FINITE IS NOT A NUMBER, and it is worse than a missing one because every
+                # comparison downstream is quietly False. A stamp of 'nan' entered as a sample and
+                # then PASSED the control's `>= 20ms` check, because `nan < 20.0` is False.
+                if not math.isfinite(elapsed):
+                    self.unreadable += 1
+                    continue
+                self.landed[marker] = elapsed
 
     def close(self) -> None:
-        self._stop.set()
+        self.finished.set()
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -204,6 +239,7 @@ class Arm:
             for i in range(SAMPLES):
                 marker = f"{self.label}-{self.clients}-{i}"
                 self.emitted.append(marker)
+                self.subject.expected.add(marker)
                 http.get(f"/emit/{marker}")
                 time.sleep(EMIT_GAP_S)
             # THE NEGATIVE CONTROL, in this same arm and through this same path: a marker no sample
@@ -247,6 +283,14 @@ def _account(arm: Arm, who: str, refusals: list[str]) -> None:
         return
     if arm.rejected:
         refusals.append(f"{who}: {arm.rejected} of {len(arm.emitted)} broadcasts never arrived")
+    # BOTH DIRECTIONS. Missing was checked and EXTRA was not, so a sample the run never emitted
+    # counted towards the figures. Set equality is the only statement that covers both.
+    if set(subject.landed) != set(arm.emitted):
+        only_received = sorted(set(subject.landed) - set(arm.emitted))[:3]
+        refusals.append(f"{who}: the landed set does not equal the emitted set"
+                        f"{f'; e.g. received-but-never-emitted {only_received}' if only_received else ''}")
+    if subject.unexpected:
+        refusals.append(f"{who}: {subject.unexpected} frame(s) carried a marker this run never emitted")
     if subject.foreign_seen == 0:
         refusals.append(f"{who}: the foreign frame never arrived, so nothing demonstrates the "
                         f"collector can decline one")
@@ -304,7 +348,10 @@ def main() -> int:
     rows.append(f"  POSITIVE CONTROL, every send wrapped in a 20ms sleep: p50 {control_p50:.3f} ms "
                 f"over {len(control_landed)} samples")
     _account(control, "the control arm", refusals)
-    if not control_landed or control_p50 < 20.0:
+    if not control_landed or not math.isfinite(control_p50):
+        refusals.append(f"the control arm's p50 is not a finite number ({control_p50}), so it "
+                        f"states nothing about whether a slow delivery is visible")
+    elif control_p50 < 20.0:
         refusals.append(f"the control arm's p50 is {control_p50:.3f} ms, under the 20 ms it was "
                         f"delayed by -- this instrument cannot see a slow delivery")
 
@@ -328,8 +375,9 @@ def main() -> int:
     print(f"Every one of {len(live)} live samples was matched to the broadcast that produced it, the "
           f"foreign frame arrived and was credited to nothing, and a 20ms send showed up as "
           f"{control_p50:.1f} ms.")
-    print("WHAT THIS IS NOT: the browser's scheduling and the xterm write are hop five and are not "
-          "in these figures.")
+    print("WHAT THIS IS NOT: one Python client on loopback, recorded per fan-out, is not a browser "
+          "tab under production load. Browser scheduling and the xterm write are hop five, and "
+          "nothing here eliminates hop four for a browser.")
     return 0
 
 
