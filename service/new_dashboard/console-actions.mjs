@@ -115,7 +115,27 @@ function drainHeldFrames(entry) {
   const replay = held
     .filter((f) => Number.isFinite(f?.seq) && f.seq > entry.lastSeq)
     .sort((a, b) => a.seq - b.seq);
+  // ONLY AN ADJACENT RUN, and this is the whole correctness of the replay.
+  //
+  // THE DEFECT THIS CLOSES, found by the whole-diff review 2026-09-08, and it is the worst shape a
+  // console defect can take: silent, permanent, and self-concealing. The filter above admits every
+  // held frame ABOVE the floor, so a snapshot at 5 with 9 and 10 held painted both and advanced
+  // `lastSeq` to 10 -- while 6, 7 and 8 had never been painted. Each of them then arrives with
+  // `seq <= lastSeq` and is discarded as already covered, and frame 11 looks adjacent to 10, so no
+  // gap is ever detected and no second recovery happens. The screen is missing three frames for the
+  // life of the console, and nothing anywhere reports it.
+  //
+  // SO THE SEQUENCE MAY ONLY ADVANCE OVER BYTES THAT WERE ACTUALLY WRITTEN. A held frame that does
+  // not continue the picture stops the replay and leaves `lastSeq` where the screen really ends --
+  // the next arriving frame then reads as the gap it is and recovers, which is one more round trip
+  // and a correct console instead of a fast wrong one.
+  //
+  // A DUPLICATE IS WRITTEN ONCE. The socket holds whatever arrived, retransmits included, and for a
+  // TUI painting the same bytes twice is not a doubled line -- it is a cursor somewhere nobody asked
+  // for.
   for (const f of replay) {
+    if (f.seq <= entry.lastSeq) continue;
+    if (f.seq !== entry.lastSeq + 1) break;
     try { entry.term.write(f.output); } catch { break; }
     entry.lastSeq = f.seq;
   }

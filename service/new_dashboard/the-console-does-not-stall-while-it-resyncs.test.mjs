@@ -135,6 +135,13 @@ test("AND THEY ARE REPLAYED AFTER THE SNAPSHOT, so the next live frame is in seq
   // arrived while the fetch was in flight. Resuming from the snapshot's sequence alone left the
   // console behind the stream, so the very next frame gapped again -- fetch, drop, gap, fetch, on a
   // continuously producing agent, painting only snapshots and showing nothing in between.
+  //
+  // THE SNAPSHOT COVERS UP TO 8 HERE, AND IT USED TO SAY 5, WHICH ENCODED THE DEFECT the whole-diff
+  // review found. With a snapshot at 5 and 9..12 held, frames 6, 7 and 8 exist on the server and are
+  // in NEITHER the snapshot nor the held list -- so replaying 9..12 paints over a hole and commits a
+  // sequence the screen never contained. This test asserted that as correct. The case the feature
+  // actually exists for is a snapshot that MEETS the held run, which is what it now sets up; the
+  // non-adjacent case has its own test below and must NOT replay.
   await withRealResync(async ({ fetches }) => {
     const { entry, painted } = mountedConsole({ lastSeq: 4 });
     frame(9, "gap");
@@ -153,7 +160,7 @@ test("AND THEY ARE REPLAYED AFTER THE SNAPSHOT, so the next live frame is in seq
     assert.ok(painted.includes("after"), "the next live frame did not paint");
     assert.equal(fetches.length, 1,
       `the next live frame started ${fetches.length - 1} further recoveries`);
-  }, { snapshotSeq: 5, delayMs: 15 });
+  }, { snapshotSeq: 8, delayMs: 15 });
 });
 
 test("FRAMES THE SNAPSHOT ALREADY COVERS ARE DISCARDED, not painted twice", async () => {
@@ -207,4 +214,53 @@ test("NEGATIVE CONTROL: a snapshot that is CURRENT ends the recovery in one pass
     assert.ok(painted.includes("after"), "a current snapshot still left the next frame gapped");
     assert.equal(fetches.length, 1, "a current snapshot should not need a second recovery");
   }, { snapshotSeq: 12, delayMs: 15 });
+});
+
+test("A NON-ADJACENT HELD FRAME MUST NOT COMMIT A SEQUENCE THE SCREEN NEVER GOT", async () => {
+  // FOUND BY THE WHOLE-DIFF REVIEW, and it is the worst shape a console defect can take: silent,
+  // permanent, and self-concealing.
+  //
+  // The replay filtered the held frames against the snapshot's floor and wrote whatever was above
+  // it, in order, advancing `lastSeq` to the LAST one written. With a snapshot at 5 and 9/10 held,
+  // it painted 9 and 10 and committed 10 -- while 6, 7 and 8 had never been painted at all. Every
+  // one of them then arrives with `seq <= lastSeq` and is DISCARDED as already covered, and frame 11
+  // looks perfectly adjacent to 10, so no gap is ever detected and no second recovery happens. The
+  // screen is missing three frames for the life of the console.
+  //
+  // A HELD FRAME IS ONLY REPLAYABLE IF IT CONTINUES THE SCREEN. Anything else has to leave `lastSeq`
+  // where the picture actually ends, so the next arriving frame reads as the gap it is and recovers.
+  await withRealResync(async () => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    frame(9, "nine");                      // starts the recovery; 5..8 never arrive
+    frame(10, "ten");
+    await new Promise((r) => setTimeout(r, 40));
+
+    assert.ok(!painted.includes("nine") && !painted.includes("ten"),
+      `frames past the snapshot's own sequence were painted over a gap: ${JSON.stringify(painted)}`);
+    assert.equal(entry.lastSeq, 5,
+      `the sequence was advanced to ${entry.lastSeq} while the screen ends at the snapshot's 5`);
+
+    // AND THE CONSOLE STILL RECOVERS: the next frame is a gap again, which is the correct outcome.
+    const before = entry.lastSeq;
+    frame(11, "eleven");
+    assert.equal(entry.lastSeq, before, "frame 11 was accepted as adjacent to a sequence nobody painted");
+  });
+});
+
+test("A DUPLICATE HELD FRAME IS WRITTEN ONCE", async () => {
+  // The held list is whatever arrived, and the socket holds every frame it could not paint --
+  // including a retransmit. Replaying both copies paints the same bytes twice, which for a TUI is
+  // not a doubled line but a cursor movement nobody asked for.
+  await withRealResync(async () => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    frame(6, "six");                       // 6 is adjacent to the snapshot's 5, so it replays
+    frame(6, "six-again");
+    frame(7, "seven");
+    await new Promise((r) => setTimeout(r, 40));
+
+    const afterSnapshot = painted.slice(painted.indexOf("SNAPSHOT") + 1);
+    assert.deepEqual(afterSnapshot, ["six", "seven"],
+      `the replay did not paint each held sequence exactly once: ${JSON.stringify(painted)}`);
+    assert.equal(entry.lastSeq, 7);
+  });
 });
