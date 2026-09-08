@@ -66,18 +66,25 @@ function mountedConsole({ lastSeq = 4 } = {}) {
  * THE RESYNC IS THE REAL ONE. Injecting a stub would test the socket's decision to call it and
  * nothing about the bookkeeping that follows, which is where the loop lives.
  */
-function withRealResync(run, { snapshotSeq = 5, snapshot = "SNAPSHOT", delayMs = 0 } = {}) {
+function withRealResync(run, { snapshotSeq = 5, snapshotSeqs = null, snapshot = "SNAPSHOT", delayMs = 0 } = {}) {
   const saved = { fetch: globalThis.fetch, document: globalThis.document };
   const fetches = [];
   globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
   globalThis.fetch = async (url) => {
     fetches.push(String(url));
+    // A SERVER THAT MOVES BETWEEN FETCHES, which a constant snapshot cannot express. The recovery
+    // may now take a second pass, and the whole point of the second pass is that the server has
+    // more of the stream by then -- so the double has to be able to answer differently the second
+    // time or the test is asking one question twice.
+    const answerSeq = Array.isArray(snapshotSeqs)
+      ? (snapshotSeqs[fetches.length - 1] ?? snapshotSeqs[snapshotSeqs.length - 1])
+      : snapshotSeq;
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     // `text()`, NOT `json()`. `api-client.mjs` reads the body as text and parses it itself, and a
     // double that stubbed `json()` returned an EMPTY object through the real helper -- so the resync
     // reset the screen, wrote "", left the sequence untouched, and this file's first run read that
     // as the product looping. Stub the method the code actually calls.
-    const body = JSON.stringify({ terminal: { snapshot, outputSeq: snapshotSeq, renderedCols: 80 } });
+    const body = JSON.stringify({ terminal: { snapshot, outputSeq: answerSeq, renderedCols: 80 } });
     return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) };
   };
   setApiBase("");
@@ -124,9 +131,14 @@ test("FRAMES ARRIVING DURING A RECOVERY ARE HELD, not painted out of order", asy
     assert.equal(entry.lastSeq, 4, "the sequence advanced while nothing had been painted");
     assert.equal(entry.pendingFrames.length, 4, "the arriving frames were not held");
 
-    await new Promise((r) => setTimeout(r, 40));
-    // ONE fetch, not four: `entry.resyncing` coalesces the re-entrant calls.
+    // ASKED WHILE THE FIRST FETCH IS STILL IN FLIGHT, which is what this test is about: four frames
+    // arriving during ONE recovery must not start four recoveries. It used to ask after a 40ms wait
+    // and read the same number by accident, because a recovery could only ever fetch once. A
+    // recovery may now take a second pass when it cannot place what it held, so a total taken after
+    // the fact would be counting a different thing -- the coalescing claim is about re-entry, and
+    // re-entry happens here, before anything has settled.
     assert.equal(fetches.length, 1, `the recovery fanned out into ${fetches.length} fetches`);
+    await new Promise((r) => setTimeout(r, 60));
   }, { delayMs: 15 });
 });
 
@@ -245,6 +257,81 @@ test("A NON-ADJACENT HELD FRAME MUST NOT COMMIT A SEQUENCE THE SCREEN NEVER GOT"
     frame(11, "eleven");
     assert.equal(entry.lastSeq, before, "frame 11 was accepted as adjacent to a sequence nobody painted");
   });
+});
+
+test("A LATE SNAPSHOT MOVES THE SEQUENCE BACK, because the SCREEN moved back", async () => {
+  // FOUND BY REVIEW, and it is the same defect class as the non-adjacent replay above wearing the
+  // other face: the bookkeeping claiming a screen that is not there.
+  //
+  // The socket paints CONTIGUOUS frames straight through -- there is no check on `entry.resyncing`
+  // in the painting path -- so a manual resync from 4 with 5 and 6 arriving paints both and leaves
+  // `lastSeq` at 6. The fetch then answers with a snapshot at 4, `reset()` wipes the screen, and the
+  // old `Math.max` KEPT the sequence at 6. So the console showed a 4-snapshot and claimed 6, and the
+  // retransmitted 5 and 6 that the reset made necessary were refused as already covered.
+  await withRealResync(async ({ fetches }) => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    frame(5, "five");
+    frame(6, "six");
+    assert.deepEqual(painted, ["five", "six"], "the contiguous frames did not paint live");
+    assert.equal(entry.lastSeq, 6);
+
+    await resyncActiveConsole();
+    assert.equal(entry.lastSeq, 4,
+      `the screen was reset to a snapshot at 4 and the sequence stayed at ${entry.lastSeq}`);
+    assert.equal(fetches.length, 1, "nothing was held, so one fetch should have finished it");
+
+    // AND THE BYTES COME BACK. This is the consequence the sequence exists to protect: after the
+    // reset those two frames are no longer on the screen, so the retransmission has to be accepted.
+    const afterSnapshot = painted.slice(painted.lastIndexOf("SNAPSHOT") + 1);
+    frame(5, "five-again");
+    frame(6, "six-again");
+    assert.deepEqual(painted.slice(painted.lastIndexOf("SNAPSHOT") + 1), ["five-again", "six-again"],
+      `the retransmitted frames were refused as already covered: ${JSON.stringify(afterSnapshot)}`);
+    assert.equal(entry.lastSeq, 6);
+  }, { snapshotSeq: 4 });
+});
+
+test("A RECOVERY THAT CANNOT PLACE WHAT IT HELD FETCHES AGAIN, without waiting for another frame", async () => {
+  // FOUND BY REVIEW, and the quiet agent is what makes it permanent. With a snapshot at 5 and 9/10
+  // held, the replay correctly refuses to cross the gap -- and the first version of that fix then
+  // EMPTIED the queue anyway and let the caller mark the recovery finished. On a terminal that then
+  // goes silent there is no next frame to notice, so the console sits believing it is live with two
+  // frames it was handed and threw away.
+  //
+  // A recovery owes its own next step. The server has more of the stream by the time the second
+  // fetch lands -- here a snapshot at 8 -- and 9 and 10 are then adjacent and paint.
+  await withRealResync(async ({ fetches }) => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    frame(9, "nine");                      // 5..8 never arrive on the socket
+    frame(10, "ten");
+    await new Promise((r) => setTimeout(r, 80));   // NOTHING ELSE IS SENT. The recovery is on its own.
+
+    assert.equal(fetches.length, 2,
+      `the unresolved recovery took ${fetches.length} fetch(es); it must not wait for a frame`);
+    assert.equal(entry.lastSeq, 10, "the second snapshot's replay did not resume the stream");
+    const afterLastSnapshot = painted.slice(painted.lastIndexOf("SNAPSHOT") + 1);
+    assert.deepEqual(afterLastSnapshot, ["nine", "ten"],
+      `the held frames were lost rather than replayed: ${JSON.stringify(painted)}`);
+    assert.deepEqual(entry.pendingFrames, [], "the queue outlived the recovery that resolved it");
+  }, { snapshotSeqs: [5, 8], delayMs: 10 });
+});
+
+test("AND IT GIVES UP AFTER A BOUNDED NUMBER OF PASSES, rather than fetching forever", async () => {
+  // The retry is not a loop with no floor. A server that never advances would otherwise be asked
+  // again for as long as the console is open, which is the fan-out `entry.resyncing` exists to
+  // prevent wearing a different hat. Past the bound the held frames are given up and the sequence
+  // stays where the screen really ends -- the same fallback an overflow takes, and the behaviour
+  // from before frames were held at all.
+  await withRealResync(async ({ fetches }) => {
+    const { entry } = mountedConsole({ lastSeq: 4 });
+    frame(9, "nine");
+    frame(10, "ten");
+    await new Promise((r) => setTimeout(r, 120));
+
+    assert.equal(fetches.length, 3, `a stuck recovery took ${fetches.length} fetches`);
+    assert.equal(entry.lastSeq, 5, "the sequence left the screen the snapshot actually painted");
+    assert.deepEqual(entry.pendingFrames, [], "the unplaceable frames were kept forever");
+  }, { snapshotSeq: 5, delayMs: 10 });
 });
 
 test("A DUPLICATE HELD FRAME IS WRITTEN ONCE", async () => {

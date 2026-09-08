@@ -3725,8 +3725,63 @@ const EXTRACTIONS = [
             "    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);",
           ],
           now: [
-            "    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);",
-            "    drainHeldFrames(entry);",
+            "    // THE SEQUENCE DESCRIBES THE SCREEN, AND THE SCREEN WAS JUST RESET TO THE SNAPSHOT.",
+            "    //",
+            "    // THIS WAS A `Math.max` AND THAT LOST OUTPUT, found by the whole-diff review 2026-09-08. The",
+            "    // socket paints contiguous frames straight through while a recovery is in flight, so a manual",
+            "    // resync from 4 with 5 and 6 arriving painted both and left `lastSeq` at 6. Then the fetch",
+            "    // answered with a snapshot at 4, `reset()` wiped the screen, and the max kept the sequence at 6",
+            "    // -- so the screen showed the 4-snapshot while the bookkeeping claimed 6, and the retransmitted",
+            "    // 5 and 6 the reset made necessary were refused as already covered. Two frames gone, silently.",
+            "    //",
+            "    // A snapshot is a WHOLE SCREEN, so after painting it the console is exactly where the snapshot",
+            "    // says and nowhere else. Moving the sequence BACKWARDS is the correct answer when the picture",
+            "    // moved backwards; anything still missing arrives as a gap and recovers.",
+            "    if (Number.isFinite(snapshotSeq)) entry.lastSeq = snapshotSeq;",
+            "    unresolved = drainHeldFrames(entry);",
+          ],
+        }, {
+          // The drain now REPORTS whether it placed everything, and that answer is read after the
+          // `finally` has cleared `resyncing` -- so the flag it sets has to outlive the try block.
+          was: [
+            "  entry.resyncing = true;",
+            "  try {",
+          ],
+          now: [
+            "  entry.resyncing = true;",
+            "  //: Whether the drain left held frames it could not place. Declared out here because the decision",
+            "  //: it drives has to happen AFTER the `finally` clears `resyncing`, or the retry refuses itself.",
+            "  let unresolved = false;",
+            "  try {",
+          ],
+        }, {
+          // An unresolved recovery owes its own next fetch rather than waiting for another frame,
+          // which on a quiet agent never comes. Bounded, and the exhaustion drops what it cannot
+          // place -- the same fallback an overflowed queue takes.
+          was: [
+            "  finally { entry.resyncing = false; }",
+            "}",
+          ],
+          now: [
+            "  finally { entry.resyncing = false; }",
+            "",
+            "  // A SECOND FETCH, NOT A WAIT FOR ANOTHER FRAME. The drain stops at the first gap it cannot cross",
+            "  // and keeps the rest; if it kept anything, this recovery has NOT finished. Leaving it to the next",
+            "  // arriving frame to notice is exactly the case review named -- a snapshot at 5 with 9 and 10 held,",
+            "  // then silence -- where a quiet agent means no next frame and the held output is stranded on a",
+            "  // console that believes it is live.",
+            "  if (!unresolved) { entry.resyncPasses = 0; return; }",
+            "  entry.resyncPasses = (Number(entry.resyncPasses) || 0) + 1;",
+            "  if (entry.resyncPasses >= MAX_RESYNC_PASSES) {",
+            "    // BOUNDED, and the exhaustion is the same fallback an overflow takes: drop what cannot be",
+            "    // placed and leave the sequence where the screen really ends, so the next live frame reads as",
+            "    // the gap it is. That is the behaviour from before frames were held at all, never worse.",
+            "    entry.pendingFrames = [];",
+            "    entry.resyncPasses = 0;",
+            "    return;",
+            "  }",
+            "  await resyncActiveConsole();",
+            "}",
           ],
         }, {
           // The resync asks for the console PROJECTION now. It runs on every sequence gap and was

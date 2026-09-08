@@ -217,15 +217,27 @@ test("A FAILED RESYNC KEEPS THE CURRENT BUFFER rather than blanking the pane", a
   } finally { h.restore(); }
 });
 
-test("THE SEQUENCE FLOOR NEVER MOVES BACKWARDS", async () => {
-  // The snapshot's seq can lag the live stream. Taking it unconditionally would re-admit frames the
-  // pane has already painted — the duplicate output an operator reads as the agent repeating itself.
+test("THE SEQUENCE FOLLOWS THE SNAPSHOT IN BOTH DIRECTIONS, because it describes the SCREEN", async () => {
+  // THIS TEST ASSERTED THE DEFECT UNTIL 2026-09-08, and it is the second one in this feature to have
+  // done so. It was called "THE SEQUENCE FLOOR NEVER MOVES BACKWARDS" and its reason was that taking
+  // an older snapshot seq "would re-admit frames the pane has already painted".
+  //
+  // The pane has not painted them. `resyncActiveConsole` calls `term.reset()` and then writes the
+  // snapshot ALONE, so whatever was on the screen is gone and the screen is exactly the snapshot.
+  // Holding the sequence above it made the console claim frames it had just wiped, and refuse the
+  // retransmission that was the only way to get them back — silently, for the life of the console.
+  // Found by the whole-diff review, which drove the modules to a screen showing a 4-snapshot while
+  // the bookkeeping said 6.
+  //
+  // A floor is the wrong idea for this number. It is a DESCRIPTION of what is painted, so it goes
+  // wherever the picture goes.
   const h = withConsole({ snapshot: { terminal: { snapshot: "X", outputSeq: 3 } } });
   try {
     const entry = makeEntry({ lastSeq: 10 });
     state.activeXterm = entry;
     await resyncActiveConsole();
-    assert.equal(entry.lastSeq, 10, "an older snapshot seq must not lower the floor");
+    assert.equal(entry.lastSeq, 3,
+      "the screen was reset to a snapshot at 3 and the sequence stayed ahead of it");
   } finally { h.restore(); }
 
   const ahead = withConsole({ snapshot: { terminal: { snapshot: "X", outputSeq: 25 } } });

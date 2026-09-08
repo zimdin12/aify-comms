@@ -18,6 +18,11 @@ import { applyRenderedWidth } from './terminal-width.mjs';
 import { toast, uiConfirm } from './ui.js';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
+//: How many fetches ONE recovery may take before it gives the held frames up. Three, because the
+//: frames a second snapshot cannot cover a third will not either, and an unbounded retry is the
+//: fan-out loop `entry.resyncing` exists to prevent wearing a different hat.
+const MAX_RESYNC_PASSES = 3;
+
 let closeInspector = () => {};
 let refresh = async () => {};
 let refreshSoon = () => {};
@@ -43,6 +48,9 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
   // observed 153↔154-cols resize/flicker loop.
   if (entry.resyncing) return;
   entry.resyncing = true;
+  //: Whether the drain left held frames it could not place. Declared out here because the decision
+  //: it drives has to happen AFTER the `finally` clears `resyncing`, or the retry refuses itself.
+  let unresolved = false;
   try {
     // Fetch at the pane's FITTED width (not the possibly-widened current width) so the server
     // can re-infer the source width and hand back the correct renderedCols.
@@ -79,10 +87,39 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
     const snapshotSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
-    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);
-    drainHeldFrames(entry);
+    // THE SEQUENCE DESCRIBES THE SCREEN, AND THE SCREEN WAS JUST RESET TO THE SNAPSHOT.
+    //
+    // THIS WAS A `Math.max` AND THAT LOST OUTPUT, found by the whole-diff review 2026-09-08. The
+    // socket paints contiguous frames straight through while a recovery is in flight, so a manual
+    // resync from 4 with 5 and 6 arriving painted both and left `lastSeq` at 6. Then the fetch
+    // answered with a snapshot at 4, `reset()` wiped the screen, and the max kept the sequence at 6
+    // -- so the screen showed the 4-snapshot while the bookkeeping claimed 6, and the retransmitted
+    // 5 and 6 the reset made necessary were refused as already covered. Two frames gone, silently.
+    //
+    // A snapshot is a WHOLE SCREEN, so after painting it the console is exactly where the snapshot
+    // says and nowhere else. Moving the sequence BACKWARDS is the correct answer when the picture
+    // moved backwards; anything still missing arrives as a gap and recovers.
+    if (Number.isFinite(snapshotSeq)) entry.lastSeq = snapshotSeq;
+    unresolved = drainHeldFrames(entry);
   } catch { /* keep current buffer */ }
   finally { entry.resyncing = false; }
+
+  // A SECOND FETCH, NOT A WAIT FOR ANOTHER FRAME. The drain stops at the first gap it cannot cross
+  // and keeps the rest; if it kept anything, this recovery has NOT finished. Leaving it to the next
+  // arriving frame to notice is exactly the case review named -- a snapshot at 5 with 9 and 10 held,
+  // then silence -- where a quiet agent means no next frame and the held output is stranded on a
+  // console that believes it is live.
+  if (!unresolved) { entry.resyncPasses = 0; return; }
+  entry.resyncPasses = (Number(entry.resyncPasses) || 0) + 1;
+  if (entry.resyncPasses >= MAX_RESYNC_PASSES) {
+    // BOUNDED, and the exhaustion is the same fallback an overflow takes: drop what cannot be
+    // placed and leave the sequence where the screen really ends, so the next live frame reads as
+    // the gap it is. That is the behaviour from before frames were held at all, never worse.
+    entry.pendingFrames = [];
+    entry.resyncPasses = 0;
+    return;
+  }
+  await resyncActiveConsole();
 }
 
 // PLACED AFTER `resyncActiveConsole`, NOT BEFORE IT, and that is a constraint rather than a
@@ -107,11 +144,14 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
  * pretending otherwise by painting the tail would put the screen out of order. Resuming from the
  * snapshot alone is what happened before frames were held at all, so the fallback is never worse
  * than the behaviour it replaced -- one more gap, one more recovery, and it settles.
+ *
+ * @returns {boolean} whether frames are still held that this pass could not place, which is the
+ *   caller's signal that the recovery is UNRESOLVED and owes another fetch.
  */
 function drainHeldFrames(entry) {
   const held = Array.isArray(entry.pendingFrames) ? entry.pendingFrames : [];
   entry.pendingFrames = [];
-  if (entry.pendingOverflowed) { entry.pendingOverflowed = false; return; }
+  if (entry.pendingOverflowed) { entry.pendingOverflowed = false; return false; }
   const replay = held
     .filter((f) => Number.isFinite(f?.seq) && f.seq > entry.lastSeq)
     .sort((a, b) => a.seq - b.seq);
@@ -133,12 +173,24 @@ function drainHeldFrames(entry) {
   // A DUPLICATE IS WRITTEN ONCE. The socket holds whatever arrived, retransmits included, and for a
   // TUI painting the same bytes twice is not a doubled line -- it is a cursor somewhere nobody asked
   // for.
-  for (const f of replay) {
+  //
+  // AND WHAT IT COULD NOT PLACE IS KEPT, which the first version of this fix destroyed. It emptied
+  // `pendingFrames` at the top and then broke out of the loop, so the un-replayed tail was gone --
+  // review's case is a snapshot at 5 with 9 and 10 held: the break was correct, dropping 9 and 10
+  // was not, and the caller then marked the recovery finished. On a quiet agent no further frame
+  // ever arrives to notice, so the console sits believing it is live with output it was handed and
+  // threw away. The remainder stays queued and the caller fetches again.
+  let index = 0;
+  for (; index < replay.length; index += 1) {
+    const f = replay[index];
     if (f.seq <= entry.lastSeq) continue;
     if (f.seq !== entry.lastSeq + 1) break;
     try { entry.term.write(f.output); } catch { break; }
     entry.lastSeq = f.seq;
   }
+  const remainder = replay.slice(index).filter((f) => f.seq > entry.lastSeq);
+  entry.pendingFrames = remainder;
+  return remainder.length > 0;
 }
 
 export async function stopConsoleTerminal(terminalId) {
