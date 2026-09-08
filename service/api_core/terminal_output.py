@@ -38,6 +38,7 @@ from service.api_core.terminal_tail_buffer import (
     record,
 )
 from service.api_core.serialization import _json_loads_or
+from service.terminal_snapshot import drop_live_screen as _drop_live_terminal_screen
 from service.terminal_snapshot import feed_live_screen as _feed_live_terminal_screen
 from service.terminal_snapshot import render_live_screen
 
@@ -177,6 +178,27 @@ async def _append_terminal_output(
         # back the tail `forget` dropped -- the final screen of a worker that died, which is the one
         # an operator reads to find out why.
         restore(str(terminal["id"]), held_before)
+        # AND THE SPECULATIVE SCREEN IS RETIRED, because a pyte grid has no undo and the retry is
+        # NOT NECESSARILY THE SAME BYTES.
+        #
+        # The chunk was fed to the live screen a few lines above, before this UPDATE was attempted.
+        # `restore` puts the tail back; nothing could put the screen back, so the retry painted the
+        # chunk a second time -- a stored tail of AB beside a screen of ABB, and for a TUI a second
+        # application of the same bytes is a cursor movement nobody asked for.
+        #
+        # A GUARD IN `feed_live_screen` WAS THE FIRST ANSWER AND REVIEW BROKE IT. It refused a chunk
+        # carrying the same sequence and the same bytes as the last one -- and `_requeue_front`
+        # PREPENDS the failed chunk to a newer pending batch, so a failed B comes back as BC, which
+        # no comparison against the last chunk can recognise. Review drove the real queue and
+        # witnessed a raw tail of AABC beside a screen of AABBC.
+        #
+        # DROPPING IT IS THE MODULE'S OWN RULE, not a new one: `feed_live_screen` already pops a
+        # screen whose feed threw, because it must never serve a corrupt one. The next chunk builds
+        # a fresh screen SEEDED from the stored tail -- which `restore` has just made correct again
+        # -- so the console self-heals rather than carrying a duplicate for the life of the session.
+        # The cost is a screen rebuilt from a 64 KB tail on a path taken only when the database
+        # refuses a write, against a screen that was permanently wrong.
+        _drop_live_terminal_screen(str(terminal["id"]))
         raise
     if chunk:
         await _append_terminal_event(db, terminal["id"], "terminal_output", chunk[-2000:])

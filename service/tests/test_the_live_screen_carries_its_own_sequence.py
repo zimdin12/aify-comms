@@ -70,68 +70,6 @@ def test_an_UNNUMBERED_chunk_clears_the_number_rather_than_leaving_a_stale_one()
         "an unnumbered chunk left the previous number describing a screen it no longer covers")
 
 
-def test_a_RETRIED_chunk_is_not_painted_twice():
-    """Review's pre-existing P2, closed by the number this file is about.
-
-    `_append_terminal_output` feeds the screen and folds the chunk into the held tail BEFORE the
-    UPDATE, and the write queue requeues the same chunk when that UPDATE throws. `restore()` puts
-    the tail back and nothing puts the SCREEN back, so the retry gave a stored tail of AB beside a
-    screen of ABB. For a TUI that is not a duplicated line, it is a cursor movement nobody asked for.
-    """
-    feed_live_screen(TERMINAL, PAINT + "A", cols=80, rows=24, seq=1)
-    feed_live_screen(TERMINAL, "B", cols=80, rows=24, seq=2)
-    first = render_live_screen(TERMINAL)[0]
-
-    feed_live_screen(TERMINAL, "B", cols=80, rows=24, seq=2)     # the requeued chunk
-    assert render_live_screen(TERMINAL)[0] == first, (
-        "the retried chunk was applied a second time; the screen and the stored tail now disagree")
-    assert live_screen_seq(TERMINAL) == 2
-
-
-def test_a_NEW_chunk_after_a_retry_still_paints():
-    """NEGATIVE CONTROL for the guard above, and the failure it would hide is silence: a screen that
-    refused everything would pass the test above perfectly."""
-    feed_live_screen(TERMINAL, PAINT + "A", cols=80, rows=24, seq=1)
-    feed_live_screen(TERMINAL, "B", cols=80, rows=24, seq=2)
-    feed_live_screen(TERMINAL, "B", cols=80, rows=24, seq=2)
-    before = render_live_screen(TERMINAL)[0]
-    feed_live_screen(TERMINAL, "C", cols=80, rows=24, seq=3)
-    assert render_live_screen(TERMINAL)[0] != before, "the guard swallowed a genuinely new chunk"
-    assert live_screen_seq(TERMINAL) == 3
-
-
-def test_the_SAME_number_with_DIFFERENT_bytes_is_still_fed():
-    """The guard that closed the retry started as `seq <= live.seq`, and that was too wide.
-
-    Any sequence that failed to advance became silently dropped output, which is a worse failure
-    than the double paint it fixes -- and it fired at once: a terminal whose live screen outlived its
-    database row saw the numbering restart and lost the frame. A guard that can swallow bytes has to
-    be certain, and only an identical chunk at an identical number is.
-    """
-    feed_live_screen(TERMINAL, PAINT + "A", cols=80, rows=24, seq=5)
-    before = render_live_screen(TERMINAL)[0]
-    feed_live_screen(TERMINAL, "DIFFERENT", cols=80, rows=24, seq=5)
-    assert render_live_screen(TERMINAL)[0] != before, (
-        "different bytes at the same number were refused as a repeat, which is silent output loss")
-
-
-def test_IDENTICAL_bytes_at_a_NEW_number_are_fed_again():
-    """The other half of the guard, and the common case rather than the exotic one.
-
-    An agent that repaints a spinner sends identical bytes over and over, each with its own
-    sequence. Matching on the bytes alone would swallow every repeat after the first -- a console
-    frozen on one frame while the agent works, which is the operator's complaint wearing the mask of
-    a fix. A requeue is the same bytes at the SAME number; anything else is new output.
-    """
-    feed_live_screen(TERMINAL, PAINT + "A", cols=80, rows=24, seq=1)
-    feed_live_screen(TERMINAL, "X", cols=80, rows=24, seq=2)
-    once = render_live_screen(TERMINAL)[0]
-    feed_live_screen(TERMINAL, "X", cols=80, rows=24, seq=3)
-    assert render_live_screen(TERMINAL)[0] != once, (
-        "identical bytes at a new sequence were swallowed; a repainting spinner would freeze")
-    assert live_screen_seq(TERMINAL) == 3
-
-
 def test_an_UNNUMBERED_chunk_is_always_fed_even_after_a_numbered_one():
     """There is no basis for calling an unnumbered chunk a repeat, and dropping output on a guess is
     worse than painting it twice. `append_outside_the_queue` numbers nothing."""
@@ -139,6 +77,32 @@ def test_an_UNNUMBERED_chunk_is_always_fed_even_after_a_numbered_one():
     before = render_live_screen(TERMINAL)[0]
     feed_live_screen(TERMINAL, "B", cols=80, rows=24)
     assert render_live_screen(TERMINAL)[0] != before, "an unnumbered chunk was refused as a repeat"
+
+
+def test_THE_SCREEN_APPLIES_EVERY_CHUNK_IT_IS_FED():
+    """A terminal handed bytes applies them. Recognising a retry is the WRITER'S job.
+
+    This is here because a guard once lived in `feed_live_screen` that refused a chunk carrying a
+    sequence that did not advance -- and it turned every non-advancing number into SILENTLY DROPPED
+    output, which is a worse failure than the double paint it was closing. It also could not see the
+    case review actually found: `_requeue_front` prepends the failed chunk to a newer batch, so a
+    retry of B arrives as BC and no comparison against the last chunk matches it.
+
+    The rollback lives in `_append_terminal_output` now, where the speculative state is created.
+    Without this test, putting the guard back breaks nothing and the loss returns silently.
+    """
+    feed_live_screen(TERMINAL, PAINT + "A", cols=80, rows=24, seq=5)
+    before = render_live_screen(TERMINAL)[0]
+    feed_live_screen(TERMINAL, "DIFFERENT", cols=80, rows=24, seq=5)
+    assert render_live_screen(TERMINAL)[0] != before, (
+        "a chunk was refused because its sequence did not advance, which is silent output loss")
+
+    once = render_live_screen(TERMINAL)[0]
+    feed_live_screen(TERMINAL, "X", cols=80, rows=24, seq=6)
+    twice_first = render_live_screen(TERMINAL)[0]
+    feed_live_screen(TERMINAL, "X", cols=80, rows=24, seq=7)
+    assert twice_first != once and render_live_screen(TERMINAL)[0] != twice_first, (
+        "identical bytes at a new sequence were swallowed; a repainting spinner would freeze")
 
 
 def test_a_chunk_with_no_ESC_creates_no_screen_and_so_no_number():
@@ -149,3 +113,16 @@ def test_a_chunk_with_no_ESC_creates_no_screen_and_so_no_number():
     assert live_screen_seq(TERMINAL) is None
     assert feed_live_screen(TERMINAL, PAINT + "painted", cols=80, rows=24, seq=7) is True
     assert live_screen_seq(TERMINAL) == 7
+
+
+# THE RETRY TESTS THAT STOOD HERE ARE GONE, and where they went matters more than that they went.
+#
+# `feed_live_screen` briefly refused a chunk carrying the same sequence and the same bytes as the
+# last one, to undo a double paint left by a failed write. Review broke it: `_requeue_front` PREPENDS
+# the failed chunk to a newer pending batch, so a failed B comes back as BC and no comparison against
+# the last chunk can recognise it. The rollback moved to `_append_terminal_output`, which is where
+# the speculative state is created, and its tests live in
+# `test_a_failed_tail_write_does_not_duplicate_the_chunk.py`.
+#
+# What this file still owns is the NUMBER: which output a screen has consumed, and what it says when
+# nobody numbered it.

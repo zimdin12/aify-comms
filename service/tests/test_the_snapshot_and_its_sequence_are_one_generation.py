@@ -34,6 +34,7 @@ from service.api_core.terminal_output import _append_terminal_output
 from service.api_core.terminal_tail_buffer import current_seq
 from service.db import get_db
 from service.routers import terminals as terminals_router
+from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 from service.terminal_snapshot import render_live_screen
 from service.tests._base import FastApiTestCase
 
@@ -226,6 +227,58 @@ class TheSnapshotAndItsSequenceAreOneGenerationTests(FastApiTestCase):
                          f"next read describes as {quiet['outputSeq']}")
         self.assertGreater(torn["outputSeq"], before["outputSeq"],
                            "the sequence did not move at all, so nothing was actually appended")
+
+    def test_UNNUMBERED_output_makes_the_response_say_UNKNOWN(self):
+        """The tear one step further along, composed by review from the real writers.
+
+        The screen's number is cleared correctly when an unnumbered chunk lands on it -- and the
+        response then kept the OLDER numeric one, so the consumer was never told. Review's
+        composition: a numbered generation at 2 during the await, then the REAL
+        `append_outside_the_queue` with unnumbered bytes. Served snapshot carried both, beside a
+        sequence of 1; the next quiescent GET answered 2 for the identical picture.
+
+        NULL IS THE ANSWER AND NOT ZERO. Both browser readers take it through
+        `outputSeq ?? seq ?? lastSeq`, and `??` short-circuits on null before any `Number()`, so
+        they land on -1 -- the position the mount starts at, where dedup and gap detection are off
+        until a numbered frame restores it.
+        """
+        self._write(PAINT + "before")
+        numbered = INJECTED
+
+        real = terminals_router._attach_terminal_snapshot
+        state = {"injected": False}
+
+        async def wrapper(term_dict, cols, rows):
+            if not state["injected"]:
+                state["injected"] = True
+                db = await get_db()
+                try:
+                    row = await (await db.execute(
+                        "SELECT * FROM terminal_sessions WHERE id = ?", (self.TERMINAL,)
+                    )).fetchone()
+                    seq = current_seq(self.TERMINAL, row["output_seq"] or 0) + 1
+                    await _append_terminal_output(
+                        db, row, ESC + "[10;1H" + numbered + ESC + "[0m", seq=seq)
+                    # THE CONTROL-COMPLETION WRITER'S OWN METHOD, not a hand-made None. It numbers
+                    # nothing, which is the whole reason the screen's number goes unknown.
+                    await TERMINAL_OUTPUT_WRITES.append_outside_the_queue(
+                        db, self.TERMINAL, ESC + "[12;1HUNNUMBERED" + ESC + "[0m")
+                    await db.commit()
+                finally:
+                    await db.close()
+            return await real(term_dict, cols, rows)
+
+        with patch.object(terminals_router, "_attach_terminal_snapshot", wrapper):
+            torn = self._get()
+        self.assertTrue(state["injected"], "the producers never ran")
+
+        self.assertIn(numbered, torn["snapshot"])
+        self.assertIn("UNNUMBERED", torn["snapshot"],
+                      "the unnumbered write never reached the screen, so this is not the case under "
+                      "test")
+        self.assertIsNone(torn["outputSeq"],
+                          f"a screen carrying unnumbered bytes was served with sequence "
+                          f"{torn['outputSeq']}, which the consumer will read as a known position")
 
     def test_the_REPLAY_branch_keeps_the_pair_it_already_had(self):
         """The fix is scoped to the live branch, and this pins why it must be.

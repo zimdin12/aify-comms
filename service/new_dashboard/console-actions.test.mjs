@@ -259,6 +259,26 @@ test("a NON-NUMERIC snapshot seq leaves the floor where it was", async () => {
   } finally { h.restore(); }
 });
 
+test("A NULL SEQUENCE IS AN UNKNOWN POSITION, and NOT a zero", async () => {
+  // THE OTHER END OF A SERVER CHANGE, proven here rather than assumed there. The terminal GET now
+  // answers `outputSeq: null` when the screen carries bytes nobody numbered -- rather than serving
+  // the older number and letting a consumer read it as a known position, which review composed from
+  // the real writers and reproduced.
+  //
+  // NULL MUST NOT BECOME ZERO. `??` short-circuits on null before any `Number()` runs, so the chain
+  // falls through to this entry's own value; a `||` there, or a `Number(null)`, would seed 0 and
+  // tell the socket the console holds everything up to frame zero.
+  const h = withConsole({ snapshot: { terminal: { snapshot: "X", outputSeq: null } } });
+  try {
+    const entry = makeEntry({ lastSeq: -1 });
+    state.activeXterm = entry;
+    await resyncActiveConsole();
+    assert.equal(entry.lastSeq, -1,
+      `a null sequence seeded ${entry.lastSeq}; below zero is the only value that means UNKNOWN, `
+      + "because `realtime-socket.mjs` gates dedup and gap detection on `lastSeq >= 0`");
+  } finally { h.restore(); }
+});
+
 test("forceRepaint only nudges the PTY when this pane OWNS it", async () => {
   // Resizing a PTY the pane does not own would reshape another viewer's terminal.
   const h = withConsole();

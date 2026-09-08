@@ -26,6 +26,7 @@ import unittest
 
 import aiosqlite
 
+from service import terminal_snapshot as snapshot
 from service.api_core import terminal_tail_buffer as tail
 from service.api_core.terminal_output import _append_terminal_output
 from service.schema import SCHEMA
@@ -169,6 +170,108 @@ class FailedTailWriteDoesNotDuplicateTests(unittest.IsolatedAsyncioTestCase):
                 tail.current_tail(TERMINAL_ID, ""), "the last thing it printed",
                 "the ending write threw after forget() and took the final screen with it",
             )
+        finally:
+            await db.close()
+
+
+class TheLiveScreenIsRolledBackWithTheTailTests(unittest.IsolatedAsyncioTestCase):
+    """The SCREEN is speculative state too, and it was the half nothing put back.
+
+    `_append_terminal_output` feeds the live screen before it attempts the UPDATE. `restore` puts the
+    TAIL back when that throws; a pyte grid has no undo, so the retry painted the chunk a second time
+    and the console carried a duplicate for the life of the session.
+
+    A GUARD IN `feed_live_screen` WAS THE FIRST ANSWER AND REVIEW BROKE IT, which is why these tests
+    are here and not there. It refused a chunk with the same sequence and the same bytes as the last
+    one -- and `_requeue_front` PREPENDS the failed chunk to a NEWER pending batch, so a failed B
+    comes back as BC. Review drove the real queue and witnessed a raw tail of AABC beside a screen of
+    AABBC. No comparison against the last chunk can recognise that; the state has to be retired where
+    it was created.
+    """
+
+    ESC = chr(27)
+
+    def setUp(self) -> None:
+        tail.reset_for_tests()
+        self.addCleanup(tail.reset_for_tests)
+        snapshot.drop_live_screen(TERMINAL_ID)
+        self.addCleanup(snapshot.drop_live_screen, TERMINAL_ID)
+
+    def _screen(self) -> str:
+        rendered = snapshot.render_live_screen(TERMINAL_ID)
+        return "" if rendered is None else rendered[0]
+
+    async def test_POSITIVE_CONTROL_the_screen_tracks_the_tail_when_nothing_fails(self) -> None:
+        """Every assertion below compares a screen against a tail. If they never agreed in the
+        ordinary case, a disagreement would say nothing about a failed write."""
+        db = await _seeded()
+        try:
+            await _append_terminal_output(db, await _row(db), self.ESC + "[HAA", status="running", seq=1)
+            await _append_terminal_output(db, await _row(db), "B", status="running", seq=2)
+            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), self.ESC + "[HAAB")
+            self.assertIn("AAB", self._screen())
+        finally:
+            await db.close()
+
+    async def test_THE_SCREEN_DOES_NOT_KEEP_A_CHUNK_THE_TAIL_ROLLED_BACK(self) -> None:
+        """Review's approved case: fail B, retry the SAME bytes. Raw AAB, screen AAB."""
+        db = await _seeded()
+        try:
+            await _append_terminal_output(db, await _row(db), self.ESC + "[HAA", status="running", seq=1)
+
+            refusing = _RefusingDb(db)
+            with self.assertRaises(sqlite3.OperationalError):
+                await _append_terminal_output(refusing, await _row(db), "B", status="running", seq=2)
+
+            await _append_terminal_output(db, await _row(db), "B", status="running", seq=2)
+            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), self.ESC + "[HAAB")
+            self.assertNotIn("AABB", self._screen(),
+                             "the screen kept the failed chunk and the retry painted it again")
+            self.assertIn("AAB", self._screen())
+        finally:
+            await db.close()
+
+    async def test_AND_NOT_WHEN_THE_RETRY_COALESCES_WITH_NEWER_OUTPUT(self) -> None:
+        """Review's failing case, and the one a last-chunk comparison cannot see.
+
+        `_requeue_front` prepends the failed chunk to whatever arrived while it was failing, so the
+        retry is BC where the failure was B. Witnessed: raw AABC, screen AABBC.
+        """
+        db = await _seeded()
+        try:
+            await _append_terminal_output(db, await _row(db), self.ESC + "[HAA", status="running", seq=1)
+
+            refusing = _RefusingDb(db)
+            with self.assertRaises(sqlite3.OperationalError):
+                await _append_terminal_output(refusing, await _row(db), "B", status="running", seq=2)
+
+            # C arrived while B was failing; the queue hands back one coalesced batch.
+            await _append_terminal_output(db, await _row(db), "BC", status="running", seq=3)
+            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), self.ESC + "[HAABC")
+            self.assertNotIn("AABBC", self._screen(),
+                             "the coalesced retry painted the failed chunk a second time")
+            self.assertIn("AABC", self._screen())
+        finally:
+            await db.close()
+
+    async def test_A_SCREEN_RETIRED_BY_A_FAILURE_COMES_BACK_FROM_THE_STORED_TAIL(self) -> None:
+        """NEGATIVE CONTROL for the rollback: retiring the screen must not leave the console blank.
+
+        The next chunk builds a fresh screen SEEDED from the stored tail, which `restore` has just
+        made correct again. A rollback that simply deleted the picture would trade a duplicate for an
+        empty console, which is worse.
+        """
+        db = await _seeded()
+        try:
+            await _append_terminal_output(db, await _row(db), self.ESC + "[HAA", status="running", seq=1)
+            refusing = _RefusingDb(db)
+            with self.assertRaises(sqlite3.OperationalError):
+                await _append_terminal_output(refusing, await _row(db), "B", status="running", seq=2)
+
+            self.assertEqual(self._screen(), "", "the screen survived a failed write")
+            await _append_terminal_output(db, await _row(db), "B", status="running", seq=2)
+            self.assertIn("AAB", self._screen(),
+                          "the screen did not come back from the stored tail after the rollback")
         finally:
             await db.close()
 
