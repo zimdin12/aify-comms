@@ -18,9 +18,21 @@ WHY A LIST RATHER THAN A COUNT. A count goes green again the moment somebody add
 removes another, which is exactly the change that should be loudest. The names are pinned, and
 adding one is a decision that shows up as an edit to this file in the same commit.
 
-THIS DOES NOT ASK WHETHER A READER DOES WHAT THE LABEL SAYS. That judgement is the B7 pass's third
-question and it needs a person; the two reader gates say the same about themselves. What this adds is
-the population agreement neither of them covers.
+WHAT THIS GATE IS, EXACTLY, and what owns the rest. It compares the schema's DECLARED keys with the
+service's defaults. It does NOT call the renderer, so it cannot see a field the schema declares and
+the renderer omits, nor a control that emits a different key than its schema row names. Review
+demonstrated all three of those surviving it.
+
+  the rendered control and the value it edits  ->  test_a_settings_control_matches_the_value_it_edits.py
+  whether a setting is read at all             ->  test_every_setting_has_a_reader.py (43 declared)
+                                                   test_every_dashboard_setting_has_a_reader.py (35 shown)
+  whether the two populations agree            ->  this file
+
+A second renderer walk here would be two implementations of one question, which agree until one is
+fixed -- the shape this project keeps finding in its own gates.
+
+AND IT DOES NOT ASK WHETHER A READER DOES WHAT THE LABEL SAYS. That is the B7 pass's third question,
+it needs a person, and all four gates say so about themselves.
 
 TRACED FROM CODE 2026-09-08 for the v0.6.3 end-of-version pass, which is the operator's own question:
 "do they still make sense, are they stale, do they still work (trace from code)".
@@ -71,10 +83,13 @@ def _keys_the_dashboard_draws() -> set[str]:
     """
     result = subprocess.run(
         ["node", "-e",
+         # EVERY ROW, keyless ones included. Filtering on `item.key` here is what let a keyless row
+         # be silently skipped: the Python side then had nothing to notice, because every comparison
+         # below is a set operation and a set cannot miss a member it was never given.
          "import('./settings-panel.mjs').then(m => {"
          "  const keys = [];"
          "  for (const group of (m.SETTINGS_SCHEMA || [])) {"
-         "    for (const item of (group.items || [])) if (item && item.key) keys.push(item.key);"
+         "    for (const item of (group.items || [])) keys.push((item && item.key) || '');"
          "  }"
          "  console.log(JSON.stringify(keys));"
          "});"],
@@ -86,7 +101,16 @@ def _keys_the_dashboard_draws() -> set[str]:
             "could not read SETTINGS_SCHEMA out of settings-panel.mjs, so this gate judged nothing: "
             f"{result.stdout[-400:]}{result.stderr[-400:]}"
         )
-    return set(json.loads(payload[-1]))
+    keys = json.loads(payload[-1])
+    # A ROW WITH NO KEY WAS SILENTLY SKIPPED, so appending one added a control this gate could not
+    # see -- and every comparison below is a set operation, which cannot notice a missing member.
+    blank = [index for index, key in enumerate(keys) if not str(key or "").strip()]
+    if blank:
+        raise AssertionError(
+            f"{len(blank)} schema row(s) declare no key (at positions {blank}), so the settings page "
+            f"draws a control this gate cannot compare against anything"
+        )
+    return set(keys)
 
 
 class TheSettingsSurfaceAgreesWithTheDeclarationTests(unittest.TestCase):

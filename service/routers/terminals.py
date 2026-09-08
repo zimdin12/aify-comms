@@ -301,12 +301,18 @@ async def get_terminal_size(terminal_id: str):
     """The two integers a resize wait is actually waiting for, and nothing else.
 
     WHY THIS EXISTS, measured against the live fleet on 2026-09-08. `waitForTerminalSize` polls up to
-    THIRTY times at 100ms, and `forceTerminalRepaint` calls it TWICE, so one console Refresh is
-    bounded by sixty polls. Each one was a full `GET /terminals/{id}`: 147,250 bytes and a 21.1ms p50
-    on this host, of which the output buffer is 110KB encoded and the event page 48KB, to compare
-    `cols` and `rows`. The whole nine-row terminal LISTING costs 5.6ms and 6,297 bytes in the same
-    run, and `/health` 1.4ms -- so the poll was fifteen times the control and four times the cost of
-    listing every terminal on the host, on a service that must stay single-worker.
+    THIRTY times at 100ms, and `forceTerminalRepaint` calls it TWICE, so one console Refresh can
+    issue up to sixty polls. Each one was a full `GET /terminals/{id}`: 147,250 bytes and a 21.1ms
+    p50 on this host, of which the raw output tail is 93,430 bytes and the event page 46,516 --
+    decomposed with the server's own encoder from ONE response and checked by re-encoding it against
+    that wire size -- to compare `cols` and `rows`. The whole nine-row terminal LISTING costs 5.6ms
+    and 6,297 bytes in the same run, and `/health` 1.4ms -- so the poll was fifteen times the control
+    and four times the cost of listing every terminal on the host, on a service that must stay
+    single-worker.
+
+    (This docstring said 110KB and 48KB until the figures were rebuilt: those came from a different
+    terminal and a different encoder, and summed to more than the whole response. The neighbouring
+    comment was corrected first and this one was missed -- a sweep is only done when it is grepped.)
 
     IT DOES NOT FLUSH THE WRITE QUEUE, and that is a fact about who writes these columns rather than
     an optimisation. `cols` and `rows` are set by the CONTROL COMPLETION path in

@@ -21,11 +21,15 @@ CONTROLS, in the same run. POSITIVE: a trivial `SELECT 1` gives the floor a stat
 a query at the floor is doing nothing. And the populated row counts are ASSERTED -- a benchmark
 against an empty table would report every query as instant and look like good news.
 
-SEVEN STATEMENTS OF EIGHTEEN, and saying so is the correction to this file's first version. The
-route issues eighteen `db.execute` calls; the seven timed here are the ones over `messages`, which is
-the largest table and the one the endpoint's history of SLOW-REQ warnings points at. The other eleven
-read `agents`, `environments`, `spawn_requests`, `agent_sessions`, `dispatch_runs` and `shared_files`
-and are NOT measured.
+SEVEN STATEMENTS OF EIGHTEEN, AND SIX OF THOSE SEVEN ARE OVER `messages` -- `count agents` is the
+seventh and is here as a cheap comparison. The route issues eighteen `db.execute` calls. TWO MESSAGE
+QUERIES ARE OMITTED (`stats.py:145` and `:149`), so this is not even every message statement; the
+remaining nine read `agents`, `environments`, `spawn_requests`, `agent_sessions`, `dispatch_runs` and
+`shared_files`.
+
+AND ONE ARGUMENT DIFFERS FROM THE ROUTE'S: `messages today` is given a rolling 24 hours here where the
+route computes local midnight. That changes the population the statement walks, so its figure is a
+close relative of the route's rather than the route's.
 
 SO THE ~13ms TOTAL IS NOT COMPARABLE TO THE ENDPOINT'S 191-223ms, and the first version of this
 paragraph compared them anyway -- presenting the difference as an unexplained gap when a share of it
