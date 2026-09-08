@@ -296,6 +296,40 @@ async def get_terminal_launch(terminal_id: str):
         await db.close()
 
 
+@router.get("/terminals/{terminal_id}/size")
+async def get_terminal_size(terminal_id: str):
+    """The two integers a resize wait is actually waiting for, and nothing else.
+
+    WHY THIS EXISTS, measured against the live fleet on 2026-09-08. `waitForTerminalSize` polls up to
+    THIRTY times at 100ms, and `forceTerminalRepaint` calls it TWICE, so one console Refresh is
+    bounded by sixty polls. Each one was a full `GET /terminals/{id}`: 147,250 bytes and a 21.1ms p50
+    on this host, of which the output buffer is 110KB encoded and the event page 48KB, to compare
+    `cols` and `rows`. The whole nine-row terminal LISTING costs 5.6ms and 6,297 bytes in the same
+    run, and `/health` 1.4ms -- so the poll was fifteen times the control and four times the cost of
+    listing every terminal on the host, on a service that must stay single-worker.
+
+    IT DOES NOT FLUSH THE WRITE QUEUE, and that is a fact about who writes these columns rather than
+    an optimisation. `cols` and `rows` are set by the CONTROL COMPLETION path in
+    `routers/terminal_controls.py` -- the host reporting the size its pty actually took -- which
+    commits them directly. Nothing about them travels the output queue's lazy tail, so there is
+    nothing pending for a flush to reveal. The heavy endpoint flushes because its OUTPUT would
+    otherwise be stale; this one carries no output.
+
+    It answers the question and refuses to answer any other: no output, no snapshot, no events. A
+    caller that needs those is asking a different question and should call the endpoint that owns it.
+    """
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT id, cols, rows FROM terminal_sessions WHERE id = ?", (terminal_id,)
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, f'Terminal "{terminal_id}" not found')
+        return {"terminal": {"id": row["id"], "cols": int(row["cols"] or 0), "rows": int(row["rows"] or 0)}}
+    finally:
+        await db.close()
+
+
 @router.get("/terminals/{terminal_id}")
 async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optional[int] = None):
     await TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id)

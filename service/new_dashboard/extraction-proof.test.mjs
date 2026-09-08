@@ -2283,7 +2283,28 @@ const EXTRACTIONS = [
     importLine: "import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';",
     importWas: "import { disposeActiveXterm } from './xterm-lifecycle.mjs';",
     items: [
-      { name: "awaitTerminalSize", at: 497, marker: "// awaitTerminalSize moved to ./xterm-lifecycle.mjs in v0.5.4." },
+      {
+        name: "awaitTerminalSize", at: 497,
+        marker: "// awaitTerminalSize moved to ./xterm-lifecycle.mjs in v0.5.4.",
+        // The resize wait stopped downloading a whole console to read two integers. Measured on the
+        // live fleet: the heavy endpoint is 147,250 bytes at a 21.1ms p50, this poll runs up to
+        // thirty times at 100ms, and `forceTerminalRepaint` calls it twice.
+        editedSince: [
+          {
+            was: [
+              "    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}`)).terminal,",
+            ],
+            now: [
+              "    // THE SIZE ENDPOINT, not the whole terminal. This poll runs up to thirty times at 100ms and",
+              "    // `forceTerminalRepaint` calls it twice, so one Refresh was bounded by sixty fetches of 147,250",
+              "    // bytes -- measured on the live fleet, 21.1ms p50 each, against a service that must stay",
+              "    // single-worker -- to compare two integers. `/size` reads one row and carries no output, no",
+              "    // snapshot and no event page.",
+              "    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}/size`)).terminal,",
+            ],
+          },
+        ],
+      },
     ],
   },
   {

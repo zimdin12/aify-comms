@@ -34,6 +34,11 @@ export function awaitTerminalSize(terminalId, cols, rows) {
   return waitForTerminalSize({
     cols,
     rows,
-    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}`)).terminal,
+    // THE SIZE ENDPOINT, not the whole terminal. This poll runs up to thirty times at 100ms and
+    // `forceTerminalRepaint` calls it twice, so one Refresh was bounded by sixty fetches of 147,250
+    // bytes -- measured on the live fleet, 21.1ms p50 each, against a service that must stay
+    // single-worker -- to compare two integers. `/size` reads one row and carries no output, no
+    // snapshot and no event page.
+    readSize: async () => (await api(`/terminals/${encodeURIComponent(terminalId)}/size`)).terminal,
   });
 }

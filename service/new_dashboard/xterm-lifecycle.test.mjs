@@ -141,7 +141,14 @@ test("awaitTerminalSize polls the terminal endpoint with the id ENCODED", async 
   try {
     await awaitTerminalSize("term/1 2", 80, 24);
     assert.ok(calls.length >= 1, "it must actually read the terminal back");
-    assert.match(calls[0], /\/terminals\/term%2F1(%20|\+)2$/, "the id is encoded into the path");
+    assert.match(calls[0], /\/terminals\/term%2F1(%20|\+)2\/size$/, "the id is encoded into the path");
+    // THE SIZE ENDPOINT, AND NOT THE WHOLE TERMINAL. This poll runs up to thirty times at 100ms and
+    // `forceTerminalRepaint` calls it twice, so one Refresh was bounded by sixty fetches of the
+    // heavy endpoint -- 147,250 bytes and a 21.1ms p50 measured on the live fleet, against a service
+    // that must stay single-worker -- to compare two integers. Pinned as a REFUSAL as well as a
+    // requirement: a path that merely CONTAINS the id would be satisfied by the heavy endpoint.
+    assert.ok(!/\/terminals\/[^/]+(\?|$)/.test(calls[0]),
+      `the resize wait must not fetch the whole terminal; it asked for ${calls[0]}`);
   } finally {
     if (had) globalThis.fetch = prev; else delete globalThis.fetch;
   }
