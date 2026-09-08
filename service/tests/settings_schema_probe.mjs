@@ -32,7 +32,7 @@
 import { SETTINGS_SCHEMA, EFFORT_OPTS, PI_EFFORT_OPTS, renderSettings } from
   "../new_dashboard/settings-panel.mjs";
 import { state } from "../new_dashboard/state.mjs";
-import { THEMES } from "../new_dashboard/theme.js";
+import { THEMES, paletteFromSettings } from "../new_dashboard/theme.js";
 
 //: REAL THEME NAMES. Two invented ones select no tile, so the panel renders identically for both and
 //: a difference test reports a false "not bound" -- which it did, for `dashboard_theme` alone.
@@ -188,6 +188,38 @@ if (!renderError) {
   });
 }
 
+// ── the grammar this probe can actually read ─────────────────────────────────────────────────
+//
+// EVERY FIELD IS FOUND BY PATTERN, which means a construct that HIDES a field while leaving its bytes
+// in place satisfies the search. Review wrapped every rendered field in `<!-- ... -->` at the real
+// call site: the bytes were all still there, the regex found all 35, and an HTML parser found zero
+// live fields. A comment is an alternate satisfier after execution exactly as it was in Markdown.
+//
+// The panel emits no comments and no CDATA today, so their PRESENCE means the output is no longer the
+// grammar this probe knows how to read -- and the honest answer to that is to refuse rather than to
+// keep matching. Modelling HTML properly would mean a parser; refusing costs nothing until somebody
+// makes the renderer emit one, which is when a human should decide what this should do.
+const UNREADABLE_HTML = [
+  ["an HTML comment", "<!--"],
+  ["a CDATA section", "<![CDATA["],
+];
+let grammarProblem = null;
+for (const [what, marker] of UNREADABLE_HTML) {
+  if (baseHtml.includes(marker)) {
+    grammarProblem = `the rendered panel contains ${what}; this probe reads plain elements only `
+      + "and cannot tell a live field from a hidden one, so it refuses to report on it";
+    break;
+  }
+}
+
+// ── what the SELECTED THEME says an inherited colour should be ───────────────────────────────
+//
+// A colour that ships empty inherits from the theme. Asserting only that a VALID hex appears is
+// format, not fidelity: review replaced the fallback with a literal `#123456` and every check passed.
+// So the palette the theme actually defines is reported, and the gate compares against it.
+const themeKey = process.argv[2] ? (JSON.parse(process.argv[2]).dashboard_theme || "default") : "default";
+const inheritedPalette = paletteFromSettings({}, themeKey);
+
 process.stdout.write(JSON.stringify({
   controls,
   optionDomains: { EFFORT_OPTS, PI_EFFORT_OPTS },
@@ -196,6 +228,9 @@ process.stdout.write(JSON.stringify({
   contaminates,
   syntheticArm,
   defaultsArm,
+  inheritedPalette,
+  themeKey,
+  grammarProblem,
   renderError,
   renderedLength: baseHtml.length,
 }));

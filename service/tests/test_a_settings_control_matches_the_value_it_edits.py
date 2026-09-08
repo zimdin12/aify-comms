@@ -191,6 +191,22 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         cls.probe = json.loads(done.stdout)
         cls.controls = cls.probe["controls"]
 
+    def test_the_rendered_panel_is_in_the_grammar_this_gate_can_read(self):
+        """REFUSAL, not best effort.
+
+        Every field here is found by pattern, so a construct that HIDES a field while leaving its
+        bytes in place satisfies the search. Review wrapped every rendered field in an HTML comment
+        at the real call site: the bytes were all still there, the patterns found all 35, and an HTML
+        parser found ZERO live fields.
+
+        The panel emits no comments and no CDATA, so their presence means the output is no longer
+        what this gate knows how to read -- and the honest answer is to stop, not to keep matching.
+        """
+        self.assertIsNone(
+            self.probe.get("grammarProblem"),
+            f"the settings panel is no longer readable by this gate: {self.probe.get('grammarProblem')}",
+        )
+
     def test_the_probe_actually_rendered_the_panel(self):
         """POSITIVE CONTROL. Every assertion below is vacuous on an empty schema or a panel that
         threw, and a render that produced nothing looks exactly like one with no disagreements."""
@@ -294,8 +310,23 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
             # nothing is a broken control.
             if control.get("type") == "color" and want == "":
                 inherited.append(key)
+                # AGAINST THE SELECTED THEME'S PALETTE, not merely "some valid hex". Review replaced
+                # the fallback with a literal `#123456` and a format-only check passed: valid hex is
+                # not inheritance fidelity. The palette comes from the panel's own
+                # `paletteFromSettings` for the theme the defaults select.
+                slot = {
+                    "dashboard_primary_color": "accent",
+                    "dashboard_secondary_color": "secondary",
+                    "dashboard_tertiary_color": "tertiary",
+                }.get(key)
+                expected = (self.probe.get("inheritedPalette") or {}).get(slot)
                 if not re.fullmatch(r"#[0-9a-f]{6}", got or ""):
                     wrong.append(f"{key}: inherits its colour but the panel shows {got!r}")
+                elif expected and got != expected:
+                    wrong.append(
+                        f"{key}: inherits from theme {self.probe.get('themeKey')!r}, which defines "
+                        f"{expected!r}, but the panel shows {got!r}"
+                    )
                 continue
             if got != want:
                 wrong.append(f"{key}: ships {want!r}, the panel shows {got!r}")

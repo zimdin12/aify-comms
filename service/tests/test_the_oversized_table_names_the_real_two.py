@@ -72,10 +72,17 @@ COMMENT_CLOSE = "-->"
 #: Four spaces (or a tab) makes an indented code block. The first version STRIPPED indentation before
 #: matching, so an indented copy of the table read as the table itself.
 INDENTED_CODE = re.compile(r"^(\s{4,}|\t)\S")
-#: A line opening with a raw HTML tag starts an HTML BLOCK, whose contents CommonMark passes to the
-#: renderer verbatim. Wrapping the whole table in `<pre>` hid it from a reader that modelled fences
-#: and comments only. INLINE html mid-line is not this and does not hide anything.
-HTML_BLOCK = re.compile(r"^\s{0,3}</?[a-zA-Z][a-zA-Z0-9-]*")
+#: A line opening with RAW MARKUP of any kind starts a block CommonMark passes to the renderer
+#: verbatim, and its contents are then not what they appear to be.
+#:
+#: ANY `<`, NOT A LIST OF TAGS. This matched `</?[a-zA-Z]` first, so `<pre>` was refused and
+#: `<![CDATA[ ... ]]>` sailed through and hid the whole table -- and review rightly said that adding
+#: CDATA to a list of known-bad constructs is just another construct-specific regex. The allowed
+#: grammar is stated positively instead: a line of this document does not begin with `<`. Measured on
+#: the real file, zero lines do. Comments are handled before this and are the one exception.
+#:
+#: INLINE markup mid-line is not this and hides nothing, so it is not refused.
+HTML_BLOCK = re.compile(r"^\s{0,3}<")
 
 
 class HiddenConstruct(Exception):
@@ -305,6 +312,28 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         wrapped = (
             "prose\n\n<pre>\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n</pre>\n"
         )
+        with self.assertRaises(HiddenConstruct):
+            documented_rows(wrapped)
+
+    def test_a_table_inside_CDATA_refuses_too(self):
+        """The first version of the refusal matched `</?[a-zA-Z]`, so `<pre>` was caught and
+        `<![CDATA[ ... ]]>` sailed through and hid the whole table.
+
+        Adding CDATA to a list of known-bad constructs would be another construct-specific regex, so
+        the allowed grammar is stated positively instead: a line does not begin with `<`. Zero lines
+        of the real document do.
+        """
+        wrapped = ("prose\n\n<![CDATA[\n" + TABLE_HEADER
+                   + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n]]>\n")
+        with self.assertRaises(HiddenConstruct):
+            documented_rows(wrapped)
+
+    def test_a_processing_instruction_refuses_as_well(self):
+        """NOT A THIRD SPECIAL CASE -- the same rule, shown to cover something neither earlier
+        version named. If this passes only because somebody added `<?` to a list, the rule has gone
+        back to being a blacklist."""
+        wrapped = ("prose\n\n<?xml version=\"1.0\"?>\n" + TABLE_HEADER
+                   + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n")
         with self.assertRaises(HiddenConstruct):
             documented_rows(wrapped)
 
