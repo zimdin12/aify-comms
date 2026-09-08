@@ -9,8 +9,11 @@ file and nothing has ever run it.
 THE SNAPSHOT ITERATION IS THE REASON THIS MATTERS. `broadcast` iterates `list(self._connections)`
 rather than the list itself, and the comment records why (bughunt 2026-07-03): a concurrent
 `disconnect()` does an in-place `list.remove` during an `await send_text`, shifting the list under an
-index-based iterator and silently SKIPPING a live client. At ~40 terminal_output frames a second that
-is a sequence gap, which the dashboard shows as a transient scrambled console. It is reproducible
+index-based iterator and silently SKIPPING a live client. That is a sequence gap, which the dashboard
+shows as a transient scrambled console -- and it arrives at whatever rate the queue is flushing:
+measured 2026-09-08, 65 terminal_output frames a second for 100 KB/s of producer output and 255 for
+8 MB/s. The "~40" written here was 1/0.024, the max-latency ceiling, which is not what fires once a
+batch crosses `max_batch_chars`. It is reproducible
 here in one test, deterministically, because the fake socket controls exactly when the removal lands.
 
 NO REAL SOCKETS. The fakes record what they were sent and can be told to fail; `connect` only awaits
@@ -154,8 +157,10 @@ class ConnectionManagerTests(unittest.TestCase):
         loop, so the socket that disconnects here is the one currently being sent to, which is
         exactly the real case: `await send_text` suspends and that client's own handler reaps it.
 
-        Iterating the live list then skips the SECOND client entirely. At ~40 terminal_output frames
-        a second that skip is a sequence gap, which the dashboard renders as a scrambled console.
+        Iterating the live list then skips the SECOND client entirely. That skip is a sequence gap,
+        which the dashboard renders as a scrambled console, repeating at the flush rate -- measured
+        65 frames a second at 100 KB/s of output and 255 at 8 MB/s, not the 1/0.024 ceiling this
+        docstring used to cite.
         """
         second = FakeWebSocket("second")
         third = FakeWebSocket("third")

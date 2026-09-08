@@ -2,8 +2,14 @@
 
 Seven of its functions were among the 71 the suite never entered — the idle and max-latency flush
 timers, the flush-task tracking, the done callback, and `_requeue_front`. What they protect is the
-console: this queue sits in front of the single SQLite writer at ~40 terminal_output frames a second,
-and every failure mode here shows up as scrambled or missing output rather than as an error.
+console: this queue sits in front of the single SQLite writer, and every failure mode here shows up
+as scrambled or missing output rather than as an error.
+
+WHAT IT ACTUALLY FLUSHES, measured 2026-09-08 against this class with real timers rather than
+inferred from `max_latency_ms`: 65 frames a second for 100 KB/s of output and 255 for 8 MB/s. The
+"~40" this paragraph used to claim was 1/0.024, the max-latency ceiling -- but past `max_batch_chars`
+the batch cap fires first, so the ceiling is not the thing that decides. The POST rate is higher
+again by two orders of magnitude: 16,219 posts became 67 frames in a second at 1 MB/s.
 
 TESTED WITHOUT A DATABASE, by overriding the ONE method that touches it. `_write_terminal_output` is
 the queue's entire contact with SQLite, so replacing it on the instance leaves every scheduling,

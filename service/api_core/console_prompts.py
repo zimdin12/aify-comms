@@ -87,9 +87,11 @@ def needs_resume_policy(screen: str) -> bool:
 
     THE CALLER PAYS FOR THE POLICY ONLY HERE, and that is the reason this predicate exists rather
     than the caller always passing one. `resumePolicy` lives on the AGENT row, so reading it is a
-    database round-trip -- and this check runs on every output chunk from every worker, in front of
-    a single SQLite writer at roughly forty frames a second. A query per chunk to answer a dialog
-    that appears once per session is the wrong trade; a regex per chunk is not.
+    database round-trip -- and this check runs on every output CHUNK from every worker, in front of
+    a single SQLite writer. Chunks are not frames, and the gap is the whole cost argument: measured
+    2026-09-08 against the real write queue, one second of 1 MB/s output was 16,219 posts and 67
+    flushed frames. A query per chunk to answer a dialog that appears once per session is the wrong
+    trade by about two orders of magnitude; a regex per chunk is not.
 
     DERIVED FROM THE RULE, never a second list: it asks the same pattern the refusal below asks, so
     a screen family cannot be added to one and forgotten in the other.

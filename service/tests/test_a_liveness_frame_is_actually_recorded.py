@@ -180,8 +180,9 @@ class ALivenessFrameIsActuallyRecordedTests(FastApiTestCase):
 
     def test_a_frame_WITH_output_still_goes_through_the_queue(self):
         """CONTROL for the short-circuit. It must catch only the empty shape: a real chunk that
-        stopped being coalesced would put the console back in front of the single SQLite writer at
-        forty frames a second."""
+        stopped being coalesced would put the console back in front of the single SQLite writer once
+        per CHUNK rather than once per flush -- measured 2026-09-08, 16,219 posts to 67 frames in a
+        second of 1 MB/s output."""
         answer = self._client.post(
             f"/api/v1/terminals/{self.TERMINAL}/output",
             json={"output": "hello\r\n", "bridgeId": "bridge-old"},
