@@ -1,4 +1,4 @@
-"""Which query inside `GET /stats` costs the 200 milliseconds, at the live fleet's scale.
+"""Which of `GET /stats`' message queries costs the most, at the live fleet's scale.
 
 WHY THIS EXISTS. `/stats` is on the dashboard's poll cycle -- every open tab asks for it every ~15
 seconds -- and measured against the live service on 2026-09-08 it takes 191-223ms to return 2,857
@@ -21,13 +21,32 @@ CONTROLS, in the same run. POSITIVE: a trivial `SELECT 1` gives the floor a stat
 a query at the floor is doing nothing. And the populated row counts are ASSERTED -- a benchmark
 against an empty table would report every query as instant and look like good news.
 
-THE TOTAL HERE IS ~13ms AND THE LIVE ENDPOINT IS ~200ms, AND THAT GAP IS NOT EXPLAINED BY THIS FILE.
-Candidates it does not distinguish between: a larger live database, a colder page cache, aiosqlite's
-thread hop per statement, response serialisation, and contention with the write queue every console
-depends on. What this establishes is which STATEMENT dominates the statement time -- and that answer
-is lopsided enough (87% to one query) to be worth acting on without first closing the gap. Reporting
-the ranking as if it were the endpoint's cost breakdown would be the same error this block has now
-made three times in other probes.
+SEVEN STATEMENTS OF EIGHTEEN, and saying so is the correction to this file's first version. The
+route issues eighteen `db.execute` calls; the seven timed here are the ones over `messages`, which is
+the largest table and the one the endpoint's history of SLOW-REQ warnings points at. The other eleven
+read `agents`, `environments`, `spawn_requests`, `agent_sessions`, `dispatch_runs` and `shared_files`
+and are NOT measured.
+
+SO THE ~13ms TOTAL IS NOT COMPARABLE TO THE ENDPOINT'S 191-223ms, and the first version of this
+paragraph compared them anyway -- presenting the difference as an unexplained gap when a share of it
+is simply statements nobody timed. What this file establishes is the RANKING among the seven, and
+that ranking is lopsided enough (87% to one query) to be worth having on its own.
+
+ONE CANDIDATE FOR THE REST IS ELIMINATED rather than listed. aiosqlite hands every statement to a
+background thread and awaits it, and eighteen handoffs looked like a real share. Measured in one
+process, 200 trivial statements: 0.061ms each through aiosqlite against a 0.001ms direct-sqlite3
+floor -- about 1.1ms for the whole endpoint. Not where the time goes.
+
+STILL OPEN: the eleven unmeasured statements, a live database larger than this fixture, response
+serialisation, and contention with the write queue every console depends on.
+
+AND THE OBVIOUS REWRITES OF THE DOMINANT QUERY BUY 15%. Three forms were tried -- the tombstone
+`EXISTS` as a `LEFT JOIN`, the unread `LEFT JOIN ... IS NULL` as a `NOT EXISTS`, and both -- each
+required to return the IDENTICAL triple before being timed, against a fixture seeded with 137 unread
+messages addressed to a REMOVED agent so the third counter had a population to disagree over. The
+best is 0.85x; the tombstone join alone is 1.13x, slower. A 15% saving on 87% of seven statements is
+not worth changing a counting query on a live product, and the more useful conclusion is the negative
+one: the shape of the SQL is not what makes this endpoint slow.
 
 Run: python scripts/measure-stats-queries.py
 """
