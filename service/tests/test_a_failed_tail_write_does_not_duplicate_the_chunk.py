@@ -26,10 +26,25 @@ import unittest
 
 import aiosqlite
 
+from unittest.mock import patch
+
 from service import terminal_snapshot as snapshot
+from service import terminal_write_queue as write_queue
 from service.api_core import terminal_tail_buffer as tail
 from service.api_core.terminal_output import _append_terminal_output
 from service.schema import SCHEMA
+from service.terminal_write_queue import TerminalOutputWriteQueue
+
+
+def _handing_back(db):
+    """A `get_db` replacement that answers a FRESH awaitable each call.
+
+    `return_value=<coroutine>` hands back the same object every time, and awaiting one twice
+    raises -- which is what a second write in one test does.
+    """
+    async def ready():
+        return db
+    return ready
 
 TERMINAL_ID = "term-r9m2"
 
@@ -272,6 +287,162 @@ class TheLiveScreenIsRolledBackWithTheTailTests(unittest.IsolatedAsyncioTestCase
             await _append_terminal_output(db, await _row(db), "B", status="running", seq=2)
             self.assertIn("AAB", self._screen(),
                           "the screen did not come back from the stored tail after the rollback")
+        finally:
+            await db.close()
+
+
+class _HeldOpenDb:
+    """The queue's connection, kept open, and optionally refusing one statement AFTER the UPDATE.
+
+    The UPDATE is the failure everybody thinks of, and it is the one already guarded. Review's
+    finding is the two that are not: the event INSERT that follows it, and the COMMIT that ends the
+    transaction. Both leave the durable row rolled back when the connection closes, and both used to
+    leave the in-memory tail claiming the bytes anyway.
+
+    HELD OPEN BECAUSE THE REAL PATH CLOSES. `_write_terminal_output` closes the connection in its
+    `finally`, and closing is what makes the rollback happen; a test that wants to read what survived
+    has to do the rollback itself and keep reading. The healthy control uses this wrapper too, so the
+    two differ in one thing.
+    """
+
+    def __init__(self, inner, refuse: str = ""):
+        self._inner = inner
+        self._refuse = refuse
+        self.attempts = 0
+
+    async def execute(self, sql, params=()):
+        if self._refuse == "event" and sql.strip().upper().startswith("INSERT INTO TERMINAL_EVENTS"):
+            self.attempts += 1
+            raise sqlite3.OperationalError("database is locked")
+        return await self._inner.execute(sql, params)
+
+    async def commit(self):
+        if self._refuse == "commit":
+            self.attempts += 1
+            raise sqlite3.OperationalError("database is locked")
+        return await self._inner.commit()
+
+    async def close(self):
+        return None
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+class TheTRANSACTIONOwnsTheRollbackTests(unittest.IsolatedAsyncioTestCase):
+    """`_append_terminal_output` guards its own UPDATE. The transaction is bigger than that.
+
+    FOUND BY REVIEW, executed rather than inferred, and it reproduces against the ORIGINAL v0.6.1
+    source as well -- so it is long-standing rather than introduced by this version's console work.
+    Seed AA, append B, refuse EITHER the event INSERT or the COMMIT, and let the connection roll
+    back: the durable row returns to AA while the held cache still says AAB. The retry then appends
+    B to a tail that already claimed it and persists AABB. Wrong bytes on disk is worse than a wrong
+    screen, because nothing later repaints it.
+    """
+
+    ESC = chr(27)
+
+    def setUp(self) -> None:
+        tail.reset_for_tests()
+        self.addCleanup(tail.reset_for_tests)
+        # EVERY WRITE DURABLE, because this class compares the ROW against the held tail and the
+        # lazy flush makes the row lag by up to a second BY DESIGN. Without this the positive
+        # control fails for a reason that is not a defect -- which it did, and the reading was the
+        # tail buffer working exactly as its own module documents.
+        tail.set_flush_interval_for_tests(0.0)
+        self.addCleanup(tail.set_flush_interval_for_tests, None)
+        snapshot.drop_live_screen(TERMINAL_ID)
+        self.addCleanup(snapshot.drop_live_screen, TERMINAL_ID)
+
+    async def _drive(self, refuse: str):
+        """Run one queue write against a connection that refuses `refuse`, and answer what survived."""
+        db = await _seeded()
+        try:
+            queue = TerminalOutputWriteQueue()
+            with patch.object(write_queue, "get_db", _handing_back(_HeldOpenDb(db))):
+                await queue._write_terminal_output(TERMINAL_ID, self.ESC + "[HAA", status="running", seq=1)
+            refusing = _HeldOpenDb(db, refuse)
+            with patch.object(write_queue, "get_db", _handing_back(refusing)):
+                with self.assertRaises(sqlite3.OperationalError):
+                    await queue._write_terminal_output(TERMINAL_ID, "B", status="running", seq=2)
+            await db.rollback()
+            row = await _row(db)
+            return row, tail.current_tail(TERMINAL_ID, "")
+        finally:
+            await db.close()
+
+    async def test_POSITIVE_CONTROL_a_working_queue_write_persists_and_holds_the_same_bytes(self) -> None:
+        db = await _seeded()
+        try:
+            queue = TerminalOutputWriteQueue()
+            with patch.object(write_queue, "get_db", _handing_back(_HeldOpenDb(db))):
+                await queue._write_terminal_output(TERMINAL_ID, self.ESC + "[HAA", status="running", seq=1)
+                await queue._write_terminal_output(TERMINAL_ID, "B", status="running", seq=2)
+            row = await _row(db)
+            self.assertEqual(row["output"], self.ESC + "[HAAB")
+            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), self.ESC + "[HAAB")
+        finally:
+            await db.close()
+
+    async def test_A_REFUSED_EVENT_INSERT_ROLLS_THE_HELD_TAIL_BACK_TOO(self) -> None:
+        row, held = await self._drive("event")
+        self.assertEqual(row["output"], self.ESC + "[HAA", "the durable row did not roll back")
+        self.assertEqual(held, self.ESC + "[HAA",
+                         "the held tail kept bytes the transaction rolled back, so the retry will "
+                         "append them a second time and persist the duplicate")
+
+    async def test_A_REFUSED_COMMIT_ROLLS_THE_HELD_TAIL_BACK_TOO(self) -> None:
+        row, held = await self._drive("commit")
+        self.assertEqual(row["output"], self.ESC + "[HAA", "the durable row did not roll back")
+        self.assertEqual(held, self.ESC + "[HAA",
+                         "the held tail kept bytes the commit never made durable")
+
+    async def test_THE_SCREEN_IS_RETIRED_AT_THE_SAME_BOUNDARY(self) -> None:
+        """The screen is speculative state too, and it is fed before any of these statements run.
+
+        `_append_terminal_output` retires it when its OWN update throws. A failure further along --
+        the event insert, the commit -- never reaches that handler, so the transaction owner has to
+        do it as well or the retry paints the chunk onto a screen that already has it.
+        """
+        db = await _seeded()
+        try:
+            queue = TerminalOutputWriteQueue()
+            with patch.object(write_queue, "get_db", _handing_back(_HeldOpenDb(db))):
+                await queue._write_terminal_output(TERMINAL_ID, self.ESC + "[HAA", status="running", seq=1)
+            refusing = _HeldOpenDb(db, "commit")
+            with patch.object(write_queue, "get_db", _handing_back(refusing)):
+                with self.assertRaises(sqlite3.OperationalError):
+                    await queue._write_terminal_output(TERMINAL_ID, "B", status="running", seq=2)
+            await db.rollback()
+
+            rendered = snapshot.render_live_screen(TERMINAL_ID)
+            self.assertIsNone(rendered, "the speculative screen survived a rolled-back transaction")
+
+            with patch.object(write_queue, "get_db", _handing_back(_HeldOpenDb(db))):
+                await queue._write_terminal_output(TERMINAL_ID, "B", status="running", seq=2)
+            screen = snapshot.render_live_screen(TERMINAL_ID)[0]
+            self.assertIn("AAB", screen)
+            self.assertNotIn("AABB", screen, "the retry painted the chunk onto a screen that had it")
+        finally:
+            await db.close()
+
+    async def test_AND_THE_RETRY_THEN_PERSISTS_THE_BYTES_ONCE(self) -> None:
+        """The consequence, which is what makes the two assertions above matter."""
+        db = await _seeded()
+        try:
+            queue = TerminalOutputWriteQueue()
+            with patch.object(write_queue, "get_db", _handing_back(_HeldOpenDb(db))):
+                await queue._write_terminal_output(TERMINAL_ID, self.ESC + "[HAA", status="running", seq=1)
+            refusing = _HeldOpenDb(db, "commit")
+            with patch.object(write_queue, "get_db", _handing_back(refusing)):
+                with self.assertRaises(sqlite3.OperationalError):
+                    await queue._write_terminal_output(TERMINAL_ID, "B", status="running", seq=2)
+            await db.rollback()
+            with patch.object(write_queue, "get_db", _handing_back(_HeldOpenDb(db))):
+                await queue._write_terminal_output(TERMINAL_ID, "B", status="running", seq=2)
+            row = await _row(db)
+            self.assertEqual(row["output"], self.ESC + "[HAAB",
+                             "the retry persisted the chunk twice")
         finally:
             await db.close()
 

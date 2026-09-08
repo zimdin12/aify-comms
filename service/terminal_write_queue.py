@@ -28,7 +28,13 @@ from collections import deque
 from typing import Any, Optional
 
 from service.api_core.terminal_output import _append_terminal_output
-from service.api_core.terminal_tail_buffer import TAIL_FLUSH_INTERVAL_SECONDS, pending
+from service.api_core.terminal_tail_buffer import (
+    TAIL_FLUSH_INTERVAL_SECONDS,
+    pending,
+    restore,
+    snapshot,
+)
+from service.terminal_snapshot import drop_live_screen as _drop_live_screen
 from service.api_core.terminal_status import TERMINAL_STOPPABLE_STATUSES
 from service.clock import now as _now
 from service.db import get_db
@@ -376,6 +382,20 @@ class TerminalOutputWriteQueue:
         self, terminal_id: str, output: str, *, status: str = "", seq: Optional[int] = 0, settle: bool = False,
     ) -> None:
         db = await get_db()
+        # THE ROLLBACK BELONGS TO WHOEVER OWNS THE TRANSACTION, and that is this method.
+        #
+        # `_append_terminal_output` restores the held tail when its own UPDATE throws, and that is
+        # correct for its own failure and for callers that own their own transaction. It is not
+        # enough here: the event INSERT that follows it, and the COMMIT below, are both outside its
+        # guard. Review executed both -- refuse the INSERT, or refuse the commit, then let the
+        # connection close and roll back -- and the durable row returned to AA while the in-memory
+        # cache still held AAB. The retry then appended B to a tail that already claimed it and
+        # persisted AABB. The bytes on disk were wrong, which is worse than the screen being wrong,
+        # and it reproduces against the ORIGINAL v0.6.1 source too.
+        #
+        # SNAPSHOTTED BEFORE THE FIRST MUTATION and restored on any exception through the commit.
+        # Restoring twice -- once inside, once here -- is idempotent: both put back the same value.
+        held_before = snapshot(terminal_id)
         try:
             terminal = await (await db.execute(
                 """
@@ -434,6 +454,13 @@ class TerminalOutputWriteQueue:
                 )
             await _invalidate_agent_live_state(db, terminal["agent_id"])
             await db.commit()
+        except BaseException:
+            # THE DURABLE BYTES AND THE PROCESS-LOCAL ONES GO BACK TOGETHER. A connection closed
+            # without committing rolls the row back; nothing rolled back the held tail or the live
+            # screen, so the two disagreed and the retry wrote the disagreement to disk.
+            restore(terminal_id, held_before)
+            _drop_live_screen(terminal_id)
+            raise
         finally:
             await db.close()
         # Ordered, post-commit, coalesced broadcast — the single source of
