@@ -127,9 +127,11 @@ class ThePromptRuleGetsTheTerminalsResumePolicyTests(FastApiTestCase):
     def test_AN_ORDINARY_SCREEN_SPENDS_NO_QUERY(self):
         """THE COST PROPERTY. Every CHUNK from every worker passes here, in front of a single SQLite
         writer -- and a chunk is not a frame: measured 2026-09-08, one second of 1 MB/s output was
-        16,219 posts and 67 flushed frames. A query per chunk to answer a dialog that appears once
-        per session is the wrong trade by about two orders of magnitude, and a regression to it would
-        show up as console lag rather than as a failure."""
+        16,219 posts and 67 flushed frames, so per-chunk work runs about 242 times as often as the
+        frame rate suggests -- a ratio of FREQUENCIES, not of runtime cost, which nothing here has
+        measured. A query per chunk to answer a dialog that appears once per session is the wrong
+        trade at that frequency, and a regression to it would show up as console lag rather than as a
+        failure."""
         self._seed(json.dumps({"resumePolicy": POLICY}))
         queried: list[str] = []
         real_lookup = output_module._resume_policy_for_agent
