@@ -1,34 +1,59 @@
 #!/usr/bin/env node
-// How long a byte takes to get from a PTY to the browser's console feed. READ-ONLY.
+// How much LATER the browser's console feed delivers a byte than aify-env's own stream does. READ-ONLY.
 //
 // WHY THIS EXISTS. The operator reported that the browser terminal "kind of lags sometimes". A first
-// attempt to measure it compared two independent freshness signals -- when aify-env last produced
-// anything, against when the service's sequence last advanced -- and concluded the ingest leg was
-// clear. That conclusion was RETRACTED: a continuously producing agent always has a fresh newest byte
-// no matter how far behind the consumer is, so the two observations need not name the same bytes, and
-// sampling only at advances omits exactly the intervals where a stall would live.
+// attempt compared two independent freshness signals -- when aify-env last produced anything, against
+// when the service's sequence last advanced -- and concluded the ingest leg was clear. That
+// conclusion was RETRACTED: a continuously producing agent always has a fresh newest byte no matter
+// how far behind the consumer is.
 //
-// THIS FOLLOWS THE BYTES THEMSELVES. Two streams are read at once for ONE process:
+// ── WHAT IT MEASURES, AND THE LABEL THAT WAS WRONG THE FIRST TIME.
 //
-//   aify-env    GET /processes/:id/output   -- what the PTY emitted, at the producer
-//   aify-comms  WS  /ws  `terminal_output`  -- what a browser console is actually delivered
+// This process opens two streams for ONE process and timestamps each arrival WITH ITS OWN CLOCK:
 //
-// Both are appended to running buffers. For each byte in the producer's stream, delivery is the
-// arrival of the first consumer frame whose accumulated payload covers that byte's index. The
-// difference is that byte's latency. Byte-to-event correspondence, not two freshness clocks.
+//   aify-env    GET /processes/:id/output   -- an SSE frame arrives HERE
+//   aify-comms  WS  /ws  `terminal_output`  -- a console frame arrives HERE
+//
+// Both timestamps are observations made in this process. NEITHER OF THEM IS THE MOMENT THE PTY
+// EMITTED THE BYTE, and an earlier version of this file reported the difference as "PTY-to-delivery
+// latency" -- which claimed a clock it never read. Review caught it, and the retraction matters
+// because the wrong noun makes the number sound like a bound on the whole path when it bounds one
+// leg relative to another.
+//
+// WHAT THE DIFFERENCE HONESTLY IS: the EXTRA delay on the aify-comms WebSocket path, relative to
+// reading aify-env's own stream from this same process at this same moment. The two paths share
+// their origin -- aify-env holds the PTY and feeds both -- so whatever happens upstream of that fork
+// cancels, and what remains is the service leg: ingest, store, and the push to a subscriber.
+//
+// WHAT IT THEREFORE CANNOT SAY, and must not be read as saying: how long a byte took to leave the
+// PTY, how long the browser then took to paint it, or that the whole path is fast. It says the
+// service leg adds this much over the shortest local path, measured here.
 //
 // IT TAKES NO ACTION. Reading an output stream is what a console does, and adds a subscriber the
 // daemon already supports; the WebSocket is a passive listener. Nothing is started, stopped,
 // attached, written to or configured, and it exits on its own.
 //
-// WHAT IT CANNOT SEE, and must not be read as covering: the browser's own xterm write and render.
-// This measures PTY-to-delivery, which is every leg the two servers own.
+// ── THE ALIGNMENT IS THE PART TO DISTRUST, AND IT NEEDED TWO REPAIRS.
 //
-// THE ALIGNMENT IS THE PART TO DISTRUST. The consumer's stream is joined mid-flight, so its first
-// frames describe bytes the producer emitted before this started. The run therefore SYNCHRONISES
-// first -- it finds where the consumer's buffer sits inside the producer's -- and reports how it did
-// so. A run that never synchronises reports UNKNOWN and no numbers, because a latency computed from
-// a guessed offset is worse than no latency at all.
+// The consumer's stream is joined mid-flight, so its first frames describe bytes emitted before this
+// started, and the run has to find where one buffer sits inside the other.
+//
+//   A PROBE THAT APPEARS TWICE IS NOT AN ANCHOR. `indexOf` returns the FIRST match, which for
+//   repeated output -- a spinner, a progress bar, a retry loop, exactly what an agent prints -- is
+//   the wrong one. Review's counterexample: a true offset of 0 and a true lag of 50ms were reported
+//   as an offset of -300 and a lag of 350ms, with 300 confident pairs behind it. The probe must be
+//   UNIQUE in the producer buffer, and this refuses when no unique anchor can be found.
+//
+//   A MISMATCH IS EVIDENCE, NOT NOISE. The old loop `continue`d past any byte that disagreed, so a
+//   run could drop 200 mismatches and report 2,300 pairs at a confident 50ms. A mismatch means the
+//   alignment is wrong or the streams diverged; either way the number that follows is not about the
+//   bytes it claims. They are counted, and enough of them refuses the run.
+//
+// UNITS ARE UTF-16 CODE UNITS, not bytes. Both streams are decoded to strings before they are
+// compared, so every count here is in the unit JavaScript indexes with. For ASCII output the two are
+// the same and for anything else they are not, which is why the word "byte" is not used for a count.
+
+import { alignment, distribution, pairLags } from "./console-latency-pairing.mjs";
 
 const args = new Map(process.argv.slice(2).map((a) => {
   const [k, ...rest] = a.replace(/^--/, "").split("=");
@@ -49,6 +74,12 @@ function die(why) {
   process.exit(2);
 }
 
+function refuse(why, detail = "") {
+  console.log(`\nUNKNOWN: ${why}`);
+  if (detail) console.log(detail);
+  process.exit(1);
+}
+
 /** The busiest terminal-backed process both sides agree on, or the one named. */
 async function pickSubject() {
   const health = await fetch(`${ENV_URL}/health`).then((r) => r.json()).catch(() => null);
@@ -62,7 +93,7 @@ async function pickSubject() {
   const candidates = (health.processes || [])
     .filter((p) => p.terminal && byAgent.has(String(p.label)))
     .filter((p) => !AGENT || String(p.label) === AGENT)
-    // BUSIEST FIRST: a quiet process produces no bytes to follow, and a run that measures nothing
+    // BUSIEST FIRST: a quiet process produces nothing to follow, and a run that measured nothing
     // must not be mistaken for a run that measured zero.
     .sort((a, b) => (b.lastOutputAtMs || 0) - (a.lastOutputAtMs || 0));
   if (!candidates.length) die(AGENT ? `no terminal-backed process named ${AGENT}` : "no process both sides know");
@@ -70,7 +101,7 @@ async function pickSubject() {
   return { process: chosen, terminal: byAgent.get(String(chosen.label)) };
 }
 
-/** Read the producer's SSE, appending decoded output to `buffer` with a timestamp per chunk. */
+/** Read aify-env's SSE, appending decoded output to `sink` with the arrival time of each frame. */
 async function followProducer(id, sink, signal) {
   const response = await fetch(`${ENV_URL}/processes/${encodeURIComponent(id)}/output`,
     { signal, redirect: "manual" });
@@ -96,18 +127,18 @@ async function followProducer(id, sink, signal) {
 async function main() {
   const { process: subject, terminal } = await pickSubject();
   console.log(`following ${subject.label} (${subject.id}) -> terminal ${terminal.id}`);
-  console.log(`producer: ${ENV_URL}   consumer: ${SERVICE}   for ${SECONDS}s\n`);
+  console.log(`aify-env: ${ENV_URL}   aify-comms: ${SERVICE}   for ${SECONDS}s\n`);
 
-  //: index -> the moment the producer emitted the byte at that index
-  const producedAt = [];
+  //: index -> the moment THIS PROCESS received the unit at that index over aify-env's SSE.
+  const sseAt = [];
   let produced = "";
-  //: index -> the moment the consumer delivered the byte at that index
-  const deliveredAt = [];
+  //: index -> the moment THIS PROCESS received the unit at that index over the service's WebSocket.
+  const wsAt = [];
   let delivered = "";
 
   const controller = new AbortController();
   followProducer(subject.id, (text, at) => {
-    for (let i = 0; i < text.length; i += 1) producedAt.push(at);
+    for (let i = 0; i < text.length; i += 1) sseAt.push(at);
     produced += text;
   }, controller.signal).catch(() => {});
 
@@ -121,7 +152,7 @@ async function main() {
     if (String(data.terminalId) !== String(terminal.id)) return;
     const text = String(data.output ?? "");
     const at = now();
-    for (let i = 0; i < text.length; i += 1) deliveredAt.push(at);
+    for (let i = 0; i < text.length; i += 1) wsAt.push(at);
     delivered += text;
   });
   socket.addEventListener("error", () => die("the websocket refused the connection (is AIFY_API_KEY set?)"));
@@ -130,42 +161,42 @@ async function main() {
   controller.abort();
   try { socket.close(); } catch { /* already gone */ }
 
-  console.log(`producer bytes: ${produced.length}   consumer bytes: ${delivered.length}`);
+  console.log(`aify-env stream: ${produced.length} code units   service stream: ${delivered.length} code units`);
   if (produced.length < 200 || delivered.length < 200) {
-    console.log("\nUNKNOWN: too little traffic to align the two streams. Not a measurement of zero.");
-    process.exit(1);
+    refuse("too little traffic to align the two streams. Not a measurement of zero.");
   }
 
-  // ALIGN. The consumer stream was joined mid-flight, so find where its buffer starts inside the
-  // producer's. A distinctive slice from the consumer is searched for in the producer; if it is not
-  // found, the two are not describing the same bytes and no number here would mean anything.
-  const probe = delivered.slice(Math.floor(delivered.length / 2), Math.floor(delivered.length / 2) + 120);
-  const at = produced.indexOf(probe);
-  if (probe.length < 40 || at === -1) {
-    console.log("\nUNKNOWN: could not align the two streams on shared bytes. No latency reported.");
-    console.log("A number computed from a guessed offset is worse than no number.");
-    process.exit(1);
+  // ALIGNING AND PAIRING LIVE IN `console-latency-pairing.mjs`, WHERE A TEST CAN REACH THEM. Nothing
+  // in this file can be exercised without a live daemon and a live service, which is exactly how two
+  // defects in that arithmetic survived here: an independent review found both by copying the logic
+  // into throwaway scripts, and a defect fixed in a copy has nothing stopping it coming back.
+  const anchor = alignment(produced, delivered);
+  if (anchor.problem) {
+    refuse(`${anchor.problem}. No latency reported.`,
+      "A probe that appears twice is not an anchor: `indexOf` returns the first match, and for\n"
+      + "repeated agent output that is the wrong one. A number from a guessed offset is worse than none.");
   }
-  const offset = at - Math.floor(delivered.length / 2);
-  console.log(`aligned: consumer byte 0 is producer byte ${offset}\n`);
+  console.log(`aligned on a unique ${anchor.probeSize}-unit anchor: consumer unit 0 is producer unit ${anchor.offset}\n`);
 
-  const lags = [];
-  for (let i = Math.max(0, -offset); i < delivered.length; i += 1) {
-    const p = i + offset;
-    if (p < 0 || p >= producedAt.length) continue;
-    if (delivered[i] !== produced[p]) continue;      // drifted; stop trusting this pairing
-    lags.push(deliveredAt[i] - producedAt[p]);
+  const paired = pairLags({
+    produced, delivered, producedAt: sseAt, deliveredAt: wsAt, offset: anchor.offset,
+  });
+  if (paired.problem) {
+    refuse(`${paired.problem}.`,
+      "That is either a wrong alignment or two different streams. Either way the timings below\n"
+      + "would not be about the units they name, so none are reported.");
   }
-  if (lags.length < 100) {
-    console.log("UNKNOWN: too few paired bytes to report a distribution.");
-    process.exit(1);
-  }
-  lags.sort((a, b) => a - b);
-  const at_ = (q) => lags[Math.min(lags.length - 1, Math.floor(lags.length * q))].toFixed(1);
-  console.log(`paired bytes: ${lags.length}`);
-  console.log("field: aify-env /processes/:id/output SSE data frames  -- noun: when the PTY emitted this byte");
-  console.log("field: aify-comms WS terminal_output.output            -- noun: when a console was delivered it");
-  console.log(`\n  min ${at_(0)}ms   p50 ${at_(0.5)}ms   p90 ${at_(0.9)}ms   p99 ${at_(0.99)}ms   max ${lags.at(-1).toFixed(1)}ms`);
+  const stats = distribution(paired.lags);
+  if (stats.problem) refuse(`${stats.problem}.`);
+
+  console.log(`paired units: ${stats.count}   mismatched: ${paired.mismatched}   outside the overlap: ${paired.unpairable}`);
+  console.log("clock A: this process's receipt of an aify-env SSE `data` frame");
+  console.log("clock B: this process's receipt of an aify-comms WS `terminal_output` frame");
+  console.log("reported: B - A, per unit — the EXTRA delay the service leg adds over reading aify-env");
+  console.log("          directly from here. NOT the time since the PTY emitted the unit, and NOT a");
+  console.log("          bound on what the browser then takes to paint it.");
+  const ms = (value) => `${value.toFixed(1)}ms`;
+  console.log(`\n  min ${ms(stats.min)}   p50 ${ms(stats.p50)}   p90 ${ms(stats.p90)}   p99 ${ms(stats.p99)}   max ${ms(stats.max)}`);
 }
 
 main().catch((error) => die(error?.message || String(error)));
