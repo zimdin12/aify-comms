@@ -1,7 +1,11 @@
 # `apiBase` — the last leaf blocking app.js, and why it needs a ruling rather than a script
 
-**Status:** decision packet. Nothing here is implemented. Measured 2026-08-14 against `app.js` at 4,761
-lines.
+**Status: CLOSED — the decision was taken and shipped.** `apiBase` lives in
+`service/new_dashboard/api-client.mjs`, and `app.js` is **996 lines**. Re-checked 2026-09-08.
+
+Everything below is the packet AS WRITTEN, measured 2026-08-14 against an `app.js` of 4,761 lines. It
+is kept as the record of an argument; its numbers are historical by construction and are not
+maintained. It read "Nothing here is implemented" in the present tense until 2026-09-08.
 
 ## Where this sits
 

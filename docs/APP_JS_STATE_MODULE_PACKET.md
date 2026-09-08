@@ -1,7 +1,14 @@
 # app.js — the measured ceiling, and the one decision that lifts it
 
-**Status:** decision packet. Nothing here is implemented. `service/new_dashboard/app.js` is 4,903 lines
-and is one of three files still over the 1,000-line limit after v0.5.4 cleared the other nine.
+**Status: CLOSED — the decision was taken and shipped.** `service/new_dashboard/state.mjs` exists and
+is imported across the dashboard, `app.js` is **996 lines**, and `oversized-allowlist.json` is EMPTY:
+no product source file is over the 1,000-line limit. Re-checked 2026-09-08.
+
+Everything below is the packet AS WRITTEN, measured on 2026-08-14 against an `app.js` of 4,903 lines.
+It is kept as the record of an argument, not as a description of the tree — the numbers in it are
+historical by construction and are not maintained. **It said "Nothing here is implemented" in the
+present tense until 2026-09-08**, which is the failure this repo files under "docs inherit intention,
+not outcome": prose written beside the work describes the plan, and nothing in any suite reads prose.
 
 **Measured 2026-08-13 against the current file**, not carried forward from an earlier note. An earlier
 note in project memory said app.js had "246 functions, ZERO exports" and was at a relocation ceiling;
