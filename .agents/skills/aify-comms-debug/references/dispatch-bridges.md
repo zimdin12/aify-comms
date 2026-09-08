@@ -139,7 +139,7 @@ session so a fresh delivery owner registers.
 
 **Symptom.** A freshly-spawned or restarted managed claude sits at an unanswered TUI prompt
 (the "Resume from summary / Resume full session" menu, a compaction question, the bypass-
-permissions accept, the dev-channels acknowledgment, or a channel-enter prompt) and never
+permissions accept, or the dev-channels acknowledgment) and never
 reaches a usable turn. The tell-tale downstream symptom is **"up-but-deaf"**: the agent
 registers `online`/`available` but never claims any dispatched run (sends bounce with "no live
 claimer", even the coldstart rescue re-hits the same stall) — because the worker never reached
@@ -154,30 +154,17 @@ screen: claude moves the cursor instead of sending spaces, so a matcher on raw b
 string that is never transmitted. It is SERVICE Python, so it deploys by rebuilding the container —
 reinstalling wrappers changes nothing here.
 
-**Hardened (2026-06-12, `aca7562`) — the silent auto-compact-on-resume.** The channel-enter
-rule once matched the bare substring `development-channels`, which also appears in the
-worker's own BOOT OUTPUT (`--dangerously-load-development-channels …`) — at the moment the
-resume menu rendered, the blind Enter accepted the highlighted "Resume from summary
-(recommended)" and silently summarized the session away on EVERY cold start (operator: "it
-auto compacts each time"). Now: channel-enter matches only the dialog's own question line
-(`Enter channel to receive …`); any visible resume-menu text suppresses ALL blind-Enter rules
-until the cursor-aware resume rule can answer; matching is recency-first (the latest dialog
-text in the stream wins, so a scrolled-away menu can never re-claim a live dialog). If a
-managed claude still loses context on restart, its PTY-hosting host tier predates
-this fix.
+**TWO RULE FAMILIES ONCE LIVED IN THE BRIDGE AND ARE GONE.** Until prompt answering moved into
+the service, the bridge carried a `channel-enter` rule and a cursor-aware resume rule; both were
+hardened after real incidents -- a bare-substring match on `development-channels` once accepted
+the highlighted "Resume from summary" on every cold start and silently summarised sessions away
+(operator: "it auto compacts each time"), and no rule matched the first-run development-channels
+acknowledgment at all, so workers booted and sat at the menu for ever. **Neither rule exists
+now** -- `channel-enter` appears in no source file, measured 2026-09-08 -- and the service
+refuses resume menus WHOLESALE rather than answering them, which is the Fix above. Kept as two
+sentences because the incidents explain why the current design is so conservative; the rules
+themselves are not something to look for in the code.
 
-**Dev-channels acknowledgment (2026-07-03, `c1e1704`) — up-but-deaf on FIRST spawn.** The
-wrapper launches claude with `--dangerously-load-development-channels server:aify-comms-channel`,
-which triggers a first-run confirmation menu (`❯ 1. I am using this for local development / 2.
-Exit`). No rule matched it (the `channel-enter` rule is the LATER "enter channel to receive"
-prompt), so the worker booted, sat at the menu forever, and never registered a claimer =
-up-but-deaf. The `dev-channels-accept` rule now blind-Enters the highlighted accept option
-(matched on the acknowledgment's own question line, so a boot-log mention of the flag can't
-trip it; subject to the same cursor + resume-menu-interlock gates). **Deploy:** this is an
-`mcp/stdio/` change — re-run `install.sh` on each host (re-copies the bridge into
-`~/.aify-comms/`) AND restart the wrapper; until then newly-spawned workers keep stalling. To
-un-stick an already-stuck worker without redeploying, type a bare Enter into its console
-(dashboard Console, or `POST /terminals/{id}/input` with body `"\r"`).
 
 ## Runtime "not launchable" / up-but-deaf on a Windows host with a non-ASCII profile path
 

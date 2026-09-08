@@ -77,7 +77,15 @@ const CEILINGS = {
   // environment-bridge tier and now name the service modules that own those questions, and
   // instructions to `restart the environment bridge` became `restart aify-env` -- the component
   // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/dispatch-bridges.md": 26_375,  // LOWERED 2026-09-08: the
+  "aify-comms-debug/references/dispatch-bridges.md": 25_281,  // LOWERED AGAIN 2026-09-08: two
+  // paragraphs described a `channel-enter` rule and a cursor-aware resume rule that appear in NO
+  // source file, and a **Deploy** line sending an operator to re-run `install.sh` for a change
+  // that lives in SERVICE Python. Correcting those ADDED 734 bytes, which this ratchet refused --
+  // rightly, since a ceiling raised to fit an explanation is a ceiling that stops meaning
+  // anything. Paid for by DELETING the two history paragraphs rather than annotating them: they
+  // describe rules that do not exist, and two sentences of incident carry what a reader needs.
+  // Net 1,094 bytes under the previous ceiling.
+  // PREVIOUS ENTRY, 26_375: the
   // prompt-answering paragraph described four behaviours the service does not have -- resume and
   // compaction auto-answer, a managed-claude gate, a not-mid-turn gate and once-per-appearance --
   // and told the reader to reinstall wrappers to deploy a change to SERVICE Python. It now says
