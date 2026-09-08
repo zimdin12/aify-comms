@@ -44,9 +44,76 @@ SEARCH_ROOTS = ("service", "mcp")
 SKIP_DIRS = {"tests", "__pycache__", "node_modules", "fixtures", ".git", ".pytest_cache"}
 
 
+#: Settings that are OFFERED and read by nothing, each with the open question it is waiting on.
+#:
+#: THIS IS NOT AN EXEMPTION LIST TO GROW. One entry, and it exists because the resolution is an
+#: OPERATOR'S DECISION rather than a repair: removing a control they can see, or restoring behaviour
+#: that was deliberately taken out, is not a thing to do quietly inside a test fix.
+#:
+#: `manual_session_mode` -- FOUND 2026-09-08, and the sharp part is that TWO TESTS CONTRADICT EACH
+#: OTHER while both pass, because they check different layers:
+#:
+#:   settings-panel.test.mjs  "the schema still exposes manual_session_mode ... losing it silently
+#:                            would remove the operator's ONLY CONTROL over those chips"
+#:   session-rail.test.mjs    "IT IS NOT GATED ON A SETTING -- the chip renders whatever
+#:                            manual_session_mode says ... Manual switching must stay reachable"
+#:
+#: So the panel promises a control the rail guarantees is inert. Either the gating comes back or the
+#: field goes; both are visible to the operator and neither is mine to choose. Until then it is
+#: written down HERE, where the next person auditing settings meets it, rather than being discovered
+#: again by the same trace.
+KNOWN_INERT = {
+    "manual_session_mode": (
+        "the chips are deliberately ungated (session-rail.test.mjs) while the panel calls this the "
+        "operator's only control over them (settings-panel.test.mjs) -- restore the gating or remove "
+        "the field; an operator decision, open since 2026-09-08"
+    ),
+}
+
+
 def declared_settings() -> list[str]:
     """Every key the operator is offered, read from the panel that offers them."""
     return re.findall(r"key: '([a-z0-9_]+)'", PANEL.read_text(encoding="utf-8"))
+
+
+#: Dict literals that DECLARE settings rather than consume them, as `(file, opening line)`.
+#:
+#: WITHOUT THIS THE GATE WAS NEARLY VACUOUS, and it failed in exactly the way its own docstring warns
+#: about for the fixture -- one file over, undetected. `DEFAULT_SETTINGS` in `api_core/settings.py`
+#: names EVERY key, so every setting had at least one "reader" and the check could only ever fire on
+#: a key that appeared nowhere at all. Measured 2026-09-08: `manual_session_mode` reported exactly one
+#: reader, `service/api_core/settings.py`, which is the line that declares its default.
+#:
+#: THE FILE IS NOT EXCLUDED, ONLY THE LITERAL. `settings.py` also holds real consumers --
+#: `_managed_terminal_backing_enabled` and friends -- so dropping the whole file would swap one
+#: blind spot for another. The dict is cut out and the rest of the file still counts.
+DECLARATION_BLOCKS = (
+    ("service/api_core/settings.py", "DEFAULT_SETTINGS"),
+    # Per-key server-side FLOORS: a minimum for a value, not a use of it.
+    ("service/routers/settings.py", "_SETTINGS_MIN"),
+)
+
+
+def _without_declarations(relative: str, text: str) -> str:
+    """The file with any declaration dict literal removed, so a default is not read as a use."""
+    for where, opener in DECLARATION_BLOCKS:
+        if relative != where:
+            continue
+        start = text.find(opener)
+        if start == -1:
+            continue
+        brace = text.find("{", start)
+        if brace == -1:
+            continue
+        depth = 0
+        for index in range(brace, len(text)):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[:start] + text[index + 1:]
+    return text
 
 
 def _sources() -> list[tuple[Path, str]]:
@@ -59,16 +126,34 @@ def _sources() -> list[tuple[Path, str]]:
                 continue
             if ".test." in path.name:
                 continue
-            out.append((path, path.read_text(encoding="utf-8", errors="ignore")))
+            relative = str(path.relative_to(REPO)).replace("\\", "/")
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            out.append((path, _without_declarations(relative, text)))
     return out
 
 
+#: A settings key, and not a longer word that happens to start with it.
+#:
+#: SUBSTRING MATCHING GAVE THIS GATE A FALSE GREEN, found 2026-09-08 while tracing labels against
+#: readers by hand. `manual_session_mode` reported a reader: `session_mode.py` writes an audit reason
+#: string `"manual_session_mode_switch"`, which CONTAINS the key and reads nothing. Its real reader
+#: had been deliberately deleted -- `session-rail.test.mjs` says so in as many words, "IT IS NOT GATED
+#: ON A SETTING" -- so the operator has a toggle labelled "Show resident/managed switch chips" that
+#: changes nothing, and the gate built to find exactly that was satisfied by a coincidence.
+#:
+#: A word boundary is the whole fix. `manual_session_mode_switch` no longer matches; every genuine
+#: read -- `settings["k"]`, `settings.get("k")`, `state.settings?.k`, `DEFAULT_SETTINGS["k"]` -- still
+#: does, because each ends the identifier at the key.
+def _mentions(key: str, text: str) -> bool:
+    return re.search(rf"\b{re.escape(key)}\b(?![A-Za-z0-9_])", text) is not None
+
+
 def readers_of(key: str, sources: list[tuple[Path, str]]) -> list[str]:
-    """Files naming this key, other than the panel that declares it."""
+    """Files naming this key AS A KEY, other than the panel that declares it."""
     return [
         str(path.relative_to(REPO)).replace("\\", "/")
         for path, text in sources
-        if key in text and path.name != "settings-panel.mjs"
+        if _mentions(key, text) and path.name != "settings-panel.mjs"
     ]
 
 
@@ -109,6 +194,19 @@ def test_every_declared_setting_is_read_by_something():
         found = readers_of(key, sources)
         if not found:
             orphans[key] = found
+    # A KNOWN-INERT SETTING IS STILL REPORTED, just not as a failure -- and the entry has to
+    # still be TRUE. One that gained a reader, or left the panel, fails below rather than sitting
+    # here as an exemption nobody prunes.
+    for key, why in KNOWN_INERT.items():
+        assert key in declared_settings(), (
+            f"`{key}` is recorded as a known-inert setting and is no longer offered at all; "
+            "delete the entry rather than leaving it to exempt nothing"
+        )
+        assert key in orphans, (
+            f"`{key}` is recorded as known-inert ({why}) and now HAS a reader. "
+            "Delete the entry -- the open question it names has been answered."
+        )
+    orphans = {k: v for k, v in orphans.items() if k not in KNOWN_INERT}
     assert orphans == {}, (
         "these settings are offered on the Settings page and nothing reads them:\n  "
         + "\n  ".join(sorted(orphans))
