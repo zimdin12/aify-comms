@@ -17,12 +17,40 @@ This is the answer to that blocker.
 | | Owns | Knows about |
 |---|---|---|
 | **aify-wrapper** | The four launchers. Installs one per harness present. | Harnesses. Not services. |
-| **aify-env** | Processes and PTYs on this host. One per host. Answers `aify-env doctor`. | Neither. Runs what it is told, from the allowlist below. |
+| **aify-env** | Processes and PTYs on this host. One per host. Answers `aify-env doctor`. | Neither, in its HOST tier. Its service PLUGINS know their own service — see the carve-out below. |
 | **aify-comms** | Messaging, dispatch, channels, agent semantics. | Agents. Stops being a command. |
 | **aify-dashboard** | Agent-pushed HTML, liveness pages, tasks, docs, projects. | Reads the others. |
 
 Both aify-wrapper and aify-env read **the same config**, `~/.aify/services.json`, and connect to the
 same registered services. One file, two readers, no second source of truth.
+
+### The plugin carve-out, and the line it does NOT move — 2026-09-08
+
+"Neither" was flatly true until v0.6.3, and the operator asked for a feature that appears to break it:
+*"spawn, start available agent (mb get available via aify-comms plugin that aify-env has?)"*. aify-env's
+view now lists agents and can ask for one to be started. That IS service knowledge, and their own
+parenthesis names the mechanism that makes it safe.
+
+**THE RULE: a SERVICE PLUGIN may know its service. The HOST tier may not, and that includes what it
+prints.** The plugin holds the endpoint, the credential, the roster and the vocabulary; the daemon
+reaches it by CAPABILITY name (`capability("agents")`) and never by service name, so a second `aify-`
+service offering the same capability needs no change in the host at all.
+
+**MEASURED ON THE SHIPPED CODE**, because a rule with no measurement is prose: every occurrence of
+`aify-comms` in `bin/aify-env.mjs`, `lib/protocol.mjs`, `lib/service-plugins.mjs`, `lib/keys.mjs`,
+`lib/console-session.mjs`, `lib/daemon-view.mjs`, `lib/startable-agents.mjs` and `lib/tui.mjs` is a
+COMMENT. Exactly one was not, and it was a defect: the renderer printed `asking aify-comms…` while a
+list loaded. That string would have been wrong the day a second service offered the capability, and
+wrong in the most confusing direction — naming the service that is *not* the one failing to answer.
+The name now travels **with the answer**, from the plugin that knows it, through the route, to a view
+that renders whatever it was told and says `asking…` when it was told nothing.
+
+**WHAT THIS DOES NOT LICENCE.** The earlier draft of `dashboard.mjs` fetched each service's AGENT LIST
+to *display*, and that was reverted on the operator's ruling — *"aify-env should not ask stuff from
+aify-comms, there should not be requirement, it is not aify-env's concern."* That ruling stands. The
+difference is not "agents are allowed now": it is that this list exists to **perform an action the
+operator asked for**, it lives behind a plugin, and the host degrades to a plain refusal with no plugin
+present. A panel that merely *shows* somebody else's domain data is still the wrong side of the line.
 
 `aify-comms` as a BRIDGE is gone, v0.6.1. `install_bridge_launcher()` wrote `~/.local/bin/aify-comms`
 beside `claude-aify`, `codex-aify`, `hermes-aify` and `pi-aify` — four harness launchers and one
