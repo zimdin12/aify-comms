@@ -114,6 +114,66 @@ class TerminalWriteQueueTests(unittest.TestCase):
 
         self.assertEqual(run(body()), 1, "a full batch waited for the idle timer")
 
+    def test_a_full_batch_ARMS_ITS_FLUSH_ONCE_not_once_per_post(self):
+        """The flush a full batch asks for is deferred, so asking again for each post is a task storm.
+
+        `_schedule_flush_locked` CANNOT flush inline: `flush_terminal` takes the lock the caller is
+        already holding, so it defers by a millisecond. Every post arriving inside that millisecond
+        still sees `chars >= max_batch_chars` -- the batch has not been emptied yet -- and asked for
+        another flush, each of which creates an asyncio task that finds the state already gone.
+
+        MEASURED against the real queue at rates a PTY reaches, counting scheduled flush tasks per
+        second of output: 65 at 100 KB/s (the timers doing the work, nothing wasted), 251 at 1 MB/s,
+        and 56,465 at 8 MB/s -- the rate a verbose build log hits. THE SERVICE IS SINGLE-WORKER BY
+        DESIGN, so those tasks are created on the one event loop that also serves every dashboard
+        poll, status read and message send.
+
+        The batch also overshot the cap it exists to enforce, because posts keep joining during the
+        deferred millisecond: 31,680 characters against a 16,384 limit. Arming once does not remove
+        that overshoot -- only an inline flush would, and the lock forbids it -- so the assertion
+        below is about the ARMING, which is the half that is actually a defect.
+        """
+        armed = []
+        queue = self._queue(max_batch_chars=1024)
+        original = queue._schedule_flush_locked
+
+        def counting(terminal_id, *, delay):
+            armed.append(delay)
+            return original(terminal_id, delay=delay)
+
+        queue._schedule_flush_locked = counting
+
+        async def burst():
+            # No sleep between posts: an uncontended lock does not yield, so all of these join ONE
+            # batch, which is exactly the burst a PTY reader delivers.
+            for _ in range(40):
+                await queue.enqueue(TERMINAL, "x" * 100)
+            await asyncio.sleep(0.02)
+
+        async def body():
+            await burst()
+            first = len(armed)
+            # THE SECOND BATCH IS THE ARM THAT KEEPS THE FLAG HONEST. "Already armed" is only true
+            # of the batch that armed it; a flag hung on the QUEUE instead would be permanent, and
+            # every later full batch would fall back to waiting for a timer with no test noticing.
+            await burst()
+            return first, len(armed), "".join(w["output"] for w in queue.writes)
+
+        first, total, written = run(body())
+        self.assertEqual(
+            first, 1,
+            f"the full batch armed {first} flushes; each one becomes an asyncio task on the single "
+            "event loop the whole service shares, and all but the first find nothing to do",
+        )
+        self.assertEqual(
+            total, 2,
+            f"two full batches armed {total} flushes between them; a second batch that arms nothing "
+            "has to wait for a timer, which is the latency the immediate flush exists to avoid",
+        )
+        # POSITIVE CONTROL for both counts: a queue that armed NOTHING would satisfy neither the
+        # arithmetic above nor this, because the output would still be sitting in the pending state.
+        self.assertEqual(len(written), 8000, "the batched output did not all reach the writer")
+
     def test_a_terminal_ending_status_flushes_immediately(self):
         """`stopped`/`failed` is the last thing a console ever says. Holding it for the idle window
         leaves the dashboard showing a running terminal that has already exited."""

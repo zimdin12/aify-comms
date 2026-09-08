@@ -35,6 +35,27 @@ from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
+def _new_pending_state(last_seq: int) -> dict[str, Any]:
+    """One batch, waiting to become one frame.
+
+    ONE CONSTRUCTION SITE, because there are two: `enqueue` opens a batch and `_requeue_front`
+    rebuilds one around output a failed write handed back. A field added to one shape and not the
+    other is a KeyError on the requeue path, which is the path a live database lock takes.
+
+    `flush_armed` says a full-batch flush has already been scheduled for THIS batch. It belongs to
+    the batch rather than to the queue so it dies when the batch is flushed, with no separate reset
+    to forget.
+    """
+    return {
+        "chunks": deque(),
+        "chars": 0,
+        "status": "",
+        "dropped": 0,
+        "last_seq": int(last_seq),
+        "flush_armed": False,
+    }
+
+
 class TerminalOutputWriteQueue:
     def __init__(
         self,
@@ -96,7 +117,7 @@ class TerminalOutputWriteQueue:
                 # request -- a REGRESSED sequence is worse than a jumped one, because the dashboard
                 # drops `seq <= lastSeq` outright and the output simply disappears.
                 seq_start = max(int(base_seq or 0), int(self._seq_floor.get(terminal_id, 0))) + 1
-                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": seq_start}
+                state = _new_pending_state(seq_start)
                 self._pending[terminal_id] = state
                 self._seq_floor[terminal_id] = seq_start
                 if autoschedule:
@@ -111,7 +132,19 @@ class TerminalOutputWriteQueue:
                 return int(state["last_seq"])
             flush_now = state["chars"] >= self.max_batch_chars or terminal_status in {"stopped", "failed"}
             if flush_now:
-                self._schedule_flush_locked(terminal_id, delay=0)
+                # ARM IT ONCE PER BATCH. `_schedule_flush_locked` cannot flush inline -- it is called
+                # holding `self._lock`, which `flush_terminal` also takes -- so it defers by a
+                # millisecond, and every post arriving inside that millisecond still sees a batch
+                # over the cap and used to schedule ANOTHER flush task. All but the first find the
+                # state already gone and do nothing.
+                #
+                # MEASURED, flush tasks created per second of output: 65 at 100 KB/s (all timer
+                # work, nothing wasted), 251 at 1 MB/s, 56,465 at 8 MB/s -- the rate a verbose build
+                # log reaches. This service is SINGLE-WORKER by design, so that storm lands on the
+                # one event loop serving every dashboard poll, status read and message send.
+                if not state["flush_armed"]:
+                    state["flush_armed"] = True
+                    self._schedule_flush_locked(terminal_id, delay=0)
             else:
                 self._schedule_idle_flush_locked(terminal_id)
             return int(state["last_seq"])
@@ -269,7 +302,7 @@ class TerminalOutputWriteQueue:
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
-                state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": int(seq or 0)}
+                state = _new_pending_state(int(seq or 0))
                 self._pending[terminal_id] = state
             if output:
                 state["chunks"].appendleft(output)
