@@ -4,6 +4,33 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## A snapshot taken mid-escape-sequence loses the parser's half-read state (2026-09-09)
+
+FOUND BY REVIEW during the v0.6.3 whole-diff pass, reproduced against BOTH the original base and the
+current tip, and LOGGED rather than fixed -- the fix is a change to what a snapshot IS, not a patch.
+
+**The construction.** Feed a live screen `ESC[HAA`, then an INCOMPLETE `ESC[31;`, take a snapshot,
+then feed the suffix `1mB`.
+
+  * Parsed CONTINUOUSLY, the two halves join into `ESC[31;1m` and the screen reads **AAB**.
+  * Reconstructed FROM THE SNAPSHOT and then given the suffix, the screen reads **AA1mB** -- the
+    orphaned tail is printed as text, because the rebuilt parser never saw the opening half.
+
+**Why it is real and not theoretical.** A PTY chunk boundary can fall anywhere, including inside a
+CSI sequence, and every reader that rebuilds a screen from a snapshot rather than from the byte
+stream inherits this. `_UNTERMINATED_PRIVATE_CSI_RE` already holds back a chunk that ends mid-private
+-CSI for exactly this reason; that guard covers the PRIVATE sequences the fleet emits and not the
+general case.
+
+**Why it is not fixed here.** A live screen currently carries painted cells plus the sequence it has
+consumed. Making a snapshot resumable means carrying the emulator's PARSER state as well -- pyte's
+`Stream` has one and it is not part of any serialisation this service performs. That is a contract
+change with its own blast radius, and this version already carries several console fixes.
+
+**What it is NOT.** No live browser incidence is claimed. Nobody has seen a console garble traced to
+this, and the reproduction is a constructed pair of feeds. It is logged because the fix is real work
+and the knowledge is worth more written down than remembered.
+
 ## A hard kill of the host tier leaves every gateway host running, and the only reaper died with it (2026-09-05)
 
 Measured tonight, and it answers a question `gateway-orphans` has carried as "still unknown": an
