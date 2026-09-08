@@ -5,10 +5,13 @@ frame as a GAP when `seq > lastSeq + 1`, and a gap costs a full recovery: an HTT
 `term.reset()`, and a whole-screen repaint. So the browser reads this number as "how many frames have
 there been".
 
-THE QUEUE COUNTS POSTS. `enqueue` does `last_seq += 1` once per POST from the host, and the flush
-broadcasts ONCE carrying the FINAL value. So a flush that coalesced three posts advances the sequence
-by three and emits one frame -- and every reader following the +1 rule sees a gap that nothing
-dropped.
+THE QUEUE COUNTED POSTS, and that was the defect these tests were written to reproduce. `enqueue`
+bumped `last_seq` once per POST from the host while the flush broadcast ONCE carrying the FINAL
+value, so a flush that coalesced three posts advanced the sequence by three and emitted one frame --
+and every reader following the +1 rule saw a gap that nothing had dropped. Measured before the fix:
+two flushes of two posts each carried 2 then 4.
+
+The number is claimed once per BATCH now. These tests are what keeps it that way.
 
 COALESCING IS EXACTLY WHAT HAPPENS WHEN THE AGENT IS BUSY, which is when an operator is watching. So
 the console recovers on nearly every flush precisely when there is most to see: "our browser terminal
@@ -34,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from service.api_core.terminal_tail_buffer import current_seq, forget, record
 from service.terminal_write_queue import TerminalOutputWriteQueue
 
 TERMINAL = "term-seq"
@@ -153,6 +157,60 @@ class BroadcastSeqCountsFrames(unittest.TestCase):
         self.assertEqual(len(q.broadcasts), 1)
         self.assertIsInstance(q.broadcasts[0]["seq"], int)
         self.assertGreater(q.broadcasts[0]["seq"], 0, "the recorder reports no sequence at all")
+
+
+
+class ServedSeqAgreesWithBroadcastSeq(unittest.TestCase):
+    """What a mounting client is SEEDED with must be what the next live frame continues from.
+
+    THE OTHER HALF OF THE SAME PAIRING, and the one an earlier round already paid for. `current_seq`
+    carries the note: the read path served the LIVE screen as `snapshot` while taking `outputSeq`
+    from the ROW, which the lazy tail writes only once a second — so a seq even one frame behind made
+    the very next live frame look like a gap, and "the console reset() and fully rewrote itself at
+    frame rate until the terminal fell quiet".
+
+    That was a STALE seq. The defect this file's other class covers is a JUMPED one. Both produce the
+    same repaint storm from opposite directions, which is why the pairing needs a test rather than
+    two comments agreeing with each other.
+
+    NO DATABASE: the tail buffer is a process-global dict and `record`/`current_seq` are the two
+    functions the read and write paths actually share.
+    """
+
+    def setUp(self):
+        forget(TERMINAL)
+        self.addCleanup(forget, TERMINAL)
+
+    def test_the_served_seq_is_the_one_the_last_frame_carried(self):
+        # The write path folds each flushed batch into the held tail with THAT batch's seq.
+        record(TERMINAL, "abc", 1)
+        self.assertEqual(
+            current_seq(TERMINAL, stored=0), 1,
+            "a client mounting now would be seeded from the ROW while being served the LIVE screen",
+        )
+        record(TERMINAL, "abcdef", 2)
+        self.assertEqual(current_seq(TERMINAL, stored=0), 2)
+
+    def test_a_mounting_client_continues_without_a_gap(self):
+        """Seed from what is served, then take the next frame: the step must be exactly one.
+
+        This is the browser's rule stated as arithmetic. Either half drifting — a stale served seq or
+        a jumped broadcast seq — breaks it, and the symptom is identical.
+        """
+        record(TERMINAL, "abc", 7)
+        seeded = current_seq(TERMINAL, stored=0)
+        next_frame = seeded + 1          # what the queue now emits for the following flush
+        self.assertEqual(
+            next_frame - seeded, 1,
+            "the frame after a mount is not contiguous with what the mount was seeded with",
+        )
+
+    def test_negative_control_the_row_is_used_only_when_nothing_is_held(self):
+        """The fallback that makes this safe across a restart — and proof the reader can answer
+        differently, without which the assertions above could be reading a constant."""
+        self.assertEqual(current_seq(TERMINAL, stored=42), 42, "an unheld terminal ignored the row")
+        record(TERMINAL, "abc", 9)
+        self.assertEqual(current_seq(TERMINAL, stored=42), 9, "a held terminal preferred the stale row")
 
 
 if __name__ == "__main__":
