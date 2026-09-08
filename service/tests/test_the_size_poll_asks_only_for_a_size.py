@@ -7,8 +7,10 @@ WHAT IT COST, measured against the live fleet on 2026-09-08 with both controls i
     GET /health                     p50  1.4ms       242 bytes   <- the control
 
 The poll was fifteen times the control and four times the cost of listing every terminal on the
-host. Of its 147KB, the output buffer is 110KB encoded and the event page 48KB; `waitForTerminalSize`
-reads `cols` and `rows` and discards the rest. It runs up to THIRTY times at 100ms, and
+host. Of one measured 147,250-byte response the raw tail is 93,430 bytes and the event page 46,516,
+sized with the server's own encoder and checked by re-encoding the whole response against its wire
+size; `waitForTerminalSize` reads `cols` and `rows` and discards all of it. (The first version of
+this line said 110KB and 48KB, which came from a different terminal and a different encoder.) It runs up to THIRTY times at 100ms, and
 `forceTerminalRepaint` calls it TWICE, so one console Refresh can issue up to sixty of them. Sixty
 times those figures is 8.8MB and 1.3s -- CONDITIONAL ARITHMETIC on a p50, not an observed saving and
 not a bound on service time, which a median cannot supply. The common case is two to four polls. What

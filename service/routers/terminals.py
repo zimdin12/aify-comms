@@ -398,12 +398,13 @@ async def get_terminal(
         # widens its xterm to `renderedCols` (applyRenderedWidth), so a wide mirror still fits.
         await _attach_terminal_snapshot(term_dict, cols, rows)
         if view == "console":
-            # THE PROJECTION A CONSOLE ACTUALLY REPAINTS FROM, and nothing else. Measured on the live
-            # fleet 2026-09-08: the full response is 147,250 bytes, of which the raw output tail is
-            # 110KB encoded and the event page 48KB, while the console writes the 6KB snapshot and
-            # reads a handful of size fields. Every sequence gap costs one of these -- that is the
-            # standing suspect for the operator's intermittent lag -- and so does every console
-            # mount.
+            # THE PROJECTION A CONSOLE ACTUALLY REPAINTS FROM, and nothing else. One response
+            # measured on the live fleet 2026-09-08, decomposed with the server's own encoder and
+            # checked by re-encoding it against its wire size: 147,250 bytes, of which the raw
+            # output tail is 93,430 and the event page 46,516, while the console writes the
+            # 6,442-byte snapshot and reads a handful of size fields. Every sequence gap costs one
+            # of these -- that is the standing suspect for the operator's intermittent lag -- and so
+            # does every console mount.
             #
             # THE TAIL IS DROPPED ONLY WHEN THERE IS A SNAPSHOT TO REPLACE IT. Both console callers
             # write `snapshot || output`: the fallback is real and is taken whenever pyte could not

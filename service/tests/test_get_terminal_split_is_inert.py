@@ -74,7 +74,8 @@ _GRID_CLAMP_WAS = chr(10).join([
 
 #: DECLARED EDIT, 2026-09-08. The endpoint offers a named PROJECTION: the console's callers repaint
 #: from the snapshot and a handful of size fields, and were being sent 147,250 bytes to do it --
-#: 110KB of raw tail the snapshot replaces and a 48KB event page neither reads. The default response
+#: 93,430 bytes of raw tail the snapshot replaces and a 46,516-byte event page neither reads, sized
+#: with the server's own encoder and checked against the wire. The default response
 #: is untouched, which is what makes the addition safe without first proving no other consumer
 #: anywhere reads that page. Behaviour for every existing caller is unchanged, which is exactly why
 #: it has to be declared here rather than left to look like a divergence.
@@ -93,12 +94,13 @@ _CONSOLE_VIEW_SIGNATURE_WAS = (
 
 _CONSOLE_VIEW_BRANCH_NOW = chr(10).join([
     '        if view == "console":',
-    "            # THE PROJECTION A CONSOLE ACTUALLY REPAINTS FROM, and nothing else. Measured on the live",
-    "            # fleet 2026-09-08: the full response is 147,250 bytes, of which the raw output tail is",
-    "            # 110KB encoded and the event page 48KB, while the console writes the 6KB snapshot and",
-    "            # reads a handful of size fields. Every sequence gap costs one of these -- that is the",
-    "            # standing suspect for the operator's intermittent lag -- and so does every console",
-    "            # mount.",
+    "            # THE PROJECTION A CONSOLE ACTUALLY REPAINTS FROM, and nothing else. One response",
+    "            # measured on the live fleet 2026-09-08, decomposed with the server's own encoder and",
+    "            # checked by re-encoding it against its wire size: 147,250 bytes, of which the raw",
+    "            # output tail is 93,430 and the event page 46,516, while the console writes the",
+    "            # 6,442-byte snapshot and reads a handful of size fields. Every sequence gap costs one",
+    "            # of these -- that is the standing suspect for the operator's intermittent lag -- and so",
+    "            # does every console mount.",
     "            #",
     "            # THE TAIL IS DROPPED ONLY WHEN THERE IS A SNAPSHOT TO REPLACE IT. Both console callers",
     "            # write `snapshot || output`: the fallback is real and is taken whenever pyte could not",

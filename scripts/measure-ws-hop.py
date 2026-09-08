@@ -65,7 +65,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, WebSocket  # noqa: E402
-from websockets.exceptions import ConnectionClosed  # noqa: E402
+from websockets.exceptions import ConnectionClosedOK  # noqa: E402
 from websockets.sync.client import connect as ws_connect  # noqa: E402
 
 from service.ws import ConnectionManager  # noqa: E402
@@ -182,14 +182,17 @@ class Listener(threading.Thread):
                     # RuntimeError after every expected frame had landed, and the run published and
                     # returned 0 with `died` empty.
                     #
-                    # ORDERLY IS TWO THINGS, NOT ONE, and my first repair only knew about the first.
-                    # `close()` sets `finished` before closing the socket, so a teardown raise is
-                    # expected -- but the SERVER can close the connection too, at any moment, and
-                    # that is a clean end rather than a fault. Keying on `finished` alone reported
-                    # every one of those as a death, which would have fired on ordinary runs and got
-                    # the check switched off. So a websocket CLOSE is orderly whoever initiated it,
-                    # and anything else while `finished` is clear is the receiver dying.
-                    orderly = self.finished.is_set() or isinstance(failure, ConnectionClosed)
+                    # ORDERLY IS TWO THINGS, NOT ONE, and I have now got this wrong twice in
+                    # opposite directions. `close()` sets `finished` before closing the socket, so a
+                    # teardown raise is expected -- but the SERVER can close cleanly too, at any
+                    # moment, and keying on `finished` alone reported every one of those as a death.
+                    #
+                    # THEN THE REPAIR WENT TOO WIDE: `ConnectionClosed` is the BASE class, and
+                    # `ConnectionClosedError` inherits it -- an abnormal 1011, or a connection that
+                    # never completed a close handshake. Treating the hierarchy as orderly meant the
+                    # receiver could die of exactly the fault this check exists for and the run would
+                    # publish. Only a clean close (`ConnectionClosedOK`, codes 1000/1001) is orderly.
+                    orderly = self.finished.is_set() or isinstance(failure, ConnectionClosedOK)
                     if not orderly:
                         self.died = f"receive failed: {type(failure).__name__}: {failure}"
                     return
