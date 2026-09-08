@@ -2,7 +2,10 @@ import asyncio
 import json
 import tempfile
 import time
+import asyncio
 import unittest
+
+from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -2053,8 +2056,40 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(first.status_code, 200, first.text)
         self.assertEqual(second.status_code, 200, second.text)
+        # ONE NUMBER PER FRAME, NOT PER POST -- and these two posts join one pending batch, so they
+        # report the same frame. It asserted 1 then 2 until 2026-09-08, and that requirement was the
+        # operator's console lag: `realtime-socket.mjs` reads this sequence as a count of FRAMES, so
+        # a per-post counter advanced by three on a flush that coalesced three posts, the browser saw
+        # a gap nothing had dropped, and paid a full refetch plus `term.reset()` plus a whole-screen
+        # repaint for it. Coalescing happens exactly when the agent is busy.
+        #
+        # THE OLD ASSERTION HAD NO CONSUMER. This value is returned to aify-env, which never reads it
+        # -- zero matches for `outputSeq` across its tree, and its only mentions of `output_seq` are
+        # comments about the ARRIVAL ORDER the service assigns, which is unchanged. The number's
+        # readers are all in the dashboard and all three want frames.
+        #
+        # MONOTONIC IS STILL THE PROPERTY THIS TEST IS NAMED FOR, and it still holds: a sequence that
+        # went BACKWARDS would be dropped by the dashboard's `seq <= lastSeq` dedupe and the output
+        # would vanish with no recovery. Non-decreasing is the guarantee; strictly-increasing-per-post
+        # never was one anybody used.
         self.assertEqual(first.json()["terminal"]["outputSeq"], 1)
-        self.assertEqual(second.json()["terminal"]["outputSeq"], 2)
+        self.assertEqual(
+            second.json()["terminal"]["outputSeq"], 1,
+            "two posts coalescing into one frame reported different sequences",
+        )
+
+        # AND IT ADVANCES ONCE THE FRAME IS ACTUALLY EMITTED, which is the half that matters to a
+        # reader: flush the batch, post again, and the next frame is the next number.
+        asyncio.run(TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id))
+        third = self.client.post(
+            f"/api/v1/terminals/{terminal_id}/output",
+            json={"bridgeId": "bridge-current", "output": "c", "status": "attached"},
+        )
+        self.assertEqual(third.status_code, 200, third.text)
+        self.assertEqual(
+            third.json()["terminal"]["outputSeq"], 2,
+            "a post after a flush did not start the next frame",
+        )
     def test_environment_heartbeat_persists_terminal_capabilities(self):
         environment = self._heartbeat_environment(
             terminal=True,

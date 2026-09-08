@@ -145,14 +145,36 @@ class TerminalWriteQueueTests(unittest.TestCase):
 
     # ── sequence numbers ─────────────────────────────────────────────────────────────────────
 
-    def test_sequence_numbers_are_strictly_increasing_within_a_batch(self):
+    def test_every_post_in_one_batch_shares_the_frame_it_will_become(self):
+        """A batch is ONE broadcast, so the posts in it share ONE sequence.
+
+        THIS TEST USED TO REQUIRE THE OPPOSITE -- a strictly increasing number per POST -- and that
+        requirement was the operator's console lag. `realtime-socket.mjs` reads this number as a
+        count of FRAMES: `seq > lastSeq + 1` means one was dropped, and a drop costs a full recovery
+        (an HTTP refetch, a `term.reset()`, a whole-screen repaint). A per-post counter advanced by
+        three on a flush that coalesced three posts, so the browser saw a gap that nothing had
+        dropped. Measured before the change: two flushes of two posts each carried 2 then 4.
+
+        THE OLD PROPERTY HAD NO CONSUMER, which is why retargeting it costs nothing. The return
+        value becomes `outputSeq` in the POST response, and the sole caller is aify-env, which does
+        not read it -- zero matches across its `lib/` and `bin/`. The number's only readers are in
+        the dashboard, and all three of them want frames.
+
+        The regression guarantee is a SEPARATE property and is asserted by the test below, which is
+        the one that protects real output: the dashboard drops `seq <= lastSeq` outright.
+        """
         queue = self._queue()
 
         async def body():
             return [await queue.enqueue(TERMINAL, f"{i}") for i in range(5)]
 
         seqs = run(body())
-        self.assertEqual(seqs, sorted(set(seqs)), f"sequence regressed or repeated: {seqs}")
+        self.assertEqual(
+            len(set(seqs)), 1,
+            f"posts in one batch were given different sequences: {seqs}. They become a single "
+            "broadcast, so a reader counting frames would see gaps that nothing dropped.",
+        )
+        self.assertGreater(seqs[0], 0, "the batch was never given a sequence at all")
 
     def test_a_sequence_never_regresses_across_flushes(self):
         """`_seq_floor` exists because a concurrent request can read a stale `output_seq` from the

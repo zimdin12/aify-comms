@@ -78,13 +78,29 @@ class TerminalOutputWriteQueue:
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
-                seq_start = max(int(base_seq or 0), int(self._seq_floor.get(terminal_id, 0)))
+                # THE NUMBER IS CLAIMED ONCE PER BATCH, HERE, and every post that joins the batch
+                # shares it -- because the batch becomes exactly ONE frame.
+                #
+                # IT USED TO BE CLAIMED PER POST, and that is the whole of the operator's "our
+                # browser terminal kind of lags sometimes". `realtime-socket.mjs` reads this number
+                # as a count of FRAMES: `seq > lastSeq + 1` means one was dropped, and a drop costs a
+                # full recovery -- an HTTP refetch, a `term.reset()`, and a whole-screen repaint. A
+                # per-POST counter advances by three on a flush that coalesced three posts, so the
+                # browser saw a gap that nothing had dropped and recovered from it. Coalescing is
+                # exactly what happens when the agent is BUSY, which is when somebody is watching.
+                #
+                # MEASURED before the change, in `test_the_broadcast_seq_counts_frames_not_posts.py`:
+                # two flushes of two posts each carried 2 then 4.
+                #
+                # The floor still guards monotonicity against a stale `base_seq` read by a concurrent
+                # request -- a REGRESSED sequence is worse than a jumped one, because the dashboard
+                # drops `seq <= lastSeq` outright and the output simply disappears.
+                seq_start = max(int(base_seq or 0), int(self._seq_floor.get(terminal_id, 0))) + 1
                 state = {"chunks": deque(), "chars": 0, "status": "", "dropped": 0, "last_seq": seq_start}
                 self._pending[terminal_id] = state
+                self._seq_floor[terminal_id] = seq_start
                 if autoschedule:
                     self._schedule_max_flush_locked(terminal_id)
-            state["last_seq"] = int(state.get("last_seq") or 0) + 1
-            self._seq_floor[terminal_id] = state["last_seq"]
             if chunk:
                 state["chunks"].append(chunk)
                 state["chars"] += len(chunk)
