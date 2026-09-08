@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, WebSocket  # noqa: E402
+from websockets.exceptions import ConnectionClosed  # noqa: E402
 from websockets.sync.client import connect as ws_connect  # noqa: E402
 
 from service.ws import ConnectionManager  # noqa: E402
@@ -175,7 +176,22 @@ class Listener(threading.Thread):
             while not self.finished.is_set():
                 try:
                     raw = sock.recv()
-                except Exception:
+                except Exception as failure:
+                    # A SHUTDOWN AND A FAILURE LOOKED IDENTICAL HERE, and treating them alike made
+                    # the outer guard decorative: review stopped the receiver with a synthetic
+                    # RuntimeError after every expected frame had landed, and the run published and
+                    # returned 0 with `died` empty.
+                    #
+                    # ORDERLY IS TWO THINGS, NOT ONE, and my first repair only knew about the first.
+                    # `close()` sets `finished` before closing the socket, so a teardown raise is
+                    # expected -- but the SERVER can close the connection too, at any moment, and
+                    # that is a clean end rather than a fault. Keying on `finished` alone reported
+                    # every one of those as a death, which would have fired on ordinary runs and got
+                    # the check switched off. So a websocket CLOSE is orderly whoever initiated it,
+                    # and anything else while `finished` is clear is the receiver dying.
+                    orderly = self.finished.is_set() or isinstance(failure, ConnectionClosed)
+                    if not orderly:
+                        self.died = f"receive failed: {type(failure).__name__}: {failure}"
                     return
                 t1 = time.perf_counter()
                 if not self.recording:

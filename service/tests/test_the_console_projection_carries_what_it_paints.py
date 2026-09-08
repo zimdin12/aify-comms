@@ -3,9 +3,15 @@
 WHAT IT COSTS, measured against the live fleet 2026-09-08:
 
     GET /terminals/{id}?cols&rows   147,250 bytes on the wire, 21.1ms p50
-      terminal.output                110,343  encoded -- written only when there is NO snapshot
-      events                          47,971  -- read by nothing on this path
-      terminal.snapshot                6,086  -- the thing the console actually writes
+      terminal.output                 93,430   63.4%  written only when there is NO snapshot
+      events                          46,516   31.6%  read by nothing on this path
+      terminal.snapshot                6,442    4.4%  the thing the console actually writes
+      every other field + framing        862    0.6%  the size and sequence fields the caller reads
+
+ONE RESPONSE, ONE ENCODER, AND CHECKED BY RE-ENCODING IT. The first version of these figures mixed a
+different terminal's fields with this terminal's total and sized them with Python's default JSON
+settings rather than the compact UTF-8 the server emits -- so they summed to 164,400 against a whole
+of 147,250. They now come from one saved response and reproduce its wire size exactly.
 
 Both console callers do `term.write(snapshot || output)`, so the tail is a FALLBACK and the event
 page is not read at all. `view=console` answers what the caller is asking -- give me what I will

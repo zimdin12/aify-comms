@@ -328,7 +328,8 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     const cols = Math.max(20, term.cols || 80), rows = Math.max(5, term.rows || 24);
     if (stillMine()) { mine.renderedCols = term.cols; mine.fitCols = term.cols; }
     // THE CONSOLE PROJECTION: what this mount paints, without the raw tail it replaces with the
-    // snapshot below or the event page it never reads. 147,250 bytes on the live fleet otherwise.
+    // snapshot below or the event page it never reads. One live response is 147,250 bytes, 95% of
+    // it those two fields.
     const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}&view=console`);
     // SUPERSEDED WHILE THE SNAPSHOT WAS IN FLIGHT. Returning here stops the resize, the 700ms
     // settle and the second GET as well, all of which would address the PREVIOUS terminal.

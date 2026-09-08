@@ -116,8 +116,26 @@ function withBrowser(run) {
     activeElement: null,
   };
   const gets = [];
-  globalThis.fetch = async (url) => {
+  // WHAT THE PTY LAST ACKNOWLEDGED. The managed path nudges the size and then WAITS for the terminal
+  // to report it back, so a fake that always answers 80x24 never satisfies the nudge -- the wait
+  // runs its thirty attempts, throws, and the mount's own `catch` swallows it. The second snapshot
+  // fetch then never happens, silently, which is precisely how that request went untested.
+  let acknowledged = { cols: 80, rows: 24 };
+  globalThis.fetch = async (url, options = {}) => {
     gets.push(String(url));
+    if (String(url).includes("/resize")) {
+      try {
+        const body = JSON.parse(String(options.body || "{}"));
+        acknowledged = { cols: Number(body.cols), rows: Number(body.rows) };
+      } catch { /* leave the last acknowledgement in place */ }
+      return { ok: true, status: 200, text: async () => '{"ok":true}' };
+    }
+    if (String(url).includes("/size")) {
+      return {
+        ok: true, status: 200,
+        text: async () => JSON.stringify({ terminal: { id: "t", ...acknowledged } }),
+      };
+    }
     // The FIRST terminal's snapshot is held open so the test can switch consoles mid-flight, which
     // is the race. Everything else answers at once.
     if (String(url).includes("t-old")) await snapshotGate;
@@ -221,8 +239,8 @@ test("A SUPERSEDED MOUNT DOES NOT WRITE ownsPty INTO THE CONSOLE THAT REPLACED I
 
 test("the mount asks for the CONSOLE PROJECTION, like the resync it shares a payload with", async () => {
   // The mount and the resync read the same three things off this response -- the snapshot, the
-  // rendered size, and the sequence -- and the full payload is 147,250 bytes on the live fleet, of
-  // which 110KB is a raw tail the snapshot replaces and 48KB an event page neither reads.
+  // rendered size, and the sequence -- and one live response is 147,250 bytes, of which 93,430 is a
+  // raw tail the snapshot replaces and 46,516 an event page neither reads.
   //
   // ASSERTED WITH ITS OWN NEGATIVE: a URL merely CONTAINING the word would still pass if the width
   // were dropped, and a console fetched at the wrong width comes back garbled -- which is the defect
@@ -238,6 +256,45 @@ test("the mount asks for the CONSOLE PROJECTION, like the resync it shares a pay
     for (const url of snapshotGets) {
       assert.match(url, /view=console/, `the mount fetched the whole terminal: ${url}`);
       assert.match(url, /cols=\d+/, `the mount dropped the width it must render at: ${url}`);
+    }
+  });
+});
+
+test("A MANAGED mount asks for the projection on the SECOND snapshot fetch too", async () => {
+  // THE THIRD REQUEST IS ONLY REACHED WHEN THE MOUNT OWNS THE PTY. `ownsPty` is true only for a
+  // POSITIVELY managed agent, and every other test in this file mounts a resident one -- so the
+  // post-resize `fresh` fetch was never executed by any test, and review removed `view=console`
+  // from it with all four still green. Three request sites, two of them pinned, is not pinned.
+  //
+  // The resize legs are answered so `forceTerminalRepaint` completes: the size poll returns exactly
+  // what was asked for, which is what `waitForTerminalSize` waits on.
+  await withBrowser(async ({ releaseSnapshot, gets }) => {
+    const savedAgents = state.agents;
+    state.agents = [{ id: "a-managed", sessionMode: "managed", terminalId: "t-managed" }];
+    try {
+      const container = node();
+      const mounting = mountXtermForTerminal("t-managed", "a-managed", container, {}, {
+        resyncActiveConsole: async () => {},
+      });
+      releaseSnapshot();
+      await mounting;
+      await settle();
+
+      const snapshotGets = gets.filter((url) => url.includes("/terminals/") && url.includes("cols="));
+      // TWO, NOT ONE: the initial mount and the post-repaint refetch. Asserting only "every GET
+      // carries it" would pass on a run where the second one never happened at all, which is
+      // exactly the hole this test exists to close.
+      assert.ok(snapshotGets.length >= 2,
+        `the managed path must issue the post-resize refetch; it issued ${snapshotGets.length}: `
+        + `${JSON.stringify(snapshotGets)}`);
+      for (const url of snapshotGets) {
+        assert.match(url, /view=console/, `a snapshot fetch asked for the whole terminal: ${url}`);
+      }
+      // AND THE SIZE POLL IS THE LIGHT ONE, on the same path, for the same reason.
+      const sizeGets = gets.filter((url) => /\/terminals\/[^?]+\/size/.test(url));
+      assert.ok(sizeGets.length > 0, "the resize wait never polled, so the repaint leg did not run");
+    } finally {
+      state.agents = savedAgents;
     }
   });
 });

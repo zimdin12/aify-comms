@@ -9,9 +9,11 @@ WHAT IT COST, measured against the live fleet on 2026-09-08 with both controls i
 The poll was fifteen times the control and four times the cost of listing every terminal on the
 host. Of its 147KB, the output buffer is 110KB encoded and the event page 48KB; `waitForTerminalSize`
 reads `cols` and `rows` and discards the rest. It runs up to THIRTY times at 100ms, and
-`forceTerminalRepaint` calls it TWICE, so one console Refresh was bounded by sixty of them -- 8.8MB
-and 1.3s of service time, on a service that must stay single-worker and is shared by every other
-console on the host.
+`forceTerminalRepaint` calls it TWICE, so one console Refresh can issue up to sixty of them. Sixty
+times those figures is 8.8MB and 1.3s -- CONDITIONAL ARITHMETIC on a p50, not an observed saving and
+not a bound on service time, which a median cannot supply. The common case is two to four polls. What
+is not conditional is the per-poll cost, on a service that must stay single-worker and is shared by
+every other console on the host.
 
 WHAT THIS FILE PINS, and why each part needs pinning:
 

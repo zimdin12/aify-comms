@@ -141,8 +141,8 @@ test("resync fetches at the FITTED width, not the current one", async () => {
 
 test("resync asks for the CONSOLE PROJECTION, not the whole terminal", async () => {
   // This runs on every sequence gap -- the standing suspect for the operator's intermittent lag --
-  // and the full response is 147,250 bytes on the live fleet: 110KB of raw tail that the snapshot
-  // replaces, and a 48KB event page this function never reads, to write a 6KB snapshot.
+  // and one live response is 147,250 bytes: 93,430 of raw tail that the snapshot replaces and 46,516
+  // of event page this function never reads, to write a 6,442-byte snapshot.
   //
   // PINNED AS A REFUSAL AS WELL AS A REQUIREMENT. `match(/view=console/)` alone would still pass if
   // somebody dropped the width, so the size parameters are asserted in the same breath: this URL has
