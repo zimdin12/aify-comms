@@ -3742,6 +3742,26 @@ const EXTRACTIONS = [
         // The other half of the same fix: the snapshot alone left the console behind the stream, so
         // whatever the socket held is replayed before live frames resume.
         editedSince: [{
+          // A NULL SEQUENCE IS THE SERVER SAYING UNKNOWN, and `outputSeq ?? seq ?? lastSeq` hears
+          // that as "ask somebody else" -- so a console at 4 stayed at 4 while the server had just
+          // said it does not know where the screen is. The null has to be read as a value.
+          was: [
+            "    const snapshotSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);",
+          ],
+          now: [
+            "    // A NULL SEQUENCE IS THE SERVER SAYING UNKNOWN, AND `??` HEARS IT AS \"ASK SOMEBODY ELSE\".",
+            "    //",
+            "    // The chain `outputSeq ?? seq ?? entry.lastSeq` selects the FALLBACK on null, so a console whose",
+            "    // cursor was 4 stayed at 4 while the server had just said it does not know where the screen is.",
+            "    // Review caught it and also caught why my test missed it: that test started at -1, so it could",
+            "    // not detect a failed transition from KNOWN to unknown. The null had to be read as a value.",
+            "    const answered = data?.terminal ?? {};",
+            "    const told = \"outputSeq\" in answered ? answered.outputSeq",
+            "      : (\"seq\" in answered ? answered.seq : undefined);",
+            "    const snapshotSeq = told === null ? -1",
+            "      : Number(told === undefined ? entry.lastSeq : told);",
+          ],
+        }, {
           was: [
             "    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);",
           ],

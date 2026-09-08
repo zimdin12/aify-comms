@@ -268,15 +268,31 @@ test("A NULL SEQUENCE IS AN UNKNOWN POSITION, and NOT a zero", async () => {
   // NULL MUST NOT BECOME ZERO. `??` short-circuits on null before any `Number()` runs, so the chain
   // falls through to this entry's own value; a `||` there, or a `Number(null)`, would seed 0 and
   // tell the socket the console holds everything up to frame zero.
+  // FROM A KNOWN CURSOR, which is the whole point and which the first version of this test missed.
+  // It started at -1, so it could not tell a correct transition from no transition at all -- and
+  // there was no transition: `outputSeq ?? seq ?? lastSeq` SELECTS the fallback on null, so a
+  // console sitting at 4 stayed at 4 while the server said it did not know where the screen was.
+  // Review found both the defect and the vacuity in one reading.
   const h = withConsole({ snapshot: { terminal: { snapshot: "X", outputSeq: null } } });
   try {
-    const entry = makeEntry({ lastSeq: -1 });
+    const entry = makeEntry({ lastSeq: 4 });
     state.activeXterm = entry;
     await resyncActiveConsole();
     assert.equal(entry.lastSeq, -1,
-      `a null sequence seeded ${entry.lastSeq}; below zero is the only value that means UNKNOWN, `
-      + "because `realtime-socket.mjs` gates dedup and gap detection on `lastSeq >= 0`");
+      `a null sequence left the cursor at ${entry.lastSeq}; below zero is the only value that means `
+      + "UNKNOWN, because `realtime-socket.mjs` gates dedup and gap detection on `lastSeq >= 0`");
   } finally { h.restore(); }
+
+  // AND AN ABSENT FIELD IS NOT A NULL ONE. A response that never mentions the sequence says nothing
+  // about it; only an explicit null is the server saying it does not know.
+  const silent = withConsole({ snapshot: { terminal: { snapshot: "X" } } });
+  try {
+    const entry = makeEntry({ lastSeq: 4 });
+    state.activeXterm = entry;
+    await resyncActiveConsole();
+    assert.equal(entry.lastSeq, 4,
+      "a response that did not mention the sequence was read as the server saying UNKNOWN");
+  } finally { silent.restore(); }
 });
 
 test("forceRepaint only nudges the PTY when this pane OWNS it", async () => {

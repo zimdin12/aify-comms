@@ -320,6 +320,61 @@ test("CONTIGUOUS FRAMES ARRIVING DURING A FETCH ARE HELD TOO, not painted onto a
   }, { snapshotSeq: 4, delayMs: 25 });
 });
 
+test("HELD FRAMES SURVIVE AN UNKNOWN POSITION, which cannot be adjacent to anything", async () => {
+  // REVIEW'S TRACE, and it is the other half of serving `outputSeq: null`. An unknown position is
+  // `lastSeq = -1`, the adjacency rule then demands the first held frame be seq 0, no real frame
+  // ever is, and the drain CLEARS the queue at the end regardless. Three fetches, nothing painted,
+  // the output gone, and nothing left to notice -- `resyncing` is false and no further frame comes.
+  //
+  // WITH NO POSITION THERE IS NOTHING FOR A FRAME TO CONTRADICT. The run is seeded from its lowest
+  // sequence and the console adopts that position; after the first frame the adjacency rule resumes.
+  await withRealResync(async ({ fetches }) => {
+    const { entry, painted } = mountedConsole({ lastSeq: -1 });
+    resyncActiveConsole().catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    frame(5, "five");
+    frame(6, "six");
+    await new Promise((r) => setTimeout(r, 80));
+
+    const afterSnapshot = painted.slice(painted.lastIndexOf("SNAPSHOT") + 1);
+    assert.deepEqual(afterSnapshot, ["five", "six"],
+      `an unknown position threw the held frames away: ${JSON.stringify(painted)}`);
+    assert.equal(entry.lastSeq, 6, "the console did not adopt the position it just painted");
+    assert.deepEqual(entry.pendingFrames, [], "the queue outlived the recovery that resolved it");
+    assert.equal(fetches.length, 1, `one snapshot covered it; ${fetches.length} fetches were made`);
+  }, { snapshotSeqs: [null], delayMs: 25 });
+});
+
+test("THE SEED IS ONE FRAME, and the rest of that pass is held to adjacency as always", async () => {
+  // NEGATIVE CONTROL for the seed: it is a seed, not a mode. Once the first held frame has given
+  // the console a position, the rest of THAT PASS are held to the same adjacency rule -- otherwise
+  // an unknown position would license painting over a hole inside a single recovery.
+  //
+  // ACROSS PASSES IS A DIFFERENT QUESTION AND THE ANSWER IS DELIBERATE. Each pass resets the screen
+  // to a fresh snapshot, and a snapshot that again says UNKNOWN puts the position back to unknown --
+  // truthfully, because the screen it just painted has no known position either. So the next pass
+  // seeds again from what it still holds. That can put a later frame on a screen that may or may not
+  // contain the ones between; with no position, nothing can say which, and the alternative is
+  // dropping output. The bounded retry is what stops it repeating.
+  await withRealResync(async () => {
+    const { entry, painted } = mountedConsole({ lastSeq: -1 });
+    resyncActiveConsole().catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    frame(5, "five");
+    frame(9, "nine");                        // 6, 7 and 8 exist on the server and are nowhere here
+    await new Promise((r) => setTimeout(r, 200));
+
+    // THE FIRST PASS'S OWN SEGMENT, between its snapshot and the next reset. Reading the LAST
+    // segment would be reading a later pass and calling it this one.
+    const firstSnapshot = painted.indexOf("SNAPSHOT");
+    const nextReset = painted.indexOf("<reset>", firstSnapshot);
+    const firstPass = painted.slice(firstSnapshot + 1, nextReset === -1 ? undefined : nextReset);
+    assert.deepEqual(firstPass, ["five"],
+      `the seed painted past a gap inside one pass: ${JSON.stringify(painted)}`);
+    assert.ok(entry.lastSeq >= 5, "the console never adopted a position at all");
+  }, { snapshotSeqs: [null], delayMs: 25 });
+});
+
 test("A RECOVERY THAT CANNOT PLACE WHAT IT HELD FETCHES AGAIN, without waiting for another frame", async () => {
   // FOUND BY REVIEW, and the quiet agent is what makes it permanent. With a snapshot at 5 and 9/10
   // held, the replay correctly refuses to cross the gap -- and the first version of that fix then

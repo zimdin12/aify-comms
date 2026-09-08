@@ -86,7 +86,17 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     applyRenderedWidth(entry, entry.term, entry.container, data, Boolean(entry.ownsPty));
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
-    const snapshotSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
+    // A NULL SEQUENCE IS THE SERVER SAYING UNKNOWN, AND `??` HEARS IT AS "ASK SOMEBODY ELSE".
+    //
+    // The chain `outputSeq ?? seq ?? entry.lastSeq` selects the FALLBACK on null, so a console whose
+    // cursor was 4 stayed at 4 while the server had just said it does not know where the screen is.
+    // Review caught it and also caught why my test missed it: that test started at -1, so it could
+    // not detect a failed transition from KNOWN to unknown. The null had to be read as a value.
+    const answered = data?.terminal ?? {};
+    const told = "outputSeq" in answered ? answered.outputSeq
+      : ("seq" in answered ? answered.seq : undefined);
+    const snapshotSeq = told === null ? -1
+      : Number(told === undefined ? entry.lastSeq : told);
     // THE SEQUENCE DESCRIBES THE SCREEN, AND THE SCREEN WAS JUST RESET TO THE SNAPSHOT.
     //
     // THIS WAS A `Math.max` AND THAT LOST OUTPUT, found by the whole-diff review 2026-09-08. The
@@ -180,7 +190,25 @@ function drainHeldFrames(entry) {
   // was not, and the caller then marked the recovery finished. On a quiet agent no further frame
   // ever arrives to notice, so the console sits believing it is live with output it was handed and
   // threw away. The remainder stays queued and the caller fetches again.
+  // AN UNKNOWN POSITION CANNOT BE ADJACENT TO ANYTHING, and requiring it to be threw the frames
+  // away. Review's trace: a null snapshot leaves `lastSeq` at -1, the run below demands the first
+  // held frame be seq 0, no real frame ever is, and the queue is cleared at the end of this
+  // function -- three fetches, nothing painted, output gone, and nothing left to notice it.
+  //
+  // WITH NO POSITION THERE IS NOTHING TO CONTRADICT, so the held run is painted from its lowest
+  // sequence and the console adopts that position. It may repaint something the snapshot already
+  // held; it cannot drop anything, and this project's rule is that dropping is the worse failure.
+  // After the first frame the position is KNOWN again and the adjacency rule resumes for the rest,
+  // which is why this is a seed rather than a mode.
   let index = 0;
+  if (entry.lastSeq < 0 && replay.length) {
+    const first = replay[0];
+    try {
+      entry.term.write(first.output);
+      entry.lastSeq = first.seq;
+      index = 1;
+    } catch { index = 0; }
+  }
   for (; index < replay.length; index += 1) {
     const f = replay[index];
     if (f.seq <= entry.lastSeq) continue;
