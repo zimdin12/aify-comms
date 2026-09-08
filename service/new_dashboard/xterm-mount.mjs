@@ -327,7 +327,9 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     // full-screen TUIs. Prefer `snapshot`; fall back to raw `output` (e.g. pyte absent).
     const cols = Math.max(20, term.cols || 80), rows = Math.max(5, term.rows || 24);
     if (stillMine()) { mine.renderedCols = term.cols; mine.fitCols = term.cols; }
-    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);
+    // THE CONSOLE PROJECTION: what this mount paints, without the raw tail it replaces with the
+    // snapshot below or the event page it never reads. 147,250 bytes on the live fleet otherwise.
+    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}&view=console`);
     // SUPERSEDED WHILE THE SNAPSHOT WAS IN FLIGHT. Returning here stops the resize, the 700ms
     // settle and the second GET as well, all of which would address the PREVIOUS terminal.
     if (!stillMine()) return;
@@ -385,7 +387,7 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
           waitForSize: (nextCols, nextRows) => awaitTerminalSize(terminalId, nextCols, nextRows),
         });
         await new Promise((res) => setTimeout(res, 700));   // let the app repaint
-        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);
+        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}&view=console`);
         if (!stillMine()) return;
         if (fresh?.terminal?.snapshot) data.terminal = fresh.terminal;
       } catch { /* best-effort: fall back to the snapshot we already have */ }

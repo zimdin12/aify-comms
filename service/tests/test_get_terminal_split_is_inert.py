@@ -72,6 +72,52 @@ _GRID_CLAMP_WAS = chr(10).join([
     '                eff_rows = max(5, min(int(rows), 200))',
 ])
 
+#: DECLARED EDIT, 2026-09-08. The endpoint offers a named PROJECTION: the console's callers repaint
+#: from the snapshot and a handful of size fields, and were being sent 147,250 bytes to do it --
+#: 110KB of raw tail the snapshot replaces and a 48KB event page neither reads. The default response
+#: is untouched, which is what makes the addition safe without first proving no other consumer
+#: anywhere reads that page. Behaviour for every existing caller is unchanged, which is exactly why
+#: it has to be declared here rather than left to look like a divergence.
+_CONSOLE_VIEW_SIGNATURE_NOW = chr(10).join([
+    "async def get_terminal(",
+    "    terminal_id: str,",
+    "    cols: Optional[int] = None,",
+    "    rows: Optional[int] = None,",
+    "    view: Optional[str] = None,",
+    "):",
+])
+
+_CONSOLE_VIEW_SIGNATURE_WAS = (
+    "async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optional[int] = None):"
+)
+
+_CONSOLE_VIEW_BRANCH_NOW = chr(10).join([
+    '        if view == "console":',
+    "            # THE PROJECTION A CONSOLE ACTUALLY REPAINTS FROM, and nothing else. Measured on the live",
+    "            # fleet 2026-09-08: the full response is 147,250 bytes, of which the raw output tail is",
+    "            # 110KB encoded and the event page 48KB, while the console writes the 6KB snapshot and",
+    "            # reads a handful of size fields. Every sequence gap costs one of these -- that is the",
+    "            # standing suspect for the operator's intermittent lag -- and so does every console",
+    "            # mount.",
+    "            #",
+    "            # THE TAIL IS DROPPED ONLY WHEN THERE IS A SNAPSHOT TO REPLACE IT. Both console callers",
+    "            # write `snapshot || output`: the fallback is real and is taken whenever pyte could not",
+    "            # render (it is optional, and a dead terminal has its buffer forgotten). Dropping the",
+    "            # tail unconditionally would blank exactly the screen an operator opens a dead console to",
+    "            # read. So the server answers the question the caller is actually asking -- give me what",
+    "            # I will paint -- rather than being handed a list of fields to omit.",
+    "            #",
+    "            # A NAMED PROJECTION RATHER THAN A BAG OF TOGGLES, and the default is untouched: a caller",
+    "            # that does not ask for it gets exactly today's response, so nothing else on this",
+    "            # endpoint had to be proven uninterested in the event page first.",
+    '            if term_dict.get("snapshot"):',
+    '                term_dict.pop("output", None)',
+    '            return {"ok": True, "terminal": term_dict, "view": "console"}',
+    "        return {",
+])
+
+_CONSOLE_VIEW_BRANCH_WAS = "        return {"
+
 #: DECLARED EDIT, 2026-08-29. `GET /terminals/{id}` reads one row wider than the page and says
 #: whether the event list is truncated, and the cap moved to `TERMINAL_EVENTS_KEPT_PER_TERMINAL`
 #: -- it was written as a literal here AND in the pruner. Undone rather than re-captured, so the
@@ -91,6 +137,8 @@ EDITED_SINCE = [
     ),
     (_EVENTS_QUERY_NOW, _EVENTS_QUERY_WAS),
     (_GRID_CLAMP_NOW, _GRID_CLAMP_WAS),
+    (_CONSOLE_VIEW_SIGNATURE_NOW, _CONSOLE_VIEW_SIGNATURE_WAS),
+    (_CONSOLE_VIEW_BRANCH_NOW, _CONSOLE_VIEW_BRANCH_WAS),
 ]
 
 EXTRACTIONS = ["_attach_terminal_snapshot"]

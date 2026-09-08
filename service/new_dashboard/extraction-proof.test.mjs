@@ -2369,7 +2369,9 @@ const EXTRACTIONS = [
               "    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);",
             ],
             now: [
-              "    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}`);",
+              "    // THE CONSOLE PROJECTION: what this mount paints, without the raw tail it replaces with the",
+              "    // snapshot below or the event page it never reads. 147,250 bytes on the live fleet otherwise.",
+              "    const data = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${cols}&rows=${rows}&view=console`);",
               "    // SUPERSEDED WHILE THE SNAPSHOT WAS IN FLIGHT. Returning here stops the resize, the 700ms",
               "    // settle and the second GET as well, all of which would address the PREVIOUS terminal.",
               "    if (!stillMine()) return;",
@@ -2407,7 +2409,7 @@ const EXTRACTIONS = [
             ],
             now: [
               "        await new Promise((res) => setTimeout(res, 700));   // let the app repaint",
-              "        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}`);",
+              "        const fresh = await api(`/terminals/${encodeURIComponent(terminalId)}?cols=${c}&rows=${r2}&view=console`);",
               "        if (!stillMine()) return;",
             ],
           },
@@ -3724,6 +3726,20 @@ const EXTRACTIONS = [
           now: [
             "    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);",
             "    drainHeldFrames(entry);",
+          ],
+        }, {
+          // The resync asks for the console PROJECTION now. It runs on every sequence gap and was
+          // fetching 147,250 bytes -- 110KB of raw tail and a 48KB event page it never reads -- to
+          // write the 6KB snapshot.
+          was: [
+            "    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}`);",
+          ],
+          now: [
+            "    // THE CONSOLE PROJECTION. This runs on every sequence gap, and the full response is 147,250",
+            "    // bytes on the live fleet -- 110KB of raw tail and a 48KB event page this function never looks",
+            "    // at, to write the 6KB snapshot two lines below. `view=console` returns what gets painted, and",
+            "    // keeps the tail whenever there is no snapshot to replace it, which is the fallback below.",
+            "    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}&view=console`);",
           ],
         }],
         at: 2317,

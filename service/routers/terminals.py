@@ -331,7 +331,12 @@ async def get_terminal_size(terminal_id: str):
 
 
 @router.get("/terminals/{terminal_id}")
-async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optional[int] = None):
+async def get_terminal(
+    terminal_id: str,
+    cols: Optional[int] = None,
+    rows: Optional[int] = None,
+    view: Optional[str] = None,
+):
     await TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id)
     db = await get_db()
     try:
@@ -392,6 +397,27 @@ async def get_terminal(terminal_id: str, cols: Optional[int] = None, rows: Optio
         # console. The live screen is rendered at the PTY's OWN geometry; the client already
         # widens its xterm to `renderedCols` (applyRenderedWidth), so a wide mirror still fits.
         await _attach_terminal_snapshot(term_dict, cols, rows)
+        if view == "console":
+            # THE PROJECTION A CONSOLE ACTUALLY REPAINTS FROM, and nothing else. Measured on the live
+            # fleet 2026-09-08: the full response is 147,250 bytes, of which the raw output tail is
+            # 110KB encoded and the event page 48KB, while the console writes the 6KB snapshot and
+            # reads a handful of size fields. Every sequence gap costs one of these -- that is the
+            # standing suspect for the operator's intermittent lag -- and so does every console
+            # mount.
+            #
+            # THE TAIL IS DROPPED ONLY WHEN THERE IS A SNAPSHOT TO REPLACE IT. Both console callers
+            # write `snapshot || output`: the fallback is real and is taken whenever pyte could not
+            # render (it is optional, and a dead terminal has its buffer forgotten). Dropping the
+            # tail unconditionally would blank exactly the screen an operator opens a dead console to
+            # read. So the server answers the question the caller is actually asking -- give me what
+            # I will paint -- rather than being handed a list of fields to omit.
+            #
+            # A NAMED PROJECTION RATHER THAN A BAG OF TOGGLES, and the default is untouched: a caller
+            # that does not ask for it gets exactly today's response, so nothing else on this
+            # endpoint had to be proven uninterested in the event page first.
+            if term_dict.get("snapshot"):
+                term_dict.pop("output", None)
+            return {"ok": True, "terminal": term_dict, "view": "console"}
         return {
             "ok": True,
             "terminal": term_dict,

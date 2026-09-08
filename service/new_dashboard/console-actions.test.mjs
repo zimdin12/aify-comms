@@ -139,6 +139,25 @@ test("resync fetches at the FITTED width, not the current one", async () => {
   } finally { h.restore(); }
 });
 
+test("resync asks for the CONSOLE PROJECTION, not the whole terminal", async () => {
+  // This runs on every sequence gap -- the standing suspect for the operator's intermittent lag --
+  // and the full response is 147,250 bytes on the live fleet: 110KB of raw tail that the snapshot
+  // replaces, and a 48KB event page this function never reads, to write a 6KB snapshot.
+  //
+  // PINNED AS A REFUSAL AS WELL AS A REQUIREMENT. `match(/view=console/)` alone would still pass if
+  // somebody dropped the width, so the size parameters are asserted in the same breath: this URL has
+  // to stay the console's question, not merely contain the new word.
+  const h = withConsole();
+  try {
+    state.activeXterm = makeEntry({ fitCols: 100, term: { cols: 100, rows: 40, write() {}, reset() {} } });
+    await resyncActiveConsole();
+    assert.equal(h.gets.length, 1);
+    assert.match(h.gets[0], /view=console/, "the resync must ask for the projection it repaints from");
+    assert.match(h.gets[0], /cols=100/);
+    assert.match(h.gets[0], /rows=40/);
+  } finally { h.restore(); }
+});
+
 test("THE RE-ENTRANCY GUARD HOLDS — one gap cannot fan out into a resize loop", async () => {
   // A PTY resize emits a burst of repaint frames, which can themselves expose a transient seq gap,
   // which starts another resync and another resize. This is the observed 153↔154-cols flicker.

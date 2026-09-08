@@ -66,7 +66,11 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
         await new Promise((res) => setTimeout(res, 700));
       } catch { /* best-effort */ }
     }
-    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}`);
+    // THE CONSOLE PROJECTION. This runs on every sequence gap, and the full response is 147,250
+    // bytes on the live fleet -- 110KB of raw tail and a 48KB event page this function never looks
+    // at, to write the 6KB snapshot two lines below. `view=console` returns what gets painted, and
+    // keeps the tail whenever there is no snapshot to replace it, which is the fallback below.
+    const data = await api(`/terminals/${encodeURIComponent(entry.terminalId)}?cols=${fetchCols}&rows=${entry.term.rows}&view=console`);
     // reset() (not clear()) wipes any scrambled scrollback/alt-screen state before we
     // repaint the clean server-rendered snapshot — so Refresh actually un-scrambles.
     entry.term.reset();

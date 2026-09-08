@@ -115,7 +115,9 @@ function withBrowser(run) {
     createElement: () => node(), body: node(), addEventListener() {}, removeEventListener() {},
     activeElement: null,
   };
+  const gets = [];
   globalThis.fetch = async (url) => {
+    gets.push(String(url));
     // The FIRST terminal's snapshot is held open so the test can switch consoles mid-flight, which
     // is the race. Everything else answers at once.
     if (String(url).includes("t-old")) await snapshotGate;
@@ -137,7 +139,11 @@ function withBrowser(run) {
     }
   };
   return Promise.resolve()
-    .then(() => run({ releaseSnapshot: () => releaseSnapshot(), setSnapshotSeq: (n) => { snapshotSeq = n; } }))
+    .then(() => run({
+      releaseSnapshot: () => releaseSnapshot(),
+      setSnapshotSeq: (n) => { snapshotSeq = n; },
+      gets,
+    }))
     .finally(restore);
 }
 
@@ -210,5 +216,28 @@ test("A SUPERSEDED MOUNT DOES NOT WRITE ownsPty INTO THE CONSOLE THAT REPLACED I
       state.activeXterm.ownsPty, false,
       "the superseded mount decided ownsPty for the console that replaced it",
     );
+  });
+});
+
+test("the mount asks for the CONSOLE PROJECTION, like the resync it shares a payload with", async () => {
+  // The mount and the resync read the same three things off this response -- the snapshot, the
+  // rendered size, and the sequence -- and the full payload is 147,250 bytes on the live fleet, of
+  // which 110KB is a raw tail the snapshot replaces and 48KB an event page neither reads.
+  //
+  // ASSERTED WITH ITS OWN NEGATIVE: a URL merely CONTAINING the word would still pass if the width
+  // were dropped, and a console fetched at the wrong width comes back garbled -- which is the defect
+  // the snapshot exists to prevent. So both halves of the question are pinned.
+  await withBrowser(async ({ releaseSnapshot, gets }) => {
+    const container = node();
+    const mounting = mountXtermForTerminal("t-new", "a-new", container, {}, { resyncActiveConsole: async () => {} });
+    releaseSnapshot();
+    await mounting;
+    await settle();
+    const snapshotGets = gets.filter((url) => url.includes("/terminals/"));
+    assert.ok(snapshotGets.length > 0, "the mount fetched nothing, so this asserts nothing");
+    for (const url of snapshotGets) {
+      assert.match(url, /view=console/, `the mount fetched the whole terminal: ${url}`);
+      assert.match(url, /cols=\d+/, `the mount dropped the width it must render at: ${url}`);
+    }
   });
 });
