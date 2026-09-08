@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import shutil
 import subprocess
 import unittest
@@ -144,19 +145,50 @@ def disagreements(defaults: dict, controls: list[dict]) -> list[str]:
     return found
 
 
+def displayed(control: dict, shown: dict) -> str | None:
+    """What the panel is SHOWING for this control, normalised to compare with what it was given.
+
+    Each widget carries its value somewhere different -- an attribute, a `checked` flag, a selected
+    option -- so a single field cannot be read for all of them.
+    """
+    if shown is None:
+        return None
+    kind = control.get("type")
+    if kind == "toggle":
+        return "true" if shown.get("checked") else "false"
+    if kind in ("select", "theme"):
+        return shown.get("selected")
+    return shown.get("value")
+
+
+def as_displayed(control: dict, value) -> str | None:
+    """The same value expressed the way its widget would show it, so the two can be compared."""
+    kind = control.get("type")
+    if kind == "toggle":
+        return "true" if value else "false"
+    if kind == "csv":
+        return ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+    if value is None:
+        return ""
+    return str(value)
+
+
 class SettingsControlsMatchTheirValues(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         node = shutil.which("node")
         if not node:
             raise unittest.SkipTest("node is not on PATH, so the real schema cannot be evaluated")
+        cls.defaults = declared_settings()
+        # THE DEFAULTS GO IN, so the probe can render the values the service actually ships with.
+        # Only Python declares them, and only JavaScript can say what the panel does with them.
         done = subprocess.run(
-            [node, str(PROBE)], cwd=str(REPO), capture_output=True, text=True,
+            [node, str(PROBE), json.dumps(cls.defaults)],
+            cwd=str(REPO), capture_output=True, text=True,
         )
         if done.returncode != 0:
             raise AssertionError(f"the schema probe failed:\n{done.stderr[:2000]}")
         cls.probe = json.loads(done.stdout)
-        cls.defaults = declared_settings()
         cls.controls = cls.probe["controls"]
 
     def test_the_probe_actually_rendered_the_panel(self):
@@ -224,6 +256,83 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
                     f"{widget['widgetType']!r}"
                 )
         self.assertEqual(wrong, [], "\n".join(["rendered widgets disagree with their types:"] + wrong))
+
+    def test_every_control_displays_the_value_it_was_GIVEN(self):
+        """FIDELITY, which movement cannot establish.
+
+        Review changed the number renderer to display `value + 1`. Every field still moved, moved
+        alone, and moved under the right key in the right widget -- and showed the wrong number.
+        Identity, responsiveness and fidelity are three separate obligations.
+        """
+        wrong = []
+        for control in self.controls:
+            arm = self.probe["syntheticArm"].get(control["key"])
+            if arm is None:
+                wrong.append(f"{control['key']}: the probe rendered no field for this control")
+                continue
+            want = as_displayed(control, arm["supplied"])
+            got = displayed(control, arm["shown"])
+            if got != want:
+                wrong.append(f"{control['key']}: given {want!r}, the panel shows {got!r}")
+        self.assertEqual(wrong, [], "\n".join(["controls display something other than their value:"] + wrong))
+
+    def test_every_control_displays_its_SHIPPED_DEFAULT_unaltered(self):
+        """The same claim against the values the service actually ships with, which is what an
+        operator opening Settings for the first time sees."""
+        wrong = []
+        inherited = []
+        for control in self.controls:
+            key = control["key"]
+            if key not in self.defaults:
+                continue
+            shown = self.probe["defaultsArm"].get(key)
+            want = as_displayed(control, self.defaults[key])
+            got = displayed(control, shown)
+            # A COLOUR THAT SHIPS EMPTY MEANS "INHERIT THE THEME", and the panel resolves it through
+            # `normalizedHexColor(value, fallback)` on purpose. The claim for those is stronger, not
+            # waived: an empty colour must resolve to a VALID hex, because a colour input showing
+            # nothing is a broken control.
+            if control.get("type") == "color" and want == "":
+                inherited.append(key)
+                if not re.fullmatch(r"#[0-9a-f]{6}", got or ""):
+                    wrong.append(f"{key}: inherits its colour but the panel shows {got!r}")
+                continue
+            if got != want:
+                wrong.append(f"{key}: ships {want!r}, the panel shows {got!r}")
+        self.assertEqual(wrong, [], "\n".join(["defaults are not displayed as they are:"] + wrong))
+        # POSITIVE CONTROL for the carve-out: if these stopped shipping empty, the branch above would
+        # silently stop being exercised and the weaker claim would apply to nothing.
+        self.assertEqual(
+            sorted(inherited),
+            ["dashboard_primary_color", "dashboard_secondary_color", "dashboard_tertiary_color"],
+            "the set of colours that inherit from the theme changed; re-decide the claim for them",
+        )
+
+    def test_the_bounds_the_panel_EMITS_admit_the_shipped_default(self):
+        """THE RENDERED CONTRACT, not the schema's copy of it.
+
+        Review replaced the renderer's `min="${item.min}"` with a literal and every check stayed
+        green, because the bounds were read from the schema the renderer was handed rather than from
+        what it drew. A browser obeys the attribute.
+        """
+        wrong = []
+        for control in self.controls:
+            key = control["key"]
+            if control.get("type") != "number" or key not in self.defaults:
+                continue
+            value = self.defaults[key]
+            if isinstance(value, bool) or not isinstance(value, int):
+                continue
+            shown = (self.probe["defaultsArm"] or {}).get(key) or {}
+            for name, emitted in (("min", shown.get("min")), ("max", shown.get("max"))):
+                if emitted is None:
+                    continue
+                limit = float(emitted)
+                if name == "min" and value < limit:
+                    wrong.append(f"{key}: the panel emits min={emitted} but the default is {value}")
+                if name == "max" and value > limit:
+                    wrong.append(f"{key}: the panel emits max={emitted} but the default is {value}")
+        self.assertEqual(wrong, [], "\n".join(["emitted bounds exclude their own defaults:"] + wrong))
 
     def test_a_setting_hidden_from_the_operator_is_named(self):
         shown = {c["key"] for c in self.controls}

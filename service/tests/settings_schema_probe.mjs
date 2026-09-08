@@ -21,7 +21,13 @@
 // NO BROWSER, NO NETWORK, NO APP. The only stub is the DOM calls `renderSettings` makes, so the HTML
 // it produces is the real one.
 //
-// Run: node service/tests/settings_schema_probe.mjs
+// FIDELITY IS A THIRD OBLIGATION, separate from identity and responsiveness. A renderer changed to
+// display `value + 1` moved the right field by the right amount under the right key and still showed
+// the wrong number; a renderer with a hardcoded `min` carried bounds the schema never declared. So a
+// second arm renders the SHIPPED DEFAULTS -- handed in as JSON by the caller, because only Python
+// knows them -- and reports what each field DISPLAYS and what bounds it EMITS.
+//
+// Run: node service/tests/settings_schema_probe.mjs '{"retention_days": 90, ...}'
 
 import { SETTINGS_SCHEMA, EFFORT_OPTS, PI_EFFORT_OPTS, renderSettings } from
   "../new_dashboard/settings-panel.mjs";
@@ -71,6 +77,9 @@ function fieldState(html, key) {
     value: attr("value"),
     checked: / checked(?=[\s>])/i.test(attrs),
     selected: null,
+    // EMITTED, not declared. The schema's min is what the panel was TOLD; this is what it drew.
+    min: attr("min"),
+    max: attr("max"),
   };
   if (tag === "select") {
     const rest = html.slice(opening.index);
@@ -147,12 +156,46 @@ if (!renderError) {
   });
 }
 
+// ── the second arm: what the panel shows for the values it actually ships with ────────────────
+//
+// The defaults arrive as JSON because only the Python side declares them. Without this arm the gate
+// compares a schema against a schema and calls it the rendered contract.
+let defaultsArm = null;
+if (!renderError && process.argv[2]) {
+  const supplied = JSON.parse(process.argv[2]);
+  const html = render({ ...supplied });
+  defaultsArm = {};
+  for (const control of controls) {
+    const found = fieldState(html, control.key);
+    defaultsArm[control.key] = found
+      ? { value: found.value, checked: found.checked, selected: found.selected,
+          min: found.min, max: found.max }
+      : null;
+  }
+}
+
+// And what the SYNTHETIC arm displayed, so fidelity can be checked without the real defaults too.
+const syntheticArm = {};
+if (!renderError) {
+  controls.forEach((control, index) => {
+    const found = fieldState(baseHtml, control.key);
+    syntheticArm[control.key] = {
+      supplied: pairFor(control, index)[0],
+      shown: found
+        ? { value: found.value, checked: found.checked, selected: found.selected }
+        : null,
+    };
+  });
+}
+
 process.stdout.write(JSON.stringify({
   controls,
   optionDomains: { EFFORT_OPTS, PI_EFFORT_OPTS },
   widgets,
   respondsToItsOwnValue,
   contaminates,
+  syntheticArm,
+  defaultsArm,
   renderError,
   renderedLength: baseHtml.length,
 }));

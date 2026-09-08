@@ -2,7 +2,9 @@
 
 **Status: CLOSED — the decision was taken and shipped.** `service/new_dashboard/state.mjs` exists and
 is imported across the dashboard, `app.js` is **996 lines**, and `oversized-allowlist.json` is EMPTY:
-no product source file is over the 1,000-line limit. Re-checked 2026-09-08.
+no GOVERNED non-test Python or JS source file is over the 1,000-line limit. That qualifier is
+load-bearing -- `install.sh` (2,975) and `styles.css` (1,850) are non-test source over it and are
+deliberately out of the gates' scope, held by a separate ratchet instead. Re-checked 2026-09-08.
 
 Everything below is the packet AS WRITTEN, measured on 2026-08-14 against an `app.js` of 4,903 lines.
 It is kept as the record of an argument, not as a description of the tree — the numbers in it are

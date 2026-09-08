@@ -72,6 +72,10 @@ COMMENT_CLOSE = "-->"
 #: Four spaces (or a tab) makes an indented code block. The first version STRIPPED indentation before
 #: matching, so an indented copy of the table read as the table itself.
 INDENTED_CODE = re.compile(r"^(\s{4,}|\t)\S")
+#: A line opening with a raw HTML tag starts an HTML BLOCK, whose contents CommonMark passes to the
+#: renderer verbatim. Wrapping the whole table in `<pre>` hid it from a reader that modelled fences
+#: and comments only. INLINE html mid-line is not this and does not hide anything.
+HTML_BLOCK = re.compile(r"^\s{0,3}</?[a-zA-Z][a-zA-Z0-9-]*")
 
 
 class HiddenConstruct(Exception):
@@ -119,6 +123,18 @@ def visible_text(markdown: str) -> str:
             continue
         if INDENTED_CODE.match(line):
             continue
+        # RAW HTML AT THE START OF A LINE OPENS AN HTML BLOCK, and CommonMark hands its contents to
+        # the renderer verbatim -- so a table inside `<pre>` is shown as preformatted text and is not
+        # a table at all. Rather than model every block tag and its closing rules, this REFUSES:
+        # supported grammar, and an explicit stop outside it. CLAUDE.md contains no raw block HTML
+        # today, so the refusal costs nothing until somebody adds some, which is when a human should
+        # decide what the gate ought to do about it.
+        if HTML_BLOCK.match(line):
+            raise HiddenConstruct(
+                f"CLAUDE.md opens a raw HTML block ({line.strip()[:40]!r}). This reader models "
+                "Markdown only, and content inside an HTML block is not what it appears to be, so "
+                "it refuses rather than guessing."
+            )
         out.append(line)
     if in_comment:
         raise HiddenConstruct(
@@ -278,6 +294,26 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         hidden = "prose\n<!-- someone forgot to close this\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n"
         with self.assertRaises(HiddenConstruct):
             documented_rows(hidden)
+
+    def test_a_table_inside_a_raw_HTML_BLOCK_refuses_rather_than_reading_it(self):
+        """`<pre>` around the table hid it from a reader that modelled fences and comments only.
+
+        CommonMark hands an HTML block's contents to the renderer verbatim, so a table in there is
+        preformatted text and not a table. Rather than model every block tag, this reader REFUSES:
+        supported grammar, and an explicit stop outside it.
+        """
+        wrapped = (
+            "prose\n\n<pre>\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n</pre>\n"
+        )
+        with self.assertRaises(HiddenConstruct):
+            documented_rows(wrapped)
+
+    def test_inline_html_mid_line_is_not_treated_as_a_block(self):
+        """POSITIVE CONTROL for the refusal. Inline markup hides nothing, and a reader that refused
+        every document containing a `<` would pass the test above while judging nothing at all."""
+        inline = ("some <b>bold</b> prose\n\n" + TABLE_HEADER
+                  + "\n|---|---|---|\n| 996 | `a.js` | 4 |\n")
+        self.assertEqual([path for _, path, _ in documented_rows(inline)], ["a.js"])
 
     def test_a_closed_comment_does_not_hide_what_follows_it(self):
         """POSITIVE CONTROL for the refusal above: a NORMAL comment must not swallow the document.
