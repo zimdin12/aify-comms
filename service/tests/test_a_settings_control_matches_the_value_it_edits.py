@@ -58,6 +58,19 @@ CONTROL_ACCEPTS = {
     "csv": (list,),
 }
 
+#: What each schema type must actually EMIT. The schema says a control is a number; the renderer
+#: decides whether it draws `<input type="number">`, and review changed only the renderer while every
+#: schema-based check stayed green. Two authorities, so both are read.
+WIDGET_FOR_TYPE = {
+    "toggle": "checkbox",
+    "number": "number",
+    "text": "text",
+    "color": "color",
+    "theme": "select",
+    "select": "select",
+    "csv": "text",
+}
+
 #: Declared but deliberately NOT on the panel. Each is an internal tunable whose value is a judgement
 #: about the service's own behaviour rather than an operator preference.
 NOT_OPERATOR_FACING = {
@@ -169,8 +182,8 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         """THE BINDING, measured rather than inferred from matching names.
 
         Review rewired one field to read another setting and every name-based check stayed green.
-        Changing one setting on its own must change the rendered panel; a field that does not
-        respond is not showing the value its label claims.
+        Changing one setting on its own must change the field that NAMES it -- read by its own
+        `data-setting-key`, not by comparing the whole panel.
         """
         inert = sorted(k for k, responds in self.probe["respondsToItsOwnValue"].items() if not responds)
         self.assertEqual(
@@ -178,6 +191,39 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
             f"these controls did not redraw when their own setting changed: {inert}. "
             "The panel is displaying something other than the value they name.",
         )
+
+    def test_no_control_moves_when_a_DIFFERENT_setting_changes(self):
+        """THE OTHER HALF, and the one a whole-panel comparison cannot see.
+
+        Review SWAPPED two fields' value bindings. Each key still changed the panel, so both were
+        credited as bound while each was displaying the other's value. A difference is only evidence
+        when it belongs to the field that names the setting, so a change anywhere else is a defect.
+        """
+        spills = {k: v for k, v in self.probe["contaminates"].items() if v}
+        self.assertEqual(
+            spills, {},
+            "changing one setting altered a field that names a DIFFERENT setting: "
+            f"{spills}. Those fields are showing each other's values.",
+        )
+
+    def test_every_control_emits_the_widget_its_type_promises(self):
+        """THE SCHEMA IS NOT THE RENDERER. Changing only the number renderer to emit a text input
+        left every schema-based check green, because both authorities were read from one of them."""
+        wrong = []
+        for control in self.controls:
+            widget = self.probe["widgets"].get(control["key"])
+            if widget is None:
+                wrong.append(f"{control['key']}: nothing rendered carries this key")
+                continue
+            expected = WIDGET_FOR_TYPE.get(control.get("type") or "")
+            if expected is None:
+                wrong.append(f"{control['key']}: type {control.get('type')!r} has no expected widget")
+            elif widget["widgetType"] != expected:
+                wrong.append(
+                    f"{control['key']}: declared {control.get('type')!r} but the panel emits "
+                    f"{widget['widgetType']!r}"
+                )
+        self.assertEqual(wrong, [], "\n".join(["rendered widgets disagree with their types:"] + wrong))
 
     def test_a_setting_hidden_from_the_operator_is_named(self):
         shown = {c["key"] for c in self.controls}

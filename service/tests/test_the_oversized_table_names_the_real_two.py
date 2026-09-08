@@ -21,9 +21,14 @@ changes nothing and would turn this gate red on every ordinary commit.
 THE TABLE IS FOUND, NOT GREPPED, and that is this file's own correction. Its first version matched
 `| 996 | \\`path\\` | 4 |` anywhere in the document with a MULTILINE regex, and review showed three
 carrier changes it stayed green through: wrapping the `doctor.js` row in an HTML comment, wrapping
-ALL NINE rows in one, and moving a row into a fenced example. A claim about what the document SHOWS
-cannot be read from text the document hides, so comments and fences are stripped before the table is
-located by its own header.
+ALL NINE rows in one, and moving a row into a fenced example.
+
+A SECOND ROUND FOUND THREE MORE, because the first fix modelled too little Markdown: a `~~~text`
+fence, four-space indentation, and an UNCLOSED `<!--`. So the reader now models fenced blocks of
+either character, indented code blocks, and comments -- and REFUSES the document outright when a
+construct is left open, because everything after it is hidden in a real renderer and carrying on
+would describe a document nobody sees. A claim about what the document SHOWS cannot be read from
+text the document hides.
 
 THE POPULATION COMES FROM THE GATE THAT OWNS IT. `_source_files` and `_line_count` are imported from
 `test_no_new_oversized_source_file.py`, and the JS half replicates its sibling's skip set and
@@ -58,25 +63,72 @@ JS_TEST = re.compile(r"\.test\.m?js$")
 TABLE_HEADER = "| lines | file | headroom |"
 ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*$")
 
-FENCE = re.compile(r"^\s*```")
-COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+#: A fenced block opens with three or more backticks OR tildes, per CommonMark, and closes with at
+#: least as many of the SAME character. Knowing only about backticks let a `~~~text` fence hide the
+#: whole table in plain sight.
+FENCE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})(.*)$")
+COMMENT_OPEN = "<!--"
+COMMENT_CLOSE = "-->"
+#: Four spaces (or a tab) makes an indented code block. The first version STRIPPED indentation before
+#: matching, so an indented copy of the table read as the table itself.
+INDENTED_CODE = re.compile(r"^(\s{4,}|\t)\S")
+
+
+class HiddenConstruct(Exception):
+    """The document uses something this reader cannot judge, so it refuses to judge the document."""
 
 
 def visible_text(markdown: str) -> str:
     """The document with everything a reader does not see removed.
 
-    HTML COMMENTS AND FENCED BLOCKS BOTH HIDE ROWS, and review demonstrated each. A comment is
-    invisible entirely; a fence is shown as an EXAMPLE, which is worse, because it looks like the
-    table while claiming nothing.
+    THREE CONSTRUCTS HIDE CONTENT and review demonstrated all three: an HTML comment removes it, a
+    fence shows it as an EXAMPLE, and four spaces of indentation does the same. The first two are
+    worse than removal, because they look like the table while claiming nothing.
+
+    FAILS CLOSED on an unclosed comment. Treating the rest of the file as visible is the assumption
+    that let an unterminated `<!--` leave the table apparently intact; refusing is the only honest
+    answer, because everything after it is hidden in a real renderer.
     """
-    without_comments = COMMENT.sub("", markdown)
-    out, fenced = [], False
-    for line in without_comments.split("\n"):
-        if FENCE.match(line):
-            fenced = not fenced
+    lines = markdown.split("\n")
+    out = []
+    fence = None            # the exact fence marker that opened the current block
+    in_comment = False
+    for line in lines:
+        if in_comment:
+            if COMMENT_CLOSE in line:
+                in_comment = False
+                # Anything after the close on the same line is visible again.
+                out.append(line.split(COMMENT_CLOSE, 1)[1])
             continue
-        if not fenced:
-            out.append(line)
+        if fence is not None:
+            opener = FENCE.match(line)
+            if opener and opener.group(2)[0] == fence[0] and len(opener.group(2)) >= len(fence):
+                fence = None
+            continue
+        opener = FENCE.match(line)
+        if opener:
+            fence = opener.group(2)
+            continue
+        if COMMENT_OPEN in line:
+            before, rest = line.split(COMMENT_OPEN, 1)
+            out.append(before)
+            if COMMENT_CLOSE in rest:
+                out.append(rest.split(COMMENT_CLOSE, 1)[1])
+            else:
+                in_comment = True
+            continue
+        if INDENTED_CODE.match(line):
+            continue
+        out.append(line)
+    if in_comment:
+        raise HiddenConstruct(
+            "CLAUDE.md contains an unclosed HTML comment, so everything after it is hidden from a "
+            "reader. This gate refuses to judge a document it cannot see."
+        )
+    if fence is not None:
+        raise HiddenConstruct(
+            f"CLAUDE.md contains an unclosed {fence!r} fence, so everything after it renders as code."
+        )
     return "\n".join(out)
 
 
@@ -204,6 +256,35 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         controls above while proving the document says nothing at all."""
         visible = self._document_with("| 996 | `a.js` | 4 |\n| 993 | `b.js` | 7 |")
         self.assertEqual(documented_rows(visible), [(996, "a.js", 4), (993, "b.js", 7)])
+
+    def test_a_table_inside_a_TILDE_fence_is_not_read_as_a_table(self):
+        """CommonMark fences open with backticks OR tildes. Knowing only about backticks let a
+        `~~~text` fence hide the whole table in plain sight."""
+        fenced = "prose\n\n~~~text\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n~~~\n"
+        self.assertEqual(documented_rows(fenced), [], "a tilde-fenced example was read as the table")
+
+    def test_a_table_indented_as_a_code_block_is_not_read_as_a_table(self):
+        """Four spaces makes a code block. The first reader STRIPPED indentation before matching, so
+        an indented copy read as the real thing."""
+        indented = (
+            "prose\n\n    " + TABLE_HEADER + "\n    |---|---|---|\n    | 996 | `x.js` | 4 |\n"
+        )
+        self.assertEqual(documented_rows(indented), [], "an indented code block was read as the table")
+
+    def test_an_unclosed_comment_refuses_the_document_rather_than_reading_past_it(self):
+        """FAIL CLOSED. Everything after an unterminated `<!--` is hidden in a real renderer, so a
+        reader that carries on is describing a document nobody sees. Refusing is the honest answer,
+        and it is what makes the three controls above meaningful rather than best-effort."""
+        hidden = "prose\n<!-- someone forgot to close this\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n"
+        with self.assertRaises(HiddenConstruct):
+            documented_rows(hidden)
+
+    def test_a_closed_comment_does_not_hide_what_follows_it(self):
+        """POSITIVE CONTROL for the refusal above: a NORMAL comment must not swallow the document.
+        A reader that refused every file containing `<!--` would pass the test above for the wrong
+        reason and never judge anything again."""
+        normal = "prose <!-- an aside --> more prose\n\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `a.js` | 4 |\n"
+        self.assertEqual([path for _, path, _ in documented_rows(normal)], ["a.js"])
 
     def test_the_reader_stops_at_the_end_of_the_table(self):
         """Prose after the table must not be scavenged for anything that looks like a row."""
