@@ -146,23 +146,53 @@ def disagreements(defaults: dict, controls: list[dict]) -> list[str]:
     return found
 
 
+#: The tags the settings panel is known to emit, measured across every arm on 2026-09-08. Pinning
+#: the VOCABULARY is what keeps this reader from silently mis-counting a container it does not model:
+#: `<template>` puts its contents in a DocumentFragment, `<noscript>` and `<iframe>` have their own
+#: rules, and a start tag looks identical inside all of them. Anything outside this set stops the
+#: gate rather than being guessed at.
+PANEL_TAGS = frozenset(
+    {"b", "button", "code", "div", "input", "label", "option", "p", "section", "select", "span"}
+)
+
+#: Containers whose contents a browser does not connect. Enumerated deliberately, and the claim below
+#: is bounded to them: `template` is the one review demonstrated, with 35 fields inside
+#: `template.content` and ZERO connected. Anything else with container semantics is caught by
+#: PANEL_TAGS instead of being modelled here.
+INERT_CONTAINERS = frozenset({"template"})
+
+
 class _FieldReader(HTMLParser):
-    """Every LIVE settings field in a rendered panel, by real parsing rather than by pattern.
+    """Every settings field a browser would CONNECT, by real parsing rather than by pattern.
 
     WHY THE STANDARD LIBRARY IS ENOUGH HERE. `HTMLParser` puts `<script>` and `<style>` into CDATA
     mode and routes comments to `handle_comment`, so their contents never arrive as start tags. That
-    is exactly the container semantics three rounds of pattern matching lacked: a field wrapped in a
-    comment, a CDATA section or an inert `<script type="text/plain">` simply is not a start tag, and
-    nothing has to enumerate what is forbidden.
+    is the container semantics three rounds of pattern matching lacked.
+
+    IT IS NOT A DOM, THOUGH, and that is the bound on the claim. A start tag inside `<template>` is
+    still a start tag here, while a browser puts it in a DocumentFragment where it is not an editable
+    setting -- review demonstrated exactly that. So template contents are skipped explicitly, and the
+    panel's tag vocabulary is pinned so any OTHER container arrives as a failure rather than as a
+    miscount.
     """
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.fields: dict[str, dict] = {}
         self.duplicates: list[str] = []
+        self.unexpected_tags: set[str] = set()
         self._select: str | None = None
+        self._inert_depth = 0
 
     def handle_starttag(self, tag, attrs):
+        if tag in INERT_CONTAINERS:
+            self._inert_depth += 1
+            return
+        if tag not in PANEL_TAGS:
+            self.unexpected_tags.add(tag)
+        # A FIELD INSIDE AN INERT CONTAINER IS NOT A FIELD. The browser never connects it.
+        if self._inert_depth:
+            return
         attributes = dict(attrs)
         key = attributes.get("data-setting-key")
         if tag in ("input", "select") and key:
@@ -184,16 +214,19 @@ class _FieldReader(HTMLParser):
             self.fields[self._select]["selected"] = attributes.get("value")
 
     def handle_endtag(self, tag):
+        if tag in INERT_CONTAINERS:
+            self._inert_depth = max(0, self._inert_depth - 1)
+            return
         if tag == "select":
             self._select = None
 
 
-def live_fields(html: str) -> tuple[dict[str, dict], list[str]]:
-    """The fields a browser would actually show, and any key rendered more than once."""
+def live_fields(html: str) -> tuple[dict[str, dict], list[str], set[str]]:
+    """The fields a browser would CONNECT, duplicates, and any tag outside the panel's vocabulary."""
     reader = _FieldReader()
     reader.feed(html)
     reader.close()
-    return reader.fields, reader.duplicates
+    return reader.fields, reader.duplicates, reader.unexpected_tags
 
 
 def displayed(control: dict, shown: dict) -> str | None:
@@ -245,11 +278,14 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         # check passed while the arm the defaults comparison drew from held no live fields at all.
         cls.parsed = {}
         cls.duplicates = {}
+        cls.unexpected = {}
         for name, html in cls.probe["arms"].items():
-            fields, duplicates = live_fields(html)
+            fields, duplicates, unexpected = live_fields(html)
             cls.parsed[name] = fields
             if duplicates:
                 cls.duplicates[name] = duplicates
+            if unexpected:
+                cls.unexpected[name] = sorted(unexpected)
 
     # ── what a parsed field shows, and how the arms compare ───────────────────────────────────
 
@@ -279,6 +315,14 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
                              + (f"; missing {missing[:4]}" if missing else ""))
         self.assertEqual(wrong, [], "\n".join(["arms did not render every field as a live element:"] + wrong))
         self.assertEqual(self.duplicates, {}, f"a key was rendered more than once: {self.duplicates}")
+        # THE VOCABULARY IS PINNED. A tag outside it may carry container semantics this reader does
+        # not model -- `<template>` puts its contents in a fragment a browser never connects -- so it
+        # stops the gate instead of being counted as though it were ordinary markup.
+        self.assertEqual(
+            self.unexpected, {},
+            f"the panel emitted tags outside its known vocabulary: {self.unexpected}. If that is "
+            "deliberate, decide what this gate should do about their container semantics first.",
+        )
 
     def test_the_probe_actually_rendered_the_panel(self):
         """POSITIVE CONTROL. Every assertion is vacuous on an empty schema or a panel that threw, and
