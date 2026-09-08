@@ -88,9 +88,13 @@ export function createChatController(deps) {
       ? `<button type="button" class="chat-rail-why" `
         + `aria-label="${esc(scopeText)}" title="${esc(scopeText)}">?</button>`
       : '';
+    // INSIDE THE HEADING, not above it (operator, 2026-09-08: "I hate that it takes a whole row, can
+    // we maybe add it as a small button on the same line as DIRECT MESSAGES text"). It was already a
+    // 16px `?` rather than the sentence -- the row it cost was the BLOCK it sat in, one line of rail
+    // above the first conversation on every partial render. Nothing about the button changes; it
+    // moves into the line that was already there.
     const html = (
-      scopeNote
-      + `<div class="chat-rail-section">Direct messages</div>`
+      `<div class="chat-rail-section">Direct messages${scopeNote}</div>`
       + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts, state.chat.identity === 'all')).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
       + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)

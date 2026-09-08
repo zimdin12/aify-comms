@@ -406,6 +406,21 @@ test("the hint is reachable by keyboard and named for a screen reader", async ()
   assert.match(html, /title="Showing the 80 most recent messages/, "the hint has no hover text");
 });
 
+test("THE HINT COSTS NO ROW: it sits inside the Direct messages heading", async () => {
+  // The operator, 2026-09-08: "I hate that it takes a whole row, can we maybe add it as a small
+  // button on the same line as DIRECT MESSAGES text." It was already a 16px `?` -- what cost the row
+  // was the BLOCK it sat in, emitted before the heading. Pinned here because "still renders" and
+  // "renders in the right place" are the same assertion to every other test in this file, so a
+  // future edit could put it back above the heading with the whole suite green.
+  const html = await railWith({ showing: 80, truncated: true });
+  const heading = /<div class="chat-rail-section">Direct messages(.*?)<\/div>/s.exec(html);
+  assert.ok(heading, "the Direct messages heading is gone");
+  assert.match(heading[1], /class="chat-rail-why"/,
+    "the hint is not inside the heading, so it is back to costing a row of its own");
+  assert.doesNotMatch(html.slice(0, html.indexOf("chat-rail-section")), /chat-rail-why/,
+    "the hint is emitted BEFORE the heading, which is the block that cost the row");
+});
+
 test("a complete rail says nothing", async () => {
   // The control. A note on every render is one nobody reads, and it would be false here.
   const html = await railWith({ showing: 12, truncated: false });
