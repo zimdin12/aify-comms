@@ -445,3 +445,12 @@ test("a STALE claim still refuses, and says why", () => {
   assert.match(html, /no claimer/, "a row that would be refused no longer says so");
   assert.doesNotMatch(html, /cannot be told/, "a KNOWN refusal was reported as unknown");
 });
+
+test("a spawn's error is readable in full: the cell wraps and carries the whole text on hover", () => {
+  // The refusal that started this: the dashboard showed `Workspace "/home/dev/projects/blei-lc-admin-front" is`
+  // and clipped the half that named the cause.
+  const reason = 'Workspace "/home/dev/projects/blei-lc-admin-front" is outside this environment\'s advertised roots';
+  const html = spawnRows([{ agentId: "lca-coder", status: "failed", error: reason }]);
+  assert.ok(html.includes('class="clip spawn-detail"'), "the error cell is the wrapping kind");
+  assert.ok(html.includes(`title="${reason.replace(/"/g, "&quot;").replace(/'/g, "&#39;")}"`), "the whole reason is on the cell's title");
+});
