@@ -52,8 +52,19 @@ function fnv1a(str) {
 }
 
 // Deterministic port for an agent, within the documented range 8642–9641.
+// Ports inside the range that another tier already listens on: the aify-comms service (8800),
+// Dashboard Next (8801) and aify-env (8802). An agent id that hashed onto one of them got a gateway
+// that could never bind -- and, until the launcher stopped killing by port, its kill_prior ended every
+// process with a socket there. "general-helper-gpt" hashes to 8800.
+export const RESERVED_PORTS = new Set([8800, 8801, 8802]);
+
 export function agentPort(agentId) {
-  return PORT_BASE + (fnv1a(agentId) % PORT_SPAN);
+  const offset = fnv1a(agentId) % PORT_SPAN;
+  for (let i = 0; i < PORT_SPAN; i += 1) {
+    const port = PORT_BASE + ((offset + i) % PORT_SPAN);
+    if (!RESERVED_PORTS.has(port)) return port;
+  }
+  return PORT_BASE + offset;
 }
 
 // Sanitize an agentId into a safe filename fragment (same charset rules as the
@@ -154,6 +165,7 @@ export async function resolveGatewayPort(
   let chosen = start;
   for (let i = 0; i < Math.max(1, probeSpan); i += 1) {
     const candidate = PORT_BASE + (((start - PORT_BASE) + i) % PORT_SPAN);
+    if (RESERVED_PORTS.has(candidate)) continue;
     // eslint-disable-next-line no-await-in-loop
     if ((await portFree(candidate)) && !claimed.has(candidate)) {
       chosen = candidate;
