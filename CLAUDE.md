@@ -356,8 +356,9 @@ true.
 | 755 | `service/api_core/status_inputs.py` | 245 |
 | 728 | `mcp/stdio/hermes-managed-host.js` | 272 |
 
-**533 files in the committed tree** (258 Python, 275 JS), none at or over the limit. TWO are
-within 20 lines of it.
+**535 files in the committed tree** (258 Python, 277 JS), none at or over the limit. TWO are
+within 20 lines of it. The two newest JS files are `scripts/browser-paint/`, the hop-5b renderer
+probe, at 299 and 208 lines.
 
 **RE-VERIFIED ROW BY ROW 2026-09-08 by importing the gate's own walk**, after this table had been
 wrong four times: all nine rows match their measured line counts exactly and the membership matches

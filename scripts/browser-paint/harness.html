@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hop 5b — what the browser pays to PAINT a console frame</title>
+<!-- THE DASHBOARD'S OWN VENDORED FILES, by relative path, so this measures the artifact the
+     operator's browser actually loads rather than a same-version copy from a CDN. They are served
+     to the browser from /assets/vendor by the service; here they are read off disk, because the
+     service requires an API key for static assets and a probe that authenticates as the operator
+     is measuring a different thing than a probe that does not need to. -->
+<link rel="stylesheet" href="../../service/new_dashboard/vendor/xterm.css">
+<script src="../../service/new_dashboard/vendor/xterm.js"></script>
+<script src="../../service/new_dashboard/vendor/addon-unicode11.js"></script>
+<script src="../../service/new_dashboard/vendor/addon-webgl.js"></script>
+<script src="console-arm.js"></script>
+<script src="probe.js"></script>
+<style>
+  html, body { margin: 0; background: #0b0f0e; color: #cfd8d4;
+               font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  /* THE PANE IS REAL AND ON SCREEN. A detached or zero-sized container lets xterm skip work a
+     visible console cannot skip, and the paint being measured is the one a viewer waits for. */
+  #stage { width: 1100px; height: 700px; padding: 8px; }
+  #out { white-space: pre; padding: 8px; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="out">idle — call runProbe()</div>
+</body>
+</html>
