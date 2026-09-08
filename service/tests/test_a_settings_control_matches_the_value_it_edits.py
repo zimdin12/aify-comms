@@ -38,6 +38,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+from html.parser import HTMLParser
 import shutil
 import subprocess
 import unittest
@@ -145,6 +146,56 @@ def disagreements(defaults: dict, controls: list[dict]) -> list[str]:
     return found
 
 
+class _FieldReader(HTMLParser):
+    """Every LIVE settings field in a rendered panel, by real parsing rather than by pattern.
+
+    WHY THE STANDARD LIBRARY IS ENOUGH HERE. `HTMLParser` puts `<script>` and `<style>` into CDATA
+    mode and routes comments to `handle_comment`, so their contents never arrive as start tags. That
+    is exactly the container semantics three rounds of pattern matching lacked: a field wrapped in a
+    comment, a CDATA section or an inert `<script type="text/plain">` simply is not a start tag, and
+    nothing has to enumerate what is forbidden.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.fields: dict[str, dict] = {}
+        self.duplicates: list[str] = []
+        self._select: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        key = attributes.get("data-setting-key")
+        if tag in ("input", "select") and key:
+            if key in self.fields:
+                self.duplicates.append(key)
+            self.fields[key] = {
+                "tag": tag,
+                "widgetType": "select" if tag == "select" else attributes.get("type"),
+                "declaredType": attributes.get("data-setting-type"),
+                "value": attributes.get("value"),
+                "checked": "checked" in attributes,
+                "selected": None,
+                "min": attributes.get("min"),
+                "max": attributes.get("max"),
+            }
+            self._select = key if tag == "select" else None
+            return
+        if tag == "option" and self._select and "selected" in attributes:
+            self.fields[self._select]["selected"] = attributes.get("value")
+
+    def handle_endtag(self, tag):
+        if tag == "select":
+            self._select = None
+
+
+def live_fields(html: str) -> tuple[dict[str, dict], list[str]]:
+    """The fields a browser would actually show, and any key rendered more than once."""
+    reader = _FieldReader()
+    reader.feed(html)
+    reader.close()
+    return reader.fields, reader.duplicates
+
+
 def displayed(control: dict, shown: dict) -> str | None:
     """What the panel is SHOWING for this control, normalised to compare with what it was given.
 
@@ -190,50 +241,67 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
             raise AssertionError(f"the schema probe failed:\n{done.stderr[:2000]}")
         cls.probe = json.loads(done.stdout)
         cls.controls = cls.probe["controls"]
+        # EVERY ARM, PARSED. Review hid the fields only at the shipped default, so a baseline-only
+        # check passed while the arm the defaults comparison drew from held no live fields at all.
+        cls.parsed = {}
+        cls.duplicates = {}
+        for name, html in cls.probe["arms"].items():
+            fields, duplicates = live_fields(html)
+            cls.parsed[name] = fields
+            if duplicates:
+                cls.duplicates[name] = duplicates
 
-    def test_the_rendered_panel_is_in_the_grammar_this_gate_can_read(self):
-        """REFUSAL, not best effort.
+    # ── what a parsed field shows, and how the arms compare ───────────────────────────────────
 
-        Every field here is found by pattern, so a construct that HIDES a field while leaving its
-        bytes in place satisfies the search. Review wrapped every rendered field in an HTML comment
-        at the real call site: the bytes were all still there, the patterns found all 35, and an HTML
-        parser found ZERO live fields.
+    def _shown(self, arm: str, key: str):
+        field = self.parsed.get(arm, {}).get(key)
+        if field is None:
+            return None
+        return (field["value"], field["checked"], field["selected"])
 
-        The panel emits no comments and no CDATA, so their presence means the output is no longer
-        what this gate knows how to read -- and the honest answer is to stop, not to keep matching.
+    def test_every_arm_rendered_the_full_set_of_LIVE_fields(self):
+        """THE GRAMMAR CHECK, on every specimen and by a real parser.
+
+        Three rounds of review defeated pattern-based extraction in turn -- an HTML comment, then
+        CDATA, then an inert `<script type="text/plain">`. `html.parser` puts scripts and styles into
+        CDATA mode and routes comments away, so a field inside any of them is not a start tag and
+        never becomes a field. Nothing here enumerates what is forbidden.
+
+        AND EVERY ARM, not just the baseline: review hid the fields ONLY at the shipped default, so a
+        baseline-only check passed while the arm the defaults comparison drew from held none.
         """
-        self.assertIsNone(
-            self.probe.get("grammarProblem"),
-            f"the settings panel is no longer readable by this gate: {self.probe.get('grammarProblem')}",
-        )
+        expected = len(self.controls)
+        wrong = []
+        for name, fields in sorted(self.parsed.items()):
+            if len(fields) != expected:
+                missing = sorted({c["key"] for c in self.controls} - set(fields))
+                wrong.append(f"{name}: {len(fields)} live field(s), expected {expected}"
+                             + (f"; missing {missing[:4]}" if missing else ""))
+        self.assertEqual(wrong, [], "\n".join(["arms did not render every field as a live element:"] + wrong))
+        self.assertEqual(self.duplicates, {}, f"a key was rendered more than once: {self.duplicates}")
 
     def test_the_probe_actually_rendered_the_panel(self):
-        """POSITIVE CONTROL. Every assertion below is vacuous on an empty schema or a panel that
-        threw, and a render that produced nothing looks exactly like one with no disagreements."""
+        """POSITIVE CONTROL. Every assertion is vacuous on an empty schema or a panel that threw, and
+        a render that produced nothing looks exactly like one with no disagreements."""
         self.assertIsNone(self.probe["renderError"], "the settings panel threw while rendering")
-        self.assertGreater(self.probe["renderedLength"], 1000, "the panel rendered almost nothing")
+        self.assertGreater(len(self.probe["arms"]["baseline"]), 1000, "the panel rendered almost nothing")
         self.assertGreater(len(self.controls), 30, "the evaluated schema holds almost no controls")
         self.assertGreater(len(self.defaults), 30, "DEFAULT_SETTINGS parsed as almost nothing")
 
     def test_no_setting_is_edited_by_two_controls(self):
-        """A duplicated key gives one value two widgets, and the regex this gate used to rely on
-        collapsed them into one row where they were undetectable."""
+        """A duplicated key gives one value two widgets. The parser reports it directly."""
         keys = [c["key"] for c in self.controls]
-        duplicates = sorted({k for k in keys if keys.count(k) > 1})
-        self.assertEqual(duplicates, [], f"these settings have more than one control: {duplicates}")
+        schema_duplicates = sorted({k for k in keys if keys.count(k) > 1})
+        self.assertEqual(schema_duplicates, [], f"the schema declares these twice: {schema_duplicates}")
 
     def test_every_control_agrees_with_the_value_it_edits(self):
         found = disagreements(self.defaults, self.controls)
         self.assertEqual(found, [], "\n".join(["controls disagree with their settings:"] + found))
 
     def test_every_control_redraws_when_its_own_setting_changes(self):
-        """THE BINDING, measured rather than inferred from matching names.
-
-        Review rewired one field to read another setting and every name-based check stayed green.
-        Changing one setting on its own must change the field that NAMES it -- read by its own
-        `data-setting-key`, not by comparing the whole panel.
-        """
-        inert = sorted(k for k, responds in self.probe["respondsToItsOwnValue"].items() if not responds)
+        """THE BINDING, read from the field that NAMES the setting."""
+        inert = [c["key"] for c in self.controls
+                 if self._shown(f"changed:{c['key']}", c["key"]) == self._shown("baseline", c["key"])]
         self.assertEqual(
             inert, [],
             f"these controls did not redraw when their own setting changed: {inert}. "
@@ -241,79 +309,60 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         )
 
     def test_no_control_moves_when_a_DIFFERENT_setting_changes(self):
-        """THE OTHER HALF, and the one a whole-panel comparison cannot see.
-
-        Review SWAPPED two fields' value bindings. Each key still changed the panel, so both were
-        credited as bound while each was displaying the other's value. A difference is only evidence
-        when it belongs to the field that names the setting, so a change anywhere else is a defect.
-        """
-        spills = {k: v for k, v in self.probe["contaminates"].items() if v}
+        """THE OTHER HALF. Review SWAPPED two bindings; each key still changed the panel, so a
+        whole-panel comparison credited both while each showed the other's value."""
+        spills = {}
+        for control in self.controls:
+            arm = f"changed:{control['key']}"
+            moved = [c["key"] for c in self.controls
+                     if c["key"] != control["key"]
+                     and self._shown(arm, c["key"]) != self._shown("baseline", c["key"])]
+            if moved:
+                spills[control["key"]] = moved
         self.assertEqual(
             spills, {},
-            "changing one setting altered a field that names a DIFFERENT setting: "
-            f"{spills}. Those fields are showing each other's values.",
+            f"changing one setting altered a field naming a DIFFERENT setting: {spills}",
         )
 
     def test_every_control_emits_the_widget_its_type_promises(self):
-        """THE SCHEMA IS NOT THE RENDERER. Changing only the number renderer to emit a text input
-        left every schema-based check green, because both authorities were read from one of them."""
+        """THE SCHEMA IS NOT THE RENDERER."""
         wrong = []
         for control in self.controls:
-            widget = self.probe["widgets"].get(control["key"])
-            if widget is None:
-                wrong.append(f"{control['key']}: nothing rendered carries this key")
+            field = self.parsed["baseline"].get(control["key"])
+            if field is None:
+                wrong.append(f"{control['key']}: nothing live carries this key")
                 continue
             expected = WIDGET_FOR_TYPE.get(control.get("type") or "")
             if expected is None:
                 wrong.append(f"{control['key']}: type {control.get('type')!r} has no expected widget")
-            elif widget["widgetType"] != expected:
-                wrong.append(
-                    f"{control['key']}: declared {control.get('type')!r} but the panel emits "
-                    f"{widget['widgetType']!r}"
-                )
+            elif field["widgetType"] != expected:
+                wrong.append(f"{control['key']}: declared {control.get('type')!r} but the panel emits "
+                             f"{field['widgetType']!r}")
         self.assertEqual(wrong, [], "\n".join(["rendered widgets disagree with their types:"] + wrong))
 
     def test_every_control_displays_the_value_it_was_GIVEN(self):
-        """FIDELITY, which movement cannot establish.
-
-        Review changed the number renderer to display `value + 1`. Every field still moved, moved
-        alone, and moved under the right key in the right widget -- and showed the wrong number.
-        Identity, responsiveness and fidelity are three separate obligations.
-        """
+        """FIDELITY, which movement cannot establish: a renderer showing `value + 1` moves the right
+        field by the right amount and shows the wrong number."""
         wrong = []
         for control in self.controls:
-            arm = self.probe["syntheticArm"].get(control["key"])
-            if arm is None:
-                wrong.append(f"{control['key']}: the probe rendered no field for this control")
-                continue
-            want = as_displayed(control, arm["supplied"])
-            got = displayed(control, arm["shown"])
+            key = control["key"]
+            want = as_displayed(control, self.probe["supplied"][key])
+            got = displayed(control, self.parsed["baseline"].get(key))
             if got != want:
-                wrong.append(f"{control['key']}: given {want!r}, the panel shows {got!r}")
+                wrong.append(f"{key}: given {want!r}, the panel shows {got!r}")
         self.assertEqual(wrong, [], "\n".join(["controls display something other than their value:"] + wrong))
 
     def test_every_control_displays_its_SHIPPED_DEFAULT_unaltered(self):
-        """The same claim against the values the service actually ships with, which is what an
-        operator opening Settings for the first time sees."""
-        wrong = []
-        inherited = []
+        """The same claim against the values an operator sees on first opening Settings."""
+        wrong, inherited = [], []
         for control in self.controls:
             key = control["key"]
             if key not in self.defaults:
                 continue
-            shown = self.probe["defaultsArm"].get(key)
             want = as_displayed(control, self.defaults[key])
-            got = displayed(control, shown)
-            # A COLOUR THAT SHIPS EMPTY MEANS "INHERIT THE THEME", and the panel resolves it through
-            # `normalizedHexColor(value, fallback)` on purpose. The claim for those is stronger, not
-            # waived: an empty colour must resolve to a VALID hex, because a colour input showing
-            # nothing is a broken control.
+            got = displayed(control, self.parsed["defaults"].get(key))
             if control.get("type") == "color" and want == "":
                 inherited.append(key)
-                # AGAINST THE SELECTED THEME'S PALETTE, not merely "some valid hex". Review replaced
-                # the fallback with a literal `#123456` and a format-only check passed: valid hex is
-                # not inheritance fidelity. The palette comes from the panel's own
-                # `paletteFromSettings` for the theme the defaults select.
                 slot = {
                     "dashboard_primary_color": "accent",
                     "dashboard_secondary_color": "secondary",
@@ -323,16 +372,12 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
                 if not re.fullmatch(r"#[0-9a-f]{6}", got or ""):
                     wrong.append(f"{key}: inherits its colour but the panel shows {got!r}")
                 elif expected and got != expected:
-                    wrong.append(
-                        f"{key}: inherits from theme {self.probe.get('themeKey')!r}, which defines "
-                        f"{expected!r}, but the panel shows {got!r}"
-                    )
+                    wrong.append(f"{key}: inherits from theme {self.probe.get('themeKey')!r}, which "
+                                 f"defines {expected!r}, but the panel shows {got!r}")
                 continue
             if got != want:
                 wrong.append(f"{key}: ships {want!r}, the panel shows {got!r}")
         self.assertEqual(wrong, [], "\n".join(["defaults are not displayed as they are:"] + wrong))
-        # POSITIVE CONTROL for the carve-out: if these stopped shipping empty, the branch above would
-        # silently stop being exercised and the weaker claim would apply to nothing.
         self.assertEqual(
             sorted(inherited),
             ["dashboard_primary_color", "dashboard_secondary_color", "dashboard_tertiary_color"],
@@ -340,12 +385,7 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         )
 
     def test_the_bounds_the_panel_EMITS_admit_the_shipped_default(self):
-        """THE RENDERED CONTRACT, not the schema's copy of it.
-
-        Review replaced the renderer's `min="${item.min}"` with a literal and every check stayed
-        green, because the bounds were read from the schema the renderer was handed rather than from
-        what it drew. A browser obeys the attribute.
-        """
+        """THE RENDERED CONTRACT, not the schema's copy of it. A browser obeys the attribute."""
         wrong = []
         for control in self.controls:
             key = control["key"]
@@ -354,8 +394,9 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
             value = self.defaults[key]
             if isinstance(value, bool) or not isinstance(value, int):
                 continue
-            shown = (self.probe["defaultsArm"] or {}).get(key) or {}
-            for name, emitted in (("min", shown.get("min")), ("max", shown.get("max"))):
+            field = self.parsed["defaults"].get(key) or {}
+            for name in ("min", "max"):
+                emitted = field.get(name)
                 if emitted is None:
                     continue
                 limit = float(emitted)

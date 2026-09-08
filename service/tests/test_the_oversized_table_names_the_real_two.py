@@ -43,6 +43,8 @@ import re
 import unittest
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+
 from service.tests.test_no_new_oversized_source_file import (
     LIMIT,
     _line_count,
@@ -63,120 +65,66 @@ JS_TEST = re.compile(r"\.test\.m?js$")
 TABLE_HEADER = "| lines | file | headroom |"
 ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*$")
 
-#: A fenced block opens with three or more backticks OR tildes, per CommonMark, and closes with at
-#: least as many of the SAME character. Knowing only about backticks let a `~~~text` fence hide the
-#: whole table in plain sight.
-FENCE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})(.*)$")
-COMMENT_OPEN = "<!--"
-COMMENT_CLOSE = "-->"
-#: Four spaces (or a tab) makes an indented code block. The first version STRIPPED indentation before
-#: matching, so an indented copy of the table read as the table itself.
-INDENTED_CODE = re.compile(r"^(\s{4,}|\t)\S")
-#: A line opening with RAW MARKUP of any kind starts a block CommonMark passes to the renderer
-#: verbatim, and its contents are then not what they appear to be.
-#:
-#: ANY `<`, NOT A LIST OF TAGS. This matched `</?[a-zA-Z]` first, so `<pre>` was refused and
-#: `<![CDATA[ ... ]]>` sailed through and hid the whole table -- and review rightly said that adding
-#: CDATA to a list of known-bad constructs is just another construct-specific regex. The allowed
-#: grammar is stated positively instead: a line of this document does not begin with `<`. Measured on
-#: the real file, zero lines do. Comments are handled before this and are the one exception.
-#:
-#: INLINE markup mid-line is not this and hides nothing, so it is not refused.
-HTML_BLOCK = re.compile(r"^\s{0,3}<")
+#: THE DIALECT, stated. CommonMark plus GFM tables, which is what renders this file.
+MARKDOWN = MarkdownIt("commonmark").enable("table")
+
+#: The heading cells that identify the watch-list among any other tables in the document.
+TABLE_HEADINGS = ("lines", "file", "headroom")
 
 
 class HiddenConstruct(Exception):
-    """The document uses something this reader cannot judge, so it refuses to judge the document."""
+    """Kept for the tests that assert a document is refused rather than misread.
 
-
-def visible_text(markdown: str) -> str:
-    """The document with everything a reader does not see removed.
-
-    THREE CONSTRUCTS HIDE CONTENT and review demonstrated all three: an HTML comment removes it, a
-    fence shows it as an EXAMPLE, and four spaces of indentation does the same. The first two are
-    worse than removal, because they look like the table while claiming nothing.
-
-    FAILS CLOSED on an unclosed comment. Treating the rest of the file as visible is the assumption
-    that let an unterminated `<!--` leave the table apparently intact; refusing is the only honest
-    answer, because everything after it is hidden in a real renderer.
+    A REAL PARSER MAKES MOST REFUSALS UNNECESSARY: content inside a comment, a fence, an indented
+    block, `<pre>`, CDATA or `<script>` simply never becomes a table, so there is nothing to refuse
+    and nothing to enumerate. What remains worth refusing is a document with NO watch-list table at
+    all, because that is indistinguishable from one whose table was hidden.
     """
-    lines = markdown.split("\n")
-    out = []
-    fence = None            # the exact fence marker that opened the current block
-    in_comment = False
-    for line in lines:
-        if in_comment:
-            if COMMENT_CLOSE in line:
-                in_comment = False
-                # Anything after the close on the same line is visible again.
-                out.append(line.split(COMMENT_CLOSE, 1)[1])
-            continue
-        if fence is not None:
-            opener = FENCE.match(line)
-            if opener and opener.group(2)[0] == fence[0] and len(opener.group(2)) >= len(fence):
-                fence = None
-            continue
-        opener = FENCE.match(line)
-        if opener:
-            fence = opener.group(2)
-            continue
-        if COMMENT_OPEN in line:
-            before, rest = line.split(COMMENT_OPEN, 1)
-            out.append(before)
-            if COMMENT_CLOSE in rest:
-                out.append(rest.split(COMMENT_CLOSE, 1)[1])
-            else:
-                in_comment = True
-            continue
-        if INDENTED_CODE.match(line):
-            continue
-        # RAW HTML AT THE START OF A LINE OPENS AN HTML BLOCK, and CommonMark hands its contents to
-        # the renderer verbatim -- so a table inside `<pre>` is shown as preformatted text and is not
-        # a table at all. Rather than model every block tag and its closing rules, this REFUSES:
-        # supported grammar, and an explicit stop outside it. CLAUDE.md contains no raw block HTML
-        # today, so the refusal costs nothing until somebody adds some, which is when a human should
-        # decide what the gate ought to do about it.
-        if HTML_BLOCK.match(line):
-            raise HiddenConstruct(
-                f"CLAUDE.md opens a raw HTML block ({line.strip()[:40]!r}). This reader models "
-                "Markdown only, and content inside an HTML block is not what it appears to be, so "
-                "it refuses rather than guessing."
-            )
-        out.append(line)
-    if in_comment:
-        raise HiddenConstruct(
-            "CLAUDE.md contains an unclosed HTML comment, so everything after it is hidden from a "
-            "reader. This gate refuses to judge a document it cannot see."
-        )
-    if fence is not None:
-        raise HiddenConstruct(
-            f"CLAUDE.md contains an unclosed {fence!r} fence, so everything after it renders as code."
-        )
-    return "\n".join(out)
+
+
+def _cells(tokens, start):
+    """The text of each cell in the row beginning at `start`, and the index after it."""
+    cells, i = [], start
+    while i < len(tokens) and tokens[i].type not in ("tr_close",):
+        if tokens[i].type == "inline":
+            cells.append(tokens[i].content.strip())
+        i += 1
+    return cells, i
 
 
 def documented_rows(markdown: str) -> list[tuple[int, str, int]]:
-    """The watch-list table, read as a TABLE: located by its header, ended by its first non-row.
+    """The watch-list table, parsed as Markdown rather than matched as text.
 
-    PURE, over text, so the tests below can feed it a document that hides its rows. A reader that has
-    only ever seen the real file has never been shown to miss anything.
+    THE WHOLE CLASS OF CARRIER MUTATIONS DIES HERE. A parser does not produce a table for text inside
+    a comment, a fence, an indented block, an HTML block of any kind, or a `<script>` -- and it does
+    not produce one for a pipe-delimited block with no delimiter row either, which is where the
+    hand-rolled reader failed last. Nothing needs to enumerate what is forbidden.
     """
-    lines = visible_text(markdown).split("\n")
-    try:
-        start = next(i for i, line in enumerate(lines) if line.strip() == TABLE_HEADER)
-    except StopIteration:
-        return []
-    rows = []
-    for line in lines[start + 1:]:
-        stripped = line.strip()
-        if not stripped:
-            break
-        if set(stripped) <= set("|-: "):     # the header separator
+    tokens = MARKDOWN.parse(markdown)
+    rows: list[tuple[int, str, int]] = []
+    i = 0
+    while i < len(tokens):
+        if tokens[i].type != "table_open":
+            i += 1
             continue
-        match = ROW.match(stripped)
-        if not match:
-            break
-        rows.append((int(match.group(1)), match.group(2), int(match.group(3))))
+        # Read this table's heading row to see whether it is the watch-list.
+        j, headings, body = i + 1, [], []
+        while j < len(tokens) and tokens[j].type != "table_close":
+            if tokens[j].type == "tr_open":
+                cells, j = _cells(tokens, j + 1)
+                (headings if not headings else body).append(cells)
+            j += 1
+        i = j + 1
+        if not headings or tuple(h.lower() for h in headings[0]) != TABLE_HEADINGS:
+            continue
+        for cells in body:
+            if len(cells) != 3:
+                continue
+            lines_text, path_text, headroom_text = cells
+            path = path_text.strip("`")
+            if not lines_text.isdigit() or not headroom_text.isdigit():
+                continue
+            rows.append((int(lines_text), path, int(headroom_text)))
     return rows
 
 
@@ -269,7 +217,7 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
             "a fenced example was read as the real table",
         )
 
-    def test_a_table_that_is_not_there_reads_as_no_rows_and_fails_loudly(self):
+    def test_a_document_with_no_table_reads_as_no_rows(self):
         """NEGATIVE CONTROL for the positive control above: an absent table must produce an empty
         list, which `test_both_readers_found_something` then reports rather than passing."""
         self.assertEqual(documented_rows("no table here at all\n"), [])
@@ -294,15 +242,15 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         )
         self.assertEqual(documented_rows(indented), [], "an indented code block was read as the table")
 
-    def test_an_unclosed_comment_refuses_the_document_rather_than_reading_past_it(self):
+    def test_a_table_after_an_unclosed_comment_is_not_a_table(self):
         """FAIL CLOSED. Everything after an unterminated `<!--` is hidden in a real renderer, so a
         reader that carries on is describing a document nobody sees. Refusing is the honest answer,
         and it is what makes the three controls above meaningful rather than best-effort."""
         hidden = "prose\n<!-- someone forgot to close this\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n"
-        with self.assertRaises(HiddenConstruct):
-            documented_rows(hidden)
+        self.assertEqual(documented_rows(hidden), [],
+                         "text after an unterminated comment was read as a table")
 
-    def test_a_table_inside_a_raw_HTML_BLOCK_refuses_rather_than_reading_it(self):
+    def test_a_table_inside_a_raw_HTML_BLOCK_is_not_a_table(self):
         """`<pre>` around the table hid it from a reader that modelled fences and comments only.
 
         CommonMark hands an HTML block's contents to the renderer verbatim, so a table in there is
@@ -312,10 +260,10 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         wrapped = (
             "prose\n\n<pre>\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n</pre>\n"
         )
-        with self.assertRaises(HiddenConstruct):
-            documented_rows(wrapped)
+        self.assertEqual(documented_rows(wrapped), [],
+                         "text inside an HTML block was read as a table")
 
-    def test_a_table_inside_CDATA_refuses_too(self):
+    def test_a_table_inside_CDATA_is_not_a_table(self):
         """The first version of the refusal matched `</?[a-zA-Z]`, so `<pre>` was caught and
         `<![CDATA[ ... ]]>` sailed through and hid the whole table.
 
@@ -325,17 +273,36 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         """
         wrapped = ("prose\n\n<![CDATA[\n" + TABLE_HEADER
                    + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n]]>\n")
-        with self.assertRaises(HiddenConstruct):
-            documented_rows(wrapped)
+        self.assertEqual(documented_rows(wrapped), [], "text inside CDATA was read as a table")
 
-    def test_a_processing_instruction_refuses_as_well(self):
-        """NOT A THIRD SPECIAL CASE -- the same rule, shown to cover something neither earlier
-        version named. If this passes only because somebody added `<?` to a list, the rule has gone
-        back to being a blacklist."""
+    def test_an_UNCLOSED_processing_instruction_swallows_the_table(self):
+        """CommonMark's HTML block type 3 runs until `?>`. Without one it takes the rest with it."""
+        wrapped = ("prose\n\n<?xml version=\"1.0\"\n" + TABLE_HEADER
+                   + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n")
+        self.assertEqual(documented_rows(wrapped), [],
+                         "a table inside an unterminated processing instruction was read as a table")
+
+    def test_a_CLOSED_processing_instruction_hides_nothing(self):
+        """AND THE OTHER DIRECTION, which I had wrong until the parser said so.
+
+        `<?xml version="1.0"?>` closes on its own line, so the block ends there and what follows is
+        an ordinary table. A reader that refused everything after any `<` would call this hidden and
+        be wrong -- which is precisely the failure mode of the hand-rolled version this replaced.
+        """
         wrapped = ("prose\n\n<?xml version=\"1.0\"?>\n" + TABLE_HEADER
                    + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n")
-        with self.assertRaises(HiddenConstruct):
-            documented_rows(wrapped)
+        self.assertEqual([path for _, path, _ in documented_rows(wrapped)], ["x.js"],
+                         "a closed processing instruction was treated as though it hid the table")
+
+    def test_a_pipe_block_with_no_delimiter_row_is_not_a_table(self):
+        """ORDINARY MARKDOWN, not an exotic wrapper, and the hand-rolled reader accepted it.
+
+        A GFM table needs its `|---|---|---|` row. Without one the block is a paragraph containing
+        pipe characters, which is what a browser renders and what markdown-it produces.
+        """
+        no_delimiter = ("prose\n\n" + TABLE_HEADER + "\n| 996 | `x.js` | 4 |\n")
+        self.assertEqual(documented_rows(no_delimiter), [],
+                         "a pipe-delimited paragraph with no delimiter row was read as a table")
 
     def test_inline_html_mid_line_is_not_treated_as_a_block(self):
         """POSITIVE CONTROL for the refusal. Inline markup hides nothing, and a reader that refused

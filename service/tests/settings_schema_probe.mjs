@@ -54,48 +54,6 @@ globalThis.document = {
   getElementById: (id) => (id === "settings-form" ? host : null),
 };
 
-/**
- * The rendered state of the field that NAMES this key: its tag, its widget type, and what it shows.
- *
- * Returns null when no field carries the key, which is itself an answer.
- */
-function fieldState(html, key) {
-  const opening = new RegExp(
-    `<(input|select)\\b[^>]*data-setting-key="${key}"[^>]*>`, "i",
-  ).exec(html);
-  if (!opening) return null;
-  const tag = opening[1].toLowerCase();
-  const attrs = opening[0];
-  const attr = (name) => {
-    const found = new RegExp(`\\b${name}="([^"]*)"`, "i").exec(attrs);
-    return found ? found[1] : null;
-  };
-  const state = {
-    tag,
-    widgetType: tag === "select" ? "select" : attr("type"),
-    declaredType: attr("data-setting-type"),
-    value: attr("value"),
-    checked: / checked(?=[\s>])/i.test(attrs),
-    selected: null,
-    // EMITTED, not declared. The schema's min is what the panel was TOLD; this is what it drew.
-    min: attr("min"),
-    max: attr("max"),
-  };
-  if (tag === "select") {
-    const rest = html.slice(opening.index);
-    const end = rest.indexOf("</select>");
-    const body = end >= 0 ? rest.slice(0, end) : rest;
-    const chosen = /<option[^>]*\bvalue="([^"]*)"[^>]*\bselected\b/i.exec(body);
-    state.selected = chosen ? chosen[1] : null;
-  }
-  return state;
-}
-
-function shown(state) {
-  if (!state) return null;
-  return JSON.stringify([state.value, state.checked, state.selected]);
-}
-
 /** Two distinct values for a control, BOTH representable in its own widget. */
 function pairFor(control, index) {
   if (control.type === "toggle") return [true, false];
@@ -116,121 +74,43 @@ function render(settings) {
   return host.innerHTML;
 }
 
+// ── every arm, as RAW HTML, for a real parser on the other side ──────────────────────────────
+//
+// NOTHING IS EXTRACTED HERE ANY MORE. Three rounds of review defeated pattern-based extraction in
+// turn -- an HTML comment, then CDATA, then `<script type="text/plain">` -- and each fix was another
+// forbidden marker. Python's `html.parser` has the container semantics that ends the class: the
+// contents of a script, a style or a comment are never start tags.
+//
+// EVERY ARM IS EMITTED, not just the baseline. Review comment-wrapped the fields ONLY when
+// `retention_days` held its shipped default, so a baseline-only grammar check passed while the arm
+// the defaults comparison was drawn from was entirely comments.
 let renderError = null;
 const baseline = {};
 controls.forEach((control, index) => { baseline[control.key] = pairFor(control, index)[0]; });
 
-let baseHtml = "";
+const arms = {};
 try {
-  baseHtml = render({ ...baseline });
+  arms.baseline = render({ ...baseline });
+  if (process.argv[2]) arms.defaults = render(JSON.parse(process.argv[2]));
+  controls.forEach((control, index) => {
+    const [, other] = pairFor(control, index);
+    arms[`changed:${control.key}`] = render({ ...baseline, [control.key]: other });
+  });
 } catch (error) {
   renderError = String(error && error.message ? error.message : error);
 }
 
-const widgets = {};
-const respondsToItsOwnValue = {};
-const contaminates = {};
+const supplied = {};
+controls.forEach((control, index) => { supplied[control.key] = pairFor(control, index)[0]; });
 
-if (!renderError) {
-  const baseFields = {};
-  for (const control of controls) {
-    const found = fieldState(baseHtml, control.key);
-    baseFields[control.key] = found;
-    widgets[control.key] = found
-      ? { tag: found.tag, widgetType: found.widgetType, declaredType: found.declaredType }
-      : null;
-  }
-
-  controls.forEach((control, index) => {
-    const [, other] = pairFor(control, index);
-    const changedHtml = render({ ...baseline, [control.key]: other });
-    // THE FIELD THAT NAMES THIS KEY must have changed...
-    respondsToItsOwnValue[control.key] =
-      shown(fieldState(changedHtml, control.key)) !== shown(baseFields[control.key]);
-    // ...and NOTHING ELSE may have. A swapped binding moves another field instead of, or as well as,
-    // this one, and a whole-panel comparison credits both.
-    contaminates[control.key] = controls
-      .map((other_) => other_.key)
-      .filter((key) => key !== control.key
-        && shown(fieldState(changedHtml, key)) !== shown(baseFields[key]));
-  });
-}
-
-// ── the second arm: what the panel shows for the values it actually ships with ────────────────
-//
-// The defaults arrive as JSON because only the Python side declares them. Without this arm the gate
-// compares a schema against a schema and calls it the rendered contract.
-let defaultsArm = null;
-if (!renderError && process.argv[2]) {
-  const supplied = JSON.parse(process.argv[2]);
-  const html = render({ ...supplied });
-  defaultsArm = {};
-  for (const control of controls) {
-    const found = fieldState(html, control.key);
-    defaultsArm[control.key] = found
-      ? { value: found.value, checked: found.checked, selected: found.selected,
-          min: found.min, max: found.max }
-      : null;
-  }
-}
-
-// And what the SYNTHETIC arm displayed, so fidelity can be checked without the real defaults too.
-const syntheticArm = {};
-if (!renderError) {
-  controls.forEach((control, index) => {
-    const found = fieldState(baseHtml, control.key);
-    syntheticArm[control.key] = {
-      supplied: pairFor(control, index)[0],
-      shown: found
-        ? { value: found.value, checked: found.checked, selected: found.selected }
-        : null,
-    };
-  });
-}
-
-// ── the grammar this probe can actually read ─────────────────────────────────────────────────
-//
-// EVERY FIELD IS FOUND BY PATTERN, which means a construct that HIDES a field while leaving its bytes
-// in place satisfies the search. Review wrapped every rendered field in `<!-- ... -->` at the real
-// call site: the bytes were all still there, the regex found all 35, and an HTML parser found zero
-// live fields. A comment is an alternate satisfier after execution exactly as it was in Markdown.
-//
-// The panel emits no comments and no CDATA today, so their PRESENCE means the output is no longer the
-// grammar this probe knows how to read -- and the honest answer to that is to refuse rather than to
-// keep matching. Modelling HTML properly would mean a parser; refusing costs nothing until somebody
-// makes the renderer emit one, which is when a human should decide what this should do.
-const UNREADABLE_HTML = [
-  ["an HTML comment", "<!--"],
-  ["a CDATA section", "<![CDATA["],
-];
-let grammarProblem = null;
-for (const [what, marker] of UNREADABLE_HTML) {
-  if (baseHtml.includes(marker)) {
-    grammarProblem = `the rendered panel contains ${what}; this probe reads plain elements only `
-      + "and cannot tell a live field from a hidden one, so it refuses to report on it";
-    break;
-  }
-}
-
-// ── what the SELECTED THEME says an inherited colour should be ───────────────────────────────
-//
-// A colour that ships empty inherits from the theme. Asserting only that a VALID hex appears is
-// format, not fidelity: review replaced the fallback with a literal `#123456` and every check passed.
-// So the palette the theme actually defines is reported, and the gate compares against it.
 const themeKey = process.argv[2] ? (JSON.parse(process.argv[2]).dashboard_theme || "default") : "default";
-const inheritedPalette = paletteFromSettings({}, themeKey);
 
 process.stdout.write(JSON.stringify({
   controls,
   optionDomains: { EFFORT_OPTS, PI_EFFORT_OPTS },
-  widgets,
-  respondsToItsOwnValue,
-  contaminates,
-  syntheticArm,
-  defaultsArm,
-  inheritedPalette,
+  supplied,
+  arms,
+  inheritedPalette: paletteFromSettings({}, themeKey),
   themeKey,
-  grammarProblem,
   renderError,
-  renderedLength: baseHtml.length,
 }));
