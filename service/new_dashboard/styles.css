@@ -740,7 +740,7 @@ small, .subtle { color: var(--muted); }
   overflow: visible;
   overflow-wrap: anywhere;
 }
-.run-source-context > div { min-width: 0; }
+.run-source-context > div { min-width: 0; } .run-source-body { color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 40vh; overflow-y: auto; }
 .run-event-list {
   display: grid;
   gap: 7px;

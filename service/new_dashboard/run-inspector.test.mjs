@@ -243,6 +243,55 @@ test("the drawer renders the run's identity and status", () => {
   } finally { h.restore(); }
 });
 
+// ── the detail view was rendering list markup ────────────────────────────────────────────────────
+//
+// OPERATOR, 2026-09-08: "why is message body cut in inspector, i understand it being shortened in
+// list view, but in inspector view....". Exactly right. This IS the view you open to read what a
+// list only summarised, so clipping it left nowhere in the product that shows the message a run was
+// started from. The clue was in the markup: the element carried `class="preview"`.
+//
+// AND A SECOND DEFECT ON THE SAME LINE, which is not visible from the screen. It read
+// `esc(sourceBody).slice(0, 180)` -- the cut landed in the ESCAPED string, so a boundary falling
+// inside an entity emitted half of one. Escaping and then cutting is always wrong in that direction.
+
+const LONG_BODY = `${"a".repeat(200)} TAIL_MARKER`;
+
+test("THE INSPECTOR SHOWS THE WHOLE MESSAGE BODY, not a preview of it", () => {
+  const h = withInspector({ ...RUNNING, body: LONG_BODY });
+  try {
+    renderRunInspector();
+    const html = h.els.get("inspector-content").innerHTML;
+    assert.match(html, /TAIL_MARKER/,
+      "the body is still clipped in the one view whose job is to show it in full");
+  } finally { h.restore(); }
+});
+
+test("THE BODY IS ESCAPED ONCE AND NEVER CUT AFTERWARDS", () => {
+  // A cut inside an entity emits a fragment of one. The body below puts `&` and `<` at a position a
+  // 180-character clamp would land on, so a renderer that still clips after escaping produces a
+  // broken entity rather than a shorter message.
+  const body = `${"b".repeat(176)}&<>"'${"c".repeat(40)}`;
+  const h = withInspector({ ...RUNNING, body });
+  try {
+    renderRunInspector();
+    const html = h.els.get("inspector-content").innerHTML;
+    // Every entity that appears is a COMPLETE one: no `&` survives except as the head of one.
+    const stray = [...html.matchAll(/&(?!(amp|lt|gt|quot|#39|#x27);)/g)];
+    assert.equal(stray.length, 0, `a broken HTML entity reached the drawer: ${html.slice(0, 400)}`);
+    assert.match(html, /&amp;&lt;&gt;/, "positive control: the escaping itself stopped happening");
+  } finally { h.restore(); }
+});
+
+test("A RUN WITH NO BODY STILL RENDERS, rather than printing 'undefined'", () => {
+  const h = withInspector(RUNNING);
+  try {
+    renderRunInspector();
+    const html = h.els.get("inspector-content").innerHTML;
+    assert.doesNotMatch(html, /undefined/);
+    assert.match(html, /run-source-body/, "the body element is gone entirely");
+  } finally { h.restore(); }
+});
+
 test("the Runs list filters by TO and RUNTIME, which are the two helpers that came with it", () => {
   // `runTo` and `runRuntime` were one-line consts left orphaned in app.js when their callers moved.
   // They read three field spellings each, because the API has changed shape twice.

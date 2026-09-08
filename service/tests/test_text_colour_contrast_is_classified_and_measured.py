@@ -158,8 +158,16 @@ class TextColourContrastIsClassifiedAndMeasured(unittest.TestCase):
         #: background, so its `var(--muted)` foreground is read against the bar behind it. MEASURED
         #: rather than assumed, because that is what this gate is for: `--muted` (#9eaaa5) on the
         #: bar's `--panel-2` (#1d2325) is 6.63:1, comfortably past the 4.5 floor.
-        self.assertEqual(TOTAL, 215, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
-        self.assertEqual(len(BUCKETS["INHERITED"]), 152)
+        #: 215 -> 216 and INHERITED 152 -> 153 on 2026-09-08: `.run-source-body`, the run inspector's
+        #: message body. The operator asked why that body was cut in the DETAIL view -- it was
+        #: rendering list markup, `class="preview"` and a 180-character slice applied AFTER escaping,
+        #: so a cut landing inside an entity emitted half of one. It is now the full body in its own
+        #: rule. INHERITED is the honest bucket: it sets no background, so its `var(--muted)`
+        #: foreground is read against the `--panel-3` its container paints. MEASURED, because a count
+        #: bumped without a number is the thing this gate exists to refuse: `--muted` (#9eaaa5) on
+        #: `--panel-3` (#12181a) is 7.47:1, against a 4.5 floor.
+        self.assertEqual(TOTAL, 216, f"the candidate population moved: {[(k, len(v)) for k, v in BUCKETS.items()]}")
+        self.assertEqual(len(BUCKETS["INHERITED"]), 153)
         self.assertEqual(len(BUCKETS["OWNS_OPAQUE"]), 34)
         self.assertEqual(len(BUCKETS["RUNTIME"]), 15)
         self.assertEqual(len(BUCKETS["COMPOSITE"]), 13)

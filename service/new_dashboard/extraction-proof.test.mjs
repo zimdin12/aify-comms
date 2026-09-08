@@ -3058,6 +3058,46 @@ const EXTRACTIONS = [
       },
       {
         name: "renderRunInspector",
+        // THE DETAIL VIEW WAS RENDERING LIST MARKUP. Operator, 2026-09-08: "why is message body cut
+        // in inspector, i understand it being shortened in list view, but in inspector view....".
+        // Exactly right -- this is the view you open to read what a list only summarised, so the
+        // clamp left nowhere in the product that shows the message a run was started from. The
+        // `class="preview"` on the element was the tell.
+        //
+        // AND A SECOND DEFECT ON THE SAME LINE, invisible from the screen: it sliced the ESCAPED
+        // string, so a cut landing inside an entity emitted half of one. Escaping and then cutting
+        // is always wrong in that direction.
+        editedSince: [
+          {
+            was: [
+              "  const sourceBody = sourceMessage?.body || sourceMessage?.preview || run.body || run.summary || '';",
+            ],
+            now: [
+              "  // THE WHOLE BODY, NOT A PREVIEW OF ONE. The operator asked why it was cut here, 2026-09-08: \"i",
+              "  // understand it being shortened in list view, but in inspector view....\". This IS the detail view --",
+              "  // it is what you open to read the thing a list only summarised -- so clipping it leaves nowhere in",
+              "  // the product that shows the message a run was started from.",
+              "  //",
+              "  // TWO DEFECTS ON ONE LINE, and the second was not visible from the screen. It read",
+              "  // `esc(sourceBody).slice(0, 180)`: the cut landed in the ESCAPED string, so a boundary falling",
+              "  // inside an entity emitted half of one (`&amp;` as `&am`). Escaping then cutting is always wrong in",
+              "  // that direction; if a length limit is ever wanted here it has to be applied to the text and the",
+              "  // escaping done after.",
+              "  //",
+              "  // The height is bounded by CSS instead, so a long body scrolls inside its own block rather than",
+              "  // pushing the event timeline off the drawer.",
+              "  const sourceBody = sourceMessage?.body || sourceMessage?.preview || run.body || run.summary || '';",
+            ],
+          },
+          {
+            was: [
+              "          <p class=\"preview\">${esc(sourceBody).slice(0, 180)}</p>",
+            ],
+            now: [
+              "          <p class=\"run-source-body\">${esc(sourceBody)}</p>",
+            ],
+          },
+        ],
         at: 3307,
         marker: "// renderRunInspector moved to ./run-inspector.mjs in v0.5.4.",
       },

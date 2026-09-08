@@ -124,6 +124,19 @@ export function renderRunInspector() {
   const statusContext = runStatusContext(run);
   const sourceMessage = runSourceMessage(run);
   const sourceSubject = sourceMessage?.subject || run.subject || '(no subject)';
+  // THE WHOLE BODY, NOT A PREVIEW OF ONE. The operator asked why it was cut here, 2026-09-08: "i
+  // understand it being shortened in list view, but in inspector view....". This IS the detail view --
+  // it is what you open to read the thing a list only summarised -- so clipping it leaves nowhere in
+  // the product that shows the message a run was started from.
+  //
+  // TWO DEFECTS ON ONE LINE, and the second was not visible from the screen. It read
+  // `esc(sourceBody).slice(0, 180)`: the cut landed in the ESCAPED string, so a boundary falling
+  // inside an entity emitted half of one (`&amp;` as `&am`). Escaping then cutting is always wrong in
+  // that direction; if a length limit is ever wanted here it has to be applied to the text and the
+  // escaping done after.
+  //
+  // The height is bounded by CSS instead, so a long body scrolls inside its own block rather than
+  // pushing the event timeline off the drawer.
   const sourceBody = sourceMessage?.body || sourceMessage?.preview || run.body || run.summary || '';
   const events = state.inspector.events || [];
   const startedAt = run.startedAt || run.claimedAt || run.requestedAt;
@@ -149,7 +162,7 @@ export function renderRunInspector() {
       <section class="run-source-context">
         <div>
           <strong class="clip">${esc(sourceSubject)}</strong>
-          <p class="preview">${esc(sourceBody).slice(0, 180)}</p>
+          <p class="run-source-body">${esc(sourceBody)}</p>
         </div>
         ${sourceMessage ? `<button class="ghost" data-open-thread-message="${esc(messageId(sourceMessage))}">Open in thread</button>` : ''}
       </section>
