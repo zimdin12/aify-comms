@@ -124,7 +124,44 @@ _CONSOLE_VIEW_BRANCH_WAS = "        return {"
 #: whether the event list is truncated, and the cap moved to `TERMINAL_EVENTS_KEPT_PER_TERMINAL`
 #: -- it was written as a literal here AND in the pruner. Undone rather than re-captured, so the
 #: pre-split baseline survives.
+#: DECLARED EDIT, 2026-09-08. The snapshot bytes and the sequence describing them are bound to ONE
+#: generation. `_terminal_session_to_dict` reads the sequence, the caller then AWAITS the agent's
+#: role lookup, and the live screen is rendered after it -- so output appended during that await was
+#: in the picture and not in the number, and a browser seeded with the pair would be sent bytes it
+#: already had. Read with no await between it and the render, which is what makes it a pair.
+_LIVE_SEQ_NOW = chr(10).join([
+    '            term_dict["renderedRows"] = live_rows',
+    "            # THE BYTES AND THE SEQUENCE COME FROM ONE GENERATION, and until 2026-09-08 they did",
+    "            # not. The whole-diff review constructed the tear: `_terminal_session_to_dict` reads",
+    "            # `outputSeq` from the live buffer, the caller then AWAITS the agent's role lookup, and",
+    "            # this render happens after it. Output appended during that await is IN the screen and",
+    "            # NOT in the number, so the response seeds a browser with a picture already containing",
+    "            # bytes it is about to be sent again -- and for a TUI a second write of the same bytes",
+    "            # is a cursor movement nobody asked for, which is the corruption class the sequence",
+    "            # exists to prevent. The next quiescent GET then returns the higher sequence with the",
+    "            # identical snapshot, which is how the tear hides.",
+    "            #",
+    "            # RE-READ HERE, NOT MOVED EARLIER. Moving the await only narrows the window. This is a",
+    "            # synchronous read taken with no await between it and the render above, and",
+    "            # `_append_terminal_output` feeds the screen and records the sequence with no await",
+    "            # between those either -- so on one event loop the pair cannot be split.",
+    '            term_dict["outputSeq"] = current_seq(str(term_dict["id"]), term_dict.get("outputSeq"))',
+])
+
+_LIVE_SEQ_WAS = '            term_dict["renderedRows"] = live_rows'
+
+#: The import the read above needs. `terminal_tail_buffer` is a dependency-free leaf and is the
+#: OWNER of the sequence, which is why the layering gate below admits it by name.
+_LIVE_SEQ_IMPORT_NOW = chr(10).join([
+    "from service.api_core.terminal_tail_buffer import current_seq",
+    "from service.terminal_snapshot import (",
+])
+
+_LIVE_SEQ_IMPORT_WAS = "from service.terminal_snapshot import ("
+
 EDITED_SINCE = [
+    (_LIVE_SEQ_NOW, _LIVE_SEQ_WAS),
+    (_LIVE_SEQ_IMPORT_NOW, _LIVE_SEQ_IMPORT_WAS),
     (
         '\nfrom service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL\nfrom service.api_core.events import _append_terminal_control, _append_terminal_event',
         '\nfrom service.api_core.events import _append_terminal_control, _append_terminal_event',
@@ -142,6 +179,15 @@ EDITED_SINCE = [
     (_CONSOLE_VIEW_SIGNATURE_NOW, _CONSOLE_VIEW_SIGNATURE_WAS),
     (_CONSOLE_VIEW_BRANCH_NOW, _CONSOLE_VIEW_BRANCH_WAS),
 ]
+
+#: What `terminal_snapshot_view.py` may import, each entry with the reason it qualifies. The verdict
+#: on every entry is DERIVED in `test_every_module_on_that_list_is_ITSELF_a_leaf`, so a name approved
+#: once cannot carry a cycle in later.
+ALLOWED_IMPORTS = {
+    "service.terminal_snapshot": "the tested, dependency-free owner of the render helpers",
+    "service.api_core.terminal_tail_buffer":
+        "the owner of the sequence the rendered screen has to be paired with, in one generation",
+}
 
 EXTRACTIONS = ["_attach_terminal_snapshot"]
 
@@ -207,17 +253,44 @@ class GetTerminalSplitIsInertTests(unittest.TestCase):
                 )
 
     def test_the_render_helpers_are_reached_from_their_PURE_owner(self):
-        """`service/terminal_snapshot.py` is the tested, dependency-free owner of all three.
+        """Exactly the modules on the list, and nothing else.
 
-        The router reached them through its own aliased imports. Importing them from anywhere else —
-        a router's shared module, say — would have worked and would have re-created the layering
-        problem that blocked the turn-busy extraction for a release.
+        The router reached the render helpers through its own aliased imports. Importing them from
+        anywhere else — a router's shared module, say — would have worked and would have re-created
+        the layering problem that blocked the turn-busy extraction for a release.
+
+        THE SECOND ENTRY ARRIVED 2026-09-08 and it is a decision, not a widening to make a red test
+        green. The snapshot and the sequence describing it have to be read with no await between
+        them or they are two generations, which review constructed; the sequence's owner is
+        `terminal_tail_buffer`, so the read has to happen where the render happens. The list stays a
+        LIST because each entry needs a reason a person wrote down — and the verdict on each entry
+        is derived below rather than taken on trust.
         """
         modules = {
             node.module for node in ast.walk(ast.parse(VIEW.read_text(encoding="utf-8")))
             if isinstance(node, ast.ImportFrom) and node.module
         }
-        self.assertEqual({"service.terminal_snapshot"}, modules - {"__future__"})
+        self.assertEqual(set(ALLOWED_IMPORTS), modules - {"__future__"})
+
+    def test_every_module_on_that_list_is_ITSELF_a_leaf(self):
+        """The list is the population; this is the verdict, and it is derived.
+
+        An allowed module that reached into a router would carry the cycle in behind a name somebody
+        approved once — which is exactly how a whitelist rots. Each entry is re-checked against the
+        same rule `test_the_leaf_does_not_import_upward` applies to the view itself.
+        """
+        for name, why in ALLOWED_IMPORTS.items():
+            path = REPO / (name.replace(".", "/") + ".py")
+            self.assertTrue(path.exists(), f"{name} is allowed ({why}) and names no file")
+            reached = {
+                node.module for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                if isinstance(node, ast.ImportFrom) and node.module
+            }
+            upward = {
+                module for module in reached
+                if module.startswith("service.routers") or module == "service.control_plane"
+            }
+            self.assertEqual(set(), upward, f"{name} is on the allowed list and reaches up into {upward}")
 
     def test_the_fixture_is_tracked(self):
         self.assertTrue(FIXTURE.exists())
