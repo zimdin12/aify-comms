@@ -16,9 +16,14 @@ mechanism, not carelessness, so the instruction gets an instrument.
 
 WHAT IS PINNED IS THE CLAIM THAT CHANGES BEHAVIOUR, not the whole table. "The next edit to `app.js`
 goes red" is what makes somebody slice before they type; the exact line count of the eighth row
-changes nothing and would turn this gate red on every ordinary commit. So: the two files the table
-names as closest must BE the closest two. They move rarely, and when they do it is exactly the
-moment the table needs rewriting.
+changes nothing and would turn this gate red on every ordinary commit.
+
+THE TABLE IS FOUND, NOT GREPPED, and that is this file's own correction. Its first version matched
+`| 996 | \\`path\\` | 4 |` anywhere in the document with a MULTILINE regex, and review showed three
+carrier changes it stayed green through: wrapping the `doctor.js` row in an HTML comment, wrapping
+ALL NINE rows in one, and moving a row into a fenced example. A claim about what the document SHOWS
+cannot be read from text the document hides, so comments and fences are stripped before the table is
+located by its own header.
 
 THE POPULATION COMES FROM THE GATE THAT OWNS IT. `_source_files` and `_line_count` are imported from
 `test_no_new_oversized_source_file.py`, and the JS half replicates its sibling's skip set and
@@ -49,8 +54,55 @@ JS_SKIP = frozenset(
 JS_NAME = re.compile(r"\.m?js$")
 JS_TEST = re.compile(r"\.test\.m?js$")
 
-#: A row of the watch-list table: `| 996 | `path` | 4 |`
-ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*$", re.MULTILINE)
+#: The watch-list's own header, which is how the table is located rather than guessed at.
+TABLE_HEADER = "| lines | file | headroom |"
+ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*$")
+
+FENCE = re.compile(r"^\s*```")
+COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def visible_text(markdown: str) -> str:
+    """The document with everything a reader does not see removed.
+
+    HTML COMMENTS AND FENCED BLOCKS BOTH HIDE ROWS, and review demonstrated each. A comment is
+    invisible entirely; a fence is shown as an EXAMPLE, which is worse, because it looks like the
+    table while claiming nothing.
+    """
+    without_comments = COMMENT.sub("", markdown)
+    out, fenced = [], False
+    for line in without_comments.split("\n"):
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if not fenced:
+            out.append(line)
+    return "\n".join(out)
+
+
+def documented_rows(markdown: str) -> list[tuple[int, str, int]]:
+    """The watch-list table, read as a TABLE: located by its header, ended by its first non-row.
+
+    PURE, over text, so the tests below can feed it a document that hides its rows. A reader that has
+    only ever seen the real file has never been shown to miss anything.
+    """
+    lines = visible_text(markdown).split("\n")
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == TABLE_HEADER)
+    except StopIteration:
+        return []
+    rows = []
+    for line in lines[start + 1:]:
+        stripped = line.strip()
+        if not stripped:
+            break
+        if set(stripped) <= set("|-: "):     # the header separator
+            continue
+        match = ROW.match(stripped)
+        if not match:
+            break
+        rows.append((int(match.group(1)), match.group(2), int(match.group(3))))
+    return rows
 
 
 def js_source_files(root: Path):
@@ -69,16 +121,12 @@ def measured_ranking() -> list[tuple[int, str]]:
     return rows
 
 
-def documented_rows() -> list[tuple[int, str, int]]:
-    """The watch-list table as CLAUDE.md currently states it."""
-    text = io.open(CLAUDE_MD, encoding="utf-8").read()
-    return [(int(a), b, int(c)) for a, b, c in ROW.findall(text)]
-
-
 class TheWatchListNamesTheRealFiles(unittest.TestCase):
-    def setUp(self):
-        self.measured = measured_ranking()
-        self.documented = documented_rows()
+    @classmethod
+    def setUpClass(cls):
+        cls.markdown = io.open(CLAUDE_MD, encoding="utf-8").read()
+        cls.measured = measured_ranking()
+        cls.documented = documented_rows(cls.markdown)
 
     def test_both_readers_found_something(self):
         """POSITIVE CONTROL. Either side returning empty makes every assertion below vacuous, and a
@@ -105,12 +153,8 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         """A row naming a deleted file is worse than no row: somebody budgets a refactor against it.
         `terminal-runtime.js` sat in this table at rank three after being deleted."""
         known = {path for _, path in self.measured}
-        named = {path for _, path, _ in self.documented}
-        missing = sorted(named - known)
-        self.assertEqual(
-            missing, [],
-            f"the watch-list names files the gates no longer see: {missing}",
-        )
+        missing = sorted({path for _, path, _ in self.documented} - known)
+        self.assertEqual(missing, [], f"the watch-list names files the gates no longer see: {missing}")
 
     def test_the_table_does_not_skip_a_file_larger_than_one_it_lists(self):
         """THE FAILURE IT HAS HAD TWICE. A ranked list that omits its own middle reads as complete.
@@ -118,8 +162,7 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
         named = {path for _, path, _ in self.documented}
         smallest_listed = min((n for n, path in self.measured if path in named), default=0)
         skipped = [
-            f"{n} {path}"
-            for n, path in self.measured
+            f"{n} {path}" for n, path in self.measured
             if path not in named and n > smallest_listed
         ]
         self.assertEqual(
@@ -128,13 +171,44 @@ class TheWatchListNamesTheRealFiles(unittest.TestCase):
             f"is not: {skipped}",
         )
 
-    def test_negative_control_the_comparison_can_fail(self):
-        """Without this, a reader that returned the same set for both sides would pass everything."""
-        measured_top = {path for _, path in self.measured[:2]}
-        self.assertNotEqual(
-            measured_top, {"nothing/real.py", "nothing/else.js"},
-            "the ranking compared equal to a set that cannot exist",
+    # ── the reader sees only what the document SHOWS ──────────────────────────────────────────
+    #
+    # Each of these is a carrier change review demonstrated the first version staying green through.
+
+    def _document_with(self, body: str) -> str:
+        return f"prose before\n\n{TABLE_HEADER}\n|---|---|---|\n{body}\n\nprose after\n"
+
+    def test_a_row_hidden_in_an_html_comment_is_not_read_as_a_row(self):
+        hidden = self._document_with(
+            "| 996 | `a.js` | 4 |\n<!--\n| 993 | `b.js` | 7 |\n-->\n| 500 | `c.js` | 500 |"
         )
+        self.assertEqual(
+            [path for _, path, _ in documented_rows(hidden)], ["a.js"],
+            "a commented-out row was read as visible, and the table would claim what it hides",
+        )
+
+    def test_a_row_inside_a_fenced_example_is_not_read_as_a_row(self):
+        fenced = "prose\n\n```\n" + TABLE_HEADER + "\n|---|---|---|\n| 996 | `x.js` | 4 |\n```\n"
+        self.assertEqual(
+            documented_rows(fenced), [],
+            "a fenced example was read as the real table",
+        )
+
+    def test_a_table_that_is_not_there_reads_as_no_rows_and_fails_loudly(self):
+        """NEGATIVE CONTROL for the positive control above: an absent table must produce an empty
+        list, which `test_both_readers_found_something` then reports rather than passing."""
+        self.assertEqual(documented_rows("no table here at all\n"), [])
+
+    def test_positive_control_the_reader_does_read_a_visible_table(self):
+        """Without this, a reader that returned nothing for everything would satisfy all three
+        controls above while proving the document says nothing at all."""
+        visible = self._document_with("| 996 | `a.js` | 4 |\n| 993 | `b.js` | 7 |")
+        self.assertEqual(documented_rows(visible), [(996, "a.js", 4), (993, "b.js", 7)])
+
+    def test_the_reader_stops_at_the_end_of_the_table(self):
+        """Prose after the table must not be scavenged for anything that looks like a row."""
+        trailing = self._document_with("| 996 | `a.js` | 4 |") + "\n| 12 | `stray.js` | 988 |\n"
+        self.assertEqual([path for _, path, _ in documented_rows(trailing)], ["a.js"])
 
 
 if __name__ == "__main__":

@@ -2,37 +2,49 @@
 
 WHAT THIS ASKS THAT ITS SIBLING DOES NOT. `test_every_dashboard_setting_has_a_reader.py` answers
 "is this setting still read" -- the stale-setting question. This answers the other half of the B7
-audit: does the CONTROL the operator is given match the VALUE the reader consumes. A checkbox on a
-number, a number field on a boolean, or a slider whose range excludes the shipped default are all
-settings that LOOK correct from either side alone.
+audit: does the CONTROL the operator is given match the VALUE the reader consumes, and is it wired to
+that value at all.
 
-BOTH SIDES ARE PARSED, NOT GREPPED. The Python defaults come from an AST walk of `DEFAULT_SETTINGS`
-and the controls from the panel's own row literals, so a renamed key fails loudly instead of matching
-a substring somewhere else in the file.
+THE CONTROLS COME FROM JAVASCRIPT RUNNING, NOT FROM A REGULAR EXPRESSION, and that is the whole
+correction in this file's history. The first version extracted the control list with a regex, and
+review demonstrated SEVEN source changes the entire gate stayed green through:
 
-FOUR FAILURES IT CATCHES, each one a thing that reads as healthy from one side:
+    a row commented out            still counted -- 35 parsed, 34 real
+    a row written with " quotes    invisible -- 36 real, 35 parsed
+    a key declared twice           read as one control, so a duplicate id was undetectable
+    min: 90.5                      read as 90, and 90.5 excludes the shipped default of 90
+    min: 45 * 3                    read as 45 while the browser computes 135
+    the renderer rewired           retention_days drawn from rotation_enabled, every name still matching
+    an option removed              a select whose shipped default is no longer in its own list
 
-  a control whose key nothing declares   the operator edits a value no reader will ever see
-  a control type that disagrees          the label promises a checkbox for something read as a count
-  a range that excludes the default      the panel cannot display the value the service ships with
-  a declared type nothing can produce    a control type with no meaning on the Python side
+Every one of those is a question about what JavaScript DOES. `settings_schema_probe.mjs` imports the
+panel and evaluates it, so comments, quoting, arithmetic and duplicates are handled by the parser
+that actually ships, and the binding is measured by RE-RENDERING: change one setting on its own and a
+field wired to it must redraw. A sentinel string cannot answer that -- it is not representable in a
+checkbox, a select or a number input, which is why 15 of the 35 controls could never have been judged
+that way.
 
-A SETTING WITH NO CONTROL IS NOT A FAILURE. Internal tunables are deliberately not operator-facing,
-and forcing every one onto a panel would be worse than leaving them alone. They are pinned by NAME
-instead, so adding one is a decision somebody writes down rather than a silent default.
+WHAT THE NEGATIVE CONTROLS BELOW DO AND DO NOT PROVE, stated because review was right to raise it:
+they feed `disagreements()` known-bad pairs, so they prove the COMPARISON can report each defect
+class. They do not prove the extractor -- nothing written in Python could, which is why the extractor
+is no longer written in Python.
+
+A SETTING WITH NO CONTROL IS NOT A FAILURE. Internal tunables are deliberately not operator-facing.
+They are pinned by NAME, in both directions, so hiding a NEW one is a decision somebody writes down.
 """
 
 from __future__ import annotations
 
 import ast
 import json
-import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SETTINGS_PY = REPO / "service" / "api_core" / "settings.py"
-PANEL_MJS = REPO / "service" / "new_dashboard" / "settings-panel.mjs"
+PROBE = REPO / "service" / "tests" / "settings_schema_probe.mjs"
 
 #: Which Python types each control can legitimately edit. A control type absent here fails, because
 #: an unrecognised control is one nobody has decided the meaning of.
@@ -46,9 +58,8 @@ CONTROL_ACCEPTS = {
     "csv": (list,),
 }
 
-#: Declared but deliberately NOT on the panel. Each is an internal tunable whose value is a
-#: judgement about the service's own behaviour rather than an operator preference. Listed by name so
-#: that hiding a NEW setting from the operator is a decision, not an omission.
+#: Declared but deliberately NOT on the panel. Each is an internal tunable whose value is a judgement
+#: about the service's own behaviour rather than an operator preference.
 NOT_OPERATOR_FACING = {
     "agent_offline_revalidate_seconds",
     "stranded_reply_fail_minutes",
@@ -75,81 +86,101 @@ def declared_settings() -> dict:
     raise AssertionError("DEFAULT_SETTINGS is not an assignment in settings.py any more")
 
 
-ROW = re.compile(r"\{\s*key:\s*'([^']+)'([^}]*)\}")
-
-
-def panel_rows() -> list[dict]:
-    """Every control row the settings panel declares."""
-    source = PANEL_MJS.read_text(encoding="utf-8")
-    rows = []
-    for match in ROW.finditer(source):
-        rest = match.group(2)
-        row = {"key": match.group(1)}
-        for field in ("label", "type"):
-            found = re.search(rf"{field}:\s*'([^']*)'", rest)
-            if found:
-                row[field] = found.group(1)
-        for field in ("min", "max"):
-            found = re.search(rf"{field}:\s*(-?\d+)", rest)
-            if found:
-                row[field] = int(found.group(1))
-        rows.append(row)
-    return rows
-
-
-def disagreements(defaults: dict, rows: list[dict]) -> list[str]:
+def disagreements(defaults: dict, controls: list[dict]) -> list[str]:
     """Every way a control and the value it edits can fail to describe the same thing.
 
-    PURE, so the tests below can feed it a known-broken pair. A checker that has only ever seen the
-    real files has never been shown to report anything.
+    PURE, so the tests below can feed it a known-broken pair. A comparison that has only ever seen
+    the real files has never been shown to report anything.
     """
     found = []
-    for row in rows:
-        key = row["key"]
-        label = row.get("label", key)
+    for control in controls:
+        key = control["key"]
+        label = control.get("label") or key
         if key not in defaults:
             found.append(f"control {label!r} edits {key!r}, which no setting declares")
             continue
-        accepts = CONTROL_ACCEPTS.get(row.get("type", ""))
+        accepts = CONTROL_ACCEPTS.get(control.get("type") or "")
         if accepts is None:
-            found.append(f"control {label!r} uses type {row.get('type')!r}, which has no meaning here")
+            found.append(f"control {label!r} uses type {control.get('type')!r}, which has no meaning here")
             continue
         value = defaults[key]
         # bool is a subclass of int in Python, so a toggle and a number must be told apart exactly.
         if bool in accepts:
             if not isinstance(value, bool):
                 found.append(f"control {label!r} is a toggle but {key!r} defaults to {value!r}")
+                continue
         elif isinstance(value, bool):
-            found.append(f"control {label!r} is a {row.get('type')} but {key!r} defaults to the boolean {value!r}")
+            found.append(f"control {label!r} is a {control.get('type')} but {key!r} defaults to the boolean {value!r}")
+            continue
         elif not isinstance(value, accepts):
-            found.append(f"control {label!r} is a {row.get('type')} but {key!r} defaults to {value!r}")
-        elif row.get("type") == "number":
-            low, high = row.get("min"), row.get("max")
-            if low is not None and value < low:
+            found.append(f"control {label!r} is a {control.get('type')} but {key!r} defaults to {value!r}")
+            continue
+
+        low, high = control.get("min"), control.get("max")
+        if isinstance(value, int) and not isinstance(value, bool):
+            if isinstance(low, (int, float)) and value < low:
                 found.append(f"control {label!r} has min {low} but {key!r} defaults to {value}")
-            if high is not None and value > high:
+            if isinstance(high, (int, float)) and value > high:
                 found.append(f"control {label!r} has max {high} but {key!r} defaults to {value}")
+        options = control.get("options")
+        if options is not None and value not in options:
+            found.append(
+                f"control {label!r} offers {options!r} but {key!r} defaults to {value!r}, "
+                "which the operator cannot select"
+            )
     return found
 
 
 class SettingsControlsMatchTheirValues(unittest.TestCase):
-    def setUp(self):
-        self.defaults = declared_settings()
-        self.rows = panel_rows()
+    @classmethod
+    def setUpClass(cls):
+        node = shutil.which("node")
+        if not node:
+            raise unittest.SkipTest("node is not on PATH, so the real schema cannot be evaluated")
+        done = subprocess.run(
+            [node, str(PROBE)], cwd=str(REPO), capture_output=True, text=True,
+        )
+        if done.returncode != 0:
+            raise AssertionError(f"the schema probe failed:\n{done.stderr[:2000]}")
+        cls.probe = json.loads(done.stdout)
+        cls.defaults = declared_settings()
+        cls.controls = cls.probe["controls"]
 
-    def test_the_readers_of_both_files_actually_found_something(self):
-        """POSITIVE CONTROL. Both parsers return an empty collection if a file is renamed or its
-        shape changes, and every assertion below passes vacuously on an empty one."""
+    def test_the_probe_actually_rendered_the_panel(self):
+        """POSITIVE CONTROL. Every assertion below is vacuous on an empty schema or a panel that
+        threw, and a render that produced nothing looks exactly like one with no disagreements."""
+        self.assertIsNone(self.probe["renderError"], "the settings panel threw while rendering")
+        self.assertGreater(self.probe["renderedLength"], 1000, "the panel rendered almost nothing")
+        self.assertGreater(len(self.controls), 30, "the evaluated schema holds almost no controls")
         self.assertGreater(len(self.defaults), 30, "DEFAULT_SETTINGS parsed as almost nothing")
-        self.assertGreater(len(self.rows), 30, "the settings panel parsed as almost no controls")
+
+    def test_no_setting_is_edited_by_two_controls(self):
+        """A duplicated key gives one value two widgets, and the regex this gate used to rely on
+        collapsed them into one row where they were undetectable."""
+        keys = [c["key"] for c in self.controls]
+        duplicates = sorted({k for k in keys if keys.count(k) > 1})
+        self.assertEqual(duplicates, [], f"these settings have more than one control: {duplicates}")
 
     def test_every_control_agrees_with_the_value_it_edits(self):
-        found = disagreements(self.defaults, self.rows)
+        found = disagreements(self.defaults, self.controls)
         self.assertEqual(found, [], "\n".join(["controls disagree with their settings:"] + found))
 
+    def test_every_control_redraws_when_its_own_setting_changes(self):
+        """THE BINDING, measured rather than inferred from matching names.
+
+        Review rewired one field to read another setting and every name-based check stayed green.
+        Changing one setting on its own must change the rendered panel; a field that does not
+        respond is not showing the value its label claims.
+        """
+        inert = sorted(k for k, responds in self.probe["respondsToItsOwnValue"].items() if not responds)
+        self.assertEqual(
+            inert, [],
+            f"these controls did not redraw when their own setting changed: {inert}. "
+            "The panel is displaying something other than the value they name.",
+        )
+
     def test_a_setting_hidden_from_the_operator_is_named(self):
-        """Hiding a setting is allowed and is a decision. Hiding a NEW one silently is not."""
-        shown = {row["key"] for row in self.rows}
+        shown = {c["key"] for c in self.controls}
         hidden = {key for key in self.defaults if key not in shown}
         self.assertEqual(
             hidden, NOT_OPERATOR_FACING,
@@ -157,12 +188,14 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         )
 
     def test_the_list_of_hidden_settings_holds_no_ghosts(self):
-        """The other end of the same field: a name here that no longer exists is a rule about
-        nothing, and it would keep passing for ever."""
         gone = NOT_OPERATOR_FACING - set(self.defaults)
         self.assertEqual(gone, set(), f"named as internal but no longer declared: {sorted(gone)}")
 
-    # ── the checker can say PRESENT, proven on inputs it must reject ──────────────────────────
+    # ── the comparison can say PRESENT, proven on inputs it must reject ───────────────────────
+    #
+    # THESE PROVE THE COMPARISON, NOT THE EXTRACTOR, and review was right to insist on the
+    # distinction. The extractor is `settings_schema_probe.mjs` evaluating the real module, which is
+    # the only thing that can answer a question about JavaScript semantics.
 
     def test_negative_control_a_control_for_a_setting_that_does_not_exist(self):
         found = disagreements({"real": 1}, [{"key": "ghost", "label": "Ghost", "type": "number"}])
@@ -176,25 +209,37 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         found = disagreements({"flag": True}, [{"key": "flag", "label": "Flag", "type": "number"}])
         self.assertTrue(any("defaults to the boolean" in f for f in found), found)
 
-    def test_negative_control_a_range_that_excludes_its_own_default(self):
-        low = disagreements({"n": 5}, [{"key": "n", "label": "N", "type": "number", "min": 10}])
-        high = disagreements({"n": 5000}, [{"key": "n", "label": "N", "type": "number", "max": 100}])
-        self.assertTrue(any("has min" in f for f in low), low)
-        self.assertTrue(any("has max" in f for f in high), high)
+    def test_negative_control_a_fractional_bound_that_excludes_its_own_default(self):
+        """`min: 90.5` truncated to 90 under the old regex and passed. A float must compare as one."""
+        found = disagreements({"n": 90}, [{"key": "n", "label": "N", "type": "number", "min": 90.5}])
+        self.assertTrue(any("has min 90.5" in f for f in found), found)
+
+    def test_negative_control_a_computed_bound_that_excludes_its_own_default(self):
+        """`min: 45 * 3` read as 45 under the old regex while the browser computes 135."""
+        found = disagreements({"n": 90}, [{"key": "n", "label": "N", "type": "number", "min": 135}])
+        self.assertTrue(any("has min 135" in f for f in found), found)
+
+    def test_negative_control_a_select_whose_default_is_not_on_offer(self):
+        found = disagreements(
+            {"effort": "high"},
+            [{"key": "effort", "label": "Effort", "type": "select", "options": ["low", "medium"]}],
+        )
+        self.assertTrue(any("cannot select" in f for f in found), found)
 
     def test_negative_control_a_control_type_nobody_declared(self):
         found = disagreements({"x": "y"}, [{"key": "x", "label": "X", "type": "wormhole"}])
         self.assertTrue(any("no meaning here" in f for f in found), found)
 
     def test_positive_control_a_matching_pair_reports_nothing(self):
-        """Without this, a checker that flagged EVERYTHING would satisfy all five controls above."""
+        """Without this, a comparison that flagged EVERYTHING would satisfy every control above."""
         self.assertEqual(disagreements(
-            {"flag": True, "count": 90, "name": "x", "runtimes": ["a"]},
+            {"flag": True, "count": 90, "name": "x", "runtimes": ["a"], "effort": "high"},
             [
                 {"key": "flag", "label": "Flag", "type": "toggle"},
                 {"key": "count", "label": "Count", "type": "number", "min": 1, "max": 600},
                 {"key": "name", "label": "Name", "type": "text"},
                 {"key": "runtimes", "label": "Runtimes", "type": "csv"},
+                {"key": "effort", "label": "Effort", "type": "select", "options": ["low", "high"]},
             ],
         ), [])
 
