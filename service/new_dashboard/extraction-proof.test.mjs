@@ -2907,6 +2907,47 @@ const EXTRACTIONS = [
       {
         name: "applyRealtimeEvent",
         editedSince: [{
+          // FRAMES ARRIVING DURING A RECOVERY ARE HELD, NOT DROPPED. `lastSeq` advances only on the
+          // painting path, so for the whole of an in-flight resync every frame still looks like a
+          // gap. Dropping them was survivable alone; what was not is that the snapshot's sequence is
+          // behind the frames that arrived during the fetch, so the NEXT live frame gapped again —
+          // fetch, drop, gap, fetch, on a busy agent, painting only snapshots. Reproduced against
+          // the real socket and the real resync in
+          // `the-console-does-not-stall-while-it-resyncs.test.mjs`.
+          was: [
+            "        if (seq > entry.lastSeq + 1) { resyncActiveConsole().catch(() => {}); return; }",
+          ],
+          now: [
+            "        if (seq > entry.lastSeq + 1) {",
+            "          // HELD, NOT DROPPED, and that is the difference between one stall and a loop.",
+            "          //",
+            "          // `lastSeq` only advances on the painting path below, so for as long as the recovery is in",
+            "          // flight -- an HTTP round trip -- every arriving frame still looks like a gap. Dropping",
+            "          // them was survivable in itself, because the snapshot carries what the SERVER had. What it",
+            "          // is not survivable for is what comes NEXT: the snapshot's sequence is behind the frames",
+            "          // that arrived during the fetch, so the very next live frame gaps again, and on a busy",
+            "          // agent the console recovers in a circle -- fetch, drop, gap, fetch -- painting only",
+            "          // snapshots and showing nothing in between.",
+            "          //",
+            "          // Reproduced in `the-console-does-not-stall-while-it-resyncs.test.mjs` against the real",
+            "          // socket and the real resync. Holding them lets the drain replay whatever the snapshot did",
+            "          // not already cover, so the console resumes IN SEQUENCE and the second gap never happens.",
+            "          //",
+            "          // BOUNDED, because a recovery that never finishes must not grow memory. Past the cap the",
+            "          // queue is abandoned and a marker is left: the drain then resumes from the snapshot alone,",
+            "          // which is exactly today's behaviour and therefore never worse than it.",
+            "          if (!Array.isArray(entry.pendingFrames)) entry.pendingFrames = [];",
+            "          if (entry.pendingFrames.length >= MAX_HELD_FRAMES) {",
+            "            entry.pendingFrames = [];",
+            "            entry.pendingOverflowed = true;",
+            "          } else {",
+            "            entry.pendingFrames.push({ seq, output: String(data.output) });",
+            "          }",
+            "          resyncActiveConsole().catch(() => {});",
+            "          return;",
+            "        }",
+          ],
+        }, {
           // The cadence this comment cited was WRONG BY AN ORDER OF MAGNITUDE, which made its own
           // argument sound far weaker than it is: measured on the live fleet 2026-09-08, `outputSeq`
           // advances every ~150-250ms for a busy agent, not "every 1-4s". A refetch per frame would
@@ -3653,6 +3694,17 @@ const EXTRACTIONS = [
     items: [
       {
         name: "resyncActiveConsole",
+        // The other half of the same fix: the snapshot alone left the console behind the stream, so
+        // whatever the socket held is replayed before live frames resume.
+        editedSince: [{
+          was: [
+            "    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);",
+          ],
+          now: [
+            "    entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);",
+            "    drainHeldFrames(entry);",
+          ],
+        }],
         at: 2317,
         leading: 2,
         marker: "// resyncActiveConsole moved to ./console-actions.mjs in v0.5.4, with the note on what it mirrors.",

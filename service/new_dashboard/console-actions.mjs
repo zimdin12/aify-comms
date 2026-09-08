@@ -75,8 +75,45 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
     const snapshotSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? entry.lastSeq);
     entry.lastSeq = Math.max(Number(entry.lastSeq) || -1, Number.isFinite(snapshotSeq) ? snapshotSeq : -1);
+    drainHeldFrames(entry);
   } catch { /* keep current buffer */ }
   finally { entry.resyncing = false; }
+}
+
+// PLACED AFTER `resyncActiveConsole`, NOT BEFORE IT, and that is a constraint rather than a
+// preference. `extraction-proof` reconstructs app.js from this module and requires the lines LEADING
+// an extracted declaration to be comments or blanks -- a function body ending in `}` immediately
+// above one would silently absorb it, and the gate says so by name. Declarations hoist, so the call
+// site above reads fine.
+/**
+ * Paint the frames the socket held while this recovery was in flight, and resume from them.
+ *
+ * WITHOUT THIS THE RECOVERY LOOPS. The snapshot carries the buffer as it stood when the SERVER
+ * answered; frames past that arrived during the fetch. Resuming from the snapshot's sequence leaves
+ * the console behind the stream, so the next live frame is another gap, another fetch, another
+ * window in which nothing paints. Reproduced against the real socket and this function in
+ * `the-console-does-not-stall-while-it-resyncs.test.mjs`.
+ *
+ * ALREADY-COVERED FRAMES ARE DISCARDED rather than replayed. The snapshot is a RENDERED SCREEN, so a
+ * frame at or below its sequence is already in the picture; writing it again would paint bytes twice
+ * -- which for a TUI is not a duplicate line, it is a cursor somewhere nobody asked for.
+ *
+ * AN OVERFLOWED QUEUE REPLAYS NOTHING. Whatever was dropped is genuinely lost to this console, and
+ * pretending otherwise by painting the tail would put the screen out of order. Resuming from the
+ * snapshot alone is what happened before frames were held at all, so the fallback is never worse
+ * than the behaviour it replaced -- one more gap, one more recovery, and it settles.
+ */
+function drainHeldFrames(entry) {
+  const held = Array.isArray(entry.pendingFrames) ? entry.pendingFrames : [];
+  entry.pendingFrames = [];
+  if (entry.pendingOverflowed) { entry.pendingOverflowed = false; return; }
+  const replay = held
+    .filter((f) => Number.isFinite(f?.seq) && f.seq > entry.lastSeq)
+    .sort((a, b) => a.seq - b.seq);
+  for (const f of replay) {
+    try { entry.term.write(f.output); } catch { break; }
+    entry.lastSeq = f.seq;
+  }
 }
 
 export async function stopConsoleTerminal(terminalId) {

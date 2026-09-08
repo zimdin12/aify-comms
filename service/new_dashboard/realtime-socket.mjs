@@ -134,6 +134,12 @@ export function wireRealtimeResumeReconnect() {
   }
 }
 
+//: How many frames may be held while a console recovers. A frame is one WS payload, and a recovery
+//: is one HTTP round trip: on the measured path that is a handful. This is a bound against a
+//: recovery that never returns, not a tuning knob -- past it the console falls back to resuming from
+//: the snapshot alone, which is what it did before any of this existed.
+const MAX_HELD_FRAMES = 512;
+
 export function applyRealtimeEvent(event, data = {}) {
   // Fire-and-forget, and deliberately BEFORE the routing below: a notification must never depend
   // on which branch the event takes, and must never be able to break the dashboard's own handling
@@ -162,7 +168,34 @@ export function applyRealtimeEvent(event, data = {}) {
       const seq = Number(data.seq);
       if (Number.isFinite(seq) && entry.lastSeq >= 0) {
         if (seq <= entry.lastSeq) { return; }
-        if (seq > entry.lastSeq + 1) { resyncActiveConsole().catch(() => {}); return; }
+        if (seq > entry.lastSeq + 1) {
+          // HELD, NOT DROPPED, and that is the difference between one stall and a loop.
+          //
+          // `lastSeq` only advances on the painting path below, so for as long as the recovery is in
+          // flight -- an HTTP round trip -- every arriving frame still looks like a gap. Dropping
+          // them was survivable in itself, because the snapshot carries what the SERVER had. What it
+          // is not survivable for is what comes NEXT: the snapshot's sequence is behind the frames
+          // that arrived during the fetch, so the very next live frame gaps again, and on a busy
+          // agent the console recovers in a circle -- fetch, drop, gap, fetch -- painting only
+          // snapshots and showing nothing in between.
+          //
+          // Reproduced in `the-console-does-not-stall-while-it-resyncs.test.mjs` against the real
+          // socket and the real resync. Holding them lets the drain replay whatever the snapshot did
+          // not already cover, so the console resumes IN SEQUENCE and the second gap never happens.
+          //
+          // BOUNDED, because a recovery that never finishes must not grow memory. Past the cap the
+          // queue is abandoned and a marker is left: the drain then resumes from the snapshot alone,
+          // which is exactly today's behaviour and therefore never worse than it.
+          if (!Array.isArray(entry.pendingFrames)) entry.pendingFrames = [];
+          if (entry.pendingFrames.length >= MAX_HELD_FRAMES) {
+            entry.pendingFrames = [];
+            entry.pendingOverflowed = true;
+          } else {
+            entry.pendingFrames.push({ seq, output: String(data.output) });
+          }
+          resyncActiveConsole().catch(() => {});
+          return;
+        }
       }
       if (Number.isFinite(seq)) entry.lastSeq = seq;
       try {
