@@ -114,7 +114,7 @@ A skill is not read on demand: the `SKILL.md` files load into every agent's cont
 a byte there is paid by every agent on every turn rather than once by a reader. That is the whole
 reason these rules exist.
 
-- **Size is gated by a ratchet, not a cap.** `mcp/stdio/tests/skill-size-ratchet.test.js` holds all 17
+- **Size is gated by a ratchet, not a cap.** `mcp/stdio/tests/skill-size-ratchet.test.js` holds all 18
   skill files at MEASURED sizes that may only go DOWN, and fails on a file with no ceiling so a new
   skill cannot arrive ungoverned. An always-loaded `SKILL.md` also has a hard 16 KB limit on top.
   **Raising a ceiling is a decision, not a repair** — pay for it elsewhere, split the file, or say in
@@ -278,12 +278,20 @@ aify-env fix (`908981b`, `cf92c57`) and the aify-comms test that drives it (`9a9
 a matched pair, and the evidence that the pair works is an aify-comms suite run with an aify-env
 checkout present. Running three suites instead of five would have reported all of it green.
 
-**The bridge suite uses TWO idioms, and counting one of them gives a third the answer.** 233 files use
-`node:test` with `test(...)` blocks; 109 use plain top-level assertions and print "all assertions
+**The bridge suite uses TWO idioms, and counting one of them gives a third the answer.** 285 files use
+`node:test` with `test(...)` blocks; 77 use plain top-level assertions and print "all assertions
 passed" at the end. `run-all.mjs` judges every file by EXIT STATUS, so both work -- and its "N suite(s)
-passed" is a FILE count, not a test count. Counting `test(` calls to size the suite reports 109 files as
-empty when they are not. Measured 2026-08-20: all 342 files carry a `test(` or an `assert`, so none is
-vacuous.
+passed" is a FILE count, not a test count. Counting `test(` calls to size the suite reports those 77
+files as empty when they are not. Re-measured 2026-09-08: all 362 carry a `test(` or an `assert`, so
+none is vacuous.
+
+**THE POPULATION IS THE RUNNER'S, NOT A GLOB.** `run-all.mjs` walks THREE directories -- `tests`,
+`tests/adapters` and `tests/controllers` -- and takes only `.test.js`. Listing `tests/*.test.js`
+plus `*.test.mjs` gives 346, which is wrong in both directions at once: it misses two directories and
+counts `.test.mjs` files the runner never executes. 362 is what the runner itself prints, which is
+how this reading was checked. The figures here read 233 / 109 over 342 until this measurement, so the
+split had moved by more than fifty in each direction while the conclusion drawn from it stayed
+correct -- growth with an innocent cause, which is exactly the drift this file keeps recording.
 
 **Exit status alone cannot tell a proof from a skip, so the runner reads what each file reported.** A
 file whose tests all SKIPPED exits 0 and used to read as passed — and
@@ -450,8 +458,17 @@ not a fix**: appending an entry to make a red test green is the exact move the g
 which ships in the container — and the JS half's two hand-listed roots covered everything only by
 coincidence. Neither hole was visible from the result: an unguarded population reports green exactly like a
 guarded one. **Shell and CSS are deliberately OUT of scope** and each gate says so in a test, because
-`install.sh` (3,074 lines on 2026-08-30, down from 4,371 once all four wrapper bodies became template files, and up from the 2,978 recorded here when that happened; the key resolver that grew it moved out to `scripts/api-key.sh` and its ceiling was raised the remaining 25 with the reason written into the gate) and `service/new_dashboard/styles.css` (1,843) are non-test source over the
-limit and bringing them in is an open reviewer question, not a widening to do quietly.
+`install.sh` (**2,975** lines, down from 4,371 once all four wrapper bodies became template files;
+the key resolver that grew it moved out to `scripts/api-key.sh`) and
+`service/new_dashboard/styles.css` (**1,850**) are non-test source over the limit, and bringing them
+in is an open reviewer question rather than a widening to do quietly.
+
+**BOTH FIGURES CAME FROM THE RATCHET THAT OWNS THEM**, `mcp/stdio/tests/no-unwatched-oversized-file.test.js`,
+rather than from a fresh count beside it -- this file's own rule, and the reason the corrected numbers
+can be trusted. **EACH FILE SITS EXACTLY AT ITS CEILING**, so neither has a single line of slack: any
+addition to either goes red and has to be paid for elsewhere, which is what a ratchet is for. The
+figures written here until 2026-09-08 were 3,074 and 1,843 -- the first 99 lines high, in the
+direction that would let somebody believe there was room.
 
 The failure this gate was built from: a v0.5.4 relocation moved a 6-line helper into `service/db.py` — the
 correct subject owner — taking it 995 → 1006. `control_plane.py` shrank and a NEW file went over. The
