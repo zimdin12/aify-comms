@@ -56,6 +56,21 @@ aify-comms|aify-comms|,|clone https://github.com/zimdin12/aify-comms and run ./i
 aify-env|aify-env|aify-env|clone https://github.com/zimdin12/aify-env and run ./install.sh (it ASKS for the service key this host needs)
 aify-wrapper|aify-wrapper-check|aify-wrapper|installed as a dependency of the two above; aify-wrapper-install --all --endpoint <url>"
 
+# The package.json of a component vendored under the bridge, or nothing. READ, never executed.
+vendored_package_file() {
+  local pkg="$1" file
+  [ -n "$pkg" ] && [ "$pkg" != "," ] || return 0
+  file="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/mcp/stdio/node_modules/$pkg/package.json"
+  [ -r "$file" ] && printf '%s' "$file"
+  return 0
+}
+
+version_from_file() {
+  grep -m1 '"version"[[:space:]]*:' "$1" 2>/dev/null \
+    | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/' \
+    | head -1
+}
+
 package_version() {
   # READ, never executed. An absent or unparsable file yields "" -- see ABSENCE IS ABSENCE above.
   local pkg="$1" file
@@ -74,14 +89,20 @@ missing=0
 [ "$render" = true ] && echo "Components on this host:"
 while IFS='|' read -r name probe pkg howto; do
   [ -n "$name" ] || continue
+  version=""
   if command -v "$probe" >/dev/null 2>&1; then
     state="installed"
+    version="$(package_version "$pkg")"
+  elif vendored="$(vendored_package_file "$pkg")" && [ -n "$vendored" ]; then
+    # aify-wrapper is CONSUMED as a dependency of the bridge, so a correct install has it under
+    # mcp/stdio/node_modules and nothing on PATH. Reporting it MISSING there sent operators to
+    # install a second copy the launchers never read from.
+    state="installed"
+    version="$(version_from_file "$vendored")"
   else
     state="missing"
     missing=$((missing + 1))
   fi
-  version=""
-  [ "$state" = "installed" ] && version="$(package_version "$pkg")"
   if [ "$only_missing" = true ] && [ "$state" = "installed" ]; then
     continue
   fi
