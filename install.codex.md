@@ -257,7 +257,7 @@ that one card cannot show live usage; nothing else is affected. `install.sh` pri
 
 Current Codex CLI note:
 - The installer uses the current `codex mcp add ... --env ...` syntax.
-- For hooks, Codex now reads `hooks.json` and requires `features.codex_hooks = true` in `config.toml`.
+- For hooks, Codex reads `hooks.json` and requires `hooks = true` under `[features]` in `config.toml`; the installer writes that line and migrates the older `codex_hooks` name.
 - The unread hook is installed for `PostToolUse` on `Bash`, which matches the current Codex hooks runtime.
 - Re-running the installer removes stale duplicate aify unread-hook entries, even if an older install used a different repo path.
 - Resident triggering only works when the bridge talks to the same Codex installation/thread store that created the live session. A Windows desktop session and a WSL CLI session are different stores.
