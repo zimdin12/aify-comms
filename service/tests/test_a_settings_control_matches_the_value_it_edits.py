@@ -181,6 +181,7 @@ class _FieldReader(HTMLParser):
         self.fields: dict[str, dict] = {}
         self.duplicates: list[str] = []
         self.unexpected_tags: set[str] = set()
+        self.duplicate_attributes: list[str] = []
         self._select: str | None = None
         self._inert_depth = 0
 
@@ -192,6 +193,16 @@ class _FieldReader(HTMLParser):
             self.unexpected_tags.add(tag)
         # A FIELD INSIDE AN INERT CONTAINER IS NOT A FIELD. The browser never connects it.
         if self._inert_depth:
+            return
+        # A DUPLICATE ATTRIBUTE IS NOT SOMETHING TO PICK BETWEEN. `dict(attrs)` keeps the LAST
+        # occurrence and a browser keeps the FIRST, so `type="text" type="number"` renders as a text
+        # input while this reader reported a number one -- review's carrier, and every widget
+        # assertion passed. The panel emits no duplicates, so their presence means the output is not
+        # what this reader models, and it refuses rather than choosing.
+        names = [name for name, _ in attrs]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            self.duplicate_attributes.append(f"<{tag}> repeats {repeated}")
             return
         attributes = dict(attrs)
         key = attributes.get("data-setting-key")
@@ -221,12 +232,12 @@ class _FieldReader(HTMLParser):
             self._select = None
 
 
-def live_fields(html: str) -> tuple[dict[str, dict], list[str], set[str]]:
-    """The fields a browser would CONNECT, duplicates, and any tag outside the panel's vocabulary."""
+def live_fields(html: str) -> tuple[dict[str, dict], list[str], set[str], list[str]]:
+    """The fields a browser would CONNECT, repeated keys, unexpected tags, and duplicate attributes."""
     reader = _FieldReader()
     reader.feed(html)
     reader.close()
-    return reader.fields, reader.duplicates, reader.unexpected_tags
+    return reader.fields, reader.duplicates, reader.unexpected_tags, reader.duplicate_attributes
 
 
 def displayed(control: dict, shown: dict) -> str | None:
@@ -279,13 +290,16 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         cls.parsed = {}
         cls.duplicates = {}
         cls.unexpected = {}
+        cls.duplicate_attributes = {}
         for name, html in cls.probe["arms"].items():
-            fields, duplicates, unexpected = live_fields(html)
+            fields, duplicates, unexpected, repeated_attrs = live_fields(html)
             cls.parsed[name] = fields
             if duplicates:
                 cls.duplicates[name] = duplicates
             if unexpected:
                 cls.unexpected[name] = sorted(unexpected)
+            if repeated_attrs:
+                cls.duplicate_attributes[name] = repeated_attrs
 
     # ── what a parsed field shows, and how the arms compare ───────────────────────────────────
 
@@ -322,6 +336,14 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
             self.unexpected, {},
             f"the panel emitted tags outside its known vocabulary: {self.unexpected}. If that is "
             "deliberate, decide what this gate should do about their container semantics first.",
+        )
+        # A DUPLICATE ATTRIBUTE MEANS THE READER AND THE BROWSER WOULD DISAGREE about which value
+        # wins, so the field is dropped and reported rather than guessed at.
+        self.assertEqual(
+            self.duplicate_attributes, {},
+            f"the panel emitted repeated attributes: {self.duplicate_attributes}. A browser keeps "
+            "the FIRST and Python's dict keeps the LAST, so no reader here can describe what is "
+            "displayed.",
         )
 
     def test_the_probe_actually_rendered_the_panel(self):
