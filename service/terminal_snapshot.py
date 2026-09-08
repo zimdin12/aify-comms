@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from service.terminal_ansi import _screen_to_ansi
 
+import hashlib
 import re
 from typing import Any, Optional
 
@@ -231,9 +232,19 @@ _ALT_ENTER_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)h")
 _ALT_LEAVE_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)l")
 
 
+def _chunk_digest(chunk: str) -> str:
+    """A short, cheap fingerprint of one fed chunk.
+
+    Not a security hash and not stored anywhere a reader sees: its only job is to answer "are these
+    the same bytes that were just fed", which is the half of "is this a requeue" that a sequence
+    number cannot answer on its own.
+    """
+    return hashlib.blake2b(chunk.encode("utf-8", "replace"), digest_size=8).hexdigest()
+
+
 class _LiveScreen:
     __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt",
-                 "_pending", "seq")
+                 "_pending", "seq", "digest")
 
     def __init__(self, cols: int, rows: int) -> None:
         self.cols = cols
@@ -244,6 +255,10 @@ class _LiveScreen:
         # screen beside the old number, which is the tear review constructed. None means "no number
         # covers what is on this screen", which a reader must treat as unknown rather than as zero.
         self.seq = None
+        #: A digest of the last chunk fed, so a REQUEUED chunk can be told from a different one that
+        #: happens to carry the same number. A digest rather than the bytes because a chunk can be
+        #: 64 KB and there is one of these per live screen.
+        self.digest = None
         # HistoryScreen (not Screen): keeps the lines that scroll off the top, which IS the
         # console's scrollback. Without it there is nothing to scroll back to after a reset.
         self.screen = pyte.HistoryScreen(cols, rows, history=_HISTORY_LINES, ratio=0.5)
@@ -377,9 +392,37 @@ def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any =
         elif (c, r) != (live.cols, live.rows):
             live.resize(c, r)
         if chunk:
-            live.feed(chunk)
-            # SET AFTER THE FEED, so a chunk that threw leaves no number claiming to describe it.
-            live.seq = None if seq is None else int(seq)
+            # A CHUNK THIS SCREEN HAS ALREADY CONSUMED IS NOT FED TWICE.
+            #
+            # THE DEFECT, reported by review 2026-09-08 as pre-existing: `_append_terminal_output`
+            # feeds the screen and folds the chunk into the held tail BEFORE the UPDATE, and when
+            # that UPDATE throws the write queue requeues the SAME chunk. `restore()` puts the tail
+            # back exactly as it was -- and nothing put the SCREEN back, because a pyte screen has no
+            # cheap undo. So the retry gave a stored tail of AB beside a screen of ABB, and for a TUI
+            # a second application of the same bytes is a cursor movement nobody asked for.
+            #
+            # THE SAME SEQUENCE AND THE SAME BYTES, which is what a requeue is and nothing else is.
+            #
+            # `seq <= live.seq` WAS THE FIRST VERSION AND IT WAS TOO WIDE. It turns any sequence that
+            # does not advance into SILENTLY DROPPED OUTPUT, which is a worse failure than the double
+            # paint it fixes -- and it fired immediately: a test whose terminal id outlived its
+            # database row saw the numbering restart and lost the frame. A guard that can swallow
+            # bytes needs to be certain, and only an identical chunk at an identical number is.
+            #
+            # Reordering the mutations after the UPDATE was the other candidate and the module's own
+            # note rules it out: `_answer_console_prompt` reads this screen on the same call.
+            #
+            # UNNUMBERED CHUNKS ARE ALWAYS FED. `append_outside_the_queue` numbers nothing, so there
+            # is no basis for calling one a repeat, and dropping output on a guess is worse than
+            # painting it twice.
+            digest = _chunk_digest(chunk)
+            already = (seq is not None and live.seq is not None and int(seq) == int(live.seq)
+                       and live.digest == digest)
+            if not already:
+                live.digest = digest
+                live.feed(chunk)
+                # SET AFTER THE FEED, so a chunk that threw leaves no number claiming to describe it.
+                live.seq = None if seq is None else int(seq)
         return True
     except Exception:
         _LIVE_SCREENS.pop(tid, None)  # never serve a corrupt screen
