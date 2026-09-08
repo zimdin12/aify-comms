@@ -277,7 +277,7 @@ export function renderSpawnRequests() {
       <td>${esc(req.runtime || '—')}</td>
       <td>${renderStatusChip(status, { label: status, why: `Spawn request status: ${status}.` })}</td>
       <td class="clip">${esc(req.workspace || '—')}</td>
-      <td class="clip">${esc(detail)}</td>
+      <td class="clip spawn-detail" title="${esc(detail)}">${esc(detail)}</td>
     </tr>`;
   }).join('');
   el.innerHTML = `<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>
