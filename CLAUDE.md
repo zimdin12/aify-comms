@@ -356,8 +356,16 @@ true.
 | 755 | `service/api_core/status_inputs.py` | 245 |
 | 728 | `mcp/stdio/hermes-managed-host.js` | 272 |
 
-**531 files in the committed tree** (256 Python, 275 JS), none at or over the limit. TWO are
+**533 files in the committed tree** (258 Python, 275 JS), none at or over the limit. TWO are
 within 20 lines of it.
+
+**RE-VERIFIED ROW BY ROW 2026-09-08 by importing the gate's own walk**, after this table had been
+wrong four times: all nine rows match their measured line counts exactly and the membership matches
+the measured ranking, so nothing here needed correcting. The census moved 531 -> 533 because two
+measurement scripts were added under `scripts/`; the Python half is 256 -> 258 and the JS half is
+unchanged. `service/routers/terminals.py` is the first file OUTSIDE the table at 712 lines, having
+grown with the console projection and the size endpoint -- 288 lines of headroom, and named here so
+the next reader knows what is just off the bottom.
 
 **THE COMMITTED CENSUS, NOT A WORKTREE ONE**, and the difference is a real trap review caught:
 the gates walk the FILESYSTEM, so an untracked file in the right place is governed and counted.
