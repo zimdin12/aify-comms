@@ -262,6 +262,7 @@ ledger has no standing to make, so they sit in the open list below instead.
 |---|---|---|---|---|---|
 | X-1 | Every request aify-env's aify-comms plugin EMITS names a route this service serves, at that method | `lib/plugins/aify-comms/api.mjs` (aify-env) against this app's route table | `test_the_env_plugin_addresses_routes_this_service_serves.py` — every public method of the real `CommsApi` is CALLED through its own `fetchImpl` injection; each request is stamped with the method that was running, and EACH method must emit exactly one. 10 methods, 10 owned requests, 130 served routes, each matching exactly one | PASSES IN TESTS on the candidate. Driven EIGHT ways: a method that emits nothing, a silent method PAIRED with one emitting an extra valid request, a driver that exits non-zero while printing normal JSON, a wrong ACTUAL prefix, an unserved path, and the SERVICE dropping a path all turn it red; a whitespace refactor stays green; a named checkout with no plugin SKIPS | Met for the ADDRESS and METHOD. **Three earlier versions were each satisfied by less** — a regex over call sites that legal whitespace defeated, a `/api/v1` prefix the gate supplied itself, and a TOTAL where the claim needed a relation: `len(requests) == len(methods)` is satisfied by a silent method beside one sending twice. Bodies, responses, auth and a live round trip are NOT covered |
 | X-2 | Every FIELD aify-env's plugin sends is one the receiving route's model declares | same plugin against this app's request models | same test — the harness records each emitted BODY, and every top-level key is checked against `route.body_field.field_info.annotation`'s declared names and aliases | PASSES IN TESTS on the candidate. Driven both ways: renaming `only_if_no_live_session` to camelCase on the wire, and adding a field no model declares, each turn it red and name the field | Met for TOP-LEVEL fields. **Pydantic IGNORES an undeclared field**, so a renamed key is not an error anywhere — the request succeeds, the value never arrives, and the symptom is behaviour that quietly stops happening. Nested objects are NOT judged here |
+| X-3 | aify-env's own READERS work on what this service actually answers | `lib/startable-agents.mjs` (aify-env) against real `/agents` and `/sessions` responses | `test_the_env_plugin_reads_what_this_service_answers.py` — seeds a managed agent and two sessions, fetches through the real routes, and runs the plugin's OWN `startabilityOf` and `restartTargetFor` on the payload | PASSES IN TESTS on the candidate. Four reader mutants killed: a field we do not send (`last_seen`), a live-vocabulary drift, a different session-mode spelling, and a reader that stops refusing a live session | Met for the two readings that gate "start available agent". **The vocabulary check is the part only this side can answer** — if the reader's live statuses were ones this service never emits, the check would never fire and every session would read restartable. Other responses and any live round trip are NOT covered |
 
 ## Packaging
 
@@ -395,13 +396,14 @@ recorded here rather than attempted in a release cut.
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
    range. What is PROVEN is that no literal spelling of a deleted module's name appears outside
    a comment — not unreachability, since nothing resolves a specifier. Behaviour is UNREVIEWED.
-4. **The cross-repo seam — NARROWED AGAIN, still UNVERIFIED FOR THIS RELEASE.** X-1 proves the
-   plugin's ADDRESSES and X-2 the top-level FIELDS it sends, both driven from both sides, and
+4. **The cross-repo seam — THREE LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
+   the plugin's ADDRESSES, X-2 the top-level FIELDS it sends, and X-3 that its own READERS work on
+   what this service actually answers — all three driven from both sides — and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
-   reference's grammar and directory agreement — not lifecycle integration. What remains unproved:
-   nested body shapes, RESPONSE shapes, auth, and any live round trip, where six tests used to
-   drive a real aify-env. Moving them out of this release is an owner's decision and has not been
-   made.
+   reference's grammar and directory agreement, not lifecycle integration. What remains unproved:
+   nested body shapes, the responses X-3 does not read, auth, and any LIVE round trip, where six
+   tests used to drive a real aify-env. Moving them out of this release is an owner's decision and
+   has not been made.
 5. **P-2** — CLOSED: `VERSION`, `version.js`, both manifests and `plugin.json` declare `0.6.3`,
    and the tag is cut. `service/_build_stamp.json` is GITIGNORED — a build artifact regenerated
    by `scripts/stamp.sh` immediately before the container build, so it is not part of the tag
