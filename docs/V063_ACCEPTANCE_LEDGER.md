@@ -61,31 +61,34 @@ conditional-start work.
 
 A result with no candidate attached is not a receipt. Every such row was measured on:
 
-- **Candidate: `65e1ac9e`, with this receipt's own publication-only edits on top** -- the commit
-  the tested tree BECAME. The five runs below were re-taken after those edits and are unchanged,
-  which is what a documents-only change should produce, written after that commit exists
-  rather than predicted before it. An earlier version of this line named "the tree at `05ad53df`
-  carrying round sixteen's repairs"; `05ad53df` is immutable and holds neither X-1 nor the repaired
-  census, so it named a tree nobody could check out. A candidate has to be a thing another person
-  can obtain. A row measured on anything else says so in its own cell.
-- **The five suites, ONE run each, all exit status 0**, quoted here so every figure in this
-  document reconciles against the same run:
+- **Candidate: `09e8df6a`** -- the commit the tested tree BECAME, written after that commit
+  exists rather than predicted before it. A candidate has to be a thing another person can check
+  out: an earlier version of this line named "the tree at `05ad53df` carrying round sixteen's
+  repairs", and `05ad53df` is immutable and holds neither X-1 nor the repaired census.
+- **The five suites, ONE run each, all exit status 0**, taken immediately before that commit so
+  every figure in this document reconciles against the same tree:
 
 | suite | command | result | exit |
 |---|---|---|---|
-| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,623 passed, 10,934 subtests | 0 |
-| bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 363 suites passed; 1 test skipped in `runtime-launch-helpers.test.js` | 0 |
-| dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,709 passed, 0 skipped | 0 |
-| aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 219 passed, 0 skipped | 0 |
-| aify-env | `cd ~/projects/aify-env && npm test` | 1,683 tests, 1,682 passed, 1 skipped | 0 |
+| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,638 passed, 10,956 subtests | 0 |
+| bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 364 suites passed; 1 test skipped in `runtime-launch-helpers.test.js` | 0 |
+| dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,712 passed, 0 skipped | 0 |
+| aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 223 tests, 222 passed | 0 |
+| aify-env | `cd ~/projects/aify-env && npm test` | 1,699 tests, 1,698 passed, 1 skipped | 0 |
 
-`TIME_WAIT` was **295** before the python run and **12,185** after it. A reading of 1,888 taken
-before an earlier run in this session was residue from the run before it, not ambient load -- the
-misreading CLAUDE.md records, and worth naming because the number looks like a host condition, against this host's 16,384-port
-ephemeral range — the socket pressure CLAUDE.md documents, sampled DURING the run rather than
-between runs. Nothing failed, so it attributes nothing here; it is recorded because a later red must
-be read against a measured before-and-after rather than a remembered one.
+**AND THIS TABLE HAD GONE STALE UNDER ITS OWN CANDIDATE LINE.** It quoted 5,623 / 363 / 1,709 /
+219 / 1,683 while naming a commit several steps past them -- so the "one run" it promises was
+neither one run nor of that tree. Two copies of one fact, and the copy nobody scrolls back to is
+the one that rots: the failure this repo documents at length, inside the section that exists to
+prevent it.
 
+`TIME_WAIT` was **294** before the python run and roughly **12,200** after it, against this
+host's 16,384-port ephemeral range -- the socket pressure CLAUDE.md documents, sampled DURING the
+run rather than between runs. Nothing failed, so it attributes nothing here; it is recorded so a
+later red is read against a measured before-and-after rather than a remembered one. A reading of
+**1,888** taken before an earlier run today was residue from the run before it and NOT ambient
+load, which is worth naming because that number looks exactly like a host condition and this
+repo has a record of somebody reporting one.
 **PASSES IN TESTS is not PROVEN, and neither is a deployed-object failure a receipt for a candidate
 run.** B-1's row carries both and says which is which.
 
@@ -227,7 +230,7 @@ not PROVEN on the operator's fleet — and this ledger cannot make them the latt
 is that a reader can open each named test and check whether the assertion says what this table
 says. **What is still THIN is the cross-repo seam**, which row X-1 covers for addresses only.
 **WHAT THIS SECTION USED TO SAY, and why review was right to refuse it.** It cited aify-env's suite
-being green (1,683 tests) and named a handful of its files, two of which had been read. Review's
+being green (1,683 tests at the time; 1,699 now) and named a handful of its files, two of which had been read. Review's
 answer was exact and is the reason the tables above exist: **a passing external suite is a suite,
 not an obligation-to-assertion mapping**, and citing one as though it were is the same shape they
 had already rejected in the discovery inventory. A green suite says some tests pass. It does not say
