@@ -15,8 +15,10 @@ WHAT IT ASKS, and every one of them is read from the running system rather than 
      `--is-ancestor` that cannot say YES cannot say NO. The stamped build's own parent is the
      positive control; a made-up sha is the negative one.
   3. WHAT THE BROWSER ACTUALLY RECEIVES, fetched from the dashboard rather than read from the
-     checkout. `console-cursor.mjs` is the cheapest tell: this version created it, so a 404 means
-     the served bundle predates the console work entirely.
+     checkout. `console-cursor.mjs` is the cheapest tell, because this version created it -- but a
+     404 proves absence AT THAT URL and not, on its own, an old bundle. It BLOCKS a clear verdict
+     rather than asserting a defect; the version that printed the 404 and then concluded "carries
+     none of them" is the shape this check exists to avoid.
   4. WHETHER THE DEPLOYED QUEUE FIRES THE DEFECT, which a code read cannot answer. The container's
      own `terminal_write_queue.py` is copied out and this version's frame-sequence test is pointed
      at it, with the repo's module as the control on both sides of the swap.
@@ -56,6 +58,15 @@ FIXES = {
     "815ea767": "the AMPLIFIER: a gap-recovery could loop, dropping every frame that arrived in it",
     "43857ad7": "the resync fetched 147 KB to repaint from 6 KB of it",
 }
+
+#: What THIS test's own failure says. An exit 1 whose output names none of these is some other
+#: failure -- a fixture, an import, a collection error dressed as one -- and must not be reported
+#: as the deployed queue carrying the defect.
+FRAME_FAILURE_MARKS = (
+    "counts POSTS, not frames",
+    "coalescing is supposed to emit exactly one frame",
+    "consecutive frames carried",
+)
 
 #: Served modules whose ABSENCE or staleness says the browser predates the console work.
 SERVED = ("xterm-mount.mjs", "realtime-socket.mjs", "console-cursor.mjs")
@@ -120,8 +131,13 @@ def ancestry(build: str) -> tuple[dict[str, bool], str]:
     code, parent = _git("rev-parse", f"{build}^")
     if code != 0 or _git("merge-base", "--is-ancestor", parent, build)[0] != 0:
         return {}, "the positive control failed: the build's own parent did not report as an ancestor"
-    if _git("merge-base", "--is-ancestor", build, parent)[0] == 0:
-        return {}, "the negative control failed: a non-ancestor reported as an ancestor"
+    # THE NEGATIVE CONTROL NEEDS GIT'S OWN "NO", WHICH IS EXIT 1. Reading "non-zero" as "the
+    # control passed" let an error 128 -- git declining to answer at all -- satisfy the very
+    # check that exists to prove git can say no.
+    reverse = _git("merge-base", "--is-ancestor", build, parent)[0]
+    if reverse != 1:
+        return {}, (f"the negative control did not get a clean 'no' (git exited {reverse}), so "
+                    f"this run cannot tell an absence from an error")
 
     present: dict[str, bool] = {}
     for sha in FIXES:
@@ -148,10 +164,17 @@ def served_modules(key: str, build: str) -> tuple[list[str], str]:
     """
     notes: list[str] = []
     unreadable: list[str] = []
+    missing: list[str] = []
     for name in SERVED:
         status, body = _get(f"{DASHBOARD}/{name}", key)
         if status == 404:
+            # MISSING, WHICH IS EVIDENCE AND NOT A PASS. `console-cursor.mjs` does not exist
+            # before this version's console work, so a 404 is the cheapest tell that the bundle
+            # predates it -- but it proves absence AT THIS URL and nothing on its own. With
+            # every fix present and a passing queue, 404s for all three still reached "carries
+            # none of them", exit 0. It blocks CLEAR now, kept distinct from a transport failure.
             notes.append(f"{name}: 404 -- the browser has no such module")
+            missing.append(name)
             continue
         if status != 200 or not body:
             notes.append(f"{name}: could not be fetched (status {status})")
@@ -168,7 +191,7 @@ def served_modules(key: str, build: str) -> tuple[list[str], str]:
         else:
             notes.append(f"{name}: matches neither {build} nor HEAD")
             unreadable.append(f"{name} matches neither build")
-    return notes, ("; ".join(unreadable) if unreadable else "")
+    return notes, ("; ".join(unreadable) if unreadable else ""), missing
 
 
 def _isolated_tree(scratch: Path) -> Path | None:
@@ -210,29 +233,37 @@ def deployed_queue_fires(scratch: Path) -> tuple[str, str]:
         return "unknown", "an isolated copy of the service tree could not be made"
     target = tree / "service" / "terminal_write_queue.py"
 
-    def run() -> int:
-        return subprocess.run([sys.executable, "-m", "pytest", FRAME_TEST, "-q", "--no-header",
+    def run() -> tuple[int, str]:
+        done = subprocess.run([sys.executable, "-m", "pytest", FRAME_TEST, "-q", "--no-header",
                                "-p", "no:cacheprovider"],
-                              cwd=tree, capture_output=True, text=True).returncode
+                              cwd=tree, capture_output=True, text=True)
+        return done.returncode, done.stdout + done.stderr
 
     # THE COPY IS CONTROLLED BEFORE IT IS USED. A tree missing something the test needs fails for
     # reasons that have nothing to do with the deployed module, and that failure would otherwise
     # read as "the deployed queue is broken".
-    if run() != 0:
+    baseline, baseline_out = run()
+    if baseline != 0:
         return "unknown", ("the repo's own module fails this test inside the isolated tree, so "
                            "the harness proves nothing about the deployed one")
     shutil.copyfile(pulled, target)
-    deployed = run()
+    deployed, output = run()
     # PYTEST'S EXIT CODES ARE A VOCABULARY. 0 passed, 1 tests FAILED, 2 collection error, 3
     # internal, 4 usage, 5 nothing collected. Reading "non-zero" as "the deployed queue is
     # defective" turns a broken harness into a confident finding -- and 5, no tests collected,
     # is exactly what a mis-copied tree produces.
     if deployed == 0:
         return "clear", "the deployed queue passes it"
-    if deployed == 1:
-        return "carries", "the deployed queue FAILS this version's frame-sequence test"
-    return "unknown", (f"pytest exited {deployed} against the deployed module -- that is not a "
-                       f"test failure, so nothing was established either way")
+    if deployed != 1:
+        return "unknown", (f"pytest exited {deployed} against the deployed module -- that is not "
+                           f"a test failure, so nothing was established either way")
+    # AND EXIT 1 IS NOT ENOUGH EITHER. It says SOMETHING failed, not that the frame-sequence
+    # assertions did: a fixture setup error inside the isolated tree exits 1 and would be
+    # reported as a deployed defect. The failure has to name the property being claimed.
+    if not any(mark in output for mark in FRAME_FAILURE_MARKS):
+        return "unknown", ("pytest exited 1 but no frame-sequence assertion is named in its "
+                           "output, so what failed is not the property this check reports on")
+    return "carries", "the deployed queue FAILS this version's frame-sequence test"
 
 
 def main() -> int:
@@ -261,7 +292,7 @@ def main() -> int:
     print()
 
     print("WHAT THE BROWSER RECEIVES:")
-    notes, browser_unreadable = served_modules(key, build)
+    notes, browser_unreadable, browser_missing = served_modules(key, build)
     for note in notes:
         print(f"  {note}")
     print()
@@ -284,6 +315,15 @@ def main() -> int:
         print("This is a mechanism demonstrated in the deployed artifact. It is NOT a reproduction "
               "of any particular lag, and the live coalescing rate is still unmeasured.")
         return 1
+    # A MISSING MODULE BLOCKS CLEAR WITHOUT ASSERTING THE DEFECT. A 404 proves absence at that
+    # URL; it does not by itself prove an old bundle, and the browser could be served from
+    # somewhere this check does not know about. What it must never do is what it used to:
+    # print the 404 and then report "carries none of them", exit 0.
+    if browser_missing:
+        print(f"UNKNOWN: the browser did not serve {', '.join(browser_missing)}, so what it is",
+              "running was not established. Everything else here is clear, which is not the",
+              "same as the console being current.")
+        return 2
     print("The running service carries none of them.")
     return 0
 

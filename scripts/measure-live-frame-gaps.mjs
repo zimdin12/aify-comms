@@ -44,9 +44,11 @@ const SECONDS = Number(process.argv[2] || 120);
 const FLOOR = 20;
 
 /**
- * THE DEPLOYED BATCHING PARAMETERS, read from the container rather than from this checkout:
- * `idle_flush_ms = 4`, `max_latency_ms = 24`. A batch coalesces exactly when a second post lands
- * within 4ms of the one before it, which is the whole condition the sequence defect needs.
+ * The deployed idle flush, read from the container: a batch coalesces when a second post lands
+ * within 4ms of the one before it. NAMED ONLY SO THE PROSE BELOW CAN SAY WHAT IT IS NOT
+ * COMPARING AGAINST -- no margin is derived from arrival intervals any more, because those are
+ * receiver-side and a post-to-arrival path runs through the queue, the flush timer, the event
+ * loop and this process.
  */
 const IDLE_FLUSH_MS = 4;
 
@@ -69,7 +71,9 @@ let frames = 0;          // every terminal_output event seen
 let comparisons = 0;     // those actually judged against a previous sequence for the same terminal
 let unnumbered = 0;      // no finite seq: the browser paints these without touching lastSeq
 let dropped = 0;         // seq <= lastSeq: the browser discards, and does NOT lower its cursor
-let recoveries = 0;      // seq > lastSeq + 1: the browser refetches, resets and repaints
+let gapEvents = 0;       // every seq > lastSeq + 1 on the wire -- the UPPER bound on recoveries
+let recoveries = 0;      // distinct recovery EPISODES, holding gaps that arrive while one is pending
+const pending = new Set();  // terminals whose recovery this model treats as still in flight
 let badSpans = 0;
 
 /**
@@ -98,8 +102,21 @@ function note(terminalId, seq, at) {
     // THE CURSOR IS NOT LOWERED HERE. The browser returns without touching `lastSeq`, so a late
     // frame is discarded and the NEXT one is still judged against the high-water mark.
     if (seq <= lastSeq) { dropped += 1; return 'dropped'; }
-    if (seq > lastSeq + 1) { recoveries += 1; lastSeqOf.set(terminalId, seq); return 'recovery'; }
+    if (seq > lastSeq + 1) {
+      gapEvents += 1;
+      // A GAP WHILE A RECOVERY IS PENDING IS HELD, NOT A SECOND RECOVERY. The browser sets
+      // `entry.resyncing` and the next gapped frame takes `holdFrame(...)` and RETURNS -- so
+      // 10,14,18 initiates ONE recovery and holds the rest, where counting every gap reported two.
+      // This models the pending window as "until a contiguous frame arrives", which is an
+      // ASSUMPTION about when the fetch lands and is stated as one: the true window is an HTTP
+      // round trip nothing here observes, so this is a LOWER bound on episodes and gapEvents is
+      // the upper one.
+      if (!pending.has(terminalId)) { recoveries += 1; pending.add(terminalId); }
+      lastSeqOf.set(terminalId, seq);
+      return 'recovery';
+    }
   }
+  pending.delete(terminalId);
   lastSeqOf.set(terminalId, seq);
   return 'painted';
 }
@@ -113,7 +130,7 @@ function note(terminalId, seq, at) {
  * take, so a predicate that fires on the wrong frame fails here instead of in publication.
  */
 function selfTest() {
-  const before = { frames, comparisons, unnumbered, dropped, recoveries };
+  const before = { frames, comparisons, unnumbered, dropped, recoveries, gapEvents };
   const mark = '__control__';
   const cases = [
     [10, 'painted', 'the first frame establishes the cursor and is not compared'],
@@ -123,22 +140,53 @@ function selfTest() {
     [15, 'painted', 'and that drop did NOT lower the cursor, so 15 follows 14'],
     [NaN, 'unnumbered', 'a frame with no finite sequence reaches neither branch'],
   ];
+  // THE COUNTER'S CONTRIBUTION, NOT ONLY THE BRANCH LABEL. Deleting `recoveries += 1` while
+  // keeping the predicate, the cursor update and `return 'recovery'` passed every case here and
+  // then published zero recoveries against a real +3 wire step. A name is not a count.
+  const counters = () => ({recoveries, gapEvents, dropped, unnumbered, comparisons});
   const wrong = [];
   for (const [seq, want, why] of cases) {
+    const before = counters();
     const got = note(mark, seq);
-    if (got !== want) wrong.push(`${seq}: expected ${want} (${why}), got ${got}`);
+    const after = counters();
+    if (got !== want) { wrong.push(`${seq}: expected ${want} (${why}), got ${got}`); continue; }
+    const moved = Object.keys(after).filter((k) => after[k] !== before[k]);
+    const owed = {recovery: ['recoveries', 'gapEvents'], dropped: ['dropped'],
+                  unnumbered: ['unnumbered'], painted: []}[want];
+    for (const counter of owed) {
+      if (!moved.includes(counter)) {
+        wrong.push(`${seq}: took the ${want} branch but never incremented ${counter} -- `
+          + `a branch label is not a published count`);
+      }
+    }
   }
+  // AND THE PENDING-RECOVERY HOLD, which is its own case because it is the half where this model
+  // and the browser most easily diverge: 10, 14, 18 is TWO wire gaps and ONE recovery episode,
+  // since the browser sets `resyncing` on the first and holds the second.
+  const hold = '__control_hold__';
+  const beforeHold = {recoveries, gapEvents};
+  for (const seq of [10, 14, 18]) note(hold, seq);
+  const episodes = recoveries - beforeHold.recoveries;
+  const events = gapEvents - beforeHold.gapEvents;
+  if (episodes !== 1 || events !== 2) {
+    wrong.push(`10,14,18 must be ${2} wire gaps and ${1} recovery episode; got ${events} and `
+      + `${episodes} -- the pending-recovery hold is not modelled`);
+  }
+
   frames = before.frames; comparisons = before.comparisons; unnumbered = before.unnumbered;
-  dropped = before.dropped; recoveries = before.recoveries;
+  dropped = before.dropped; recoveries = before.recoveries; gapEvents = before.gapEvents;
   lastSeqOf.delete(mark);
+  lastSeqOf.delete(hold);
+  pending.delete(mark);
+  pending.delete(hold);
 
   if (wrong.length) {
     console.log('  CONTROL FAILED, so nothing below would mean anything:');
     for (const line of wrong) console.log(`    ${line}`);
     return false;
   }
-  console.log(`  CONTROL: all ${cases.length} cases took the branch they name, including the drop `
-    + 'that must not lower the cursor.');
+  console.log(`  CONTROL: ${cases.length} branch cases plus the pending-recovery hold, each `
+    + 'asserted on the counter it publishes rather than on its label.');
   return true;
 }
 
@@ -197,7 +245,8 @@ async function main() {
   console.log(`  COMPARISONS made       ${comparisons}   (judged against that terminal's own previous seq)`);
   console.log(`  unnumbered frames      ${unnumbered}   (no finite seq: neither branch is reached)`);
   console.log(`  dropped (seq <= last)  ${dropped}`);
-  console.log(`  RECOVERIES triggered   ${recoveries}   (seq > last + 1: refetch, reset, repaint)`);
+  console.log(`  wire GAPS (seq > last+1) ${gapEvents}   the UPPER bound on recoveries`);
+  console.log(`  RECOVERY EPISODES      ${recoveries}   gaps arriving while one is pending are HELD`);
   console.log('');
 
   if (badSpans) {
@@ -215,31 +264,35 @@ async function main() {
   }
 
   const rate = (100 * recoveries / comparisons).toFixed(1);
-  console.log(`${recoveries} of ${comparisons} compared frames (${rate}%) would make the browser`);
-  console.log('refetch, reset and repaint.');
+  console.log(`${recoveries} recovery episode(s) across ${comparisons} compared frames (${rate}%),`);
+  console.log(`from ${gapEvents} wire gap(s). The episode count assumes a recovery stays pending`);
+  console.log('until a contiguous frame arrives, which is a MODEL of the fetch window rather than');
+  console.log('an observation of it -- so episodes are a lower bound and wire gaps an upper one.');
 
   if (gapsMs.length) {
     const sorted = gapsMs.slice().sort((a, b) => a - b);
     const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))];
-    const under = sorted.filter((ms) => ms < IDLE_FLUSH_MS).length;
     console.log('');
-    console.log(`  per-terminal arrival intervals (n=${sorted.length}):`);
+    console.log(`  intervals between FRAME ARRIVALS at this receiver (n=${sorted.length}):`);
     console.log(`    p50 ${at(0.5).toFixed(1)}ms   p05 ${at(0.05).toFixed(1)}ms   min ${sorted[0].toFixed(1)}ms`);
-    console.log(`    under the ${IDLE_FLUSH_MS}ms idle flush: ${under}  -- these could coalesce`);
     console.log('');
-    if (recoveries) {
-      console.log('  (recoveries were seen, so these intervals are a LOWER bound on the post rate:');
-      console.log('   a coalesced flush hides the posts inside it.)');
-    } else {
-      // THE MINIMUM IS THE NUMBER THAT MATTERS. "Sometimes" is a claim about the BUSIEST moment,
-      // and a median far from the threshold hides a minimum sitting just outside it.
-      console.log(`  Nothing coalesced. THE CLOSEST APPROACH was ${sorted[0].toFixed(1)}ms against the `
-        + `${IDLE_FLUSH_MS}ms window -- ${(sorted[0] / IDLE_FLUSH_MS).toFixed(1)}x outside it, so a`);
-      console.log('  burst only modestly faster than anything here would start batching.');
-      console.log(`  The TYPICAL terminal posted every ${at(0.5).toFixed(0)}ms, `
-        + `${(at(0.5) / IDLE_FLUSH_MS).toFixed(0)}x too slow, which is why a quiet fleet can run`);
-      console.log('  this build all day and see nothing.');
-    }
+    // THESE ARE ARRIVALS, NOT POSTS, AND NO MARGIN IS DERIVED FROM THEM ANY MORE.
+    //
+    // The removed version compared this minimum against the 4ms idle flush and published a
+    // "2.1x outside the coalescing window" margin. That inference does not hold: what is timed
+    // here is when a BROADCAST reached this socket, and between a host's POST and that arrival sit
+    // the queue, the flush timer, the event loop, the WebSocket and this process's own scheduling.
+    // Driven at synthetic 1ms spacing the old text printed "0.3x outside" and "0x too slow"; at
+    // 4000ms it still called a burst "only modestly faster" while printing 1000x. Both are the
+    // arithmetic of a quantity that was never post spacing.
+    //
+    // What the intervals DO bound is this receiver's own view, which is worth printing and worth
+    // nothing more than that.
+    console.log('  WHAT THESE ARE NOT: the spacing of the POSTS that produced them. Between a');
+    console.log('  host POST and a frame arriving here sit the write queue, its flush timer, the');
+    console.log('  event loop, the WebSocket and this receiver scheduling. Nothing here bounds');
+    console.log('  how close two posts came to sharing a flush window, so no margin against the');
+    console.log('  4ms idle flush is derived from them -- an earlier version did, and was wrong.');
   }
 
   console.log('');
