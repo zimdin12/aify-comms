@@ -32,8 +32,9 @@ credential. An installer that proceeds with a missing value is how that happens,
 now — and an unattended run says what is missing and exits non-zero rather than reporting success
 over a host that cannot work.
 
-`npm install -g github:zimdin12/aify-env` still installs the command. What it does not do is notice a
-missing credential, which is why `./install.sh` exists in that repo.
+Use the reviewed aify-env repo `install.sh` for both install and update. A bare global npm install
+bypasses its registered-service credential checks. A successful package install is not proof that
+the running host has the selected code or can authenticate.
 
 A machine may run any of these, all of them, or none, and the service can live on another host. Where
 each piece belongs and what is still in the way is
@@ -42,8 +43,11 @@ each piece belongs and what is still in the way is
 ## Quick start
 
 **If you have a coding agent, point it at this repo and ask it to install aify-comms.** It will find
-`.claude/skills/aify-comms-install`, read what this machine already has, and ask you only what the
-machine cannot answer for itself. That is the intended path and the shortest one.
+`.claude/skills/aify-comms-install`, inspect host roles, clients, endpoint and versions, then show
+missing/outdated/unknown items and ask only the gaps plus whether you want optional **herdr**.
+Follow [agent-led onboarding](docs/INSTALL_ONBOARDING.md) for install/update, verify-only and plan-only
+workflows. The agent follows each owning repository: comms names aify-env's guide, and env names
+herdr's official installer. Nothing silently installs another product.
 
 By hand:
 
@@ -56,8 +60,9 @@ docker compose up -d --build      # service :8800 (API), Dashboard Next :8801
 curl http://localhost:8800/health # {"status":"healthy"}
 
 bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
-git clone https://github.com/zimdin12/aify-env && (cd aify-env && ./install.sh)  # agent hosts only
-aify-env                                                            # then start it
+git clone https://github.com/zimdin12/aify-env  # agent hosts only; review its README/install.sh
+# In that reviewed checkout, run its credential-aware install.sh after selecting the changes.
+# Start/restart the host tier separately, with approval; this can reap existing managed workers.
 ```
 
 Then open `http://localhost:8801`, spawn a managed agent into a workspace, and message it. Legacy

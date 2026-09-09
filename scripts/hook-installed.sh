@@ -3,7 +3,7 @@
 #
 #   bash scripts/hook-installed.sh <claude|codex|hermes> [config-root]
 #
-# exit 0 = a hook is registered, exit 1 = none. Nothing is printed; the exit status is the answer.
+# exit 0 = registered, exit 1 = absent, exit 2 = unreadable/unknown.
 #
 # `--with-hook` is opt-in, and redeploy.sh -- the documented one-command update -- does not pass it.
 # So every update printed "Notification hook skipped" and left the hook's REGISTRATION at whatever an
@@ -45,6 +45,8 @@ case "$client" in
       exit 2
     fi
     file="$root/config.yaml"
+    # Hermes registers an intermediate shell hook, not notify-check.js directly.
+    MARKER='notify-check|aify-notify[.]sh'
     ;;
   *)
     # An unknown client is not evidence of absence. Say so on stderr and fail, rather than reporting a
@@ -54,6 +56,8 @@ case "$client" in
     ;;
 esac
 
-[ -f "$file" ] || exit 1
-grep -q "$MARKER" "$file" 2>/dev/null || exit 1
-exit 0
+[ -e "$file" ] || [ -L "$file" ] || exit 1
+[ -f "$file" ] && [ -r "$file" ] || exit 2
+# Do not use -q: a match must not hide a later read error.
+grep -E "$MARKER" "$file" >/dev/null 2>&1
+exit "$?"

@@ -151,7 +151,8 @@ const CEILINGS = {
   // 2977 -> 2975 on 2026-09-04. NOT a change to this file: it measured 2975 and the ceiling had two
   // lines of slack, which is exactly the room a ratchet must not leave. Tightened to the real
   // number as the payment for the styles.css entry below.
-  "install.sh": 2975,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // Shared Hermes command/profile resolution moved to scripts/hermes-config.sh.
+  "install.sh": 2941,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

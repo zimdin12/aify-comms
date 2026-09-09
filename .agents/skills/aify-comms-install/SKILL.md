@@ -1,117 +1,80 @@
 ---
 name: aify-comms-install
-description: Use when asked to install, set up, update, upgrade, reinstall, or connect a machine to aify-comms — including adding a coding-agent client, changing the endpoint, or turning on the API key.
+description: Use when installing or updating aify-comms, connecting a host or client, changing endpoints or credentials, or offering optional herdr.
 ---
 
 # Installing and updating aify-comms
 
-**Ask the machine before asking the person.** Most of what an installer needs is a fact about this
-host, and one command reads all of it:
+## Inspect before asking
+
+Read [the onboarding guide](../../../docs/INSTALL_ONBOARDING.md) from the repository root's
+`docs/INSTALL_ONBOARDING.md` before changing anything. It covers the owner-to-owner install chain,
+credential handling, official herdr installers and verification. Installed skills need the checkout.
 
 ```bash
-bash scripts/install-state.sh
+bash scripts/install-state.sh --json
+bash scripts/components.sh
 ```
 
-Run it first, every time. Put only the gaps to the operator.
+Inspect the OS/shell, host role, installed clients, endpoint and the selected checkouts' versions.
+The report is inventory, not a readiness verdict. `hookStates` distinguishes installed, absent and
+unknown; Hermes uses the installer's profile-root resolver, not an assumed `~/.hermes`.
+`apiKey=unknown` means resolution failed, not permission to generate a key. Keep secrets out of reports.
+`components.sh`'s missing command or empty version is only a discovery hint, not proof of app absence.
 
-## Two installs, and this machine may want either
+For optional herdr, the state report searches PATH and official install locations without launching
+it. If found, review its origin before `bash scripts/herdr-state.sh --probe` checks only `--version`.
+No PATH entry does not mean no app. Resolve unknown locations with the operator before reinstalling.
 
-| they want | this machine runs |
-|---|---|
-| the service — database, dashboard, the API agents talk to | the container |
-| to run agents here | the launchers + `aify-env` |
+Show a table of installed, missing, outdated and unknown components, with observed and intended
+versions, evidence and proposed action. Use the doctors for running identity; a healthy port or a
+present launcher does not prove it is current. A failed version lookup stays unknown.
 
-Both on one machine is normal. The service can also live on another host, in which case this one
-installs only the client side and points at that URL.
+## Ask only the gaps and the optional choice
 
-## Installing
+1. Does this host serve the API/dashboard, run agents, or both? Ask only when intent is unresolved.
+2. Which clients are missing from the intended set? Claude, Codex and Hermes client installs are
+   supported; Pi/OpenCode client installs remain disabled.
+3. Which endpoint if none is known? Reuse an existing endpoint unless a move is requested.
+4. Resolve missing or conflicting credentials privately. Reuse an existing key. Offer
+   `--with-api-key` only for a chosen service-authentication change, not for an unknown key.
+5. Ask: "Do you want optional herdr installed or updated for terminal panes, or skip it?"
+   Offer it when missing even if the required stack is complete. Record skip without blocking the
+   service or agent host. Existing installation does not authorize launching it.
 
-**1. The service, if this machine hosts it.** Skip when `container` is already `running`, or when the
-service lives elsewhere.
+## Separate plan, apply and verify
+
+- **Verify-only:** inspect and report; no pulls, installs, credential writes, launches or restarts.
+- **Plan-only:** show selected versions, missing inputs, exact owner commands and restart impact;
+  execute no changes. The guide distinguishes this from an installer's actual flags.
+- **Apply:** install/update only the selected components using their owning repositories. Confirm
+  the selected versions and any destructive/configuration changes before executing.
+
+For clients, run the same installer for a missing or outdated integration, once per selected client:
 
 ```bash
-./setup.sh                        # generates .env + config from the examples
-docker compose up -d --build      # API :8800, Dashboard Next :8801
-curl http://localhost:8800/health # {"status":"healthy"}
+bash install.sh --client <claude|codex|hermes> <endpoint> --with-hook
 ```
 
-**2. The agent side, once per coding-agent client.** `install-state.sh` lists what is already there
-under `launchers`; install the ones that are missing.
+For a local service, preserve existing configuration; run setup only for first installation, then
+stamp and rebuild when selected. A running container may still need an update.
+For agent hosts, follow [aify-env's own guide](https://github.com/zimdin12/aify-env) and reviewed
+repo `install.sh`; it installs/updates the package and checks registered-service credentials.
+It is not a bare npm install followed by a daemon launch. aify-env's guide points to herdr's own
+installer after opt-in. No comms script installs another product. aify-wrapper is already a pinned
+dependency of the client installer; use its own guide for a standalone launcher-only install.
 
-```bash
-bash install.sh --client claude  <endpoint> --with-hook
-bash install.sh --client codex   <endpoint> --with-hook
-bash install.sh --client hermes  <endpoint> --with-hook
-```
+## Verify and report pending restarts
 
-`<endpoint>` is the service URL — `http://localhost:8800` on the machine hosting it, the LAN address
-otherwise. `install-state.sh` reports the endpoint already installed; reuse it unless the operator is
-moving the service.
+Run `aify-comms doctor` and, on agent hosts, `aify-env doctor`. Compare installed and running identity
+with the selected source/version. Re-read registry/credential status without displaying keys.
+Report checks passed, missing/outdated/unknown items, declined options and pending restarts separately.
 
-**3. The environment tier, if agents run here.** Managed spawns are delegated to it and fail loudly
-without it:
+Starting or restarting aify-env supersedes the current host and can reap managed workers. Treat it,
+service rebuilds and wrapper relaunches as separate disruptive actions requiring approval. Installing
+a new package does not update an already-running process.
 
-```bash
-npm install -g github:zimdin12/aify-env
-aify-env            # foreground; run it as a service if this host should always be spawnable
-```
-
-**4. Verify, and say what must be restarted.**
-
-```bash
-aify-comms doctor
-```
-
-Every deploy path in this repo fails silently, so absence of an error is not success. `doctor` proves
-each claim against the running system. Read [../aify-comms/references/operations.md](../aify-comms/references/operations.md) for what each check means.
-
-## Updating
-
-```bash
-git pull
-bash scripts/install-state.sh     # what this machine has now
-```
-
-Then apply only what changed, using `git diff --stat HEAD@{1}` to see which:
-
-| changed under | do |
-|---|---|
-| `service/`, `mcp/sse_server.py`, `config/` | `docker compose up -d --build` |
-| `mcp/stdio/` | re-run `install.sh` for each client, then relaunch every wrapper |
-| `.claude/skills/` | re-run `install.sh` — skills are COPIED out, editing them changes nothing until then |
-| docs only | nothing |
-
-Finish with `aify-comms doctor`. `bridge-current` reading red after a bridge update is accurate, not a
-false alarm: it means wrappers are still running the code they loaded at boot. It clears when they
-relaunch.
-
-## What to actually ask the operator
-
-Ask only what the state report cannot answer:
-
-1. **Does this machine host the service, run agents, or both?** Everything else follows.
-2. **Which coding-agent clients?** Only if `launchers` is missing ones they use. claude, codex and
-   hermes are supported; OpenCode and Pi installs are deliberately disabled.
-3. **Which endpoint**, only when none is installed and the service is not local.
-4. **Turn on the API key?** Only if `apiKey` is `none` and they want the service to stop accepting
-   unauthenticated calls. It is `bash install.sh --client <c> <endpoint> --with-api-key`, then
-   `docker compose up -d`, then open the dashboard once at `<endpoint>/?api_key=<the value in .env>`.
-   An existing key is reused, never rotated.
-
-Do not ask about notification hooks; `--with-hook` is the right default. Do not ask about paths,
-ports, or wrapper flags — the defaults are correct and the report names any that are not.
-
-## Two things that will bite
-
-**Never run a bare `aify-comms` to check whether something works.** Since v0.6.1 it refuses with
-exit 2, but this skill installs onto machines that may carry an older build, where a bare run reaps
-the host's managed workers. Use `aify-comms doctor` or `--check`.
-
-**Editing `mcp/stdio/` or `.claude/skills/` changes nothing until `install.sh` runs again.** Both are
-COPIED to `~/.aify-comms` and `~/.claude/skills`; the checkout is not what executes.
-
-## When to read more
-
-Per-runtime detail — wrapper internals, session handling, permissions — is in
-[../../../install.claude.md](../../../install.claude.md), `install.codex.md` and `install.hermes.md`.
-Reach for one only when a client behaves oddly after a correct install.
+Never run a bare `aify-comms` to test it; older installations can start a competing bridge. Use
+`aify-comms doctor` or `--check`. Likewise, bare `aify-env`, bare `herdr` and `aify-env herdr` are
+launches, not checks. Integration support is gated by the source/help and real probe evidence in the
+guide, not by herdr being installed.
