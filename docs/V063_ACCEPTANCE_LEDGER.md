@@ -131,8 +131,8 @@ was watched. The mechanism is present in the deployed build and has not been cau
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
 | R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that no LITERAL spelling of these names appears outside a comment: of 107 deleted files (35 product, 72 tests), 84 are not spelled anywhere in the searched population, 22 appear only inside comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls, fourteen carriers and a V8 parse-preservation differential in the same run; classification by occurrence SPAN, with AST byte columns converted before they meet character offsets and all four ECMAScript line terminators ending a `//` comment. **NOT unreachability** — an escaped, concatenated or computed specifier evaluates to the same path with no literal hit, and nothing here resolves a specifier. **BEHAVIOUR: MAPPED obligation by obligation to READ assertions in aify-env — see the table below. PASSES IN TESTS there, not PROVEN on the operator's fleet** | Retired to aify-env, and its behavioural half is now mapped rather than asserted |
-| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
-| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
+| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: MAPPED to read assertions in aify-env — see the table below. PASSES IN TESTS there, not PROVEN on the operator's fleet** | Retired to aify-env, and its behavioural half is now mapped |
+| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: MAPPED to read assertions in aify-env — see the table below. PASSES IN TESTS there, not PROVEN on the operator's fleet** | Retired to aify-env, and its behavioural half is now mapped |
 
 **The claim these rows make is what the census MEASURES, and the first version of both was wrong.**
 They cited `no-missing-sibling-imports.test.js` and `moved-names-resolve.test.js` until review
@@ -206,15 +206,33 @@ test and see whether the assertion says what this table says it says.
 weaker claim review rejected, and they stay in the open list until somebody reads them the way
 these were read. "Partially mapped" is a different statement from "mapped", and collapsing the
 two here would repeat the mistake this section exists to correct.
-**THE REMAINING BEHAVIOURAL GAP IS R-2 AND R-3, and that is a narrower statement than "no
-evidence exists".** aify-env's suite runs on every commit in this session and is green (1,683 above),
-and specific tests there are pointed at these responsibilities — `owned-processes.test.js` ("the
-writing instance stamps itself as the OWNER", "stopping removes only its own") and
-`orphans-die-with-the-environment.test.js` ("a process outlives a KILLED environment, and the next
-one reaps it") were READ rather than trusted to their titles. What does not exist is a MAPPING from
-each retired obligation to an assertion that carries it: a passing external suite is a suite, not an
-obligation-to-assertion mapping, and citing one as though it were is the shape review rejected in
-the discovery inventory. R-1 belongs with R-2 and R-3 here and in the open list.
+**R-2 AND R-3 ARE NOW MAPPED THE SAME WAY**, and the four marked ✓ were opened and read rather
+than cited on the strength of a title -- which is how the R-1 table found two that carried more
+than they promised.
+
+| retired obligation | the assertion that carries it now |
+|---|---|
+| **R-2** a process really runs on a terminal, streams, and is released | `pty-real.test.js` — "a process started on a REAL terminal runs, streams, and is released", with "the smoke script exits by itself, which is what makes this test possible" as its own precondition |
+| **R-2** output reaches the service IN ORDER, and one slow POST does not reorder it | ✓ `terminal-output-arrives-in-order.test.js` — asserts the first chunk goes immediately, that a second is HELD while the first is in flight (`calls.length` stays 1), and that it goes once the first settles. Also "a failed POST does not stop the next chunk", "TWO TERMINALS DO NOT BLOCK EACH OTHER", and a bounded backlog that drops the OLDEST |
+| **R-2** input reaches the process, and a write that cannot land is REFUSED | `input-resize.test.js` — "input written to a process ARRIVES, observed by what it echoes back"; "writing to an unknown id is refused, not silently dropped"; "writing to a process that has EXITED is refused" |
+| **R-2** a resize applies with the numbers given, and a PIPED process says it did not | ✓ same file — the terminal case asserts `ok` true and the pty received exactly `{cols: 120, rows: 40}`; the piped case reports that it did not apply, which is the refusal aify-comms' own plugin was ignoring until `09b07ee` |
+| **R-2** the terminal is given back on Ctrl+C, before the process exits | `ctrl-c-gives-the-terminal-back.test.js` — "THE TERMINAL IS OUT OF RAW MODE BEFORE THE PROCESS EXITS", "...even when stopping the plugins takes real time", "THE SECOND Ctrl+C ALSO LEAVES A USABLE TERMINAL", each with a positive control that the shutdown ran at all |
+| **R-2** an exit says HOW it ended, and a kill is not recorded as a clean one | `an-exit-says-how-it-ended.test.js` — clean exits keep code 0 with the owning agent, non-zero keeps its number, "a process killed from outside is not recorded as a clean exit", and "a STOP records no code, because nobody watched it end" |
+| **R-3** the host is described from what it IS, failing closed | `advertise.test.js` — "kind is read from the host, in the order the bridge reads it", "kind and os are DIFFERENT questions, and wsl is where that shows", "availability carries the reason, and an unfound runtime is not dropped", "it FAILS CLOSED, inheriting the detector's own rule" |
+| **R-3** a booted daemon really advertises, and only a 2xx counts as accepted | ✓ `the-daemon-really-advertises.test.js` — a booted daemon posts to every registered service; it sends NO id and NO cwdRoots, the two the service owns; and a 401 leaves `health.advertising` FALSE so the bridge keeps the job, with a positive control asserting the daemon actually attempted a beat first. "a 500 is treated the same as a 401 — any non-2xx is not an acceptance" |
+| **R-3** the view does not invent terminal support it was not told about | ✓ `the-view-does-not-invent-terminal-support.test.js` — available and unavailable both travel, the conpty backend flag survives, and "a missing or malformed block is UNAVAILABLE with a reason, not available" asserts both the false and the presence of a reason. "an environment that did not answer at all says so" |
+
+**THE SAME LIMIT AS R-1.** These run in aify-env's suite on this machine — PASSES IN TESTS there,
+not PROVEN on the operator's fleet — and this ledger cannot make them the latter. What has changed
+is that a reader can open each named test and check whether the assertion says what this table
+says. **What is still THIN is the cross-repo seam**, which row X-1 covers for addresses only.
+**WHAT THIS SECTION USED TO SAY, and why review was right to refuse it.** It cited aify-env's suite
+being green (1,683 tests) and named a handful of its files, two of which had been read. Review's
+answer was exact and is the reason the tables above exist: **a passing external suite is a suite,
+not an obligation-to-assertion mapping**, and citing one as though it were is the same shape they
+had already rejected in the discovery inventory. A green suite says some tests pass. It does not say
+which retired responsibility any of them carries, and nobody could check it without doing the work
+that had not been done.
 
 **A count of files mentioning a word is NOT evidence**, and a first pass at these rows did exactly
 that — 112 test files matching "teardown", 51 matching "ownership". The search that produced those
@@ -368,7 +386,8 @@ recorded here rather than attempted in a release cut.
    commit at the end means a refusal discards every write whatever the order. That is true and it is
    NOT sufficient: it says nothing about whether the deciding read is atomic with the writes. I had
    treated the second as following from the first, and published CLOSED on the strength of it.
-3. **R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
+3. **The cross-repo seam is the remaining retirement gap** — R-1, R-2 and R-3 are now mapped
+   obligation by obligation to read assertions in aify-env, whose suite is green and whose
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
    range. What is PROVEN is that no literal spelling of a deleted module's name appears outside
    a comment — not unreachability, since nothing resolves a specifier. Behaviour is UNREVIEWED.
