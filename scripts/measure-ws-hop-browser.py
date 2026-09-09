@@ -27,8 +27,13 @@ the fourth time in this block.
 SO TWO DISTRIBUTIONS ARE PUBLISHED, each measured on ONE clock and never subtracted from the
 other: the server's own inter-BROADCAST gaps from `perf_counter()`, and the tab's
 inter-ARRIVAL gaps from `performance.now()`. Whether the browser keeps up is a comparison of
-their SHAPES. If the tab's distribution matches the server's, every frame the server sent was
-taken as fast as it was offered, and no part of the operator's lag lives in this hop.
+their SHAPES.
+
+WHAT AGREEING SHAPES DO AND DO NOT ESTABLISH, and the first version of this paragraph claimed
+too much. A gap vector is INVARIANT under a constant offset: add 500ms to every arrival and it
+does not move. So matching shapes rule out JITTER and STALLS -- the tab is not falling behind and
+catching up -- and say NOTHING about a uniform delivery delay. "No part of the operator's lag
+lives in this hop" is not a conclusion this instrument can reach, and it is not claimed.
 
 THREE CONTROLS, ALL IN THE SAME RUN:
 
@@ -103,7 +108,12 @@ PAGE = """<!doctype html>
 // handler. Nothing here is compared against a server timestamp: the frame's own `i` is used only
 // to identify which frame arrived, never to time it.
 const FRAMES = __FRAMES__, BLOCK_AT = __BLOCK_AT__, BLOCK_MS = __BLOCK_MS__;
-const at = new Map();
+// WHAT ARRIVED, IN THE ORDER IT ARRIVED, WITH DUPLICATES KEPT. A Map keyed by frame id
+// deduplicates and a sort by id re-orders, and review drove both straight past the positive
+// control: a repeated id published, and a transposed pair published. Evidence a control is
+// supposed to examine cannot be normalised before it gets there.
+const arrivals = [];
+const distinct = new Set();
 const s = document.getElementById('s');
 const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.onopen = () => { s.textContent = 'connected, waiting for frames'; };
@@ -115,20 +125,22 @@ ws.onmessage = (ev) => {
   if (typeof i !== 'number') return;
   // RECORDED BEFORE THE BLOCK, so the blocking frame's OWN arrival is honest and the gap lands on
   // the frame after it -- which is what a main-thread stall actually does to a stream.
-  if (!at.has(i)) at.set(i, now);
+  arrivals.push([i, now]);
+  distinct.add(i);
   if (i === BLOCK_AT) {
     const until = performance.now() + BLOCK_MS;
     while (performance.now() < until) { /* the browser control: a busy main thread */ }
   }
-  if (at.size >= FRAMES) report();
+  if (distinct.size >= FRAMES) report();
 };
 function report() {
-  const seen = [...at.entries()].sort((a, b) => a[0] - b[0]);
-  s.textContent = 'reported ' + seen.length + ' frames';
-  document.getElementById('o').textContent = JSON.stringify(seen);
+  // SENT RAW. The publisher sorts for the gap arithmetic, but only after it has checked that
+  // what arrived was the emitted sequence, once each, in order.
+  s.textContent = 'reported ' + arrivals.length + ' frames';
+  document.getElementById('o').textContent = JSON.stringify(arrivals);
   fetch('/report', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ arrivals: seen, agent: navigator.userAgent }),
+    body: JSON.stringify({ arrivals, agent: navigator.userAgent }),
   });
 }
 </script>
@@ -217,19 +229,37 @@ def account(probe: Probe) -> tuple[list[str], list[tuple[int, float]]]:
     report = probe.reported or {}
     arrivals = [[int(i), float(t)] for i, t in (report.get("arrivals") or [])]
 
+    # CHECKED RAW, BEFORE ANYTHING SORTS OR DEDUPLICATES. This is the sequence the tab actually
+    # saw, multiplicity and order included: a repeated frame and a transposed pair are both
+    # findings, and the previous version of this check could see neither because the page had
+    # already normalised them away.
     landed = [i for i, _ in arrivals]
     if landed != probe.emitted:
         missing = sorted(set(probe.emitted) - set(landed))
         extra = sorted(set(landed) - set(probe.emitted))
+        repeated = sorted({i for i in landed if landed.count(i) > 1})
+        if sorted(landed) == sorted(probe.emitted):
+            why = "out of order"
+        elif repeated:
+            why = f"repeated {repeated[:6]}"
+        else:
+            why = "set differs"
         refusals.append(
-            f"POSITIVE: the tab's frames are not the emitted set, in order "
-            f"(missing {missing[:6]}, unexpected {extra[:6]}, "
-            f"{'out of order' if sorted(landed) == sorted(probe.emitted) else 'set differs'})")
+            f"POSITIVE: the tab's frames are not the emitted sequence, once each, in order "
+            f"(missing {missing[:6]}, unexpected {extra[:6]}, {why})")
     if any(not (t == t) or t in (float("inf"), float("-inf")) for _, t in arrivals):
         refusals.append("POSITIVE: a non-finite arrival time was reported")
 
     measured = gaps(arrivals)
     by_frame = dict(measured)
+    # A NEGATIVE GAP IS NOT A SMALL ONE. `performance.now()` is monotonic, so a decrease means
+    # the arrival order and the recorded times disagree -- which is a finding about the
+    # instrument, not a fast frame. Review admitted a -21ms gap through the previous version.
+    negative = [(frame, ms) for frame, ms in measured if not (ms >= 0)]
+    if negative:
+        refusals.append(
+            f"POSITIVE: {len(negative)} gap(s) are negative or non-finite, first {negative[0]} -- "
+            f"a monotonic clock cannot go backwards, so the record is not what it claims")
 
     held = by_frame.get(STALL_AT)
     if held is None or held < STALL_MS:
@@ -296,12 +326,16 @@ def main() -> int:
     print(f"  {'over 50ms':22} {sum(1 for ms in server_ordinary if ms > 50):>18} "
           f"{sum(1 for ms in ordinary if ms > 50):>16}")
     # WHAT THE TAB CAN EVEN SEE. `performance.now()` is CLAMPED in Chrome, so on the firehose arm
-    # the gaps land at or below its granularity and a p50 of 0.00 is the CLOCK, not a measurement.
-    # The smallest non-zero gap observed is that granularity, read off this run rather than
-    # remembered from a specification -- so a reader can tell a real zero from an unreadable one.
+    # the gaps land at or below its resolution and a p50 of 0.00 is the CLOCK, not a measurement.
+    #
+    # THIS IS THE SMALLEST GAP OBSERVED, NOT THE CLOCK'S RESOLUTION, and the first version of this
+    # line conflated them. Review's synthetic clock steps by 1ms and the publisher called its 21ms
+    # minimum "granularity". The observed minimum is an UPPER BOUND on the resolution: the clock
+    # can be finer than anything this run happened to see, and nothing here calibrates it.
     finest = min((ms for ms in ordinary if ms > 0), default=float("nan"))
-    print(f"  {'clock granularity':22} {'':>18} {finest:>13.2f} ms"
-          "   <- the tab's smallest non-zero gap; a p50 at or under this is a CEILING")
+    print(f"  {'smallest gap seen':22} {'':>18} {finest:>13.2f} ms"
+          "   <- an UPPER BOUND on the clock's resolution, not a measurement of it;"
+          " a p50 at or under it is a ceiling")
     print()
     print(f"  asked for {EMIT_MS:g}ms between broadcasts and ACHIEVED a median of "
           f"{statistics.median(server_ordinary):.2f}ms."
