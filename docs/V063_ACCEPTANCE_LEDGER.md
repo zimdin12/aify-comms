@@ -446,12 +446,29 @@ recorded here rather than attempted in a release cut.
    code that acts on it — all five driven from both sides — and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
    reference's grammar and directory agreement, not lifecycle integration. What remains unproved:
-   nested body shapes, the responses X-3 does not read, and any LIVE round trip, where six
+   the responses X-3 does not read, and any LIVE round trip, where six
    tests used to drive a real aify-env. **AUTH has moved off this list only for the HTTP header
    NAME**: X-4 says the name the plugin sends is the name the middleware reads, which is not the
    same as saying a real key authenticates — no assertion here has ever seen a 401 or a 200 from
    the deployed service. Moving the rest out of this release is an owner's decision and has not
    been made.
+4b. **X-6, NAMED AND NOT BUILT: every field the plugin READS off a response is one this service
+   SENDS.** X-5 closed the direction the plugin WRITES; this is the return leg, and it is the one
+   layer here with a defect already on the record rather than a hypothetical. `claim.mjs` says it
+   in its own words: six spawn requests were claimed within seconds and all six failed with "a
+   start request must name a launcher to run", because the plugin built a start spec from
+   `request.launcher` -- a field the wire has never carried. Nothing would catch that today.
+
+   THE INSTRUMENT HAS TO RECORD READS, NOT PARSE FOR THEM. A source scan for `response.<name>` is
+   the shape review already broke twice on this seam, and a typed list of expected fields is
+   satisfied by itself. The shape that works: fetch the REAL response through the real route, wrap
+   it in a Proxy that records every property the plugin asks for, and drive the plugin's own
+   consumer -- `runTerminalControl` and the claim pass both take their dependencies by injection
+   already. A property read that is absent from the real response IS the defect, named.
+
+   NOT STARTED, and deliberately: it is a substantial instrument and the tree is under review. It
+   is written down here rather than held in a session, because that is where the last one rotted.
+
 5. **P-2** — CLOSED FOR v0.6.3, AND THE TREE HAS MOVED PAST IT. `v0.6.3` is tagged; `VERSION`,
    `version.js`, both manifests and `plugin.json` now declare **`0.6.4`**, which is what
    `test_version_is_not_an_already_released_tag.py` requires of a tree carrying work past a
