@@ -104,7 +104,13 @@ function withBrowser(run) {
   state.terminalOwners = new Map();
 
   let releaseSnapshot;
-  const snapshotGate = new Promise((resolve) => { releaseSnapshot = resolve; });
+  let failSnapshot;
+  //: THE FETCH CAN ALSO REJECT, which is a path the hold changed the behaviour of: a frame held
+  //: for a snapshot that never arrives has to be placed by somebody.
+  const snapshotGate = new Promise((resolve, reject) => {
+    releaseSnapshot = resolve;
+    failSnapshot = () => reject(new Error("network is down"));
+  });
   //: THE SERVER SAYING IT DOES NOT KNOW where the screen is, which is the case review drove. A test
   //: that only ever used a number could not detect a failed KNOWN-to-unknown transition -- the
   //: mistake the previous round's test made.
@@ -158,12 +164,36 @@ function withBrowser(run) {
     .then(() => run({
       releaseSnapshot: () => releaseSnapshot(),
       setSnapshotSeq: (n) => { snapshotSeq = n; },
+      failSnapshot: () => failSnapshot(),
       gets,
     }))
     .finally(restore);
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 30));
+
+/**
+ * A stand-in for `resyncActiveConsole` that behaves like it in the one way that matters here.
+ *
+ * THE REAL ONE TAKES THE FLAG. It opens with `if (entry.resyncing) return;` and then sets
+ * `entry.resyncing = true` for the whole of its own fetch -- so from the moment the mount asks
+ * for a recovery, that flag belongs to the recovery. A double that only RECORDED the flag missed
+ * the ownership transfer entirely, which review pointed out by name.
+ */
+function recoveryDouble() {
+  const calls = [];
+  let releaseFetch;
+  const outstanding = new Promise((r) => { releaseFetch = r; });
+  const resyncActiveConsole = async () => {
+    const entry = state.activeXterm;
+    calls.push({ armedWhenAsked: entry?.resyncing });
+    if (entry?.resyncing) return;          // the real guard: a recovery is already running
+    entry.resyncing = true;
+    await outstanding;                      // its own GET, held open by the test
+    entry.resyncing = false;
+  };
+  return { resyncActiveConsole, calls, releaseFetch: () => releaseFetch() };
+}
 
 /** Deliver one frame exactly as the WebSocket would. */
 function frame(seq, output) {
@@ -349,5 +379,71 @@ test("A PROMPT SEEDED FROM AN UNKNOWN POSITION IS REMEMBERED TOO", async () => {
     assert.equal(entry.lastSeq, 4, "the seed branch did not run, so this proves nothing");
     assert.equal(consoleAwaitingInputHint(entry.recentText), true,
       `the seeded frame was painted but not remembered: ${JSON.stringify(entry.recentText)}`);
+  });
+});
+
+test("THE RECOVERY THE MOUNT ASKS FOR KEEPS THE FLAG THE MOUNT HANDS IT", async () => {
+  // FOUND BY REVIEW. The drain's remainder asks `resyncActiveConsole`, which takes `resyncing`
+  // and holds it across its own GET -- and the mount's cleanup then cleared it underneath. With
+  // the flag gone under an outstanding fetch, the next frame starts a SECOND recovery instead of
+  // joining the first; the two answer out of order and the console ends on the OLDER snapshot,
+  // with a cursor to match, which is a console that has silently gone backwards.
+  await withBrowser(async ({ releaseSnapshot, setSnapshotSeq }) => {
+    setSnapshotSeq(2);
+    const recovery = recoveryDouble();
+    const mounting = mountXtermForTerminal("t-1", "a-1", node(), {}, recovery);
+    await settle();
+
+    frame(4, "TOO-FAR-AHEAD");           // 2 -> 4 is a gap the drain cannot cross
+    releaseSnapshot();
+    await mounting;
+    await settle();
+
+    assert.equal(recovery.calls.length, 1, "the mount did not ask for the recovery it owes");
+    assert.equal(recovery.calls[0].armedWhenAsked, false,
+      "asked while the mount still held the flag, so the real recovery would refuse itself");
+    assert.equal(state.activeXterm.resyncing, true,
+      "the mount cleared the flag the recovery took, so its fetch is no longer protected");
+
+    // And the proof that it is protected: a frame arriving now must JOIN that recovery rather
+    // than start a second one.
+    frame(5, "DURING-THE-RECOVERY");
+    await settle();
+    assert.equal(recovery.calls.length, 1,
+      "a second recovery was started while the first was still outstanding");
+    assert.deepEqual(state.activeXterm.pendingFrames.map((f) => f.seq), [4, 5],
+      "the frame was painted onto a screen the outstanding recovery is about to reset");
+
+    recovery.releaseFetch();
+    await settle();
+  });
+});
+
+test("A FETCH THAT FAILS STILL PLACES WHAT WAS HELD", async () => {
+  // ALSO FOUND BY REVIEW, and it is a regression of the hold itself. Before frames were held, a
+  // frame arriving during the fetch was painted live and survived a failed fetch. Held and then
+  // never drained, it sat in `pendingFrames` while the next live frame painted and advanced the
+  // cursor past it -- so the bytes were lost to a console that looked live.
+  await withBrowser(async ({ failSnapshot }) => {
+    const mounting = mountXtermForTerminal("t-1", "a-1", node(), {}, { resyncActiveConsole: async () => {} });
+    await settle();
+
+    frame(4, "DURING");
+    failSnapshot();
+    await mounting;
+    await settle();
+
+    const entry = state.activeXterm;
+    const written = entry.term.written.join("");
+    assert.ok(written.includes("DURING"),
+      `the held frame was stranded by the failed fetch: ${JSON.stringify(entry.term.written)}`);
+    assert.equal(entry.lastSeq, 4, "the console did not resume from the frame it kept");
+    assert.deepEqual(entry.pendingFrames, [], "frames were left queued with nobody coming back");
+
+    // NEGATIVE CONTROL for the same path: the next live frame is adjacent and paints once, rather
+    // than being dropped as already covered.
+    frame(5, "AFTER");
+    assert.ok(entry.term.written.join("").includes("AFTER"));
+    assert.equal(entry.lastSeq, 5);
   });
 });

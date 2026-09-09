@@ -255,17 +255,32 @@ class TerminalOutputWriteQueue:
         batches = [(text, "", int(number)) for text, number in state["retry"]]
         batches.append((prefix + "".join(state["chunks"]), state["status"],
                         int(state.get("last_seq") or 0)))
-        for index, (output, status, seq) in enumerate(batches):
-            if not output and not status:
-                continue
-            try:
-                async with self._write_lock:
+        # THE WHOLE DRAIN HOLDS THE WRITE LOCK, not each batch in turn.
+        #
+        # FOUND BY REVIEW against the real queue and a real SQLite: taking the lock per batch
+        # RELEASES it between members of one popped list, and a newer flush waiting on that lock
+        # wins the gap. Their trace: retry B/2 then C/3 in one drain, D/4 enqueued and waiting --
+        # the writes land B/2, D/4, C/3, the row ends AABDC, and the stored sequence REGRESSES from
+        # 4 to 3. A regressed sequence is the worst of the three outcomes here, because the
+        # dashboard drops everything at or below `lastSeq` outright.
+        #
+        # The batches are separate FRAMES on purpose (each keeps the number it was published
+        # under); separate frames are not separate transactions to interleave with. Ordering within
+        # one drain is what the sequence promises, so the drain is what the lock covers.
+        async with self._write_lock:
+            for index, (output, status, seq) in enumerate(batches):
+                if not output and not status:
+                    continue
+                try:
                     await self._write_terminal_output(terminal_id, output, status=status, seq=seq)
-            except BaseException:
-                # THIS BATCH AND EVERY ONE AFTER IT, in order. Handing back only the one that threw
-                # would reorder the stream, which is the defect the sequence exists to expose.
-                await self._requeue_front(terminal_id, batches[index:])
-                raise
+                except BaseException:
+                    # THIS BATCH AND EVERY ONE AFTER IT, in order. Handing back only the one that
+                    # threw would reorder the stream, which is the defect the sequence exists to
+                    # expose. `_requeue_front` takes `self._lock`, never `_write_lock`, and no path
+                    # takes those two in the opposite order -- so handing back from inside here
+                    # cannot deadlock.
+                    await self._requeue_front(terminal_id, batches[index:])
+                    raise
         # THE STREAM MAY HAVE JUST STOPPED. The tail is written on the NEXT chunk once the interval
         # has passed -- and when output stops there is no next chunk, so the last frame was held for
         # ever. Two readers ask exactly then: the idle-prompt hint that closes a finished run, and

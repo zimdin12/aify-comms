@@ -330,6 +330,12 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
   /** True while this mount still owns the console pane. False once a newer mount has replaced it. */
   const stillMine = () => state.activeXterm === mine;
 
+  //: WHETHER THE DRAIN LEFT FRAMES IT COULD NOT PLACE, which is a recovery this mount owes. It is
+  //: declared out here because the decision it drives has to happen AFTER the cleanup below has
+  //: released `resyncing` -- the recovery takes that flag for itself, and asking for one while
+  //: still holding it is the ownership bug review found.
+  let owed = false;
+
   // Replay existing buffered output so the operator sees history when they open the Console
   // pane mid-session (instead of waiting for the next byte to arrive).
   // Fit FIRST (next frame, after layout settles + with min-width:0 ancestors so fit() measures
@@ -448,21 +454,32 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     if (stillMine()) {
       const snapshotSeq = cursorFromSnapshot(data?.terminal, mine.lastSeq);
       if (Number.isFinite(snapshotSeq)) mine.lastSeq = snapshotSeq;
-      // THE SCREEN WAS JUST RESET TO THE SNAPSHOT, so anything held is placed against THAT, exactly
-      // as a recovery places it. What the drain cannot reach is left queued and owed a fetch: the
-      // recovery is the thing that fetches, so it is asked rather than reimplemented here.
-      mine.resyncing = false;
-      const owed = drainHeldFrames(mine);
-      updateAwaitPill();
-      if (owed) resyncActiveConsole().catch(() => {});
     }
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
   } finally {
-    // NEVER LEFT ARMED. Every path out of the block above -- the supersession returns, the fetch
-    // failure, the drain -- must clear the flag, or the socket holds every frame for this console
-    // for ever and paints nothing.
-    if (stillMine()) mine.resyncing = false;
+    // NEVER LEFT ARMED, AND THE HELD FRAMES ARE ALWAYS PLACED. Every path out of the block above
+    // -- the supersession returns, the fetch failure, the ordinary success -- must clear the flag,
+    // or the socket holds every frame for this console for ever and paints nothing.
+    //
+    // THE DRAIN IS HERE RATHER THAN BESIDE THE SNAPSHOT because a fetch that REJECTS held frames
+    // too, and skipping it there stranded them: `pendingFrames` kept the bytes while the next
+    // live frame painted and advanced the cursor past them. Review caught it as a regression of
+    // the hold -- before the hold, those bytes were painted live. On the failure path the cursor
+    // is still UNKNOWN, so the drain seeds from the held frames, which is the right answer for a
+    // console with no snapshot to place them against.
+    if (stillMine()) {
+      mine.resyncing = false;
+      owed = drainHeldFrames(mine);
+      updateAwaitPill();
+    }
   }
+  // ASKED AFTER THE CLEANUP, AND OUTSIDE IT. `resyncActiveConsole` sets `resyncing` on this same
+  // entry and starts its own fetch, so asking from inside the block above meant the `finally`
+  // then cleared the flag the RECOVERY had just taken. Review drove it: with the flag cleared
+  // under an outstanding GET, the next frame starts a SECOND recovery instead of joining the
+  // first, the two answer out of order, and the console ends on the OLDER snapshot with a cursor
+  // to match. Ownership of the flag transfers here, and nothing after this point touches it.
+  if (owed && stillMine()) resyncActiveConsole().catch(() => {});
   term.focus();
 }

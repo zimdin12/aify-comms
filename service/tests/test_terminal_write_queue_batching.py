@@ -397,6 +397,54 @@ class TerminalWriteQueueTests(unittest.TestCase):
                          f"the handed-back batches lost their order: {written}")
         self.assertEqual(written[0][1], 2, "the retried batch did not keep its own number")
 
+
+    def test_A_DRAIN_IS_NOT_INTERLEAVED_WITH_A_NEWER_FLUSH(self):
+        """FOUND BY REVIEW against the real queue and a real database.
+
+        The batches in one drain are separate FRAMES -- each keeps the number it was published
+        under -- but they are not separate transactions for anyone to interleave with. Taking the
+        write lock per batch releases it between them, and a newer flush waiting on that lock wins
+        the gap: review's trace is a retry of B/2 followed by C/3 with D/4 waiting, and the writes
+        land B/2, D/4, C/3. The row ends AABDC and the stored sequence REGRESSES from 4 to 3.
+
+        A REGRESSED SEQUENCE IS THE WORST OF THE THREE, because the dashboard drops everything at
+        or below `lastSeq` outright -- so the frames after it disappear rather than arriving late.
+        """
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def hold_the_first_retry(queue, attempt):
+            # The SECOND attempt is the retried B: the first one raised. Holding it here is the
+            # window a per-batch lock would open.
+            if attempt == 2:
+                started.set()
+                await release.wait()
+
+        queue = self._queue(fail_times=1, on_attempt=hold_the_first_retry)
+
+        async def body():
+            await queue.enqueue(TERMINAL, "B", base_seq=1)
+            try:
+                await queue.flush_terminal(TERMINAL)   # B/2 fails and is handed back
+            except RuntimeError:
+                pass
+            await queue.enqueue(TERMINAL, "C", base_seq=1, autoschedule=False)
+            drain = asyncio.ensure_future(queue.flush_terminal(TERMINAL))
+            await started.wait()                       # the drain owns B and is held
+
+            await queue.enqueue(TERMINAL, "D", base_seq=3, autoschedule=False)
+            newer = asyncio.ensure_future(queue.flush_terminal(TERMINAL))
+            await asyncio.sleep(0.01)                   # let it reach the write lock and wait
+            release.set()
+            await asyncio.gather(drain, newer)
+            return [(w["output"], w["seq"]) for w in queue.writes]
+
+        written = run(body())
+        self.assertEqual([text for text, _ in written], ["B", "C", "D"],
+                         f"a newer flush landed inside the drain: {written}")
+        numbers = [seq for _, seq in written]
+        self.assertEqual(numbers, sorted(numbers),
+                         f"the stored sequence regressed: {written}")
     # ── the settle resolves its generation under the lock ────────────────────────────────────
 
     def test_a_settle_writes_the_GENERATION_THAT_EXISTS_WHEN_IT_WRITES(self):
