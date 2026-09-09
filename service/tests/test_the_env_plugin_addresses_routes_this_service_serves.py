@@ -82,9 +82,23 @@ const api = new CommsApi({
     return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
   },
 });
-// SPREADS TO NOTHING, PRINTS AS THE PROBE -- see the note beside PROBE in the Python module.
-const PROBE = Object.defineProperty({}, 'toString',
-  { value: () => '%(probe)s', enumerable: false });
+// SPREADS TO NOTHING, PRINTS AS THE PROBE, AND ANSWERS ANY PROPERTY THE PLUGIN DESTRUCTURES.
+// The third is why this is a Proxy. As a plain object it read `undefined` for every destructured
+// parameter -- `claim({ environmentId })` among them -- and JSON.stringify OMITS an undefined
+// value, so the key never reached the body and the field check had nothing to judge. Renaming the
+// emitted `environmentId` was driven against that and passed.
+// The target stays empty on purpose: `{...advertisement}` and `{...patch}` are composed by the
+// CALLER, so inventing own keys here would put field names no host sends into every spread body.
+const PROBE = new Proxy({}, {
+  get(_target, property) {
+    if (typeof property === 'symbol') return undefined;
+    // `then` would make an await try to unwrap this as a thenable; `toJSON` would replace the
+    // whole body with the probe string.
+    if (property === 'then' || property === 'toJSON') return undefined;
+    if (property === 'toString' || property === 'valueOf') return () => '%(probe)s';
+    return '%(probe)s';
+  },
+});
 const names = Object.getOwnPropertyNames(Object.getPrototypeOf(api))
   .filter((n) => n !== 'constructor' && !n.startsWith('_'))
   .filter((n) => {
@@ -150,46 +164,55 @@ def emitted_requests(repo: Path, credential: str = "") -> dict:
     return json.loads(payload[-1])
 
 
-def accepted_key_headers() -> set[str]:
-    """Header names the auth middleware reads WHEN DECIDING, parsed out of `service/main.py`.
+#: A key the service is configured with for the replay below. Any non-empty value works -- what is
+#: under test is whether the plugin's header reaches the comparison, not what the key is.
+CONFIGURED_KEY = "a-real-key-for-the-replay"
 
-    SCOPED TO THE DECISION, and mutation is why. The first version collected every
-    `headers.get("...")` in the module -- including a websocket read of the same name -- so
-    renaming the one the HTTP middleware actually consults left the set unchanged and the mutant
-    survived. The population has to be the code that decides, not the file it lives in.
 
-    DERIVED SO A RENAME FACES THIS TEST. A name typed here would agree with itself for ever, which
-    is the shape this repo records as "a gate whose population is typed cannot see what was added".
+def middleware_verdict(headers: dict, path: str, method: str = "GET",
+                       api_key: str = CONFIGURED_KEY) -> int:
+    """Run the REAL `APIKeyMiddleware` over one captured header set and report its status.
+
+    EXECUTED, NOT PARSED, and two independently reproduced false greens are why. Deriving the
+    accepted header NAME out of `service/main.py` was satisfied twice by something that was not the
+    decision: first by any `headers.get(...)` anywhere in the module, then -- after scoping to the
+    `provided_key` assignment on the `request` carrier -- by an UNUSED module-level function
+    assigning that same name while the middleware's real read was broken. Both arms were driven and
+    both passed. A name can always be supplied by code that never runs; an acceptance cannot.
+
+    So the question asked here is the one that matters to the plugin: given these headers, does the
+    middleware let the request through. No app, no network and no deployed service -- the class is
+    constructed with a synthetic key and its `dispatch` is awaited directly.
     """
-    import ast
+    import asyncio
 
-    source = (ROOT / "service" / "main.py").read_text(encoding="utf-8")
-    names: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        # THE ASSIGNMENT THAT DECIDES: `provided_key = headers.get(...) or ... or ...`.
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(tgt, ast.Name) and tgt.id == "provided_key" for tgt in node.targets):
-            continue
-        for inner in ast.walk(node.value):
-            if not isinstance(inner, ast.Call) or not isinstance(inner.func, ast.Attribute):
-                continue
-            if inner.func.attr != "get":
-                continue
-            target = inner.func.value
-            if not (isinstance(target, ast.Attribute) and target.attr == "headers"):
-                continue
-            # THE HTTP CARRIER ONLY. `_authorize_websocket` assigns a `provided_key` off
-            # `ws.headers` under the same name, and folding it in reopens exactly the hole this
-            # function was rewritten to close: a rename of the middleware's own read stayed
-            # invisible because the websocket's copy of the name was still in the set. The plugin
-            # sends `fetch` requests, so the middleware is the code that decides for it.
-            if not (isinstance(target.value, ast.Name) and target.value.id == "request"):
-                continue
-            for arg in inner.args[:1]:
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                    names.add(arg.value)
-    return names
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    from service.main import APIKeyMiddleware
+
+    scope = {
+        "type": "http",
+        "method": method.upper(),
+        "path": path,
+        "raw_path": path.encode("utf-8"),
+        "query_string": b"",
+        "root_path": "",
+        "scheme": "http",
+        "server": ("testserver", 80),
+        "headers": [(str(name).lower().encode("utf-8"), str(value).encode("utf-8"))
+                    for name, value in (headers or {}).items()],
+    }
+
+    async def _passed_through(_request):
+        return Response(status_code=200)
+
+    async def _run():
+        middleware = APIKeyMiddleware(app=None, api_key=api_key)
+        return await middleware.dispatch(Request(scope), _passed_through)
+
+    return asyncio.run(_run()).status_code
+
 
 def declared_body_fields() -> dict[tuple[str, str], set[str]]:
     """(method, path) -> the TOP-LEVEL field names that route's request model declares.
@@ -396,41 +419,65 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
             "aify-env's plugin sends a field this service does not declare, which Pydantic drops "
             "in silence:" + chr(10) + "  " + (chr(10) + "  ").join(wrong)))
 
-    def test_the_key_header_the_plugin_sends_is_one_this_service_reads(self) -> None:
-        """A rename on either side 401s every call, and the starter reports that as "aify-comms
-        did not answer" -- which is what it says for a service that is DOWN. An operator would go
-        looking for a stopped container.
-        """
-        accepted = accepted_key_headers()
-        self.assertGreaterEqual(
-            len(accepted), 1,
-            "no header name was parsed out of the auth middleware, so this test judged nothing")
+    def test_EVERY_request_the_plugin_sends_is_accepted_by_the_real_middleware(self) -> None:
+        """Each captured request replayed through `APIKeyMiddleware`, and each must be let through.
 
-        with_key = emitted_requests(self.repo, credential="a-real-key")
-        sent = {name for request in with_key["requests"]
-                for name in (request.get("headers") or {})}
-        self.assertTrue(
-            sent, "the plugin sent no headers at all, so the check below is vacuous")
-        lowered_accepted = {name.lower() for name in accepted}
-        carrying = {name for name in sent if name.lower() in lowered_accepted}
-        self.assertTrue(
-            carrying,
-            f"the plugin sends {sorted(sent)} and this service reads {sorted(accepted)} for a "
-            "key -- no overlap means every authenticated call is refused, and the starter "
-            "reports that as the service not answering")
+        PER REQUEST, WITH ITS OWNER AND URL, because the pooled version was satisfied by one of
+        them. An earlier version unioned every header name across all ten requests and asked whether
+        the SET overlapped what the service reads -- so a plugin sending its key on `/agents` alone
+        passed while the other nine were refused. A relation was being judged by one of its members,
+        which is the same failure this file already fixed once for request ownership.
+
+        A rename on either side 401s every call, and the starter reports that as "aify-comms did not
+        answer" -- which is what it says for a service that is DOWN. An operator would go looking
+        for a stopped container.
+        """
+        with_key = emitted_requests(self.repo, credential=CONFIGURED_KEY)
+        requests = with_key["requests"]
+        self.assertTrue(requests, "the plugin emitted no requests, so this judged nothing")
+
+        refused = []
+        for request in requests:
+            path = _path_of(request["url"])
+            status = middleware_verdict(request.get("headers") or {}, path, request["method"])
+            if status != 200:
+                refused.append(f"{request['owner']}: {request['method']} {path} -> {status}")
+        self.assertEqual(refused, [], (
+            "the real middleware REFUSED requests this plugin sends, so every one of these calls "
+            "401s against a service with a key set -- and the starter reports that as the service "
+            "not answering:" + chr(10) + "  " + (chr(10) + "  ").join(refused)))
+
+    def test_the_replay_can_REFUSE_which_is_what_makes_the_run_above_evidence(self) -> None:
+        """NEGATIVE CONTROL, driven by removing the thing the run above watches.
+
+        A middleware that accepted everything would pass that test without reading a header at all,
+        and a probe that cannot return ABSENT cannot return PRESENT. Same class, same paths, the
+        key header removed from the wire.
+        """
+        with_key = emitted_requests(self.repo, credential=CONFIGURED_KEY)
+        accepted_without_a_key = []
+        for request in with_key["requests"]:
+            path = _path_of(request["url"])
+            stripped = {name: value for name, value in (request.get("headers") or {}).items()
+                        if name.lower() != "x-api-key"}
+            if middleware_verdict(stripped, path, request["method"]) == 200:
+                accepted_without_a_key.append(f"{request['owner']}: {request['method']} {path}")
+        self.assertEqual(accepted_without_a_key, [], (
+            "the middleware let these through with NO key, so the run above cannot be read as "
+            "evidence that the plugin's header is what got it in:" + chr(10) + "  "
+            + (chr(10) + "  ").join(accepted_without_a_key)))
 
     def test_no_key_means_no_header_rather_than_an_empty_one(self) -> None:
         """The plugin's own rule, asserted on the wire: an empty `X-API-Key` is a WRONG key to a
-        service that requires one, and the two produce different diagnoses. It is a claim about
-        what goes out, so a claim about the source would not settle it.
+        service that requires one, and the two produce different diagnoses. It is a claim about what
+        goes out, so a claim about the source would not settle it.
         """
-        accepted = {name.lower() for name in accepted_key_headers()}
         without = emitted_requests(self.repo, credential="")
         offenders = [
-            f"{r['method']} {_path_of(r['url'])}"
+            f"{r['owner']}: {r['method']} {_path_of(r['url'])} sent {name!r} empty"
             for r in without["requests"]
             for name, value in (r.get("headers") or {}).items()
-            if name.lower() in accepted and not str(value)
+            if name.lower() == "x-api-key" and not str(value)
         ]
         self.assertEqual(offenders, [], (
             "the plugin sent an EMPTY key header, which a service requiring one reads as a wrong "

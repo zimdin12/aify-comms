@@ -61,10 +61,24 @@ conditional-start work.
 
 A result with no candidate attached is not a receipt. Every such row was measured on:
 
-- **Candidate: `09e8df6a`** -- the commit the tested tree BECAME, written after that commit
-  exists rather than predicted before it. A candidate has to be a thing another person can check
-  out: an earlier version of this line named "the tree at `05ad53df` carrying round sixteen's
-  repairs", and `05ad53df` is immutable and holds neither X-1 nor the repaired census.
+- **Candidate `09e8df6a` for every row that existed when it was cut** -- the commit the tested
+  tree BECAME, written after that commit exists rather than predicted before it. A candidate has
+  to be a thing another person can check out: an earlier version of this line named "the tree at
+  `05ad53df` carrying round sixteen's repairs", and `05ad53df` is immutable and holds neither
+  X-1 nor the repaired census.
+- **AND THE ROWS ADDED AFTER IT BIND TO THEIR OWN TREES, which this section claimed for one
+  commit and could not have.** X-3's test FILE does not exist at `09e8df6a`; X-4's and X-5's
+  do not either. A receipt naming a tree that cannot contain the thing it certifies reads as
+  checkable and is not, which is the whole failure this section was written to end -- so it
+  happened again, one layer up, in the fix for it:
+
+  | row | the commit that carries it |
+  |---|---|
+  | X-1, X-2, and every earlier row | `09e8df6a`, with the run below |
+  | X-3 | `1cfd6f14` |
+  | X-4 | `5b7855b1`, repaired for the review's F1/F2/F3 in the successor named at the end |
+  | X-5 | `c1a1d46b` |
+
 - **The five suites, ONE run each, all exit status 0**, taken immediately before that commit so
   every figure in this document reconciles against the same tree:
 
@@ -207,10 +221,12 @@ they are PASSES IN TESTS there, not PROVEN on the operator's fleet, and this led
 them the latter. What has changed is that the claim is now checkable: a reader can open each named
 test and see whether the assertion says what this table says it says.
 
-**R-2 AND R-3 ARE NOT MAPPED THIS WAY YET.** Their tests are still cited by title, which is the
-weaker claim review rejected, and they stay in the open list until somebody reads them the way
-these were read. "Partially mapped" is a different statement from "mapped", and collapsing the
-two here would repeat the mistake this section exists to correct.
+**SUPERSEDED, KEPT SO THE WITHDRAWAL REACHES WHOEVER ARRIVES AT IT:** this paragraph said
+"R-2 AND R-3 ARE NOT MAPPED THIS WAY YET", and the paragraph immediately below it then mapped
+them. Both were true when written and only one is now. It is marked rather than deleted because
+a reader who meets the old sentence needs to be told it was withdrawn, not to find it silently
+gone -- and because two adjacent paragraphs contradicting each other is exactly the rot this
+document keeps recording about counts, arriving in its own prose.
 **R-2 AND R-3 ARE NOW MAPPED THE SAME WAY**, and the four marked ✓ were opened and read rather
 than cited on the strength of a title -- which is how the R-1 table found two that carried more
 than they promised.
@@ -263,9 +279,10 @@ ledger has no standing to make, so they sit in the open list below instead.
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
 | X-1 | Every request aify-env's aify-comms plugin EMITS names a route this service serves, at that method | `lib/plugins/aify-comms/api.mjs` (aify-env) against this app's route table | `test_the_env_plugin_addresses_routes_this_service_serves.py` — every public method of the real `CommsApi` is CALLED through its own `fetchImpl` injection; each request is stamped with the method that was running, and EACH method must emit exactly one. 10 methods, 10 owned requests, 130 served routes, each matching exactly one | PASSES IN TESTS on the candidate. Driven EIGHT ways: a method that emits nothing, a silent method PAIRED with one emitting an extra valid request, a driver that exits non-zero while printing normal JSON, a wrong ACTUAL prefix, an unserved path, and the SERVICE dropping a path all turn it red; a whitespace refactor stays green; a named checkout with no plugin SKIPS | Met for the ADDRESS and METHOD. **Three earlier versions were each satisfied by less** — a regex over call sites that legal whitespace defeated, a `/api/v1` prefix the gate supplied itself, and a TOTAL where the claim needed a relation: `len(requests) == len(methods)` is satisfied by a silent method beside one sending twice. Bodies, responses, auth and a live round trip are NOT covered |
-| X-2 | Every FIELD aify-env's plugin sends is one the receiving route's model declares | same plugin against this app's request models | same test — the harness records each emitted BODY, and every top-level key is checked against `route.body_field.field_info.annotation`'s declared names and aliases | PASSES IN TESTS on the candidate. Driven both ways: renaming `only_if_no_live_session` to camelCase on the wire, and adding a field no model declares, each turn it red and name the field | Met for TOP-LEVEL fields. **Pydantic IGNORES an undeclared field**, so a renamed key is not an error anywhere — the request succeeds, the value never arrives, and the symptom is behaviour that quietly stops happening. Nested objects are NOT judged here |
+| X-2 | Every FIELD aify-env's plugin sends is one the receiving route's model declares | same plugin against this app's request models | same test — the harness records each emitted BODY, and every top-level key is checked against `route.body_field.field_info.annotation`'s declared names and aliases | PASSES IN TESTS on the candidate, REPAIRED in the successor. Driven three ways now: renaming `only_if_no_live_session` to camelCase on the wire, adding a field no model declares, and renaming a DESTRUCTURED field — each turns it red and names the field and the route | Met for TOP-LEVEL fields the plugin ITSELF names. **It was NOT met for a field on a DESTRUCTURED parameter, and review reproduced that**: the probe was a plain object, so `claim({ environmentId })` read `undefined`, `JSON.stringify` omitted the key, and renaming the emitted `environmentId` passed. The probe is now a Proxy that answers any property the plugin destructures, so a new parameter is populated with no edit here. Payloads the CALLER spreads (`{...advertisement}`, `{...patch}`) are still not enumerable from this direction and are not claimed; the heartbeat's real body is covered by X-5 instead. **Pydantic IGNORES an undeclared field**, so a renamed key is not an error anywhere — the request succeeds, the value never arrives, and the symptom is behaviour that quietly stops happening. Nested objects are NOT judged here |
 | X-3 | aify-env's own READERS work on what this service actually answers | `lib/startable-agents.mjs` (aify-env) against real `/agents` and `/sessions` responses | `test_the_env_plugin_reads_what_this_service_answers.py` — seeds a managed agent and two sessions, fetches through the real routes, and runs the plugin's OWN `startabilityOf` and `restartTargetFor` on the payload | PASSES IN TESTS on the candidate. Four reader mutants killed: a field we do not send (`last_seen`), a live-vocabulary drift, a different session-mode spelling, and a reader that stops refusing a live session | Met for the two readings that gate "start available agent". **The vocabulary check is the part only this side can answer** — if the reader's live statuses were ones this service never emits, the check would never fire and every session would read restartable. Other responses and any live round trip are NOT covered |
-| X-4 | The key header the plugin SENDS is one this service's HTTP middleware READS, and a host with no key sends no header rather than an empty one | `lib/plugins/aify-comms/api.mjs` (aify-env) against `service/main.py`'s `APIKeyMiddleware` | `test_the_env_plugin_addresses_routes_this_service_serves.py` — the same harness, now recording HEADERS and driven twice, once with a credential and once without. The accepted name is PARSED out of the middleware's own `provided_key` assignment rather than typed | PASSES IN TESTS on the candidate. FIVE mutants, each killed by the obligation it violates: the plugin renaming its header; the plugin sending an empty one; the service renaming what it reads; the service renaming ONLY the middleware's read; and the middleware reading no header at all, which empties the derived population and must REFUSE rather than pass | Met for the HTTP carrier. **The first version of this row was satisfied by anything and said so in green**: it collected every `headers.get(...)` in `service/main.py`, so a rename moved the expectation and the reality together — and its narrower successor still let a rename hide behind `_authorize_websocket`, which assigns a `provided_key` off the same literal. The population is now the deciding assignment on the `request` carrier. The WEBSOCKET handshake's own key read is NOT judged here; nor is a live 401 |
+| X-4 | Every request the plugin sends is ACCEPTED by this service's real auth middleware, and a host with no key sends no header rather than an empty one | `lib/plugins/aify-comms/api.mjs` (aify-env) against `service/main.py`'s `APIKeyMiddleware` | `test_the_env_plugin_addresses_routes_this_service_serves.py` — the harness records HEADERS and is driven twice, with a credential and without. Each captured request is then REPLAYED through the real middleware class, constructed with a synthetic key and awaited directly: no app, no network, no deployed service. The verdict asserted is acceptance, per request, named with its owner method and URL | PASSES IN TESTS on the successor named in the candidate section. SEVEN mutants, each killed by the obligation it names, and THREE of them are the review's own reproduced false-green arms kept as standing mutants. A negative control removes the key header and every request must be REFUSED, so an accepting middleware cannot make the run above read as evidence | Met for the HTTP carrier. **The first three shapes of this row each PASSED while proving nothing, and only the third was caught by me.** It derived the accepted header NAME out of `service/main.py`: first from any `headers.get(...)` in the module; then, scoped to the `provided_key` assignment, still satisfied by `_authorize_websocket`'s copy of the same literal; then, scoped to the `request` carrier, still satisfied by an UNUSED module-level function assigning that name while the middleware's real read was broken — reproduced by review, both arms driven. Beside it the header names were UNIONED across all ten requests, so a plugin sending its key on `/agents` alone passed. **A name can always be supplied by code that never runs, and a relation is not judged by one of its members**; both dissolve into executing the middleware per request. The WEBSOCKET handshake's own key read is not judged here, and no live 401 or 200 from a deployed service is involved |
+| X-5 | What the host tier says about ITSELF, nested inside the heartbeat's `metadata`, reaches the code on this side that acts on it | `lib/plugins/aify-comms/api.mjs` (aify-env) against `service/routers/environments.py` and `service/api_core/environment_registration.py` | `test_the_env_plugin_identity_survives_the_heartbeat.py` — the plugin's own `heartbeat()` is called, the body it emits is POSTed to the real route, and each key is witnessed by the behaviour it gates: `bridgeVersion` through the published field `tier-version` compares, `bridgeKind` through an arbitration a legacy bridge would otherwise win | PASSES IN TESTS on `c1a1d46b`. TEN mutants, each killed by the obligation it names, including one aimed at the instrument: with nothing nested the population is empty and the control refuses rather than passes | Met for the two nested keys with a consumer here. **The first draft passed first time and proved nothing** — it asserted the keys came back in the stored row, and this service keeps `metadata` VERBATIM, so a renamed key round-tripped intact while the arbitration saw nothing. Two further false greens were mine and were found by mutation, not by review: a far-future `bridgeStartedAt` is CLAMPED on the way in, so the legacy beat never won on start time and the preference under test never ran; and the mutant was aimed at the branch the witness did not drive, which is how the OTHER branch turned out to have no witness at all. `bridgeStartedAt` has no witness here by decision, the top-level version carrier is NOT judged, and no live 401 or deployed response is involved |
 
 ## Packaging
 
@@ -353,7 +370,12 @@ obligations, daemon/bootstrap/credential/launcher paths, native process-tree saf
 behaviour, and cross-repo integration. Path touches were 32 of 426 in comms and 26 of 105 in env,
 **and those are file counts, not behavioural coverage**.
 
-**ONE FINDING IS NOT FIXED AND IS AN OPEN DESIGN ITEM.** Start checks a sessions list and then
+**SUPERSEDED — THIS FINDING IS FIXED, and the section below carries the repair and the**
+**reviewer's APPROVE of it at `1274a5b6`.** The paragraph is kept because it states the defect
+in the reviewer's own words, and because the shape of the miss is worth keeping: what follows
+was accurate when written and stood here while the fix was already landed, so a reader arriving
+at this section alone would have reported an open race that is closed. Start checks a sessions
+list and then
 sends an unconditional Restart (`agent-starter.mjs` -> `api.mjs` -> `service/routers/
 session_control.py`), so the service can select and stop a terminal that became live between the
 two. The reviewer traced it in source and did not execute a race, and their own reading is that it
@@ -394,15 +416,18 @@ recorded here rather than attempted in a release cut.
    commit at the end means a refusal discards every write whatever the order. That is true and it is
    NOT sufficient: it says nothing about whether the deciding read is atomic with the writes. I had
    treated the second as following from the first, and published CLOSED on the strength of it.
-3. **The cross-repo seam is the remaining retirement gap** — R-1, R-2 and R-3 are now mapped
+3. **The retirement gap, with the mapping half now closed.** R-1, R-2 and R-3 are mapped
    obligation by obligation to read assertions in aify-env, whose suite is green and whose
-   relevant tests are named above, but with no obligation-to-assertion mapping established in this
-   range. What is PROVEN is that no literal spelling of a deleted module's name appears outside
-   a comment — not unreachability, since nothing resolves a specifier. Behaviour is UNREVIEWED.
-4. **The cross-repo seam — FOUR LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
+   relevant tests are named above. This item asserted that mapping and its absence in one
+   sentence — the trailing clause was left over from before the mapping was done, and is
+   withdrawn. What remains open is a different claim: what is PROVEN is that no literal
+   spelling of a deleted module's name appears outside a comment — not unreachability, since
+   nothing resolves a specifier. Behaviour is UNREVIEWED.
+4. **The cross-repo seam — FIVE LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
    the plugin's ADDRESSES, X-2 the top-level FIELDS it sends, X-3 that its own READERS work on
-   what this service actually answers, and X-4 that the two tiers agree on the KEY HEADER — all
-   four driven from both sides — and
+   what this service actually answers, X-4 that a request the plugin sends is ACCEPTED by this
+   service's real auth middleware, and X-5 that what the host tier says about itself reaches the
+   code that acts on it — all five driven from both sides — and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
    reference's grammar and directory agreement, not lifecycle integration. What remains unproved:
    nested body shapes, the responses X-3 does not read, and any LIVE round trip, where six
@@ -411,8 +436,12 @@ recorded here rather than attempted in a release cut.
    same as saying a real key authenticates — no assertion here has ever seen a 401 or a 200 from
    the deployed service. Moving the rest out of this release is an owner's decision and has not
    been made.
-5. **P-2** — CLOSED: `VERSION`, `version.js`, both manifests and `plugin.json` declare `0.6.3`,
-   and the tag is cut. `service/_build_stamp.json` is GITIGNORED — a build artifact regenerated
+5. **P-2** — CLOSED FOR v0.6.3, AND THE TREE HAS MOVED PAST IT. `v0.6.3` is tagged; `VERSION`,
+   `version.js`, both manifests and `plugin.json` now declare **`0.6.4`**, which is what
+   `test_version_is_not_an_already_released_tag.py` requires of a tree carrying work past a
+   release. This line said `0.6.3` after the bump, which would have read to anyone checking as
+   a tree claiming to BE a release it has moved past — the exact condition that test exists to
+   refuse. `service/_build_stamp.json` is GITIGNORED — a build artifact regenerated
    by `scripts/stamp.sh` immediately before the container build, so it is not part of the tag
    and stamping it here proves only that the recipe runs. The DEPLOY is still the operator's.
 6. **S-4** — an operator decision.
