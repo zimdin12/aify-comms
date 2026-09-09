@@ -317,6 +317,85 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
             sent.get("mode"), state.get("mode"),
             "the echoed mode disagrees with the one sent")
 
+    # ── the round trip: the plugin's own reports, through this service's own route ─────────
+
+    def _replay(self, reports: list[dict]) -> list[int]:
+        """Send the plugin's recorded reports to the REAL route, in the order it sent them."""
+        statuses = []
+        for entry in reports:
+            answered = self.client.patch(
+                f"/api/v1/spawn-requests/{entry['id']}", json=entry["patch"])
+            statuses.append(answered.status_code)
+        return statuses
+
+    def test_the_plugins_own_reports_REGISTER_the_agent_through_this_services_route(self):
+        """THE HALF A RECORDER CANNOT SHOW, and review was right to name it.
+
+        `api.report` in the harness answers success whatever it is handed, so the checks above
+        establish what the plugin would SEND. Whether this service accepts those bodies, and
+        whether an agent exists afterwards, is a different question -- and it is the one an
+        operator is actually asking. The service's own words for the transition are "convert a
+        spawn request into a live agent", so the agent is what gets asserted.
+
+        NOT A LIVE SOCKET: the bodies are carried between processes rather than sent over HTTP.
+        What runs the real transport is X-4, over a real header set.
+        """
+        self._heartbeat()
+        spawn_id = self._a_spawn_request()
+        read = self._read_by_the_plugin(self._claim_answer())
+        self.assertTrue(read["reported"],
+                        "the plugin reported nothing, so this replays nothing")
+
+        statuses = self._replay(read["reported"])
+        self.assertEqual(
+            [code for code in statuses if code != 200], [],
+            f"this service REFUSED reports its own claim answer led the plugin to send: "
+            f"{list(zip([entry['patch'].get('status') for entry in read['reported']], statuses))}")
+
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        agents = listed.json().get("agents") or {}
+        self.assertIn(
+            AGENT_ID, agents,
+            "the spawn was claimed and reported running and no agent exists, which is the state "
+            "the `spawn-queue` doctor row was written for: work taken and not done, with every "
+            f"other instrument reading healthy. Agents present: {sorted(agents)}")
+
+        # AND THE REQUEST IS NO LONGER OUTSTANDING. An agent that exists while its request still
+        # reads claimed is the same stranded state seen from the other side.
+        requests = self.client.get("/api/v1/spawn-requests")
+        self.assertEqual(requests.status_code, 200, requests.text)
+        mine = [row for row in requests.json().get("spawnRequests", [])
+                if row.get("id") == spawn_id]
+        self.assertEqual(len(mine), 1, f"the seeded spawn request is not listed: {mine}")
+        self.assertEqual(
+            mine[0].get("status"), "running",
+            f"the request the plugin reported running reads {mine[0].get('status')!r} instead")
+
+    def test_the_route_REFUSES_a_report_from_a_bridge_that_did_not_claim_it(self):
+        """NEGATIVE CONTROL for the replay, driven by removing what the route watches.
+
+        A route that accepted every body would make the run above pass without judging anything,
+        and a probe that cannot return ABSENT cannot return PRESENT. The plugin's own reports are
+        replayed with the `bridgeId` changed to one that never claimed this request, and the
+        service must refuse -- that guard is what stops a bridge reporting on work another host
+        is doing.
+        """
+        self._heartbeat()
+        self._a_spawn_request()
+        read = self._read_by_the_plugin(self._claim_answer())
+        self.assertTrue(read["reported"], "nothing was reported, so this control replays nothing")
+
+        stolen = [{"id": entry["id"],
+                   "patch": {**entry["patch"], "bridgeId": "some-other-bridge"}}
+                  for entry in read["reported"]]
+        statuses = self._replay(stolen)
+        self.assertTrue(
+            any(code == 409 for code in statuses),
+            "this service accepted a report from a bridge that never claimed the request, so the "
+            "run above cannot be read as evidence that it judged the reports at all: "
+            f"{statuses}")
+
     # ── the negative control, driven by REMOVING what the claim watches ──────────────────────
 
     def test_removing_BOTH_workspace_carriers_breaks_the_pass(self):
