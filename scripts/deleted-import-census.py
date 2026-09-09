@@ -13,11 +13,17 @@ missed, and the POSITIVE CONTROL matched THIS FILE -- the word `import` inside t
 `expect_importers`, on the line naming the control probe. Deleting all fifteen real importers still
 left the control reading "covered", so the instrument certified itself.
 
-THREE TIERS, and the strong one is shape-independent. First every mention of the module's file
-NAME as a fixed string, anywhere in a surviving source; a name found NOWHERE cannot be imported by
-any specifier shape, split across any number of lines, and that tier needs no classifier to be
-believed. Then each remaining mention is placed in a COMMENT or in CODE, so the prose this repo
+THREE TIERS. First every mention of the module's file NAME as a fixed string, anywhere in a
+surviving source. A name found NOWHERE is not spelled anywhere in the searched population, in any
+specifier split across any number of lines, and that tier needs no classifier to be believed.
+Then each remaining mention is placed in a COMMENT or in CODE, so the prose this repo
 deliberately writes about retired modules is not reported as a live reference.
+
+WHAT THE FIRST TIER IS NOT. It is LITERAL-NAME absence, not unreachability. Review falsified the
+stronger reading this file used to publish with one line: a dynamic import whose specifier spells
+one letter of a deleted module as a unicode escape (`\u006d` for `m`) is valid, evaluates to
+the same path, and carries no raw-name hit. A specifier built by concatenation, or computed at
+runtime, does the same. Nothing here resolves a specifier, so the claim stops at the spelling.
 
 CODE IS NOT THE SAME AS A LOAD-TIME REFERENCE, and saying it was is an overclaim this file
 carried. An exemption list, an assertion message and a test fixture all name a module from code
@@ -87,30 +93,47 @@ def _grep(name: str, cwd: Path, pathspec: list[str], no_index: bool) -> list[str
     return [line for line in out.stdout.split("\n") if line.strip()]
 
 
-def naming(basename: str) -> list[tuple[str, int]]:
-    """(file, line) for every surviving source naming this file. THIS SCRIPT is excluded."""
-    out = []
+def naming(basename: str) -> list[str]:
+    """Surviving source FILES naming this file. THIS SCRIPT is excluded.
+
+    Files, not lines: `git grep` reports the line a match falls on and nothing about where in it,
+    and a line is not a unit of code. The occurrences are located and placed by `classify`.
+    """
+    files = []
     for line in _grep(basename, ROOT, [*SOURCE_GLOBS, EXCLUDE_SELF], no_index=False):
-        path, _, rest = line.partition(":")
-        number, _, _text = rest.partition(":")
-        if number.isdigit():
-            out.append((path.replace("\\", "/"), int(number)))
-    return out
+        path, _, _rest = line.partition(":")
+        rel = path.replace("\\", "/")
+        if rel and rel not in files:
+            files.append(rel)
+    return files
 
 
-def python_comment_lines(text: str) -> set[int]:
-    """Lines carrying a comment or lying inside a docstring, from Python's own tokenizer."""
-    lines: set[int] = set()
+def _offsets(text: str) -> list[int]:
+    """Character offset of the first character of each line, 1-indexed by line."""
+    starts = [0, 0]
+    for line in text.split(chr(10))[:-1]:
+        starts.append(starts[-1] + len(line) + 1)
+    return starts
+
+
+def python_comment_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) character offsets of comments and docstrings, from Python's own tools."""
+    spans: list[tuple[int, int]] = []
+    starts = _offsets(text)
+
+    def offset(row: int, col: int) -> int:
+        return (starts[row] if row < len(starts) else len(text)) + col
+
     try:
         for token in tokenize.generate_tokens(io.StringIO(text).readline):
             if token.type == tokenize.COMMENT:
-                lines.update(range(token.start[0], token.end[0] + 1))
+                spans.append((offset(*token.start), offset(*token.end)))
     except (tokenize.TokenError, IndentationError, SyntaxError):
-        return set()
+        return []
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return lines
+        return spans
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -120,51 +143,47 @@ def python_comment_lines(text: str) -> set[int]:
         first = body[0]
         if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
                 and isinstance(first.value.value, str):
-            lines.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
-    return lines
+            spans.append((offset(first.lineno, first.col_offset),
+                          offset(first.end_lineno or first.lineno,
+                                 first.end_col_offset or first.col_offset)))
+    return spans
 
 
 #: A `/` starts a REGEX rather than a division when the last meaningful thing before it cannot end
-#: an expression. The standard JS lexing ambiguity, and version one of this scanner ignored it
-#: entirely: `/192\.168\.\d+["'`]/` put it inside a string that never closed, and every comment
-#: for the rest of the file read as code. The carriers now include that exact shape.
+#: an expression. The standard JS lexing ambiguity, and the first version of this scanner ignored it
+#: entirely: a character class holding a quote opened a string that never closed, and every comment
+#: after it read as code. The carriers now include that exact shape.
 REGEX_MAY_FOLLOW = set("(,=:[!&|?{};+-*%~^<>") | {""}
 REGEX_KEYWORDS = {"return", "typeof", "case", "in", "of", "new", "delete", "void", "throw",
                   "do", "else", "yield", "await", "instanceof"}
 
 
-def js_comment_lines(text: str) -> set[int]:
-    """Lines inside a `//` or `/* */` comment, tracking strings so `"//"` is not one.
+def js_comment_spans(text: str) -> list[tuple[int, int]]:
+    """(start, end) character offsets of `//` and `/* */` comments, tracking strings and regexes.
 
     HAND-ROLLED, AND DRIVEN RATHER THAN TRUSTED. This repo's record on hand-rolled JS scanners is
-    four of them and four wrong answers, and this one made the fifth before its carriers caught it.
+    four of them and four wrong answers, and this one added a fifth and a sixth before its carriers
+    caught them: a regex literal read as a string, and then a whole LINE classified from one comment
+    on it.
 
     MISCLASSIFICATION IS SAFE IN ONE DIRECTION ONLY. Reading a comment as CODE over-reports, and an
     over-report is printed for a person to judge. Reading code as a COMMENT hides a real reference.
     So every ambiguity here resolves toward CODE.
     """
-    lines: set[int] = set()
-    line = 1
+    spans: list[tuple[int, int]] = []
     i = 0
     state = "code"          # code | line_comment | block_comment | regex | ' | " | `
     previous = ""           # last meaningful character seen in code
+    start = 0
     while i < len(text):
         char = text[i]
         nxt = text[i + 1] if i + 1 < len(text) else ""
-        if char == "\n":
-            line += 1
-            if state == "line_comment":
-                state = "code"
-            i += 1
-            continue
         if state == "code":
             if char == "/" and nxt == "/":
-                state, i = "line_comment", i + 2
-                lines.add(line)
+                state, start, i = "line_comment", i, i + 2
                 continue
             if char == "/" and nxt == "*":
-                state, i = "block_comment", i + 2
-                lines.add(line)
+                state, start, i = "block_comment", i, i + 2
                 continue
             if char == "/" and _regex_may_start(text, i, previous):
                 state, i = "regex", i + 1
@@ -176,29 +195,31 @@ def js_comment_lines(text: str) -> set[int]:
                 previous = char
             i += 1
             continue
+        if state == "line_comment":
+            if char == chr(10):
+                spans.append((start, i))
+                state = "code"
+            i += 1
+            continue
+        if state == "block_comment":
+            if char == "*" and nxt == "/":
+                spans.append((start, i + 2))
+                state, i = "code", i + 2
+                continue
+            i += 1
+            continue
         if state == "regex":
             if char == "\\":
                 i += 2
                 continue
             if char == "[":
-                # A CHARACTER CLASS SWALLOWS `/`, and this is where the quote in
-                # `/192[.]168["'`]/` lives. Skip to its close rather than ending the regex early.
+                # A CHARACTER CLASS SWALLOWS `/`, and this is where the quote in a class like
+                # ["'`] lives. Skip to its close rather than ending the regex early.
                 close = text.find("]", i + 1)
                 i = (close + 1) if close != -1 else i + 1
                 continue
             if char == "/":
                 state, previous = "code", "/"
-            i += 1
-            continue
-        if state == "line_comment":
-            lines.add(line)
-            i += 1
-            continue
-        if state == "block_comment":
-            lines.add(line)
-            if char == "*" and nxt == "/":
-                state, i = "code", i + 2
-                continue
             i += 1
             continue
         # inside a string or template literal
@@ -207,8 +228,11 @@ def js_comment_lines(text: str) -> set[int]:
             continue
         if char == state:
             state = "code"
+            previous = char
         i += 1
-    return lines
+    if state in ("line_comment", "block_comment"):
+        spans.append((start, len(text)))
+    return spans
 
 
 def _regex_may_start(text: str, index: int, previous: str) -> bool:
@@ -217,39 +241,54 @@ def _regex_may_start(text: str, index: int, previous: str) -> bool:
         return True
     before = text[:index].rstrip()
     word = ""
-    while before and (before[-1].isalpha() or before[-1] == '_'):
+    while before and (before[-1].isalpha() or before[-1] == "_"):
         word = before[-1] + word
         before = before[:-1]
     return word in REGEX_KEYWORDS
 
 
-def comment_lines(path: Path) -> set[int]:
+def comment_spans(path: Path) -> list[tuple[int, int]]:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return python_comment_lines(text) if path.suffix == ".py" else js_comment_lines(text)
+    return python_comment_spans(text) if path.suffix == ".py" else js_comment_spans(text)
 
 
-def classify(mentions: list[tuple[str, int]], root: Path) -> tuple[list[str], list[str]]:
-    """Split mentions into those reachable from CODE and those living in prose."""
+def occurrences(path: Path, name: str) -> list[tuple[int, int]]:
+    """(offset, line) for every literal occurrence of the name in this file."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    out = []
+    at = text.find(name)
+    while at != -1:
+        out.append((at, text.count(chr(10), 0, at) + 1))
+        at = text.find(name, at + 1)
+    return out
+
+
+def classify(files: list[str], name: str, root: Path) -> tuple[list[str], list[str]]:
+    """Split each OCCURRENCE into code or prose. THE OCCURRENCE, not the line it shares.
+
+    A line holding a dynamic import AND a trailing note holds both, and asking whether its LINE
+    carries a comment answered PROSE for the import too. Review drove that through the entrypoint.
+    """
     code, prose = [], []
-    cache: dict[str, set[int]] = {}
-    for rel, number in mentions:
-        if rel not in cache:
-            cache[rel] = comment_lines(root / rel)
-        (prose if number in cache[rel] else code).append(f"{rel}:{number}")
+    for rel in files:
+        path = root / rel
+        spans = comment_spans(path)
+        for offset, line in occurrences(path, name):
+            inside = any(start <= offset < end for start, end in spans)
+            (prose if inside else code).append(f"{rel}:{line}")
     return code, prose
 
 
-#: A regex literal whose character class holds a double quote, a single quote AND a backtick:
-#: /192[.]168[.]\d+["'`]/ -- assembled from
-#: character codes because every quoting layer this file passes through would otherwise take a
-#: bite out of it. It is the exact shape from `server-url-fallback.test.js` that made the first
-#: scanner read the rest of that file's comments as code.
-REGEX_CARRIER = (chr(47) + "192[.]168[.]" + chr(92) + "d+["
+#: A regex literal whose character class holds a double quote, a single quote AND a backtick,
+#: assembled from character codes because every quoting layer this file passes through would
+#: otherwise take a bite out of it. It is the exact shape from `server-url-fallback.test.js` that
+#: made the first scanner read the rest of that file's comments as code.
+REGEX_CARRIER = (chr(47) + "192[.]168[." + chr(92) + "d+["
                  + chr(34) + chr(39) + chr(96) + "]" + chr(47))
 
 
 def carrier_verdicts() -> list[str]:
-    """Four carriers, two per direction, through the same searcher and the same classifier."""
+    """Eight carriers, four per direction, through the same searcher and the same classifier."""
     scratch = Path(tempfile.mkdtemp())
     name = "a-deleted-module.mjs"
     cases = {
@@ -273,21 +312,25 @@ def carrier_verdicts() -> list[str]:
         # inside a string literal is code.
         "a `//` inside a string literal is CODE": (
             "str.mjs", f'const doc = "// see ./{name} for why";\n', "code"),
+        # A LINE IS NOT A UNIT OF CODE, and the line classifier this replaced read both of these
+        # as prose: one comment anywhere on the line decided the verdict for the import beside
+        # it. Review drove the first through the whole entrypoint -- planted import NEEDS
+        # JUDGEMENT, the identical import with a trailing note CLEAN.
+        "an import with a trailing comment is still CODE": (
+            "trail.mjs", f'const x = await import("./{name}"); // unrelated note\n', "code"),
+        "a Python assignment with a trailing comment is still CODE": (
+            "trail.py", f'X = "./{name}"  # unrelated note\n', "code"),
     }
     for _label, (filename, body, _want) in cases.items():
         (scratch / filename).write_text(body, encoding="utf-8")
     failures = []
     for label, (filename, _body, want) in cases.items():
-        hits = []
-        for line in _grep(name, scratch, [], no_index=True):
-            path, _, rest = line.partition(":")
-            number, _, _text = rest.partition(":")
-            if path.replace("\\", "/").endswith(filename) and number.isdigit():
-                hits.append((filename, int(number)))
-        if not hits:
+        found = [line.partition(':')[0].replace(chr(92), '/')
+                 for line in _grep(name, scratch, [], no_index=True)]
+        if not any(rel.endswith(filename) for rel in found):
             failures.append(f"{label} -- the SEARCH missed it entirely")
             continue
-        code, prose = classify(hits, scratch)
+        code, prose = classify([filename], name, scratch)
         got = "code" if code else "prose"
         if got != want:
             failures.append(f"{label} -- read as {got}")
@@ -309,11 +352,11 @@ def main() -> int:
 
     unnamed, prose_only, reached = [], {}, {}
     for path in gone:
-        mentions = naming(Path(path).name)
-        if not mentions:
+        files = naming(Path(path).name)
+        if not files:
             unnamed.append(path)
             continue
-        code, prose = classify(mentions, ROOT)
+        code, prose = classify(files, Path(path).name, ROOT)
         if code:
             reached[path] = code
         else:
@@ -339,7 +382,7 @@ def main() -> int:
         found = naming(probe)
         agreed = bool(found) == expect
         ok = ok and agreed
-        print(f"  {probe:28} {len(found):3} mention(s)  "
+        print(f"  {probe:28} {len(found):3} file(s)  "
               f"{'OK' if agreed else '*** THE SEARCH IS BROKEN ***'}")
     print("  (this file is excluded from the population above, so the census cannot answer for")
     print("   itself -- the failure that made the previous version's positive control meaningless)")
@@ -347,6 +390,8 @@ def main() -> int:
     for label in ("a require split across lines is CODE",
                   "a dynamic import split across lines is CODE",
                   "a `//` inside a string literal is CODE",
+                  "an import with a trailing comment is still CODE",
+                  "a Python assignment with a trailing comment is still CODE",
                   "a `//` comment naming it is PROSE",
                   "a Python docstring naming it is PROSE",
                   "a comment after a regex holding a quote is PROSE"):
@@ -361,10 +406,14 @@ def main() -> int:
     if reached:
         print(f"NEEDS JUDGEMENT: {len(reached)} deleted module(s) are named from code.")
         return 1
-    print(f"CLEAN: of {len(gone)} deleted files, {len(unnamed)} are named nowhere at all and")
-    print(f"{len(prose_only)} are named only in comments or docstrings. NONE is reached from code.")
-    print("The first figure needs no classifier to be believed; the second rests on one, and that")
-    print("classifier is driven in both directions by the four carriers above.")
+    print(f"CLEAN: of {len(gone)} deleted files, {len(unnamed)} are not SPELLED anywhere in the")
+    print(f"searched population and {len(prose_only)} appear only inside comments or docstrings.")
+    print("None is named from code.")
+    print()
+    print("SCOPE, so this is not over-read: the first figure is literal-name absence, NOT")
+    print("unreachability. An escaped, concatenated or computed specifier evaluates to the same")
+    print("path with no raw-name hit, and nothing here resolves a specifier. The second figure")
+    print("rests on the classifier, which the eight carriers above drive in both directions.")
     return 0
 
 

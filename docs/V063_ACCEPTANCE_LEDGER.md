@@ -69,9 +69,9 @@ mechanism is present in the deployed build and was not caught firing.
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
-| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that nothing NAMES them from code: of 107 deleted files (35 product, 72 tests), 84 are named nowhere at all, 22 only in comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls and six carriers in the same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
-| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not named from code, same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
-| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not named from code, same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
+| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that no LITERAL spelling of these names appears outside a comment: of 107 deleted files (35 product, 72 tests), 84 are not spelled anywhere in the searched population, 22 appear only inside comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls and eight carriers in the same run, classification by occurrence SPAN. **NOT unreachability** — an escaped, concatenated or computed specifier evaluates to the same path with no literal hit, and nothing here resolves a specifier. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
+| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
+| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
 
 **The claim these rows make is what the census MEASURES, and the first version of both was wrong.**
 They cited `no-missing-sibling-imports.test.js` and `moved-names-resolve.test.js` until review
@@ -86,14 +86,18 @@ matched THE CENSUS ITSELF -- the word `import` inside the identifier `expect_imp
 naming the probe -- so with every real importer deleted the control still read "covered". The
 instrument certified itself.
 
-**IT NO LONGER MODELS AN IMPORT.** It searches for the deleted file's NAME as a fixed string,
-excluding its own source, and then places each mention in a comment or in code. A name found
-NOWHERE cannot be reached by any specifier shape split across any number of lines, and that tier
-needs no classifier to be believed. Comments come from Python's `tokenize` and `ast`; JavaScript has
-no such tool in the standard library and gets a scanner, which failed on its first real file -- a
-regex literal whose character class held a quote read as an unterminated string, and every comment
-after it looked like code. Six carriers now drive it, three per direction, including that exact
-shape.
+**And the repair was broken again a round later, at a different granularity.** It held a set of
+comment LINES and asked whether a mention's line was in it, so `import("./x.mjs"); // note` read as
+PROSE while the identical import without the note read as CODE. Review drove that through the whole
+entrypoint. Classification is by occurrence SPAN now -- character offsets from `tokenize`, `ast` and
+the JS scanner -- with eight carriers, four per direction.
+
+**WHAT THE CENSUS ESTABLISHES, stated at its real width.** No LITERAL spelling of a deleted module's
+name appears outside a comment in the searched population: 84 of 107 are not spelled anywhere, 22
+appear only inside comments or docstrings, 1 inside a test fixture's string literal. It is NOT
+unreachability. `import("./terminal-manager.mjs")` is valid, evaluates to the same path and
+carries no literal hit; a concatenated or computed specifier does the same. Nothing here resolves a
+specifier, so the claim stops at the spelling.
 
 **AND IT FOUND TWO REAL DEFECTS OF THE SAME CLASS, in gates that were green.**
 `every-module-is-imported-by-a-test.test.js` listed two DELETED modules among "the modules this
@@ -137,7 +141,7 @@ ledger has no standing to make, so they sit in the open list below instead.
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
-| X-1 | Every request aify-env's aify-comms plugin sends names a route this service serves, at that method | `lib/plugins/aify-comms/api.mjs` (aify-env) against this app's route table | `test_the_env_plugin_addresses_routes_this_service_serves.py` — 10 requests matched against 130 served routes, each to exactly one | PASSES IN TESTS on the candidate, in the python run quoted above. Driven from BOTH sides: a plugin path we do not serve, a plugin method we do not serve, and the SERVICE dropping a path the plugin asks for all turn it red; a checkout with no plugin SKIPS by name | Met for the ADDRESS. Bodies, responses, auth and a live round trip are NOT covered and the test says so |
+| X-1 | Every request aify-env's aify-comms plugin EMITS names a route this service serves, at that method | `lib/plugins/aify-comms/api.mjs` (aify-env) against this app's route table | `test_the_env_plugin_addresses_routes_this_service_serves.py` — every public method of the real `CommsApi` is CALLED through its own `fetchImpl` injection, and the URL the transport receives is judged; 10 methods, 10 emitted requests, 130 served routes, each matching exactly one | PASSES IN TESTS on the candidate. Driven SIX ways: a method that emits nothing, a wrong ACTUAL prefix, an unserved path, and the SERVICE dropping a path all turn it red; a whitespace refactor stays green; a named checkout with no plugin SKIPS | Met for the ADDRESS and METHOD. **The first version PARSED call sites and supplied `/api/v1` itself** — review lost a request to legal whitespace and changed the plugin's real prefix, both with every assertion green. Bodies, responses, auth and a live round trip are NOT covered |
 
 ## Packaging
 
@@ -204,7 +208,8 @@ as stated.
    not substitute for it.
 2. **R-1, R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
-   range. Imports are PROVEN; behaviour is UNREVIEWED.
+   range. What is PROVEN is that no literal spelling of a deleted module's name appears outside
+   a comment — not unreachability, since nothing resolves a specifier. Behaviour is UNREVIEWED.
 3. **The cross-repo seam — UNVERIFIED FOR THIS RELEASE, not deferred.** X-1 proves the plugin's
    ADDRESSES against this service's routes, driven from both sides, and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
