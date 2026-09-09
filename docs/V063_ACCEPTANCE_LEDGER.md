@@ -534,14 +534,33 @@ recorded here rather than attempted in a release cut.
    | the container | `GET /health` vs `git rev-parse HEAD` | serving `3e7387a6`, version `0.6.2`; HEAD is `25a567da`, **210 commits ahead**, and the served build IS an ancestor of HEAD |
    | `~/.aify-comms` | `.aify-version` vs `git rev-list --count <marker>..HEAD -- mcp/stdio/` | installed at `3e7387a6` on 2026-09-08T01:52; **14 commits since have touched `mcp/stdio/`, 5 of them outside `tests/`** -- so real bridge source is uninstalled, not just tests |
    | `~/.claude/skills` | `diff -rq .claude/skills ~/.claude/skills` | the two `aify-comms-debug` reference files differ from the checkout, so this version's skill edits have reached no agent |
-   | the aify-env DAEMON | process creation time vs `git log --diff-filter=A` | one node process (pid 77176) started 2026-09-08T03:08:35; `lib/screen-emulator.mjs` was ADDED at 04:10:08 that morning, so **the running daemon has never had the module**. 82 commits since it booted, 52 touching `lib/`, 19 touching the renderer |
+   | the aify-env DAEMON | its OWN `/health`: `build` (hashed at boot) vs `codeOnDisk` | boot `3b2bf8f9`, on disk `1c36464c` — **this process is not running the code that is there now**. PID 77176, started 2026-09-08T03:08:35; 82 commits since, 52 touching `lib/`, 19 touching the renderer |
 
    **THE FOURTH IS THE ONE THIS VERSION'S HEADLINE WORK SITS BEHIND.** B1 through B5 are the
    operator's stated goal in their own words -- "we need to make our tui stuff really well, that
-   renderer" -- and they are PASSES IN TESTS that have never executed on this fleet. Not once.
-   Every review round in this document has been about tests of code the operator has never run.
+   renderer" -- and whether they have ever executed on this fleet is UNVERIFIED.
 
-   AND THE FILES ON DISK DO NOT SETTLE IT, which nearly sent this out wrong. The daemon runs
+   **A CATEGORICAL CLAIM STOOD HERE AND IS WITHDRAWN.** It said the daemon "has never had the
+   module" and that B1-B5 had run "not once", deduced from process creation time against the
+   emulator's addition commit. That does not follow, and review said so: `--diff-filter=A` dates
+   the COMMIT, not the file's first presence on disk, so a module can be written, loaded, and
+   committed afterwards. A one-PID census cannot speak for viewers that have since exited --
+   `bin/aify-env-tui.mjs` and `bin/aify-env-attach.mjs` each import the renderer chain
+   independently of the daemon. And loaded, instantiated and rendered are three facts, none of
+   which one module's timestamp establishes. I turned "no evidence it ran" into "it never
+   ran", which is the inversion this repo keeps a rule for.
+
+   WHAT DOES HOLD, from a better instrument. The daemon computes `PackageBuild.boot` -- a
+   content hash of the files it actually loaded, read once in its constructor -- and serves it
+   beside `codeOnDisk` on its own `/health`. They differ (`3b2bf8f9` vs `1c36464c`), which is
+   PID-bound, content-based, and says exactly what is true: **this process is not running the
+   code that is there now.** It does not decompose into WHICH files, so it cannot say the
+   renderer specifically was absent, and that is not claimed. **Nothing in aify-comms reads that
+   pair**: `tier-version` compares VERSIONS, and a daemon running stale bytes reports the same
+   version as one that is current. That is a gap worth a doctor row and is named, not built.
+
+   AND THE FILES ON DISK DO NOT SETTLE IT EITHER, which nearly sent this out wrong. The daemon
+   runs
    `C:/nvm4w/nodejs/node_modules/aify-env/bin/aify-env.mjs` -- which reads as a global install of
    a published package and is a SYMLINK to `~/projects/aify-env`. Every renderer file is present
    and current there, so a check that asked "is the code deployed" would answer yes. What is
@@ -549,6 +568,32 @@ recorded here rather than attempted in a release cut.
    existed. That is the same shape as the bridge row above, where new code sits in
    `~/.aify-comms` while every running client executes what it loaded at start-up -- and it is
    why this table reads process facts rather than file facts wherever it can.
+
+   **WHAT COULD BE MEASURED WITHOUT THE RESTART, AND WAS.** The renderer's evidence was synthetic
+   fixtures, so it was pointed at a console this service really stored:
+   `scripts/render-a-real-console-through-the-emulator.mjs` takes the raw body of
+   `GET /api/v1/terminals/{id}` and drives aify-env's real `ScreenEmulator` and `screenLines` over
+   it. On a live hermes terminal at 132x26 -- 45,949 characters carrying 2,686 escape sequences and
+   2,722 unprintable characters in total -- it produced a 25-line screen, 23 lines non-empty, 132
+   wide, with **zero unprintable characters** and box-drawing intact. 263ms to write, 8ms to read.
+   The status line renders as a reader would see it, progress bar and all.
+
+   CONTROLLED BOTH WAYS IN THE SAME RUN: a stream that clears the screen and paints nothing exits
+   1 as blank, and the same script on a painted line exits 0. A probe that cannot return ABSENT
+   cannot return PRESENT.
+
+   IT IS STILL PASSES IN TESTS, and the distinction is the whole reason this row exists: real
+   bytes through the real modules is not the deployed path, and the deployed path is a daemon that
+   has never loaded them. What it removes is the weaker worry -- that the renderer only works on
+   fixtures written to make it work.
+
+   **AND MY FIRST RUN OF IT REPORTED A DEFECT THAT WAS MINE.** The capture went
+   curl -> python -> a scratch file -> node, and the python hop re-encoded: the render came out
+   full of mojibake where box-drawing belongs, and 265 "lone surrogates" appeared that the raw
+   body does not contain. Checked against the raw bytes, the response carries proper UTF-8
+   (`e2 94 80` for U+2500) and none of it. I was one step from reporting a garbled-console defect
+   in this service that my own extractor had created; the script now runs curl -> file -> node
+   with nothing in between that re-encodes.
 
    **RESTARTING aify-env IS THE OPERATOR'S ACTION, and not a small one**: supersession there
    reaps the predecessor's managed workers, which has taken this fleet down before. Recorded
