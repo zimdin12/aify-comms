@@ -394,10 +394,11 @@ gate below names as a claim it enforces.
 **RE-VERIFIED ROW BY ROW 2026-09-08 AND AGAIN 2026-09-09 by importing the gate's own walk**, after
 this table had been wrong four times: every row matches its measured line count exactly and the
 membership matches the measured ranking, so nothing here needed correcting on either date. The
-census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> 538 ->
-**539 on 2026-09-09** -- 261 Python and 278 JS -- as `service/new_dashboard/console-cursor.mjs`,
-`scripts/measure-ws-hop-browser.py`, `scripts/measure-console-projection.py` and
-`scripts/check-deployed-console-transport.py` arrived with the console and transport work.
+census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> 538 -> 539
+-> **540 on 2026-09-09** -- 261 Python and 279 JS -- as `service/new_dashboard/console-cursor.mjs`,
+`scripts/measure-ws-hop-browser.py`, `scripts/measure-console-projection.py`,
+`scripts/check-deployed-console-transport.py` and `scripts/measure-live-frame-gaps.mjs` arrived
+with the console and transport work.
 
 **AND THE `.monitor/` TRAP CAUGHT SOMEBODY A SECOND TIME, WHICH WAS ME.** The paragraph below
 already warns that the gates walk the FILESYSTEM, so a gitignored directory is invisible to
