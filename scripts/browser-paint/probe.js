@@ -123,6 +123,11 @@
         refusals.push(arm.label + ": " + arm.recoveryNotPainted + " recovery(ies) reset but left "
           + "no payload marker on screen, so the span timed a repaint that never arrived");
       }
+      if (arm.recoveryNotFullyPainted) {
+        refusals.push(arm.label + ": " + arm.recoveryNotFullyPainted + " recovery(ies) delivered "
+          + "their marker but not the rows their body addresses, so the span timed something "
+          + "smaller than the payload this column claims");
+      }
       // A REFUSAL OF ITS OWN, NOT ONLY A LEDGER ENTRY. Moving these counters off the paced
       // phase fixed the misattribution and LOST THE REJECTION: `recoveryBadSpans` was read only
       // by the identity, which it balances, so one interval that is not a number published with
@@ -145,7 +150,7 @@
       // paced phase's counter.
       var recoveryAccounted = arm.recoveryMs.length + arm.recoveryTimeouts
         + arm.recoveryNoRender + arm.recoveryBadSpans + arm.recoveryRenderedBeforeParse
-        + arm.recoveryNotReset + arm.recoveryNotPainted;
+        + arm.recoveryNotReset + arm.recoveryNotPainted + arm.recoveryNotFullyPainted;
       if (recoveryAccounted !== RECOVERIES) {
         refusals.push(arm.label + ": " + recoveryAccounted + " recoveries are accounted for "
           + "out of " + RECOVERIES + ", so some went somewhere this probe does not name");
@@ -199,10 +204,14 @@
     lines.push("the paint AFTER the parse callback, not the reset's own cost. Nothing here measures");
     lines.push("what the reset alone costs.");
     lines.push("");
-    lines.push("  renderer     offered B   parse p50  repaint p50   paint after parse    n");
+    lines.push("  renderer      body bytes  parse p50  repaint p50   paint after parse    n");
     arms.forEach(function (arm) {
+      // THE RECOVERY BODY'S OWN BYTES, not the paced body's. They differ by the per-iteration
+      // suffix, and printing the paced figure here named a payload this phase never wrote.
+      var lo = Math.min.apply(null, arm.recoveryBytes);
+      var hi = Math.max.apply(null, arm.recoveryBytes);
       lines.push("  " + arm.label.padEnd(13)
-        + String(arm.bytes).padStart(8)
+        + (lo === hi ? String(lo) : lo + "-" + hi).padStart(11)
         + median(arm.recoveryParseMs).toFixed(3).padStart(12)
         + median(arm.recoveryMs).toFixed(3).padStart(13)
         // PAIRED, PER RECOVERY, and named for what it is. This was a difference of two

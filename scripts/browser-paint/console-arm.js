@@ -58,6 +58,42 @@
     return parts.join("");
   }
 
+  /**
+   * What screen a body leaves, derived from the body itself.
+   *
+   * A MARKER IS NOT A WORKLOAD. The per-recovery witness asked only whether that iteration's
+   * marker arrived, so a write of `ESC[40;1H<marker>` -- twenty-odd bytes -- satisfied it while
+   * the offered-byte column claimed sixty-five thousand. Filling the same length with spaces
+   * satisfied it too, so counting bytes would not have repaired it.
+   *
+   * The payload addresses rows cyclically and the viewport is fixed, so the screen a correct
+   * repaint leaves is DETERMINED: for each visible row, the text of the LAST segment addressing
+   * it. Read off the bytes that will actually be written, never from the recipe -- the same rule
+   * the PTY probe's row handshake follows, and for the same reason.
+   */
+  function expectedRows(body) {
+    var expected = new Map();
+    var pattern = /\u001b\[(\d+);1H(?:\u001b\[[0-9;]*m)?([^\u001b]*)/g;
+    var match = pattern.exec(body);
+    while (match !== null) {
+      var row = Number(match[1]);
+      if (row >= 1 && row <= ROWS) expected.set(row, match[2]);
+      match = pattern.exec(body);
+    }
+    return expected;
+  }
+
+  /** How many of a body's visible rows the screen actually carries. */
+  function rowsDelivered(term, expected) {
+    var lines = screenOf(term).split(LF);
+    var found = 0;
+    expected.forEach(function (text, row) {
+      var line = lines[row - 1];
+      if (typeof line === "string" && text && line.indexOf(text) !== -1) found += 1;
+    });
+    return found;
+  }
+
   function median(values) {
     if (!values.length) return NaN;
     var sorted = values.slice().sort(function (a, b) { return a - b; });
@@ -144,6 +180,13 @@
     //: six arms with twenty samples each against `if (i === 0) term.reset()`.
     this.recoveryNotReset = 0;
     this.recoveryNotPainted = 0;
+    //: RECOVERIES WHOSE BODY DID NOT LAND, as distinct from ones whose MARKER did not: review
+    //: published twenty samples an arm from writes of twenty-odd bytes, marker only.
+    this.recoveryNotFullyPainted = 0;
+    //: THE RECOVERY BODY'S OWN SIZE. `bytes` is the PACED body's, and the recovery body carries a
+    //: per-iteration suffix that makes it three or four bytes longer -- so the recovery table was
+    //: printing a number belonging to a different payload.
+    this.recoveryBytes = [];
     //: PAIRED PER RECOVERY, like the paced phase's `paintOnlyMs`. A difference of two
     //: independently-taken medians is a different statistic from the median of the paired
     //: differences, and this file has published the wrong one of those before.
@@ -317,6 +360,16 @@
     var bodyFor = function (marker) {
       return paintedBytes(self.targetChars).replace("@@MARKER@@", ESC + "[40;1H" + marker);
     };
+    // WHAT THIS ARM CLAIMS TO WRITE, computed once from the intended payload and BEFORE the loop.
+    //
+    // AN EXPECTATION READ OFF THE BODY THAT WAS ACTUALLY WRITTEN IS SATISFIED BY ANY BODY. My
+    // first version did exactly that: a marker-only write addresses one row, the marker's own,
+    // which is then excluded -- leaving an EMPTY expectation that everything satisfies. It
+    // published review's carrier unchanged. The claim has to come from the payload the column
+    // names, so a body that addresses fewer rows is a body that is not that payload.
+    var claimed = expectedRows(bodyFor(this.recoveryMarker + "-claim>"));
+    claimed.delete(ROWS);
+    this.claimedRows = claimed.size;
     var filler = [];
     for (var f = 0; f < ROWS + 5; f += 1) filler.push("");
     for (var i = 0; i < RECOVERIES; i += 1) {
@@ -327,6 +380,8 @@
       var sentinel = this.scrollbackSentinel + "-" + i + ">";
       var marker = this.recoveryMarker + "-" + i + ">";
       var body = bodyFor(marker);
+      var expected = expectedRows(body);
+      this.recoveryBytes.push(new TextEncoder().encode(body).length);
       await this.writeOnce(CR + LF + sentinel + filler.join(CR + LF));
       var seenRenders = this.renderCount;
       var started = performance.now();
@@ -359,6 +414,15 @@
       // reported review's paint-a-space carrier as a reset failure, which it was not.
       if (after.indexOf(sentinel) !== -1) { this.recoveryNotReset += 1; continue; }
       if (after.indexOf(marker) === -1) { this.recoveryNotPainted += 1; continue; }
+      // AND THE BODY, NOT ONLY ITS MARKER. Every visible row this payload addresses must carry
+      // the text that payload put there; the marker's own row is excluded because the marker
+      // deliberately overwrites it.
+      expected.delete(ROWS);
+      if (expected.size !== this.claimedRows
+          || rowsDelivered(this.term, expected) !== expected.size) {
+        this.recoveryNotFullyPainted += 1;
+        continue;
+      }
       this.recoveryParseMs.push(parse);
       this.recoveryMs.push(painted);
       this.recoveryPaintOnlyMs.push(painted - parse);
@@ -380,7 +444,8 @@
     // reset clears it, `screenOf` walks the whole of `buffer.active`, and the check happens inside
     // the loop against that recovery's own sentinel. What is left here is the ordinary
     // end-of-phase question: did the last recovery reach the screen at all.
-    this.resetLeftTheOldScreen = this.recoveryNotReset > 0 || this.recoveryNotPainted > 0;
+    this.resetLeftTheOldScreen = this.recoveryNotReset > 0 || this.recoveryNotPainted > 0
+      || this.recoveryNotFullyPainted > 0;
     if (screen.indexOf(ABSENT_MARKER) !== -1) this.foundAbsent = true;
   };
 
