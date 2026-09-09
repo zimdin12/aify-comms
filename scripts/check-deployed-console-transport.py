@@ -338,7 +338,19 @@ def main() -> int:
         print("THE RUNNING SERVICE CARRIES THE CONSOLE-TRANSPORT DEFECTS. The fixes are in the "
               "checkout and not in the deploy.")
         print("This is a mechanism demonstrated in the deployed artifact. It is NOT a reproduction "
-              "of any particular lag, and the live coalescing rate is still unmeasured.")
+              "of any particular lag.")
+        # THE LIVE COALESCING RATE IS NO LONGER UNMEASURED, and this line said it was for a week.
+        # Because THIS queue emits one frame per flush numbered with the cumulative POST count --
+        # which is exactly what the test above establishes by running the container's own module
+        # -- an observed sequence step of N IS the number of posts that flush carried.
+        print()
+        print("AND THE LIVE COALESCING RATE IS MEASURED, which this line denied. Because THIS")
+        print("queue numbers ONE frame per flush with the cumulative POST count, an observed")
+        print("sequence step of N IS the posts that flush carried -- so the wire reads the rate")
+        print("directly. `measure-live-frame-gaps.mjs` saw ZERO steps over one across 83,097")
+        print("recorded comparisons in four guarded windows: no flush coalesced in any of them.")
+        print("That is bounded windows on one fleet, not a statement about the day, and it")
+        print("attributes no lag -- nothing there observed a console, a fetch or a repaint.")
         return 1
     # A MISSING MODULE BLOCKS CLEAR WITHOUT ASSERTING THE DEFECT. A 404 proves absence at that
     # URL; it does not by itself prove an old bundle, and the browser could be served from

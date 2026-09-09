@@ -311,10 +311,15 @@ async function main() {
   }
 
   console.log('');
-  console.log('WHAT THIS DOES NOT ESTABLISH: how many POSTS each flush carried. Zero steps over one');
-  console.log('is consistent with every flush carrying exactly one post, and equally consistent with');
-  console.log('a queue that numbers frames correctly -- the wire alone cannot separate those two. It');
-  console.log('also counts TRIGGERS rather than repaints: no console, fetch or reset was observed.');
+  console.log('WHAT A STEP MEANS DEPENDS ON THE QUEUE SERVING IT, established elsewhere. Against a');
+  console.log('queue that numbers frames CORRECTLY, zero steps over one says nothing about how many');
+  console.log('posts each flush carried. Against one that numbers per POST -- which');
+  console.log('check-deployed-console-transport.py establishes by running the container OWN module');
+  console.log('against the frame-sequence test -- a step of N IS the posts in that flush, so zero');
+  console.log('steps over one means no flush coalesced. The wire alone cannot separate the two');
+  console.log('readings; that deployed-module run is what separates them.');
+  console.log('');
+  console.log('It still counts TRIGGERS rather than repaints: no console, fetch or reset observed.');
   process.exit(0);
 }
 
