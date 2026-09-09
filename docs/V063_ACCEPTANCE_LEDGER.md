@@ -324,7 +324,9 @@ recorded here rather than attempted in a release cut.
    response shapes, auth and a live round trip are unproved, where six tests used to drive a real
    aify-env. Moving them out of this release is an owner's decision and has not been made.
 5. **P-2** — CLOSED: `VERSION`, `version.js`, both manifests and `plugin.json` declare `0.6.3`,
-   and `service/_build_stamp.json` is stamped. The tag is cut; the DEPLOY is still the operator's.
+   and the tag is cut. `service/_build_stamp.json` is GITIGNORED — a build artifact regenerated
+   by `scripts/stamp.sh` immediately before the container build, so it is not part of the tag
+   and stamping it here proves only that the recipe runs. The DEPLOY is still the operator's.
 6. **S-4** — an operator decision.
 7. **The deploy, and it is THREE stale artifacts rather than one.** Read from
    `aify-comms doctor --json` for this line: `service` FAIL (the container), `bridge-installed`
