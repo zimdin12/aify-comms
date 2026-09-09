@@ -64,7 +64,7 @@ const CEILINGS = {
   // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
   // read rather than skimmed.
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
-  "aify-comms-install/SKILL.md": 4_846,
+  "aify-comms-install/SKILL.md": 4_821,
   "aify-comms-debug/SKILL.md": 3_117,
   "aify-comms-debug/references/codex.md": 14_114,
   // 18_454 -> 18_426 on 2026-08-30. It went DOWN while gaining a correction, so record why: the

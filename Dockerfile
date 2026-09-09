@@ -41,6 +41,7 @@ COPY config/ ./config/
 COPY integrations/ ./integrations/
 COPY .agents/ ./.agents/
 COPY install.sh ./install.sh
+COPY scripts/ ./scripts/
 
 VOLUME /data
 
