@@ -29,6 +29,9 @@ from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_sessions import _settle_agent_for_session_control
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.events import _append_terminal_control
+# THE SET aify-env's OWN `restartTargetFor` USES, imported rather than retyped: two copies of
+# "which sessions are live" agree until one is corrected, and this one gates a stop.
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.records import _agent_session_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.session_restart import _prepare_restart_spawn
@@ -44,6 +47,27 @@ from service.models import SessionControlRequest
 
 router = domain_router()
 
+
+
+async def _live_session_for(db, agent_id: str):
+    """The agent's first LIVE session row, or None.
+
+    THE NARROW SET, and which set this is matters. `_LIVE_SESSION_STATUSES` is the one aify-env's
+    own `restartTargetFor` uses, so the route answers the question the caller ASKED. The wider
+    `tuning.LIVE_SESSION_STATUSES` counts `idle` and `attached` as live, and refusing on those
+    would block restarts the caller legitimately intends -- a different decision from closing this
+    race, and not one to make inside it.
+
+    LOWERED IN SQL, because a status is written by several producers and this comparison is the
+    whole guard: a row saying `Running` must not read as not-live.
+    """
+    placeholders = ",".join("?" for _ in _LIVE_SESSION_STATUSES)
+    cursor = await db.execute(
+        f"SELECT id, status FROM agent_sessions WHERE agent_id = ? "
+        f"AND LOWER(TRIM(status)) IN ({placeholders}) LIMIT 1",
+        (agent_id, *sorted(_LIVE_SESSION_STATUSES)),
+    )
+    return await cursor.fetchone()
 
 
 @router.post("/sessions/{session_id}/control")
@@ -64,6 +88,31 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
 
         now = _now()
         agent_id = session["agent_id"]
+
+        # ── THE CALLER'S PRECONDITION, ASKED WHERE THE STATE IS.
+        #
+        # aify-env's "start available agent" reads which agents have no live session and then
+        # restarts the one it chose. Those are two round trips, and a worker starting in between
+        # turned a start into a STOP of somebody's live terminal. Review traced it and asked for
+        # conditional semantics at the authority rather than a third client-side reading -- which
+        # is right: every check the caller makes is separated from the act by a network hop, and
+        # only the thing performing the act can ask and act on one set of rows.
+        #
+        # BEFORE THE DISPATCH INTERRUPT BELOW -- but the ORDER is tidiness, not the guarantee,
+        # and saying so keeps a later reader from defending the wrong thing. This route has one
+        # commit, at the end, so a refusal raised anywhere before it discards every write of the
+        # request: a refused restart cannot interrupt anybody in either order. Established by
+        # mutation -- moving this check after the interrupt left a test of that ordering green.
+        if req.only_if_no_live_session:
+            live = await _live_session_for(db, agent_id)
+            if live:
+                raise HTTPException(
+                    409,
+                    f'Agent "{agent_id}" has a live session "{live["id"]}" ({live["status"]}), '
+                    "so this conditional restart was refused. It was requested on the belief that "
+                    "nothing was running; something is.",
+                )
+
         active_run = await _get_blocking_active_run(db, agent_id)
         control_id = ""
         if active_run:

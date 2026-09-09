@@ -45,7 +45,15 @@ The inventory finds candidates; this ledger says what they owe.
   one is not among them.)
 
 **Status.** PRODUCT NOT YET CERTIFIED — review's original-range coverage is open and this ledger
-does not close it. No product-code defect is established. The deploy and the tag are the operator's.
+does not close it.
+
+**FOUR PRODUCT-CODE DEFECTS ARE ESTABLISHED AND FIXED**, and this line said none was until the
+review was pointed at the product rather than at the instruments. They are in the section below,
+each with the commit that closed it. A fifth -- the conditional-start race -- was traced in
+source, left open at the tag, and closed after it.
+
+The tag `v0.6.3` is cut. **The DEPLOY is the operator's**, and `main` is ahead of the tag by the
+conditional-start work.
 
 ---
 
@@ -215,7 +223,7 @@ ledger has no standing to make, so they sit in the open list below instead.
 |---|---|---|---|---|---|
 | P-1a | The MANIFEST, the LOCKFILE and npm's record of the install name the same wrapper commit | `mcp/stdio/package.json`, `mcp/stdio/package-lock.json` (the Dockerfile copies both, then runs `npm ci`) | `the-wrapper-pin-is-not-behind-a-template-change.test.js` — "THE GATE: this repo consumes exactly the pin it declares", via `consumedPinVerdict({packagePin, lockPin, installedPin})` | PROVEN on this host: all three read `5c62d91`, the third from `node_modules/.package-lock.json`. **The branch matters** — `consumedPinVerdict` returns `ok:true` with `installedPin` empty, so where npm's install record cannot be read the gate compares TWO values and not three, and the row is then only manifest-to-lock | Met, with the two-value branch named |
 | P-1b | Every file the pinned commit PUBLISHES is present in `node_modules` and is that commit's bytes | `mcp/stdio/node_modules/aify-wrapper` (what `install.sh` renders from) | `the-installed-wrapper-is-the-pinned-commit.test.js` — the required population is DERIVED from the pinned commit's own `package.json` (`files[]`, `bin` targets, the manifest itself); every path in it must be PRESENT and byte-identical | PROVEN where an upstream checkout exists: 19 required paths derived from 48 tracked files, 0 missing, 0 differing, all four templates in the derived set. **SKIPS BY NAME otherwise** | Met on this host. **The first version INTERSECTED instead of deriving** — it compared only files that happened to be present, so review passed it with `install.sh` deleted and again with `render.sh` deleted, both published by the pinned manifest and one a `bin` target that invokes the other. Both carriers now fail it |
-| P-2 | The three repos declare ONE version and the release recipe touches every declaring file | `VERSION`, `mcp/stdio/version.js`, `package.json`, `package-lock.json`, `.claude-plugin/plugin.json` | `test_version_single_source.py`; `version-consistency.test.js` | PASSES IN TESTS at the CURRENT declared version, in the runs quoted above | **NOT MET FOR v0.6.3.** All three repos still declare `0.6.2`, and v0.6.2 was never tagged. The bump, stamp and rebuild are unperformed; the tag is the operator's |
+| P-2 | The three repos declare ONE version and the release recipe touches every declaring file | `VERSION`, `mcp/stdio/version.js`, `package.json`, `package-lock.json`, `.claude-plugin/plugin.json` | `test_version_single_source.py`; `version-consistency.test.js` | PASSES IN TESTS at the CURRENT declared version, in the runs quoted above | **MET FOR aify-comms, and that is narrower than this row's title.** `VERSION`, `version.js`, both manifests and `plugin.json` declare `0.6.3` and `v0.6.3` is tagged. **aify-env and aify-wrapper still declare `0.6.2` ON PURPOSE** -- they are separate products on separate cadences, which is what `tier-version` checks as a MINIMUM rather than as equality, so "the three repos declare ONE version" was never the real obligation and this row overstated it. v0.6.2 was never tagged in any of them. The stamp is a gitignored build artifact and the rebuild is the operator's |
 
 **Why P-1 became two rows.** Review's finding was that one row was carrying two different claims with
 one verdict, and the weaker one was doing the work: agreement between RECORDS is not provenance of an
@@ -310,9 +318,20 @@ recorded here rather than attempted in a release cut.
    four defects, all fixed -- with an explicit list of what it did NOT read. See the section above.
    The unread complement is still unread, and a finding's absence where nobody looked is not a
    finding of absence.
-2. **Conditional start semantics at the authority**, from that verdict's design section: a
-   sessions-list check followed by an unconditional Restart can stop a terminal that became live
-   in between.
+2. **Conditional start semantics at the authority — CLOSED after the tag.** The verdict's design
+   finding: aify-env reads which agents have no live session, then restarts the one it chose, and a
+   worker starting between those two round trips turned a start into a STOP of a live terminal.
+   `POST /sessions/{id}/control` now accepts `only_if_no_live_session`, re-evaluates it against the
+   rows it is about to act on, and refuses with 409 naming the live session. The caller states the
+   belief it acted on; the dashboard's own Restart button sends no flag and stays unconditional.
+   Four service-side mutants killed and three client-side, both ends pinned — a field nothing sets
+   changes nothing. **It is NOT in the `v0.6.3` tag**, which was cut before it.
+
+   One thing the mutation run corrected in my own reasoning: I first asserted the guard must sit
+   ahead of the dispatch interrupt or a refusal would have interrupted the agent. Moving it after
+   left that test green, because the route has ONE commit at the end — a refusal discards every
+   write of the request whatever the order. The transaction is the guarantee; the ordering is
+   tidiness, and the code now says so.
 3. **R-1, R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
    range. What is PROVEN is that no literal spelling of a deleted module's name appears outside

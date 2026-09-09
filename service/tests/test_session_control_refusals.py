@@ -131,6 +131,133 @@ class SessionControlRefusalTests(FastApiTestCase):
             json={"action": action, "from_agent": "dashboard"},
         )
 
+    def _refused_for_liveness(self, response) -> bool:
+        """Was THIS the precondition refusal? The route 409s for several unrelated reasons, and
+        `assertNotEqual(409)` made three of these tests pass or fail for the wrong one -- the
+        fixture's restart refuses on a missing spawn spec whatever the precondition says.
+        """
+        if response.status_code != 409:
+            return False
+        return "nothing was running" in response.json().get("detail", "")
+
+    def _control_if_idle(self, action: str, session_id: str = SESSION_ID):
+        """A control carrying the caller's precondition: "I acted because nothing was live."""
+        return self.client.post(
+            f"/api/v1/sessions/{session_id}/control",
+            json={"action": action, "from_agent": "aify-env",
+                  "only_if_no_live_session": True},
+        )
+
+    # ── the caller's precondition, re-evaluated where the state is ───────────────────────────
+
+    def test_a_conditional_restart_is_refused_when_a_session_went_live(self):
+        """REVIEW'S DESIGN FINDING, closed at the authority.
+
+        aify-env's "start available agent" reads which agents have no live session and then
+        restarts the one it chose. Those are two round trips, and a worker starting in between
+        turned a start into a STOP of somebody's live terminal. A third client-side reading only
+        shortens the window; the condition has to be evaluated by the thing performing the act.
+        """
+        self._seed_session()  # seeded `running`, which is live
+        response = self._control_if_idle("restart")
+        self.assertEqual(response.status_code, 409, response.text)
+        # THE MESSAGE TEXT, SPELLED OUT. `test_every_refusal_is_exercised.py` greps tests for the
+        # literal a refusal carries, so a substring assertion leaves it counted as UNTESTED -- and
+        # this file learned that the hard way when the census went red on this very refusal.
+        self.assertEqual(
+            response.json()["detail"],
+            f'Agent "{AGENT_ID}" has a live session "{SESSION_ID}" (running'
+            "), so this conditional restart was refused. It was requested on the belief that "
+            "nothing was running; something is.",
+        )
+
+    def test_a_status_written_in_mixed_case_is_still_live(self):
+        """A status is written by several producers and this comparison is the whole guard, so a
+        row saying `Running` must not read as not-live. Mutation found it: dropping the LOWER()
+        killed nothing, because every fixture here happens to write lowercase.
+        """
+        self._seed_session()
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("Running", SESSION_ID))
+        response = self._control_if_idle("restart")
+        self.assertTrue(self._refused_for_liveness(response), response.text)
+
+    def test_the_same_request_without_the_precondition_is_unconditional(self):
+        """THE CONTROL, and the reason the field is opt-in.
+
+        The dashboard's own Restart button means what it says: an operator pressing it on a live
+        session is choosing to restart a live session. A guard that refused every restart of a
+        running session would break that, and would also pass the test above for the wrong
+        reason -- so the SAME state has to be driven both ways.
+        """
+        self._seed_session()
+        response = self._control("restart")
+        self.assertFalse(self._refused_for_liveness(response), response.text)
+
+    def test_a_conditional_restart_proceeds_when_nothing_is_live(self):
+        """The other half: the precondition holding must not block the action it guards."""
+        self._seed_session()
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("stopped", SESSION_ID))
+        response = self._control_if_idle("restart")
+        self.assertFalse(self._refused_for_liveness(response), response.text)
+
+    def test_a_live_session_of_ANOTHER_agent_does_not_refuse_it(self):
+        """Scoped to the agent, and this is the mutation that would otherwise survive: a guard
+        reading the whole table refuses every conditional start on a busy fleet, which is
+        indistinguishable from the feature not working.
+        """
+        self._seed_session()
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("stopped", SESSION_ID))
+        self._write(
+            "INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, workspace,"
+            " status, started_at, last_seen) VALUES (?,?,?,?,?,?,?,?)",
+            ("sess-other", "another-agent", ENVIRONMENT_ID, "codex", "/workspace/proj",
+             "running", "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+        )
+        response = self._control_if_idle("restart")
+        self.assertFalse(self._refused_for_liveness(response), response.text)
+
+    def _seed_running_dispatch(self, run_id: str = "run-live") -> None:
+        """A run this route would INTERRUPT, which is the thing the ordering test watches for."""
+        self._write(
+            "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, message_type,"
+            " subject, body, priority, status, require_reply, requested_at, claimed_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, f"msg-{run_id}", "peer", AGENT_ID, "request", "s", "b", "normal",
+             "running", 1, "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+        )
+
+    def test_a_refused_conditional_restart_writes_nothing_at_all(self):
+        """THE TRANSACTION IS THE GUARANTEE, and mutation is how that got established.
+
+        The first version of this asserted that the precondition is checked BEFORE the dispatch
+        interrupt, by counting controls. Moving the guard after the interrupt left it green --
+        because this route has ONE commit, at the end, so any refusal raised before it discards
+        every write of that request. A refused restart cannot interrupt anybody in either order.
+
+        What is observable, and what an operator actually depends on, is that a refusal leaves no
+        trace. The SUCCESSFUL restart below is what makes that mean something: the same route, on
+        the same state, does append a control when it proceeds.
+        """
+        self._seed_spec()
+        self._seed_session(spawn_spec_id=SPEC_ID)
+        self._seed_running_dispatch()
+        before = self._read("SELECT COUNT(*) AS n FROM dispatch_controls")
+
+        refusal = self._control_if_idle("restart")
+        self.assertEqual(refusal.status_code, 409, refusal.text)
+        after_refusal = self._read("SELECT COUNT(*) AS n FROM dispatch_controls")
+        self.assertEqual(after_refusal["n"], before["n"],
+                         "a refused conditional restart left a control behind")
+
+        # THE CONTROL THAT MAKES THE COUNT READABLE: the same request without the precondition
+        # proceeds, and appends the interrupt the assertion above is watching for.
+        accepted = self._control("restart")
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        after_accept = self._read("SELECT COUNT(*) AS n FROM dispatch_controls")
+        self.assertGreater(after_accept["n"], before["n"],
+                           "this route never appends a control, so the assertion above holds "
+                           "for a reason unrelated to the refusal")
+
     # ── the action allowlist, and the second list that must agree with it ────────────────────
 
     def test_the_action_allowlist_refuses_everything_outside_the_four(self):
