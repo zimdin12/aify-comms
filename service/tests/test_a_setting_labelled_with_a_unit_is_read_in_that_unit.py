@@ -8,41 +8,36 @@ exactly like a working setting to every gate that only asks whether the key is r
 
 TRACED BY HAND FIRST, 2026-09-09, all fourteen unit- and sentinel-bearing settings. Every one was
 correct: `retention_days * 86400 * 1000`, `repeat_minutes * 60`, `f"-{stale_hours} hours"`,
-`int(max_mb) * 1024 * 1024`, `f"-{minutes} minutes"`. `reply_reminder_max_count` disables the cap at
-0 ("0 = unlimited") and `_contract_reminder_is_full` returns True at `full_every <= 1`
-("0 = always full"). So this gate is not repairing a defect -- it is keeping a hand-audit from
-having to be repeated, which is the only kind of audit that stays true.
+`int(max_mb) * 1024 * 1024`, `f"-{minutes} minutes"`, `stale_minutes * 60`.
+`reply_reminder_max_count` disables the cap at 0 ("0 = unlimited") and `_contract_reminder_is_full`
+returns True at `full_every <= 1` ("0 = always full"). This gate is not repairing a defect; it keeps
+that audit from having to be repeated, which is the only kind of audit that stays true.
 
-WHAT IT ASSERTS, deliberately narrow. For every non-test line carrying this setting's value AND
-performing a unit conversion, that conversion must include one the label promises. It does NOT
-require a conversion to be present -- a line with none is silent here -- so its teeth are on the
-WRONG-CONVERSION case: `retention_days * 60`, or a megabyte cap multiplied by 1024 once. That is the
-mutation that actually bites, and precisely the one an "is this key read?" gate cannot see.
+IT WAS A REGEX AND THE REGEX WAS THE DEFECT. Three separate false-greens, each found by review
+driving the real upload line rather than reading the patch:
 
-**IT WAS DECORATION WHEN FIRST WRITTEN, and only the mutation sweep said so.** Five real unit bugs
-were applied to the production readers and FOUR SURVIVED. Two separate causes, both worth keeping:
+  the key's own NAME satisfied the unit   `retention_days` contains "days", so the mention was the
+                                          evidence; `* 86400` -> `* 60` passed cleanly
+  a factor SET could not express a CHAIN  `* 1024 * 1024` and `* 1024` both reduce to {1024}, so
+                                          megabytes read as KILOBYTES passed
+  and the product still could not see     `/ 1024 / 1024` (wrong direction), `* 1024 * 1024 * 1000`
+  operators, comments or operands         (a time chain granted to bytes), and a missing factor
+                                          "restored" by `# conversion review: * 1024` -- all passed
 
-  * THE KEY'S OWN NAME SATISFIED THE UNIT. `retention_days` contains the word `days`,
-    `contract_stale_hours` contains `hours`, every `*_seconds` contains `seconds` -- so the mention
-    itself supplied the evidence the check was looking for, and `* 86400` -> `* 60` passed cleanly.
-    Carrier names are stripped from a line before its conversions are read: measure the conversion,
-    never the name of the thing being converted.
-  * THE CONVERSION IS USUALLY NOT ON THE KEY'S OWN LINE. `repeat_minutes * 60`,
-    `int(max_mb) * 1024 * 1024` and `f"-{stale_hours} hours"` all name a LOCAL. The scan follows one
-    hop into the name a setting is assigned to.
+SO IT PARSES NOW. Python's own AST gives what no regex could: comments are gone before the walk
+begins, `Mult` and `Div` are distinguishable, and a factor can be attributed to the OPERAND it is
+applied to instead of to the line it shares. Each repair above was a smaller version of the same
+mistake, which is the argument for parsing rather than for a better pattern.
 
-AND THE HOP THEN OVERREACHED, which the same sweep caught in its turn: following `retention_days`
-into `retention_ms` judged `int(time.time() * 1000) - retention_ms`, correct millisecond arithmetic
-on a value no longer in days. A carrier whose NAME declares a different unit has already been
-converted, and is not followed.
-
-REACH, STATED RATHER THAN IMPLIED: one hop, within one file. `worker_idle_close_minutes` is handed
-to another module as `idle_close_minutes=` and scaled in the query there; that is outside this gate
-and is not claimed to be covered.
+SCOPE: PYTHON READERS. That is where a setting is enforced -- `shared.py` holds the upload cap,
+`maintenance.py` the retention window. A dashboard module that renders "over the 500 MB limit" is
+display, converts a different value (`file.size`), and is not judged here. Saying so is the point:
+an unscoped gate that silently skipped those files would look identical to this one.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -52,45 +47,50 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD = ROOT / "service" / "new_dashboard"
 
-#: What each label's unit is worth in the base the code converts TO, and the SQLite modifier word
-#: that says the same thing without arithmetic.
+#: What each label's unit is worth in the base its readers convert TO, the SQLite modifier word that
+#: says the same thing without arithmetic, and whether a further *1000 into MILLISECONDS is a
+#: legitimate continuation.
 #:
-#: THE PRODUCT, NOT A SET OF FACTORS. `* 1024 * 1024` and `* 1024` both reduce to the SET {1024},
-#: so a megabyte cap read as KILOBYTES satisfied an allowed-set of {1024, 1048576} -- review
-#: removed one `* 1024` from `shared.py` and this gate still reported 3 passed. Multiplying the
-#: factors together distinguishes them, because 1024 != 1048576.
-#:
-#: DIVISIBILITY WAS CONSIDERED AND REJECTED: 3600 is divisible by 60, so a minutes value read as
-#: hours would satisfy a "product divides cleanly" rule.
+#: THE CHAIN IS PER-UNIT, and granting it to everything was a false-green: `retention_days * 86400 *
+#: 1000` is days -> seconds -> ms and correct, while `max_mb * 1024 * 1024 * 1000` is bytes
+#: multiplied by a thousand and is not a unit conversion at all. Bytes have no millisecond.
 UNITS: dict[str, dict[str, object]] = {
-    "days": {"base": 86400, "words": {"days"}},
-    "min": {"base": 60, "words": {"minutes"}},
-    "h": {"base": 3600, "words": {"hours"}},
-    "s": {"base": 1000, "words": {"seconds"}},
-    "MB": {"base": 1048576, "words": set()},
+    "days": {"base": 86400, "words": {"days"}, "ms_chain": True},
+    "min": {"base": 60, "words": {"minutes"}, "ms_chain": True},
+    "h": {"base": 3600, "words": {"hours"}, "ms_chain": True},
+    "s": {"base": 1000, "words": {"seconds"}, "ms_chain": False},
+    "MB": {"base": 1048576, "words": set(), "ms_chain": False},
 }
 
-#: The only chaining this tree does is a further *1000 into milliseconds
-#: (`retention_days * 86400 * 1000`), so a product is correct at the base or the base times 1000.
-CHAIN = (1, 1000)
+#: Numbers that are unit conversions at all. Anything else applied to a carrier (7, 100, 2) is
+#: ordinary arithmetic and is not read as one.
+CONVERSION_FACTORS = {60, 1000, 1024, 3600, 86400, 1048576}
 
-#: Numbers that are unit conversions at all. Anything else on the line (7, 100, 200) is ordinary
-#: arithmetic and must not be multiplied into the product.
-ALL_FACTORS = {60, 1000, 1024, 3600, 86400, 1048576}
-ALL_WORDS = {w for spec in UNITS.values() for w in spec["words"]}              # type: ignore[index]
-
-#: `(min)`, `(days)`, `(h)`, `(s)`, `(MB)` at the end of a label, which is how this project writes
-#: a unit. A label with no such suffix promises no unit and is not judged.
+#: `(min)`, `(days)`, `(h)`, `(s)`, `(MB)` at the end of a label, which is how this project writes a
+#: unit. A label with no such suffix promises no unit and is not judged.
 LABEL_UNIT = re.compile(r"\((days|min|h|s|MB)\)\s*$")
 
-#: A factor may sit behind an opening parenthesis -- `file.size / (1024 * 1024)` is one conversion
-#: written in two halves, and a regex that missed the first read its product as 1024 and refused a
-#: correct line. The paren is optional, never required.
-FACTOR = re.compile(r"[*/]\s*\(?\s*(\d[\d_]*)")
-WORD = re.compile(r"['\"]\s*-?\{?[^'\"}]*\}?\s*(days|minutes|hours|seconds)\b")
+#: A name's own unit, read off its suffix: `retention_ms` is milliseconds however it was derived, so
+#: the walk stops there rather than judging correct millisecond arithmetic against a days label.
+SUFFIX_UNIT = (
+    ("_ms", "ms"), ("_millis", "ms"),
+    ("_bytes", "bytes"), ("_kb", "kb"),
+    ("_seconds", "s"), ("_secs", "s"), ("_sec", "s"),
+    ("_minutes", "min"), ("_mins", "min"), ("_min", "min"),
+    ("_hours", "h"), ("_hrs", "h"),
+    ("_days", "days"),
+    ("_mb", "MB"),
+)
 
 
-def _schema_rows() -> list[dict]:
+def _name_unit(name: str) -> str:
+    for suffix, unit in SUFFIX_UNIT:
+        if name.endswith(suffix):
+            return unit
+    return ""
+
+
+def schema_rows() -> list[dict]:
     """key and label for every drawn setting, read out of the RUNNING module.
 
     Imported rather than regexed, for the reason its sibling gate states: a shape change becomes an
@@ -117,191 +117,175 @@ def _schema_rows() -> list[dict]:
     return json.loads(payload[-1])
 
 
-def _mentions(name: str) -> list[tuple[str, int, str]]:
-    """Non-test, non-fixture lines naming `name`, across the service and the bridges."""
+def python_readers(key: str) -> list[Path]:
+    """Non-test Python files naming this setting. The enforcing readers live here."""
     out = subprocess.run(
-        ["git", "grep", "-n", name, "--", "service", "mcp",
-         ":!*/tests/*", ":!*test_*", ":!*.test.*", ":!*/fixtures/*"],
+        ["git", "grep", "-l", "-F", key, "--", "service", "mcp",
+         ":!*/tests/*", ":!*test_*", ":!*/fixtures/*"],
         cwd=ROOT, capture_output=True, text=True)
-    rows = []
-    for line in out.stdout.splitlines():
-        parts = line.split(":", 2)
-        if len(parts) == 3:
-            rows.append((parts[0], int(parts[1]), parts[2]))
-    return rows
+    if out.returncode != 0:
+        return []
+    return [ROOT / p for p in out.stdout.split("\n") if p.strip().endswith(".py")]
 
 
-#: `name = ... <key> ...` or `name=... <key> ...`, which is how a setting reaches a local before it
-#: is converted. ONE hop is enough for every reader in this tree today and is where this stops:
-#: a transitive walk would need a real parser, and a gate that half-follows is worse than one whose
-#: reach is stated.
-ASSIGN = re.compile(r"^\s*(?:[\w.\[\]\"']+\s*=\s*)?(\w+)\s*=\s*(?![=])")
-KWARG = re.compile(r"\b(\w+)\s*=\s*[^=]")
+def _mentions_key(node: ast.AST, key: str, locals_: set[str]) -> bool:
+    """Does this expression read the setting, directly or through a one-hop local?"""
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant) and child.value == key:
+            return True
+        if isinstance(child, ast.Name) and child.id in locals_:
+            return True
+    return False
 
 
-#: A name's own unit, read off its suffix. `retention_ms` is milliseconds however it was derived.
-SUFFIX_UNIT = (
-    ("_ms", "ms"), ("_millis", "ms"),
-    ("_bytes", "bytes"), ("_kb", "kb"),
-    ("_seconds", "s"), ("_secs", "s"), ("_sec", "s"),
-    ("_minutes", "min"), ("_mins", "min"), ("_min", "min"),
-    ("_hours", "h"), ("_hrs", "h"),
-    ("_days", "days"),
-    ("_mb", "MB"),
-)
+def carrier_locals(tree: ast.AST, key: str, unit: str) -> set[str]:
+    """Names the setting's value flows into WHILE STILL IN THE LABEL'S UNIT.
 
-
-def _name_unit(name: str) -> str:
-    for suffix, unit in SUFFIX_UNIT:
-        if name.endswith(suffix):
-            return unit
-    return ""
-
-
-def _carriers(key: str, unit: str) -> dict[str, set[str]]:
-    """Per file, the names this setting's value flows into WHILE STILL IN THE LABEL'S UNIT.
-
-    WITHOUT THE HOP THE GATE WAS DECORATION, and the mutation sweep proved it: four of five real
-    unit bugs survived, because the conversion happens on a line naming a LOCAL
-    (`repeat_minutes * 60`, `int(max_mb) * 1024 * 1024`, `f"-{stale_hours} hours"`) while the scan
-    only looked at lines naming the setting.
-
-    AND THE HOP HAS TO STOP AT A CONVERSION, which the first version did not: following
-    `retention_days` into `retention_ms` then judged `int(time.time() * 1000) - retention_ms`, a
-    line doing correct millisecond arithmetic on a value that is no longer in days. A carrier whose
-    NAME declares a different unit has already been converted and its later arithmetic is not this
-    setting's unit handling.
-
-    REACH, STATED RATHER THAN IMPLIED: one hop, within one file. `worker_idle_close_minutes` is
-    handed to another module as `idle_close_minutes=` and scaled there, which is beyond this and is
-    not claimed.
+    One hop, and it stops at a name whose own suffix declares a different unit -- following
+    `retention_days` into `retention_ms` would judge correct millisecond arithmetic against a days
+    label, which an earlier version of this did.
     """
-    per_file: dict[str, set[str]] = {}
-    for path, _number, text in _mentions(key):
-        names = per_file.setdefault(path, {key})
-        head = text.split("#", 1)[0]
-        candidates = set()
-        match = ASSIGN.match(head)
-        if match:
-            candidates.add(match.group(1))
-        candidates |= {kw.group(1) for kw in KWARG.finditer(head)}
-        for name in candidates:
-            if name == key:
-                continue
-            carried = _name_unit(name)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        targets: list[ast.Name] = []
+        if isinstance(node, ast.Assign):
+            targets = [t for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target]
+        if not targets or node.value is None or not _mentions_key(node.value, key, set()):
+            continue
+        for target in targets:
+            carried = _name_unit(target.id)
             if carried and carried != unit:
-                continue          # already converted; its arithmetic is not this label's business
-            names.add(name)
-    return per_file
+                continue
+            names.add(target.id)
+    return names
 
 
-def _lines_naming(path: str, names: set[str]) -> list[tuple[int, str]]:
-    """Every line in ONE file naming any of these carriers, read once rather than per name."""
-    body = (ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines()
-    return [(number, text) for number, text in enumerate(body, 1)
-            if any(name in text for name in names)]
+def conversions_applied(tree: ast.AST, key: str, locals_: set[str]) -> list[tuple[type, int]]:
+    """(operator, factor) for every recognised conversion applied TO the setting's value.
 
-
-def _product(text: str, carriers: set[str] = frozenset()) -> int:
-    """The factors on one line MULTIPLIED, which is what a conversion actually is.
-
-    Returns 1 when the line converts nothing, so a caller can tell "no conversion here" from
-    "a conversion, and it is wrong".
+    THE OPERAND, NOT THE LINE. A factor counts only when the OTHER side of the BinOp reads the
+    setting -- so `file.size / (1024 * 1024)` on a line that also names `max_mb` contributes
+    nothing, and `# conversion review: * 1024` contributes nothing because comments do not survive
+    parsing.
     """
-    stripped = text
-    for name in sorted(carriers, key=len, reverse=True):
-        stripped = stripped.replace(name, "_")
-    product = 1
-    for match in FACTOR.finditer(stripped):
-        value = int(match.group(1).replace("_", ""))
-        if value in ALL_FACTORS:
-            product *= value
-    return product
-
-
-def _conversions(text: str, carriers: set[str] = frozenset()) -> set:
-    """The unit conversions on one line: recognised factors and SQLite modifier words.
-
-    THE CARRIER NAMES ARE REMOVED FIRST, and that is not tidiness. `retention_days` CONTAINS the
-    word `days`, `contract_stale_hours` contains `hours`, every `*_seconds` contains `seconds` --
-    so the identifier satisfied the unit requirement all by itself and the check could never fail.
-    The mutation that exposed it (`* 86400` -> `* 60`) passed cleanly. Measure the conversion, never
-    the name of the thing being converted.
-    """
-    stripped = text
-    for name in sorted(carriers, key=len, reverse=True):
-        stripped = stripped.replace(name, "_")
-    found = {int(m.group(1).replace("_", "")) for m in FACTOR.finditer(stripped)}
-    found &= ALL_FACTORS
-    found |= {m.group(1) for m in WORD.finditer(stripped)}
+    found: list[tuple[type, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BinOp) or not isinstance(node.op, (ast.Mult, ast.Div)):
+            continue
+        for value_side, number_side in ((node.left, node.right), (node.right, node.left)):
+            if not isinstance(number_side, ast.Constant):
+                continue
+            if not isinstance(number_side.value, int) or isinstance(number_side.value, bool):
+                continue
+            if number_side.value not in CONVERSION_FACTORS:
+                continue
+            if _mentions_key(value_side, key, locals_):
+                found.append((type(node.op), number_side.value))
     return found
 
 
+def modifier_words(tree: ast.AST, key: str, locals_: set[str]) -> set[str]:
+    """SQLite modifier words in an f-string that interpolates the setting: `f"-{hours} hours"`."""
+    words: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.JoinedStr):
+            continue
+        if not any(_mentions_key(part.value, key, locals_)
+                   for part in node.values if isinstance(part, ast.FormattedValue)):
+            continue
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                for word in ("days", "minutes", "hours", "seconds"):
+                    if word in part.value:
+                        words.add(word)
+    return words
+
+
 class ASettingLabelledWithAUnitIsReadInThatUnit(unittest.TestCase):
+    def _united(self) -> list[tuple[str, str, str]]:
+        rows = []
+        for row in schema_rows():
+            match = LABEL_UNIT.search(row["label"])
+            if match and row["key"]:
+                rows.append((row["key"], row["label"], match.group(1)))
+        return rows
+
     def test_the_scan_found_its_subject(self) -> None:
         """The control. An empty schema or an empty unit set satisfies everything below."""
-        rows = _schema_rows()
-        self.assertGreaterEqual(len(rows), 30, f"implausibly few settings drawn: {len(rows)}")
-        united = [r for r in rows if LABEL_UNIT.search(r["label"])]
+        self.assertGreaterEqual(len(schema_rows()), 30, "implausibly few settings drawn")
         self.assertGreaterEqual(
-            len(united), 8,
-            f"only {len(united)} labels carry a unit, so this gate is judging almost nothing")
+            len(self._united()), 8,
+            "too few labels carry a unit, so this gate is judging almost nothing")
 
-    def test_the_scan_can_say_no(self) -> None:
-        """The negative control, both halves: a wrong factor must be SEEN, and plain arithmetic
-        must NOT be mistaken for a unit conversion."""
-        self.assertEqual(_conversions("x = y * 60"), {60})
-        self.assertEqual(_conversions('params.append(f"-{n} hours")'), {"hours"})
-        self.assertEqual(_conversions("limit = count * 7"), set(),
-                         "a factor that is not a unit conversion was read as one")
-        # THE CARRIER'S OWN NAME MUST NOT SATISFY THE UNIT. `retention_days` contains `days`, and
-        # until this was stripped every unit key satisfied its own check -- a mutation from
-        # `* 86400` to `* 60` passed cleanly, which the mutation sweep is what caught.
+    def test_the_parser_reads_operands_not_lines(self) -> None:
+        """The negative controls, each one a false-green review actually published."""
+        def applied(source: str, key: str = "max_shared_size_mb", unit: str = "MB"):
+            tree = ast.parse(source)
+            return conversions_applied(tree, key, carrier_locals(tree, key, unit))
+
+        # A comment cannot supply a factor: parsing discards it.
         self.assertEqual(
-            _conversions('int(settings["retention_days"] * 60)', {"retention_days"}), {60},
-            "the key's own name was read as a unit conversion, so the check cannot fail")
-        self.assertIn(
-            "hours", _conversions('params.append(f"-{stale_hours} hours")', set()),
-            "the positive control for a modifier word stopped matching")
+            applied('m = settings["max_shared_size_mb"]\nb = m * 1024  # review: * 1024'),
+            [(ast.Mult, 1024)])
+        # A factor applied to a DIFFERENT value on the same line contributes nothing.
+        self.assertEqual(
+            applied('m = settings["max_shared_size_mb"]\nb = size / (1024 * 1024) if m else 0'),
+            [])
+        # And the direction is visible.
+        self.assertEqual(
+            applied('m = settings["max_shared_size_mb"]\nb = m / 1024 / 1024'),
+            [(ast.Div, 1024), (ast.Div, 1024)])
+        # And the real shape still reads as the correct chain.
+        self.assertEqual(
+            applied('m = settings["max_shared_size_mb"]\nb = int(m) * 1024 * 1024'),
+            [(ast.Mult, 1024), (ast.Mult, 1024)])
 
     def test_a_reader_never_converts_a_setting_into_the_wrong_unit(self) -> None:
         wrong: list[str] = []
         judged = 0
-        for row in _schema_rows():
-            match = LABEL_UNIT.search(row["label"])
-            if not match or not row["key"]:
-                continue
-            unit = match.group(1)
-            base = int(UNITS[unit]["base"])                                    # type: ignore[arg-type]
-            allowed_products = {base * step for step in CHAIN}
-            allowed_words = set(UNITS[unit]["words"])                          # type: ignore[arg-type]
-            for path, names in _carriers(row["key"], unit).items():
-                for number, text in _lines_naming(path, names):
-                    seen = _conversions(text, names)
-                    if not seen:
-                        continue
+        for key, label, unit in self._united():
+            spec = UNITS[unit]
+            base = int(spec["base"])                                       # type: ignore[arg-type]
+            allowed = {base, base * 1000} if spec["ms_chain"] else {base}
+            allowed_words = set(spec["words"])                             # type: ignore[arg-type]
+
+            for path in python_readers(key):
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+                except SyntaxError:                       # pragma: no cover - a broken file is not
+                    continue                              # this gate's finding to report
+                locals_ = carrier_locals(tree, key, unit)
+                rel = path.relative_to(ROOT).as_posix()
+
+                words = modifier_words(tree, key, locals_)
+                if words and not (words & allowed_words):
                     judged += 1
-                    product = _product(text, names)
-                    words = seen & ALL_WORDS
-                    # AT LEAST ONE CORRECT CONVERSION, rather than NO other ones -- because a CHAIN
-                    # is legitimate and the first version of this gate failed on one:
-                    # `retention_days * 86400 * 1000` carries the right days->seconds factor and
-                    # then a seconds->ms factor, and forbidding every unlisted factor called that a
-                    # defect. A line converting ONLY by the wrong factor still fails, which is the
-                    # case with teeth.
-                    if words and not (words & allowed_words):
-                        wrong.append(
-                            f"{path}:{number} hands `{row['key']}` to SQLite as "
-                            f"{sorted(words)} while its label {row['label']!r} promises "
-                            f"{sorted(allowed_words) or unit}  --  {text.strip()[:80]}")
-                    elif product != 1 and product not in allowed_products:
-                        wrong.append(
-                            f"{path}:{number} converts `{row['key']}` by a product of {product} "
-                            f"while its label {row['label']!r} promises "
-                            f"{sorted(allowed_products)}  --  {text.strip()[:80]}")
+                    wrong.append(f"{rel} hands `{key}` to SQLite as {sorted(words)} while its "
+                                 f"label {label!r} promises {sorted(allowed_words) or unit}")
+
+                applied = conversions_applied(tree, key, locals_)
+                if not applied:
+                    continue
+                judged += 1
+                # DIVISION IS THE WRONG DIRECTION. Every unit here converts to a SMALLER unit --
+                # days to seconds, megabytes to bytes -- so the factors multiply. A division by the
+                # right number is the inverse conversion and lands orders out.
+                divisions = sorted(f for op, f in applied if op is ast.Div)
+                if divisions:
+                    wrong.append(f"{rel} DIVIDES `{key}` by {divisions} while its label {label!r} "
+                                 f"promises a conversion INTO {unit}, which multiplies")
+                    continue
+                product = 1
+                for _op, factor in applied:
+                    product *= factor
+                if product not in allowed:
+                    wrong.append(f"{rel} converts `{key}` by a product of {product} while its "
+                                 f"label {label!r} promises {sorted(allowed)}")
 
         self.assertGreater(judged, 0, (
-            "no line mentioning a unit-labelled setting performed any conversion, so this gate "
+            "no Python reader applied any conversion to a unit-labelled setting, so this gate "
             "compared nothing -- the readers moved, or the scan is looking in the wrong place"))
         self.assertEqual(wrong, [], (
             "a setting is converted as if its label promised a different unit, which is off by a "
