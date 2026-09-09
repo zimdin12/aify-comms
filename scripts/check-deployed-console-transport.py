@@ -347,8 +347,8 @@ def main() -> int:
         print("AND THE LIVE COALESCING RATE IS MEASURED, which this line denied. Because THIS")
         print("queue numbers ONE frame per flush with the cumulative POST count, an observed")
         print("sequence step of N IS the posts that flush carried -- so the wire reads the rate")
-        print("directly. `measure-live-frame-gaps.mjs` saw ZERO steps over one across 83,097")
-        print("recorded comparisons in four guarded windows: no flush coalesced in any of them.")
+        print("directly. `measure-live-frame-gaps.mjs` saw ZERO steps over one across 106,676")
+        print("recorded comparisons in five guarded windows: no flush coalesced in any of them.")
         print("That is bounded windows on one fleet, not a statement about the day, and it")
         print("attributes no lag -- nothing there observed a console, a fetch or a repaint.")
         return 1

@@ -91,21 +91,32 @@ run.** B-1's row carries both and says which is which.
 | B-4 | An UNNUMBERED chunk clears the live screen's sequence, so the GET answers `null` and the browser replays rather than trusting a stale number | `service/terminal_snapshot.py`, `service/api_core/terminal_output.py` | `test_live_terminal_screen.py`; `test_status_reads_the_live_screen_not_the_stored_tail.py` | PASSES IN TESTS on the candidate, in the python run quoted above | Met by the candidate |
 
 **Not claimed by any row above:** that these repair the operator's reported lag. The lag is
-UNATTRIBUTED. Observation totals **226 minutes across FIVE guarded windows** -- 60, 60, 55, 45 and 6
+UNATTRIBUTED. Observation totals **286 minutes across SIX guarded windows** -- 60, 60, 60, 55, 45 and 6
 -- producing **zero** wire gaps in every one. **That is cumulative, not one uninterrupted run**, and
 an earlier version of this line said "226 verified continuous minutes", which claims a continuity
-property no window has: the longest single uninterrupted window is 60 minutes. The two 60-minute
-windows were taken 2026-09-09 and made **22,521 comparisons across 5 terminals** and **24,160 across
-5**, with 0 gaps, 0 drops and 0 unnumbered frames in each. Arrival intervals were p50 382.9ms / p05
+property no window has: the longest single uninterrupted window is 60 minutes. The three 60-minute
+windows were taken 2026-09-09 and made **22,521**, **24,160** and **23,579** comparisons across 5
+terminals each, with 0 gaps, 0 drops and 0 unnumbered frames in every one. Arrival intervals were p50 382.9ms / p05
 12.4ms / min 7.9ms and p50 237.4ms / p05 12.7ms / min 8.1ms, and **no margin is derived from them**:
 they are receiver-side spacing, and the queue, its flush timer, the event loop and the socket all sit
 between a POST and an arrival.
 
-**What 226 cumulative minutes of zero supports, and what it does not.** It supports "no wire gap was seen in
-any of the five windows watched", each bounded by its own start and end. It does NOT establish that the deployed defect is rare: zero steps over one is
-equally consistent with every flush carrying exactly one post, which the wire alone cannot separate
-from a queue numbering correctly. And nothing here observes a console, a fetch, a reset or a person
-waiting. The mechanism is present in the deployed build and has not been caught firing.
+**What 286 cumulative minutes of zero supports, and what it does not.** It supports "no wire gap
+was seen in any of the six windows watched", each bounded by its own start and end.
+
+**AND IT MEASURES THE LIVE COALESCING RATE, which this ledger previously called unmeasurable from
+the wire.** The hedge was "equally consistent with a queue numbering correctly" -- true before
+anyone had established which queue was serving, and not true now.
+`check-deployed-console-transport.py` runs the CONTAINER's own `terminal_write_queue.py` against
+this version's frame-sequence test and it FAILS, and that test pins the shape exactly: one
+broadcast per flush, numbered with the cumulative POST count (three posts, `len(broadcasts) == 1`,
+seq 3 where 1 is required). So on THIS build an observed step of N **is** the number of posts that
+flush carried. Zero steps over one across **106,676 recorded comparisons** in the five windows whose
+counts are recorded means **no flush coalesced in any of them**.
+
+**That is still bounded windows on one fleet, and it attributes nothing.** Nothing here observes a
+console, a fetch, a reset or a person waiting; the trigger condition simply did not occur while it
+was watched. The mechanism is present in the deployed build and has not been caught firing.
 
 ## Retirement — the environment-bridge tier, 35 deleted modules
 
@@ -257,34 +268,76 @@ as stated.
 
 ---
 
+## The PRODUCT verdict, and the four defects it established
+
+**REVISE / WOULD NOT SHIP AS-IS**, 2026-09-09, after the operator redirected review off the
+acceptance instruments and onto the shipping diff. Every earlier round had been scoped to
+instruments; this one was not, and it found four real defects in one pass. All four are fixed and
+mutation-proven below. **That is the argument for the redirection, not against the earlier
+rounds** -- and it is also the plainest evidence that instrument quality is not product quality.
+
+| # | where | what it did | fixed by |
+|---|---|---|---|
+| P1 | aify-env `console-session.mjs` | a menu **Attach** landed the keyboard on the WRONG AGENT: the menu resolved bravo by identity, then `syncProcesses` reconciled the selection back onto the row the pane was already bound to. Reproduced with the pane revealed; the hidden-pane case was always correct | `ceb863d` |
+| P1 | aify-env `pane-buffer.mjs`, `output-follower.mjs` | a pane showing **"live TUI -- this pane cannot draw it"** still forwarded keystrokes. `view()` has three refusal branches and the input gate re-derived only one | `2b47416` |
+| P2 | aify-comms `console-actions.mjs` | a **failed resync stranded every frame it held** and marked the recovery finished, so a final prompt arriving during the fetch was never painted. A REGRESSION in this range: the same execution at `aed8b590` paints it | `93d9054b` |
+| P2 | aify-env plugin `terminal-controls.mjs` | a **refused write or resize was reported as completed**, so the service stored a geometry the pty had rejected. NOT a regression -- it reproduces at the env base | `09b07ee` |
+
+**EACH FIX IS DRIVEN BY ITS PRE-FIX SHAPE.** Restoring the old code kills the new tests and
+nothing else, except in the blind-input case where it also kills five existing assertions -- which
+is the single decision working, since the notice and the gate now come from one place.
+
+**THE REVIEW'S SCOPE IS NOT FULL-RANGE CLEARANCE, and it says so itself.** Covered: the console
+queue/tail/snapshot -> cursor/socket/mount/resync chain, env input/follower/pane/menu, the plugin's
+Runner/control/output/start contracts, and selected service ownership/reconciliation/restart
+slices. NOT covered: wrapper/server/runtime/doctor/install/distribution, deletion and lifecycle
+obligations, daemon/bootstrap/credential/launcher paths, native process-tree safety, full dashboard
+behaviour, and cross-repo integration. Path touches were 32 of 426 in comms and 26 of 105 in env,
+**and those are file counts, not behavioural coverage**.
+
+**ONE FINDING IS NOT FIXED AND IS AN OPEN DESIGN ITEM.** Start checks a sessions list and then
+sends an unconditional Restart (`agent-starter.mjs` -> `api.mjs` -> `service/routers/
+session_control.py`), so the service can select and stop a terminal that became live between the
+two. The reviewer traced it in source and did not execute a race, and their own reading is that it
+needs **conditional start semantics at the authority** rather than another client-side freshness
+check. That is a service-side contract change, it is not a regression in this range, and it is
+recorded here rather than attempted in a release cut.
+
+---
 ## What is open, stated as such
 
-1. **Review's original-range product coverage.** Theirs, explicitly incomplete, and this ledger does
-   not substitute for it.
-2. **R-1, R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
+1. **Review's original-range product coverage.** Delivered as a bounded verdict on 2026-09-09 --
+   four defects, all fixed -- with an explicit list of what it did NOT read. See the section above.
+   The unread complement is still unread, and a finding's absence where nobody looked is not a
+   finding of absence.
+2. **Conditional start semantics at the authority**, from that verdict's design section: a
+   sessions-list check followed by an unconditional Restart can stop a terminal that became live
+   in between.
+3. **R-1, R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
    range. What is PROVEN is that no literal spelling of a deleted module's name appears outside
    a comment — not unreachability, since nothing resolves a specifier. Behaviour is UNREVIEWED.
-3. **The cross-repo seam — UNVERIFIED FOR THIS RELEASE, not deferred.** X-1 proves the plugin's
+4. **The cross-repo seam — UNVERIFIED FOR THIS RELEASE, not deferred.** X-1 proves the plugin's
    ADDRESSES against this service's routes, driven from both sides, and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
    reference's grammar and directory agreement — not lifecycle integration. Request bodies,
    response shapes, auth and a live round trip are unproved, where six tests used to drive a real
    aify-env. Moving them out of this release is an owner's decision and has not been made.
-4. **P-2** — v0.6.3 is not declared anywhere.
-5. **S-4** — an operator decision.
-6. **The deploy, and it is THREE stale artifacts rather than one.** Read from
+5. **P-2** — CLOSED: `VERSION`, `version.js`, both manifests and `plugin.json` declare `0.6.3`,
+   and `service/_build_stamp.json` is stamped. The tag is cut; the DEPLOY is still the operator's.
+6. **S-4** — an operator decision.
+7. **The deploy, and it is THREE stale artifacts rather than one.** Read from
    `aify-comms doctor --json` for this line: `service` FAIL (the container), `bridge-installed`
    FAIL (`~/.aify-comms` holds `3e7387a`, and commits since then changed real bridge source, not
    only tests), and `skills-installed` FAIL (the trees in `~/.claude/skills`, the codex mirror and
    the hermes copy do not match the checkout, so B7's skill edits have reached no agent). The
    container rebuild and `install.sh` are separate actions and neither implies the other.
-7. **What the running build is.** `3e7387a6`, version `0.6.2`, with HEAD **161 commits ahead** --
+8. **What the running build is.** `3e7387a6`, version `0.6.2`, with HEAD **161 commits ahead** --
    read from `GET /health` and `git rev-list --count`, with the served build confirmed an ancestor
    of HEAD. It carries the B-1 defect, demonstrated against its own module. **That figure moves
    with every push**: it read 149 while this ledger's own four commits were being made, which is
    why it is stated with the two commands that answer it rather than as a number to quote.
-8. **Reported by the same doctor run and NOT this version's:** `session-handles` FAIL -- three
+9. **Reported by the same doctor run and NOT this version's:** `session-handles` FAIL -- three
    conversations claimed by more than one agent, eight agents involved, which is the standing issue
    that reports rather than refuses. Recorded here so a reader of this ledger's doctor output is
    not left to wonder whether v0.6.3 caused it.
