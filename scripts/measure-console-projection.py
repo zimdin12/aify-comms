@@ -48,9 +48,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 SAMPLES = 40
 COLS, ROWS = 132, 40
-#: A console with enough history that the default response carries the tail and the event page the
-#: projection drops -- which is the whole subject. 90 KB is the order the measured live response had.
-TAIL_CHARS = 90 * 1024
+#: THE LARGEST TAIL THE SERVICE CAN STORE, taken from `_trim_terminal_output`'s own default rather
+#: than chosen. This read 90 KB -- larger than anything the service keeps, so the figure it
+#: produced was for a console that cannot exist. The worst REAL case is the cap, and a probe whose
+#: fixture exceeds the product's own bound is measuring past the edge of it.
+from service.api_core.terminal_output import _trim_terminal_output as _TRIM
+TAIL_CHARS = _TRIM.__defaults__[0]
 #: THE SMALL ARM'S TAIL, named rather than inlined so the share printed below is computed from
 #: the same constant the fixture uses.
 SMALL_TAIL_CHARS = 2 * 1024
