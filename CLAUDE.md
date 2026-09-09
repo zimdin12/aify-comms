@@ -394,10 +394,19 @@ gate below names as a claim it enforces.
 **RE-VERIFIED ROW BY ROW 2026-09-08 AND AGAIN 2026-09-09 by importing the gate's own walk**, after
 this table had been wrong four times: every row matches its measured line count exactly and the
 membership matches the measured ranking, so nothing here needed correcting on either date. The
-census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> **538
-on 2026-09-09** -- 260 Python and 278 JS -- as `service/new_dashboard/console-cursor.mjs`,
-`scripts/measure-ws-hop-browser.py` and `scripts/measure-console-projection.py` arrived with
-the console and transport work.
+census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> 538 ->
+**539 on 2026-09-09** -- 261 Python and 278 JS -- as `service/new_dashboard/console-cursor.mjs`,
+`scripts/measure-ws-hop-browser.py`, `scripts/measure-console-projection.py` and
+`scripts/check-deployed-console-transport.py` arrived with the console and transport work.
+
+**AND THE `.monitor/` TRAP CAUGHT SOMEBODY A SECOND TIME, WHICH WAS ME.** The paragraph below
+already warns that the gates walk the FILESYSTEM, so a gitignored directory is invisible to
+`git status` and fully visible to them. The deploy check wrote two working copies of a module
+into `.monitor/` and the walk read 265 Python against a real 261 -- four high, in a directory
+no `git status` would ever mention. The check now uses `tempfile.mkdtemp`, because a scratch
+file is not evidence and has no business in the tree. Measure BOTH numbers when they disagree:
+the filesystem walk is what the gates judge, the committed one is what another person can
+reproduce, and a gap between them is litter rather than growth.
 
 **THIS FILE CARRIED TWO CENSUS FIGURES AT ONCE UNTIL 2026-09-09**, 535 in a standalone sentence
 and 533 in the running total three lines below it, written the same day. That is the dashboard-count
