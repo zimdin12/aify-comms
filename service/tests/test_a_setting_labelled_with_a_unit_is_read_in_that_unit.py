@@ -29,6 +29,19 @@ begins, `Mult` and `Div` are distinguishable, and a factor can be attributed to 
 applied to instead of to the line it shares. Each repair above was a smaller version of the same
 mistake, which is the argument for parsing rather than for a better pattern.
 
+AND PARSING DID NOT FIX THE FOURTH, which is the part worth knowing before trusting the sentence
+above. Review drove two mutually exclusive branches, each converting megabytes to KILOBYTES:
+
+    if legacy:  b = m * 1024
+    else:       b = m * 1024
+
+Neither path is ever right. The walk collected [1024, 1024] across the FILE, multiplied them to
+1,048,576, matched what MB promises, and passed -- the check's own arithmetic manufactured a
+correct answer out of two wrong ones. THE UNIT OF A CONVERSION IS AN EXPRESSION, NOT A FILE: each
+outermost multiplicative expression is one SITE and each site is judged alone. Driven both ways --
+the per-site gate kills that mutant, and a gate with the split removed lets it through, so the
+split is what does the work rather than something else that changed with it.
+
 SCOPE: PYTHON READERS. That is where a setting is enforced -- `shared.py` holds the upload cap,
 `maintenance.py` the retention window. A dashboard module that renders "over the 500 MB limit" is
 display, converts a different value (`file.size`), and is not judged here. Saying so is the point:
@@ -162,28 +175,59 @@ def carrier_locals(tree: ast.AST, key: str, unit: str) -> set[str]:
     return names
 
 
-def conversions_applied(tree: ast.AST, key: str, locals_: set[str]) -> list[tuple[type, int]]:
-    """(operator, factor) for every recognised conversion applied TO the setting's value.
+def conversions_applied(tree: ast.AST, key: str,
+                        locals_: set[str]) -> list[list[tuple[type, int]]]:
+    """One list of (operator, factor) per conversion SITE applied to the setting's value.
 
     THE OPERAND, NOT THE LINE. A factor counts only when the OTHER side of the BinOp reads the
     setting -- so `file.size / (1024 * 1024)` on a line that also names `max_mb` contributes
     nothing, and `# conversion review: * 1024` contributes nothing because comments do not survive
     parsing.
     """
-    found: list[tuple[type, int]] = []
+    # ONE ENTRY PER CONVERSION SITE, because a conversion is an EXPRESSION and not a file.
+    #
+    # COLLAPSING SITES LET TWO WRONGS MAKE A RIGHT. Two mutually exclusive branches each doing
+    # `m * 1024` -- kilobytes on either path, both wrong -- contributed [1024, 1024], multiplied
+    # to 1,048,576, and matched what MB promises. Review drove it. Each site is judged alone now.
+    sites: list[list[tuple[type, int]]] = []
+    seen: set[int] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.BinOp) or not isinstance(node.op, (ast.Mult, ast.Div)):
+        if not isinstance(node, ast.BinOp) or id(node) in seen:
             continue
-        for value_side, number_side in ((node.left, node.right), (node.right, node.left)):
-            if not isinstance(number_side, ast.Constant):
-                continue
-            if not isinstance(number_side.value, int) or isinstance(number_side.value, bool):
-                continue
-            if number_side.value not in CONVERSION_FACTORS:
-                continue
-            if _mentions_key(value_side, key, locals_):
-                found.append((type(node.op), number_side.value))
-    return found
+        chain = _chain_factors(node, key, locals_, seen)
+        if chain:
+            sites.append(chain)
+    return sites
+
+
+def _chain_factors(node: ast.AST, key: str, locals_: set[str],
+                   seen: set[int]) -> list[tuple[type, int]]:
+    """The factors applied to the setting within ONE outermost multiplicative expression.
+
+    `ast.walk` yields the outermost BinOp of a chain first, so marking every BinOp inside it as
+    consumed keeps `a * 60 * 1000` one site rather than two overlapping ones.
+    """
+    factors: list[tuple[type, int]] = []
+    stack = [node]
+    touches_key = False
+    while stack:
+        current = stack.pop()
+        if isinstance(current, ast.BinOp) and isinstance(current.op, (ast.Mult, ast.Div)):
+            seen.add(id(current))
+            for value_side, number_side in ((current.left, current.right),
+                                            (current.right, current.left)):
+                if (isinstance(number_side, ast.Constant)
+                        and isinstance(number_side.value, int)
+                        and not isinstance(number_side.value, bool)
+                        and number_side.value in CONVERSION_FACTORS):
+                    factors.append((type(current.op), number_side.value))
+                    stack.append(value_side)
+                    break
+            else:
+                stack.extend([current.left, current.right])
+        elif _mentions_key(current, key, locals_):
+            touches_key = True
+    return factors if (touches_key and factors) else []
 
 
 def modifier_words(tree: ast.AST, key: str, locals_: set[str]) -> set[str]:
@@ -225,22 +269,28 @@ class ASettingLabelledWithAUnitIsReadInThatUnit(unittest.TestCase):
             tree = ast.parse(source)
             return conversions_applied(tree, key, carrier_locals(tree, key, unit))
 
+        seed = 'm = settings["max_shared_size_mb"]\n'
+
         # A comment cannot supply a factor: parsing discards it.
-        self.assertEqual(
-            applied('m = settings["max_shared_size_mb"]\nb = m * 1024  # review: * 1024'),
-            [(ast.Mult, 1024)])
+        self.assertEqual(applied(seed + 'b = m * 1024  # review: * 1024'),
+                         [[(ast.Mult, 1024)]])
         # A factor applied to a DIFFERENT value on the same line contributes nothing.
-        self.assertEqual(
-            applied('m = settings["max_shared_size_mb"]\nb = size / (1024 * 1024) if m else 0'),
-            [])
+        self.assertEqual(applied(seed + 'b = size / (1024 * 1024) if m else 0'), [])
         # And the direction is visible.
+        self.assertEqual(applied(seed + 'b = m / 1024 / 1024'),
+                         [[(ast.Div, 1024), (ast.Div, 1024)]])
+        # And the real shape still reads as the correct chain -- ONE site, both factors, so a
+        # legitimate `* 1024 * 1024` is not split into two wrong-looking halves.
+        self.assertEqual(applied(seed + 'b = int(m) * 1024 * 1024'),
+                         [[(ast.Mult, 1024), (ast.Mult, 1024)]])
+
+        # TWO MUTUALLY EXCLUSIVE BRANCHES, each converting megabytes to KILOBYTES. Review found
+        # this passing: the flat collector this replaced reported [1024, 1024], multiplied them
+        # to 1,048,576, and matched what MB promises -- while neither branch is ever right. Two
+        # sites, judged apart, is the whole repair, and a flat collector cannot even express it.
         self.assertEqual(
-            applied('m = settings["max_shared_size_mb"]\nb = m / 1024 / 1024'),
-            [(ast.Div, 1024), (ast.Div, 1024)])
-        # And the real shape still reads as the correct chain.
-        self.assertEqual(
-            applied('m = settings["max_shared_size_mb"]\nb = int(m) * 1024 * 1024'),
-            [(ast.Mult, 1024), (ast.Mult, 1024)])
+            applied(seed + 'if legacy:\n    b = m * 1024\nelse:\n    b = m * 1024'),
+            [[(ast.Mult, 1024)], [(ast.Mult, 1024)]])
 
     def test_a_reader_never_converts_a_setting_into_the_wrong_unit(self) -> None:
         wrong: list[str] = []
@@ -265,24 +315,24 @@ class ASettingLabelledWithAUnitIsReadInThatUnit(unittest.TestCase):
                     wrong.append(f"{rel} hands `{key}` to SQLite as {sorted(words)} while its "
                                  f"label {label!r} promises {sorted(allowed_words) or unit}")
 
-                applied = conversions_applied(tree, key, locals_)
-                if not applied:
-                    continue
-                judged += 1
-                # DIVISION IS THE WRONG DIRECTION. Every unit here converts to a SMALLER unit --
-                # days to seconds, megabytes to bytes -- so the factors multiply. A division by the
-                # right number is the inverse conversion and lands orders out.
-                divisions = sorted(f for op, f in applied if op is ast.Div)
-                if divisions:
-                    wrong.append(f"{rel} DIVIDES `{key}` by {divisions} while its label {label!r} "
-                                 f"promises a conversion INTO {unit}, which multiplies")
-                    continue
-                product = 1
-                for _op, factor in applied:
-                    product *= factor
-                if product not in allowed:
-                    wrong.append(f"{rel} converts `{key}` by a product of {product} while its "
-                                 f"label {label!r} promises {sorted(allowed)}")
+                for site in conversions_applied(tree, key, locals_):
+                    judged += 1
+                    # DIVISION IS THE WRONG DIRECTION. Every unit here converts to a SMALLER unit
+                    # -- days to seconds, megabytes to bytes -- so the factors multiply. A division
+                    # by the right number is the inverse and lands orders out.
+                    divisions = sorted(f for op, f in site if op is ast.Div)
+                    if divisions:
+                        wrong.append(f"{rel} DIVIDES `{key}` by {divisions} while its label "
+                                     f"{label!r} promises a conversion INTO {unit}, which "
+                                     f"multiplies")
+                        continue
+                    product = 1
+                    for _op, factor in site:
+                        product *= factor
+                    # EACH SITE ALONE. Summing across sites let two wrong branches make a right one.
+                    if product not in allowed:
+                        wrong.append(f"{rel} converts `{key}` by a product of {product} at one "
+                                     f"site, while its label {label!r} promises {sorted(allowed)}")
 
         self.assertGreater(judged, 0, (
             "no Python reader applied any conversion to a unit-labelled setting, so this gate "
