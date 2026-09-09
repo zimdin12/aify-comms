@@ -52,7 +52,7 @@ does not close it. No product-code defect is established. The deploy and the tag
 
 A result with no candidate attached is not a receipt. Every such row was measured on:
 
-- **Candidate: `0817a263`** -- the commit the tested tree BECAME, written after that commit exists
+- **Candidate: `65e1ac9e`** -- the commit the tested tree BECAME, written after that commit exists
   rather than predicted before it. An earlier version of this line named "the tree at `05ad53df`
   carrying round sixteen's repairs"; `05ad53df` is immutable and holds neither X-1 nor the repaired
   census, so it named a tree nobody could check out. A candidate has to be a thing another person
@@ -68,7 +68,8 @@ A result with no candidate attached is not a receipt. Every such row was measure
 | aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 219 passed, 0 skipped | 0 |
 | aify-env | `cd ~/projects/aify-env && npm test` | 1,683 tests, 1,682 passed, 1 skipped | 0 |
 
-`TIME_WAIT` was **290** before the python run and **12,178** after it, against this host's 16,384-port
+`TIME_WAIT` was **1,888** before the python run and **12,180** after it -- the higher floor is
+residue from the previous run rather than ambient load, which is the misreading this file records, against this host's 16,384-port
 ephemeral range — the socket pressure CLAUDE.md documents, sampled DURING the run rather than
 between runs. Nothing failed, so it attributes nothing here; it is recorded because a later red must
 be read against a measured before-and-after rather than a remembered one.
