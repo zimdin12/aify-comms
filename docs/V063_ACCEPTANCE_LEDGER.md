@@ -102,18 +102,20 @@ run.** B-1's row carries both and says which is which.
 | B-4 | An UNNUMBERED chunk clears the live screen's sequence, so the GET answers `null` and the browser replays rather than trusting a stale number | `service/terminal_snapshot.py`, `service/api_core/terminal_output.py` | `test_live_terminal_screen.py`; `test_status_reads_the_live_screen_not_the_stored_tail.py` | PASSES IN TESTS on the candidate, in the python run quoted above | Met by the candidate |
 
 **Not claimed by any row above:** that these repair the operator's reported lag. The lag is
-UNATTRIBUTED. Observation totals **286 minutes across SIX guarded windows** -- 60, 60, 60, 55, 45 and 6
+UNATTRIBUTED. Observation totals **346 minutes across SEVEN guarded windows** -- 60, 60, 60, 60, 55, 45 and 6
 -- producing **zero** wire gaps in every one. **That is cumulative, not one uninterrupted run**, and
 an earlier version of this line said "226 verified continuous minutes", which claims a continuity
-property no window has: the longest single uninterrupted window is 60 minutes. The three 60-minute
-windows were taken 2026-09-09 and made **22,521**, **24,160** and **23,579** comparisons across 5
-terminals each, with 0 gaps, 0 drops and 0 unnumbered frames in every one. Arrival intervals were p50 382.9ms / p05
+property no window has: the longest single uninterrupted window is 60 minutes. The FOUR 60-minute
+windows were taken 2026-09-09 and made **22,521**, **24,160**, **23,579** and **21,905** comparisons
+across 5 terminals each, with 0 gaps, 0 drops and 0 unnumbered frames in every one. Arrival intervals were p50 382.9ms / p05
 12.4ms / min 7.9ms and p50 237.4ms / p05 12.7ms / min 8.1ms, and **no margin is derived from them**:
 they are receiver-side spacing, and the queue, its flush timer, the event loop and the socket all sit
 between a POST and an arrival.
 
-**What 286 cumulative minutes of zero supports, and what it does not.** It supports "no wire gap
-was seen in any of the six windows watched", each bounded by its own start and end.
+**What 346 cumulative minutes of zero supports, and what it does not.** It supports "no wire gap
+was seen in any of the seven windows watched", each bounded by its own start and end. The seventh
+window changes the total and changes nothing about the KIND of claim: a longer accumulation of
+bounded windows is still bounded windows, and the trigger condition still did not occur.
 
 **AND IT MEASURES THE LIVE COALESCING RATE, which this ledger previously called unmeasurable from
 the wire.** The hedge was "equally consistent with a queue numbering correctly" -- true before
@@ -122,7 +124,7 @@ anyone had established which queue was serving, and not true now.
 this version's frame-sequence test and it FAILS, and that test pins the shape exactly: one
 broadcast per flush, numbered with the cumulative POST count (three posts, `len(broadcasts) == 1`,
 seq 3 where 1 is required). So on THIS build an observed step of N **is** the number of posts that
-flush carried. Zero steps over one across **106,676 recorded comparisons** in the five windows whose
+flush carried. Zero steps over one across **128,581 recorded comparisons** in the six windows whose
 counts are recorded means **no flush coalesced in any of them**.
 
 **That is still bounded windows on one fleet, and it attributes nothing.** Nothing here observes a
