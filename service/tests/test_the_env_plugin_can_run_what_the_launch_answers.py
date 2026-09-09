@@ -54,6 +54,11 @@ TERMINAL_ID = "term-1"
 SESSION_ID = "sess-launch"
 CONTROL_ID = "ctl-1"
 
+#: Where the synthetic resolver claims this host keeps its launchers. Named once because the
+#: harness answers with it and the assertion compares against it -- typed twice, the two could
+#: drift into agreeing about different paths.
+RESOLVER_PREFIX = "/opt/aify/"
+
 #: What `runOneControl` returns when it has started the worker and carried its output. Read off
 #: `terminal-controls.mjs` rather than taken from a red test's diff.
 STARTED = "started"
@@ -115,7 +120,7 @@ const outcome = await runOneControl({
   // THE RESOLVER STAYS STUBBED, deliberately and as an explicit boundary: where this machine keeps
   // `claude-aify` is the host's business and depends on an install this test must not require.
   // What it answers with is a path, because the builder judges a FILE.
-  resolveCandidates: (command) => ['/opt/aify/' + command],
+  resolveCandidates: (command) => ['%(prefix)s' + command],
   handles: createHandleBook(),
   // COLLIDING ON PURPOSE. Precedence is only observable where the two maps overlap, and with a
   // `baseEnv` of PATH alone the overlay could be merged either way round with nothing noticing.
@@ -212,7 +217,7 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
         payload.write_text(json.dumps(answer), encoding="utf-8")
         script.write_text(
             HARNESS % {"controls": controls, "claim": claim, "startspec": startspec,
-                       "control": CONTROL_ID,
+                       "prefix": RESOLVER_PREFIX, "control": CONTROL_ID,
                        "terminal": TERMINAL_ID,
                        "roots": json.dumps(roots if roots is not None else [WORKSPACE])},
             encoding="utf-8")
@@ -262,20 +267,30 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
                          f"expected exactly one process start, got {read['started']}")
 
         spec = read["started"][0]
-        # THE LAUNCHER AND ITS ARGUMENTS, as the REAL builder records them. `command` is whatever
-        # the interpreter turned out to be, and `launcher` is the file that was judged -- the
-        # discriminating half, which is why the builder keeps it beside the command.
-        self.assertTrue(
-            str(spec["launcher"]).endswith(launch["argv"][0]),
-            f"the host would run {spec['launcher']!r}, which is not the program this service named "
-            f"({launch['argv'][0]!r})")
-        self.assertEqual(spec["args"][-len(launch["argv"]) + 1:], launch["argv"][1:],
-                         "the arguments the host would pass are not the ones this service composed")
-        self.assertEqual(spec["cwd"], launch["cwd"],
-                         "the directory the host would run in is not the one this service named")
-        self.assertEqual(spec["service"], "aify-comms",
-                         "the start was not attributed to this service, which the builder refuses "
-                         "outright and a permissive stub could not see")
+
+        # THE WHOLE EXECUTION PLAN, COMPARED EXACTLY, and a weaker version of this was a reproduced
+        # false green. Swapping the stub for the real builder changed the spec's shape, and the
+        # comparison was loosened to `endswith` plus a suffix slice of `args` to accommodate it --
+        # strictly weaker than what it replaced, and it then admitted a resolver answering
+        # `not-claude-aify` (which ends with `claude-aify`) and an extra argument prefixed onto the
+        # list. Both were driven and both passed.
+        #
+        # NOTHING REQUIRED THE LOOSENING. This fixture pins `platform: 'linux'` and a synthetic
+        # resolver, so every field is determined: Linux `interpreterFor` prefixes no interpreter, so
+        # the command IS the resolved launcher and the args ARE the issued arguments.
+        resolved = RESOLVER_PREFIX + launch["argv"][0]
+        self.assertEqual(
+            {key: spec.get(key) for key in ("launcher", "command", "args", "cwd", "service")},
+            {
+                "launcher": resolved,
+                "command": resolved,
+                "args": launch["argv"][1:],
+                "cwd": launch["cwd"],
+                # The builder refuses a start naming no service outright, which a permissive stub
+                # could not see and which review reproduced.
+                "service": "aify-comms",
+            },
+            "the execution plan the host would run is not the one this service composed")
 
     def test_the_aify_variables_this_service_sends_reach_the_process(self):
         """The overlay, and it is a separate obligation from starting at all.

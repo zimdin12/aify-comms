@@ -49,6 +49,11 @@ from service.tests.test_the_env_plugin_addresses_routes_this_service_serves impo
 MACHINE_ID = "linux:test-host"
 ENVIRONMENT_ID = f"{MACHINE_ID}:default"
 AGENT_ID = "ef-claimed"
+
+#: The bridge that claims and then reports. ONE value, because the service's
+#: ownership check compares the two and a fixture using different ones would be
+#: testing a stranger's report on every path.
+CLAIMING_BRIDGE = "bridge-under-test"
 WORKSPACE = "/workspace/project"
 RUNTIME = "codex"
 
@@ -80,6 +85,7 @@ CLAIM_REGISTERED = "registered"
 HARNESS = """
 import { readFileSync } from 'node:fs';
 import { runClaimPass } from '%(claim)s';
+import { CommsApi, mintBridgeIdentity } from '%(api)s';
 
 const answered = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const asked = [];
@@ -94,13 +100,42 @@ function recording(target) {
   });
 }
 
-const api = {
-  claim: async () => ({
-    ...answered,
-    spawnRequest: answered.spawnRequest ? recording(answered.spawnRequest) : answered.spawnRequest,
-  }),
-  report: async (id, patch) => { reported.push({ id: String(id), patch }); return { ok: true }; },
-};
+// THE REAL CLIENT, RECORDED AT THE TRANSPORT. A hand-written `api` object recorded the argument
+// `report` was CALLED with, and the real `CommsApi.report` adds `bridgeId` from its identity before
+// sending -- so the replay posted a body no host ever sends, with no bridgeId, walking past the
+// route's ownership check. Recording the fetch is the only place the wire body exists.
+// THE IDENTITY THAT CLAIMED, because in production one `CommsApi` does both: `claim` sends
+// `this.#identity.bridgeId` and `report` sends the same one, which is exactly how the service
+// tells the claimer from a stranger. This fixture claims through the real route on the Python
+// side, so the bridge id has to be that one -- minting a fresh UUID here made every honest report
+// a 409 and would have had this test asserting the service refuses its own host.
+const identity = { ...mintBridgeIdentity({ version: '0.0.0-probe' }), bridgeId: '%(bridge)s' };
+const api = new CommsApi({
+  endpoint: 'http://probe.invalid:1',
+  credential: async () => '',
+  identity,
+  fetchImpl: async (url, init) => {
+    const path = String(url);
+    const method = String((init && init.method) || 'GET');
+    if (method === 'PATCH') {
+      const body = JSON.parse(String(init.body));
+      reported.push({ id: path.split('/').pop(), patch: body });
+      return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '{}' };
+    }
+    // The claim: answer with what this service really said, with the spawn request recorded.
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...answered,
+        spawnRequest: answered.spawnRequest
+          ? recording(answered.spawnRequest)
+          : answered.spawnRequest,
+      }),
+      text: async () => '{}',
+    };
+  },
+});
 
 const outcome = await runClaimPass({
   api,
@@ -163,7 +198,7 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         """What this service really answers a claiming host — through the real route."""
         claimed = self.client.post(
             "/api/v1/spawn-requests/claim",
-            json={"environmentId": ENVIRONMENT_ID, "bridgeId": "bridge-under-test",
+            json={"environmentId": ENVIRONMENT_ID, "bridgeId": CLAIMING_BRIDGE,
                   "machineId": MACHINE_ID},
         )
         self.assertEqual(claimed.status_code, 200, claimed.text)
@@ -173,11 +208,14 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
 
     def _read_by_the_plugin(self, answer: dict) -> dict:
         claim = (self.repo / PLUGIN_DIR / "claim.mjs").as_uri()
+        api = (self.repo / PLUGIN_DIR / "api.mjs").as_uri()
         script = Path(tempfile.mkdtemp()) / "drive-the-claim-pass.mjs"
         payload = script.with_name("answer.json")
         payload.write_text(json.dumps(answer), encoding="utf-8")
         script.write_text(
-            HARNESS % {"claim": claim, "env": ENVIRONMENT_ID, "workspace": WORKSPACE},
+            HARNESS % {"claim": claim, "api": api, "env": ENVIRONMENT_ID,
+                       "bridge": CLAIMING_BRIDGE,
+                       "workspace": WORKSPACE},
             encoding="utf-8")
         done = subprocess.run(["node", str(script), str(payload)],
                               cwd=self.repo, capture_output=True, text=True)
@@ -390,11 +428,22 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
                    "patch": {**entry["patch"], "bridgeId": "some-other-bridge"}}
                   for entry in read["reported"]]
         statuses = self._replay(stolen)
-        self.assertTrue(
-            any(code == 409 for code in statuses),
-            "this service accepted a report from a bridge that never claimed the request, so the "
-            "run above cannot be read as evidence that it judged the reports at all: "
+
+        # EVERY ONE OF THEM, not one somewhere in the sequence. Requiring `any(409)` was a
+        # reproduced false green: adding `status_value != "running"` to the ownership guard leaves
+        # [409, 200] — the `starting` report refused, the `running` one accepted, and the agent
+        # created anyway. A refusal that lets the decisive report through is not a refusal.
+        self.assertEqual(
+            [code for code in statuses if code != 409], [],
+            "this service accepted a report from a bridge that never claimed the request. A single "
+            "accepted report is enough to register the agent, so a partial refusal is none: "
             f"{statuses}")
+
+        # AND NOTHING WAS CREATED BY IT, which is the consequence the status codes only imply.
+        agents = self.client.get("/api/v1/agents").json().get("agents") or {}
+        self.assertNotIn(
+            AGENT_ID, agents,
+            "a bridge that never claimed this request nevertheless brought its agent into being")
 
     # ── the negative control, driven by REMOVING what the claim watches ──────────────────────
 
