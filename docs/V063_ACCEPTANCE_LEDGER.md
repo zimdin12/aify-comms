@@ -78,8 +78,8 @@ row APPENDS a line instead of falsifying one.
 | X-3 | `1cfd6f14` | run B onward |
 | X-4 | `5b7855b1`, repaired at `40dc8794` (F1/F2/F3) and `fba7d437` (S2/S3) | run B onward |
 | X-5 | `c1a1d46b`, repaired at `fba7d437` (S1) | run B onward |
-| X-6 | `58d54cb3`, extended to the round trip at `01087bf2` | run C onward |
-| X-7 | `ee8ad96c`, repaired for Q1/Q2/Q3 at `4df8ccd9` and for R1 at `HEAD-OF-THIS-COMMIT` | run D onward |
+| X-6 | `58d54cb3`, round trip at `01087bf2`, repaired for T1/T2 at `0e53ccb6` | run C onward |
+| X-7 | `ee8ad96c`, repaired for Q1/Q2/Q3 at `4df8ccd9` and for R1 at `0e53ccb6` | run D onward |
 
 **A CATCH-ALL ROW HID ONE, WHICH THE GATE BELOW FOUND ON ITS FIRST FULL RUN.** This table opened
 with "every row before X-3", and X-1 was inside that phrase rather than named -- so it was judged
@@ -110,6 +110,7 @@ read against a measured before-and-after rather than a remembered one.
 | E | `fba7d437` | 5,664 (+11,000 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 474 -> 4,614 |
 | F | `4df8ccd9` | 5,664 (+11,000 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 350 -> 4,707 |
 | G | `01087bf2` | 5,666 (+11,000 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 451 -> 5,045 |
+| H | `0e53ccb6` | 5,670 (+11,011 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 570 -> 4,855 |
 
 **THE LETTERS ARE THE ORDER THE RUNS WERE TAKEN**, from `git log --reverse`, and they were not:
 an earlier version lettered them in the order I wrote them down, so D and E named trees measured
