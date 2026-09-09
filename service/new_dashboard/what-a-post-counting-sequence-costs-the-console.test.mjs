@@ -60,7 +60,15 @@ function mountedConsole() {
  * had, so a recovery that happens is one the CLIENT decided it needed -- which is the whole point:
  * the frames were never dropped, and the stride alone is what makes them look dropped.
  */
-async function deliver(stride) {
+/**
+ * @param {number} stride how far the server's sequence advances per frame
+ * @param {number} behind how far the snapshot LAGS the frame that triggered the recovery.
+ *   Zero means each recovery covers the stream and completes between arrivals, which is the
+ *   schedule the ceiling below is conditional on. Review showed a lagging snapshot drives the
+ *   bounded retry path to three fetches per frame, so the condition has to travel with the
+ *   result.
+ */
+async function deliver(stride, behind = 0) {
   const saved = { fetch: globalThis.fetch, document: globalThis.document };
   const fetches = [];
   let answerSeq = 0;
@@ -85,14 +93,19 @@ async function deliver(stride) {
   const { entry, painted } = mountedConsole();
   try {
     for (let i = 1; i <= FRAMES; i += 1) {
-      answerSeq = i * stride;
+      answerSeq = Math.max(0, i * stride - behind);
       applyRealtimeEvent("terminal_output",
         { terminalId: "t1", agentId: "a1", output: `f${i}`, seq: i * stride });
       // Let a recovery this frame started finish before the next arrives, so the count is
       // recoveries STARTED rather than recoveries that happened to overlap.
       await new Promise((r) => setTimeout(r, 2));
     }
-    return { fetches: fetches.length, painted, entry };
+    // COUNTED APART. `painted.length` is how many times `write` was called, which is not how many
+    // FRAMES reached the screen -- under stride 2 every write is a snapshot and none carries a
+    // frame's own text. Review caught the column claiming the second while counting the first.
+    const frameWrites = painted.filter((p) => /^f\d+$/.test(p)).length;
+    const snapshotWrites = painted.filter((p) => p === "SNAPSHOT").length;
+    return { fetches: fetches.length, painted, frameWrites, snapshotWrites, entry };
   } finally {
     globalThis.fetch = saved.fetch;
     globalThis.document = saved.document;
@@ -103,13 +116,14 @@ async function deliver(stride) {
 test("POSITIVE CONTROL: a contiguous stream recovers NOT AT ALL, and paints every frame", async () => {
   // Without this the measurement below would also be satisfied by a console that recovers on
   // everything, including correct input -- which would make the comparison meaningless.
-  const { fetches, painted, entry } = await deliver(1);
+  const { fetches, painted, frameWrites, entry } = await deliver(1);
   // REPORTED BY THE CODE THAT ASSERTS IT. A figure quoted elsewhere has to come from the run
   // that judged it, or the two drift and the written one is the survivor.
-  console.log(`  stride 1: ${fetches} recoveries, ${painted.length} of ${FRAMES} frames painted`);
+  console.log(`  stride 1: ${fetches} recoveries, ${frameWrites} of ${FRAMES} FRAMES painted`);
   assert.equal(fetches, 0, `a contiguous stream started ${fetches} recoveries`);
   assert.equal(painted.filter((p) => p === "<reset>").length, 0, "the screen was reset");
-  assert.equal(painted.length, FRAMES, `only ${painted.length} of ${FRAMES} frames painted`);
+  assert.equal(frameWrites, FRAMES,
+    `only ${frameWrites} of ${FRAMES} frames' own text reached the screen`);
   assert.equal(entry.lastSeq, FRAMES);
 });
 
@@ -117,22 +131,43 @@ test("A SEQUENCE COUNTING POSTS MAKES EVERY FRAME LOOK LIKE A GAP", async () => 
   // THE MEASUREMENT. Stride 2 is the mildest version of the defect -- a flush that coalesced two
   // posts -- and it is enough: `seq > lastSeq + 1` is true for every frame after the first, so
   // every frame is a drop that never happened.
-  const { fetches, painted } = await deliver(2);
+  const { fetches, painted, frameWrites, snapshotWrites } = await deliver(2);
   console.log(`  stride 2: ${fetches} recoveries for ${FRAMES} frames, `
-    + `${painted.filter((p) => p === "<reset>").length} screen resets`);
+    + `${painted.filter((p) => p === "<reset>").length} screen resets, `
+    + `${frameWrites} frames' own text and ${snapshotWrites} snapshots painted`);
+  // AND THE SCREEN IS ALL SNAPSHOT. Not one frame's own bytes survive: each is held during the
+  // recovery it triggered and then discarded against a snapshot that already covers it. The
+  // output is not wrong -- the snapshot carries those bytes -- but 'frames painted' would have
+  // been the wrong words for it, and this file used them.
+  assert.equal(frameWrites, 0,
+    `${frameWrites} frames reached the screen as themselves; the point of this case is that none do`);
   assert.ok(fetches >= FRAMES - 1,
     `a post-counting sequence started ${fetches} recoveries for ${FRAMES} frames; `
     + "if this is low the console is not recovering per frame and the mechanism is milder than "
     + "this block has claimed");
 });
 
-test("AND A BUSIER FLUSH DOES NOT MAKE IT WORSE, because one gap per frame is already the ceiling",
+test("A SNAPSHOT THAT LAGS THE STREAM COSTS MORE THAN ONE RECOVERY PER FRAME", async () => {
+  // THE CONDITION ON THE CEILING BELOW, and review supplied it. The other cases answer each
+  // recovery with the sequence the triggering frame carried, so every recovery covers the stream
+  // and finishes before the next arrival. Hold the snapshot TWO BEHIND and the recovery cannot
+  // place what it held, so it fetches again -- the bounded retry path -- and the cost per frame
+  // rises above one.
+  const { fetches } = await deliver(2, 2);
+  console.log(`  stride 2, snapshot 2 behind: ${fetches} recoveries for ${FRAMES} frames`);
+  assert.ok(fetches > FRAMES,
+    `a lagging snapshot started ${fetches} recoveries for ${FRAMES} frames; if this is at or `
+    + "under one per frame the ceiling is unconditional after all and the next test overstates it");
+});
+
+test("AND AT THIS SCHEDULE A BUSIER FLUSH DOES NOT MAKE IT WORSE: one gap per frame is the ceiling",
   async () => {
-    // WORTH PINNING BECAUSE IT IS COUNTER-INTUITIVE. A flush coalescing five posts does not cost
-    // five times a flush coalescing two: the client recovers on the FIRST gap it sees and there is
-    // one per frame either way. The defect's cost scales with the FRAME RATE, not with how much
-    // each flush coalesced -- which is why it presented as "lags sometimes" rather than "lags more
-    // when busy" in a way anybody could have graphed.
+    // WORTH PINNING BECAUSE IT IS COUNTER-INTUITIVE, AND CONDITIONAL. At THIS schedule -- each
+    // recovery covering the stream and completing between arrivals -- a flush coalescing five
+    // posts costs no more than one coalescing two: the client recovers on the FIRST gap it sees
+    // and there is one per frame either way. So at this schedule the cost scales with the FRAME
+    // RATE rather than with how much each flush coalesced. The test above shows what a LAGGING
+    // snapshot does to that, and it is more.
     const mild = await deliver(2);
     const busy = await deliver(5);
     console.log(`  stride 5: ${busy.fetches} recoveries against stride 2 at ${mild.fetches}`);

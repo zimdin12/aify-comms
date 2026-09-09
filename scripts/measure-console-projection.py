@@ -51,7 +51,18 @@ COLS, ROWS = 132, 40
 #: A console with enough history that the default response carries the tail and the event page the
 #: projection drops -- which is the whole subject. 90 KB is the order the measured live response had.
 TAIL_CHARS = 90 * 1024
+#: THE SMALL ARM'S TAIL, named rather than inlined so the share printed below is computed from
+#: the same constant the fixture uses.
+SMALL_TAIL_CHARS = 2 * 1024
 EVENTS = 200
+
+#: THE FOUR ARMS, named once. Two vary the RESPONSE SHAPE over one stored tail; the third varies
+#: the TAIL at a fixed shape; the fourth holds tail and events identical to the second and adds a
+#: LIVE SCREEN, which is the branch `terminal_snapshot_view` takes first.
+DEFAULT_REPLAY = "default (replay)"
+CONSOLE_REPLAY = "console (replay)"
+CONSOLE_SMALL_TAIL = "console, 2 KB tail"
+CONSOLE_LIVE = "console, LIVE screen"
 
 
 def _painted(chars: int) -> str:
@@ -87,6 +98,11 @@ async def _run() -> int:
     #: render the current screen from the stored tail, so varying the TAIL while holding the
     #: shape fixed is the arm that can answer it.
     small_id = f"small-{uuid.uuid4().hex[:8]}"
+    #: AND ONE WITH A LIVE SCREEN. `terminal_snapshot_view` takes the live-screen branch FIRST and
+    #: replays the stored tail only as a fallback -- so every arm above measures the FALLBACK, which
+    #: is what a console with no live screen gets and is not what a watched console's recovery
+    #: takes. Separating them is the only way either figure can name its own path.
+    live_id = f"live-{uuid.uuid4().hex[:8]}"
     db = await get_db()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
     # FOREIGN KEYS OFF FOR THE SEED, AND ONLY FOR THE SEED. This connection writes fixture rows;
@@ -113,12 +129,16 @@ async def _run() -> int:
         (terminal_id, f"sess-{terminal_id}", f"agent-{terminal_id}", "probe-env", "probe",
          _painted(TAIL_CHARS), "running", 1, now, now, COLS, ROWS),
     )
-    for i in range(EVENTS):
-        await db.execute(
-            "INSERT INTO terminal_events (terminal_id, event_type, body, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (terminal_id, "output", json.dumps({"i": i, "text": "x" * 200}), now),
-        )
+    # EVENTS HELD EQUAL ACROSS THE ARMS. `routers/terminals.py` fetches and materialises the event
+    # page BEFORE the projection runs, so an arm with 200 events and one with none differ by more
+    # than their tails -- and the difference was being attributed entirely to the tail.
+    for owner in (terminal_id, small_id, live_id):
+        for i in range(EVENTS):
+            await db.execute(
+                "INSERT INTO terminal_events (terminal_id, event_type, body, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (owner, "output", json.dumps({"i": i, "text": "x" * 200}), now),
+            )
     await db.execute(
         "INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, started_at, "
         "last_seen) VALUES (?, ?, ?, ?, ?, ?)",
@@ -129,7 +149,19 @@ async def _run() -> int:
         "output, status, output_seq, created_at, updated_at, cols, rows) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (small_id, f"sess-{small_id}", f"agent-{small_id}", "probe-env", "probe",
-         _painted(2 * 1024), "running", 1, now, now, COLS, ROWS),
+         _painted(SMALL_TAIL_CHARS), "running", 1, now, now, COLS, ROWS),
+    )
+    await db.execute(
+        "INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, started_at, "
+        "last_seen) VALUES (?, ?, ?, ?, ?, ?)",
+        (f"sess-{live_id}", f"agent-{live_id}", "probe-env", "probe", now, now),
+    )
+    await db.execute(
+        "INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, runtime, "
+        "output, status, output_seq, created_at, updated_at, cols, rows) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (live_id, f"sess-{live_id}", f"agent-{live_id}", "probe-env", "probe",
+         _painted(TAIL_CHARS), "running", 1, now, now, COLS, ROWS),
     )
     await db.commit()
     # CLOSED BY THE CALLER. `get_db()` opens a NEW connection each call and hands ownership over;
@@ -140,15 +172,22 @@ async def _run() -> int:
     # A TRUSTED HOST HEADER. The cross-site guard compares `host` against the trusted set, and a
     # made-up base URL is refused with 403 -- which the probe's own positive control caught
     # before any figure was published. Loopback is what a browser on this machine sends.
+    # THE LIVE SCREEN, THROUGH THE REAL WRITER. `feed_live_screen` only creates one for a chunk
+    # containing ESC -- plain logs must stay logs -- and the painted body is full of them.
+    from service.terminal_snapshot import feed_live_screen
+    feed_live_screen(live_id, _painted(TAIL_CHARS), cols=COLS, rows=ROWS, seq=1)
+
     transport = httpx.ASGITransport(app=app)
     refusals: list[str] = []
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8800") as client:
         base = f"/api/v1/terminals/{terminal_id}?cols={COLS}&rows={ROWS}"
         small = f"/api/v1/terminals/{small_id}?cols={COLS}&rows={ROWS}&view=console"
+        alive = f"/api/v1/terminals/{live_id}?cols={COLS}&rows={ROWS}&view=console"
         shapes = {
-            "default": base,
-            "view=console": f"{base}&view=console",
-            "console, 2 KB tail": small,
+            DEFAULT_REPLAY: base,
+            CONSOLE_REPLAY: f"{base}&view=console",
+            CONSOLE_SMALL_TAIL: small,
+            CONSOLE_LIVE: alive,
         }
         sizes: dict[str, int] = {}
         timings: dict[str, list[float]] = {k: [] for k in shapes}
@@ -170,18 +209,22 @@ async def _run() -> int:
                     break
                 sizes[label] = len(response.content)
                 body = response.json()
-                if not (body.get("terminal") or {}).get("snapshot"):
-                    refusals.append(f"{label}: the response carries no snapshot, which is the field "
-                                    f"the console writes -- so whatever was timed is not this path")
+                # A NON-EMPTY STRING, not merely truthy. The console does `term.write(snapshot)`,
+                # so the field has to be text -- and review passed this check with a numeric 123.
+                snapshot = (body.get("terminal") or {}).get("snapshot")
+                if not isinstance(snapshot, str) or not snapshot:
+                    refusals.append(f"{label}: the response's snapshot is {type(snapshot).__name__} "
+                                    f"rather than a non-empty string, and the console writes that "
+                                    f"field verbatim -- so whatever was timed is not this path")
 
         missing = await client.get(f"/api/v1/terminals/never-seeded-{uuid.uuid4().hex[:6]}")
         if missing.status_code != 404:
             refusals.append(f"NEGATIVE: an unseeded terminal answered {missing.status_code} rather "
                             f"than 404, so the seeding is not what made the others answer")
-        if sizes.get("view=console", 0) >= sizes.get("default", 0):
-            refusals.append(f"SIZE: the projection is {sizes.get('view=console')} bytes against the "
-                            f"default's {sizes.get('default')} -- not smaller, so these are the same "
-                            f"response twice and the comparison is void")
+        if sizes.get(CONSOLE_REPLAY, 0) >= sizes.get(DEFAULT_REPLAY, 0):
+            refusals.append(f"SIZE: the projection is {sizes.get(CONSOLE_REPLAY)} bytes against "
+                            f"the default's {sizes.get(DEFAULT_REPLAY)} -- not smaller, so these "
+                            f"are the same response twice and the comparison is void")
 
     if refusals:
         print("NOTHING IS PUBLISHED:")
@@ -193,24 +236,45 @@ async def _run() -> int:
     print("WHAT THE SERVER SPENDS ANSWERING A CONSOLE FETCH -- request into the ASGI app to response")
     print(f"out of it, IN-PROCESS with no network, {SAMPLES} samples of each shape, interleaved.")
     print()
-    print(f"  {'shape':14} {'bytes':>9} {'p50 ms':>9} {'p95 ms':>9} {'worst':>9}")
-    for label in ("default", "view=console", "console, 2 KB tail"):
+    print(f"  {'shape':22} {'bytes':>9} {'p50 ms':>9} {'p95 ms':>9} {'worst':>9}")
+    for label in (DEFAULT_REPLAY, CONSOLE_REPLAY, CONSOLE_SMALL_TAIL, CONSOLE_LIVE):
         values = sorted(timings[label])
         p95 = values[min(len(values) - 1, int(round(0.95 * (len(values) - 1))))]
-        print(f"  {label:14} {sizes[label]:>9} {statistics.median(values):>9.2f} "
+        print(f"  {label:22} {sizes[label]:>9} {statistics.median(values):>9.2f} "
               f"{p95:>9.2f} {max(values):>9.2f}")
-    saved = statistics.median(timings["default"]) - statistics.median(timings["view=console"])
-    tail_saved = (statistics.median(timings["view=console"])
-                  - statistics.median(timings["console, 2 KB tail"]))
+    saved = statistics.median(timings[DEFAULT_REPLAY]) - statistics.median(timings[CONSOLE_REPLAY])
+    tail_saved = (statistics.median(timings[CONSOLE_REPLAY])
+                  - statistics.median(timings[CONSOLE_SMALL_TAIL]))
+    # COMPUTED FROM THE MEASURED SIZES. This said "97%" in both lines, hardcoded, so a run whose
+    # fixtures differed would have printed a share it never measured.
+    response_share = (100.0 * (sizes[DEFAULT_REPLAY] - sizes[CONSOLE_REPLAY])
+                      / max(1, sizes[DEFAULT_REPLAY]))
+    tail_share = 100.0 * (TAIL_CHARS - SMALL_TAIL_CHARS) / TAIL_CHARS
     print()
-    print(f"  DROPPING 97% OF THE RESPONSE bought {saved:+.2f} ms at p50 "
-          f"({sizes['default'] - sizes['view=console']} bytes removed).")
-    print(f"  DROPPING 97% OF THE STORED TAIL, at the same response shape, bought "
+    print(f"  DROPPING {response_share:.1f}% OF THE RESPONSE bought {saved:+.2f} ms at p50 "
+          f"({sizes[DEFAULT_REPLAY] - sizes[CONSOLE_REPLAY]} bytes removed).")
+    print(f"  DROPPING {tail_share:.1f}% OF THE STORED TAIL, at the same response shape, bought "
           f"{tail_saved:+.2f} ms.")
     print()
-    print("  So the time is in what the server DOES with the tail, not in what it sends. Both")
-    print("  shapes render the current screen from the stored bytes; only the second arm changes")
-    print("  how many there are to render.")
+    # THE CONCLUSION IS DERIVED, NOT CAPTIONED. Review supplied costs of 10, 20 and 30ms -- both
+    # contrasts NEGATIVE -- and this block still printed "the time is in what the server does with
+    # the tail". A sentence that survives its own contradiction is decoration. It now states what
+    # was observed whenever the two contrasts do not support it.
+    live_saved = statistics.median(timings[CONSOLE_REPLAY]) - statistics.median(timings[CONSOLE_LIVE])
+    if tail_saved > 0 and tail_saved > abs(saved) * 5:
+        print("  So on this run the time is in what the server DOES with the stored tail rather")
+        print(f"  than in what it sends -- the tail contrast is "
+              f"{tail_saved / max(abs(saved), 1e-9):.0f}x the response-shape one.")
+    else:
+        print("  NO CONCLUSION IS DRAWN about the tail: its contrast does not dominate the")
+        print(f"  response-shape one on this run ({tail_saved:+.2f} ms against {saved:+.2f} ms).")
+    print()
+    print("  AND THE BRANCH MATTERS MORE THAN EITHER. The SAME tail and the SAME event count, with")
+    print(f"  a LIVE SCREEN present, answer in {statistics.median(timings[CONSOLE_LIVE]):.2f} ms "
+          f"against {statistics.median(timings[CONSOLE_REPLAY]):.2f} -- {live_saved:+.2f} ms.")
+    print("  `terminal_snapshot_view` takes the live-screen branch FIRST and replays the stored")
+    print("  tail only as a FALLBACK, so every replay figure here is what a console with NO live")
+    print("  screen pays, and not what a watched console's recovery does.")
     print()
     print("WHAT THIS IS NOT: a round trip. There is no network here, so the browser's fetch is this")
     print("plus hop four, which is measured separately. It is also not the container: this app runs")
