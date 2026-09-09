@@ -71,7 +71,7 @@ const CEILINGS = {
   // `terminalRuntimes` paragraph named the bridge as the advertiser, which is now only true when
   // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
   // paragraph above it already said.
-  "aify-comms-debug/references/dashboard-console.md": 18_025,
+  "aify-comms-debug/references/dashboard-console.md": 17_974,
     // 26_968 -> 26_955 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
   // than leaving the ceiling slack: two references cited files deleted with the
   // environment-bridge tier and now name the service modules that own those questions, and

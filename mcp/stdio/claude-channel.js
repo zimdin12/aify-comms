@@ -548,10 +548,16 @@ async function pollLoop() {
         }
       }
 
-      // Poll for controls (interrupt/steer) independently of run tracking.
-      // This makes comms_run_interrupt and comms_run_steer work for Claude
-      // the same way they work for Codex — the sender uses the same tool
-      // regardless of target runtime.
+      // Poll for controls (interrupt/steer) independently of run tracking, so the sender uses
+      // the same tool regardless of target runtime.
+      //
+      // THIS NAMED `comms_run_steer` UNTIL 2026-09-09 AND THAT TOOL NO LONGER EXISTS -- it was
+      // removed from the stdio bridge (see `register-tools.mjs`) and from the SSE transport,
+      // each with its own note. The MECHANISM is live and was verified rather than assumed:
+      // `dispatch_runs.py` still writes `action="steer"` when an ordinary `comms_send` steers a
+      // busy steer-capable target, and this loop is what delivers it. So the comment named a
+      // tombstone as though it were a caller, which is the shape a reader cannot tell from a
+      // live one.
       const controlClaim = await httpCall("POST", "/dispatch/controls/claim", {
         agentId,
         machineId: MACHINE_ID,
