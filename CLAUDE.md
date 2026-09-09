@@ -363,9 +363,10 @@ gate below names as a claim it enforces.
 **RE-VERIFIED ROW BY ROW 2026-09-08 AND AGAIN 2026-09-09 by importing the gate's own walk**, after
 this table had been wrong four times: every row matches its measured line count exactly and the
 membership matches the measured ranking, so nothing here needed correcting on either date. The
-census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> **537 on
-2026-09-09** -- 259 Python and 278 JS -- as `service/new_dashboard/console-cursor.mjs` and
-`scripts/measure-ws-hop-browser.py` arrived with the console and transport work.
+census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> **538
+on 2026-09-09** -- 260 Python and 278 JS -- as `service/new_dashboard/console-cursor.mjs`,
+`scripts/measure-ws-hop-browser.py` and `scripts/measure-console-projection.py` arrived with
+the console and transport work.
 
 **THIS FILE CARRIED TWO CENSUS FIGURES AT ONCE UNTIL 2026-09-09**, 535 in a standalone sentence
 and 533 in the running total three lines below it, written the same day. That is the dashboard-count
