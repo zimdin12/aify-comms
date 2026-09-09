@@ -7,18 +7,28 @@ change must be true for — which no scanner knows.
 
 **What it is not.** `scripts/acceptance-ledger.py` is a discovery inventory over the 130 product
 files changed in `aed8b590..HEAD`: 35 deleted, 0 named by no test at all, and the 95 survivors split
-**74 IMPORTED by a test, 15 code files only NAMED, and 6 that cannot be imported by anything**
-(`VERSION`, `install.sh`, two manifests, `index.html`, `styles.css`).
+**74 with a DECLARED STATIC IMPORT in a test, 15 code files only NAMED, and 6 outside the
+tier's suffixes** (`VERSION`, `install.sh`, two manifests, `index.html`, `styles.css`).
 
 **The IMPORT tier exists because review was right about the NAME tier.** A basename match is
-satisfied by a mention in a comment, a fixture, or a stem collision; an import means a test reached
-the file. Python is answered by `ast` over every test file, JavaScript by V8 through
-`vm.SourceTextModule().dependencySpecifiers`, which parses without executing — 493 JS test files
-read, 0 unparseable. **STATIC imports only, and the limit has two verified instances rather than
-being theoretical**: `send-tools.mjs` is exercised by `send-tools.test.js` through
-`await import(...)` and lands in the weaker tier, and `doctor.js` is deliberately never imported at
-all because importing it RUNS the doctor. Four controls run in the same invocation, two per tier.
+satisfied by a mention in a comment, a fixture, or a stem collision. Python is answered by `ast`
+over `service/tests/**/test_*.py`, JavaScript by V8 through
+`vm.SourceTextModule().dependencySpecifiers`, which parses without executing -- 493 JS test files
+read, 0 unparseable. Seven controls run in the same invocation, two on the NAME tier and five on
+the IMPORT tier.
 
+**WHAT THE TIER SAYS, at its real width.** A test DECLARES a static import of that exact file.
+Not that anything ran: an `if False:` import is credited by the same helper, and so is one in a
+test nothing executes. **STATIC imports only, with two verified instances of the limit rather than
+a hypothesis**: `send-tools.mjs` is exercised by `send-tools.test.js` through `await import(...)`
+and lands in the weaker tier, and `doctor.js` is deliberately never imported at all because
+importing it RUNS the doctor. And the six outside the tier are a SUFFIX exclusion, not files
+nothing can import -- Node imports a `package.json` with an import attribute.
+
+**ITS FIRST VERSION GRANTED CREDIT ON A BASENAME.** Review redirected all twelve real specifiers
+for `doctor-predicates.js` into a sibling directory, reparsed all 493 tests, and the row stayed
+imported with zero canonical importers remaining. Paths are normalised and compared entire now, and
+a control asserts that a colliding basename in the wrong directory is refused.
 **Even the strong tier is not an obligation.** It says a test reached the file, not that it
 exercises the change or any branch of it. The inventory finds candidates; this ledger says what they
 owe.
