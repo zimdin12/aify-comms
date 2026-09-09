@@ -357,6 +357,12 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
 
     # ── the round trip: the plugin's own reports, through this service's own route ─────────
 
+    def _agents(self) -> dict:
+        """The roster as this service publishes it, read the same way before and after."""
+        listed = self.client.get("/api/v1/agents")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        return listed.json().get("agents") or {}
+
     def _replay(self, reports: list[dict]) -> list[int]:
         """Send the plugin's recorded reports to the REAL route, in the order it sent them."""
         statuses = []
@@ -384,15 +390,23 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         self.assertTrue(read["reported"],
                         "the plugin reported nothing, so this replays nothing")
 
+        # THE CONTRAST, ASSERTED RATHER THAN OBSERVED. "An agent exists afterwards" says nothing
+        # on its own -- a seeding step that already registered one would satisfy it while the
+        # replay did nothing at all. I measured the absence by hand and review measured it
+        # independently, and neither reading is in the suite, so the claim rested on two people
+        # remembering. It rests on this line now.
+        self.assertNotIn(
+            AGENT_ID, self._agents(),
+            "the agent already existed before the plugin reported anything, so the check below "
+            "cannot tell a working round trip from a fixture that registered it")
+
         statuses = self._replay(read["reported"])
         self.assertEqual(
             [code for code in statuses if code != 200], [],
             f"this service REFUSED reports its own claim answer led the plugin to send: "
             f"{list(zip([entry['patch'].get('status') for entry in read['reported']], statuses))}")
 
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agents = listed.json().get("agents") or {}
+        agents = self._agents()
         self.assertIn(
             AGENT_ID, agents,
             "the spawn was claimed and reported running and no agent exists, which is the state "
