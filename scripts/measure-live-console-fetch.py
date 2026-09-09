@@ -38,6 +38,19 @@ ROOT = "C:/Docker/aify-comms"
 BASE = "http://localhost:8800/api/v1"
 ROUNDS = 3
 
+#: A viewer WIDER than any stored geometry, which is what separates the two snapshot branches.
+#: `render_live_screen` returns the SCREEN's own cols whatever the viewer asked for, while the
+#: replay arm renders the tail at max(source, viewer). So at 200 columns a replaying console
+#: answers 200 and a live one answers its own width.
+#:
+#: A PURE READ: the GET handler performs only SELECTs and `_attach_terminal_snapshot`, with no
+#: `resize_live_screen` or `feed_live_screen` call, which is what makes it safe to point at a
+#: console somebody is watching. Its CONTROL is
+#: `test_the_console_branch_discriminator_separates_both_branches.py` -- against the live fleet
+#: this signal has only ever answered LIVE, and a verdict with one observed value is worth
+#: nothing until the same signal is shown separating a screenless terminal from one with a screen.
+WIDE_VIEWER = 200
+
 
 def key() -> str:
     """The key the SERVICE is configured with, from the resolver that owns that question."""
@@ -95,9 +108,14 @@ def main() -> int:
             spans.append(ms)
             snapshot = len(term.get("snapshot") or "")
             tail = len(term.get("output") or "")
+        # WHICH BRANCH, asked once per terminal at a wider viewer than its own geometry.
+        _, wide = get(f"/terminals/{tid}?cols={WIDE_VIEWER}&rows={rows_n}&view=console")
+        widened = (wide.get("terminal") or {}).get("renderedCols")
+        branch = ("replay" if widened == WIDE_VIEWER
+                  else "live" if widened == cols else f"unclear({widened!r})")
         if len(spans) == ROUNDS:
             results.append((statistics.median(spans), tid, row.get("agentId"), cols, rows_n,
-                            snapshot, tail))
+                            snapshot, tail, branch))
 
     if refusals:
         print("NOTHING IS PUBLISHED:")
@@ -109,12 +127,17 @@ def main() -> int:
         return 2
 
     results.sort()
-    print(f"  {'p50 ms':>8}  {'agent':22} {'asked':>9} {'STORED TAIL':>12} {'snapshot':>9}")
-    for ms, _tid, agent, cols, rows_n, snapshot, tail in results:
-        print(f"  {ms:8.1f}  {str(agent)[:22]:22} {cols:4}x{rows_n:<4} {tail:>12,} {snapshot:>9,}")
+    print(f"  {'p50 ms':>8}  {'agent':22} {'asked':>9} {'STORED TAIL':>12} {'snapshot':>9}"
+          f"  {'branch':>8}")
+    for ms, _tid, agent, cols, rows_n, snapshot, tail, branch in results:
+        print(f"  {ms:8.1f}  {str(agent)[:22]:22} {cols:4}x{rows_n:<4} {tail:>12,} {snapshot:>9,}"
+              f"  {branch:>8}")
 
     times = [r[0] for r in results]
     tails = sorted(r[6] for r in results)
+    branches = {}
+    for r in results:
+        branches[r[7]] = branches.get(r[7], 0) + 1
     print()
     print(f"  fetch  fastest {min(times):.1f}ms  slowest {max(times):.1f}ms  "
           f"spread {max(times) / max(0.001, min(times)):.1f}x")
@@ -125,8 +148,15 @@ def main() -> int:
     print("bounds neither retained history nor replay cost -- comparing one against the other is the")
     print("error this script was corrected for.")
     print()
-    print("A bimodal split in the timings would be evidence of the two branches; a single mode is")
-    print("NOT proof of one, because this times a full HTTP round trip rather than the branch.")
+    print(f"BRANCHES: {branches} -- read from `renderedCols` at a {WIDE_VIEWER}-column viewer,")
+    print("which is a direct signal rather than an inference from timing. The 51ms replay figure in")
+    print("the projection section describes a path no console reported here is on; it is reached")
+    print("when a terminal has no live screen -- after a service restart, for a plain-log runtime,")
+    print("past 256 screens, or once one has been dropped.")
+    print()
+    print("A bimodal split in the TIMINGS would be weaker evidence of the same thing; a single mode")
+    print("is NOT proof of one branch, because this times a full HTTP round trip rather than the")
+    print("branch. The branch column above does not depend on that.")
     return 0
 
 
