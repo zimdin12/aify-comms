@@ -130,7 +130,7 @@ was watched. The mechanism is present in the deployed build and has not been cau
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
-| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that no LITERAL spelling of these names appears outside a comment: of 107 deleted files (35 product, 72 tests), 84 are not spelled anywhere in the searched population, 22 appear only inside comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls, fourteen carriers and a V8 parse-preservation differential in the same run; classification by occurrence SPAN, with AST byte columns converted before they meet character offsets and all four ECMAScript line terminators ending a `//` comment. **NOT unreachability** — an escaped, concatenated or computed specifier evaluates to the same path with no literal hit, and nothing here resolves a specifier. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
+| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that no LITERAL spelling of these names appears outside a comment: of 107 deleted files (35 product, 72 tests), 84 are not spelled anywhere in the searched population, 22 appear only inside comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls, fourteen carriers and a V8 parse-preservation differential in the same run; classification by occurrence SPAN, with AST byte columns converted before they meet character offsets and all four ECMAScript line terminators ending a `//` comment. **NOT unreachability** — an escaped, concatenated or computed specifier evaluates to the same path with no literal hit, and nothing here resolves a specifier. **BEHAVIOUR: MAPPED obligation by obligation to READ assertions in aify-env — see the table below. PASSES IN TESTS there, not PROVEN on the operator's fleet** | Retired to aify-env, and its behavioural half is now mapped rather than asserted |
 | R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
 | R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
 
@@ -182,7 +182,31 @@ carrier-sealing gate, which lets nothing through today and would silently exempt
 that name. Both now assert that their own entries still exist, and both guards were driven by
 putting a deleted name back.
 
-**The behavioural half is UNREVIEWED IN THIS RANGE, and that is a narrower statement than "no
+**R-1'S BEHAVIOURAL HALF IS NOW MAPPED, obligation by obligation.** Review's objection to the
+earlier version was that a passing external suite is a suite and not a mapping. This is the
+mapping: each retired responsibility, the aify-env test that carries it, and the assertion that
+does the carrying. Every row below was read; none is cited on the strength of its title.
+
+| retired obligation | the assertion that carries it now |
+|---|---|
+| a process is attributed to the instance that started it | `owned-processes.test.js` — "the writing instance stamps itself as the OWNER, without being asked", and "an explicit owner is honoured over the default" |
+| one instance's stop does not touch another's processes | same file — "several processes accumulate, and stopping removes only its own", asserting the record still holds exactly `["p2"]` afterwards |
+| every managed process is stopped when the environment goes down | `shutdown.test.js` — "every managed process is stopped BEFORE the process exits" and "the record is cleared only after the stops were attempted" |
+| a stop that THROWS does not strand the rest | same file — "one process that refuses to die does not strand the others", which asserts `stop-failed:a`, `stopped:b` AND `exit:0`: the failure is recorded, the sibling still stops, and the exit still happens |
+| the whole process TREE dies, not just the launcher | `orphans-die-with-the-environment.test.js` — "a GRANDCHILD dies too — killing the launcher is not enough", which starts a REAL daemon and a launcher whose agent is a CHILD of the script, the shape that leaked two `sleep` processes; and `kill-tree.test.js` — "windows kills the whole tree, forcibly, in one call", "posix targets the process GROUP first, then the process" |
+| a process that outlived its environment is collected by the next one | `orphans-die-with-the-environment.test.js` — "a process outlives a KILLED environment, and the next one reaps it", asserting the pid started, was recorded, and was reaped |
+| and reaping does not kill something that merely REUSED the pid | `orphan-reap.test.js` — "a pid that VERIFY rejects is skipped", asserting `plan.reap` is empty and the skip reason is "not ours any more"; and "a verify that THROWS is treated as a rejection, not as permission". `reaper.test.js` — "a probe that THROWS makes the entry UNKNOWN, never dead" |
+
+**WHAT THIS IS STILL NOT.** These run in aify-env's suite, on this machine, in the same session —
+they are PASSES IN TESTS there, not PROVEN on the operator's fleet, and this ledger cannot make
+them the latter. What has changed is that the claim is now checkable: a reader can open each named
+test and see whether the assertion says what this table says it says.
+
+**R-2 AND R-3 ARE NOT MAPPED THIS WAY YET.** Their tests are still cited by title, which is the
+weaker claim review rejected, and they stay in the open list until somebody reads them the way
+these were read. "Partially mapped" is a different statement from "mapped", and collapsing the
+two here would repeat the mistake this section exists to correct.
+**THE REMAINING BEHAVIOURAL GAP IS R-2 AND R-3, and that is a narrower statement than "no
 evidence exists".** aify-env's suite runs on every commit in this session and is green (1,683 above),
 and specific tests there are pointed at these responsibilities — `owned-processes.test.js` ("the
 writing instance stamps itself as the OWNER", "stopping removes only its own") and
@@ -318,7 +342,8 @@ recorded here rather than attempted in a release cut.
    four defects, all fixed -- with an explicit list of what it did NOT read. See the section above.
    The unread complement is still unread, and a finding's absence where nobody looked is not a
    finding of absence.
-2. **Conditional start semantics at the authority — CLOSED after the tag.** The verdict's design
+2. **Conditional start semantics at the authority — CLOSED after the tag, and it took TWO tries.**
+   The verdict's design
    finding: aify-env reads which agents have no live session, then restarts the one it chose, and a
    worker starting between those two round trips turned a start into a STOP of a live terminal.
    `POST /sessions/{id}/control` now accepts `only_if_no_live_session`, re-evaluates it against the
@@ -327,12 +352,23 @@ recorded here rather than attempted in a release cut.
    Four service-side mutants killed and three client-side, both ends pinned — a field nothing sets
    changes nothing. **It is NOT in the `v0.6.3` tag**, which was cut before it.
 
-   One thing the mutation run corrected in my own reasoning: I first asserted the guard must sit
-   ahead of the dispatch interrupt or a refusal would have interrupted the agent. Moving it after
-   left that test green, because the route has ONE commit at the end — a refusal discards every
-   write of the request whatever the order. The transaction is the guarantee; the ordering is
-   tidiness, and the code now says so.
-3. **R-1, R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
+   **THE FIRST VERSION DID NOT CLOSE IT, AND I PUBLISHED THAT IT HAD.** `get_db` returns a plain
+   connection with `isolation_level=''`, so a SELECT starts no transaction: the guard read with
+   `in_transaction=False`, and review reproduced the original race surviving it — another
+   connection committing `session=running` after the read and before the route's first write, with
+   the restart then queuing a stop for the terminal that had just come live. A check that is not
+   atomic with the act it authorises is a check with a window in it. `BEGIN IMMEDIATE` now reserves
+   the writer BEFORE the governing read; the interleaving is driven in the suite at exactly the
+   point review inserted it, and the competing commit is refused rather than landing. Removing the
+   reservation makes it land again.
+
+   Two corrections to my own reasoning came out of this, and both were mine to make:
+   the ordering claim — I asserted the guard must precede the dispatch interrupt or a refusal would
+   already have interrupted the agent, and mutation showed that test green either way, because one
+   commit at the end means a refusal discards every write whatever the order. That is true and it is
+   NOT sufficient: it says nothing about whether the deciding read is atomic with the writes. I had
+   treated the second as following from the first, and published CLOSED on the strength of it.
+3. **R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
    range. What is PROVEN is that no literal spelling of a deleted module's name appears outside
    a comment — not unreachability, since nothing resolves a specifier. Behaviour is UNREVIEWED.

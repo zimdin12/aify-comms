@@ -258,6 +258,105 @@ class SessionControlRefusalTests(FastApiTestCase):
                            "this route never appends a control, so the assertion above holds "
                            "for a reason unrelated to the refusal")
 
+    def _commit_a_live_session_from_another_connection(self) -> str:
+        """A SECOND writer, exactly where review inserted one: after the guard's read.
+
+        Its own connection, a short timeout, and its outcome RETURNED rather than swallowed --
+        whether this commit can land is the whole question.
+        """
+        import sqlite3
+        try:
+            other = sqlite3.connect(self._db_path, timeout=0.5)
+            try:
+                other.execute("UPDATE agent_sessions SET status = ? WHERE id = ?",
+                              ("running", SESSION_ID))
+                other.commit()
+            finally:
+                other.close()
+            return ""
+        except sqlite3.OperationalError as error:
+            return str(error)
+
+    def test_a_second_writer_CANNOT_slip_a_live_session_past_the_guard(self):
+        """REVIEW REPRODUCED THIS RACE SURVIVING THE GUARD, and they were right.
+
+        `get_db` hands out a plain connection with `isolation_level=''`, so a SELECT starts no
+        transaction: the first version of the guard read with `in_transaction=False`. Another
+        connection could commit `session=running` AFTER that read and BEFORE this route's first
+        write, and the restart then queued a stop for the terminal that had just come live.
+        Their interleaving: guard finds none, competing commit lands, route returns 200 with a
+        stop control and a spawn request.
+
+        My earlier correction -- that one commit at the end means a REFUSED request writes
+        nothing -- was true and did not touch this. A refusal writing nothing says nothing about
+        whether the read that DECIDES the request is atomic with the writes that follow it.
+
+        So the writer is reserved before the read, and this drives the same interleaving: the
+        competing commit is attempted at exactly the point review inserted it, and must be
+        refused rather than land.
+        """
+        self._seed_spec()
+        self._seed_session(spawn_spec_id=SPEC_ID)
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("stopped", SESSION_ID))
+
+        from service.routers import session_control
+        real = session_control._live_session_for
+        outcomes = []
+
+        async def read_then_race(db, agent_id):
+            # THE REAL QUERY, with its real answer -- only the SCHEDULING is arranged.
+            answer = await real(db, agent_id)
+            outcomes.append(self._commit_a_live_session_from_another_connection())
+            return answer
+
+        session_control._live_session_for = read_then_race
+        try:
+            response = self._control_if_idle("restart")
+        finally:
+            session_control._live_session_for = real
+
+        self.assertEqual(len(outcomes), 1, "the race was never attempted, so this test judged nothing")
+        self.assertNotEqual(
+            outcomes[0], "",
+            "a second connection committed a live session between the guard and the writes it authorises, which is the race this reservation exists to close",
+        )
+        self.assertIn("locked", outcomes[0].lower(), outcomes[0])
+        # AND THE ROUTE STILL DID ITS JOB. A reservation that closed the window by refusing every
+        # request would satisfy the assertion above and break the feature.
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_the_second_writer_lands_freely_when_no_reservation_is_asked_for(self):
+        """THE CONTROL, and without it the assertion above is unreadable: a competing commit that
+        could never land under any circumstances -- a locked file, a bad path -- would satisfy it.
+        The same second writer, at the same moment, on an UNCONDITIONAL restart that reserves
+        nothing, must succeed.
+        """
+        self._seed_spec()
+        self._seed_session(spawn_spec_id=SPEC_ID)
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("stopped", SESSION_ID))
+
+        from service.routers import session_control
+        real = session_control._get_blocking_active_run
+        outcomes = []
+
+        async def read_then_race(db, agent_id, *args, **kwargs):
+            answer = await real(db, agent_id, *args, **kwargs)
+            outcomes.append(self._commit_a_live_session_from_another_connection())
+            return answer
+
+        session_control._get_blocking_active_run = read_then_race
+        try:
+            self._control("restart")
+        finally:
+            session_control._get_blocking_active_run = real
+
+        self.assertEqual(len(outcomes), 1, "the race was never attempted")
+        self.assertEqual(
+            outcomes[0], "",
+            "the competing write cannot land even with nothing reserved, so the refusal above "
+            f"proves nothing about the reservation: {outcomes[0]}",
+        )
+
     # ── the action allowlist, and the second list that must agree with it ────────────────────
 
     def test_the_action_allowlist_refuses_everything_outside_the_four(self):

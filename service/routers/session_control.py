@@ -104,6 +104,21 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
         # request: a refused restart cannot interrupt anybody in either order. Established by
         # mutation -- moving this check after the interrupt left a test of that ordering green.
         if req.only_if_no_live_session:
+            # RESERVE THE WRITER BEFORE THE READ THAT DECIDES THIS REQUEST.
+            #
+            # `get_db` returns a plain connection with `isolation_level=''`, so a SELECT starts
+            # no transaction and the first version of this guard ran with `in_transaction=False`.
+            # Review reproduced the consequence against this route: another connection committed
+            # `session=running` AFTER the guard read and BEFORE the first write, and the restart
+            # queued a stop for the terminal that had just come live. A check that is not atomic
+            # with the act it authorises is a check with a window in it.
+            #
+            # `BEGIN IMMEDIATE` takes the RESERVED lock at once rather than on the first write,
+            # so nothing can commit between this read and the writes that depend on it. The
+            # commit at the end releases it; every failure path closes the connection in the
+            # `finally` below, which discards the transaction -- and each request owns its own
+            # connection, so an open one can neither outlive the request nor reach another.
+            await db.execute("BEGIN IMMEDIATE")
             live = await _live_session_for(db, agent_id)
             if live:
                 raise HTTPException(
