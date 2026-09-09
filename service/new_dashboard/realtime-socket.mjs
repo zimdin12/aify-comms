@@ -21,6 +21,7 @@ import { apiOrigin } from './api-client.mjs';
 import { state } from './state.mjs';
 import { dispositionOf } from './realtime-dispositions.mjs';
 import { updateAwaitPill } from './console-await.mjs';
+import { holdFrame } from './console-cursor.mjs';
 
 let dashboardNotifier = { handle() {} };
 let evaluateFlowGates = () => {};
@@ -132,33 +133,6 @@ export function wireRealtimeResumeReconnect() {
   for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online']]) {
     try { target.addEventListener(ev, onResume); } catch {}
   }
-}
-
-//: How many frames may be held while a console recovers. A frame is one WS payload, and a recovery
-//: is one HTTP round trip: on the measured path that is a handful. This is a bound against a
-//: recovery that never returns, not a tuning knob -- past it the console falls back to resuming from
-//: the snapshot alone, which is what it did before any of this existed.
-const MAX_HELD_FRAMES = 512;
-
-/**
- * Put one frame aside for the recovery to place, or mark the queue overflowed.
- *
- * ONE PLACE, because there are now two reasons to hold: a frame that arrived GAPPED, and any frame
- * that arrived while a fetch was outstanding. They must bound and overflow identically -- two copies
- * of a cap is a cap that eventually disagrees with itself.
- *
- * BOUNDED, because a recovery that never finishes must not grow memory. Past the cap the queue is
- * abandoned and a marker is left: the drain then resumes from the snapshot alone, which is what the
- * console did before frames were held at all and therefore never worse.
- */
-function holdFrame(entry, seq, output) {
-  if (!Array.isArray(entry.pendingFrames)) entry.pendingFrames = [];
-  if (entry.pendingFrames.length >= MAX_HELD_FRAMES) {
-    entry.pendingFrames = [];
-    entry.pendingOverflowed = true;
-    return;
-  }
-  entry.pendingFrames.push({ seq, output: String(output) });
 }
 
 export function applyRealtimeEvent(event, data = {}) {

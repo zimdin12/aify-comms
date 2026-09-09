@@ -86,11 +86,18 @@ async def _attach_terminal_snapshot(term_dict, cols, rows) -> None:
             # answering 2 for the identical picture. Laundering an unknown into a stale known is the
             # same tear this branch exists to close, one step further along.
             #
-            # NULL IS A TYPED UNKNOWN THE BROWSER ALREADY CONSUMES, not a zero. Both readers take it
-            # through `outputSeq ?? seq ?? lastSeq`, and `??` short-circuits on null BEFORE any
-            # `Number()` touches it, so they land on the mount's own initial -1. At -1
-            # `realtime-socket.mjs` disables dedup and gap detection entirely and the next NUMBERED
-            # frame restores the position -- which is the honest behaviour for a screen whose
+            # NULL IS A TYPED UNKNOWN, not a zero -- and the browser did NOT already consume it, which
+            # is what this comment claimed until 2026-09-09. It said `outputSeq ?? seq ?? lastSeq`
+            # short-circuits on null so both readers land on -1. `??` does the opposite: null is
+            # exactly what makes it fall THROUGH to the next operand, so the recovery kept its known
+            # cursor and the mount kept whatever a live frame had just set. Review found both, one
+            # per round, and the second was still live a day after the first was repaired.
+            #
+            # THE READERS NOW READ IT AS A VALUE. `console-cursor.mjs` answers -1 for an explicit null
+            # and leaves the cursor alone when the field is ABSENT, which are different facts; both
+            # the recovery and the mount ask it, so there is one answer rather than two copies of a
+            # chain. At -1 `realtime-socket.mjs` disables dedup and gap detection entirely and the
+            # next NUMBERED frame restores the position -- the honest behaviour for a screen whose
             # position nobody knows. It risks painting a frame the snapshot already holds; it cannot
             # drop one, and this project's rule is that dropping is the worse failure.
             term_dict["outputSeq"] = _live_terminal_screen_seq(str(term_dict["id"]))

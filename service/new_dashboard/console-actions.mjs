@@ -10,6 +10,7 @@
 // Four injected names, each of which reaches `refresh`.
 
 import { api } from './api-client.mjs';
+import { cursorFromSnapshot, drainHeldFrames } from './console-cursor.mjs';
 import { sessionAgentId, sessionId } from './record-fields.mjs';
 import { sessionForRun } from './run-inspector-controls.mjs';
 import { state } from './state.mjs';
@@ -86,17 +87,9 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     applyRenderedWidth(entry, entry.term, entry.container, data, Boolean(entry.ownsPty));
     const snapshot = data?.terminal?.snapshot;
     entry.term.write(String(snapshot || data?.terminal?.output || ''));
-    // A NULL SEQUENCE IS THE SERVER SAYING UNKNOWN, AND `??` HEARS IT AS "ASK SOMEBODY ELSE".
-    //
-    // The chain `outputSeq ?? seq ?? entry.lastSeq` selects the FALLBACK on null, so a console whose
-    // cursor was 4 stayed at 4 while the server had just said it does not know where the screen is.
-    // Review caught it and also caught why my test missed it: that test started at -1, so it could
-    // not detect a failed transition from KNOWN to unknown. The null had to be read as a value.
-    const answered = data?.terminal ?? {};
-    const told = "outputSeq" in answered ? answered.outputSeq
-      : ("seq" in answered ? answered.seq : undefined);
-    const snapshotSeq = told === null ? -1
-      : Number(told === undefined ? entry.lastSeq : told);
+    // WHERE THE CONSOLE IS AFTER THIS SNAPSHOT, read by the module that owns the question --
+    // `console-cursor.mjs` -- because the MOUNT asks it too and had the uncorrected copy.
+    const snapshotSeq = cursorFromSnapshot(data?.terminal, entry.lastSeq);
     // THE SEQUENCE DESCRIBES THE SCREEN, AND THE SCREEN WAS JUST RESET TO THE SNAPSHOT.
     //
     // THIS WAS A `Math.max` AND THAT LOST OUTPUT, found by the whole-diff review 2026-09-08. The
@@ -132,94 +125,6 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
   await resyncActiveConsole();
 }
 
-// PLACED AFTER `resyncActiveConsole`, NOT BEFORE IT, and that is a constraint rather than a
-// preference. `extraction-proof` reconstructs app.js from this module and requires the lines LEADING
-// an extracted declaration to be comments or blanks -- a function body ending in `}` immediately
-// above one would silently absorb it, and the gate says so by name. Declarations hoist, so the call
-// site above reads fine.
-/**
- * Paint the frames the socket held while this recovery was in flight, and resume from them.
- *
- * WITHOUT THIS THE RECOVERY LOOPS. The snapshot carries the buffer as it stood when the SERVER
- * answered; frames past that arrived during the fetch. Resuming from the snapshot's sequence leaves
- * the console behind the stream, so the next live frame is another gap, another fetch, another
- * window in which nothing paints. Reproduced against the real socket and this function in
- * `the-console-does-not-stall-while-it-resyncs.test.mjs`.
- *
- * ALREADY-COVERED FRAMES ARE DISCARDED rather than replayed. The snapshot is a RENDERED SCREEN, so a
- * frame at or below its sequence is already in the picture; writing it again would paint bytes twice
- * -- which for a TUI is not a duplicate line, it is a cursor somewhere nobody asked for.
- *
- * AN OVERFLOWED QUEUE REPLAYS NOTHING. Whatever was dropped is genuinely lost to this console, and
- * pretending otherwise by painting the tail would put the screen out of order. Resuming from the
- * snapshot alone is what happened before frames were held at all, so the fallback is never worse
- * than the behaviour it replaced -- one more gap, one more recovery, and it settles.
- *
- * @returns {boolean} whether frames are still held that this pass could not place, which is the
- *   caller's signal that the recovery is UNRESOLVED and owes another fetch.
- */
-function drainHeldFrames(entry) {
-  const held = Array.isArray(entry.pendingFrames) ? entry.pendingFrames : [];
-  entry.pendingFrames = [];
-  if (entry.pendingOverflowed) { entry.pendingOverflowed = false; return false; }
-  const replay = held
-    .filter((f) => Number.isFinite(f?.seq) && f.seq > entry.lastSeq)
-    .sort((a, b) => a.seq - b.seq);
-  // ONLY AN ADJACENT RUN, and this is the whole correctness of the replay.
-  //
-  // THE DEFECT THIS CLOSES, found by the whole-diff review 2026-09-08, and it is the worst shape a
-  // console defect can take: silent, permanent, and self-concealing. The filter above admits every
-  // held frame ABOVE the floor, so a snapshot at 5 with 9 and 10 held painted both and advanced
-  // `lastSeq` to 10 -- while 6, 7 and 8 had never been painted. Each of them then arrives with
-  // `seq <= lastSeq` and is discarded as already covered, and frame 11 looks adjacent to 10, so no
-  // gap is ever detected and no second recovery happens. The screen is missing three frames for the
-  // life of the console, and nothing anywhere reports it.
-  //
-  // SO THE SEQUENCE MAY ONLY ADVANCE OVER BYTES THAT WERE ACTUALLY WRITTEN. A held frame that does
-  // not continue the picture stops the replay and leaves `lastSeq` where the screen really ends --
-  // the next arriving frame then reads as the gap it is and recovers, which is one more round trip
-  // and a correct console instead of a fast wrong one.
-  //
-  // A DUPLICATE IS WRITTEN ONCE. The socket holds whatever arrived, retransmits included, and for a
-  // TUI painting the same bytes twice is not a doubled line -- it is a cursor somewhere nobody asked
-  // for.
-  //
-  // AND WHAT IT COULD NOT PLACE IS KEPT, which the first version of this fix destroyed. It emptied
-  // `pendingFrames` at the top and then broke out of the loop, so the un-replayed tail was gone --
-  // review's case is a snapshot at 5 with 9 and 10 held: the break was correct, dropping 9 and 10
-  // was not, and the caller then marked the recovery finished. On a quiet agent no further frame
-  // ever arrives to notice, so the console sits believing it is live with output it was handed and
-  // threw away. The remainder stays queued and the caller fetches again.
-  // AN UNKNOWN POSITION CANNOT BE ADJACENT TO ANYTHING, and requiring it to be threw the frames
-  // away. Review's trace: a null snapshot leaves `lastSeq` at -1, the run below demands the first
-  // held frame be seq 0, no real frame ever is, and the queue is cleared at the end of this
-  // function -- three fetches, nothing painted, output gone, and nothing left to notice it.
-  //
-  // WITH NO POSITION THERE IS NOTHING TO CONTRADICT, so the held run is painted from its lowest
-  // sequence and the console adopts that position. It may repaint something the snapshot already
-  // held; it cannot drop anything, and this project's rule is that dropping is the worse failure.
-  // After the first frame the position is KNOWN again and the adjacency rule resumes for the rest,
-  // which is why this is a seed rather than a mode.
-  let index = 0;
-  if (entry.lastSeq < 0 && replay.length) {
-    const first = replay[0];
-    try {
-      entry.term.write(first.output);
-      entry.lastSeq = first.seq;
-      index = 1;
-    } catch { index = 0; }
-  }
-  for (; index < replay.length; index += 1) {
-    const f = replay[index];
-    if (f.seq <= entry.lastSeq) continue;
-    if (f.seq !== entry.lastSeq + 1) break;
-    try { entry.term.write(f.output); } catch { break; }
-    entry.lastSeq = f.seq;
-  }
-  const remainder = replay.slice(index).filter((f) => f.seq > entry.lastSeq);
-  entry.pendingFrames = remainder;
-  return remainder.length > 0;
-}
 
 export async function stopConsoleTerminal(terminalId) {
   if (!terminalId) return;

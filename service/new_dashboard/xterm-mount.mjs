@@ -13,6 +13,7 @@
 
 import { api } from './api-client.mjs';
 import { copyText } from './clipboard.mjs';
+import { cursorFromSnapshot, drainHeldFrames } from './console-cursor.mjs';
 import { agentForTerminal } from './session-rail.mjs';
 import { terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { state } from './state.mjs';
@@ -307,6 +308,22 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
   // IDENTITY, NOT A GENERATION COUNTER. `state.activeXterm === mine` asks the question directly and
   // cannot drift out of step with a counter someone forgets to bump.
   const mine = { terminalId, agentId, term, fitAddon, container, resizeObserver, wheelHandler: onWheel, lastSeq: -1, canInput, webgl: webglAddon, _themeAccent: terminalAccentColor() };
+  // A MOUNT IS A RECOVERY IN FLIGHT, and saying so is the fix.
+  //
+  // FOUND BY REVIEW, 2026-09-09, driven through the real public mount and the real socket. This
+  // entry is published HERE, before the double rAF, the snapshot GET, the resize settle and its
+  // second GET -- so the socket paints every frame that arrives during those awaits straight into
+  // this terminal and advances `lastSeq`. Then the mount calls `term.reset()` and writes the older
+  // snapshot over the top: the bytes are gone from the screen while the bookkeeping says they were
+  // painted, so a retransmission is refused as consumed and a quiet stream never sends one. Review's
+  // trace: quiet null mount stays -1, frame 4 arrives during the GET and advances to 4, the reset
+  // wipes it, and retransmitting 4 produces no write at all.
+  //
+  // `resyncing` is the flag the socket ALREADY honours -- it holds the whole outstanding-fetch
+  // window -- so declaring the mount one costs nothing new and cannot drift out of step with the
+  // recovery's rules. The frames are placed by the same drain, against whatever the snapshot turns
+  // out to cover.
+  mine.resyncing = true;
   state.activeXterm = mine;
 
   /** True while this mount still owns the console pane. False once a newer mount has replaced it. */
@@ -408,9 +425,27 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     // AND THE SEQ LAST. A previous terminal's seq written here is almost always HIGHER than the new
     // console's, and `realtime-socket.mjs` drops every frame at or below `lastSeq` -- so the new
     // console renders its snapshot and then never moves again.
-    if (stillMine()) mine.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? mine.lastSeq);
+    //
+    // READ AS A VALUE, NOT THROUGH A FALLBACK. This was `outputSeq ?? seq ?? mine.lastSeq`, and
+    // `??` selects the fallback on null -- so a server saying UNKNOWN left a known cursor exactly
+    // where it was. `cursorFromSnapshot` is the same read the recovery makes, and the reason it
+    // lives in a module is that this copy was the one nobody corrected.
+    if (stillMine()) {
+      const snapshotSeq = cursorFromSnapshot(data?.terminal, mine.lastSeq);
+      if (Number.isFinite(snapshotSeq)) mine.lastSeq = snapshotSeq;
+      // THE SCREEN WAS JUST RESET TO THE SNAPSHOT, so anything held is placed against THAT, exactly
+      // as a recovery places it. What the drain cannot reach is left queued and owed a fetch: the
+      // recovery is the thing that fetches, so it is asked rather than reimplemented here.
+      mine.resyncing = false;
+      if (drainHeldFrames(mine)) resyncActiveConsole().catch(() => {});
+    }
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);
+  } finally {
+    // NEVER LEFT ARMED. Every path out of the block above -- the supersession returns, the fetch
+    // failure, the drain -- must clear the flag, or the socket holds every frame for this console
+    // for ever and paints nothing.
+    if (stillMine()) mine.resyncing = false;
   }
   term.focus();
 }
