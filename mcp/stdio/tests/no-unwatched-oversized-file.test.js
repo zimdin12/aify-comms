@@ -183,7 +183,20 @@ const CEILINGS = {
   // single-line idiom -- the first draft was eleven lines across five rules. `install.sh`'s ceiling
   // comes down from 2977 to its measured 2975 in the same change, which is the payment this gate
   // asks for rather than a nudge to clear a red test.
-  "service/new_dashboard/styles.css": 1850,
+  //
+  // 1850 -> 1851 on 2026-09-09, and it is ONE line for one rule. A refused spawn's reason
+  // ("Workspace ... is outside this environment's advertised roots") is a long unbreakable path
+  // in the one column an operator has to read, and the cell clipped it at one line -- the half
+  // naming the cause was simply gone. `overflow-wrap: anywhere` is what breaks that path; default
+  // cell wrapping alone does not, so the rule earns its line. The change arrived as FOUR lines and
+  // three of them were comment, now a trailing clause: that part is the repair.
+  //
+  // IT IS NOT PAID FOR ELSEWHERE, and this entry should say so rather than let the number move
+  // quietly. The census above already answered where a payment would come from -- there is no dead
+  // CSS here -- and the only other ratcheted file, `install.sh`, sits exactly at its own ceiling
+  // with nothing to give. So this is a decision, not a repair, and the thing bought is an
+  // operator reading why a spawn was refused instead of the first half of the sentence.
+  "service/new_dashboard/styles.css": 1851,
 };
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "__pycache__", "dist", "build", ".messages", "data"]);

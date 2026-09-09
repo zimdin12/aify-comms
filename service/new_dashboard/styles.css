@@ -1817,10 +1817,7 @@ textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible, [role="
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
-/* The Bridge / error cell is the one column an operator has to READ, and a refused spawn's reason
-   ("Workspace ... is outside this environment's advertised roots") is longer than the column. One-line
-   clipping hid the half that named the cause; wrap it, and keep the whole text on hover. */
-.spawn-requests-table td.spawn-detail { white-space: normal; overflow-wrap: anywhere; max-width: 56ch; }
+.spawn-requests-table td.spawn-detail { white-space: normal; overflow-wrap: anywhere; max-width: 56ch; } /* the one column an operator must read: a refused spawn's reason is a long unbreakable path, and nowrap clipping hid the half naming the cause */
 .spawn-requests-table td, .identity-table td, .agent-processes td, .agent-runs td {
   padding: 7px 9px;
   border-bottom: 1px solid var(--line-soft, var(--panel-2));
