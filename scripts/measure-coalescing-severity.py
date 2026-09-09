@@ -1,9 +1,11 @@
 """How bad does the deployed sequence defect get as a console gets busier?
 
 THE QUESTION LEFT OPEN. `check-deployed-console-transport.py` shows the running build numbers frames
-per POST, and `measure-live-frame-gaps.mjs` shows it not firing on a quiet fleet -- the closest
-approach to the 4ms coalescing window was 8.3ms, about 2.1x outside. That leaves the shape of the
-risk unstated: does a slightly busier console degrade gently, or fall off a cliff?
+per POST, and `measure-live-frame-gaps.mjs` shows it not firing on this fleet -- zero wire gaps
+across every window taken. That leaves the shape of the risk unstated: does a slightly busier console
+degrade gently, or fall off a cliff? (How CLOSE the fleet runs to coalescing is a different question
+and an unmeasured one: an arrival-interval margin once quoted here was withdrawn, because receiver
+arrival spacing cannot bound post spacing.)
 
 MEASURED RATHER THAN REASONED, and the answer is a cliff. The relationship is driven directly:
 enqueue k posts, flush once, read the sequence the broadcast carries, and apply the browser's own
@@ -87,22 +89,39 @@ async def _drive(queue_class, batch: int, frames: int) -> list[int]:
     return [int(b["seq"]) for b in queue.broadcasts]
 
 
-def _recoveries(seqs: list[int]) -> int:
-    """`realtime-socket.mjs`'s rule, mirrored: a step over one costs a refetch, reset and repaint.
+def _read_as_browser(seqs: list[int]) -> tuple[int, int, bool]:
+    """`realtime-socket.mjs`'s rule, mirrored: wire gaps, recovery EPISODES, and whether it settles.
 
-    The cursor is NOT lowered on a regression, because the browser returns without touching
-    `lastSeq` -- a hand-written version of this counted a gap the browser never takes.
+    THE CURSOR IS NOT LOWERED ON A REGRESSION, because the browser returns without touching
+    `lastSeq`. A hand-written version of this counted a gap the browser never takes.
+
+    AND A GAP DURING A PENDING RECOVERY IS HELD, NOT A SECOND RECOVERY. The browser sets
+    `entry.resyncing`, and the next gapped frame takes `holdFrame(...)` and returns. Counting
+    every gap as a recovery is the model the OBSERVER was corrected away from a round earlier,
+    and two instruments in this repo disagreeing about the same consumer is itself the defect.
+
+    THE THIRD RETURN IS THE ONE THAT MATTERS HERE. The hold ends when a CONTIGUOUS frame
+    arrives. If every flush coalesces, none ever is -- so the console enters recovery and never
+    settles, which is a worse outcome than a large recovery count and a more accurate one.
     """
     last = -1
-    count = 0
+    gaps = 0
+    episodes = 0
+    pending = False
     for seq in seqs:
         if last >= 0:
             if seq <= last:
                 continue
             if seq > last + 1:
-                count += 1
+                gaps += 1
+                if not pending:
+                    episodes += 1
+                    pending = True
+                last = seq
+                continue
+        pending = False
         last = seq
-    return count
+    return gaps, episodes, not pending
 
 
 def main() -> int:
@@ -122,22 +141,36 @@ def main() -> int:
     print(f"THE SEQUENCE A FLUSH EMITS, driven at {FRAMES} flushes per row.")
     print("A batch of k means k posts landed inside one flush window (the deployed idle flush is 4ms).")
     print()
-    print(f"  {'batch':>6}   {'DEPLOYED step':>14} {'recoveries':>11}   {'REPO step':>10} {'recoveries':>11}")
+    print(f"  {'batch':>6}   {'DEPLOYED':>12} {'gaps':>5} {'eps':>4} {'settles':>7}   "
+          f"{'REPO':>9} {'gaps':>5} {'eps':>4} {'settles':>7}")
 
     control_ok = True
     rows = []
     for batch in BATCHES:
         dep = asyncio.run(_drive(DeployedQueue, batch, FRAMES))
         rep = asyncio.run(_drive(RepoQueue, batch, FRAMES))
-        dep_step = (dep[1] - dep[0]) if len(dep) > 1 else 0
-        rep_step = (rep[1] - rep[0]) if len(rep) > 1 else 0
-        dep_rec, rep_rec = _recoveries(dep), _recoveries(rep)
-        frames_seen = len(dep)
-        rows.append((batch, dep_step, dep_rec, rep_step, rep_rec, frames_seen))
-        print(f"  {batch:>6}   {dep_step:>14} {dep_rec:>4}/{frames_seen - 1:<6}   "
-              f"{rep_step:>10} {rep_rec:>4}/{len(rep) - 1:<6}")
+        # EVERY FLUSH MUST HAVE BROADCAST. Taking the denominator from the RESULT lets a queue
+        # that emitted fewer frames than asked for silently shrink its own row.
+        if len(dep) != FRAMES or len(rep) != FRAMES:
+            print(f"  {batch:>6}   UNKNOWN: {len(dep)} and {len(rep)} broadcasts against "
+                  f"{FRAMES} flushes requested")
+            control_ok = False
+            continue
+        # THE WHOLE RELATION, NOT ONE PAIR. `dep[1] - dep[0]` printed the first pair as "the
+        # step", so a run whose steps varied would report whichever came first.
+        dep_steps = {b - a for a, b in zip(dep, dep[1:])}
+        rep_steps = {b - a for a, b in zip(rep, rep[1:])}
+        dep_step = str(dep_steps.pop()) if len(dep_steps) == 1 else f"varies {sorted(dep_steps)}"
+        rep_step = str(rep_steps.pop()) if len(rep_steps) == 1 else f"varies {sorted(rep_steps)}"
+        dep_gaps, dep_eps, dep_settles = _read_as_browser(dep)
+        rep_gaps, rep_eps, rep_settles = _read_as_browser(rep)
+        rows.append((batch, dep_step, dep_gaps, dep_eps, dep_settles,
+                     rep_step, rep_gaps, rep_eps, rep_settles))
+        print(f"  {batch:>6}   {dep_step:>12} {dep_gaps:>5} {dep_eps:>4} "
+              f"{'yes' if dep_settles else 'NO':>7}   "
+              f"{rep_step:>9} {rep_gaps:>5} {rep_eps:>4} {'yes' if rep_settles else 'NO':>7}")
 
-        if batch == 1 and not (dep_step == 1 and rep_step == 1):
+        if batch == 1 and not (dep_step == "1" and rep_step == "1"):
             control_ok = False
 
     print()
@@ -148,18 +181,30 @@ def main() -> int:
 
     # THE CONCLUSION IS DERIVED FROM THE ROWS, never captioned. A run whose numbers did not show a
     # cliff must not print one -- this file's neighbours have made exactly that mistake.
-    cliff = [r for r in rows if r[0] >= 2 and r[2] == r[5] - 1]
-    flat = all(r[4] == 0 for r in rows)
+    # DERIVED FROM THE ROWS, never captioned. Each clause below is a predicate over what was
+    # actually measured, so a run whose numbers contradict the story prints the numbers instead.
+    multi = [r for r in rows if r[0] >= 2]
+    every_frame_gaps = [r for r in multi if r[2] == FRAMES - 1]
+    never_settles = [r for r in multi if not r[4]]
+    repo_clean = all(r[6] == 0 and r[8] for r in rows)
     print("WHAT THE ROWS SAY:")
-    if cliff and flat:
-        print(f"  The deployed queue's step equals the BATCH SIZE, so from a batch of two onward")
-        print(f"  EVERY frame after the first is a gap -- {len(cliff)} of the {len(BATCHES) - 1}")
-        print("  multi-post rows recovered on every single frame. This is a CLIFF, not a slope: a")
-        print("  console does not degrade gently as it gets busier, it goes from no recoveries to")
-        print("  recovering on every frame the moment any two posts share a flush window.")
-        print("  The repo's queue advances by one at every batch size and never recovers.")
+    if multi and len(every_frame_gaps) == len(multi) and repo_clean:
+        print("  The deployed queue's step equals the BATCH SIZE, so from a batch of two onward")
+        print(f"  EVERY frame after the first is a wire gap -- all {len(multi)} multi-post rows.")
+        print("  This is a CLIFF, not a slope: nothing degrades gently, it goes from no gaps to")
+        print("  every frame the moment two posts share one flush window.")
+        if len(never_settles) == len(multi):
+            print()
+            print("  AND THE EPISODE COLUMN IS THE SHARPER READING. The browser holds gapped")
+            print("  frames while a recovery is pending and releases on a CONTIGUOUS one -- which")
+            print("  never arrives here. So it is not N recoveries: the console enters recovery")
+            print("  ONCE and never settles, which is worse than a large count, not milder.")
+        print()
+        print("  The repo's queue advances by one at every batch size, gaps nothing and settles.")
     else:
-        print("  The rows do not show a uniform cliff; read them rather than this line.")
+        print("  The rows do not support a uniform cliff; read them rather than this line.")
+        print(f"  (multi-post rows {len(multi)}, all-frames-gap {len(every_frame_gaps)}, "
+              f"never-settling {len(never_settles)}, repo clean {repo_clean})")
     print()
     print("WHAT THIS IS NOT: a rate. It says what happens PER COALESCED FLUSH, not how often a")
     print("flush coalesces -- `measure-live-frame-gaps.mjs` is the instrument for that, and on this")
