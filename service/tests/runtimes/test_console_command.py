@@ -76,8 +76,15 @@ def test_pi_console_command_managed_with_handle():
 
 
 def test_opencode_wrapper_name():
+    """The WRAPPER, which is not the runtime binary — and this pinned the wrong one.
+
+    It asserted `opencode`, which is what `console_command` runs (a console is the bare CLI, see
+    the test below). The wrapper is `opencode-aify`: this adapter resumes through it, and so do
+    `mcp/stdio/adapters/opencode.js`, the map in `runtimes.js` and its `AIFY_OPENCODE_AIFY_COMMAND`
+    default. Two adjacent facts about one runtime, and the shorter one was typed into both slots.
+    """
     from service.runtimes.opencode import OpencodeAdapter
-    assert OpencodeAdapter().wrapper_name == "opencode"
+    assert OpencodeAdapter().wrapper_name == "opencode-aify"
 
 
 def test_opencode_console_command():

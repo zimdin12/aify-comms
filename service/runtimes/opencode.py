@@ -22,7 +22,19 @@ class OpencodeAdapter(RuntimeAdapter):
     preferred_delivery_mode = "managed"
 
     # Plan 3 additions
-    wrapper_name = "opencode"
+    #
+    # THE WRAPPER, NOT THE RUNTIME BINARY, and this said `opencode` until 2026-09-09. Every other
+    # part of the product names `opencode-aify`: this adapter's own `resume_command` below,
+    # `mcp/stdio/adapters/opencode.js`, the map at the top of `runtimes.js`, and that file's
+    # `AIFY_OPENCODE_AIFY_COMMAND` default. The contract test could not see the disagreement
+    # because it asked whether the resume command STARTS WITH this value, and `opencode-aify`
+    # starts with `opencode` -- a prefix satisfies the check the shorter string was wrong about.
+    #
+    # LATENT RATHER THAN LIVE: nothing in `service/` reads `wrapper_name` at all, so the wrong
+    # value changed no behaviour. That is the state this repo records as a harmless looseness
+    # waiting for something to lean on it, so it is corrected rather than left for the reader that
+    # eventually arrives.
+    wrapper_name = "opencode-aify"
 
     def resume_command(self, session_id, agent_id="") -> str:
         # Mirror mcp/stdio/adapters/opencode.js resumeCommand. The agent id is

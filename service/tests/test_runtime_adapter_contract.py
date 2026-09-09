@@ -74,13 +74,24 @@ class ResumeCommandContractTests(unittest.TestCase):
 
     def test_every_adapter_resumes_through_ITS_OWN_wrapper(self):
         """The wrapper is what exports AIFY_AGENT_ID and starts the bridge. Handing out the bare
-        runtime CLI produces a session aify-comms cannot see at all."""
+        runtime CLI produces a session aify-comms cannot see at all.
+
+        THE PROGRAM, NOT A PREFIX OF IT, and the difference found a real disagreement. This asked
+        whether the resume command STARTS WITH `wrapper_name`, which any shorter string satisfies:
+        the opencode adapter declared `opencode` while resuming through `opencode-aify`, and the
+        check passed because one is a prefix of the other. Every other part of the product --
+        `mcp/stdio/adapters/opencode.js`, the map in `runtimes.js`, and its
+        `AIFY_OPENCODE_AIFY_COMMAND` default -- names the wrapper. Comparing the first TOKEN is the
+        whole relation rather than one property of it.
+        """
         for runtime in ALL_RUNTIMES:
             with self.subTest(runtime=runtime):
                 adapter = adapter_for(runtime)
-                self.assertTrue(
-                    adapter.resume_command("s", "a").startswith(adapter.wrapper_name),
-                    f"{runtime} resumes with something other than {adapter.wrapper_name}",
+                program = adapter.resume_command("s", "a").split()[0]
+                self.assertEqual(
+                    program, adapter.wrapper_name,
+                    f"{runtime} resumes by running {program!r} while declaring its wrapper is "
+                    f"{adapter.wrapper_name!r}",
                 )
 
     def test_a_new_adapter_that_forgets_resume_command_fails_LOUDLY(self):

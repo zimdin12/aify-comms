@@ -476,6 +476,29 @@ recorded here rather than attempted in a release cut.
    launcher resolver -- so driving it needs more scaffolding than the claim pass did. Its reads
    are `launch.argv` and `launch.cwd`, and the second is what stops a service launching a process
    anywhere on the host, so it is worth doing rather than dropping.
+4c. **`RuntimeAdapter.wrapper_name` HAS NO PRODUCTION READER, and that is an owner's decision
+   rather than a repair.** The base declares it abstract, five adapters implement it, and
+   nothing in `service/` consumes it -- measured repo-wide across `.py`, `.js`, `.mjs` and
+   `.md`, excluding `node_modules` and `__pycache__`, with `console_argv` as the positive
+   control (that one has real readers at `service/api_core/capabilities.py:216`, so the search
+   can find a reader when there is one). The only matches outside the declaration are its two
+   tests and the 2026-05-25 plan documents that introduced it.
+
+   WHAT IT COST ALREADY. The value is a SECOND copy of a launcher name that `console_argv` and
+   `resume_command` each spell out themselves, and the unread copy is the one that rots: the
+   opencode adapter declared `opencode` while every other part of the product -- its own
+   `resume_command`, `mcp/stdio/adapters/opencode.js`, the map in `runtimes.js` and that file's
+   `AIFY_OPENCODE_AIFY_COMMAND` default -- names `opencode-aify`. Its contract test could not
+   see the disagreement because it asked whether the resume command STARTS WITH the declared
+   name, and a prefix satisfies that. Corrected, with the assertion now comparing the PROGRAM.
+
+   THE TWO WAYS OUT, and each is a real choice: delete the property, retiring five declarations
+   and one typed pin; or give it the reader it was introduced for, making `console_argv` and
+   `resume_command` derive their program from it instead of typing it a third time. The second
+   is the one that matches this repo's own rule about deriving allowed values rather than
+   listing them. Neither is done here: a latent wrong value is corrected, and the structural
+   question is left named rather than settled inside a frozen review range.
+
 5. **P-2** — CLOSED FOR v0.6.3, AND THE TREE HAS MOVED PAST IT. `v0.6.3` is tagged; `VERSION`,
    `version.js`, both manifests and `plugin.json` now declare **`0.6.4`**, which is what
    `test_version_is_not_an_already_released_tag.py` requires of a tree carrying work past a
