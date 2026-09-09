@@ -56,15 +56,20 @@ PROBE = "PROBE-VALUE"
 #: Node, driving the real class with the injection it already exposes. `identity` and `credential`
 #: are synthetic; the fetch records and answers. The method list is read off the PROTOTYPE so a new
 #: request cannot be added without this gate seeing it.
+#:
+#: EVERY REQUEST CARRIES ITS OWNER. The recorder stamps whichever method is running, because a
+#: TOTAL is not a relation: a silent method beside one that sends twice satisfies
+#: `len(requests) == len(methods)` exactly. Review built that pair.
 HARNESS = """
 import { CommsApi, mintBridgeIdentity } from '%(api)s';
 const seen = [];
+let running = '(none)';
 const api = new CommsApi({
   endpoint: 'http://probe.invalid:1',
   credential: async () => '',
   identity: mintBridgeIdentity({ version: '0.0.0-probe' }),
   fetchImpl: async (url, init) => {
-    seen.push({ url: String(url), method: String((init && init.method) || 'GET') });
+    seen.push({ owner: running, url: String(url), method: String((init && init.method) || 'GET') });
     return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
   },
 });
@@ -76,8 +81,10 @@ const names = Object.getOwnPropertyNames(Object.getPrototypeOf(api))
   });
 const failed = [];
 for (const name of names) {
+  running = name;
   try { await api[name]('%(probe)s', '%(probe)s'); }
   catch (error) { failed.push(name + ': ' + String(error && error.message)); }
+  running = '(between calls)';
 }
 console.log(JSON.stringify({ methods: names, requests: seen, failed }));
 """
@@ -115,6 +122,13 @@ def emitted_requests(repo: Path) -> dict:
     script.write_text(HARNESS % {"probe": PROBE, "api": api}, encoding="utf-8")
     result = subprocess.run(
         ["node", str(script)], cwd=repo, capture_output=True, text=True)
+    # A PAYLOAD FROM A PROCESS THAT DID NOT SUCCEED IS NOT EVIDENCE. This read stdout and
+    # ignored the exit status, so a plugin copy setting `process.exitCode = 7` while printing
+    # normal JSON was admitted and every assertion passed on it.
+    if result.returncode != 0:
+        raise AssertionError(
+            f"the driver exited {result.returncode}, so nothing it printed is admitted: "
+            f"{result.stdout[-400:]}{result.stderr[-400:]}")
     payload = [line for line in result.stdout.splitlines() if line.startswith("{")]
     if not payload:
         raise AssertionError(
@@ -185,11 +199,13 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
         self.routes = served_routes()
 
     def test_every_public_method_emitted_a_request(self) -> None:
-        """The control that closes the discovery hole: a method that sends nothing is a gap.
+        """EACH METHOD emits exactly one request, which is the relation the claim needs.
 
-        Losing a request used to be invisible -- a regex missed one of ten call sites and every
-        assertion still passed, because the floor was a minimum rather than a relation. The relation
-        is one request per public method, and it is derived from the prototype rather than listed.
+        A TOTAL IS NOT A RELATION. `len(requests) == len(methods)` is satisfied by a method that
+        emits nothing paired with one that emits twice, and review built exactly that: a silent
+        `agents()` beside a `heartbeat()` sending an extra valid GET, ten methods, ten requests,
+        every assertion green. Before that it was a FLOOR -- at least eight -- which nine
+        satisfied when there were ten. Ownership is stamped on each request by the recorder.
         """
         methods = self.driven["methods"]
         self.assertGreaterEqual(
@@ -199,10 +215,13 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
         self.assertEqual(
             self.driven["failed"], [],
             "a public method raised before reaching the transport, so its address went unjudged")
+        per_method = {name: 0 for name in methods}
+        for request in self.driven["requests"]:
+            per_method[request["owner"]] = per_method.get(request["owner"], 0) + 1
         self.assertEqual(
-            len(self.driven["requests"]), len(methods),
-            f"{len(methods)} public method(s) produced {len(self.driven['requests'])} request(s); "
-            "one that sends nothing leaves its address unchecked")
+            {name: count for name, count in per_method.items() if count != 1}, {},
+            "every public method must emit exactly one request: a method that emits none leaves "
+            "its address unchecked, and one that emits two hides that gap in the total")
 
     def test_the_service_offers_a_surface_to_compare_against(self) -> None:
         """The other half of the control: an empty route table satisfies every match below."""

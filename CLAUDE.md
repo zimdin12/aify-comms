@@ -405,11 +405,12 @@ gate below names as a claim it enforces.
 this table had been wrong four times: every row matches its measured line count exactly and the
 membership matches the measured ranking, so nothing here needed correcting on either date. The
 census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> 538 -> 539
--> 540 -> 541 -> 542 -> 543 -> **546 on 2026-09-09** -- 267 Python and 279 JS -- as `service/new_dashboard/console-cursor.mjs`,
+-> 540 -> 541 -> 542 -> 543 -> 546 -> **547 on 2026-09-09** -- 268 Python and 279 JS -- as `service/new_dashboard/console-cursor.mjs`,
 `scripts/measure-ws-hop-browser.py`, `scripts/measure-console-projection.py`,
 `scripts/check-deployed-console-transport.py`, `scripts/measure-live-frame-gaps.mjs` and
 `scripts/measure-live-console-fetch.py`, `scripts/measure-coalescing-severity.py` and
-`scripts/acceptance-ledger.py` and `scripts/deleted-import-census.py` arrived
+`scripts/acceptance-ledger.py`, `scripts/deleted-import-census.py` and
+`scripts/comment_spans.py` arrived
 with the console, transport and acceptance work.
 
 **AND THE WRITTEN FIGURE WAS TWO LOW BEFORE THAT LAST STEP, which is the fifth time this table

@@ -38,23 +38,34 @@ burned by.
 
     python scripts/deleted-import-census.py [since]
 
-EIGHT CONTROLS IN EVERY RUN. Positive: a live module is named, with THIS FILE excluded from the
-population so the instrument cannot answer for itself. Negative: a name that was never a file is not.
-Then six carriers, three per direction. CODE: a multiline `require`, a multiline dynamic
-`import`, and comment TEXT sitting inside a string literal. PROSE: a `//` comment, a Python
-docstring, and a `//` comment following a regex literal whose character class holds a quote --
-the shape that made the first scanner read a whole file's comments as code. Exit 1 if any
-control fails or anything is named from code.
+CONTROLS IN EVERY RUN. Positive: a live module is named, with THIS FILE excluded from the population
+so the instrument cannot answer for itself. Negative: a name that was never a file is not. Then TEN
+carriers -- SEVEN that must read as CODE and THREE as PROSE, which is not a symmetric set and was
+published as one. CODE: a multiline `require`, a multiline dynamic `import`, comment TEXT inside a
+string literal, an import sharing its line with a trailing note, a Python assignment with one, and
+that assignment after an ASCII and then a NON-ASCII docstring on the same line -- the pair that
+isolates a column UNIT rather than a shape. PROSE: a `//` comment, a Python docstring, and a `//`
+comment following a regex literal whose character class holds a quote.
+
+AND A DIFFERENTIAL AGAINST V8, because a carrier only exercises a shape somebody thought to write --
+and both of this scanner's defects lived in shapes nobody did. Every comment span it reports is
+blanked out and the result handed to `vm.SourceTextModule`: a scanner that ate code produces a file
+V8 cannot parse. Its own negative control runs beside it, the same files with every span stretched
+forty characters past its end, which must FAIL; a file where even that still parses contributes no
+evidence and is dropped rather than counted. Exit 1 if any control fails or anything is named from
+code.
 """
 from __future__ import annotations
 
-import ast
-import io
+import json
 import subprocess
 import sys
 import tempfile
-import tokenize
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from comment_spans import comment_spans, js_comment_spans   # noqa: E402  (path set above)
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SINCE = "aed8b590"
@@ -108,150 +119,6 @@ def naming(basename: str) -> list[str]:
     return files
 
 
-def _offsets(text: str) -> list[int]:
-    """Character offset of the first character of each line, 1-indexed by line."""
-    starts = [0, 0]
-    for line in text.split(chr(10))[:-1]:
-        starts.append(starts[-1] + len(line) + 1)
-    return starts
-
-
-def python_comment_spans(text: str) -> list[tuple[int, int]]:
-    """(start, end) character offsets of comments and docstrings, from Python's own tools."""
-    spans: list[tuple[int, int]] = []
-    starts = _offsets(text)
-
-    def offset(row: int, col: int) -> int:
-        return (starts[row] if row < len(starts) else len(text)) + col
-
-    try:
-        for token in tokenize.generate_tokens(io.StringIO(text).readline):
-            if token.type == tokenize.COMMENT:
-                spans.append((offset(*token.start), offset(*token.end)))
-    except (tokenize.TokenError, IndentationError, SyntaxError):
-        return []
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return spans
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        body = getattr(node, "body", None)
-        if not body:
-            continue
-        first = body[0]
-        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
-                and isinstance(first.value.value, str):
-            spans.append((offset(first.lineno, first.col_offset),
-                          offset(first.end_lineno or first.lineno,
-                                 first.end_col_offset or first.col_offset)))
-    return spans
-
-
-#: A `/` starts a REGEX rather than a division when the last meaningful thing before it cannot end
-#: an expression. The standard JS lexing ambiguity, and the first version of this scanner ignored it
-#: entirely: a character class holding a quote opened a string that never closed, and every comment
-#: after it read as code. The carriers now include that exact shape.
-REGEX_MAY_FOLLOW = set("(,=:[!&|?{};+-*%~^<>") | {""}
-REGEX_KEYWORDS = {"return", "typeof", "case", "in", "of", "new", "delete", "void", "throw",
-                  "do", "else", "yield", "await", "instanceof"}
-
-
-def js_comment_spans(text: str) -> list[tuple[int, int]]:
-    """(start, end) character offsets of `//` and `/* */` comments, tracking strings and regexes.
-
-    HAND-ROLLED, AND DRIVEN RATHER THAN TRUSTED. This repo's record on hand-rolled JS scanners is
-    four of them and four wrong answers, and this one added a fifth and a sixth before its carriers
-    caught them: a regex literal read as a string, and then a whole LINE classified from one comment
-    on it.
-
-    MISCLASSIFICATION IS SAFE IN ONE DIRECTION ONLY. Reading a comment as CODE over-reports, and an
-    over-report is printed for a person to judge. Reading code as a COMMENT hides a real reference.
-    So every ambiguity here resolves toward CODE.
-    """
-    spans: list[tuple[int, int]] = []
-    i = 0
-    state = "code"          # code | line_comment | block_comment | regex | ' | " | `
-    previous = ""           # last meaningful character seen in code
-    start = 0
-    while i < len(text):
-        char = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-        if state == "code":
-            if char == "/" and nxt == "/":
-                state, start, i = "line_comment", i, i + 2
-                continue
-            if char == "/" and nxt == "*":
-                state, start, i = "block_comment", i, i + 2
-                continue
-            if char == "/" and _regex_may_start(text, i, previous):
-                state, i = "regex", i + 1
-                continue
-            if char in "'\"`":
-                state, i = char, i + 1
-                continue
-            if not char.isspace():
-                previous = char
-            i += 1
-            continue
-        if state == "line_comment":
-            if char == chr(10):
-                spans.append((start, i))
-                state = "code"
-            i += 1
-            continue
-        if state == "block_comment":
-            if char == "*" and nxt == "/":
-                spans.append((start, i + 2))
-                state, i = "code", i + 2
-                continue
-            i += 1
-            continue
-        if state == "regex":
-            if char == "\\":
-                i += 2
-                continue
-            if char == "[":
-                # A CHARACTER CLASS SWALLOWS `/`, and this is where the quote in a class like
-                # ["'`] lives. Skip to its close rather than ending the regex early.
-                close = text.find("]", i + 1)
-                i = (close + 1) if close != -1 else i + 1
-                continue
-            if char == "/":
-                state, previous = "code", "/"
-            i += 1
-            continue
-        # inside a string or template literal
-        if char == "\\":
-            i += 2
-            continue
-        if char == state:
-            state = "code"
-            previous = char
-        i += 1
-    if state in ("line_comment", "block_comment"):
-        spans.append((start, len(text)))
-    return spans
-
-
-def _regex_may_start(text: str, index: int, previous: str) -> bool:
-    """Could a regex literal begin at this `/`? Ambiguity resolves toward NO, which means CODE."""
-    if previous in REGEX_MAY_FOLLOW:
-        return True
-    before = text[:index].rstrip()
-    word = ""
-    while before and (before[-1].isalpha() or before[-1] == "_"):
-        word = before[-1] + word
-        before = before[:-1]
-    return word in REGEX_KEYWORDS
-
-
-def comment_spans(path: Path) -> list[tuple[int, int]]:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return python_comment_spans(text) if path.suffix == ".py" else js_comment_spans(text)
-
-
 def occurrences(path: Path, name: str) -> list[tuple[int, int]]:
     """(offset, line) for every literal occurrence of the name in this file."""
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -287,6 +154,97 @@ REGEX_CARRIER = (chr(47) + "192[.]168[." + chr(92) + "d+["
                  + chr(34) + chr(39) + chr(96) + "]" + chr(47))
 
 
+#: V8, asked whether a file still parses once everything the scanner calls a comment is blanked out.
+#: Written to a scratch file per run rather than kept in the tree: it is an instrument's instrument.
+PARSE_HARNESS = """
+import vm from 'node:vm';
+import { readFileSync } from 'node:fs';
+const jobs = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const out = [];
+for (const job of jobs) {
+  const verdict = { path: job.path };
+  for (const which of ['original', 'blanked']) {
+    try { new vm.SourceTextModule(job[which], { identifier: job.path + which }); verdict[which] = 'ok'; }
+    catch { verdict[which] = 'error'; }
+  }
+  out.push(verdict);
+}
+console.log(JSON.stringify(out));
+"""
+
+
+def _blank(text: str, spans: list[tuple[int, int]]) -> str:
+    """The file with every comment span replaced by spaces, newlines kept so lines still align."""
+    chars = list(text)
+    for start, end in spans:
+        for i in range(start, min(end, len(chars))):
+            if chars[i] != chr(10):
+                chars[i] = " "
+    return "".join(chars)
+
+
+def scanner_differential(files: list[str]) -> tuple[str, list[str]]:
+    """Does blanking the scanner's comment spans leave these files parsing? V8 answers.
+
+    A scanner that eats code produces a file V8 cannot parse. Returns a verdict word and the
+    files that broke, or ("unknown", ...) when the harness could not be run -- because a check
+    that gathered no evidence is not a passed one.
+    """
+    jobs = []
+    for rel in files:
+        path = ROOT / rel
+        if path.suffix not in (".js", ".mjs", ".cjs") or not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        spans = js_comment_spans(text)
+        if not spans:
+            continue
+        jobs.append({"path": rel, "original": text, "blanked": _blank(text, spans)})
+        # THE NEGATIVE CONTROL, on the same file and in the same invocation: every span stretched
+        # forty characters past its end is a scanner that eats code, and it must NOT parse.
+        jobs.append({"path": rel + " [stretched]", "original": text,
+                     "blanked": _blank(text, [(a, b + 40) for a, b in spans])})
+    if not jobs:
+        return "unknown", ["no JavaScript file with a comment reached the differential"]
+
+    scratch = Path(tempfile.mkdtemp())
+    harness = scratch / "parses.mjs"
+    harness.write_text(PARSE_HARNESS, encoding="utf-8")
+    payload = scratch / "jobs.json"
+    payload.write_text(json.dumps(jobs), encoding="utf-8")
+    out = subprocess.run(["node", "--experimental-vm-modules", str(harness), str(payload)],
+                         capture_output=True, text=True)
+    lines = [line for line in out.stdout.splitlines() if line.startswith("[")]
+    if not lines:
+        return "unknown", [f"the parser harness did not run: {out.stderr.strip()[-200:]}"]
+    results = json.loads(lines[-1])
+
+    broke = [r["path"] for r in results
+             if not r["path"].endswith("[stretched]")
+             and r["original"] == "ok" and r["blanked"] == "error"]
+    # The stretched arm must break wherever the honest arm parsed, or the differential is blind.
+    honest = {r["path"]: r for r in results if not r["path"].endswith("[stretched]")}
+    blind = [r["path"] for r in results
+             if r["path"].endswith("[stretched]")
+             and honest.get(r["path"][: -len(" [stretched]")], {}).get("original") == "ok"
+             and r["blanked"] != "error"]
+    # A FILE WHOSE STRETCHED ARM STILL PARSES CONTRIBUTES NO EVIDENCE and is dropped rather than
+    # voiding the run: stretching forty characters past a comment that is followed by forty more
+    # characters of comment changes nothing, which is a property of that file and not a fault.
+    # What would be a fault is judging the honest arm of a file whose control cannot fire.
+    judged = [r for r in honest.values()
+             if r["original"] == "ok" and r["path"] not in {b[: -len(" [stretched]")] for b in blind}]
+    if len(judged) < 5:
+        return "unknown", [f"only {len(judged)} file(s) had a differential that could fail, which is too few to mean anything"]
+    broke = [r["path"] for r in judged if r["blanked"] == "error"]
+    return ("broken", broke) if broke else ("ok", [f"{len(judged)} file(s) judged"])
+
+
+#: A Python triple quote, from character codes: written literally it would end the string it
+#: is being written into.
+DOC_QUOTE = chr(34) * 3
+
+
 def carrier_verdicts() -> list[str]:
     """Eight carriers, four per direction, through the same searcher and the same classifier."""
     scratch = Path(tempfile.mkdtemp())
@@ -320,6 +278,19 @@ def carrier_verdicts() -> list[str]:
             "trail.mjs", f'const x = await import("./{name}"); // unrelated note\n', "code"),
         "a Python assignment with a trailing comment is still CODE": (
             "trail.py", f'X = "./{name}"  # unrelated note\n', "code"),
+        # TWO TOOLS, TWO COLUMN UNITS. `tokenize` reports CHARACTER columns and the AST reports
+        # UTF-8 BYTE columns; joined without conversion, a docstring of non-ASCII characters
+        # reported an end column far past its real one and swallowed the code sharing its line.
+        # The ASCII twin is here so the pair isolates the ENCODING and not the shape: identical
+        # code, identical structure, and only an encoding fault can tell them apart.
+        "an assignment after an ASCII docstring on one line is CODE": (
+            "ascii-doc.py",
+            DOC_QUOTE + ("a" * 40) + DOC_QUOTE + '; X = "./' + name + '"\n',
+            "code"),
+        "an assignment after a NON-ASCII docstring on one line is CODE": (
+            "utf8-doc.py",
+            DOC_QUOTE + (chr(233) * 40) + DOC_QUOTE + '; X = "./' + name + '"\n',
+            "code"),
     }
     for _label, (filename, body, _want) in cases.items():
         (scratch / filename).write_text(body, encoding="utf-8")
@@ -392,6 +363,8 @@ def main() -> int:
                   "a `//` inside a string literal is CODE",
                   "an import with a trailing comment is still CODE",
                   "a Python assignment with a trailing comment is still CODE",
+                  "an assignment after an ASCII docstring on one line is CODE",
+                  "an assignment after a NON-ASCII docstring on one line is CODE",
                   "a `//` comment naming it is PROSE",
                   "a Python docstring naming it is PROSE",
                   "a comment after a regex holding a quote is PROSE"):
@@ -399,21 +372,45 @@ def main() -> int:
         print(f"  carrier: {label:44} {bad[0][len(label):].strip() if bad else 'OK'}")
     ok = ok and not failures
 
+    # THE DIFFERENTIAL, over the repo's REAL files rather than constructed ones. Both scanner
+    # defects so far lived in shapes nobody thought to write a carrier for.
+    sample = sorted({rel for rels in list(prose_only.values()) + list(reached.values())
+                     for rel in [entry.rsplit(':', 1)[0] for entry in rels]})
+    floor = [str(p.relative_to(ROOT).as_posix())
+             for p in sorted((ROOT / 'mcp' / 'stdio').glob('*.mjs'))[:15]]
+    verdict, broke = scanner_differential(sorted(set(sample) | set(floor)))
+    print(f"  V8 differential: blanking the scanner's comments leaves every file parsing "
+          f"-- {verdict.upper()}")
+    for item in broke:
+        print(f"      {item}")
+    ok = ok and verdict == "ok"
+
     print()
+    # THE SCOPE NOTE PRINTS ON EVERY BRANCH THAT REPORTS A FIGURE. It used to sit only under the
+    # CLEAN return, so the branch this repo actually takes -- NEEDS JUDGEMENT -- published the
+    # counts with no statement of what they mean. A caveat that is skipped exactly where the
+    # numbers are read is not a caveat.
+    def scope() -> None:
+        print()
+        print("SCOPE, so this is not over-read: the first figure is literal-name absence, NOT")
+        print("unreachability. A specifier that spells a letter as an escape, or is concatenated")
+        print("or computed, evaluates to the same path with no raw-name hit, and nothing here")
+        print("resolves a specifier. The second and third rest on the classifier, which the ten")
+        print("carriers above drive in both directions and which V8 checks differentially.")
+
     if not ok:
         print("The census reports nothing, because its own instrument failed a control.")
         return 1
     if reached:
-        print(f"NEEDS JUDGEMENT: {len(reached)} deleted module(s) are named from code.")
+        print(f"NEEDS JUDGEMENT: {len(reached)} deleted module(s) are named from code -- and a")
+        print(f"string literal lands there too. {len(unnamed)} are not SPELLED anywhere in the")
+        print(f"searched population, {len(prose_only)} appear only inside comments or docstrings.")
+        scope()
         return 1
     print(f"CLEAN: of {len(gone)} deleted files, {len(unnamed)} are not SPELLED anywhere in the")
     print(f"searched population and {len(prose_only)} appear only inside comments or docstrings.")
     print("None is named from code.")
-    print()
-    print("SCOPE, so this is not over-read: the first figure is literal-name absence, NOT")
-    print("unreachability. An escaped, concatenated or computed specifier evaluates to the same")
-    print("path with no raw-name hit, and nothing here resolves a specifier. The second figure")
-    print("rests on the classifier, which the eight carriers above drive in both directions.")
+    scope()
     return 0
 
 
