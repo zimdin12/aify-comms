@@ -59,6 +59,7 @@ const seen = new Map();
 /** Arrival times per terminal, so the distance from the coalescing threshold can be stated. */
 const arrivedAt = new Map();
 const gapsMs = [];
+let badSpans = 0;
 let frames = 0;
 let unnumbered = 0;
 let regressed = 0;
@@ -69,7 +70,13 @@ function note(terminalId, seq, at) {
   if (at !== undefined) {
     const previous = arrivedAt.get(terminalId);
     arrivedAt.set(terminalId, at);
-    if (previous !== undefined) gapsMs.push(at - previous);
+    // FINITE AND NOT NEGATIVE, for the reason the projection probe's spans are admitted the same
+    // way: a guard phrased as "drop the negative ones" admits NaN, because NaN fails every
+    // comparison. A clock that misbehaves must refuse, never quietly widen the distribution.
+    if (previous !== undefined) {
+      const span = at - previous;
+      if (Number.isFinite(span) && span >= 0) gapsMs.push(span); else badSpans += 1;
+    }
   }
   if (seq === null || seq === undefined) { unnumbered += 1; return; }
   const last = seen.get(terminalId);
@@ -132,6 +139,14 @@ async function main() {
     process.exit(2);
   }
 
+  // A SOCKET THAT DIES MID-WINDOW OBSERVES NOTHING AFTER IT, AND WOULD REPORT THE PARTIAL WINDOW
+  // AS THE WHOLE ONE. Self-review found this: a service restart at second 10 of a 360s run leaves
+  // a frame count that clears the floor and a "0 gaps" verdict covering 350 seconds nobody watched.
+  // The window has to be closed by the TIMER, not by the transport.
+  let closedEarly = null;
+  socket.addEventListener('close', (e) => { closedEarly ??= { code: e.code, at: Date.now() }; });
+  socket.addEventListener('error', () => { closedEarly ??= { code: 'error', at: Date.now() }; });
+
   console.log(`WATCHING the live service for ${SECONDS}s. Read-only: no agent_id, nothing sent.`);
   socket.addEventListener('message', (event) => {
     let payload;
@@ -146,8 +161,19 @@ async function main() {
       performance.now());
   });
 
+  const startedAt = Date.now();
   await new Promise((resolve) => setTimeout(resolve, SECONDS * 1000));
+  const early = closedEarly;
   socket.close();
+
+  if (early) {
+    const watched = ((early.at - startedAt) / 1000).toFixed(0);
+    console.log('');
+    console.log(`UNKNOWN: the socket closed after ${watched}s of a ${SECONDS}s window `
+      + `(${early.code}), so the rest was not observed and a verdict would cover time nobody`);
+    console.log('watched. Re-run against a service that stays up.');
+    process.exit(2);
+  }
 
   console.log('');
   console.log(`  frames seen            ${frames}   across ${seen.size} terminal(s)`);
@@ -178,6 +204,12 @@ async function main() {
   // than beside it: an inter-FRAME interval equals an inter-POST interval only while nothing is
   // coalescing, because a coalesced flush hides the posts inside it. With gaps observed, this
   // becomes a lower bound on the post rate and says so.
+  if (badSpans) {
+    console.log(`UNKNOWN: ${badSpans} arrival interval(s) were not finite non-negative durations,`);
+    console.log('so the clock this run measured with cannot be trusted for the rest of it.');
+    process.exit(2);
+  }
+
   if (gapsMs.length) {
     const sorted = gapsMs.slice().sort((a, b) => a - b);
     const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))];
