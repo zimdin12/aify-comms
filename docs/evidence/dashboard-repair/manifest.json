@@ -1,0 +1,127 @@
+{
+  "base": "5b55ee3bbca9f91048dcb1018fdbeb3540eaf016",
+  "browser": "Chrome/149.0.7827.3",
+  "sourceSha256": {
+    "service/new_dashboard/xterm-mount.mjs": "d830ce22ba518f38dd03170b31a62e7511e0dfcd847e2dcbd1712b758e1fc25a",
+    "service/new_dashboard/extraction-proof.test.mjs": "c5038aaa4230ffdcf36ecb2f0fcd4abda0d355e7e71ecb60a0da81689104196e",
+    "service/new_dashboard/fixtures/dashboard-browser-check.mjs": "a830894c6d99b8f3020f88e7c3ad7a926861b10812f5ef7f37b95adbc8a54caf"
+  },
+  "logs": [
+    {
+      "file": "browser-base-red.log",
+      "bytes": 2754,
+      "sha256": "b6e0f5b4ad502eb481c82142fe312e008b247bdc33b18c3a972efa232b9bdf24",
+      "passed": 5,
+      "failed": 5,
+      "checks": 10,
+      "failedChecks": [
+        "Ctrl+V",
+        "Ctrl+Shift+V",
+        "bracketed Ctrl+V",
+        "Ctrl+V without async clipboard API",
+        "same-container reuse and dispose/remount keep one input listener"
+      ]
+    },
+    {
+      "file": "browser-deployed-source-red.log",
+      "bytes": 2909,
+      "sha256": "89b8bcba624c5f72b8fd0e1ff97c906f3ec5d8edffd5118bd36d40fcdddc1d08",
+      "passed": 2,
+      "failed": 8,
+      "checks": 10,
+      "failedChecks": [
+        "Ctrl+V",
+        "Ctrl+Shift+V",
+        "bracketed Ctrl+V",
+        "Ctrl+V without async clipboard API",
+        "same-container reuse and dispose/remount keep one input listener",
+        "mount snapshot and matching held frame render assistant output once",
+        "recovery preserves a quiet final frame received during its HTTP wait",
+        "gap recovery rejoins the stream instead of fetching on the next frame"
+      ]
+    },
+    {
+      "file": "browser-expanded-green.log",
+      "bytes": 2219,
+      "sha256": "a8ee0386a38887a4c016f9a26d6e5d5d836767a6cf45f70112a549f42a0921e7",
+      "passed": 10,
+      "failed": 0,
+      "checks": 10,
+      "failedChecks": []
+    },
+    {
+      "file": "browser-final-green.log",
+      "bytes": 2219,
+      "sha256": "a8ee0386a38887a4c016f9a26d6e5d5d836767a6cf45f70112a549f42a0921e7",
+      "passed": 10,
+      "failed": 0,
+      "checks": 10,
+      "failedChecks": []
+    },
+    {
+      "file": "browser-green.log",
+      "bytes": 110,
+      "sha256": "73ea813dc232ee725e17cd5843b65948666e5038311ef69db085f4cfbaccbd9a"
+    },
+    {
+      "file": "browser-red.log",
+      "bytes": 657,
+      "sha256": "4f8b81534134ec3f8914b168a0c1b5e7d34554a2f84e4bc253664da14060747f"
+    },
+    {
+      "file": "suite-baseline-dashboard-cwd.log",
+      "bytes": 334747,
+      "sha256": "d9b8a5344e5a0356869779035c1fa81b90959f441475cce2e215a8b28d80115b",
+      "tests": 1712,
+      "pass": 1712,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "file": "suite-baseline.log",
+      "bytes": 342593,
+      "sha256": "2b5ba3a06c1bba9f545352df4805ce92cad200c99105715f0c09abbb686fb786",
+      "tests": 1712,
+      "pass": 1705,
+      "fail": 7,
+      "skipped": 0
+    },
+    {
+      "file": "suite-current.log",
+      "bytes": 344736,
+      "sha256": "b6ab878de045a8cac7fdd90721060f9711c9c1c363c6a030e8e420eeae37c482",
+      "tests": 1712,
+      "pass": 1703,
+      "fail": 9,
+      "skipped": 0
+    },
+    {
+      "file": "suite-dashboard-cwd.log",
+      "bytes": 336928,
+      "sha256": "3d91fa1e006a1b9b070c230e40114bfe43a01d59d6fafafaab35e5cb2427ecec",
+      "tests": 1712,
+      "pass": 1710,
+      "fail": 2,
+      "skipped": 0
+    },
+    {
+      "file": "suite-final-dashboard-cwd.log",
+      "bytes": 334759,
+      "sha256": "3d18723b0a1ae7d4ee88c5d7b51ca81e1a0647566357c0506b47130a04899588",
+      "tests": 1712,
+      "pass": 1712,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "file": "suite-first.log",
+      "bytes": 345676,
+      "sha256": "78655baaaa10fcc0c33212a5bbd80b2b935582aa1c60854038c7abb1e91326f8",
+      "tests": 1712,
+      "pass": 1702,
+      "fail": 10,
+      "skipped": 0
+    }
+  ],
+  "note": "Raw logs are preserved locally and intentionally unstaged. Historical browser refs change served source only. See README.md for cwd and attribution limits."
+}

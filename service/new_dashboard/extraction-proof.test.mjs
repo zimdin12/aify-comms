@@ -2348,6 +2348,41 @@ const EXTRACTIONS = [
           "  mountXtermForTerminalImpl(terminalId, agentId, container, opts, { resyncActiveConsole });",
         ],
         editedSince: [
+          // Native paste owns clipboard data. The browser fixture proves the previous
+          // async clipboard read sent the same Ctrl+V twice with the vendored xterm.
+          {
+            was: [
+              "  // Copy/paste key handler for the http LAN origin (navigator.clipboard is undefined there):",
+              "  // Ctrl+Shift+C copies the selection, Ctrl+Shift+V / Ctrl+V pastes via the clipboard API when",
+              "  // available (loopback secure context) and otherwise leaves the keystroke to flow to the PTY.",
+              "  term.attachCustomKeyEventHandler((e) => {",
+              "    if (e.type !== 'keydown') return true;",
+              "    if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {",
+              "      if (term.hasSelection()) { copyText(term.getSelection()); return false; }",
+              "    }",
+              "    if ((e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) || (e.ctrlKey && !e.shiftKey && (e.key === 'V' || e.key === 'v'))) {",
+              "      if (navigator.clipboard?.readText) {",
+              "        navigator.clipboard.readText().then((txt) => { if (txt) term.paste(txt); }).catch(() => {});",
+              "        return false;",
+              "      }",
+              "    }",
+              "    return true;",
+              "  });",
+            ],
+            now: [
+              "  // Copy needs a shortcut; paste is owned by xterm's native paste listener.",
+              "  // Returning false from this key handler only bypasses xterm's key processing, not the",
+              "  // browser's default paste. Reading the clipboard here too sent Ctrl+V text twice.",
+              "  term.attachCustomKeyEventHandler((e) => {",
+              "    if (e.type !== 'keydown') return true;",
+              "    if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {",
+              "      if (term.hasSelection()) { copyText(term.getSelection()); return false; }",
+              "    }",
+              "    if (e.ctrlKey && (e.key === 'V' || e.key === 'v')) return false;",
+              "    return true;",
+              "  });",
+            ],
+          },
           {
             was: [
               "    if (state.activeXterm) { state.activeXterm.renderedCols = term.cols; state.activeXterm.fitCols = term.cols; }",

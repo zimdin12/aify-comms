@@ -195,20 +195,15 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     });
   } catch { /* older xterm without parser.registerOscHandler */ }
 
-  // Copy/paste key handler for the http LAN origin (navigator.clipboard is undefined there):
-  // Ctrl+Shift+C copies the selection, Ctrl+Shift+V / Ctrl+V pastes via the clipboard API when
-  // available (loopback secure context) and otherwise leaves the keystroke to flow to the PTY.
+  // Copy needs a shortcut; paste is owned by xterm's native paste listener.
+  // Returning false from this key handler only bypasses xterm's key processing, not the
+  // browser's default paste. Reading the clipboard here too sent Ctrl+V text twice.
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
     if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
       if (term.hasSelection()) { copyText(term.getSelection()); return false; }
     }
-    if ((e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) || (e.ctrlKey && !e.shiftKey && (e.key === 'V' || e.key === 'v'))) {
-      if (navigator.clipboard?.readText) {
-        navigator.clipboard.readText().then((txt) => { if (txt) term.paste(txt); }).catch(() => {});
-        return false;
-      }
-    }
+    if (e.ctrlKey && (e.key === 'V' || e.key === 'v')) return false;
     return true;
   });
 
