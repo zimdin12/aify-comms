@@ -246,8 +246,10 @@ worth the contention.
 **AND A THIRD, MEASURED 2026-09-09: AT `-n 8` THE SUITE CAN EXHAUST ITS OWN SOCKETS.** Four
 consecutive runs failed 3, 3, 4 and 3 tests, a DIFFERENT set each time, every named file passing
 alone and all of them passing together. Stashing the working tree and re-running still failed --
-which rules out THAT change and is not a proof about any other. Past the assertion messages one
-cause names itself:
+which establishes that SOME failure happens without the candidate change, and nothing more: the
+failing population differed, so it does not exclude an additional defect the candidate
+introduced. That still needs per-failure attribution, and this session found two real defects
+exactly there. Past the assertion messages one cause names itself:
 `OSError: [WinError 10055] ... the system lacked sufficient buffer space`, raised by the
 `connect()` inside CPython's `socket.socketpair()`, with
 `'ProactorEventLoop' object has no attribute '_ssock'` beside it.

@@ -63,9 +63,6 @@ TAIL_CHARS = _TRIM.__defaults__[0]
 SMALL_TAIL_CHARS = 2 * 1024
 EVENTS = 200
 
-#: A STRING ONLY THESE FIXTURES' OWN PAINTED TAIL PRODUCES, so a snapshot can be checked for
-#: CONTENT and not merely for being a non-empty string.
-CONTENT_WITNESS = "of a full-screen redraw"
 
 #: THE FOUR ARMS, named once. Two vary the RESPONSE SHAPE over one stored tail; the third varies
 #: the TAIL at a fixed shape; the fourth holds tail and events identical to the second and adds a
@@ -78,7 +75,8 @@ CONSOLE_LIVE = "console, LIVE screen"
 #: THE LIVE BRANCH'S OWN SIGNATURE. `terminal_snapshot_view` takes `outputSeq` from the SCREEN's
 #: sequence on the live branch and leaves the stored column's on the fallback, so seeding the two
 #: with different numbers makes the RESPONSE say which branch answered it. Binding the label to
-#: the setup call instead let review suppress the feed and still be told LIVE on all 41 requests.
+#: the setup call instead let review suppress the feed and still be told LIVE on every one of the
+#: 40 MEASURED requests (the warm-up is discarded before any check runs, so it is not among them).
 LIVE_SCREEN_SEQ = 4242
 STORED_SEQ = 1
 
@@ -124,8 +122,11 @@ async def _run() -> int:
     #: THE BODIES ACTUALLY SEEDED, built once so the share printed below is measured from them
     #: rather than from the budgets asked for -- `_painted` completes its final segment, so the
     #: two differ.
-    big_tail = _painted(TAIL_CHARS)
-    small_tail = _painted(SMALL_TAIL_CHARS)
+    # THROUGH THE SERVICE'S OWN TRIM. `_painted` completes its final segment, so asking for the
+    # cap returns 65,607 characters -- and inserting that directly stored a tail 71 over the cap
+    # whose value this probe had just imported. What is seeded is now what the service stores.
+    big_tail = _TRIM(_painted(TAIL_CHARS))
+    small_tail = _TRIM(_painted(SMALL_TAIL_CHARS))
     db = await get_db()
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ")
     # FOREIGN KEYS OFF FOR THE SEED, AND ONLY FOR THE SEED. This connection writes fixture rows;
@@ -205,6 +206,16 @@ async def _run() -> int:
 
     transport = httpx.ASGITransport(app=app)
     refusals: list[str] = []
+
+    # A FIXTURE THE SERVICE COULD NOT STORE MEASURES A CONSOLE THAT CANNOT EXIST. The bodies go
+    # through `_TRIM` above; this is what makes that a REPAIR rather than a call, because
+    # removing it fails here. The property is derived -- a stored body is one the service's own
+    # trim leaves alone -- so no cap is typed twice and a changed cap moves the guard with it.
+    for name, body in (("the 64 KB tail", big_tail), ("the 2 KB tail", small_tail)):
+        if _TRIM(body) != body:
+            refusals.append(f"SEED: {name} is {len(body)} characters and the service would trim "
+                            f"it to {len(_TRIM(body))} -- so this arm would time a console that "
+                            f"cannot be stored")
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8800") as client:
         base = f"/api/v1/terminals/{terminal_id}?cols={COLS}&rows={ROWS}"
         small = f"/api/v1/terminals/{small_id}?cols={COLS}&rows={ROWS}&view=console"
@@ -218,6 +229,19 @@ async def _run() -> int:
         #: WHICH TERMINAL EACH ARM IS ENTITLED TO BE ANSWERED ABOUT.
         expected_id = {DEFAULT_REPLAY: terminal_id, CONSOLE_REPLAY: terminal_id,
                        CONSOLE_SMALL_TAIL: small_id, CONSOLE_LIVE: live_id}
+        #: AND WHAT SCREEN EACH ONE MUST ANSWER WITH -- built INDEPENDENTLY of what was seeded.
+        #:
+        #: DERIVING IT FROM THE STORED TAIL MADE IT VACUOUS, which is the failure this session has
+        #: now produced three times: appending an erase-display to the fixture moved the seeded
+        #: body AND the expectation together, so the carrier published. The expectation comes from
+        #: the probe's own recipe, called again here, so a fixture that stops being what this probe
+        #: claims to seed diverges from it.
+        from service.terminal_snapshot import render_snapshot
+        canon_big = render_snapshot(_TRIM(_painted(TAIL_CHARS)), COLS, ROWS)
+        expected_screen = {DEFAULT_REPLAY: canon_big, CONSOLE_REPLAY: canon_big,
+                           CONSOLE_SMALL_TAIL: render_snapshot(_TRIM(_painted(SMALL_TAIL_CHARS)),
+                                                               COLS, ROWS),
+                           CONSOLE_LIVE: canon_big}
         sizes: dict[str, int] = {}
         timings: dict[str, list[float]] = {k: [] for k in shapes}
 
@@ -254,20 +278,28 @@ async def _run() -> int:
                     refusals.append(f"{label}: the response is for terminal "
                                     f"{answered.get('id')!r}, and this arm asked about "
                                     f"{expected_id[label]!r}")
-                elif CONTENT_WITNESS not in snapshot:
-                    refusals.append(f"{label}: the snapshot carries none of the painted content "
-                                    f"these fixtures seed, so it is not a render of this tail")
+                # THE WHOLE SCREEN, not a substring of the raw bytes. A witness string followed
+                # by an erase-display and a cursor-home passes a membership test and renders
+                # BLANK; comparing against what the service's own renderer produces for this
+                # fixture's stored tail cannot be satisfied that way.
+                elif snapshot != expected_screen[label]:
+                    refusals.append(f"{label}: the snapshot is not the screen this fixture's "
+                                    f"stored tail renders to "
+                                    f"({len(snapshot)} chars against "
+                                    f"{len(expected_screen[label])})")
                 # AND THE BRANCH ITS LABEL NAMES. `terminal_snapshot_view` answers with the
                 # SCREEN's sequence on the live branch and the stored column's on the fallback,
                 # and the two are seeded apart -- so the RESPONSE says which one ran. Binding the
                 # label to the setup call instead let review suppress the feed and still be told
-                # LIVE on all 41 requests.
-                took_live = answered.get("outputSeq") == LIVE_SCREEN_SEQ
-                if (label == CONSOLE_LIVE) != took_live:
-                    refusals.append(f"{label}: outputSeq is {answered.get('outputSeq')!r}, so this "
-                                    f"request took the {'live' if took_live else 'replay'} branch "
-                                    f"while its label says "
-                                    f"{'live' if label == CONSOLE_LIVE else 'replay'}")
+                # LIVE on all 40 MEASURED requests -- the warm-up reaches no check at all.
+                # THE EXACT VALUE, NOT "ANYTHING ELSE IS REPLAY". This compared against the live
+                # sequence and called every other answer replay -- so `null`, which means UNKNOWN
+                # and is not the stored number either, published on a replay-labelled arm.
+                want_seq = LIVE_SCREEN_SEQ if label == CONSOLE_LIVE else STORED_SEQ
+                if answered.get("outputSeq") != want_seq:
+                    refusals.append(f"{label}: outputSeq is {answered.get('outputSeq')!r} and this "
+                                    f"arm must be answered with {want_seq} -- so it did not take "
+                                    f"the branch its label names")
 
         missing = await client.get(f"/api/v1/terminals/never-seeded-{uuid.uuid4().hex[:6]}")
         if missing.status_code != 404:
@@ -279,9 +311,16 @@ async def _run() -> int:
                             f"are the same response twice and the comparison is void")
 
     if refusals:
+        # DISTINCT, WITH THE COUNT KEPT. Every check runs per sample, so one wrong fixture
+        # refuses 40 times and the report buries its own finding. The count stays because it is
+        # evidence: firing once in 40 is a different fact from firing on all of them.
         print("NOTHING IS PUBLISHED:")
+        seen: dict[str, int] = {}
         for line in refusals:
-            print(f"  - {line}")
+            seen[line] = seen.get(line, 0) + 1
+        for line, times in seen.items():
+            suffix = f"  [x{times} of {SAMPLES}]" if times > 1 else ""
+            print(f"  - {line}{suffix}")
         return 1
 
     print()
