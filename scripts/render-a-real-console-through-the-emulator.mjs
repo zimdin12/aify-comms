@@ -72,11 +72,18 @@ if (!screen) {
   process.exit(3);
 }
 
+// AWAITED, BECAUSE `write` RESOLVES WHEN THE PARSER HAS APPLIED THE BYTES. The first version slept
+// 250ms instead, which is the exact mistake `screen-emulator.mjs` warns about in its own docstring:
+// "every caller has to await this or it will render one chunk behind, which looks like lag and is
+// actually a missing await". It happened to be long enough, so the screen was right -- but the
+// number was not: `writeMs` was reported as the emulator's cost and was mostly my own sleep.
 const startedWrite = Date.now();
-screen.write(bytes);
-// The terminal parses asynchronously; this is the settle its own tests use.
-await new Promise((resolve) => setTimeout(resolve, 250));
+const applied = await screen.write(bytes);
 const writeMs = Date.now() - startedWrite;
+if (!applied) {
+  console.error("the emulator did not apply the bytes (disposed, or a stale generation)");
+  process.exit(1);
+}
 
 const startedRead = Date.now();
 const cells = screen.rows();

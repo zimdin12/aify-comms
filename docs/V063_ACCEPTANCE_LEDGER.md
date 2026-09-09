@@ -575,8 +575,16 @@ recorded here rather than attempted in a release cut.
    `GET /api/v1/terminals/{id}` and drives aify-env's real `ScreenEmulator` and `screenLines` over
    it. On a live hermes terminal at 132x26 -- 45,949 characters carrying 2,686 escape sequences and
    2,722 unprintable characters in total -- it produced a 25-line screen, 23 lines non-empty, 132
-   wide, with **zero unprintable characters** and box-drawing intact. 263ms to write, 8ms to read.
-   The status line renders as a reader would see it, progress bar and all.
+   wide, with **zero unprintable characters** and box-drawing intact. **18ms to write, 7ms to
+   read.** The status line renders as a reader would see it, progress bar and all.
+
+   **THAT FIGURE READ 263ms UNTIL THE SCRIPT AWAITED THE WRITE, and the difference was my own
+   sleep.** `ScreenEmulator.write` resolves when the parser has applied the bytes, and its docstring
+   says every caller must await it "or it will render one chunk behind, which looks like lag and is
+   actually a missing await". The first version slept 250ms instead. The screen was right, because
+   250ms was long enough; the NUMBER was not, and it was published as the emulator's cost. Reading a
+   duration off an instrument that contains a fixed sleep measures the sleep. 45,949 characters and
+   2,686 escape sequences parse in 18ms, which is the figure that bears on "really good and fast".
 
    CONTROLLED BOTH WAYS IN THE SAME RUN: a stream that clears the screen and paints nothing exits
    1 as blank, and the same script on a painted line exits 0. A probe that cannot return ABSENT
