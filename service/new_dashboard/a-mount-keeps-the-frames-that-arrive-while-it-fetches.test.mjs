@@ -447,3 +447,44 @@ test("A FETCH THAT FAILS STILL PLACES WHAT WAS HELD", async () => {
     assert.equal(entry.lastSeq, 5);
   });
 });
+
+test("A FRAME FOR THE PREVIOUS TERMINAL IS NOT WRITTEN INTO THE CONSOLE THAT REPLACED IT", async () => {
+  // A SWITCH UNSUBSCRIBES NOTHING. The old agent keeps producing, its frames keep arriving, and
+  // the only thing standing between them and the new console is the socket's terminal check.
+  // With the hold in place those frames would be QUEUED on the new entry rather than painted,
+  // which is worse than painting them: they would be replayed by the next drain as though they
+  // belonged to this console.
+  //
+  // THE FIRST VERSION OF THIS TEST ASSERTED SOMETHING ELSE -- that frames HELD for the previous
+  // console cannot cross -- and could not fail. That holds by construction: the queue lives on the
+  // entry and every writer is handed one, so the obvious mutant (a drain reading
+  // `state.activeXterm.pendingFrames`) survives, because at drain time the two are the same
+  // object. This asserts the check that can actually be removed.
+  await withBrowser(async ({ releaseSnapshot, setSnapshotSeq }) => {
+    setSnapshotSeq(3);
+    state.agents = [...state.agents, { id: "a-2", sessionMode: "resident", terminalId: "t-2" }];
+    const mounting = mountXtermForTerminal("t-2", "a-2", node(), {}, { resyncActiveConsole: async () => {} });
+    releaseSnapshot();
+    await mounting;
+    await settle();
+
+    const live = state.activeXterm;
+    assert.equal(live.terminalId, "t-2");
+
+    // The PREVIOUS terminal is still producing.
+    applyRealtimeEvent("terminal_output",
+      { terminalId: "t-1", agentId: "a-1", seq: 9, output: "AGENT-ONE-BYTES" });
+    assert.ok(!live.term.written.join("").includes("AGENT-ONE-BYTES"),
+      `another terminal's frame was painted here: ${JSON.stringify(live.term.written)}`);
+    assert.deepEqual(live.pendingFrames ?? [], [],
+      "another terminal's frame was QUEUED here, so the next drain would replay it as ours");
+    assert.equal(live.lastSeq, 3, "another terminal's sequence advanced this console's cursor");
+
+    // AND THIS CONSOLE IS ALIVE, which is the half that stops the assertions above being vacuous.
+    applyRealtimeEvent("terminal_output",
+      { terminalId: "t-2", agentId: "a-2", seq: 4, output: "AGENT-TWO-BYTES" });
+    assert.ok(live.term.written.join("").includes("AGENT-TWO-BYTES"),
+      "the console painted nothing, so the assertions above prove nothing");
+    assert.equal(live.lastSeq, 4);
+  });
+});
