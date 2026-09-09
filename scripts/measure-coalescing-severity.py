@@ -203,12 +203,18 @@ def main() -> int:
     # only gaps and settling would call a queue that repeats ONE sequence forever "advancing
     # by one": duplicate numbers gap nothing and settle, and say nothing about advancing.
     repo_clean = all(r[5] == "1" and r[6] == 0 and r[8] for r in rows)
+    # AND "THE STEP EQUALS THE BATCH SIZE" IS A CLAIM ABOUT EACH ROW, so it is read from each
+    # row. It was a caption: a run whose every row stepped by 3 -- at batches 2, 3, 4, 8 and 16 --
+    # still printed it, which is a different queue entirely and would have been reported as this
+    # one. Review supplied exactly that synthetic.
+    step_is_batch = all(r[1] == str(r[0]) for r in rows)
+    cliff = bool(multi) and len(every_frame_gaps) == len(multi)
     print("WHAT THE ROWS SAY:")
-    if multi and len(every_frame_gaps) == len(multi) and repo_clean:
-        print("  The deployed queue's step equals the BATCH SIZE, so from a batch of two onward")
-        print(f"  EVERY frame after the first is a wire gap -- all {len(multi)} multi-post rows.")
-        print("  This is a CLIFF, not a slope: nothing degrades gently, it goes from no gaps to")
-        print("  every frame the moment two posts share one flush window.")
+    if cliff and repo_clean and step_is_batch:
+        print("  The deployed queue's step equals the BATCH SIZE in every row, so from a batch of")
+        print(f"  two onward EVERY frame after the first is a wire gap -- all {len(multi)} of the")
+        print("  multi-post rows. This is a CLIFF, not a slope: nothing degrades gently, it goes")
+        print("  from no gaps to every frame the moment two posts share one flush window.")
         if len(never_settles) == len(multi):
             print()
             print("  THE EPISODE COLUMN IS A HEURISTIC AND SAYS LESS THAN IT ONCE CLAIMED HERE.")
@@ -224,14 +230,19 @@ def main() -> int:
     else:
         print("  The rows do not support a uniform cliff; read them rather than this line.")
         print(f"  (multi-post rows {len(multi)}, all-frames-gap {len(every_frame_gaps)}, "
-              f"never-settling {len(never_settles)}, repo clean {repo_clean})")
+              f"never-settling {len(never_settles)}, repo clean {repo_clean}, "
+              f"step==batch {step_is_batch})")
     print()
     print("WHAT THIS IS NOT: a rate. It says what happens PER COALESCED FLUSH, not how often a")
     print("flush coalesces -- `measure-live-frame-gaps.mjs` is the instrument for that, and it has")
-    print("measured zero WIRE GAPS on this fleet. On the DEPLOYED build, AT THE BATCH SIZES IN")
-    print("THE ROWS ABOVE, a coalesced flush gapped every time -- which is what those rows show")
-    print("and is not a statement about every batch size or every build. On a build that numbers")
-    print("frames correctly the two are different claims, because it gaps nothing either way.")
+    print("measured zero WIRE GAPS on this fleet.")
+    if cliff:
+        print("On the DEPLOYED build, AT THE BATCH SIZES IN THE ROWS ABOVE, a coalesced flush")
+        print("gapped every time -- so on THAT build the two are the same claim. On a build that")
+        print("numbers frames correctly they are not, because it gaps nothing either way.")
+    else:
+        print("These rows do NOT show a coalesced flush always gapping, so zero wire gaps and")
+        print("zero coalescing are separate claims here and neither implies the other.")
     print("Both measurements are needed: this is the severity, that is the exposure.")
     return 0
 
