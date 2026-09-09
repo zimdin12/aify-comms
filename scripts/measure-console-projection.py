@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import statistics
 import sys
@@ -79,6 +80,21 @@ CONSOLE_LIVE = "console, LIVE screen"
 #: 40 MEASURED requests (the warm-up is discarded before any check runs, so it is not among them).
 LIVE_SCREEN_SEQ = 4242
 STORED_SEQ = 1
+
+
+def _is_sequence_number(value: object) -> bool:
+    """Is this the INTEGER row sequence, rather than something merely equal to one?
+
+    EQUALITY IS NOT THE DOMAIN. `True == 1` and `1.0 == 1` in Python, so `!= want_seq` admitted a
+    replay arm answered with JSON `true` and one answered with a float. Review published both.
+
+    `bool` is excluded EXPLICITLY because it subclasses `int`, so an `isinstance(value, int)`
+    alone still admits `True`. Floats are refused rather than rounded: the field is a SQLite
+    integer column serialised straight to JSON, so a float there means the response was built by
+    something other than the path this probe claims to be timing, and coercing it would hide
+    exactly that.
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _painted(chars: int) -> str:
@@ -247,8 +263,21 @@ async def _run() -> int:
 
         # WARM FIRST, DISCARDED. The first request pays import and connection setup, which is not
         # what either column is about.
-        for url in shapes.values():
-            await client.get(url)
+        # VALIDATED, NOT MERELY DISCARDED. Its TIMING is thrown away on purpose -- the first
+        # request pays import and connection setup. Its VERDICT is not: a warmup that 403s
+        # proves the setup did NOT run, and this loop used to ignore the response entirely, so a
+        # run whose every first request failed published exactly like one where they succeeded.
+        # A discarded request evidences that a call was made and nothing else.
+        for label, url in shapes.items():
+            warm = await client.get(url)
+            if warm.status_code != 200:
+                refusals.append(f"WARMUP {label}: answered {warm.status_code}, so the setup this "
+                                f"arm's measurements assume did not complete")
+                continue
+            warmed = (warm.json().get("terminal") or {})
+            if str(warmed.get("id")) != expected_id[label]:
+                refusals.append(f"WARMUP {label}: warmed terminal {warmed.get('id')!r} while this "
+                                f"arm measures {expected_id[label]!r}")
 
         for _ in range(SAMPLES):
             # INTERLEAVED, so a drift in the machine's load moves both columns rather than one.
@@ -296,10 +325,28 @@ async def _run() -> int:
                 # sequence and called every other answer replay -- so `null`, which means UNKNOWN
                 # and is not the stored number either, published on a replay-labelled arm.
                 want_seq = LIVE_SCREEN_SEQ if label == CONSOLE_LIVE else STORED_SEQ
-                if answered.get("outputSeq") != want_seq:
-                    refusals.append(f"{label}: outputSeq is {answered.get('outputSeq')!r} and this "
+                seq_value = answered.get("outputSeq")
+                if not _is_sequence_number(seq_value):
+                    refusals.append(f"{label}: outputSeq is {seq_value!r}, a "
+                                    f"{type(seq_value).__name__}, and this field is an integer "
+                                    f"row sequence -- equality alone would have admitted it")
+                elif seq_value != want_seq:
+                    refusals.append(f"{label}: outputSeq is {seq_value!r} and this "
                                     f"arm must be answered with {want_seq} -- so it did not take "
                                     f"the branch its label names")
+
+        # EVERY SPAN, BEFORE ANY STATISTIC TOUCHES IT. `statistics.median([nan, 1, 2])` returns
+        # 1.0 -- a corrupt clock does not propagate, it produces a PLAUSIBLE number -- and a
+        # negative span published a negative duration. Written POSITIVELY on purpose: `nan < 0`
+        # is False, so a guard phrased as "reject the negative ones" admits NaN. A duration is
+        # finite and above zero, and anything else is refused by name rather than filtered out,
+        # because dropping bad samples silently would leave the table looking measured.
+        for label, spans in timings.items():
+            bad = [s for s in spans if not (math.isfinite(s) and s > 0.0)]
+            if bad:
+                refusals.append(f"CLOCK {label}: {len(bad)} of {len(spans)} spans are not "
+                                f"positive finite durations (first: {bad[0]!r}) -- these are "
+                                f"readings of a broken clock, not measurements")
 
         missing = await client.get(f"/api/v1/terminals/never-seeded-{uuid.uuid4().hex[:6]}")
         if missing.status_code != 404:
