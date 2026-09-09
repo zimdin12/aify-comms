@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
 import { tierVersionVerdict } from "./tier-version-check.mjs";
+import { checkEnvCodeCurrency } from "./env-code-currency-check.mjs";
 import { clientApiKeyVerdict, credentialPolicyFrom } from "./client-api-key-check.mjs";
 import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
@@ -485,6 +486,28 @@ await checkEnvProcesses({
   launcherText: installedLauncherText(),
   machineId: defaultMachineId(),
 });
+// IS THAT aify-env RUNNING THE CODE ON ITS DISK? `tier-version` above compares VERSIONS, and a
+// daemon that loaded its modules days ago reports the same version as one started a minute ago --
+// so the row that exists for tier staleness cannot see this at all. v0.6.3 was built on a host in
+// exactly that state: the renderer the operator asked for sat in files the running process had
+// never loaded, with every instrument green. aify-env already answers the question and nobody was
+// asking it. REPORTS ONLY: restarting reaps the predecessor's managed workers.
+{
+  const { on: delegating, endpoint } = launcherDelegation(installedLauncherText());
+  await checkEnvCodeCurrency({
+    add,
+    skip,
+    endpoint: delegating ? endpoint : "",
+    fetchJson: async (url) => {
+      try {
+        const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(3000) });
+        return response.ok ? await response.json() : null;
+      } catch {
+        return null;
+      }
+    },
+  });
+}
 // CAN THESE AGENTS STILL ANSWER? Measured 2026-08-31: five managed hermes agents produced nothing
 // for over two hours while status read `online`, `lastSeen` refreshed every few seconds and their
 // dispatch runs reported `delivered`. They were reading their messages and starting work, then
