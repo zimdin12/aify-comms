@@ -79,6 +79,22 @@ A result with no candidate attached is not a receipt. Every such row was measure
   | X-4 | `5b7855b1`, repaired for the review's F1/F2/F3 in the successor named at the end |
   | X-5 | `c1a1d46b` |
 
+- **THE FROZEN SUCCESSOR IS `40dc8794`**, which is the tree every row above should be read on: it
+  carries the repairs for the review's F1, F2 and F3, so X-4's and X-2's earlier commits hold shapes
+  that PASSED while proving nothing. Its own run, five suites, one each, all exit status 0:
+
+  | suite | command | result | exit |
+  |---|---|---|---|
+  | python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,653 passed, 10,978 subtests | 0 |
+  | bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 364 suites passed; 1 test skipped in 1 file | 0 |
+  | dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,712 passed, 0 skipped | 0 |
+  | aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 223 tests, 222 passed, 1 skipped | 0 |
+  | aify-env | `cd ~/projects/aify-env && npm test` | 1,699 tests, 1,698 passed, 1 skipped | 0 |
+
+  `TIME_WAIT` was **288** before the python run and **12,296** after, against this host's
+  16,384-port ephemeral range. Nothing failed, so it attributes nothing; it is recorded so a later
+  red is read against a measured before-and-after rather than a remembered one.
+
 - **The five suites, ONE run each, all exit status 0**, taken immediately before that commit so
   every figure in this document reconciles against the same tree:
 
