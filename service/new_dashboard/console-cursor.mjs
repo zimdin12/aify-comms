@@ -68,6 +68,24 @@ export function cursorFromSnapshot(terminal, current) {
   return told === null ? -1 : Number(told === undefined ? current : told);
 }
 
+//: HOW MUCH OF THE PAINTED STREAM IS KEPT. `consoleAwaitingInputHint` reads the last 400
+//: characters, so 600 leaves room for the escape sequences that share those bytes without
+//: holding a console's whole history in memory per entry.
+const REMEMBERED_CHARS = 600;
+
+/**
+ * Remember bytes that were just painted, so the await pill can still see them.
+ *
+ * WHATEVER PAINTS, REMEMBERS. `entry.recentText` is the only input to
+ * `consoleAwaitingInputHint`, and it used to be written on ONE of the four paths that write to
+ * the terminal -- the socket's live branch. A snapshot repaint and a drained frame both left it
+ * stale, so a console whose agent printed its prompt during a recovery showed the prompt and no
+ * pill. Harmless while the drain was rare; the mount hold routes every frame of a newly opened
+ * console through it, which is exactly the quiet-agent case the pill is for.
+ */
+export function rememberPainted(entry, text) {
+  entry.recentText = (String(entry.recentText || '') + String(text)).slice(-REMEMBERED_CHARS);
+}
 /**
  * Paint the frames the socket held while a fetch was in flight, and resume from them.
  *
@@ -136,6 +154,7 @@ export function drainHeldFrames(entry) {
     const first = replay[0];
     try {
       entry.term.write(first.output);
+      rememberPainted(entry, first.output);
       entry.lastSeq = first.seq;
       index = 1;
     } catch { index = 0; }
@@ -145,6 +164,7 @@ export function drainHeldFrames(entry) {
     if (f.seq <= entry.lastSeq) continue;
     if (f.seq !== entry.lastSeq + 1) break;
     try { entry.term.write(f.output); } catch { break; }
+    rememberPainted(entry, f.output);
     entry.lastSeq = f.seq;
   }
   const remainder = replay.slice(index).filter((f) => f.seq > entry.lastSeq);

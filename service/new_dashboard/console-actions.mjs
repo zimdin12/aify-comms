@@ -10,12 +10,13 @@
 // Four injected names, each of which reaches `refresh`.
 
 import { api } from './api-client.mjs';
-import { cursorFromSnapshot, drainHeldFrames } from './console-cursor.mjs';
+import { cursorFromSnapshot, drainHeldFrames, rememberPainted } from './console-cursor.mjs';
 import { sessionAgentId, sessionId } from './record-fields.mjs';
 import { sessionForRun } from './run-inspector-controls.mjs';
 import { state } from './state.mjs';
 import { forceTerminalRepaint } from './terminal-input.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
+import { updateAwaitPill } from './console-await.mjs';
 import { toast, uiConfirm } from './ui.js';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 
@@ -86,7 +87,13 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     entry.term.reset();
     applyRenderedWidth(entry, entry.term, entry.container, data, Boolean(entry.ownsPty));
     const snapshot = data?.terminal?.snapshot;
-    entry.term.write(String(snapshot || data?.terminal?.output || ''));
+    const painted = String(snapshot || data?.terminal?.output || '');
+    entry.term.write(painted);
+    // THE SCREEN WAS JUST REPLACED, so what the console recently showed is this and not what
+    // stood before the reset. Appending would leave a prompt from a screen that no longer
+    // exists able to raise the pill.
+    entry.recentText = '';
+    rememberPainted(entry, painted);
     // WHERE THE CONSOLE IS AFTER THIS SNAPSHOT, read by the module that owns the question --
     // `console-cursor.mjs` -- because the MOUNT asks it too and had the uncorrected copy.
     const snapshotSeq = cursorFromSnapshot(data?.terminal, entry.lastSeq);
@@ -104,6 +111,7 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     // moved backwards; anything still missing arrives as a gap and recovers.
     if (Number.isFinite(snapshotSeq)) entry.lastSeq = snapshotSeq;
     unresolved = drainHeldFrames(entry);
+    updateAwaitPill();
   } catch { /* keep current buffer */ }
   finally { entry.resyncing = false; }
 

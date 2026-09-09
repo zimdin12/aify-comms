@@ -21,7 +21,7 @@ import { apiOrigin } from './api-client.mjs';
 import { state } from './state.mjs';
 import { dispositionOf } from './realtime-dispositions.mjs';
 import { updateAwaitPill } from './console-await.mjs';
-import { holdFrame } from './console-cursor.mjs';
+import { holdFrame, rememberPainted } from './console-cursor.mjs';
 
 let dashboardNotifier = { handle() {} };
 let evaluateFlowGates = () => {};
@@ -204,7 +204,7 @@ export function applyRealtimeEvent(event, data = {}) {
       try {
         if (entry.term) entry.term.write(data.output);
         else if (entry.fallbackPre) { entry.fallbackPre.textContent += data.output; entry.fallbackPre.scrollTop = entry.fallbackPre.scrollHeight; }
-        entry.recentText = (String(entry.recentText || '') + String(data.output)).slice(-600);
+        rememberPainted(entry, data.output);
         updateAwaitPill();
       } catch {}
     }

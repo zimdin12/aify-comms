@@ -13,7 +13,8 @@
 
 import { api } from './api-client.mjs';
 import { copyText } from './clipboard.mjs';
-import { cursorFromSnapshot, drainHeldFrames } from './console-cursor.mjs';
+import { updateAwaitPill } from './console-await.mjs';
+import { cursorFromSnapshot, drainHeldFrames, rememberPainted } from './console-cursor.mjs';
 import { agentForTerminal } from './session-rail.mjs';
 import { terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { state } from './state.mjs';
@@ -418,8 +419,22 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     // line-drawing charset underneath ("____ everywhere"). A full reset makes the seed
     // self-contained no matter what the pane was showing before.
     try { term.reset(); } catch { /* xterm always has reset(); never block the seed */ }
-    if (snapshot) term.write(String(snapshot));
-    else if (output) term.write(String(output));
+    const painted = snapshot ? String(snapshot) : String(output || '');
+    if (painted) term.write(painted);
+    // WHAT THIS CONSOLE NOW SHOWS, which the await pill reads and nothing else supplies. The
+    // frames the drain places below add to it, which is the case that made this necessary: on a
+    // quiet agent every byte of a newly opened console arrives during the fetch and is placed by
+    // the drain.
+    //
+    // SEEDED, NOT APPENDED, and the difference is reachable. A frame with no finite `seq` is not
+    // held -- there is nothing to place it by -- so it paints and remembers during this window,
+    // and the reset then wipes the screen while its text would have survived. A prompt from a
+    // screen that no longer exists holding the pill up is a badge saying an agent is waiting on
+    // something the operator cannot see.
+    if (stillMine()) {
+      mine.recentText = '';
+      if (painted) rememberPainted(mine, painted);
+    }
     // GET /terminals/{id} returns the buffer sequence as `outputSeq` (only the WS frame uses `seq`).
     // Reading `seq` here left lastSeq=-1, disabling dedup so the first live frames re-painted history.
     // AND THE SEQ LAST. A previous terminal's seq written here is almost always HIGHER than the new
@@ -437,7 +452,9 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
       // as a recovery places it. What the drain cannot reach is left queued and owed a fetch: the
       // recovery is the thing that fetches, so it is asked rather than reimplemented here.
       mine.resyncing = false;
-      if (drainHeldFrames(mine)) resyncActiveConsole().catch(() => {});
+      const owed = drainHeldFrames(mine);
+      updateAwaitPill();
+      if (owed) resyncActiveConsole().catch(() => {});
     }
   } catch (err) {
     term.write(`\r\n\x1b[2m[history fetch failed: ${String(err?.message || err).replace(/\x1b/g, '')}]\x1b[0m\r\n`);

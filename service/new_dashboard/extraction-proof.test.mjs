@@ -2410,6 +2410,30 @@ const EXTRACTIONS = [
           },
           {
             was: [
+              "    if (snapshot) term.write(String(snapshot));",
+              "    else if (output) term.write(String(output));",
+            ],
+            now: [
+              "    const painted = snapshot ? String(snapshot) : String(output || '');",
+              "    if (painted) term.write(painted);",
+              "    // WHAT THIS CONSOLE NOW SHOWS, which the await pill reads and nothing else supplies. The",
+              "    // frames the drain places below add to it, which is the case that made this necessary: on a",
+              "    // quiet agent every byte of a newly opened console arrives during the fetch and is placed by",
+              "    // the drain.",
+              "    //",
+              "    // SEEDED, NOT APPENDED, and the difference is reachable. A frame with no finite `seq` is not",
+              "    // held -- there is nothing to place it by -- so it paints and remembers during this window,",
+              "    // and the reset then wipes the screen while its text would have survived. A prompt from a",
+              "    // screen that no longer exists holding the pill up is a badge saying an agent is waiting on",
+              "    // something the operator cannot see.",
+              "    if (stillMine()) {",
+              "      mine.recentText = '';",
+              "      if (painted) rememberPainted(mine, painted);",
+              "    }",
+            ],
+          },
+          {
+            was: [
               "    if (state.activeXterm) state.activeXterm.lastSeq = Number(data?.terminal?.outputSeq ?? data?.terminal?.seq ?? state.activeXterm.lastSeq);",
             ],
             now: [
@@ -2428,7 +2452,9 @@ const EXTRACTIONS = [
               "      // as a recovery places it. What the drain cannot reach is left queued and owed a fetch: the",
               "      // recovery is the thing that fetches, so it is asked rather than reimplemented here.",
               "      mine.resyncing = false;",
-              "      if (drainHeldFrames(mine)) resyncActiveConsole().catch(() => {});",
+              "      const owed = drainHeldFrames(mine);",
+              "      updateAwaitPill();",
+              "      if (owed) resyncActiveConsole().catch(() => {});",
               "    }",
             ],
           },
@@ -2976,7 +3002,20 @@ const EXTRACTIONS = [
       { name: "wireRealtimeResumeReconnect", at: 584, marker: null },
       {
         name: "applyRealtimeEvent",
-        editedSince: [{
+        editedSince: [
+          {
+            // WHATEVER PAINTS, REMEMBERS. `entry.recentText` is the only input to the await pill, and
+            // this was the ONE path that maintained it -- so a snapshot repaint and a drained frame
+            // both left it stale. The rule moved to `console-cursor.mjs` beside the drain that now
+            // also needs it.
+            was: [
+              "        entry.recentText = (String(entry.recentText || '') + String(data.output)).slice(-600);",
+            ],
+            now: [
+              "        rememberPainted(entry, data.output);",
+            ],
+          },
+          {
           // FRAMES ARRIVING DURING A RECOVERY ARE HELD, NOT DROPPED. `lastSeq` advances only on the
           // painting path, so for the whole of an in-flight resync every frame still looks like a
           // gap. Dropping them was survivable alone; what was not is that the snapshot's sequence is
@@ -3787,7 +3826,22 @@ const EXTRACTIONS = [
         name: "resyncActiveConsole",
         // The other half of the same fix: the snapshot alone left the console behind the stream, so
         // whatever the socket held is replayed before live frames resume.
-        editedSince: [{
+        editedSince: [
+          {
+            was: [
+              "    entry.term.write(String(snapshot || data?.terminal?.output || ''));",
+            ],
+            now: [
+              "    const painted = String(snapshot || data?.terminal?.output || '');",
+              "    entry.term.write(painted);",
+              "    // THE SCREEN WAS JUST REPLACED, so what the console recently showed is this and not what",
+              "    // stood before the reset. Appending would leave a prompt from a screen that no longer",
+              "    // exists able to raise the pill.",
+              "    entry.recentText = '';",
+              "    rememberPainted(entry, painted);",
+            ],
+          },
+          {
           // A NULL SEQUENCE IS THE SERVER SAYING UNKNOWN, and `outputSeq ?? seq ?? lastSeq` hears
           // that as "ask somebody else" -- so a console at 4 stayed at 4 while the server had just
           // said it does not know where the screen is. The null has to be read as a value.
@@ -3818,6 +3872,7 @@ const EXTRACTIONS = [
             "    // moved backwards; anything still missing arrives as a gap and recovers.",
             "    if (Number.isFinite(snapshotSeq)) entry.lastSeq = snapshotSeq;",
             "    unresolved = drainHeldFrames(entry);",
+            "    updateAwaitPill();",
           ],
         }, {
           // The drain now REPORTS whether it placed everything, and that answer is read after the

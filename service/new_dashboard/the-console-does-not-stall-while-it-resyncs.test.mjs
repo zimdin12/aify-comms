@@ -30,6 +30,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { setApiBase } from "./api-client.mjs";
+import { consoleAwaitingInputHint } from "./console-await.mjs";
 import { initConsoleActions, resyncActiveConsole } from "./console-actions.mjs";
 import { applyRealtimeEvent, initRealtimeSocket } from "./realtime-socket.mjs";
 import { state } from "./state.mjs";
@@ -434,4 +435,34 @@ test("A DUPLICATE HELD FRAME IS WRITTEN ONCE", async () => {
       `the replay did not paint each held sequence exactly once: ${JSON.stringify(painted)}`);
     assert.equal(entry.lastSeq, 7);
   });
+});
+
+test("A RECOVERY SEEDS THE AWAIT PILL FROM THE SCREEN IT JUST PAINTED", async () => {
+  // `entry.recentText` is the only input to `consoleAwaitingInputHint`, and until 2026-09-09 it
+  // was maintained on ONE of the paths that write to the terminal -- the socket's live branch.
+  // A recovery resets the screen and paints a snapshot over it, so afterwards the console shows
+  // the snapshot and nothing else: keeping the pre-reset tail leaves a prompt from a screen that
+  // no longer exists able to hold the pill up, and dropping the snapshot's own tail hides one the
+  // operator is actually looking at.
+  const { entry } = mountedConsole({ lastSeq: 4 });
+  entry.recentText = "an older screen asked: continue? ";
+  await withRealResync(async () => {
+    await resyncActiveConsole();
+    assert.equal(entry.recentText, "a task finished. proceed?",
+      `the repaint did not seed from what it painted: ${JSON.stringify(entry.recentText)}`);
+    assert.equal(consoleAwaitingInputHint(entry.recentText), true);
+  }, { snapshotSeq: 6, snapshot: "a task finished. proceed?" });
+});
+
+test("AND IT DROPS WHAT THE SCREEN NO LONGER SHOWS", async () => {
+  // NEGATIVE CONTROL for the same seed: a prompt from before the reset must NOT survive it. A
+  // badge saying an agent is waiting, on a screen where nothing is waiting, is the failure that
+  // makes the pill untrustworthy in the other direction.
+  const { entry } = mountedConsole({ lastSeq: 4 });
+  entry.recentText = "an older screen asked: continue? ";
+  await withRealResync(async () => {
+    await resyncActiveConsole();
+    assert.equal(entry.recentText, "just some output");
+    assert.equal(consoleAwaitingInputHint(entry.recentText), false);
+  }, { snapshotSeq: 6, snapshot: "just some output" });
 });

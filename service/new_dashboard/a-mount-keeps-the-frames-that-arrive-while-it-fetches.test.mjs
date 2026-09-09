@@ -35,6 +35,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { consoleAwaitingInputHint } from "./console-await.mjs";
 import { applyRealtimeEvent } from "./realtime-socket.mjs";
 import { mountXtermForTerminal } from "./xterm-mount.mjs";
 import { state } from "./state.mjs";
@@ -280,5 +281,73 @@ test("A HELD FRAME THE SNAPSHOT CANNOT REACH ASKS THE RECOVERY TO FETCH AGAIN", 
     assert.equal(state.activeXterm.lastSeq, 3, "the cursor advanced over bytes that were never written");
     assert.deepEqual(state.activeXterm.pendingFrames.map((f) => f.seq), [9],
       "the frame the drain could not place was thrown away");
+  });
+});
+
+test("A PROMPT THAT ARRIVES DURING THE MOUNT STILL RAISES THE AWAIT PILL", async () => {
+  // WHAT THE HOLD NEARLY BROKE. `entry.recentText` is the only input to
+  // `consoleAwaitingInputHint`, and it was maintained on exactly one path: the socket's live
+  // branch. Holding frames across the mount routes EVERY frame of a newly opened console through
+  // the drain instead -- which is precisely the quiet-agent case the pill exists for. The agent
+  // asks its question while the snapshot is in flight, the bytes are painted, and nothing tells
+  // the operator they are being waited on.
+  await withBrowser(async ({ releaseSnapshot, setSnapshotSeq }) => {
+    setSnapshotSeq(3);
+    const mounting = mountXtermForTerminal("t-1", "a-1", node(), {}, { resyncActiveConsole: async () => {} });
+    await settle();
+
+    frame(4, "Overwrite the file? [y/n] ");
+    releaseSnapshot();
+    await mounting;
+    await settle();
+
+    const entry = state.activeXterm;
+    assert.ok(entry.recentText.includes("[y/n]"),
+      `the drain painted the prompt but did not remember it: ${JSON.stringify(entry.recentText)}`);
+    assert.equal(consoleAwaitingInputHint(entry.recentText), true,
+      "the pill's own predicate cannot see a prompt the console is showing");
+  });
+});
+
+test("AND THE SNAPSHOT SEEDS IT, rather than a screen that no longer exists", async () => {
+  // NEGATIVE CONTROL for the seed. The reset replaces the whole screen, so a prompt from BEFORE
+  // the repaint must not keep the pill up -- that would be a badge saying an agent is waiting when
+  // the thing it was waiting on is no longer on screen.
+  await withBrowser(async ({ releaseSnapshot, setSnapshotSeq }) => {
+    setSnapshotSeq(3);
+    const mounting = mountXtermForTerminal("t-1", "a-1", node(), {}, { resyncActiveConsole: async () => {} });
+    await settle();
+    state.activeXterm.recentText = "an older screen asked: continue? ";
+
+    releaseSnapshot();
+    await mounting;
+    await settle();
+
+    const entry = state.activeXterm;
+    assert.equal(entry.recentText, "SNAPSHOT",
+      `the repaint kept text from the screen it replaced: ${JSON.stringify(entry.recentText)}`);
+    assert.equal(consoleAwaitingInputHint(entry.recentText), false);
+  });
+});
+
+test("A PROMPT SEEDED FROM AN UNKNOWN POSITION IS REMEMBERED TOO", async () => {
+  // THE SEED BRANCH, which the case above does not reach. With a NUMBERED snapshot the held
+  // frame is placed by the adjacency rule; with an UNKNOWN one the drain seeds from the lowest
+  // held frame instead, and that is a second write site. A console that opened while its agent
+  // asked a question, on a server that does not know where the screen is, is the case where the
+  // pill matters most and the one both branches have to serve.
+  await withBrowser(async ({ releaseSnapshot }) => {
+    const mounting = mountXtermForTerminal("t-1", "a-1", node(), {}, { resyncActiveConsole: async () => {} });
+    await settle();
+
+    frame(4, "Are you sure? ");
+    releaseSnapshot();
+    await mounting;
+    await settle();
+
+    const entry = state.activeXterm;
+    assert.equal(entry.lastSeq, 4, "the seed branch did not run, so this proves nothing");
+    assert.equal(consoleAwaitingInputHint(entry.recentText), true,
+      `the seeded frame was painted but not remembered: ${JSON.stringify(entry.recentText)}`);
   });
 });
