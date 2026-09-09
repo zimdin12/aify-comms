@@ -382,7 +382,9 @@ class TheEnvPluginCanReadWhatTheClaimAnswers(FastApiTestCase):
         spawn request into a live agent", so the agent is what gets asserted.
 
         NOT A LIVE SOCKET: the bodies are carried between processes rather than sent over HTTP.
-        What runs the real transport is X-4, over a real header set.
+        AND NO SIBLING MAKES UP THE DIFFERENCE -- this said "what runs the real transport is
+        X-4", and X-4 constructs the middleware class and awaits `dispatch` rather than sending
+        anything. Nothing in this seam observes a socket.
         """
         self._heartbeat()
         spawn_id = self._a_spawn_request()
