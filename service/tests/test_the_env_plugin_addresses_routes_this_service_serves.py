@@ -73,11 +73,12 @@ const seen = [];
 let running = '(none)';
 const api = new CommsApi({
   endpoint: 'http://probe.invalid:1',
-  credential: async () => '',
+  credential: async () => '%(credential)s',
   identity: mintBridgeIdentity({ version: '0.0.0-probe' }),
   fetchImpl: async (url, init) => {
     seen.push({ owner: running, url: String(url), method: String((init && init.method) || 'GET'),
-                body: (init && init.body) ? String(init.body) : '' });
+                body: (init && init.body) ? String(init.body) : '',
+                headers: Object.fromEntries(Object.entries((init && init.headers) || {})) });
     return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
   },
 });
@@ -121,7 +122,7 @@ def env_repo() -> tuple[Path | None, str]:
     return None, f"no aify-env checkout at {DEFAULT_ENV_REPO} and AIFY_ENV_REPO is unset"
 
 
-def emitted_requests(repo: Path) -> dict:
+def emitted_requests(repo: Path, credential: str = "") -> dict:
     """Call every public method of the real `CommsApi` and report the URLs its transport saw.
 
     The harness is written to a scratch file and the import is an ABSOLUTE file URL, because a
@@ -130,7 +131,8 @@ def emitted_requests(repo: Path) -> dict:
     """
     api = (repo / PLUGIN_DIR / "api.mjs").as_uri()
     script = Path(tempfile.mkdtemp()) / "drive-the-plugin.mjs"
-    script.write_text(HARNESS % {"probe": PROBE, "api": api}, encoding="utf-8")
+    script.write_text(HARNESS % {"probe": PROBE, "api": api, "credential": credential},
+                      encoding="utf-8")
     result = subprocess.run(
         ["node", str(script)], cwd=repo, capture_output=True, text=True)
     # A PAYLOAD FROM A PROCESS THAT DID NOT SUCCEED IS NOT EVIDENCE. This read stdout and
@@ -147,6 +149,47 @@ def emitted_requests(repo: Path) -> dict:
             f"{result.stdout[-400:]}{result.stderr[-400:]}")
     return json.loads(payload[-1])
 
+
+def accepted_key_headers() -> set[str]:
+    """Header names the auth middleware reads WHEN DECIDING, parsed out of `service/main.py`.
+
+    SCOPED TO THE DECISION, and mutation is why. The first version collected every
+    `headers.get("...")` in the module -- including a websocket read of the same name -- so
+    renaming the one the HTTP middleware actually consults left the set unchanged and the mutant
+    survived. The population has to be the code that decides, not the file it lives in.
+
+    DERIVED SO A RENAME FACES THIS TEST. A name typed here would agree with itself for ever, which
+    is the shape this repo records as "a gate whose population is typed cannot see what was added".
+    """
+    import ast
+
+    source = (ROOT / "service" / "main.py").read_text(encoding="utf-8")
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        # THE ASSIGNMENT THAT DECIDES: `provided_key = headers.get(...) or ... or ...`.
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(tgt, ast.Name) and tgt.id == "provided_key" for tgt in node.targets):
+            continue
+        for inner in ast.walk(node.value):
+            if not isinstance(inner, ast.Call) or not isinstance(inner.func, ast.Attribute):
+                continue
+            if inner.func.attr != "get":
+                continue
+            target = inner.func.value
+            if not (isinstance(target, ast.Attribute) and target.attr == "headers"):
+                continue
+            # THE HTTP CARRIER ONLY. `_authorize_websocket` assigns a `provided_key` off
+            # `ws.headers` under the same name, and folding it in reopens exactly the hole this
+            # function was rewritten to close: a rename of the middleware's own read stayed
+            # invisible because the websocket's copy of the name was still in the set. The plugin
+            # sends `fetch` requests, so the middleware is the code that decides for it.
+            if not (isinstance(target.value, ast.Name) and target.value.id == "request"):
+                continue
+            for arg in inner.args[:1]:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    names.add(arg.value)
+    return names
 
 def declared_body_fields() -> dict[tuple[str, str], set[str]]:
     """(method, path) -> the TOP-LEVEL field names that route's request model declares.
@@ -352,6 +395,46 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
         self.assertEqual(wrong, [], (
             "aify-env's plugin sends a field this service does not declare, which Pydantic drops "
             "in silence:" + chr(10) + "  " + (chr(10) + "  ").join(wrong)))
+
+    def test_the_key_header_the_plugin_sends_is_one_this_service_reads(self) -> None:
+        """A rename on either side 401s every call, and the starter reports that as "aify-comms
+        did not answer" -- which is what it says for a service that is DOWN. An operator would go
+        looking for a stopped container.
+        """
+        accepted = accepted_key_headers()
+        self.assertGreaterEqual(
+            len(accepted), 1,
+            "no header name was parsed out of the auth middleware, so this test judged nothing")
+
+        with_key = emitted_requests(self.repo, credential="a-real-key")
+        sent = {name for request in with_key["requests"]
+                for name in (request.get("headers") or {})}
+        self.assertTrue(
+            sent, "the plugin sent no headers at all, so the check below is vacuous")
+        lowered_accepted = {name.lower() for name in accepted}
+        carrying = {name for name in sent if name.lower() in lowered_accepted}
+        self.assertTrue(
+            carrying,
+            f"the plugin sends {sorted(sent)} and this service reads {sorted(accepted)} for a "
+            "key -- no overlap means every authenticated call is refused, and the starter "
+            "reports that as the service not answering")
+
+    def test_no_key_means_no_header_rather_than_an_empty_one(self) -> None:
+        """The plugin's own rule, asserted on the wire: an empty `X-API-Key` is a WRONG key to a
+        service that requires one, and the two produce different diagnoses. It is a claim about
+        what goes out, so a claim about the source would not settle it.
+        """
+        accepted = {name.lower() for name in accepted_key_headers()}
+        without = emitted_requests(self.repo, credential="")
+        offenders = [
+            f"{r['method']} {_path_of(r['url'])}"
+            for r in without["requests"]
+            for name, value in (r.get("headers") or {}).items()
+            if name.lower() in accepted and not str(value)
+        ]
+        self.assertEqual(offenders, [], (
+            "the plugin sent an EMPTY key header, which a service requiring one reads as a wrong "
+            "key rather than as no key:" + chr(10) + "  " + (chr(10) + "  ").join(offenders)))
 
     def test_every_request_the_plugin_emits_is_a_route_this_service_serves(self) -> None:
         wrong = unserved(self.driven["requests"], self.routes)
