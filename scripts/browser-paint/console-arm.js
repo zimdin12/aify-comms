@@ -26,7 +26,12 @@
   //: How long the SUSTAINED phase offers output with no pacing. Long enough to cross many frames,
   //: short enough that six arms finish in a run somebody will actually wait for.
   var SUSTAIN_MS = 2000;
+  //: HOW MANY RECOVERY REPAINTS TO TIME. Fewer than the paced phase's writes because each one
+  //: tears down and rebuilds the row DOM, and twenty is enough for a median that does not move
+  //: between runs at this geometry.
+  var RECOVERIES = 20;
   //: A marker no arm writes. If this is ever found, the search is not searching.
+  var CR = String.fromCharCode(13);
   var ABSENT_MARKER = "<never-painted-by-any-arm>";
 
   /**
@@ -115,6 +120,21 @@
     this.sustainWrote = false;
     this.sustainTimeouts = 0;
     this.sustained = { writes: 0, bytes: 0, renders: 0, wallMs: 0 };
+    //: THE RECOVERY PHASE: `reset()` then one whole screen, which is what the console does
+    //: on every detected sequence gap. Timed from the reset, because the reset is part of
+    //: the cost.
+    this.recoveryMarker = "<recov-" + stem + ">";
+    //: SCROLLED OFF THE VIEWPORT ON PURPOSE, because that is what tells an append from a
+    //: repaint. A write pushes old rows into scrollback; `reset()` clears scrollback. A
+    //: sentinel still on the VIEWPORT would be overwritten by the repaint either way -- which
+    //: is exactly why the first version of this control could not fire.
+    this.scrollbackSentinel = "<pre-recovery-" + stem + ">";
+    this.recoveryMs = [];
+    this.recoveryParseMs = [];
+    this.recoveryTimeouts = 0;
+    this.recoveryNoRender = 0;
+    this.recoveryWrote = false;
+    this.resetLeftTheOldScreen = false;
     this.foundAbsent = false;
     this.shape = { canvases: -1, rowDivs: -1 };
     this.bytes = 0;
@@ -223,7 +243,11 @@
     var screen = screenOf(this.term);
     this.sustainWrote = screen.indexOf(this.sustainMarker) !== -1;
     if (screen.indexOf(ABSENT_MARKER) !== -1) this.foundAbsent = true;
+    // THE RENDERER SHAPE IS READ BEFORE THE RECOVERY PHASE, deliberately: a `reset()` tears
+    // the row DOM down and rebuilds it, so a shape read after one is a shape mid-rebuild.
     this.shape = rendererShape(this.term);
+
+    await this.runRecovery();
   };
 
   /**
@@ -260,6 +284,56 @@
     };
   };
 
+  /**
+   * What one recovery repaint costs: `reset()`, then a whole server-rendered screen.
+   *
+   * THE SHAPE THE LAG MECHANISM PAID FOR. A detected sequence gap costs an HTTP refetch, a
+   * `term.reset()` and a full repaint; the refetch is measured elsewhere and this is the
+   * browser's half. Neither of the other phases has ever timed a reset -- both APPEND to a
+   * live screen -- so this is the only figure here about the recovery path.
+   */
+  Arm.prototype.runRecovery = async function () {
+    var body = paintedBytes(this.targetChars)
+      .replace("@@MARKER@@", ESC + "[40;1H" + this.recoveryMarker);
+    // PUSHED INTO SCROLLBACK BEFORE THE PHASE, and outside every timed span.
+    var filler = [];
+    for (var f = 0; f < ROWS + 5; f += 1) filler.push("");
+    await this.writeOnce(CR + LF + this.scrollbackSentinel + filler.join(CR + LF));
+    for (var i = 0; i < RECOVERIES; i += 1) {
+      var seenRenders = this.renderCount;
+      var started = performance.now();
+      // THE RESET IS INSIDE THE SPAN. A recovery that only wrote the snapshot would leave
+      // stale rows, a stuck charset and the previous alt-screen state underneath -- which is
+      // why `console-actions.mjs` resets first, and why timing the write alone would report a
+      // cost the console never pays.
+      this.term.reset();
+      var callbackAt = await this.writeOnce(body);
+      if (!Number.isFinite(callbackAt)) { this.recoveryTimeouts += 1; continue; }
+      var renderAt = await this.renderPast(seenRenders);
+      if (!Number.isFinite(renderAt)) { this.recoveryNoRender += 1; continue; }
+      var parse = callbackAt - started;
+      var painted = renderAt - started;
+      if (!(parse >= 0) || !(painted >= 0) || !Number.isFinite(parse)
+          || !Number.isFinite(painted)) { this.badSpans += 1; continue; }
+      this.recoveryParseMs.push(parse);
+      this.recoveryMs.push(painted);
+    }
+    var screen = screenOf(this.term);
+    this.recoveryWrote = screen.indexOf(this.recoveryMarker) !== -1;
+    // THE CONTROL THAT MAKES THE REST OF THIS PHASE MEAN ANYTHING, and the second version of it.
+    //
+    // The first asked whether the SUSTAINED phase's marker survived, and could not fire: both
+    // markers are written at `ESC[40;1H`, so the repaint overwrites it with or without a reset.
+    // Removing `term.reset()` from this phase produced zero refusals, which is the probe failing
+    // its own positive control.
+    //
+    // A SENTINEL IN SCROLLBACK DISCRIMINATES. An append pushes it further back and leaves it
+    // there; a reset clears scrollback outright. `screenOf` walks the whole of `buffer.active`,
+    // so it sees scrollback as well as the viewport.
+    this.resetLeftTheOldScreen = screen.indexOf(this.scrollbackSentinel) !== -1;
+    if (screen.indexOf(ABSENT_MARKER) !== -1) this.foundAbsent = true;
+  };
+
   Arm.prototype.writeOnce = function (body) {
     var term = this.term;
     return new Promise(function (resolve) {
@@ -288,6 +362,7 @@
   // THE ONLY WAY OUT. These files load as classic scripts because the harness is opened over
   // `file://`, where ES modules are refused -- so the seam is a namespace rather than an import.
   window.PaintArm = {
+    RECOVERIES: RECOVERIES,
     Arm: Arm,
     median: median,
     COLS: COLS,

@@ -51,6 +51,7 @@
   var ROWS = window.PaintArm.ROWS;
   var WRITES = window.PaintArm.WRITES;
   var SUSTAIN_MS = window.PaintArm.SUSTAIN_MS;
+  var RECOVERIES = window.PaintArm.RECOVERIES;
   var LF = window.PaintArm.LF;
 
   var SIZES = [
@@ -103,6 +104,22 @@
         refusals.push(arm.label + ": only " + arm.parseMs.length + " of " + WRITES
           + " writes produced a usable sample, which is too few to publish a median from");
       }
+      // THE RECOVERY PHASE'S OWN CONTROLS. The first is the ordinary positive one; the second is
+      // the one that decides whether the phase measured a REPAINT at all. The sustained phase
+      // leaves its marker on screen immediately before, so a `reset()` that reset nothing leaves
+      // it there -- and every recovery figure would then be an append wearing a repaint's name.
+      if (!arm.recoveryWrote) {
+        refusals.push(arm.label + ": the buffer does not contain the marker the RECOVERY phase "
+          + "wrote, so its spans timed something that never reached the screen");
+      }
+      if (arm.resetLeftTheOldScreen) {
+        refusals.push(arm.label + ": a sentinel pushed into SCROLLBACK survived term.reset(), so the "
+          + "recovery phase measured an append rather than a repaint");
+      }
+      if (arm.recoveryMs.length * 2 < RECOVERIES) {
+        refusals.push(arm.label + ": only " + arm.recoveryMs.length + " of " + RECOVERIES
+          + " recoveries produced a usable sample, which is too few to publish a median from");
+      }
     });
     // THE CONTROL THAT MATTERS MOST. "We loaded the addon" is exactly the kind of claim that
     // reports success and changes nothing, and two arms running one renderer would publish a
@@ -142,6 +159,21 @@
         + String(arm.parseMs.length).padStart(4)
         + String(arm.shape.canvases).padStart(9)
         + String(arm.shape.rowDivs).padStart(5));
+    });
+    lines.push("");
+    lines.push("WHAT ONE RECOVERY REPAINT COSTS -- term.reset() then a whole screen, timed from the");
+    lines.push("RESET. This is the browser's half of what a detected sequence gap pays; the HTTP");
+    lines.push("refetch in front of it is measured elsewhere and is not in these numbers. No other");
+    lines.push("phase here has ever timed a reset -- both of the others APPEND to a live screen.");
+    lines.push("");
+    lines.push("  renderer     offered B   parse p50  repaint p50   reset+paint    n");
+    arms.forEach(function (arm) {
+      lines.push("  " + arm.label.padEnd(13)
+        + String(arm.bytes).padStart(8)
+        + median(arm.recoveryParseMs).toFixed(3).padStart(12)
+        + median(arm.recoveryMs).toFixed(3).padStart(13)
+        + (median(arm.recoveryMs) - median(arm.recoveryParseMs)).toFixed(3).padStart(14)
+        + String(arm.recoveryMs.length).padStart(5));
     });
     var ordering = arms.reduce(function (sum, arm) { return sum + arm.renderedBeforeParse; }, 0);
     lines.push("");
