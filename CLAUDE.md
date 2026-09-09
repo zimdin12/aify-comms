@@ -243,6 +243,32 @@ load-bearing: it keeps a file's tests on ONE worker, so class-level state and th
 live-status cache behave exactly as they do serially. 16 workers buys a further 14 seconds and is not
 worth the contention.
 
+**AND A THIRD, MEASURED 2026-09-09: AT `-n 8` THE SUITE CAN EXHAUST ITS OWN SOCKETS.** Four
+consecutive runs failed 3, 3, 4 and 3 tests, a DIFFERENT set each time, every named file passing
+alone and all of them passing together. Stashing the working tree and re-running still failed, so
+it is not any change. Past the assertion messages the cause names itself:
+`OSError: [WinError 10055] ... the system lacked sufficient buffer space`, raised by the
+`connect()` inside CPython's `socket.socketpair()`, with
+`'ProactorEventLoop' object has no attribute '_ssock'` beside it.
+
+`socketpair()` on Windows is emulated with a REAL LOOPBACK TCP CONNECTION and every asyncio event
+loop builds one for its self-pipe, so a suite of 5,600 tests that each run a loop opens thousands
+of them. Sampled during one invocation, from a resting **296**: 3,290 at twelve seconds, 5,771 at
+a minute forty, 8,455 at two minutes, **12,170 just after** -- against an ephemeral range of
+16,384 (`netsh int ipv4 show dynamicport tcp`). It drains on its own in about twenty-five minutes.
+
+**SO A RED HERE IS NOT AUTOMATICALLY A DEFECT, AND A GREEN IS NOT AUTOMATICALLY ITS ABSENCE.**
+Before believing either: run the named files alone, then stash and re-run the suite. If the
+failing set moves between runs it is this. `-n 4` roughly halves the rate and cost 45 seconds in
+the one run that tried it. The real cost sits in creating an event loop per test, which nothing
+here has ever counted.
+
+**AND THE FIRST DIAGNOSIS OF IT WAS WRONG IN THE WAY THIS FILE KEEPS RECORDING.** The count was
+sampled BETWEEN runs, read at 9,516 as ambient load, and reported to the operator as a host
+condition -- "a lead about the machine rather than the code", with the remedy assigned to them.
+It was residue from the previous run. The sample that settles it is taken DURING one, and the
+correction is that the measuring instrument was manufacturing the condition it reported.
+
 Two things behave differently in parallel and both are worth knowing before you read a red. A
 `subTest` LABEL crosses a process boundary through execnet, which cannot encode an arbitrary object —
 an enum there passes alone and fails at `-n 8`, and the traceback names the serializer rather than
