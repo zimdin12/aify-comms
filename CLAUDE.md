@@ -355,18 +355,28 @@ true.
 | 780 | `service/routers/environments.py` | 220 |
 | 755 | `service/api_core/status_inputs.py` | 245 |
 | 728 | `mcp/stdio/hermes-managed-host.js` | 272 |
+| 719 | `service/routers/terminals.py` | 281 |
 
-**535 files in the committed tree** (258 Python, 277 JS), none at or over the limit. TWO are
-within 20 lines of it. The two newest JS files are `scripts/browser-paint/`, the hop-5b renderer
-probe, at 299 and 208 lines.
+None is at or over the limit. TWO are within 20 lines of it, and they are the two rows the
+gate below names as a claim it enforces.
 
-**RE-VERIFIED ROW BY ROW 2026-09-08 by importing the gate's own walk**, after this table had been
-wrong four times: all nine rows match their measured line counts exactly and the membership matches
-the measured ranking, so nothing here needed correcting. The census moved 531 -> 533 because two
-measurement scripts were added under `scripts/`; the Python half is 256 -> 258 and the JS half is
-unchanged. `service/routers/terminals.py` is the first file OUTSIDE the table at 712 lines, having
-grown with the console projection and the size endpoint -- 288 lines of headroom, and named here so
-the next reader knows what is just off the bottom.
+**RE-VERIFIED ROW BY ROW 2026-09-08 AND AGAIN 2026-09-09 by importing the gate's own walk**, after
+this table had been wrong four times: every row matches its measured line count exactly and the
+membership matches the measured ranking, so nothing here needed correcting on either date. The
+census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> **537 on
+2026-09-09** -- 259 Python and 278 JS -- as `service/new_dashboard/console-cursor.mjs` and
+`scripts/measure-ws-hop-browser.py` arrived with the console and transport work.
+
+**THIS FILE CARRIED TWO CENSUS FIGURES AT ONCE UNTIL 2026-09-09**, 535 in a standalone sentence
+and 533 in the running total three lines below it, written the same day. That is the dashboard-count
+failure this file documents at length, sitting in the section that documents it -- so the standalone
+copy is deleted rather than corrected, which is the advice the dashboard paragraph already gives.
+
+**AND THE TABLE'S OWN `first file OUTSIDE` POINTER HAD ROTTED, which is the smaller version of the
+same thing.** It named `service/routers/terminals.py` at 712 lines; that file is 719 now and is
+IN the table, tenth. The first file outside is `mcp/stdio/hermes-delivery-loop.mjs` at 696, with
+304 lines of headroom -- named here so the next reader knows what is just off the bottom, and
+with the standing warning that a pointer like this is exactly what goes stale first.
 
 **THE COMMITTED CENSUS, NOT A WORKTREE ONE**, and the difference is a real trap review caught:
 the gates walk the FILESYSTEM, so an untracked file in the right place is governed and counted.
