@@ -245,8 +245,9 @@ worth the contention.
 
 **AND A THIRD, MEASURED 2026-09-09: AT `-n 8` THE SUITE CAN EXHAUST ITS OWN SOCKETS.** Four
 consecutive runs failed 3, 3, 4 and 3 tests, a DIFFERENT set each time, every named file passing
-alone and all of them passing together. Stashing the working tree and re-running still failed, so
-it is not any change. Past the assertion messages the cause names itself:
+alone and all of them passing together. Stashing the working tree and re-running still failed --
+which rules out THAT change and is not a proof about any other. Past the assertion messages one
+cause names itself:
 `OSError: [WinError 10055] ... the system lacked sufficient buffer space`, raised by the
 `connect()` inside CPython's `socket.socketpair()`, with
 `'ProactorEventLoop' object has no attribute '_ssock'` beside it.
@@ -258,10 +259,12 @@ a minute forty, 8,455 at two minutes, **12,170 just after** -- against an epheme
 16,384 (`netsh int ipv4 show dynamicport tcp`). It drains on its own in about twenty-five minutes.
 
 **SO A RED HERE IS NOT AUTOMATICALLY A DEFECT, AND A GREEN IS NOT AUTOMATICALLY ITS ABSENCE.**
-Before believing either: run the named files alone, then stash and re-run the suite. If the
-failing set moves between runs it is this. `-n 4` roughly halves the rate and cost 45 seconds in
-the one run that tried it. The real cost sits in creating an event loop per test, which nothing
-here has ever counted.
+Before believing either: READ EVERY FAILURE, then run the named files alone, then stash and
+re-run the suite. A moving failure set is consistent with this and does not identify it -- two of
+the failures found while chasing it were ordinary defects, one of them real and newly introduced,
+and a story about the set would have buried both. `-n 4` gave 1 failure in one run and 3 in
+another, so it does not reliably halve anything. The real cost sits in creating an event loop per
+test, which nothing here has ever counted.
 
 **AND THE FIRST DIAGNOSIS OF IT WAS WRONG IN THE WAY THIS FILE KEEPS RECORDING.** The count was
 sampled BETWEEN runs, read at 9,516 as ambient load, and reported to the operator as a host

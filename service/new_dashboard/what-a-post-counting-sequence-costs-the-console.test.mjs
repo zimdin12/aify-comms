@@ -136,9 +136,14 @@ test("A SEQUENCE COUNTING POSTS MAKES EVERY FRAME LOOK LIKE A GAP", async () => 
     + `${painted.filter((p) => p === "<reset>").length} screen resets, `
     + `${frameWrites} frames' own text and ${snapshotWrites} snapshots painted`);
   // AND THE SCREEN IS ALL SNAPSHOT. Not one frame's own bytes survive: each is held during the
-  // recovery it triggered and then discarded against a snapshot that already covers it. The
-  // output is not wrong -- the snapshot carries those bytes -- but 'frames painted' would have
-  // been the wrong words for it, and this file used them.
+  // recovery it triggered and then discarded against a snapshot that already covers it by
+  // SEQUENCE.
+  //
+  // WHETHER THE CONTENT SURVIVES IS NOT TESTED HERE, and an earlier version of this comment said
+  // it did -- "the output is not wrong, the snapshot carries those bytes". The fixture answers
+  // every fetch with the literal string SNAPSHOT and never with f1..f40, so nothing in this file
+  // has looked at whether a real snapshot would carry them. What is tested is the RECOVERY COUNT
+  // and which population reached the screen.
   assert.equal(frameWrites, 0,
     `${frameWrites} frames reached the screen as themselves; the point of this case is that none do`);
   assert.ok(fetches >= FRAMES - 1,
