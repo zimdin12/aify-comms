@@ -255,11 +255,24 @@ class TheEnvPluginIdentitySurvivesTheHeartbeat(FastApiTestCase):
                          "the legacy bridge did not take the row first, so this proves nothing")
 
         self._beat(body)
+        row = self._row()
         self.assertEqual(
-            self._row().get("bridgeId"), body.get("bridgeId"),
+            row.get("bridgeId"), body.get("bridgeId"),
             "the host tier could not take the row from a legacy bridge that started later — which "
             "is the upgrade path: aify-env comes up on a host whose retired bridge is still "
             "beating, and loses to it for as long as that bridge keeps running")
+
+        # THE VERSION HAS TO MOVE WITH THE ROW, and asserting only `bridgeId` here left a real
+        # mutant alive: with the version PRESERVED across a takeover rather than replaced, the row
+        # is held by the host tier while the published `bridgeVersion` still reads the retired
+        # bridge's. `tier-version` then compares this install against a version nothing here is
+        # running — the stale-column symptom this whole file was written from, arriving on the one
+        # path a fresh-row check cannot see.
+        self.assertEqual(
+            row.get("bridgeVersion"), PROBE_VERSION,
+            "the host tier took the row and the published version stayed the LEGACY bridge's, so "
+            "tier-version reports a comparison against something this host is not running: "
+            f"{row.get('bridgeVersion')!r}")
 
     def test_the_refused_legacy_bridge_is_TOLD_it_was_refused_and_why(self):
         """The half a status code cannot carry, and this service has paid for it before.

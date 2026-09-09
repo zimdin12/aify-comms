@@ -170,8 +170,8 @@ CONFIGURED_KEY = "a-real-key-for-the-replay"
 
 
 def middleware_verdict(headers: dict, path: str, method: str = "GET",
-                       api_key: str = CONFIGURED_KEY) -> int:
-    """Run the REAL `APIKeyMiddleware` over one captured header set and report its status.
+                       api_key: str = CONFIGURED_KEY) -> tuple[int, int]:
+    """Run the REAL `APIKeyMiddleware` over one header set: its status AND whether it called on.
 
     EXECUTED, NOT PARSED, and two independently reproduced false greens are why. Deriving the
     accepted header NAME out of `service/main.py` was satisfied twice by something that was not the
@@ -204,14 +204,20 @@ def middleware_verdict(headers: dict, path: str, method: str = "GET",
                     for name, value in (headers or {}).items()],
     }
 
+    reached = []
+
     async def _passed_through(_request):
+        # COUNTED, NOT JUST ANSWERED. A status alone is a property several outcomes share, and
+        # review reproduced the one that matters: a middleware answering 200 ITSELF, never calling
+        # the application, keeps every status in this file unchanged.
+        reached.append(1)
         return Response(status_code=200)
 
     async def _run():
         middleware = APIKeyMiddleware(app=None, api_key=api_key)
         return await middleware.dispatch(Request(scope), _passed_through)
 
-    return asyncio.run(_run()).status_code
+    return asyncio.run(_run()).status_code, len(reached)
 
 
 def declared_body_fields() -> dict[tuple[str, str], set[str]]:
@@ -439,13 +445,19 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
         refused = []
         for request in requests:
             path = _path_of(request["url"])
-            status = middleware_verdict(request.get("headers") or {}, path, request["method"])
-            if status != 200:
-                refused.append(f"{request['owner']}: {request['method']} {path} -> {status}")
+            status, reached = middleware_verdict(
+                request.get("headers") or {}, path, request["method"])
+            # THE PAIR, because a status is a property several outcomes share. Review reproduced a
+            # middleware answering 200 without calling the application at all, and every status
+            # assertion in this file stayed green while no request reached a handler.
+            if (status, reached) != (200, 1):
+                refused.append(
+                    f"{request['owner']}: {request['method']} {path} -> status {status}, "
+                    f"reached the application {reached} time(s)")
         self.assertEqual(refused, [], (
-            "the real middleware REFUSED requests this plugin sends, so every one of these calls "
-            "401s against a service with a key set -- and the starter reports that as the service "
-            "not answering:" + chr(10) + "  " + (chr(10) + "  ").join(refused)))
+            "the real middleware did not pass these requests through to the application, so each "
+            "of these calls fails against a service with a key set -- and the starter reports that "
+            "as the service not answering:" + chr(10) + "  " + (chr(10) + "  ").join(refused)))
 
     def test_the_replay_can_REFUSE_which_is_what_makes_the_run_above_evidence(self) -> None:
         """NEGATIVE CONTROL, driven by removing the thing the run above watches.
@@ -460,28 +472,40 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
             path = _path_of(request["url"])
             stripped = {name: value for name, value in (request.get("headers") or {}).items()
                         if name.lower() != "x-api-key"}
-            if middleware_verdict(stripped, path, request["method"]) == 200:
-                accepted_without_a_key.append(f"{request['owner']}: {request['method']} {path}")
+            status, reached = middleware_verdict(stripped, path, request["method"])
+            # REFUSED MEANS BOTH: a 401 that still ran the handler has already done the work.
+            if status == 200 or reached:
+                accepted_without_a_key.append(
+                    f"{request['owner']}: {request['method']} {path} -> status {status}, "
+                    f"reached the application {reached} time(s)")
         self.assertEqual(accepted_without_a_key, [], (
             "the middleware let these through with NO key, so the run above cannot be read as "
             "evidence that the plugin's header is what got it in:" + chr(10) + "  "
             + (chr(10) + "  ").join(accepted_without_a_key)))
 
-    def test_no_key_means_no_header_rather_than_an_empty_one(self) -> None:
-        """The plugin's own rule, asserted on the wire: an empty `X-API-Key` is a WRONG key to a
-        service that requires one, and the two produce different diagnoses. It is a claim about what
-        goes out, so a claim about the source would not settle it.
+    def test_no_key_means_NO_key_header_at_all(self) -> None:
+        """The plugin's own rule, asserted as ABSENCE — which is what it actually promises.
+
+        An earlier version asserted NON-EMPTINESS instead, and review reproduced the gap: a plugin
+        writing `headers["X-API-Key"] = key || "review-synthetic-fallback"` passed, because what it
+        sent was not empty. It was invented. A header the host made up is a WRONG key to a service
+        that requires one, exactly like an empty one, and the two produce the same misdiagnosis the
+        rule exists to avoid — so the check has to be that no key header goes out at all.
+
+        Asserted per request with its owner and URL, because a relation is not judged by one member.
         """
         without = emitted_requests(self.repo, credential="")
+        self.assertTrue(without["requests"], "the plugin emitted no requests, so this judged nothing")
         offenders = [
-            f"{r['owner']}: {r['method']} {_path_of(r['url'])} sent {name!r} empty"
+            f"{r['owner']}: {r['method']} {_path_of(r['url'])} sent {name}: {value!r}"
             for r in without["requests"]
             for name, value in (r.get("headers") or {}).items()
-            if name.lower() == "x-api-key" and not str(value)
+            if name.lower() == "x-api-key"
         ]
         self.assertEqual(offenders, [], (
-            "the plugin sent an EMPTY key header, which a service requiring one reads as a wrong "
-            "key rather than as no key:" + chr(10) + "  " + (chr(10) + "  ").join(offenders)))
+            "a host with NO key sent a key header anyway. Empty or invented, a service requiring "
+            "one reads it as a wrong key rather than as no key, and the two produce different "
+            "diagnoses:" + chr(10) + "  " + (chr(10) + "  ").join(offenders)))
 
     def test_every_request_the_plugin_emits_is_a_route_this_service_serves(self) -> None:
         wrong = unserved(self.driven["requests"], self.routes)
