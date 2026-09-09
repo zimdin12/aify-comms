@@ -39,6 +39,32 @@ def tracked_markdown() -> list[Path]:
     return [ROOT / name for name in out.split("\n") if name.strip()]
 
 
+def command_lines(lines: list[str]):
+    """(line number, text) for each line a reader could COPY AND RUN.
+
+    A doc OFFERS a command when it appears as one -- inside a fenced block, or on a line
+    that is the command itself, optionally behind a `$`, `>` or `sudo`. A mention inside a
+    sentence is DISCUSSION, and this project's docs discuss broken commands on purpose:
+    "`npm install -g aify-env` sat in four documents returning 404" is the explanation, not
+    the offer. Reviving this gate from a dead regex flagged both, which is how the
+    distinction was forced.
+    """
+    fenced = False
+    for index, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            yield index, stripped
+            continue
+        # An unfenced line that IS the command, rather than a sentence containing it.
+        bare = stripped.lstrip("$> ").strip()
+        bare = bare[5:].strip() if bare.startswith("sudo ") else bare
+        if bare.startswith("npm ") or bare.startswith("`npm "):
+            yield index, bare.strip("`")
+
+
 def paragraphs(lines: list[str]):
     """(first line number, text) for each blank-line-separated block."""
     start = None
@@ -64,20 +90,36 @@ def test_this_repo_itself_installs_aify_wrapper_by_the_git_form():
     assert pinned.startswith("github:"), f"aify-wrapper is pinned as {pinned!r}, not by the git form"
 
 
+def _global_install_pattern(package: str) -> str:
+    """The one pattern the gate uses AND its anti-vacuity control checks.
+
+    IT WAS TWO COPIES, AND THE GATE'S COPY COULD NEVER MATCH. A literal BACKSPACE byte sat where
+    a word boundary was meant -- `\b` written through a shell heredoc becomes `\x08` -- so the search
+    found nothing in any paragraph, every candidate hit `continue`, and `offences` was empty on
+    every run. The gate passed because it could not fail.
+
+    ITS CONTROL DID NOT CATCH THAT because the control RETYPED the regex correctly and tested
+    the copy. A control has to exercise the subject, not a lookalike, which is this repo's
+    own rule about proving the extractor rather than the comparison.
+    """
+    return rf"npm i(?:nstall)? -g\s+{re.escape(package)}\b"
+
+
 def test_no_doc_offers_a_global_install_of_an_unpublished_name():
     offences: list[str] = []
     for path in tracked_markdown():
         if not path.exists():
             continue
-        for first, paragraph in paragraphs(path.read_text(encoding="utf-8").splitlines()):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for number, command in command_lines(lines):
             for package, form in UNPUBLISHED.items():
                 # The bare name, not the github: form that contains the same word.
-                if not re.search(rf"npm i(?:nstall)? -g\s+{re.escape(package)}", paragraph):
+                if not re.search(_global_install_pattern(package), command):
                     continue
-                if form in paragraph:
+                if form in command:
                     continue
                 rel = path.relative_to(ROOT).as_posix()
-                offences.append(f"{rel}:{first} says `npm install -g {package}`, use `{form}`")
+                offences.append(f"{rel}:{number} offers `{command}`, use the `{form}` form")
     assert not offences, "\n".join(
         ["a doc offers an install command that returns 404 for everyone but this machine:", *offences]
     )
@@ -85,6 +127,19 @@ def test_no_doc_offers_a_global_install_of_an_unpublished_name():
 
 def test_the_scan_can_actually_find_one():
     """Anti-vacuity. A regex that matched nothing would pass the test above on any documentation."""
-    sample = "Run `npm install -g aify-env` to get started."
-    assert re.search(r"npm i(?:nstall)? -g\s+aify-env\b", sample)
-    assert not re.search(r"npm i(?:nstall)? -g\s+aify-env\b", "npm install -g github:zimdin12/aify-env")
+    pattern = _global_install_pattern("aify-env")
+    assert re.search(pattern, "npm install -g aify-env"), (
+        "the gate's OWN pattern cannot find a bare global install, so the gate above"
+        " passes on any documentation")
+    assert not re.search(pattern, "npm install -g github:zimdin12/aify-env")
+
+    # AND THE OFFER/DISCUSSION SPLIT, both ways. A fenced command is an offer; the same words
+    # inside a sentence are how a doc warns about it, and this gate flagged two such warnings
+    # the moment it was revived.
+    fenced = list(command_lines(['```bash', 'npm install -g aify-env', '```']))
+    assert fenced and any('aify-env' in text for _n, text in fenced), (
+        'a fenced install command is not seen as a command, so the gate cannot catch an offer')
+    prose = list(command_lines(['It says `npm install -g aify-env` and that returns 404.']))
+    assert not prose, (
+        'a sentence discussing the command reads as an offer, so explaining a broken install'
+        ' would be a violation')

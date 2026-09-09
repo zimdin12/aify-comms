@@ -113,9 +113,12 @@ function note(terminalId, seq, at) {
       // case: 10,14,15,19 with one fetch still pending -- this model reports TWO episodes and the
       // browser starts ONE, so the count can exceed the browser's and is no lower bound.
       //
-      // `gapEvents` IS an upper bound, and by construction rather than by assumption: the browser
-      // starts a recovery only on a gapped frame and at most one per frame, so it can never make
-      // more recoveries than there were gaps.
+      // AND `gapEvents` IS NOT AN UPPER BOUND EITHER, which is a claim I made and review
+      // falsified with the real socket: a recovery sets `lastSeq` from the SNAPSHOT
+      // (`cursorFromSnapshot`) and `drainHeldFrames` can return `owed`, starting another. Wire
+      // 10,14,15 with the snapshot answering 12 gives ONE wire gap, TWO top-level recovery starts
+      // and SIX fetch/reset passes. One gapped frame can therefore cost several recoveries, so
+      // neither number here bounds the browser. Both are counts of what crossed THIS WIRE.
       if (!pending.has(terminalId)) { recoveries += 1; pending.add(terminalId); }
       lastSeqOf.set(terminalId, seq);
       return 'recovery';
@@ -250,7 +253,7 @@ async function main() {
   console.log(`  COMPARISONS made       ${comparisons}   (judged against that terminal's own previous seq)`);
   console.log(`  unnumbered frames      ${unnumbered}   (no finite seq: neither branch is reached)`);
   console.log(`  dropped (seq <= last)  ${dropped}`);
-  console.log(`  wire GAPS (seq > last+1) ${gapEvents}   an UPPER bound: at most one recovery each`);
+  console.log(`  wire GAPS (seq > last+1) ${gapEvents}   what crossed the wire; NOT a bound on recoveries`);
   console.log(`  modelled EPISODES      ${recoveries}   heuristic, released by a contiguous frame`);
   console.log('');
 
@@ -268,12 +271,18 @@ async function main() {
     process.exit(2);
   }
 
-  const rate = (100 * recoveries / comparisons).toFixed(1);
-  console.log(`${gapEvents} wire gap(s) across ${comparisons} compared frames (${rate}%), which`);
-  console.log(`bounds browser recoveries ABOVE. The ${recoveries} modelled episode(s) beside it are a`);
-  console.log('HEURISTIC and not a lower bound: this releases the hold on a contiguous frame while');
-  console.log('the browser releases it when the FETCH resolves, so the model can report more');
-  console.log('episodes than the browser starts (10,14,15,19 with a fetch pending: two against one).');
+  // THE NUMERATOR MUST BE THE THING THE RATE IS NAMED AFTER. This printed the heuristic EPISODE
+  // count over comparisons and called it a wire-gap rate -- two wire gaps in 39 comparisons read as
+  // 2.6% where the wire-gap rate is 5.1%.
+  const gapRate = (100 * gapEvents / comparisons).toFixed(1);
+  console.log(`${gapEvents} wire gap(s) across ${comparisons} compared frames (${gapRate}%).`);
+  console.log(`Beside it, ${recoveries} modelled episode(s) -- a heuristic that releases on a`);
+  console.log('contiguous frame, where the browser releases when the FETCH resolves.');
+  console.log('');
+  console.log('NEITHER NUMBER BOUNDS THE BROWSER, in either direction. A recovery sets its cursor');
+  console.log('from the SNAPSHOT and can drain into another one, so a single wire gap has been shown');
+  console.log('to cost several fetch/reset passes; and the episode model can report more starts than');
+  console.log('the browser makes. These count what crossed this wire, and nothing about repaints.');
 
   if (gapsMs.length) {
     const sorted = gapsMs.slice().sort((a, b) => a - b);

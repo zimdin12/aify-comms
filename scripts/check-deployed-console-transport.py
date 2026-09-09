@@ -35,6 +35,7 @@ could not gather its evidence -- because a check that answered nothing must not 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -62,6 +63,9 @@ FIXES = {
 #: What THIS test's own failure says. An exit 1 whose output names none of these is some other
 #: failure -- a fixture, an import, a collection error dressed as one -- and must not be reported
 #: as the deployed queue carrying the defect.
+#: What pytest prints for a FAILING ASSERTION, as opposed to any other exception reaching `E `.
+ASSERTION_LINE = re.compile(r"E\s+(AssertionError\b|assert\b)")
+
 FRAME_FAILURE_MARKS = (
     "counts POSTS, not frames",
     "coalescing is supposed to emit exactly one frame",
@@ -260,16 +264,30 @@ def deployed_queue_fires(scratch: Path) -> tuple[str, str]:
     # AND EXIT 1 IS NOT ENOUGH EITHER. It says SOMETHING failed, not that the frame-sequence
     # assertions did: a fixture setup error inside the isolated tree exits 1 and would be
     # reported as a deployed defect. The failure has to name the property being claimed.
-    # A SUBSTRING ANYWHERE IN THE OUTPUT IS NOT ASSERTION IDENTITY. Review put the phrase into a
-    # FIXTURE's captured setup text and this reported CARRIES on an exit 1 that never reached an
-    # assertion. The mark has to appear on a line pytest attributes to a FAILING ASSERTION -- its
-    # `E ` prefix -- and pytest's own summary has to name a failure in this file.
-    assertion_lines = [l for l in output.splitlines() if l.lstrip().startswith("E ")]
+    # PYTEST'S OWN ATTRIBUTION, NOT SUBSTRING SOUP. Both earlier versions were fooled by the same
+    # transcript: a FIXTURE raising `RuntimeError("setup failed while checking consecutive frames
+    # carried")` prints `E RuntimeError: ...`, which starts with `E ` AND contains the mark, and the
+    # word "failed" sits inside the exception text. Reproduced with real pytest: 1 error, exit 1,
+    # and this reported CARRIES.
+    #
+    # pytest distinguishes them in its OWN summary: a failing assertion is `FAILED <file>::<test>`
+    # and a fixture blowing up is `ERROR <file>::<test>`. So the summary must name a FAILURE in this
+    # file, no ERROR for it, and the mark must sit on an assertion line.
+    name = Path(FRAME_TEST).name
+    summary = [l.strip() for l in output.splitlines()]
+    failed_here = any(l.startswith("FAILED") and name in l for l in summary)
+    errored_here = any(l.startswith("ERROR") and name in l for l in summary)
+    # AN ASSERTION LINE, not merely an `E ` line. `AssertionError` and a bare `assert` are the
+    # assertion; `RuntimeError` and friends are something else blowing up. My first filter excluded
+    # anything containing "Error" and so threw away `E AssertionError:` itself -- which broke the
+    # TRUE positive while fixing the false one, and the live run caught it immediately.
+    assertion_lines = [l for l in output.splitlines()
+                       if ASSERTION_LINE.match(l.lstrip())]
     named = any(mark in line for line in assertion_lines for mark in FRAME_FAILURE_MARKS)
-    summarised = "failed" in output and Path(FRAME_TEST).name in output
-    if not (named and summarised):
-        return "unknown", ("pytest exited 1 but no FAILING ASSERTION in this test names a "
-                           "frame-sequence property, so what failed is not what this check reports")
+    if errored_here or not failed_here or not named:
+        return "unknown", (f"pytest exited 1 with failed={failed_here} errored={errored_here} "
+                           f"assertion-named={named} -- that is not this test's frame-sequence "
+                           f"assertions failing, so it is not what this check reports on")
     return "carries", "the deployed queue FAILS this version's frame-sequence test"
 
 

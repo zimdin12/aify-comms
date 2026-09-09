@@ -100,14 +100,18 @@ def _read_as_browser(seqs: list[int]) -> tuple[int, int, bool]:
     every gap as a recovery is the model the OBSERVER was corrected away from a round earlier,
     and two instruments in this repo disagreeing about the same consumer is itself the defect.
 
-    THE EPISODE COUNT IS A HEURISTIC, NOT A BOUND, and that is a correction review forced: this
-    releases the hold on a CONTIGUOUS frame while the browser releases it when the FETCH resolves.
-    On 10,14,15,19 with a fetch still pending the model says two episodes and the browser starts
-    one. `gaps` is the sound bound -- at most one recovery per gapped frame.
+    NEITHER COLUMN BOUNDS THE BROWSER, in either direction, and both claims that they did were
+    mine. The episode count releases on a CONTIGUOUS frame while the browser releases when the
+    FETCH resolves, so it can report more starts than the browser makes (10,14,15,19 with a fetch
+    pending: two against one). And `gaps` is not a bound the other way: a recovery takes its cursor
+    from the SNAPSHOT and can drain into another, so ONE wire gap has been shown to cost six
+    fetch/reset passes. Both columns count what crossed this wire.
 
-    THE THIRD RETURN IS STILL THE INTERESTING ONE HERE, and it does not depend on the release rule:
-    when EVERY flush coalesces, no contiguous frame ever arrives under either rule, so the console
-    enters recovery and does not settle for as long as the busy period lasts.
+    THE THIRD RETURN IS A PROPERTY OF THIS WIRE, NOT OF THE BROWSER. Under this model no contiguous
+    frame arrives when every flush coalesces, so the model never releases. That is NOT the same as
+    the console never settling: a recovery takes its cursor from the SNAPSHOT, and a covering one
+    drains the held frames and completes. Review drove both -- one wire gap costing six fetch/reset
+    passes, and three gaps completing three recoveries. What this column reports is the model.
     """
     last = -1
     gaps = 0
@@ -207,10 +211,14 @@ def main() -> int:
         print("  every frame the moment two posts share one flush window.")
         if len(never_settles) == len(multi):
             print()
-            print("  AND THE EPISODE COLUMN IS THE SHARPER READING. The browser holds gapped")
-            print("  frames while a recovery is pending and releases on a CONTIGUOUS one -- which")
-            print("  never arrives here. So it is not N recoveries: the console enters recovery")
-            print("  ONCE and never settles, which is worse than a large count, not milder.")
+            print("  THE EPISODE COLUMN IS A HEURISTIC AND SAYS LESS THAN IT ONCE CLAIMED HERE.")
+            print("  This used to conclude the console enters recovery ONCE and never settles.")
+            print("  Review falsified that against the real socket: a recovery takes its cursor")
+            print("  from the SNAPSHOT, so where that lands decides everything. A covering snapshot")
+            print("  drains the held frames and COMPLETES the recovery; a lagging one starts")
+            print("  another. One wire gap has been shown to cost six fetch/reset passes, and")
+            print("  three gaps to complete three recoveries. What these rows establish is the")
+            print("  SEQUENCE the queue emits, not how many times a browser repaints.")
         print()
         print("  The repo's queue advances by one at every batch size, gaps nothing and settles.")
     else:
@@ -220,10 +228,11 @@ def main() -> int:
     print()
     print("WHAT THIS IS NOT: a rate. It says what happens PER COALESCED FLUSH, not how often a")
     print("flush coalesces -- `measure-live-frame-gaps.mjs` is the instrument for that, and it has")
-    print("measured zero WIRE GAPS on this fleet. On the DEPLOYED build those are the same claim,")
-    print("because the rows above show a coalesced flush always produces a gap there; on a build")
-    print("that numbers frames correctly they are not, since it gaps nothing either way. Both")
-    print("measurements are needed: this is the severity, that is the exposure.")
+    print("measured zero WIRE GAPS on this fleet. On the DEPLOYED build, AT THE BATCH SIZES IN")
+    print("THE ROWS ABOVE, a coalesced flush gapped every time -- which is what those rows show")
+    print("and is not a statement about every batch size or every build. On a build that numbers")
+    print("frames correctly the two are different claims, because it gaps nothing either way.")
+    print("Both measurements are needed: this is the severity, that is the exposure.")
     return 0
 
 

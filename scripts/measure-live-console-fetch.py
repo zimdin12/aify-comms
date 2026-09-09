@@ -91,9 +91,7 @@ def main() -> int:
         rows_n = int(row.get("rows") or 24)
         spans, snapshot, tail = [], None, None
         for _ in range(ROUNDS):
-            # THE SAME VIEW AS THE BRANCH PROBE BELOW, so the two calls differ in exactly
-            # one thing -- the viewer width. A default-view request timed against a
-            # console-view one is two different responses compared as if they were one.
+            # THE CONSOLE VIEW, which is what a console fetch actually costs.
             ms, body = get(f"/terminals/{tid}?cols={cols}&rows={rows_n}&view=console")
             # A SPAN THAT IS NOT A DURATION IS NOT A MEASUREMENT. Written positively because NaN
             # fails every comparison, so "reject the negatives" would admit it.
@@ -116,20 +114,56 @@ def main() -> int:
             # character count; a missing field published 0, which reads as an empty console rather
             # than as an absent one. Review put all three through the previous version.
             raw_snapshot = term.get("snapshot")
-            raw_tail = term.get("output")
-            if not isinstance(raw_snapshot, str) or not isinstance(raw_tail, str):
-                refusals.append(
-                    f"{tid}: snapshot is {type(raw_snapshot).__name__} and output is "
-                    f"{type(raw_tail).__name__}; this table prints both as character counts")
+            if not isinstance(raw_snapshot, str):
+                refusals.append(f"{tid}: the console view's snapshot is "
+                                f"{type(raw_snapshot).__name__}, not text")
                 continue
             spans.append(ms)
             snapshot = len(raw_snapshot)
-            tail = len(raw_tail)
+        # THE STORED TAIL COMES FROM THE DEFAULT VIEW, and it is NOT timed. `view=console` DROPS
+        # `output` once a snapshot replaces it (`routers/terminals.py`), so asking the console view
+        # for a tail is asking for a field that view exists to remove. Requiring both from one
+        # response made a VALID projection refuse -- review ran the repo's own projection into this
+        # instrument and got exit 1, output NoneType. It does not fire against the deployed build,
+        # which predates that change, so it would have broken on the day of a deploy.
+        _, full = get(f"/terminals/{tid}?cols={cols}&rows={rows_n}")
+        raw_tail = (full.get("terminal") or {}).get("output")
+        if not isinstance(raw_tail, str):
+            refusals.append(f"{tid}: the default view's output is "
+                            f"{type(raw_tail).__name__}, not text")
+            continue
+        tail = len(raw_tail)
+
         # WHICH BRANCH, asked once per terminal at a wider viewer than its own geometry.
+        #
+        # THE SIGNAL IS CONDITIONAL AND THE CONDITIONS ARE CHECKED, which they were not: review
+        # showed a LIVE screen 200 columns wide reading as REPLAY (its own width EQUALS the viewer)
+        # and a screenless 240-column source reading as LIVE (max(240,200) is 240, not the viewer).
+        # The classifier is only sound while the viewer is strictly wider than both the stored
+        # geometry and the screen's, so a row that cannot satisfy that is refused rather than
+        # guessed at.
+        if cols >= WIDE_VIEWER:
+            refusals.append(f"{tid}: stored geometry {cols} is not narrower than the "
+                            f"{WIDE_VIEWER}-column probe, so the branch signal cannot separate")
+            continue
         _, wide = get(f"/terminals/{tid}?cols={WIDE_VIEWER}&rows={rows_n}&view=console")
-        widened = (wide.get("terminal") or {}).get("renderedCols")
-        branch = ("replay" if widened == WIDE_VIEWER
-                  else "live" if widened == cols else f"unclear({widened!r})")
+        wide_term = wide.get("terminal")
+        # AND THE WIDE RESPONSE HAS ITS OWN IDENTITY. A foreign response published its branch as
+        # though it belonged to this terminal -- the same check the timed call already makes.
+        if not isinstance(wide_term, dict) or str(wide_term.get("id")) != tid:
+            refusals.append(f"{tid}: the branch probe was answered about "
+                            f"{(wide_term or {}).get('id')!r}")
+            continue
+        widened = wide_term.get("renderedCols")
+        if widened == WIDE_VIEWER:
+            branch = "replay"
+        elif isinstance(widened, int) and 0 < widened < WIDE_VIEWER:
+            # A live screen reports ITS OWN width, which is narrower than the probe. It need not
+            # equal the stored `cols`: a screen resized since the row was written legitimately
+            # differs, and requiring equality would call that "unclear".
+            branch = "live"
+        else:
+            branch = f"unclear({widened!r})"
         if len(spans) == ROUNDS:
             results.append((statistics.median(spans), tid, row.get("agentId"), cols, rows_n,
                             snapshot, tail, branch))
@@ -165,11 +199,22 @@ def main() -> int:
     print("bounds neither retained history nor replay cost -- comparing one against the other is the")
     print("error this script was corrected for.")
     print()
+    # THE FOOTER IS DERIVED FROM THE COUNTS, never captioned. A run with a replay row must not
+    # print "no console is on the replay path" -- review published exactly that against a synthetic
+    # replay result.
     print(f"BRANCHES: {branches} -- read from `renderedCols` at a {WIDE_VIEWER}-column viewer,")
-    print("which is a direct signal rather than an inference from timing. The 51ms replay figure in")
-    print("the projection section describes a path no console reported here is on; it is reached")
-    print("when a terminal has no live screen -- after a service restart, for a plain-log runtime,")
-    print("past 256 screens, or once one has been dropped.")
+    print("a direct signal rather than an inference from timing, and sound only while that viewer")
+    print("is strictly wider than both the stored geometry and the screen's (rows that cannot")
+    print("satisfy that are refused above rather than classified).")
+    if branches.get("replay"):
+        print(f"{branches['replay']} console(s) ARE on the replay path -- the one the projection")
+        print("section's 51ms arm measures.")
+    elif branches.get("live") and len(branches) == 1:
+        print("No console reported here is on the replay path. That path is reached when a terminal")
+        print("has no live screen -- after a service restart, for a plain-log runtime, past 256")
+        print("screens, or once one has been dropped.")
+    else:
+        print("The branch counts above are mixed or unclear; read them rather than a summary.")
     print()
     print("A bimodal split in the TIMINGS would be weaker evidence of the same thing; a single mode")
     print("is NOT proof of one branch, because this times a full HTTP round trip rather than the")
