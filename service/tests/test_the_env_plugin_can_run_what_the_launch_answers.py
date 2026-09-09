@@ -48,6 +48,7 @@ MACHINE_ID = "linux:launch-host"
 ENVIRONMENT_ID = f"{MACHINE_ID}:default"
 AGENT_ID = "sc-lead"
 RUNTIME = "claude-code"
+ROLE = "coder"
 WORKSPACE = "/work"
 TERMINAL_ID = "term-1"
 SESSION_ID = "sess-launch"
@@ -71,6 +72,7 @@ HARNESS = """
 import { readFileSync } from 'node:fs';
 import { runOneControl, createHandleBook } from '%(controls)s';
 import { workspaceWithinRoots } from '%(claim)s';
+import { buildStartSpec } from '%(startspec)s';
 
 const launch = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const started = [];
@@ -96,12 +98,35 @@ const outcome = await runOneControl({
   windows: false,
   log: () => {},
   withinRoots: workspaceWithinRoots,
-  // Pass-through: this machine's allowlist is aify-env's business, and stubbing it permissively is
-  // what lets the PAYLOAD be the thing under test.
-  buildSpec: ({ launcher, args, cwd, env, label }) => ({ spec: { launcher, args, cwd, env, label } }),
-  resolveCandidates: (command) => [command],
+  // THE REAL BUILDER, and a pass-through here was a reproduced false green. The stub ignored
+  // `service`, so the plugin sending an empty one -- which this builder refuses outright with "a
+  // start request must name the service it is for" -- passed every assertion. It is a pure function
+  // taking `readFile`, `platform` and `dirExists` by injection, so running it needs no installed
+  // launcher and touches no filesystem.
+  buildSpec: (spec) => buildStartSpec(spec, {
+    // The minimum a launcher must be to be allowed to run: a shebang on the first line, and a
+    // SUBSTITUTED version marker. Both are the allowlist's own conditions, so this text is what a
+    // rendered wrapper looks like to it rather than a value invented to pass.
+    readFile: () => '#!/bin/bash' + String.fromCharCode(10)
+      + 'HARNESS_WRAPPER_VERSION="1.2.3"' + String.fromCharCode(10),
+    platform: 'linux',
+    dirExists: () => false,
+  }),
+  // THE RESOLVER STAYS STUBBED, deliberately and as an explicit boundary: where this machine keeps
+  // `claude-aify` is the host's business and depends on an install this test must not require.
+  // What it answers with is a path, because the builder judges a FILE.
+  resolveCandidates: (command) => ['/opt/aify/' + command],
   handles: createHandleBook(),
-  baseEnv: { PATH: '/usr/bin' },
+  // COLLIDING ON PURPOSE. Precedence is only observable where the two maps overlap, and with a
+  // `baseEnv` of PATH alone the overlay could be merged either way round with nothing noticing.
+  // These are the two collisions that matter: an agent id inherited from whatever launched this
+  // host is how a worker comes up reporting as somebody else, and an inherited
+  // AIFY_ENVIRONMENT_BRIDGE=1 turns a worker into a second environment bridge.
+  baseEnv: {
+    PATH: '/usr/bin',
+    AIFY_AGENT_ID: 'parent-other',
+    AIFY_ENVIRONMENT_BRIDGE: '1',
+  },
   sender: { send: () => {}, flush: async () => {} },
 });
 
@@ -130,7 +155,7 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
         })
         self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
         registered = self._client.post("/api/v1/agents", json={
-            "agentId": AGENT_ID, "role": "coder", "runtime": RUNTIME, "sessionMode": "managed",
+            "agentId": AGENT_ID, "role": ROLE, "runtime": RUNTIME, "sessionMode": "managed",
             "machineId": MACHINE_ID, "bridgeId": "bridge-launch",
         })
         self.assertEqual(registered.status_code, 200, registered.text)
@@ -181,11 +206,13 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
     def _run_by_the_plugin(self, answer: dict, roots: list[str] | None = None) -> dict:
         controls = (self.repo / PLUGIN_DIR / "terminal-controls.mjs").as_uri()
         claim = (self.repo / PLUGIN_DIR / "claim.mjs").as_uri()
+        startspec = (self.repo / "lib" / "start-spec.mjs").as_uri()
         script = Path(tempfile.mkdtemp()) / "drive-the-control-pass.mjs"
         payload = script.with_name("launch.json")
         payload.write_text(json.dumps(answer), encoding="utf-8")
         script.write_text(
-            HARNESS % {"controls": controls, "claim": claim, "control": CONTROL_ID,
+            HARNESS % {"controls": controls, "claim": claim, "startspec": startspec,
+                       "control": CONTROL_ID,
                        "terminal": TERMINAL_ID,
                        "roots": json.dumps(roots if roots is not None else [WORKSPACE])},
             encoding="utf-8")
@@ -235,10 +262,20 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
                          f"expected exactly one process start, got {read['started']}")
 
         spec = read["started"][0]
-        self.assertEqual([spec["launcher"], *spec["args"]], launch["argv"],
-                         "the argv the host would execute is not the one this service composed")
+        # THE LAUNCHER AND ITS ARGUMENTS, as the REAL builder records them. `command` is whatever
+        # the interpreter turned out to be, and `launcher` is the file that was judged -- the
+        # discriminating half, which is why the builder keeps it beside the command.
+        self.assertTrue(
+            str(spec["launcher"]).endswith(launch["argv"][0]),
+            f"the host would run {spec['launcher']!r}, which is not the program this service named "
+            f"({launch['argv'][0]!r})")
+        self.assertEqual(spec["args"][-len(launch["argv"]) + 1:], launch["argv"][1:],
+                         "the arguments the host would pass are not the ones this service composed")
         self.assertEqual(spec["cwd"], launch["cwd"],
                          "the directory the host would run in is not the one this service named")
+        self.assertEqual(spec["service"], "aify-comms",
+                         "the start was not attributed to this service, which the builder refuses "
+                         "outright and a permissive stub could not see")
 
     def test_the_aify_variables_this_service_sends_reach_the_process(self):
         """The overlay, and it is a separate obligation from starting at all.
@@ -254,6 +291,31 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
         read = self._run_by_the_plugin({"launch": launch})
 
         env = read["started"][0]["env"]
+
+        # PINNED AGAINST WHAT WAS SEEDED, BEFORE the general comparison. The sweep below quantifies
+        # over whatever `launch.env` contains, so a service emitting NO aify variables satisfied it
+        # vacuously -- reproduced by review, and this test named both of these in its own prose
+        # while asserting neither. A worker with no `AIFY_AGENT_ID` is structurally dead, and one
+        # with no `AIFY_AGENT_ROLE` self-registers as `coder`, destroying the spawn's role.
+        self.assertEqual(env.get("AIFY_AGENT_ID"), AGENT_ID,
+                         "the worker would come up without the agent id this service issued, so "
+                         "its status could never be right")
+        self.assertEqual(env.get("AIFY_AGENT_ROLE"), ROLE,
+                         "the worker would come up without its role and self-register as the "
+                         "default, and re-register is a full state refresh")
+
+        # AND THE COLLISIONS RESOLVE THE SERVICE'S WAY. `baseEnv` deliberately carries a DIFFERENT
+        # agent id and a bridge flag, because precedence is only observable where the maps overlap:
+        # with disjoint inputs the merge could be reversed with nothing noticing.
+        self.assertNotEqual(
+            env.get("AIFY_AGENT_ID"), "parent-other",
+            "an agent id INHERITED from whatever launched this host won over the one the spawn "
+            "chose, so the worker would come up reporting as another agent")
+        self.assertEqual(
+            env.get("AIFY_ENVIRONMENT_BRIDGE"), "0",
+            "an inherited AIFY_ENVIRONMENT_BRIDGE=1 won over the value this service sent, which "
+            "would make the worker a second environment bridge on a host that already has one")
+
         missing = {name: value for name, value in (launch.get("env") or {}).items()
                    if env.get(name) != value}
         self.assertEqual(missing, {}, (

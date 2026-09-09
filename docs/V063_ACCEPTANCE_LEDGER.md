@@ -59,68 +59,58 @@ conditional-start work.
 
 ## What every PASSES IN TESTS row below is bound to
 
-A result with no candidate attached is not a receipt. Every such row was measured on:
+A result with no candidate attached is not a receipt. **Each row names the commit that carries
+it and the run it was measured on**, and that structure is itself a repair: this section held a
+single "the frozen successor is X" pointer, and it was wrong three review rounds running.
 
-- **Candidate `09e8df6a` for every row that existed when it was cut** -- the commit the tested
-  tree BECAME, written after that commit exists rather than predicted before it. A candidate has
-  to be a thing another person can check out: an earlier version of this line named "the tree at
-  `05ad53df` carrying round sixteen's repairs", and `05ad53df` is immutable and holds neither
-  X-1 nor the repaired census.
-- **AND THE ROWS ADDED AFTER IT BIND TO THEIR OWN TREES, which this section claimed for one
-  commit and could not have.** X-3's and X-5's test FILES do not exist at `09e8df6a` at all;
-  X-4's carrier file DOES exist there and the X-4 test inside it does not. The
-  distinction is worth the words: a reader checking "the file does not exist" against
-  X-4 would find it and conclude this section was wrong about everything. A receipt naming a tree that cannot contain the thing it certifies reads as
-  checkable and is not, which is the whole failure this section was written to end -- so it
-  happened again, one layer up, in the fix for it:
+**THE POINTER WAS THE MECHANISM, not the mistake.** A line naming one tree as the place to read
+every row is made FALSE by the next commit -- so it is stale the moment anything lands, and
+whoever adds a row writes their line here and never scrolls up to it. This document already
+records exactly that failure for the dashboard counts, where its own advice is to delete one of
+the two copies rather than keep updating both. A per-row binding cannot go stale that way: a new
+row APPENDS a line instead of falsifying one.
 
-  | row | the commit that carries it |
-  |---|---|
-  | X-1, X-2, and every earlier row | `09e8df6a`, with the run below |
-  | X-3 | `1cfd6f14` |
-  | X-4 | `5b7855b1`, repaired for the review's F1/F2/F3 in the successor named at the end |
-  | X-5 | `c1a1d46b` |
+| row | the commit that carries it | measured on |
+|---|---|---|
+| every row before X-3 | `09e8df6a` | run A |
+| X-3 | `1cfd6f14` | run A, plus its own file's mutation run |
+| X-4 | `5b7855b1`, repaired at `40dc8794` (F1/F2/F3) and `fba7d437` (S2/S3) | runs B and C |
+| X-5 | `c1a1d46b`, repaired at `fba7d437` (S1) | run C |
+| X-6 | `58d54cb3` | run D |
+| X-7 | The plugin can RUN this service's launch answer — the argv it composed, in the workspace it named, with the variables it sent winning over the host's own — and REFUSES one it should not | `lib/plugins/aify-comms/terminal-controls.mjs` (aify-env) against `GET /terminals/{id}/launch` | `test_the_env_plugin_can_run_what_the_launch_answers.py` — a terminal is seeded, the real launch answer fetched, and the plugin's own `runOneControl` driven on it. The REAL `buildStartSpec` judges the start, with `readFile`, `platform` and `dirExists` injected so no install or filesystem is needed; `withinRoots` is the plugin's real guard. Only `resolveCandidates` is stubbed, as an explicit boundary | PASSES IN TESTS. TEN mutants, all RED, THREE of them the review's own reproduced false greens | Met for the start control. **Three of its first shape's assertions were satisfied by less, all reproduced by review.** A pass-through `buildSpec` ignored `service`, so the plugin naming none — which the real builder refuses outright — passed; the overlay's precedence could not be judged because `baseEnv` held only PATH, so reversing the merge passed; and the environment sweep quantified over whatever the payload carried, so a service emitting NO aify variables satisfied it vacuously while the test named `AIFY_AGENT_ID` and `AIFY_AGENT_ROLE` in prose. The fixture now inherits COLLIDING values, because precedence is only observable where the maps overlap. `resolveCandidates` stays stubbed; adoption, the second-worker refusal and stop/resize are NOT covered |
 
-- **THE FROZEN SUCCESSOR IS `40dc8794`**, which is the tree every row above should be read on: it
-  carries the repairs for the review's F1, F2 and F3, so X-4's and X-2's earlier commits hold shapes
-  that PASSED while proving nothing. Its own run, five suites, one each, all exit status 0:
+**A ROW'S COMMIT IS WHERE ITS TEST FIRST EXISTED, and the repair columns matter as much.** An
+earlier version bound every row to one commit, and X-3's and X-5's test files do not exist at
+`09e8df6a` at all; X-4's carrier file DOES exist there and the X-4 test inside it does not. The
+distinction is worth the words -- a reader checking "the file does not exist" against X-4 would
+find it and conclude this section was wrong about everything. And a row's FIRST commit holds the
+shape review later broke: X-4 at `5b7855b1` and X-2 at `09e8df6a` each passed while proving
+nothing, which is why the repair commits are named beside them rather than instead of them.
 
-  | suite | command | result | exit |
-  |---|---|---|---|
-  | python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,653 passed, 10,978 subtests | 0 |
-  | bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 364 suites passed; 1 test skipped in 1 file | 0 |
-  | dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,712 passed, 0 skipped | 0 |
-  | aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 223 tests, 222 passed, 1 skipped | 0 |
-  | aify-env | `cd ~/projects/aify-env && npm test` | 1,699 tests, 1,698 passed, 1 skipped | 0 |
+### The runs
 
-  `TIME_WAIT` was **288** before the python run and **12,296** after, against this host's
-  16,384-port ephemeral range. Nothing failed, so it attributes nothing; it is recorded so a later
-  red is read against a measured before-and-after rather than a remembered one.
+Five suites, one run each, all exit status 0, each taken on the tree named beside it. `TIME_WAIT`
+is sampled before and after the python run against this host's 16,384-port ephemeral range;
+nothing failed in any of them, so it attributes nothing and is recorded only so a later red is
+read against a measured before-and-after rather than a remembered one.
 
-- **The five suites, ONE run each, all exit status 0**, taken immediately before that commit so
-  every figure in this document reconciles against the same tree:
+| run | tree | python | bridge | dashboard | wrapper | aify-env | TIME_WAIT |
+|---|---|---|---|---|---|---|---|
+| A | `09e8df6a` | 5,638 (+10,956 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 294 -> ~12,200 |
+| B | `40dc8794` | 5,653 (+10,978 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 288 -> 12,296 |
+| C | `fba7d437` | 5,664 (+11,000 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 474 -> 4,614 |
+| D | `58d54cb3` | 5,659 (+10,989 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 929 -> 12,331 |
+| E | `ee8ad96c` | 5,664 (+11,000 sub) | 364 suites, 1 skipped | 1,712 | 223 | 1,699 | 468 -> 8,026 |
 
-| suite | command | result | exit |
-|---|---|---|---|
-| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,638 passed, 10,956 subtests | 0 |
-| bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 364 suites passed; 1 test skipped in `runtime-launch-helpers.test.js` | 0 |
-| dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,712 passed, 0 skipped | 0 |
-| aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 223 tests, 222 passed | 0 |
-| aify-env | `cd ~/projects/aify-env && npm test` | 1,699 tests, 1,698 passed, 1 skipped | 0 |
+The commands are the five this repo's CLAUDE.md names, unchanged: `python -m pytest
+service/tests -q -n 8 --dist loadfile`; `cd mcp/stdio && node tests/run-all.mjs`; `cd
+service/new_dashboard && node --test *.test.mjs`; `cd ~/projects/aify-wrapper && node --test
+tests/*.test.js`; `cd ~/projects/aify-env && npm test`.
 
-**AND THIS TABLE HAD GONE STALE UNDER ITS OWN CANDIDATE LINE.** It quoted 5,623 / 363 / 1,709 /
-219 / 1,683 while naming a commit several steps past them -- so the "one run" it promises was
-neither one run nor of that tree. Two copies of one fact, and the copy nobody scrolls back to is
-the one that rots: the failure this repo documents at length, inside the section that exists to
-prevent it.
+**A READING OF 929 BEFORE RUN D WAS RESIDUE DRAINING FROM RUN C, not ambient load.** It is worth
+naming because a number like that looks exactly like a host condition, and this repo has a
+record of somebody reporting one as such after sampling BETWEEN runs rather than during one.
 
-`TIME_WAIT` was **294** before the python run and roughly **12,200** after it, against this
-host's 16,384-port ephemeral range -- the socket pressure CLAUDE.md documents, sampled DURING the
-run rather than between runs. Nothing failed, so it attributes nothing here; it is recorded so a
-later red is read against a measured before-and-after rather than a remembered one. A reading of
-**1,888** taken before an earlier run today was residue from the run before it and NOT ambient
-load, which is worth naming because that number looks exactly like a host condition and this
-repo has a record of somebody reporting one.
 **PASSES IN TESTS is not PROVEN, and neither is a deployed-object failure a receipt for a candidate
 run.** B-1's row carries both and says which is which.
 
@@ -443,12 +433,13 @@ recorded here rather than attempted in a release cut.
    withdrawn. What remains open is a different claim: what is PROVEN is that no literal
    spelling of a deleted module's name appears outside a comment — not unreachability, since
    nothing resolves a specifier. Behaviour is UNREVIEWED.
-4. **The cross-repo seam — SIX LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
+4. **The cross-repo seam — SEVEN LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
    the plugin's ADDRESSES, X-2 the top-level FIELDS it sends, X-3 that its own READERS work on
    what this service actually answers, X-4 that a request the plugin sends is ACCEPTED by this
    service's real auth middleware, and X-5 that what the host tier says about itself reaches the
-   code that acts on it, and X-6 that the plugin can READ a claim answer through to a
-   registered agent — all six driven from both sides — and
+   code that acts on it, X-6 that the plugin can READ a claim answer through to a registered
+   agent, and X-7 that it can RUN a launch answer and refuses one it should not — all seven
+   driven from both sides — and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
    reference's grammar and directory agreement, not lifecycle integration. What remains unproved:
    the responses X-3 does not read, and any LIVE round trip, where six
@@ -457,25 +448,25 @@ recorded here rather than attempted in a release cut.
    same as saying a real key authenticates — no assertion here has ever seen a 401 or a 200 from
    the deployed service. Moving the rest out of this release is an owner's decision and has not
    been made.
-4b. **X-6 IS BUILT for the CLAIM answer, and the terminal-launch answer is what remains** —
-   the return leg of the seam. X-5 closed the direction the plugin WRITES; this is what it READS.
-   It is the one layer here with a defect already on the record rather than a hypothetical:
-   `claim.mjs` says in its own words that six spawn requests were claimed within seconds and all
-   six failed with "a start request must name a launcher to run", because the plugin built a
-   start spec from `request.launcher` -- a field the wire has never carried. That mutant is
-   reconstructed in the driver and goes RED.
+4b. **THE RETURN LEG IS BUILT FOR BOTH RESPONSES the host tier reads.** X-5 closed the
+   direction the plugin WRITES; X-6 and X-7 close what it READS. This item said the
+   terminal-launch answer was what remained, and X-7 covered it in the same session -- a plan
+   line left saying "still open" after the work landed is the rot this document keeps recording
+   about counts, so it is corrected rather than left for the next reader to believe.
 
-   THE INSTRUMENT RECORDS READS AND ASSERTS THE OUTCOME. A source scan for `response.<name>` is
-   the shape review broke twice on this seam, and "every property read is present" is also FALSE
-   of correct code, since `workspace || workspaceRoot` reads a fallback by design. So the Proxy
-   supplies the DIAGNOSIS -- it names the field beside a failure -- while the VERDICT is whether
-   the plugin's own pass reaches a registered agent on this service's real answer.
+   X-6 (the CLAIM answer) is the one with a defect on the record rather than a hypothetical:
+   `claim.mjs` says six spawn requests were claimed within seconds and all six failed with "a
+   start request must name a launcher to run", because the plugin built a start spec from
+   `request.launcher` -- a field the wire has never carried. That mutant is reconstructed and
+   goes RED. X-7 (the LAUNCH answer) asserts the spec that would be EXECUTED and the refusal
+   that stops a service running a process anywhere on the host.
 
-   STILL OPEN: the terminal-launch answer (`GET /terminals/{id}/launch`), whose consumer
-   `runTerminalControl` takes a much larger dependency set -- process handles, a sender, a
-   launcher resolver -- so driving it needs more scaffolding than the claim pass did. Its reads
-   are `launch.argv` and `launch.cwd`, and the second is what stops a service launching a process
-   anywhere on the host, so it is worth doing rather than dropping.
+   WHAT NEITHER ESTABLISHES, and review named both: X-6's `api.report` is a RECORDER, so it
+   shows what the plugin would send and NOT that an agent is registered through this service's
+   report route -- the write-back half is emitted, not round-tripped. And X-7 stubs
+   `resolveCandidates`, deliberately: where this machine keeps `claude-aify` depends on an
+   install these tests must not require. The spec BUILDER is the real one.
+
 4c. **`RuntimeAdapter.wrapper_name` HAS NO PRODUCTION READER, and that is an owner's decision
    rather than a repair.** The base declares it abstract, five adapters implement it, and
    nothing in `service/` consumes it -- measured repo-wide across `.py`, `.js`, `.mjs` and
