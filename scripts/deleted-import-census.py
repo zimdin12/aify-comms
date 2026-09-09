@@ -39,21 +39,29 @@ burned by.
     python scripts/deleted-import-census.py [since]
 
 CONTROLS IN EVERY RUN. Positive: a live module is named, with THIS FILE excluded from the population
-so the instrument cannot answer for itself. Negative: a name that was never a file is not. Then TEN
-carriers -- SEVEN that must read as CODE and THREE as PROSE, which is not a symmetric set and was
-published as one. CODE: a multiline `require`, a multiline dynamic `import`, comment TEXT inside a
-string literal, an import sharing its line with a trailing note, a Python assignment with one, and
-that assignment after an ASCII and then a NON-ASCII docstring on the same line -- the pair that
-isolates a column UNIT rather than a shape. PROSE: a `//` comment, a Python docstring, and a `//`
-comment following a regex literal whose character class holds a quote.
+so the instrument cannot answer for itself. Negative: a name that was never a file is not. Then
+FOURTEEN carriers -- TEN that must read as CODE and FOUR as PROSE, which is not a symmetric set
+and was twice published as one. CODE: a multiline `require`, a multiline dynamic `import`,
+comment TEXT inside a string literal, an import sharing its line with a trailing note, a Python
+assignment with one, that assignment after an ASCII and then a NON-ASCII docstring on the same
+line -- the pair that isolates a column UNIT rather than a shape -- and an import after a `//`
+comment ended by each of ECMAScript's other three line terminators, U+2028, U+2029 and CR.
+PROSE: a `//` comment, a Python docstring, a `//` comment following a regex literal whose
+character class holds a quote, and a comment that U+2028 ends, so the terminator repair did not
+simply stop finding comments.
 
-AND A DIFFERENTIAL AGAINST V8, because a carrier only exercises a shape somebody thought to write --
-and both of this scanner's defects lived in shapes nobody did. Every comment span it reports is
-blanked out and the result handed to `vm.SourceTextModule`: a scanner that ate code produces a file
-V8 cannot parse. Its own negative control runs beside it, the same files with every span stretched
-forty characters past its end, which must FAIL; a file where even that still parses contributes no
-evidence and is dropped rather than counted. Exit 1 if any control fails or anything is named from
-code.
+AND A DIFFERENTIAL AGAINST V8, because a carrier only exercises a shape somebody thought to write
+-- and every one of this scanner's defects has lived in a shape nobody did. Every comment span it
+reports is blanked out and the result handed to `vm.SourceTextModule`.
+
+WHAT THE DIFFERENTIAL ESTABLISHES IS PARSE PRESERVATION OVER THE FILES IT JUDGED, and no more.
+It was published as "a scanner that ate code produces a file V8 cannot parse", which is false:
+deleting a WHOLE STATEMENT leaves valid JavaScript, and review built exactly that -- a `//`
+comment ended by U+2028 followed by a live import, accepted and COUNTED by the differential. Its
+stretched-span arm shows the check can fail on a file; it says nothing about whether the shorter,
+honest span held only commentary. A file where even the stretched arm parses contributes no
+evidence and is dropped rather than counted. Exit 1 if any control fails or anything is named
+from code.
 """
 from __future__ import annotations
 
@@ -65,7 +73,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from comment_spans import comment_spans, js_comment_spans   # noqa: E402  (path set above)
+from comment_spans import (  # noqa: E402  (path set above)
+    JS_SUFFIXES, comment_spans, js_comment_spans)
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SINCE = "aed8b590"
@@ -186,14 +195,18 @@ def _blank(text: str, spans: list[tuple[int, int]]) -> str:
 def scanner_differential(files: list[str]) -> tuple[str, list[str]]:
     """Does blanking the scanner's comment spans leave these files parsing? V8 answers.
 
-    A scanner that eats code produces a file V8 cannot parse. Returns a verdict word and the
-    files that broke, or ("unknown", ...) when the harness could not be run -- because a check
-    that gathered no evidence is not a passed one.
+    PARSE PRESERVATION, NOT COMMENT CORRECTNESS. A span that swallowed a whole statement leaves
+    valid JavaScript behind, so this cannot see it -- review built that carrier. What it catches
+    is a span that cut INTO a statement, which is the commoner way a scanner goes wrong and is
+    exactly how its regex-literal defect would have presented.
+
+    Returns a verdict word and the files that broke, or ("unknown", ...) when the harness could
+    not be run -- because a check that gathered no evidence is not a passed one.
     """
     jobs = []
     for rel in files:
         path = ROOT / rel
-        if path.suffix not in (".js", ".mjs", ".cjs") or not path.exists():
+        if path.suffix not in JS_SUFFIXES or not path.exists():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         spans = js_comment_spans(text)
@@ -214,6 +227,11 @@ def scanner_differential(files: list[str]) -> tuple[str, list[str]]:
     payload.write_text(json.dumps(jobs), encoding="utf-8")
     out = subprocess.run(["node", "--experimental-vm-modules", str(harness), str(payload)],
                          capture_output=True, text=True)
+    # THE SAME EXIT-STATUS HOLE THIS SESSION JUST CLOSED IN X-1, REPEATED HERE. A payload from a
+    # process that did not succeed is not evidence: review appended `process.exitCode = 7` to
+    # the harness and the differential still returned OK over 46 files.
+    if out.returncode != 0:
+        return "unknown", [f"the parser harness exited {out.returncode}, so nothing it printed is admitted"]
     lines = [line for line in out.stdout.splitlines() if line.startswith("[")]
     if not lines:
         return "unknown", [f"the parser harness did not run: {out.stderr.strip()[-200:]}"]
@@ -246,7 +264,9 @@ DOC_QUOTE = chr(34) * 3
 
 
 def carrier_verdicts() -> list[str]:
-    """Eight carriers, four per direction, through the same searcher and the same classifier."""
+    """Fourteen carriers -- ten that must read as CODE, four as PROSE -- through the same
+    searcher and the same classifier the census uses.
+    """
     scratch = Path(tempfile.mkdtemp())
     name = "a-deleted-module.mjs"
     cases = {
@@ -291,6 +311,29 @@ def carrier_verdicts() -> list[str]:
             "utf8-doc.py",
             DOC_QUOTE + (chr(233) * 40) + DOC_QUOTE + '; X = "./' + name + '"\n',
             "code"),
+        # ECMASCRIPT HAS FOUR LINE TERMINATORS, not one. A scanner ending a `//` comment only at
+        # LF read `// note<U+2028>import(...)` as one comment and hid an executable import in
+        # it. The V8 differential accepted that file, because deleting a whole statement leaves
+        # valid JavaScript -- which is why these are carriers and not left to the differential.
+        "an import after a comment ended by U+2028 is CODE": (
+            "sep2028.mjs",
+            "// review note" + chr(8232) + 'const x = await import("./' + name + '");'
+            + chr(10),
+            "code"),
+        "an import after a comment ended by U+2029 is CODE": (
+            "sep2029.mjs",
+            "// review note" + chr(8233) + 'const x = await import("./' + name + '");'
+            + chr(10),
+            "code"),
+        "an import after a comment ended by CR is CODE": (
+            "sepcr.mjs",
+            "// review note" + chr(13) + 'const x = await import("./' + name + '");'
+            + chr(10),
+            "code"),
+        "a comment ENDED by U+2028 is itself still PROSE": (
+            "sepprose.mjs",
+            "// retired with ./" + name + chr(8232) + "const x = 1;" + chr(10),
+            "prose"),
     }
     for _label, (filename, body, _want) in cases.items():
         (scratch / filename).write_text(body, encoding="utf-8")
@@ -365,9 +408,13 @@ def main() -> int:
                   "a Python assignment with a trailing comment is still CODE",
                   "an assignment after an ASCII docstring on one line is CODE",
                   "an assignment after a NON-ASCII docstring on one line is CODE",
+                  "an import after a comment ended by U+2028 is CODE",
+                  "an import after a comment ended by U+2029 is CODE",
+                  "an import after a comment ended by CR is CODE",
                   "a `//` comment naming it is PROSE",
                   "a Python docstring naming it is PROSE",
-                  "a comment after a regex holding a quote is PROSE"):
+                  "a comment after a regex holding a quote is PROSE",
+                  "a comment ENDED by U+2028 is itself still PROSE"):
         bad = [f for f in failures if f.startswith(label)]
         print(f"  carrier: {label:44} {bad[0][len(label):].strip() if bad else 'OK'}")
     ok = ok and not failures
@@ -379,8 +426,10 @@ def main() -> int:
     floor = [str(p.relative_to(ROOT).as_posix())
              for p in sorted((ROOT / 'mcp' / 'stdio').glob('*.mjs'))[:15]]
     verdict, broke = scanner_differential(sorted(set(sample) | set(floor)))
-    print(f"  V8 differential: blanking the scanner's comments leaves every file parsing "
-          f"-- {verdict.upper()}")
+    print(f"  V8 differential: blanking the scanner's comments PRESERVES THE PARSE of every "
+          f"file judged -- {verdict.upper()}")
+    print("      (parse preservation, not comment correctness: a span that swallowed a WHOLE")
+    print("       statement leaves valid JavaScript and is invisible here)")
     for item in broke:
         print(f"      {item}")
     ok = ok and verdict == "ok"
@@ -395,8 +444,8 @@ def main() -> int:
         print("SCOPE, so this is not over-read: the first figure is literal-name absence, NOT")
         print("unreachability. A specifier that spells a letter as an escape, or is concatenated")
         print("or computed, evaluates to the same path with no raw-name hit, and nothing here")
-        print("resolves a specifier. The second and third rest on the classifier, which the ten")
-        print("carriers above drive in both directions and which V8 checks differentially.")
+        print("resolves a specifier. The second and third rest on the classifier, which the")
+        print("fourteen carriers above drive in both directions, and whose parse V8 preserves.")
 
     if not ok:
         print("The census reports nothing, because its own instrument failed a control.")

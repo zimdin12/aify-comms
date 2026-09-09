@@ -20,6 +20,18 @@ import io
 import tokenize
 from pathlib import Path
 
+#: WHICH SUFFIXES ARE WHICH LANGUAGE, owned here because this is the module that already has to
+#: decide. Two scripts had typed the JavaScript set out by hand and
+#: `test_inline_literal_set_duplication_is_frozen.py` caught the second one the day it was written.
+#: WHAT ENDS A `//` COMMENT. ECMAScript has FOUR line terminators, not one: LF, CR, and the
+#: two Unicode separators U+2028 and U+2029. A scanner ending a line comment only at LF read
+#: `// note<U+2028>import(...)` as one comment and hid an executable import in it -- and the V8
+#: differential accepted the file, because deleting a whole statement leaves valid JavaScript.
+JS_LINE_TERMINATORS = (chr(10), chr(13), chr(8232), chr(8233))
+
+PY_SUFFIXES = (".py",)
+JS_SUFFIXES = (".js", ".mjs", ".cjs")
+
 def _offsets(text: str) -> list[int]:
     """Character offset of the first character of each line, 1-indexed by line."""
     starts = [0, 0]
@@ -121,7 +133,7 @@ def js_comment_spans(text: str) -> list[tuple[int, int]]:
             i += 1
             continue
         if state == "line_comment":
-            if char == chr(10):
+            if char in JS_LINE_TERMINATORS:
                 spans.append((start, i))
                 state = "code"
             i += 1
@@ -174,4 +186,4 @@ def _regex_may_start(text: str, index: int, previous: str) -> bool:
 
 def comment_spans(path: Path) -> list[tuple[int, int]]:
     text = path.read_text(encoding="utf-8", errors="replace")
-    return python_comment_spans(text) if path.suffix == ".py" else js_comment_spans(text)
+    return python_comment_spans(text) if path.suffix in PY_SUFFIXES else js_comment_spans(text)

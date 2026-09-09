@@ -5,11 +5,23 @@ changed producer/consumer paths, the exact test and assertion, a candidate-bound
 disposition. Written by hand rather than scanned, because the thing being recorded is what each
 change must be true for — which no scanner knows.
 
-**What it is not.** `scripts/acceptance-ledger.py` is a discovery inventory: it reports that 95
-surviving product files changed in `aed8b590..HEAD` are each NAMED by at least one test, with 0
-bare and 35 deleted. Review reproduced those counts and accepted them as an inventory while
-correctly declining them as this ledger — a name match is not an obligation. The inventory finds
-candidates; this says what they owe.
+**What it is not.** `scripts/acceptance-ledger.py` is a discovery inventory over the 130 product
+files changed in `aed8b590..HEAD`: 35 deleted, 0 named by no test at all, and the 95 survivors split
+**74 IMPORTED by a test, 15 code files only NAMED, and 6 that cannot be imported by anything**
+(`VERSION`, `install.sh`, two manifests, `index.html`, `styles.css`).
+
+**The IMPORT tier exists because review was right about the NAME tier.** A basename match is
+satisfied by a mention in a comment, a fixture, or a stem collision; an import means a test reached
+the file. Python is answered by `ast` over every test file, JavaScript by V8 through
+`vm.SourceTextModule().dependencySpecifiers`, which parses without executing — 493 JS test files
+read, 0 unparseable. **STATIC imports only, and the limit has two verified instances rather than
+being theoretical**: `send-tools.mjs` is exercised by `send-tools.test.js` through
+`await import(...)` and lands in the weaker tier, and `doctor.js` is deliberately never imported at
+all because importing it RUNS the doctor. Four controls run in the same invocation, two per tier.
+
+**Even the strong tier is not an obligation.** It says a test reached the file, not that it
+exercises the change or any branch of it. The inventory finds candidates; this ledger says what they
+owe.
 
 **Two scope corrections review made, both verified here before being adopted:**
 
@@ -81,7 +93,7 @@ waiting. The mechanism is present in the deployed build and has not been caught 
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
-| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that no LITERAL spelling of these names appears outside a comment: of 107 deleted files (35 product, 72 tests), 84 are not spelled anywhere in the searched population, 22 appear only inside comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls, ten carriers and a V8 differential in the same run; classification by occurrence SPAN, with AST byte columns converted before they meet character offsets. **NOT unreachability** — an escaped, concatenated or computed specifier evaluates to the same path with no literal hit, and nothing here resolves a specifier. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
+| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that no LITERAL spelling of these names appears outside a comment: of 107 deleted files (35 product, 72 tests), 84 are not spelled anywhere in the searched population, 22 appear only inside comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls, fourteen carriers and a V8 parse-preservation differential in the same run; classification by occurrence SPAN, with AST byte columns converted before they meet character offsets and all four ECMAScript line terminators ending a `//` comment. **NOT unreachability** — an escaped, concatenated or computed specifier evaluates to the same path with no literal hit, and nothing here resolves a specifier. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
 | R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
 | R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not spelled outside a comment, same run and same scope limit. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
 
@@ -102,12 +114,19 @@ instrument certified itself.
 comment LINES and asked whether a mention's line was in it, so `import("./x.mjs"); // note` read as
 PROSE while the identical import without the note read as CODE. Review drove that through the whole
 entrypoint. Classification is by occurrence SPAN now -- character offsets from `tokenize`, `ast` and
-the JS scanner -- with TEN carriers, seven that must read as CODE and three as PROSE. Two of
-those ten are an ASCII/non-ASCII pair that isolates a column UNIT rather than a shape: the AST
-reports UTF-8 BYTE columns while `tokenize` reports CHARACTER columns, and joining them without
-conversion let a docstring of accented characters swallow the code sharing its line. And a V8
-DIFFERENTIAL runs over the repo's real files -- everything the scanner calls a comment is blanked
-and handed to `vm.SourceTextModule`, with a stretched-span arm beside it that must fail.
+the JS scanner -- with FOURTEEN carriers, ten that must read as CODE and four as PROSE. Two of
+them are an ASCII/non-ASCII pair that isolates a column UNIT rather than a shape: the AST reports
+UTF-8 BYTE columns while `tokenize` reports CHARACTER columns, and joining them without conversion
+let a docstring of accented characters swallow the code sharing its line. Three more are
+ECMAScript's other line terminators -- U+2028, U+2029 and CR -- because the scanner ended a `//`
+comment only at LF, so `// note<U+2028>import(...)` hid a live import inside a comment.
+
+A V8 DIFFERENTIAL runs beside them over the repo's real files: everything the scanner calls a
+comment is blanked and handed to `vm.SourceTextModule`, with a stretched-span arm that must fail
+and files where even that parses dropped rather than counted. **What it establishes is PARSE
+PRESERVATION over the files it judged, not comment correctness** -- deleting a whole statement
+leaves valid JavaScript, which is exactly how the U+2028 carrier walked past it. It was published
+as the stronger claim for one round.
 
 **WHAT THE CENSUS ESTABLISHES, stated at its real width.** No LITERAL spelling of a deleted module's
 name appears outside a comment in the searched population: 84 of 107 are not spelled anywhere, 22
