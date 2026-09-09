@@ -260,9 +260,16 @@ def deployed_queue_fires(scratch: Path) -> tuple[str, str]:
     # AND EXIT 1 IS NOT ENOUGH EITHER. It says SOMETHING failed, not that the frame-sequence
     # assertions did: a fixture setup error inside the isolated tree exits 1 and would be
     # reported as a deployed defect. The failure has to name the property being claimed.
-    if not any(mark in output for mark in FRAME_FAILURE_MARKS):
-        return "unknown", ("pytest exited 1 but no frame-sequence assertion is named in its "
-                           "output, so what failed is not the property this check reports on")
+    # A SUBSTRING ANYWHERE IN THE OUTPUT IS NOT ASSERTION IDENTITY. Review put the phrase into a
+    # FIXTURE's captured setup text and this reported CARRIES on an exit 1 that never reached an
+    # assertion. The mark has to appear on a line pytest attributes to a FAILING ASSERTION -- its
+    # `E ` prefix -- and pytest's own summary has to name a failure in this file.
+    assertion_lines = [l for l in output.splitlines() if l.lstrip().startswith("E ")]
+    named = any(mark in line for line in assertion_lines for mark in FRAME_FAILURE_MARKS)
+    summarised = "failed" in output and Path(FRAME_TEST).name in output
+    if not (named and summarised):
+        return "unknown", ("pytest exited 1 but no FAILING ASSERTION in this test names a "
+                           "frame-sequence property, so what failed is not what this check reports")
     return "carries", "the deployed queue FAILS this version's frame-sequence test"
 
 

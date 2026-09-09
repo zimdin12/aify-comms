@@ -72,7 +72,7 @@ let comparisons = 0;     // those actually judged against a previous sequence fo
 let unnumbered = 0;      // no finite seq: the browser paints these without touching lastSeq
 let dropped = 0;         // seq <= lastSeq: the browser discards, and does NOT lower its cursor
 let gapEvents = 0;       // every seq > lastSeq + 1 on the wire -- the UPPER bound on recoveries
-let recoveries = 0;      // distinct recovery EPISODES, holding gaps that arrive while one is pending
+let recoveries = 0;      // MODELLED episodes (released by a contiguous frame) -- not a bound
 const pending = new Set();  // terminals whose recovery this model treats as still in flight
 let badSpans = 0;
 
@@ -105,12 +105,17 @@ function note(terminalId, seq, at) {
     if (seq > lastSeq + 1) {
       gapEvents += 1;
       // A GAP WHILE A RECOVERY IS PENDING IS HELD, NOT A SECOND RECOVERY. The browser sets
-      // `entry.resyncing` and the next gapped frame takes `holdFrame(...)` and RETURNS -- so
-      // 10,14,18 initiates ONE recovery and holds the rest, where counting every gap reported two.
-      // This models the pending window as "until a contiguous frame arrives", which is an
-      // ASSUMPTION about when the fetch lands and is stated as one: the true window is an HTTP
-      // round trip nothing here observes, so this is a LOWER bound on episodes and gapEvents is
-      // the upper one.
+      // `entry.resyncing` and the next gapped frame takes `holdFrame(...)` and RETURNS.
+      //
+      // THIS IS A HEURISTIC MODEL AND NOT A BOUND, which is a correction: it releases the hold on
+      // the first CONTIGUOUS frame, and the browser releases it when the FETCH RESOLVES. Those are
+      // different moments, and a contiguous wire frame does not end an HTTP round trip. Review's
+      // case: 10,14,15,19 with one fetch still pending -- this model reports TWO episodes and the
+      // browser starts ONE, so the count can exceed the browser's and is no lower bound.
+      //
+      // `gapEvents` IS an upper bound, and by construction rather than by assumption: the browser
+      // starts a recovery only on a gapped frame and at most one per frame, so it can never make
+      // more recoveries than there were gaps.
       if (!pending.has(terminalId)) { recoveries += 1; pending.add(terminalId); }
       lastSeqOf.set(terminalId, seq);
       return 'recovery';
@@ -245,8 +250,8 @@ async function main() {
   console.log(`  COMPARISONS made       ${comparisons}   (judged against that terminal's own previous seq)`);
   console.log(`  unnumbered frames      ${unnumbered}   (no finite seq: neither branch is reached)`);
   console.log(`  dropped (seq <= last)  ${dropped}`);
-  console.log(`  wire GAPS (seq > last+1) ${gapEvents}   the UPPER bound on recoveries`);
-  console.log(`  RECOVERY EPISODES      ${recoveries}   gaps arriving while one is pending are HELD`);
+  console.log(`  wire GAPS (seq > last+1) ${gapEvents}   an UPPER bound: at most one recovery each`);
+  console.log(`  modelled EPISODES      ${recoveries}   heuristic, released by a contiguous frame`);
   console.log('');
 
   if (badSpans) {
@@ -264,10 +269,11 @@ async function main() {
   }
 
   const rate = (100 * recoveries / comparisons).toFixed(1);
-  console.log(`${recoveries} recovery episode(s) across ${comparisons} compared frames (${rate}%),`);
-  console.log(`from ${gapEvents} wire gap(s). The episode count assumes a recovery stays pending`);
-  console.log('until a contiguous frame arrives, which is a MODEL of the fetch window rather than');
-  console.log('an observation of it -- so episodes are a lower bound and wire gaps an upper one.');
+  console.log(`${gapEvents} wire gap(s) across ${comparisons} compared frames (${rate}%), which`);
+  console.log(`bounds browser recoveries ABOVE. The ${recoveries} modelled episode(s) beside it are a`);
+  console.log('HEURISTIC and not a lower bound: this releases the hold on a contiguous frame while');
+  console.log('the browser releases it when the FETCH resolves, so the model can report more');
+  console.log('episodes than the browser starts (10,14,15,19 with a fetch pending: two against one).');
 
   if (gapsMs.length) {
     const sorted = gapsMs.slice().sort((a, b) => a - b);

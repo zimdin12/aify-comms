@@ -52,26 +52,41 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD = ROOT / "service" / "new_dashboard"
 
-#: The unit a label can promise, and every conversion that is CORRECT for it. A conversion drawn
-#: from the union of these sets, appearing on a line that mentions the key, must be in ITS set.
+#: What each label's unit is worth in the base the code converts TO, and the SQLite modifier word
+#: that says the same thing without arithmetic.
+#:
+#: THE PRODUCT, NOT A SET OF FACTORS. `* 1024 * 1024` and `* 1024` both reduce to the SET {1024},
+#: so a megabyte cap read as KILOBYTES satisfied an allowed-set of {1024, 1048576} -- review
+#: removed one `* 1024` from `shared.py` and this gate still reported 3 passed. Multiplying the
+#: factors together distinguishes them, because 1024 != 1048576.
+#:
+#: DIVISIBILITY WAS CONSIDERED AND REJECTED: 3600 is divisible by 60, so a minutes value read as
+#: hours would satisfy a "product divides cleanly" rule.
 UNITS: dict[str, dict[str, object]] = {
-    "days": {"factors": {86400}, "words": {"days"}},
-    "min": {"factors": {60}, "words": {"minutes"}},
-    "h": {"factors": {3600}, "words": {"hours"}},
-    "s": {"factors": {1000}, "words": {"seconds"}},
-    "MB": {"factors": {1024, 1048576}, "words": set()},
+    "days": {"base": 86400, "words": {"days"}},
+    "min": {"base": 60, "words": {"minutes"}},
+    "h": {"base": 3600, "words": {"hours"}},
+    "s": {"base": 1000, "words": {"seconds"}},
+    "MB": {"base": 1048576, "words": set()},
 }
 
-#: Every factor any unit accepts. A factor outside this set (7, 100) is arithmetic rather than a
-#: unit conversion and must not be judged as one.
-ALL_FACTORS = {f for spec in UNITS.values() for f in spec["factors"]}          # type: ignore[index]
+#: The only chaining this tree does is a further *1000 into milliseconds
+#: (`retention_days * 86400 * 1000`), so a product is correct at the base or the base times 1000.
+CHAIN = (1, 1000)
+
+#: Numbers that are unit conversions at all. Anything else on the line (7, 100, 200) is ordinary
+#: arithmetic and must not be multiplied into the product.
+ALL_FACTORS = {60, 1000, 1024, 3600, 86400, 1048576}
 ALL_WORDS = {w for spec in UNITS.values() for w in spec["words"]}              # type: ignore[index]
 
 #: `(min)`, `(days)`, `(h)`, `(s)`, `(MB)` at the end of a label, which is how this project writes
 #: a unit. A label with no such suffix promises no unit and is not judged.
 LABEL_UNIT = re.compile(r"\((days|min|h|s|MB)\)\s*$")
 
-FACTOR = re.compile(r"[*/]\s*(\d[\d_]*)")
+#: A factor may sit behind an opening parenthesis -- `file.size / (1024 * 1024)` is one conversion
+#: written in two halves, and a regex that missed the first read its product as 1024 and refused a
+#: correct line. The paren is optional, never required.
+FACTOR = re.compile(r"[*/]\s*\(?\s*(\d[\d_]*)")
 WORD = re.compile(r"['\"]\s*-?\{?[^'\"}]*\}?\s*(days|minutes|hours|seconds)\b")
 
 
@@ -187,6 +202,23 @@ def _lines_naming(path: str, names: set[str]) -> list[tuple[int, str]]:
             if any(name in text for name in names)]
 
 
+def _product(text: str, carriers: set[str] = frozenset()) -> int:
+    """The factors on one line MULTIPLIED, which is what a conversion actually is.
+
+    Returns 1 when the line converts nothing, so a caller can tell "no conversion here" from
+    "a conversion, and it is wrong".
+    """
+    stripped = text
+    for name in sorted(carriers, key=len, reverse=True):
+        stripped = stripped.replace(name, "_")
+    product = 1
+    for match in FACTOR.finditer(stripped):
+        value = int(match.group(1).replace("_", ""))
+        if value in ALL_FACTORS:
+            product *= value
+    return product
+
+
 def _conversions(text: str, carriers: set[str] = frozenset()) -> set:
     """The unit conversions on one line: recognised factors and SQLite modifier words.
 
@@ -240,25 +272,33 @@ class ASettingLabelledWithAUnitIsReadInThatUnit(unittest.TestCase):
             if not match or not row["key"]:
                 continue
             unit = match.group(1)
-            allowed = set(UNITS[unit]["factors"]) | set(UNITS[unit]["words"])  # type: ignore[arg-type]
+            base = int(UNITS[unit]["base"])                                    # type: ignore[arg-type]
+            allowed_products = {base * step for step in CHAIN}
+            allowed_words = set(UNITS[unit]["words"])                          # type: ignore[arg-type]
             for path, names in _carriers(row["key"], unit).items():
                 for number, text in _lines_naming(path, names):
                     seen = _conversions(text, names)
                     if not seen:
                         continue
                     judged += 1
+                    product = _product(text, names)
+                    words = seen & ALL_WORDS
                     # AT LEAST ONE CORRECT CONVERSION, rather than NO other ones -- because a CHAIN
                     # is legitimate and the first version of this gate failed on one:
                     # `retention_days * 86400 * 1000` carries the right days->seconds factor and
                     # then a seconds->ms factor, and forbidding every unlisted factor called that a
                     # defect. A line converting ONLY by the wrong factor still fails, which is the
                     # case with teeth.
-                    if not (seen & allowed):
+                    if words and not (words & allowed_words):
                         wrong.append(
-                            f"{path}:{number} converts `{row['key']}` by "
-                            f"{sorted(map(str, seen))} and never by anything its label "
-                            f"{row['label']!r} promises ({sorted(map(str, allowed))})"
-                            f"  --  {text.strip()[:80]}")
+                            f"{path}:{number} hands `{row['key']}` to SQLite as "
+                            f"{sorted(words)} while its label {row['label']!r} promises "
+                            f"{sorted(allowed_words) or unit}  --  {text.strip()[:80]}")
+                    elif product != 1 and product not in allowed_products:
+                        wrong.append(
+                            f"{path}:{number} converts `{row['key']}` by a product of {product} "
+                            f"while its label {row['label']!r} promises "
+                            f"{sorted(allowed_products)}  --  {text.strip()[:80]}")
 
         self.assertGreater(judged, 0, (
             "no line mentioning a unit-labelled setting performed any conversion, so this gate "

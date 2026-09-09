@@ -100,9 +100,14 @@ def _read_as_browser(seqs: list[int]) -> tuple[int, int, bool]:
     every gap as a recovery is the model the OBSERVER was corrected away from a round earlier,
     and two instruments in this repo disagreeing about the same consumer is itself the defect.
 
-    THE THIRD RETURN IS THE ONE THAT MATTERS HERE. The hold ends when a CONTIGUOUS frame
-    arrives. If every flush coalesces, none ever is -- so the console enters recovery and never
-    settles, which is a worse outcome than a large recovery count and a more accurate one.
+    THE EPISODE COUNT IS A HEURISTIC, NOT A BOUND, and that is a correction review forced: this
+    releases the hold on a CONTIGUOUS frame while the browser releases it when the FETCH resolves.
+    On 10,14,15,19 with a fetch still pending the model says two episodes and the browser starts
+    one. `gaps` is the sound bound -- at most one recovery per gapped frame.
+
+    THE THIRD RETURN IS STILL THE INTERESTING ONE HERE, and it does not depend on the release rule:
+    when EVERY flush coalesces, no contiguous frame ever arrives under either rule, so the console
+    enters recovery and does not settle for as long as the busy period lasts.
     """
     last = -1
     gaps = 0
@@ -175,8 +180,12 @@ def main() -> int:
 
     print()
     if not control_ok:
-        print("UNKNOWN: the batch-of-one control did not advance either sequence by exactly one,")
-        print("so this harness is not reading the field it claims to read.")
+        print()
+        print("UNKNOWN: a control failed -- either the batch-of-one row did not advance both",
+              "sequences by exactly one, or a row emitted fewer broadcasts than flushes.")
+        print("THE TABLE ABOVE IS NOT A MEASUREMENT. It is printed because hiding it would make",
+              "this harder to diagnose, not because any row of it is trustworthy: the control is",
+              "what establishes the harness reads the field it claims to.")
         return 2
 
     # THE CONCLUSION IS DERIVED FROM THE ROWS, never captioned. A run whose numbers did not show a
@@ -186,7 +195,10 @@ def main() -> int:
     multi = [r for r in rows if r[0] >= 2]
     every_frame_gaps = [r for r in multi if r[2] == FRAMES - 1]
     never_settles = [r for r in multi if not r[4]]
-    repo_clean = all(r[6] == 0 and r[8] for r in rows)
+    # AND "ADVANCES BY ONE" IS A CLAIM ABOUT THE STEP, so it is read from the step. Checking
+    # only gaps and settling would call a queue that repeats ONE sequence forever "advancing
+    # by one": duplicate numbers gap nothing and settle, and say nothing about advancing.
+    repo_clean = all(r[5] == "1" and r[6] == 0 and r[8] for r in rows)
     print("WHAT THE ROWS SAY:")
     if multi and len(every_frame_gaps) == len(multi) and repo_clean:
         print("  The deployed queue's step equals the BATCH SIZE, so from a batch of two onward")
@@ -207,8 +219,11 @@ def main() -> int:
               f"never-settling {len(never_settles)}, repo clean {repo_clean})")
     print()
     print("WHAT THIS IS NOT: a rate. It says what happens PER COALESCED FLUSH, not how often a")
-    print("flush coalesces -- `measure-live-frame-gaps.mjs` is the instrument for that, and on this")
-    print("fleet it has measured zero. Both are needed: this is the severity, that is the exposure.")
+    print("flush coalesces -- `measure-live-frame-gaps.mjs` is the instrument for that, and it has")
+    print("measured zero WIRE GAPS on this fleet. On the DEPLOYED build those are the same claim,")
+    print("because the rows above show a coalesced flush always produces a gap there; on a build")
+    print("that numbers frames correctly they are not, since it gaps nothing either way. Both")
+    print("measurements are needed: this is the severity, that is the exposure.")
     return 0
 
 

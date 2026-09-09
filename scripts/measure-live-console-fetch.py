@@ -76,8 +76,11 @@ def main() -> int:
     _, listing = get("/terminals?limit=500")
     rows = listing.get("terminals") or listing.get("items") or []
     live = [r for r in rows if str(r.get("status")) == "attached"]
-    print(f"{len(live)} attached terminal(s) of {len(rows)} total, asked {ROUNDS}x each at their "
-          f"own geometry")
+    # "of N LIVE", not "of N total": `list_terminals` defaults to status=live, so this listing
+    # is the live population and never the whole one -- the same default that made a
+    # nine-terminal reading look like a bound on the screen cache.
+    print(f"{len(live)} attached of {len(rows)} LIVE terminal(s), asked {ROUNDS}x each at "
+          f"their own geometry")
     print()
 
     refusals: list[str] = []
@@ -88,7 +91,10 @@ def main() -> int:
         rows_n = int(row.get("rows") or 24)
         spans, snapshot, tail = [], None, None
         for _ in range(ROUNDS):
-            ms, body = get(f"/terminals/{tid}?cols={cols}&rows={rows_n}")
+            # THE SAME VIEW AS THE BRANCH PROBE BELOW, so the two calls differ in exactly
+            # one thing -- the viewer width. A default-view request timed against a
+            # console-view one is two different responses compared as if they were one.
+            ms, body = get(f"/terminals/{tid}?cols={cols}&rows={rows_n}&view=console")
             # A SPAN THAT IS NOT A DURATION IS NOT A MEASUREMENT. Written positively because NaN
             # fails every comparison, so "reject the negatives" would admit it.
             if not (math.isfinite(ms) and ms > 0.0):
@@ -105,9 +111,20 @@ def main() -> int:
             if str(term.get("id")) != tid:
                 refusals.append(f"{tid}: answered about {term.get('id')!r} instead")
                 continue
+            # THE FIELDS MUST BE THE TEXT QUANTITIES THIS TABLE PRINTS THEM AS. A list `output`
+            # and a dict `snapshot` both have a len(), so both published a number that is not a
+            # character count; a missing field published 0, which reads as an empty console rather
+            # than as an absent one. Review put all three through the previous version.
+            raw_snapshot = term.get("snapshot")
+            raw_tail = term.get("output")
+            if not isinstance(raw_snapshot, str) or not isinstance(raw_tail, str):
+                refusals.append(
+                    f"{tid}: snapshot is {type(raw_snapshot).__name__} and output is "
+                    f"{type(raw_tail).__name__}; this table prints both as character counts")
+                continue
             spans.append(ms)
-            snapshot = len(term.get("snapshot") or "")
-            tail = len(term.get("output") or "")
+            snapshot = len(raw_snapshot)
+            tail = len(raw_tail)
         # WHICH BRANCH, asked once per terminal at a wider viewer than its own geometry.
         _, wide = get(f"/terminals/{tid}?cols={WIDE_VIEWER}&rows={rows_n}&view=console")
         widened = (wide.get("terminal") or {}).get("renderedCols")
