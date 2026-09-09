@@ -127,7 +127,9 @@ test("no module is untested except the recorded backlog", () => {
     "these modules have no test importing them:\n  " + unexpected.join("\n  ")
       + "\nThe standard for this series is a real unit test that CALLS what a module exports. If a module "
       + "genuinely cannot be tested — it starts a process, or needs a role flag — say so in its test file "
-      + "and test what can be reached, as single-agent-teardown.mjs and managed-teardown-sweeps.mjs do.",
+      + "and test what can be reached, as send-tools.mjs and spawn-triggered-agent.mjs do "
+      + "(both headers name the launch path they cannot reach). This sentence named two "
+      + "modules DELETED in v0.6.2 until 2026-09-09, so it pointed at code nobody could open.",
   );
 });
 
@@ -153,14 +155,29 @@ test("the modules this series created are NOT in the backlog", () => {
   // The line that matters for new work: v0.5.4 extracted dozens of modules and every one of them carries
   // tests. The backlog is for code that predates the series, and it must not become a landing place for
   // new extractions.
-  for (const recent of [
+  const RECENT = [
     "mcp/stdio/send-tools.mjs",
     "mcp/stdio/spawn-triggered-agent.mjs",
-    "mcp/stdio/managed-teardown-sweeps.mjs",
-    "mcp/stdio/claim-failure-tracker.mjs",
     "service/new_dashboard/api-client.mjs",
     "service/new_dashboard/shared-files.mjs",
-  ]) {
+  ];
+
+  // A DELETED NAME HERE SATISFIES BOTH ASSERTIONS BY ABSENCE, and two of them did. Until
+  // 2026-09-09 this list also held `managed-teardown-sweeps.mjs` and `claim-failure-tracker.mjs`,
+  // retired with the environment-bridge tier in v0.6.2: a module that does not exist is in no
+  // backlog and appears in no untested list, so four assertions passed on nothing. The sibling
+  // test one screen up already says why -- "A deleted file left in the list would quietly shrink
+  // the gate's reach" -- and enforces it for the backlog. This list had no such guard, so it
+  // rotted exactly as its neighbour predicts. Found by `scripts/deleted-import-census.py`.
+  const present = new Set(modules());
+  const vanished = RECENT.filter((m) => !present.has(m));
+  assert.deepEqual(
+    vanished, [],
+    `listed as recent work but no longer present, so the assertions below pass on nothing: `
+      + vanished.join(", "),
+  );
+
+  for (const recent of RECENT) {
     assert.ok(!UNTESTED_BACKLOG.includes(recent), `${recent} is new work and must carry its own tests`);
     assert.ok(!untestedModules().includes(recent), `${recent} must be imported by a test`);
   }

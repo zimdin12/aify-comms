@@ -36,12 +36,23 @@ const EXEMPT = new Map([
   ["aify-service-endpoint.test.js",
    "IS_REMOTE resolves at module load, so the child is spawned precisely to observe how the AMBIENT env "
    + "decides it — sealing the carriers would delete the subject."],
-  ["environment-identity.test.js",
-   "asserts how a child DERIVES its environment identity from inherited variables; the inheritance is the "
-   + "behaviour under test."],
   ["doctor-process-readers.test.js",
    "reads a child's own /proc environ back out; it must see what a real process would carry."],
 ]);
+
+// AN EXEMPTION FOR A FILE THAT DOES NOT EXIST IS A HOLE WITH A DELAY ON IT. The list carried
+// `environment-identity.test.js` until 2026-09-09, six days after the environment-bridge tier
+// took that file with it: it let nothing through, and the day a file of that name landed it
+// would have been exempted before anyone read it, under a reason written about different code.
+// The comment above already states the standard -- a name with no reason is an unguarded hole --
+// and this is that hole in its quieter form. Found by `scripts/deleted-import-census.py`.
+const present = new Set(readdirSync(TESTS));
+const stale = [...EXEMPT.keys()].filter((name) => !present.has(name));
+assert.deepEqual(
+  stale, [],
+  "exempted from the carrier gate but no longer present, so the reason describes nothing and a "
+    + "future file of that name would inherit the exemption: " + stale.join(", "),
+);
 
 const SPREAD = /\{\s*\.\.\.process\.env/;
 const SPAWNS = /\b(spawn|spawnSync|fork|execFile|execFileSync)\s*\(/;

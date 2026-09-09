@@ -30,20 +30,21 @@ does not close it. No product-code defect is established. The deploy and the tag
 
 A result with no candidate attached is not a receipt. Every such row was measured on:
 
-- **Candidate:** `0bdb788c` plus the working tree committed as this ledger's own change. A row
-  measured on anything else says so in its own cell.
+- **Candidate:** the tree at `05ad53df` carrying round sixteen's repairs. The run before it, at
+  `0bdb788c`, became `7ed8b302`, `46dc16d0` and `5f3c1891`, and every figure below was re-taken
+  on the current one. A row measured on anything else says so in its own cell.
 - **The five suites, ONE run each, all exit status 0**, quoted here so every figure in this
   document reconciles against the same run:
 
 | suite | command | result | exit |
 |---|---|---|---|
-| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,618 passed, 10,923 subtests | 0 |
+| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,622 passed, 10,934 subtests | 0 |
 | bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 363 suites passed; 1 test skipped in `runtime-launch-helpers.test.js` | 0 |
 | dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,709 passed, 0 skipped | 0 |
 | aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 219 passed, 0 skipped | 0 |
 | aify-env | `cd ~/projects/aify-env && npm test` | 1,683 tests, 1,682 passed, 1 skipped | 0 |
 
-`TIME_WAIT` was **295** before the python run and **12,183** after it, against this host's 16,384-port
+`TIME_WAIT` was **287** before the python run and **12,190** after it, against this host's 16,384-port
 ephemeral range — the socket pressure CLAUDE.md documents, sampled DURING the run rather than
 between runs. Nothing failed, so it attributes nothing here; it is recorded because a later red must
 be read against a measured before-and-after rather than a remembered one.
@@ -68,20 +69,40 @@ mechanism is present in the deployed build and was not caught firing.
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
-| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for an import/require/from specifier naming any deleted file | PROVEN for imports: 0 of 107 deleted files (35 product, 72 tests) is imported anywhere, with both controls in the same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
-| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN for imports, same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
-| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN for imports, same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
+| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `scripts/deleted-import-census.py` — searches every surviving `.js/.mjs/.cjs/.py` for the deleted file's NAME as a fixed string, then places each mention in a comment or in code | PROVEN that nothing NAMES them from code: of 107 deleted files (35 product, 72 tests), 84 are named nowhere at all, 22 only in comments or docstrings, and 1 in a test FIXTURE's string literal. Two controls and six carriers in the same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Its behavioural half is open — see the note below and the open list |
+| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same census; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN not named from code, same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
+| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same census; `env-bridge` and `tier-version` doctor rows | PROVEN not named from code, same run. **BEHAVIOUR: UNREVIEWED IN THIS RANGE** | Retired to aify-env. Same open behavioural half |
 
-**The import half is proved by a census that answers the question the rows actually ask.** These
-rows cited `no-missing-sibling-imports.test.js` and `moved-names-resolve.test.js` until review
-pointed out that neither proves "zero remaining importers of any deleted module": the first asks
-whether a resolved sibling exists, the second whether a moved NAME resolves, and both are green in a
-tree that still imports a deleted module from somewhere they do not walk.
-`scripts/deleted-import-census.py` asks it directly over the range's own deletion list, with a
-POSITIVE control (`doctor-predicates.js`, 15 importers found by the same search) and a NEGATIVE
-control (a name that was never a file, 0) in the same invocation. Driven by ADDING what it watches
-for: a `require('./terminal-manager.mjs')` planted in a surviving module took it to
-`NOT CLEAN: 1`, exit 1, naming the file and line; removing it returned exit 0.
+**The claim these rows make is what the census MEASURES, and the first version of both was wrong.**
+They cited `no-missing-sibling-imports.test.js` and `moved-names-resolve.test.js` until review
+pointed out that neither proves "zero remaining importers": the first asks whether a resolved
+sibling exists, the second whether a moved NAME resolves, and both are green in a tree that still
+imports a deleted module from somewhere they do not walk.
+
+**Then the census replacing them was broken three ways in one review sitting**, and the third is the
+one worth keeping. It matched `(import|require|from)` then a quoted name on ONE line, so a `require(`
+or a dynamic `import(` with its specifier on the next line was missed. And its POSITIVE CONTROL
+matched THE CENSUS ITSELF -- the word `import` inside the identifier `expect_importers`, on the line
+naming the probe -- so with every real importer deleted the control still read "covered". The
+instrument certified itself.
+
+**IT NO LONGER MODELS AN IMPORT.** It searches for the deleted file's NAME as a fixed string,
+excluding its own source, and then places each mention in a comment or in code. A name found
+NOWHERE cannot be reached by any specifier shape split across any number of lines, and that tier
+needs no classifier to be believed. Comments come from Python's `tokenize` and `ast`; JavaScript has
+no such tool in the standard library and gets a scanner, which failed on its first real file -- a
+regex literal whose character class held a quote read as an unterminated string, and every comment
+after it looked like code. Six carriers now drive it, three per direction, including that exact
+shape.
+
+**AND IT FOUND TWO REAL DEFECTS OF THE SAME CLASS, in gates that were green.**
+`every-module-is-imported-by-a-test.test.js` listed two DELETED modules among "the modules this
+series created" and asserted of each that it is absent from the untested backlog and imported by a
+test -- four assertions satisfied by absence, since a module that does not exist is in no list. And
+`child-processes-cannot-inherit-live-carriers.test.js` exempted a deleted test file from its
+carrier-sealing gate, which lets nothing through today and would silently exempt any future file of
+that name. Both now assert that their own entries still exist, and both guards were driven by
+putting a deleted name back.
 
 **The behavioural half is UNREVIEWED IN THIS RANGE, and that is a narrower statement than "no
 evidence exists".** aify-env's suite runs on every commit in this session and is green (1,683 above),
@@ -99,18 +120,31 @@ counts was itself broken: `git grep -E "a\|b"` reads the escaped pipe as a LITER
 searches returned 0 while a fourth WITHOUT alternation returned 104 and looked like a working
 control. A control has to exercise the same FORM as the thing it controls.
 
-**WHAT IS ALSO THIN, separately: the cross-repo seam.** Five tests that drove a REAL aify-env through
-the deleted modules were deleted with them, leaving one
-(`the-credential-ref-we-write-is-one-aify-env-resolves.test.js`). So each side is exercised in its
-own suite and the JOIN between them is proved once. That is a real limit and it belongs to the next
-version.
+**THE CROSS-REPO SEAM, and what each surviving test actually proves.** Five tests that drove a REAL
+aify-env through the deleted modules went with them, leaving
+`the-credential-ref-we-write-is-one-aify-env-resolves.test.js` -- which review has narrowed, and the
+narrower reading is the correct one: it establishes that the credential REFERENCE this service
+writes agrees in grammar and directory with what aify-env resolves. That is not lifecycle
+integration, and this ledger described it as more than it is.
+
+Row X-1 adds the ADDRESS half of the replacement join -- the half that fails silently, since a
+renamed path answers 404 and surfaces as a failed claim rather than as a routing error. Request
+bodies, response shapes, auth and any live round trip remain **UNVERIFIED FOR THIS RELEASE**. An
+earlier version of this paragraph deferred them to the next version; that was a scope change this
+ledger has no standing to make, so they sit in the open list below instead.
+
+## The cross-repo seam that replaced the deleted one
+
+| id | required behaviour | changed paths | exact test / assertion | result | disposition |
+|---|---|---|---|---|---|
+| X-1 | Every request aify-env's aify-comms plugin sends names a route this service serves, at that method | `lib/plugins/aify-comms/api.mjs` (aify-env) against this app's route table | `test_the_env_plugin_addresses_routes_this_service_serves.py` — 10 requests matched against 130 served routes, each to exactly one | PASSES IN TESTS on the candidate, in the python run quoted above. Driven from BOTH sides: a plugin path we do not serve, a plugin method we do not serve, and the SERVICE dropping a path the plugin asks for all turn it red; a checkout with no plugin SKIPS by name | Met for the ADDRESS. Bodies, responses, auth and a live round trip are NOT covered and the test says so |
 
 ## Packaging
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
 | P-1a | The MANIFEST, the LOCKFILE and npm's record of the install name the same wrapper commit | `mcp/stdio/package.json`, `mcp/stdio/package-lock.json` (the Dockerfile copies both, then runs `npm ci`) | `the-wrapper-pin-is-not-behind-a-template-change.test.js` — "THE GATE: this repo consumes exactly the pin it declares", via `consumedPinVerdict({packagePin, lockPin, installedPin})` | PROVEN on this host: all three read `5c62d91`, the third from `node_modules/.package-lock.json`. **The branch matters** — `consumedPinVerdict` returns `ok:true` with `installedPin` empty, so where npm's install record cannot be read the gate compares TWO values and not three, and the row is then only manifest-to-lock | Met, with the two-value branch named |
-| P-1b | The wrapper BYTES in `node_modules` are the bytes of the commit the manifest pins | `mcp/stdio/node_modules/aify-wrapper` (what `install.sh` renders from) | `the-installed-wrapper-is-the-pinned-commit.test.js` — every file of the pinned tree that npm publishes, compared byte for byte, with the four `wrappers/*.sh.in` templates asserted to be among those compared | PROVEN where an upstream checkout exists: 19 files compared, 0 differing, all four templates present. **SKIPS BY NAME otherwise** — with no checkout, or a checkout not holding the pin, it reports what went unasked instead of passing | Met on this host. A clean clone gets a named skip, never a green |
+| P-1b | Every file the pinned commit PUBLISHES is present in `node_modules` and is that commit's bytes | `mcp/stdio/node_modules/aify-wrapper` (what `install.sh` renders from) | `the-installed-wrapper-is-the-pinned-commit.test.js` — the required population is DERIVED from the pinned commit's own `package.json` (`files[]`, `bin` targets, the manifest itself); every path in it must be PRESENT and byte-identical | PROVEN where an upstream checkout exists: 19 required paths derived from 48 tracked files, 0 missing, 0 differing, all four templates in the derived set. **SKIPS BY NAME otherwise** | Met on this host. **The first version INTERSECTED instead of deriving** — it compared only files that happened to be present, so review passed it with `install.sh` deleted and again with `render.sh` deleted, both published by the pinned manifest and one a `bin` target that invokes the other. Both carriers now fail it |
 | P-2 | The three repos declare ONE version and the release recipe touches every declaring file | `VERSION`, `mcp/stdio/version.js`, `package.json`, `package-lock.json`, `.claude-plugin/plugin.json` | `test_version_single_source.py`; `version-consistency.test.js` | PASSES IN TESTS at the CURRENT declared version, in the runs quoted above | **NOT MET FOR v0.6.3.** All three repos still declare `0.6.2`, and v0.6.2 was never tagged. The bump, stamp and rebuild are unperformed; the tag is the operator's |
 
 **Why P-1 became two rows.** Review's finding was that one row was carrying two different claims with
@@ -118,10 +152,14 @@ one verdict, and the weaker one was doing the work: agreement between RECORDS is
 OBJECT. CLAUDE.md records the failure that separates them as MEASURED — the sha was raised in both
 package files, `npm install` reported success, and `node_modules/aify-wrapper` still held the previous
 code, because npm trusts a tree matching the lock it was just handed. Every record agreed throughout.
-The remedy written there is a hand grep of the installed file; P-1b is that grep, run by the suite.
-It was driven three ways: one changed byte in an installed template turns it red naming the file; a
-template npm did not ship turns it red naming the unchecked artifact rather than passing on a vacuous
-comparison; and a real checkout that does not hold the pin makes it SKIP with the reason, never pass.
+The remedy written there is a hand grep of the installed file; P-1b is that grep, run by the suite over
+a population the MANIFEST decides rather than the installation.
+It is driven four ways: `install.sh` removed from the installation and `render.sh` removed from it --
+review's own two carriers, both of which the intersecting version passed -- each turn it red naming
+the MISSING file; one changed byte in a template turns it red naming that file; and a real checkout
+that does not hold the pin makes it SKIP with the reason, never pass. The population control is
+separate and asserts both size and subject: at least ten derived paths, and all four wrapper
+templates among them, because byte-identity over an empty or shrunken set is satisfied by anything.
 
 ## Settings — B7's audit
 
@@ -167,8 +205,26 @@ as stated.
 2. **R-1, R-2 and R-3 behavioural evidence** — retired to aify-env, whose suite is green and whose
    relevant tests are named above, but with no obligation-to-assertion mapping established in this
    range. Imports are PROVEN; behaviour is UNREVIEWED.
-3. **The cross-repo seam**, proved once, where it used to be proved six times.
+3. **The cross-repo seam — UNVERIFIED FOR THIS RELEASE, not deferred.** X-1 proves the plugin's
+   ADDRESSES against this service's routes, driven from both sides, and
+   `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
+   reference's grammar and directory agreement — not lifecycle integration. Request bodies,
+   response shapes, auth and a live round trip are unproved, where six tests used to drive a real
+   aify-env. Moving them out of this release is an owner's decision and has not been made.
 4. **P-2** — v0.6.3 is not declared anywhere.
 5. **S-4** — an operator decision.
-6. **The deploy.** 149 commits behind; the running build carries the B-1 defect, demonstrated
-   against its own module.
+6. **The deploy, and it is THREE stale artifacts rather than one.** Read from
+   `aify-comms doctor --json` for this line: `service` FAIL (the container), `bridge-installed`
+   FAIL (`~/.aify-comms` holds `3e7387a`, and commits since then changed real bridge source, not
+   only tests), and `skills-installed` FAIL (the trees in `~/.claude/skills`, the codex mirror and
+   the hermes copy do not match the checkout, so B7's skill edits have reached no agent). The
+   container rebuild and `install.sh` are separate actions and neither implies the other.
+7. **What the running build is.** `3e7387a6`, version `0.6.2`, with HEAD **161 commits ahead** --
+   read from `GET /health` and `git rev-list --count`, with the served build confirmed an ancestor
+   of HEAD. It carries the B-1 defect, demonstrated against its own module. **That figure moves
+   with every push**: it read 149 while this ledger's own four commits were being made, which is
+   why it is stated with the two commands that answer it rather than as a number to quote.
+8. **Reported by the same doctor run and NOT this version's:** `session-handles` FAIL -- three
+   conversations claimed by more than one agent, eight agents involved, which is the standing issue
+   that reports rather than refuses. Recorded here so a reader of this ledger's doctor output is
+   not left to wonder whether v0.6.3 caused it.

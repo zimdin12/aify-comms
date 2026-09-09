@@ -1,4 +1,4 @@
-// The wrapper templates in node_modules are the BYTES of the commit package.json pins.
+// The wrapper files in node_modules are the ONES THE PACKAGE PUBLISHES, and they are its BYTES.
 //
 // WHY THIS EXISTS, and it is the one half of the pin question nothing asserted.
 // `the-wrapper-pin-is-not-behind-a-template-change.test.js` compares three RECORDS -- the sha in
@@ -12,9 +12,16 @@
 // there is "remove node_modules/aify-wrapper and reinstall, then GREP the installed file for
 // whatever the bump was for". This is that grep, run by the suite instead of remembered.
 //
-// WHAT IT COMPARES. Every file of the pinned commit that npm actually publishes, byte for byte,
-// against the copy in node_modules. Files the package does not ship (its own tests, CI config) are
-// absent from node_modules by design and are not a finding; a file that is PRESENT and DIFFERENT is.
+// THE REQUIRED POPULATION IS DERIVED, NOT INTERSECTED, and the first version of this test got that
+// wrong. It compared only files that HAPPENED to be present and treated every absent one as
+// unpublished -- so a synthetic installation with `install.sh` deleted passed, and so did one with
+// `render.sh` deleted, both of them files the pinned package.json publishes and one of them a `bin`
+// target that invokes the other. Review built both. An intersection cannot notice a missing file,
+// which is the failure mode of a partial install.
+//
+// So the population comes from the pinned commit's OWN package.json: every path under a `files[]`
+// entry, plus `package.json` itself and every `bin` target. Each must be PRESENT and byte-identical.
+// A file in node_modules that the package does not publish is not a finding.
 //
 // IT SKIPS BY NAME RATHER THAN PASSING. Answering needs the upstream objects, which a clean clone
 // has no business holding, so with no checkout this reports a skip that names what went unasked --
@@ -34,8 +41,8 @@ import { pinnedWrapperSha } from "../wrapper-pin-freshness.mjs";
 const BRIDGE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const INSTALLED = path.join(BRIDGE, "node_modules", "aify-wrapper");
 
-//: The artifact the pin exists for. If npm shipped none of these, a nonzero comparison count would
-//: be made up of incidental files and would say nothing about what `install.sh` renders.
+//: The artifact the pin exists for. Named explicitly so that a derived population which somehow
+//: excluded them would fail loudly rather than quietly shrink.
 const TEMPLATES = [
   "wrappers/claude-aify.sh.in",
   "wrappers/codex-aify.sh.in",
@@ -43,11 +50,34 @@ const TEMPLATES = [
   "wrappers/pi-aify.sh.in",
 ];
 
+//: npm publishes these whatever `files[]` says. Listing them keeps the derived set from depending on
+//: a manifest field to include the manifest.
+const ALWAYS_PUBLISHED = ["package.json"];
+
 function upstreamCheckout() {
   return [
     process.env.AIFY_WRAPPER_REPO,
     path.join(homedir(), "projects", "aify-wrapper"),
   ].find((dir) => dir && existsSync(path.join(dir, ".git")));
+}
+
+function show(repo, pin, name) {
+  return execFileSync("git", ["show", `${pin}:${name}`], { cwd: repo, maxBuffer: 1 << 26 });
+}
+
+/** Every path the pinned commit's own package.json says the package publishes. */
+export function requiredPaths(names, manifest) {
+  const entries = Array.isArray(manifest.files) ? manifest.files : [];
+  const bins = typeof manifest.bin === "string"
+    ? [manifest.bin]
+    : Object.values(manifest.bin || {});
+  const exact = new Set([
+    ...ALWAYS_PUBLISHED,
+    ...bins.map((b) => String(b).replace(/^\.\//, "")),
+    ...entries.filter((e) => !e.endsWith("/")),
+  ]);
+  const prefixes = entries.filter((e) => e.endsWith("/"));
+  return names.filter((n) => exact.has(n) || prefixes.some((p) => n.startsWith(p)));
 }
 
 test("THE INSTALLED WRAPPER IS THE PINNED COMMIT, byte for byte", (t) => {
@@ -66,35 +96,37 @@ test("THE INSTALLED WRAPPER IS THE PINNED COMMIT, byte for byte", (t) => {
     return;
   }
   let names;
+  let manifest;
   try {
     names = execFileSync("git", ["ls-tree", "--name-only", "-r", pin], { cwd: repo, encoding: "utf8" })
       .split("\n").map((n) => n.trim()).filter(Boolean);
+    manifest = JSON.parse(show(repo, pin, "package.json").toString("utf8"));
   } catch {
     t.skip(`the checkout at ${repo} does not hold ${pin.slice(0, 7)}, so nothing was compared: `
       + "fetch it and re-run");
     return;
   }
 
-  const differing = [];
-  const compared = [];
-  for (const name of names) {
-    const local = path.join(INSTALLED, name);
-    if (!existsSync(local)) continue;        // npm does not publish this file; not a finding
-    const upstream = execFileSync("git", ["show", `${pin}:${name}`], { cwd: repo, maxBuffer: 1 << 26 });
-    compared.push(name);
-    if (!readFileSync(local).equals(upstream)) differing.push(name);
-  }
+  const required = requiredPaths(names, manifest);
 
-  // THE CONTROL. An empty comparison satisfies a byte-identity assertion completely, so the count
-  // and the SUBJECT are both asserted -- the templates are what the pin is for.
-  assert.ok(compared.length > 0,
-    `nothing was compared: ${names.length} files at ${pin.slice(0, 7)}, none of them present in `
-    + "node_modules/aify-wrapper, so this test would pass on an empty directory");
+  // THE CONTROLS. An empty or shrunken population satisfies byte-identity completely, so the size
+  // and the SUBJECT are both asserted before any comparison is believed.
+  assert.ok(required.length >= 10,
+    `only ${required.length} published path(s) derived from ${pin.slice(0, 7)}'s package.json, out `
+    + `of ${names.length} tracked files -- the manifest's files[] was not read as intended`);
   for (const template of TEMPLATES) {
-    assert.ok(compared.includes(template),
-      `${template} was not compared, so the artifact this pin exists for went unchecked`);
+    assert.ok(required.includes(template),
+      `${template} is not in the derived population, so the artifact this pin exists for would go `
+      + "unchecked");
   }
 
+  const missing = required.filter((n) => !existsSync(path.join(INSTALLED, n)));
+  assert.deepEqual(missing, [],
+    `node_modules/aify-wrapper is MISSING file(s) that ${pin.slice(0, 7)} publishes. A partial `
+    + "install renders from whatever survived. Remove node_modules/aify-wrapper and reinstall.");
+
+  const differing = required.filter(
+    (n) => !readFileSync(path.join(INSTALLED, n)).equals(show(repo, pin, n)));
   assert.deepEqual(differing, [],
     `node_modules/aify-wrapper does not hold the bytes of ${pin.slice(0, 7)}. npm reports success `
     + "on an install that changes nothing when the tree matches the lock it was handed. Remove "

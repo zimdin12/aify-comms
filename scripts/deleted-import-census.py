@@ -1,47 +1,67 @@
-"""Does anything still IMPORT a module this release range deleted?
+"""Does any surviving source still REACH a module this release range deleted?
 
-WHY THIS EXISTS. `docs/V063_ACCEPTANCE_LEDGER.md` rows R-1..R-3 claim "zero remaining importers of
-any deleted module". Until this script the ledger cited `no-missing-sibling-imports.test.js` and
-`moved-names-resolve.test.js` for it, and review was right that neither proves that claim: the first
-asks whether a resolved sibling exists, the second whether a moved NAME resolves. Both are green in a
-tree that still imports a module deleted two commits ago from somewhere they do not walk. This
-answers the ledger's actual question, over the ledger's actual population.
+WHY THIS EXISTS. `docs/V063_ACCEPTANCE_LEDGER.md` rows R-1..R-3 claim nothing still reaches a module
+the range deleted. The ledger cited `no-missing-sibling-imports.test.js` and `moved-names-resolve.js`
+for it, and neither proves it: the first asks whether a resolved sibling exists, the second whether a
+moved NAME resolves, and both are green in a tree that still imports a deleted module from somewhere
+they do not walk.
 
-WHAT A HIT MEANS. A surviving source file whose import/require/dynamic-import specifier names a file
-this range deleted. That is a broken import -- it fails loudly at load rather than resolving, which
-is the property CLAUDE.md records as deliberate -- so a hit is a defect and an empty result is the
-claim the ledger makes.
+IT DOES NOT MODEL AN IMPORT, AND THAT IS THE REPAIR. The first version matched
+`(import|require|from).*"...<name>..."` on ONE LINE, and review broke it three ways in one sitting: a
+`require(` with its specifier on the next line was missed, a dynamic `import(` split the same way was
+missed, and the POSITIVE CONTROL matched THIS FILE -- the word `import` inside the identifier
+`expect_importers`, on the line naming the control probe. Deleting all fifteen real importers still
+left the control reading "covered", so the instrument certified itself.
+
+THREE TIERS, and the strong one is shape-independent. First every mention of the module's file
+NAME as a fixed string, anywhere in a surviving source; a name found NOWHERE cannot be imported by
+any specifier shape, split across any number of lines, and that tier needs no classifier to be
+believed. Then each remaining mention is placed in a COMMENT or in CODE, so the prose this repo
+deliberately writes about retired modules is not reported as a live reference.
+
+CODE IS NOT THE SAME AS A LOAD-TIME REFERENCE, and saying it was is an overclaim this file
+carried. An exemption list, an assertion message and a test fixture all name a module from code
+and none of them loads anything. What the third tier means is "named outside any comment", which
+is where an import WOULD be, and every entry is printed for a person to judge.
+
+COMMENTS ARE FOUND WITH A TOKENIZER WHERE ONE EXISTS. Python uses `tokenize` for comments and `ast`
+for docstrings, so neither is guessed at. JavaScript has no such tool in the standard library, so it
+gets a scanner that tracks strings, template literals and both comment forms -- and it is DRIVEN in
+every run rather than trusted, because a hand-rolled scanner is exactly what this repo has been
+burned by.
 
     python scripts/deleted-import-census.py [since]
 
-BOTH CONTROLS RUN IN THE SAME INVOCATION, because a search that returns nothing looks identical
-whether the thing is absent or the instrument is broken. The POSITIVE control asks the same question
-about a module that is very much alive and must find importers; the NEGATIVE control asks it about a
-name that was never a file and must find none. Exit 1 if a control fails or an importer is found.
+EIGHT CONTROLS IN EVERY RUN. Positive: a live module is named, with THIS FILE excluded from the
+population so the instrument cannot answer for itself. Negative: a name that was never a file is not.
+Then six carriers, three per direction. CODE: a multiline `require`, a multiline dynamic
+`import`, and comment TEXT sitting inside a string literal. PROSE: a `//` comment, a Python
+docstring, and a `//` comment following a regex literal whose character class holds a quote --
+the shape that made the first scanner read a whole file's comments as code. Exit 1 if any
+control fails or anything is named from code.
 """
 from __future__ import annotations
 
-import re
+import ast
+import io
 import subprocess
 import sys
+import tempfile
+import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SINCE = "aed8b590"
+SELF = f"scripts/{Path(__file__).name}"
 
-#: The specifier forms this project uses. A bare mention in prose or a comment is not an import, and
-#: the whole point of the census is that it counts importers rather than mentions.
-#:
-#: POSIX ERE, because that is what `git grep -E` speaks: a `(?:...)` group is refused outright, and
-#: `re.escape` produces `\-`, which it rejects as an invalid preceding expression. The names here
-#: are alphanumerics, dots, dashes and underscores, so escaping the dot is the whole requirement --
-#: and a name outside that shape is REFUSED rather than searched for with a pattern nobody checked.
-SPECIFIER = "(import|require|from)"
-SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
-
-#: Sources that could carry an import. Tests are INCLUDED: a test importing a deleted module is the
+#: Sources that could reach a module. Tests are INCLUDED: a test importing a deleted module is the
 #: same broken import, and `moved-names-resolve.test.js` exists because that is where it happened.
 SOURCE_GLOBS = ("*.js", "*.mjs", "*.cjs", "*.py")
+
+#: This file names every deleted module and both control probes, so leaving it in the population
+#: would make the census report itself. That is not a hypothetical -- it is how the first version's
+#: positive control passed with every real importer removed.
+EXCLUDE_SELF = f":!{SELF}"
 
 
 def deleted_modules(since: str) -> list[str]:
@@ -53,18 +73,225 @@ def deleted_modules(since: str) -> list[str]:
     return [p for p in paths if Path(p).suffix in (".js", ".mjs", ".cjs", ".py", ".json")]
 
 
-def importers(basename: str) -> list[str]:
-    """Lines in surviving sources whose import/require/from specifier names this file."""
-    if not SAFE_NAME.match(basename):
-        raise SystemExit(f"{basename!r} is not a shape this census can search for safely")
-    pattern = (SPECIFIER + r".*['\"][^'\"]*"
-               + basename.replace(".", "[.]") + r"['\"]")
-    out = subprocess.run(
-        ["git", "grep", "-n", "-E", pattern, "--", *SOURCE_GLOBS],
-        cwd=ROOT, capture_output=True, text=True)
+def _grep(name: str, cwd: Path, pathspec: list[str], no_index: bool) -> list[str]:
+    """One searcher, used for the tree and for the carriers, so both are judged the same way."""
+    command = ["git", "grep", "-n", "-F"]
+    if no_index:
+        command.append("--no-index")
+    command += [name]
+    if pathspec:
+        command += ["--", *pathspec]
+    out = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
     if out.returncode not in (0, 1):
-        raise SystemExit(f"the search itself failed for {basename}: {out.stderr.strip()[:200]}")
+        raise SystemExit(f"the search itself failed for {name}: {out.stderr.strip()[:200]}")
     return [line for line in out.stdout.split("\n") if line.strip()]
+
+
+def naming(basename: str) -> list[tuple[str, int]]:
+    """(file, line) for every surviving source naming this file. THIS SCRIPT is excluded."""
+    out = []
+    for line in _grep(basename, ROOT, [*SOURCE_GLOBS, EXCLUDE_SELF], no_index=False):
+        path, _, rest = line.partition(":")
+        number, _, _text = rest.partition(":")
+        if number.isdigit():
+            out.append((path.replace("\\", "/"), int(number)))
+    return out
+
+
+def python_comment_lines(text: str) -> set[int]:
+    """Lines carrying a comment or lying inside a docstring, from Python's own tokenizer."""
+    lines: set[int] = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                lines.update(range(token.start[0], token.end[0] + 1))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return set()
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return lines
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+                and isinstance(first.value.value, str):
+            lines.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+    return lines
+
+
+#: A `/` starts a REGEX rather than a division when the last meaningful thing before it cannot end
+#: an expression. The standard JS lexing ambiguity, and version one of this scanner ignored it
+#: entirely: `/192\.168\.\d+["'`]/` put it inside a string that never closed, and every comment
+#: for the rest of the file read as code. The carriers now include that exact shape.
+REGEX_MAY_FOLLOW = set("(,=:[!&|?{};+-*%~^<>") | {""}
+REGEX_KEYWORDS = {"return", "typeof", "case", "in", "of", "new", "delete", "void", "throw",
+                  "do", "else", "yield", "await", "instanceof"}
+
+
+def js_comment_lines(text: str) -> set[int]:
+    """Lines inside a `//` or `/* */` comment, tracking strings so `"//"` is not one.
+
+    HAND-ROLLED, AND DRIVEN RATHER THAN TRUSTED. This repo's record on hand-rolled JS scanners is
+    four of them and four wrong answers, and this one made the fifth before its carriers caught it.
+
+    MISCLASSIFICATION IS SAFE IN ONE DIRECTION ONLY. Reading a comment as CODE over-reports, and an
+    over-report is printed for a person to judge. Reading code as a COMMENT hides a real reference.
+    So every ambiguity here resolves toward CODE.
+    """
+    lines: set[int] = set()
+    line = 1
+    i = 0
+    state = "code"          # code | line_comment | block_comment | regex | ' | " | `
+    previous = ""           # last meaningful character seen in code
+    while i < len(text):
+        char = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if char == "\n":
+            line += 1
+            if state == "line_comment":
+                state = "code"
+            i += 1
+            continue
+        if state == "code":
+            if char == "/" and nxt == "/":
+                state, i = "line_comment", i + 2
+                lines.add(line)
+                continue
+            if char == "/" and nxt == "*":
+                state, i = "block_comment", i + 2
+                lines.add(line)
+                continue
+            if char == "/" and _regex_may_start(text, i, previous):
+                state, i = "regex", i + 1
+                continue
+            if char in "'\"`":
+                state, i = char, i + 1
+                continue
+            if not char.isspace():
+                previous = char
+            i += 1
+            continue
+        if state == "regex":
+            if char == "\\":
+                i += 2
+                continue
+            if char == "[":
+                # A CHARACTER CLASS SWALLOWS `/`, and this is where the quote in
+                # `/192[.]168["'`]/` lives. Skip to its close rather than ending the regex early.
+                close = text.find("]", i + 1)
+                i = (close + 1) if close != -1 else i + 1
+                continue
+            if char == "/":
+                state, previous = "code", "/"
+            i += 1
+            continue
+        if state == "line_comment":
+            lines.add(line)
+            i += 1
+            continue
+        if state == "block_comment":
+            lines.add(line)
+            if char == "*" and nxt == "/":
+                state, i = "code", i + 2
+                continue
+            i += 1
+            continue
+        # inside a string or template literal
+        if char == "\\":
+            i += 2
+            continue
+        if char == state:
+            state = "code"
+        i += 1
+    return lines
+
+
+def _regex_may_start(text: str, index: int, previous: str) -> bool:
+    """Could a regex literal begin at this `/`? Ambiguity resolves toward NO, which means CODE."""
+    if previous in REGEX_MAY_FOLLOW:
+        return True
+    before = text[:index].rstrip()
+    word = ""
+    while before and (before[-1].isalpha() or before[-1] == '_'):
+        word = before[-1] + word
+        before = before[:-1]
+    return word in REGEX_KEYWORDS
+
+
+def comment_lines(path: Path) -> set[int]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return python_comment_lines(text) if path.suffix == ".py" else js_comment_lines(text)
+
+
+def classify(mentions: list[tuple[str, int]], root: Path) -> tuple[list[str], list[str]]:
+    """Split mentions into those reachable from CODE and those living in prose."""
+    code, prose = [], []
+    cache: dict[str, set[int]] = {}
+    for rel, number in mentions:
+        if rel not in cache:
+            cache[rel] = comment_lines(root / rel)
+        (prose if number in cache[rel] else code).append(f"{rel}:{number}")
+    return code, prose
+
+
+#: A regex literal whose character class holds a double quote, a single quote AND a backtick:
+#: /192[.]168[.]\d+["'`]/ -- assembled from
+#: character codes because every quoting layer this file passes through would otherwise take a
+#: bite out of it. It is the exact shape from `server-url-fallback.test.js` that made the first
+#: scanner read the rest of that file's comments as code.
+REGEX_CARRIER = (chr(47) + "192[.]168[.]" + chr(92) + "d+["
+                 + chr(34) + chr(39) + chr(96) + "]" + chr(47))
+
+
+def carrier_verdicts() -> list[str]:
+    """Four carriers, two per direction, through the same searcher and the same classifier."""
+    scratch = Path(tempfile.mkdtemp())
+    name = "a-deleted-module.mjs"
+    cases = {
+        "a require split across lines is CODE": (
+            "req.mjs", f'const x = require(\n  "./{name}"\n);\n', "code"),
+        "a dynamic import split across lines is CODE": (
+            "dyn.mjs", f'const y = await import(\n  `./{name}`\n);\n', "code"),
+        "a `//` comment naming it is PROSE": (
+            "note.mjs", f'const z = 1;\n// see ./{name} for why\n', "prose"),
+        "a Python docstring naming it is PROSE": (
+            "note.py", f'"""Retired: ./{name} went with the tier."""\nZ = 1\n', "prose"),
+        # THE SHAPE THAT DEFEATED THE FIRST SCANNER. A regex literal whose character class
+        # holds a quote: read as a string opening, it swallowed every comment after it, and
+        # one real comment in `server-url-fallback.test.js` was reported as a live reference.
+        "a comment after a regex holding a quote is PROSE": (
+            "re.mjs",
+            "const ok = " + REGEX_CARRIER + ".test(s);" + chr(10)
+            + "// retired with ./" + name + chr(10),
+            "prose"),
+        # And the other direction, which is why strings are tracked at all: comment TEXT living
+        # inside a string literal is code.
+        "a `//` inside a string literal is CODE": (
+            "str.mjs", f'const doc = "// see ./{name} for why";\n', "code"),
+    }
+    for _label, (filename, body, _want) in cases.items():
+        (scratch / filename).write_text(body, encoding="utf-8")
+    failures = []
+    for label, (filename, _body, want) in cases.items():
+        hits = []
+        for line in _grep(name, scratch, [], no_index=True):
+            path, _, rest = line.partition(":")
+            number, _, _text = rest.partition(":")
+            if path.replace("\\", "/").endswith(filename) and number.isdigit():
+                hits.append((filename, int(number)))
+        if not hits:
+            failures.append(f"{label} -- the SEARCH missed it entirely")
+            continue
+        code, prose = classify(hits, scratch)
+        got = "code" if code else "prose"
+        if got != want:
+            failures.append(f"{label} -- read as {got}")
+    return failures
 
 
 def main() -> int:
@@ -75,49 +302,69 @@ def main() -> int:
         print("Check the revision rather than reading this as clean.")
         return 1
 
-    # THE PRODUCT SUBSET IS WHAT THE LEDGER'S ROWS COUNT, and the whole set is what this searches.
-    # Reporting both is what lets the ledger's 35 reconcile with the population actually judged.
     product = [p for p in gone if "/tests/" not in p and not Path(p).name.startswith("test_")]
     print(f"MODULES DELETED IN {since}..HEAD: {len(gone)}")
     print(f"  of which PRODUCT (the ledger's R-1..R-3 population) : {len(product)}")
     print(f"  of which deleted TESTS, searched too                : {len(gone) - len(product)}")
-    hits: dict[str, list[str]] = {}
+
+    unnamed, prose_only, reached = [], {}, {}
     for path in gone:
-        found = importers(Path(path).name)
-        if found:
-            hits[path] = found
-    print(f"  still imported by a surviving source : {len(hits)}")
-    print(f"  no importer anywhere                 : {len(gone) - len(hits)}")
+        mentions = naming(Path(path).name)
+        if not mentions:
+            unnamed.append(path)
+            continue
+        code, prose = classify(mentions, ROOT)
+        if code:
+            reached[path] = code
+        else:
+            prose_only[path] = prose
+
+    print(f"  named NOWHERE in any surviving source : {len(unnamed)}")
+    print(f"  named only in comments or docstrings  : {len(prose_only)}")
+    print(f"  named FROM CODE, outside any comment  : {len(reached)}")
     print()
-    if hits:
-        print("STILL IMPORTED -- each of these is an import that fails at load:")
-        for path, lines in sorted(hits.items()):
+    if reached:
+        print("NAMED FROM CODE -- outside any comment, which is where an import would be. A")
+        print("string literal lands here too, so each line is for a person to judge:")
+        for path, where in sorted(reached.items()):
             print(f"  {path}")
-            for line in lines:
-                print(f"      {line}")
+            for site in where:
+                print(f"      {site}")
         print()
 
-    print("THE CONTROLS, in this same run, because a zero from a broken search reads like a clean")
-    print("tree. The positive names a module that is alive and heavily imported; the negative names")
-    print("a file that never existed:")
+    print("THE CONTROLS, in this same run.")
     ok = True
-    for probe, expect_importers in (("doctor-predicates.js", True),
-                                    ("not-a-real-module-xyz.mjs", False)):
-        found = importers(probe)
-        agreed = bool(found) == expect_importers
+    for probe, expect in (("doctor-predicates.js", True),
+                          ("not-a-real-module-xyz.mjs", False)):
+        found = naming(probe)
+        agreed = bool(found) == expect
         ok = ok and agreed
-        print(f"  {probe:28} {len(found):3} importer(s)  "
+        print(f"  {probe:28} {len(found):3} mention(s)  "
               f"{'OK' if agreed else '*** THE SEARCH IS BROKEN ***'}")
+    print("  (this file is excluded from the population above, so the census cannot answer for")
+    print("   itself -- the failure that made the previous version's positive control meaningless)")
+    failures = carrier_verdicts()
+    for label in ("a require split across lines is CODE",
+                  "a dynamic import split across lines is CODE",
+                  "a `//` inside a string literal is CODE",
+                  "a `//` comment naming it is PROSE",
+                  "a Python docstring naming it is PROSE",
+                  "a comment after a regex holding a quote is PROSE"):
+        bad = [f for f in failures if f.startswith(label)]
+        print(f"  carrier: {label:44} {bad[0][len(label):].strip() if bad else 'OK'}")
+    ok = ok and not failures
 
     print()
     if not ok:
         print("The census reports nothing, because its own instrument failed a control.")
         return 1
-    if hits:
-        print(f"NOT CLEAN: {len(hits)} deleted module(s) are still imported.")
+    if reached:
+        print(f"NEEDS JUDGEMENT: {len(reached)} deleted module(s) are named from code.")
         return 1
-    print(f"CLEAN: none of the {len(gone)} deleted modules is imported by any surviving source, and")
-    print("the same search finds importers for a live module.")
+    print(f"CLEAN: of {len(gone)} deleted files, {len(unnamed)} are named nowhere at all and")
+    print(f"{len(prose_only)} are named only in comments or docstrings. NONE is reached from code.")
+    print("The first figure needs no classifier to be believed; the second rests on one, and that")
+    print("classifier is driven in both directions by the four carriers above.")
     return 0
 
 
