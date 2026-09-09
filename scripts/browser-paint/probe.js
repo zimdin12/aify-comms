@@ -123,10 +123,14 @@
         refusals.push(arm.label + ": " + arm.recoveryNotPainted + " recovery(ies) reset but left "
           + "no payload marker on screen, so the span timed a repaint that never arrived");
       }
+      // NAMED FOR THE OBLIGATION, NOT FOR ONE WAY OF BREAKING IT. This said "something smaller",
+      // which is true of a short payload and false of review's same-length wrong-text carrier --
+      // and a message that names the wrong reason is a defect this phase has already been
+      // corrected for once.
       if (arm.recoveryNotFullyPainted) {
-        refusals.push(arm.label + ": " + arm.recoveryNotFullyPainted + " recovery(ies) delivered "
-          + "their marker but not the rows their body addresses, so the span timed something "
-          + "smaller than the payload this column claims");
+        refusals.push(arm.label + ": " + arm.recoveryNotFullyPainted + " recovery(ies) left a "
+          + "screen that is not the one this payload should have left -- the rows it addresses "
+          + "do not carry the text it puts there, so the span timed a different workload");
       }
       // A REFUSAL OF ITS OWN, NOT ONLY A LEDGER ENTRY. Moving these counters off the paced
       // phase fixed the misattribution and LOST THE REJECTION: `recoveryBadSpans` was read only

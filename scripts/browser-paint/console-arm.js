@@ -380,7 +380,13 @@
       var sentinel = this.scrollbackSentinel + "-" + i + ">";
       var marker = this.recoveryMarker + "-" + i + ">";
       var body = bodyFor(marker);
-      var expected = expectedRows(body);
+      // THE CANONICAL MAP ITSELF, values and all -- not a fresh one read off the body that was
+      // written. Rebuilding it from the current body let that body define its own oracle: review
+      // replaced every row's text with x characters of the SAME LENGTH, keeping the cursor
+      // addresses, the colours, the marker and the exact byte count, and all six arms published.
+      // The count matched because the rows were still addressed; only the VALUES had changed,
+      // and the values were the half nothing compared.
+      var expected = new Map(claimed);
       this.recoveryBytes.push(new TextEncoder().encode(body).length);
       await this.writeOnce(CR + LF + sentinel + filler.join(CR + LF));
       var seenRenders = this.renderCount;
@@ -417,9 +423,7 @@
       // AND THE BODY, NOT ONLY ITS MARKER. Every visible row this payload addresses must carry
       // the text that payload put there; the marker's own row is excluded because the marker
       // deliberately overwrites it.
-      expected.delete(ROWS);
-      if (expected.size !== this.claimedRows
-          || rowsDelivered(this.term, expected) !== expected.size) {
+      if (rowsDelivered(this.term, expected) !== expected.size) {
         this.recoveryNotFullyPainted += 1;
         continue;
       }
