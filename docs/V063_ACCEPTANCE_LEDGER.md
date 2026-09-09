@@ -43,13 +43,28 @@ mechanism is present in the deployed build and was not caught firing.
 
 | id | required behaviour | changed paths | exact test / assertion | result | disposition |
 |---|---|---|---|---|---|
-| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `mcp/stdio/tests/no-missing-sibling-imports.test.js`, `moved-names-resolve.test.js` — a stale import fails loudly rather than resolving | PROVEN for the import obligation: zero remaining importers of any deleted module, measured with a positive control (a live module IS found) | Retired to aify-env. **The behavioural replacement is aify-env's, and its evidence is aify-env's suite (1,683), which is outside this range** |
-| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same import gates; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN for imports. The five cross-repo tests that drove a real aify-env through these modules were deleted WITH them | Retired. **UNREVIEWED as behaviour in this range** — the seam that replaced it is aify-env's plugin against this service's HTTP API, and only one cross-repo test still proves any of it |
-| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same import gates; `env-bridge` and `tier-version` doctor rows | PROVEN for imports | Retired. **UNREVIEWED as behaviour in this range** |
+| R-1 | Managed worker OWNERSHIP, teardown and survivor reaping are gone from the bridge, and aify-env owns them | deleted: `managed-ownership.mjs`, `managed-teardown-ownership.js`, `managed-teardown-sweeps.mjs`, `single-agent-teardown.mjs`, `reap-managed-survivors.js` | `mcp/stdio/tests/no-missing-sibling-imports.test.js`, `moved-names-resolve.test.js` — a stale import fails loudly rather than resolving | PROVEN for imports: zero remaining importers of any deleted module, positive-controlled. BEHAVIOUR: PASSES IN TESTS in aify-env -- `owned-processes.test.js` ("the writing instance stamps itself as the OWNER", "stopping removes only its own"), `orphans-die-with-the-environment.test.js` ("a process outlives a KILLED environment, and the next one reaps it"), `orphan-reap.test.js`, `reaper.test.js`, `reaper-wiring.test.js`, `kill-tree.test.js`, `shutdown.test.js`, `a-dead-pid-is-not-killed-on-shutdown.test.js` | Retired to aify-env and EVIDENCED there. The two named first were read rather than trusted to their titles |
+| R-2 | Terminal MANAGEMENT — the manager, control loop, runtime and capability probes — is gone from the bridge | deleted: `terminal-manager.mjs`, `terminal-control-loop.mjs`, `terminal-control.js`, `terminal-runtime.js`, `terminal-capability.mjs`, `terminals-are-possible.mjs`, `terminal-attach-notice.js`, `terminal-exit-report.js`, `terminal-text.js` | same import gates; `aify-comms doctor`'s `bridge-terminal` row moved to `aify-env doctor` (`docs/AIFY_ENV_BOUNDARY.md`) | PROVEN for imports. BEHAVIOUR: PASSES IN TESTS in aify-env — `pty-real.test.js`, `terminal-output-arrives-in-order.test.js`, `input-resize.test.js`, `the-resize-listener-is-registered-before-the-wait.test.js`, `ctrl-c-gives-the-terminal-back.test.js`, `an-exit-says-how-it-ended.test.js`, `an-exit-marker-lands-after-the-output-it-follows.test.js` | Retired to aify-env and EVIDENCED there. **The CROSS-REPO seam remains thin**: five tests that drove a real aify-env through the deleted modules went with them, and one survives (`the-credential-ref-we-write-is-one-aify-env-resolves.test.js`) |
+| R-3 | ENVIRONMENT advertisement, identity and the control loop are gone from the bridge | deleted: `environment-advertisement.mjs`, `environment-identity.mjs`, `environment-control-loop.mjs`, `environment-cwd-roots.mjs`, `environment-runtimes.js`, `env-client.mjs`, `env-term-shim.mjs`, `delegated-stream.mjs`, `delegated-exit.mjs` | same import gates; `env-bridge` and `tier-version` doctor rows | PROVEN for imports. BEHAVIOUR: PASSES IN TESTS in aify-env — `advertise.test.js`, `the-daemon-really-advertises.test.js`, and `the-view-does-not-invent-terminal-support.test.js` for the capability half | Retired to aify-env and EVIDENCED there. Same cross-repo caveat as R-2 |
 
-**Why these rows say UNREVIEWED rather than met.** A deletion's import obligation is provable here
-and is proved. Its BEHAVIOURAL obligation — that the responsibility still happens, in aify-env —
-is not evidenced by anything in this range, and saying so is the point of listing them.
+**How these rows moved from UNREVIEWED to evidenced.** A deletion's IMPORT obligation is provable
+in this range and is proved. Its BEHAVIOURAL obligation — that the responsibility still happens,
+in aify-env — is evidenced by aify-env's own suite, which runs on every commit in this session
+(1,683 tests, 1 skipped). What changed is not the evidence but that it is NAMED: the tests above are
+cited individually, and the two carrying R-1 were READ rather than trusted to their titles.
+
+**A count of files mentioning a word is NOT what these rows say**, and a first pass did exactly that
+-- 112 test files matching "teardown", 51 matching "ownership". Review had already rejected that
+shape in the discovery inventory, and it would have been the same mistake twice. The search that
+produced those counts was itself broken: `git grep -E "a\|b"` reads the escaped pipe as a LITERAL,
+so three topic searches returned 0 while a fourth WITHOUT alternation returned 104 and looked like a
+working control. A control has to exercise the same FORM as the thing it controls.
+
+**WHAT IS STILL THIN, and it is the cross-repo seam rather than the responsibilities.** Five tests
+that drove a REAL aify-env through the deleted modules were deleted with them, leaving one
+(`the-credential-ref-we-write-is-one-aify-env-resolves.test.js`). So each side is evidenced in its
+own suite and the JOIN between them is proved once. That is a real limit, and it belongs to the next
+version rather than to these rows.
 
 ## Packaging
 
