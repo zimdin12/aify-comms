@@ -1,10 +1,12 @@
 """Is the RUNNING service carrying the console-transport defects this version fixed?
 
 WHY THIS EXISTS. Every hop of B_TRANSPORT was measured on a fixture, and the operator's "our browser
-terminal kind of lags sometimes" stayed unattributed through all of them -- because a fixture is not
-their machine. The question that closed it was not "where is the time" but "is the mechanism I
-already fixed present in what they are RUNNING?". It was, on both ends, and this is the check that
-answers it again after any deploy.
+terminal kind of lags sometimes" is STILL UNATTRIBUTED -- a fixture is not their machine. So this
+asks a narrower question that can actually be answered: "is the mechanism I already fixed present in
+what they are RUNNING?". It is, on both ends. That is not the same as explaining the lag, and an
+earlier version of this paragraph said the question "closed it", which claims exactly what has not
+been shown -- a first reader meets that sentence and not the withdrawal three commits later. What
+this check does is answer the narrow question again after any deploy.
 
 WHAT IT ASKS, and every one of them is read from the running system rather than from git:
 
@@ -125,13 +127,27 @@ def ancestry(build: str) -> tuple[dict[str, bool], str]:
     for sha in FIXES:
         if _git("rev-parse", "--verify", f"{sha}^{{commit}}")[0] != 0:
             return {}, f"{sha} does not resolve, so its absence would mean nothing"
-        present[sha] = _git("merge-base", "--is-ancestor", sha, build)[0] == 0
+        # 0 IS YES AND 1 IS NO; ANYTHING ELSE IS GIT DECLINING TO ANSWER. Treating 128 as "not
+        # an ancestor" reports a confirmed absence on the strength of an error.
+        code = _git("merge-base", "--is-ancestor", sha, build)[0]
+        if code not in (0, 1):
+            return {}, f"git exited {code} deciding whether {sha} is in {build}"
+        present[sha] = code == 0
     return present, ""
 
 
-def served_modules(key: str, build: str) -> list[str]:
-    """What the BROWSER receives, compared against the stamped build rather than the checkout."""
-    notes = []
+def served_modules(key: str, build: str) -> tuple[list[str], str]:
+    """What the BROWSER receives, and whether that evidence can be read at all.
+
+    RETURNS ITS OWN VERDICT NOW. These notes used to be printed and then ignored: a module
+    answering 500, or bytes matching NEITHER the stamped build nor HEAD, described a browser
+    running something unaccountable and the run still concluded "carries none of them", exit 0.
+    A 404 is different and is EVIDENCE rather than a failure -- `console-cursor.mjs` does not
+    exist before this version's console work, so its absence is the cheapest tell that the
+    bundle predates it.
+    """
+    notes: list[str] = []
+    unreadable: list[str] = []
     for name in SERVED:
         status, body = _get(f"{DASHBOARD}/{name}", key)
         if status == 404:
@@ -139,6 +155,7 @@ def served_modules(key: str, build: str) -> list[str]:
             continue
         if status != 200 or not body:
             notes.append(f"{name}: could not be fetched (status {status})")
+            unreadable.append(f"{name} answered {status}")
             continue
         code, stamped = _git_bytes("show", f"{build}:service/new_dashboard/{name}")
         head_code, head = _git_bytes("show", f"HEAD:service/new_dashboard/{name}")
@@ -150,13 +167,37 @@ def served_modules(key: str, build: str) -> list[str]:
             notes.append(f"{name}: byte-identical to {build}, which is behind HEAD")
         else:
             notes.append(f"{name}: matches neither {build} nor HEAD")
-    return notes
+            unreadable.append(f"{name} matches neither build")
+    return notes, ("; ".join(unreadable) if unreadable else "")
+
+
+def _isolated_tree(scratch: Path) -> Path | None:
+    """A throwaway copy of the `service` package, so nothing here writes to the real checkout.
+
+    THE FIRST VERSION OF THIS CHECK WROTE TO `service/terminal_write_queue.py` IN THE SHARED
+    TREE -- the container's copy in, a backup back out -- and called itself read-only because it
+    touched the live service only for reads. Read-only toward the service is not read-only
+    toward the checkout: between those two writes a concurrent edit is erased, and the script
+    exited 0 having said nothing. A diagnostic that silently reverts somebody's work is worse
+    than what it diagnoses.
+
+    Python files only, which is what the package and its tests are; the caller's control run
+    catches a tree missing anything the test actually needs.
+    """
+    tree = scratch / "tree"
+    try:
+        shutil.copytree(ROOT / "service", tree / "service",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules"))
+    except OSError:
+        return None
+    return tree
 
 
 def deployed_queue_fires(scratch: Path) -> tuple[str, str]:
     """Run this version's own frame-sequence test against the CONTAINER's copy of the queue.
 
-    A code read says the defect is in that file. Only running it says the defect FIRES.
+    A code read says the defect is in that file. Only running it says the defect FIRES -- and it
+    is run in a COPY of the tree, never in the checkout.
     """
     pulled = scratch / "queue.deployed.py"
     done = subprocess.run(["docker", "cp", f"{CONTAINER}:/app/service/terminal_write_queue.py",
@@ -164,25 +205,34 @@ def deployed_queue_fires(scratch: Path) -> tuple[str, str]:
     if done.returncode != 0 or not pulled.exists():
         return "unknown", "the container's queue could not be copied out"
 
+    tree = _isolated_tree(scratch)
+    if tree is None:
+        return "unknown", "an isolated copy of the service tree could not be made"
+    target = tree / "service" / "terminal_write_queue.py"
+
     def run() -> int:
         return subprocess.run([sys.executable, "-m", "pytest", FRAME_TEST, "-q", "--no-header",
                                "-p", "no:cacheprovider"],
-                              cwd=ROOT, capture_output=True, text=True).returncode
+                              cwd=tree, capture_output=True, text=True).returncode
 
-    backup = scratch / "queue.repo.py"
-    shutil.copyfile(QUEUE, backup)
-    try:
-        if run() != 0:
-            return "unknown", "the repo's own module fails this test, so the harness proves nothing"
-        shutil.copyfile(pulled, QUEUE)
-        deployed = run()
-    finally:
-        # `cp` BACK, never `git checkout` -- this repo has lost a just-written function that way.
-        shutil.copyfile(backup, QUEUE)
+    # THE COPY IS CONTROLLED BEFORE IT IS USED. A tree missing something the test needs fails for
+    # reasons that have nothing to do with the deployed module, and that failure would otherwise
+    # read as "the deployed queue is broken".
     if run() != 0:
-        return "unknown", "the module did not restore cleanly; treat this run as void"
-    return ("carries", "the deployed queue FAILS this version's frame-sequence test") if deployed \
-        else ("clear", "the deployed queue passes it")
+        return "unknown", ("the repo's own module fails this test inside the isolated tree, so "
+                           "the harness proves nothing about the deployed one")
+    shutil.copyfile(pulled, target)
+    deployed = run()
+    # PYTEST'S EXIT CODES ARE A VOCABULARY. 0 passed, 1 tests FAILED, 2 collection error, 3
+    # internal, 4 usage, 5 nothing collected. Reading "non-zero" as "the deployed queue is
+    # defective" turns a broken harness into a confident finding -- and 5, no tests collected,
+    # is exactly what a mis-copied tree produces.
+    if deployed == 0:
+        return "clear", "the deployed queue passes it"
+    if deployed == 1:
+        return "carries", "the deployed queue FAILS this version's frame-sequence test"
+    return "unknown", (f"pytest exited {deployed} against the deployed module -- that is not a "
+                       f"test failure, so nothing was established either way")
 
 
 def main() -> int:
@@ -211,9 +261,14 @@ def main() -> int:
     print()
 
     print("WHAT THE BROWSER RECEIVES:")
-    for note in served_modules(key, build):
+    notes, browser_unreadable = served_modules(key, build)
+    for note in notes:
         print(f"  {note}")
     print()
+    if browser_unreadable:
+        print(f"UNKNOWN: the browser evidence could not be read -- {browser_unreadable}. This")
+        print("used to print and then be ignored while the run concluded anyway.")
+        return 2
 
     verdict, detail = deployed_queue_fires(scratch)
     print(f"THE DEPLOYED QUEUE, RUN: {detail}")

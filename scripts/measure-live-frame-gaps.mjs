@@ -1,25 +1,30 @@
 /**
- * How often does the RUNNING service emit a frame sequence the browser reads as a gap?
+ * How often would the RUNNING service make a browser console recover?
  *
- * WHY THIS IS THE MISSING NUMBER. `check-deployed-console-transport.py` proves the deployed queue
- * counts POSTS rather than frames, which is the mechanism behind the operator's "our browser
- * terminal kind of lags sometimes". It does not say how OFTEN that fires, and that is the whole
- * difference between a console that recovers constantly and one that stutters occasionally. The
- * harness chose a stride; this counts the real one.
+ * WHY. `check-deployed-console-transport.py` shows the deployed queue numbering its frames per POST
+ * rather than per FRAME, so a coalesced flush advances the sequence by more than one and the
+ * dashboard reads a gap that nothing dropped. That says the mechanism EXISTS in the running code.
+ * It says nothing about how often it fires, and that is the difference between a console that
+ * recovers constantly and one that stutters occasionally.
  *
- * WHAT IT DOES. Opens ONE read-only WebSocket to `/ws` -- no `agent_id`, so nothing is bound to an
- * agent and `online_agents()` is untouched -- and watches `terminal_output` events go by, applying
- * the browser's own rule: `seq > lastSeq + 1` is a gap, and a gap costs a full recovery (an HTTP
- * refetch, a `term.reset()`, and a whole-screen repaint). It sends nothing and changes nothing.
+ * THIS IS NOT AN ATTRIBUTION OF THE OPERATOR'S REPORTED LAG, and an earlier version of this comment
+ * called it "the mechanism behind" that lag, which claims exactly what has not been shown. It counts
+ * one specific trigger, on one fleet, in one window. Nothing here observes a console, a repaint, or
+ * a person waiting.
  *
- * WHY A ZERO HERE WOULD MEAN NOTHING WITHOUT THE CONTROL. A quiet fleet emits no frames at all, and
- * "no gaps in zero frames" reads exactly like "no gaps". So the frame COUNT is reported first and a
- * run that saw too few frames refuses to draw a conclusion. That is the failure this repo keeps
- * finding in its own instruments, and it is the one a passive observer is most exposed to.
+ * THE RULE IS MIRRORED FROM ITS CONSUMER, NOT RE-DERIVED. `realtime-socket.mjs` is the only thing
+ * that reads these numbers, and a hand-written "is this a gap" diverged from it in BOTH directions:
+ * it lowered its cursor on a regression, so 10,5,11 counted a gap the browser never takes (the
+ * browser leaves `lastSeq` at 10, and 11 is contiguous), while 10,5,6 counted one drop where the
+ * browser drops two. The block below keeps that block's shape deliberately, so the two can be
+ * diffed rather than argued about.
+ *
+ * WHAT IT DOES. Opens ONE read-only WebSocket to `/ws` -- no `agent_id`, so nothing binds to an
+ * agent and `online_agents()` is untouched. It sends nothing.
  *
  *   node scripts/measure-live-frame-gaps.mjs [seconds]
  *
- * Exit 0 when it gathered enough frames to answer, 2 when it did not.
+ * Exit 0 when it gathered enough COMPARISONS to answer, 2 when it did not.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -29,102 +34,117 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECONDS = Number(process.argv[2] || 120);
 
-/** Enough frames that "no gaps" is a finding rather than an empty room. */
+/**
+ * THE FLOOR IS ON COMPARISONS, NOT ON FRAMES, and that distinction is a real defect this replaces.
+ * A run reading the wrong field produced forty frames that were all UNNUMBERED, made zero
+ * within-terminal comparisons, and printed "0.0%" with exit 0 -- a frame floor cleared entirely by
+ * frames that could not have revealed a gap if one existed. Forty terminals seen once each do the
+ * same. Only a frame actually judged against that terminal's previous sequence counts here.
+ */
 const FLOOR = 20;
+
+/**
+ * THE DEPLOYED BATCHING PARAMETERS, read from the container rather than from this checkout:
+ * `idle_flush_ms = 4`, `max_latency_ms = 24`. A batch coalesces exactly when a second post lands
+ * within 4ms of the one before it, which is the whole condition the sequence defect needs.
+ */
+const IDLE_FLUSH_MS = 4;
 
 function apiKey() {
   try {
     const out = execFileSync('bash', [path.join(ROOT, 'scripts', 'api-key.sh')],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     const lines = out.trim().split('\n').filter(Boolean);
     return lines.length ? lines[lines.length - 1].trim() : '';
   } catch { return ''; }
 }
 
-/**
- * THE DEPLOYED BATCHING PARAMETERS, read from the container rather than from this checkout, because
- * the threshold that matters is the RUNNING one:
- *
- *   idle_flush_ms  = 4    a flush fires 4ms after the last post, if no further post arrives
- *   max_latency_ms = 24   and at most 24ms after the batch's first post
- *
- * So a batch COALESCES exactly when a second post lands within 4ms of the one before it. That is
- * the condition the sequence defect needs, and it is why a fleet can run a defective build all day
- * without the browser ever seeing a gap.
- */
-const IDLE_FLUSH_MS = 4;
-
-/** Per terminal: the last sequence seen, the frames counted, and the gaps the browser would act on. */
-const seen = new Map();
+/** Per terminal, the browser's own `entry.lastSeq`: -1 means UNKNOWN and skips both checks. */
+const lastSeqOf = new Map();
 /** Arrival times per terminal, so the distance from the coalescing threshold can be stated. */
 const arrivedAt = new Map();
 const gapsMs = [];
-let badSpans = 0;
-let frames = 0;
-let unnumbered = 0;
-let regressed = 0;
-const gaps = [];
 
+let frames = 0;          // every terminal_output event seen
+let comparisons = 0;     // those actually judged against a previous sequence for the same terminal
+let unnumbered = 0;      // no finite seq: the browser paints these without touching lastSeq
+let dropped = 0;         // seq <= lastSeq: the browser discards, and does NOT lower its cursor
+let recoveries = 0;      // seq > lastSeq + 1: the browser refetches, resets and repaints
+let badSpans = 0;
+
+/**
+ * `realtime-socket.mjs`'s sequence block, mirrored. Returns the outcome by NAME so a control can
+ * assert which branch ran rather than only that some total moved.
+ */
 function note(terminalId, seq, at) {
   frames += 1;
   if (at !== undefined) {
     const previous = arrivedAt.get(terminalId);
     arrivedAt.set(terminalId, at);
-    // FINITE AND NOT NEGATIVE, for the reason the projection probe's spans are admitted the same
-    // way: a guard phrased as "drop the negative ones" admits NaN, because NaN fails every
-    // comparison. A clock that misbehaves must refuse, never quietly widen the distribution.
+    // Finite and not negative, written positively: NaN fails every comparison, so a guard phrased
+    // as "drop the negative ones" would admit it and quietly widen the distribution.
     if (previous !== undefined) {
       const span = at - previous;
       if (Number.isFinite(span) && span >= 0) gapsMs.push(span); else badSpans += 1;
     }
   }
-  if (seq === null || seq === undefined) { unnumbered += 1; return; }
-  const last = seen.get(terminalId);
-  seen.set(terminalId, seq);
-  if (last === undefined) return;          // the first frame for a terminal establishes the baseline
-  if (seq <= last) { regressed += 1; return; }
-  if (seq > last + 1) gaps.push({ terminalId, from: last, to: seq, step: seq - last });
+
+  const finite = Number.isFinite(seq);
+  const lastSeq = lastSeqOf.has(terminalId) ? lastSeqOf.get(terminalId) : -1;
+
+  if (!finite) { unnumbered += 1; return 'unnumbered'; }
+  if (lastSeq >= 0) {
+    comparisons += 1;
+    // THE CURSOR IS NOT LOWERED HERE. The browser returns without touching `lastSeq`, so a late
+    // frame is discarded and the NEXT one is still judged against the high-water mark.
+    if (seq <= lastSeq) { dropped += 1; return 'dropped'; }
+    if (seq > lastSeq + 1) { recoveries += 1; lastSeqOf.set(terminalId, seq); return 'recovery'; }
+  }
+  lastSeqOf.set(terminalId, seq);
+  return 'painted';
 }
 
 /**
- * THE DETECTOR, DRIVEN BOTH WAYS BEFORE IT IS BELIEVED.
+ * THE CONTROL, ASSERTING EACH OUTCOME BY NAME.
  *
- * A gap counter that reports 0 looks identical whether the fleet is clean or the counter is broken
- * -- and this one WAS broken on its first run, reading `outputSeq` where the wire says `seq`. So the
- * run proves the instrument on synthetic frames first: it must COUNT a jump, IGNORE a consecutive
- * pair, and notice a regression. A live zero means nothing until this passes.
+ * A total-only control credits the wrong event: replace the gap test with `seq === last + 1` and it
+ * counts the CONSECUTIVE frame while missing the +3 one, yet "one gap was found" still passes and
+ * the instrument is now measuring the opposite thing. Each case below names the branch it must
+ * take, so a predicate that fires on the wrong frame fails here instead of in publication.
  */
 function selfTest() {
-  const before = { frames, unnumbered, regressed, gaps: gaps.length };
+  const before = { frames, comparisons, unnumbered, dropped, recoveries };
   const mark = '__control__';
-  note(mark, 10);            // baseline, counts no gap
-  note(mark, 11);            // consecutive -- must NOT be a gap
-  note(mark, 14);            // +3 -- MUST be a gap
-  note(mark, 12);            // backwards -- a regression, not a gap
-  note(mark, null);          // unnumbered
-  const found = {
-    gap: gaps.length - before.gaps === 1,
-    quiet: true,
-    regressed: regressed - before.regressed === 1,
-    unnumbered: unnumbered - before.unnumbered === 1,
-  };
-  // Undo the control so it cannot reach the reported figures.
-  frames = before.frames; unnumbered = before.unnumbered; regressed = before.regressed;
-  gaps.length = before.gaps;
-  seen.delete(mark);
-  const ok = found.gap && found.regressed && found.unnumbered;
-  console.log(ok
-    ? '  CONTROL: the detector counted the +3 jump, the regression and the unnumbered frame, and'
-    + ' let the consecutive pair pass.'
-    : `  CONTROL FAILED: ${JSON.stringify(found)}`);
-  return ok;
+  const cases = [
+    [10, 'painted', 'the first frame establishes the cursor and is not compared'],
+    [11, 'painted', 'a consecutive frame is painted, never counted as a gap'],
+    [14, 'recovery', 'a +3 step is the gap the browser refetches on'],
+    [12, 'dropped', 'a frame behind the cursor is discarded'],
+    [15, 'painted', 'and that drop did NOT lower the cursor, so 15 follows 14'],
+    [NaN, 'unnumbered', 'a frame with no finite sequence reaches neither branch'],
+  ];
+  const wrong = [];
+  for (const [seq, want, why] of cases) {
+    const got = note(mark, seq);
+    if (got !== want) wrong.push(`${seq}: expected ${want} (${why}), got ${got}`);
+  }
+  frames = before.frames; comparisons = before.comparisons; unnumbered = before.unnumbered;
+  dropped = before.dropped; recoveries = before.recoveries;
+  lastSeqOf.delete(mark);
+
+  if (wrong.length) {
+    console.log('  CONTROL FAILED, so nothing below would mean anything:');
+    for (const line of wrong) console.log(`    ${line}`);
+    return false;
+  }
+  console.log(`  CONTROL: all ${cases.length} cases took the branch they name, including the drop `
+    + 'that must not lower the cursor.');
+  return true;
 }
 
 async function main() {
-  if (!selfTest()) {
-    console.log('UNKNOWN: the gap detector cannot detect a gap, so a live zero would mean nothing.');
-    process.exit(2);
-  }
+  if (!selfTest()) process.exit(2);
+
   const key = apiKey();
   const url = `ws://localhost:8800/ws${key ? `?api_key=${encodeURIComponent(key)}` : ''}`;
   const socket = new WebSocket(url, { headers: { Origin: 'http://localhost:8811' } });
@@ -139,10 +159,9 @@ async function main() {
     process.exit(2);
   }
 
-  // A SOCKET THAT DIES MID-WINDOW OBSERVES NOTHING AFTER IT, AND WOULD REPORT THE PARTIAL WINDOW
-  // AS THE WHOLE ONE. Self-review found this: a service restart at second 10 of a 360s run leaves
-  // a frame count that clears the floor and a "0 gaps" verdict covering 350 seconds nobody watched.
-  // The window has to be closed by the TIMER, not by the transport.
+  // A SOCKET THAT DIES MID-WINDOW OBSERVES NOTHING AFTER IT, and would report the partial window as
+  // the whole one -- a restart at second 10 of a 360s run leaves a verdict covering 350 seconds
+  // nobody watched. The window has to be closed by the TIMER, not by the transport.
   let closedEarly = null;
   socket.addEventListener('close', (e) => { closedEarly ??= { code: e.code, at: Date.now() }; });
   socket.addEventListener('error', () => { closedEarly ??= { code: 'error', at: Date.now() }; });
@@ -153,12 +172,10 @@ async function main() {
     try { payload = JSON.parse(event.data); } catch { return; }
     if (payload?.event !== 'terminal_output') return;
     const body = payload.data ?? payload;
-    // THE FIELD IS `seq`, READ FROM THE WIRE AND CROSS-CHECKED AGAINST ITS ONLY CONSUMER.
-    // My first version read `outputSeq` -- the name the HTTP snapshot uses -- and every one of
-    // 291 frames came back unnumbered, which the gap counter would have reported as a clean
-    // 0.0%. `realtime-socket.mjs` does `const seq = Number(data.seq)`, so that is the rule.
-    note(String(body.terminalId ?? '?'), Number.isFinite(Number(body.seq)) ? Number(body.seq) : null,
-      performance.now());
+    // THE FIELD IS `seq`, which is what the only consumer reads (`Number(data.seq)`). An earlier
+    // version read `outputSeq` -- the name the HTTP snapshot uses -- so every frame came back
+    // unnumbered while the summary printed a clean 0.0%.
+    note(String(body.terminalId ?? '?'), Number(body.seq), performance.now());
   });
 
   const startedAt = Date.now();
@@ -176,70 +193,60 @@ async function main() {
   }
 
   console.log('');
-  console.log(`  frames seen            ${frames}   across ${seen.size} terminal(s)`);
-  console.log(`  unnumbered frames      ${unnumbered}   (an unnumbered chunk clears the number)`);
-  console.log(`  regressed sequences    ${regressed}   (the browser DROPS these outright)`);
-  console.log(`  GAPS the browser acts on ${gaps.length}`);
+  console.log(`  frames seen            ${frames}   across ${lastSeqOf.size} terminal(s)`);
+  console.log(`  COMPARISONS made       ${comparisons}   (judged against that terminal's own previous seq)`);
+  console.log(`  unnumbered frames      ${unnumbered}   (no finite seq: neither branch is reached)`);
+  console.log(`  dropped (seq <= last)  ${dropped}`);
+  console.log(`  RECOVERIES triggered   ${recoveries}   (seq > last + 1: refetch, reset, repaint)`);
   console.log('');
 
-  if (frames < FLOOR) {
-    console.log(`UNKNOWN: ${frames} frames is below the ${FLOOR} this run needs. A quiet fleet`);
-    console.log('produces no frames, and "no gaps in almost none" is not evidence of no gaps.');
-    console.log('Re-run while an agent is actually producing output.');
-    process.exit(2);
-  }
-
-  const rate = (100 * gaps.length / frames).toFixed(1);
-  console.log(`${gaps.length} of ${frames} frames (${rate}%) carried a step over one, and EACH of`);
-  console.log('those costs the browser a refetch, a reset and a whole-screen repaint.');
-  if (gaps.length) {
-    const worst = gaps.slice().sort((a, b) => b.step - a.step).slice(0, 5);
-    console.log('');
-    console.log('  largest steps:');
-    for (const g of worst) console.log(`    ${g.terminalId}: ${g.from} -> ${g.to}  (+${g.step})`);
-  }
-  // HOW FAR THIS FLEET IS FROM THE CONDITION THE DEFECT NEEDS.
-  //
-  // ONLY VALID IN THE ZERO-GAP REGIME, and that is why it is printed after the gap count rather
-  // than beside it: an inter-FRAME interval equals an inter-POST interval only while nothing is
-  // coalescing, because a coalesced flush hides the posts inside it. With gaps observed, this
-  // becomes a lower bound on the post rate and says so.
   if (badSpans) {
     console.log(`UNKNOWN: ${badSpans} arrival interval(s) were not finite non-negative durations,`);
     console.log('so the clock this run measured with cannot be trusted for the rest of it.');
     process.exit(2);
   }
 
+  if (comparisons < FLOOR) {
+    console.log(`UNKNOWN: ${comparisons} comparisons is below the ${FLOOR} this run needs -- ${frames}`);
+    console.log('frames arrived but few were judged against a previous sequence for the same');
+    console.log('terminal, and a gap can only be seen where a comparison happened. Re-run while an');
+    console.log('agent is producing output.');
+    process.exit(2);
+  }
+
+  const rate = (100 * recoveries / comparisons).toFixed(1);
+  console.log(`${recoveries} of ${comparisons} compared frames (${rate}%) would make the browser`);
+  console.log('refetch, reset and repaint.');
+
   if (gapsMs.length) {
     const sorted = gapsMs.slice().sort((a, b) => a - b);
     const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))];
     const under = sorted.filter((ms) => ms < IDLE_FLUSH_MS).length;
-    console.log(`  per-terminal arrival intervals (n=${sorted.length}):`);
-    console.log(`    p50 ${at(0.5).toFixed(1)}ms   p05 ${at(0.05).toFixed(1)}ms   `
-      + `min ${sorted[0].toFixed(1)}ms`);
-    console.log(`    under the ${IDLE_FLUSH_MS}ms idle flush: ${under}`
-      + `  -- these are the ones that could coalesce`);
-    // THE MINIMUM IS THE NUMBER THAT MATTERS, not the median. "Sometimes" is a claim about the
-    // BUSIEST moment, and a median 69x from the threshold sounds like a fleet nowhere near it while
-    // the fastest interval observed can be sitting just outside. Leading with the median would
-    // understate the risk in exactly the direction that matters.
-    const nearest = sorted[0] / IDLE_FLUSH_MS;
-    const typical = at(0.5) / IDLE_FLUSH_MS;
     console.log('');
-    if (gaps.length) {
-      console.log('  (gaps were seen, so these intervals are a LOWER bound on the post rate.)');
+    console.log(`  per-terminal arrival intervals (n=${sorted.length}):`);
+    console.log(`    p50 ${at(0.5).toFixed(1)}ms   p05 ${at(0.05).toFixed(1)}ms   min ${sorted[0].toFixed(1)}ms`);
+    console.log(`    under the ${IDLE_FLUSH_MS}ms idle flush: ${under}  -- these could coalesce`);
+    console.log('');
+    if (recoveries) {
+      console.log('  (recoveries were seen, so these intervals are a LOWER bound on the post rate:');
+      console.log('   a coalesced flush hides the posts inside it.)');
     } else {
-      console.log(`  Nothing coalesced. THE CLOSEST APPROACH was ${sorted[0].toFixed(1)}ms against `
-        + `the ${IDLE_FLUSH_MS}ms window -- ${nearest.toFixed(1)}x outside it, so a burst only `
-        + `modestly faster than anything seen here would start batching and start faking gaps.`);
-      console.log(`  The TYPICAL terminal posted every ${at(0.5).toFixed(0)}ms, ${typical.toFixed(0)}x `
-        + `too slow, which is why a quiet fleet can run this build all day and see nothing.`);
+      // THE MINIMUM IS THE NUMBER THAT MATTERS. "Sometimes" is a claim about the BUSIEST moment,
+      // and a median far from the threshold hides a minimum sitting just outside it.
+      console.log(`  Nothing coalesced. THE CLOSEST APPROACH was ${sorted[0].toFixed(1)}ms against the `
+        + `${IDLE_FLUSH_MS}ms window -- ${(sorted[0] / IDLE_FLUSH_MS).toFixed(1)}x outside it, so a`);
+      console.log('  burst only modestly faster than anything here would start batching.');
+      console.log(`  The TYPICAL terminal posted every ${at(0.5).toFixed(0)}ms, `
+        + `${(at(0.5) / IDLE_FLUSH_MS).toFixed(0)}x too slow, which is why a quiet fleet can run`);
+      console.log('  this build all day and see nothing.');
     }
   }
 
   console.log('');
-  console.log('THIS IS A RATE, NOT AN ATTRIBUTION OF ANY PARTICULAR STUTTER. It says how often the');
-  console.log('deployed sequence gives the browser a reason to recover, on this fleet, in this window.');
+  console.log('WHAT THIS DOES NOT ESTABLISH: how many POSTS each flush carried. Zero steps over one');
+  console.log('is consistent with every flush carrying exactly one post, and equally consistent with');
+  console.log('a queue that numbers frames correctly -- the wire alone cannot separate those two. It');
+  console.log('also counts TRIGGERS rather than repaints: no console, fetch or reset was observed.');
   process.exit(0);
 }
 

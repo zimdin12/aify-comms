@@ -82,6 +82,47 @@ LIVE_SCREEN_SEQ = 4242
 STORED_SEQ = 1
 
 
+def _admit(label, response, expected_id, expected_screen, want_seq) -> list[str]:
+    """What a VALID answer for one arm looks like -- the single copy both callers use.
+
+    THERE WERE TWO, AND THEY DRIFTED. The warmup checked status and identity; the measured
+    samples checked those plus the snapshot's type, the whole rendered screen and the sequence's
+    domain. So a warmup answered by the REPLAY selector satisfied its own weaker rule -- remove
+    the live screen for the warmup, restore it before the samples, and the exact subject
+    published. Two copies of one judgement is the defect; the missing lines were the symptom.
+
+    Returns every reason to refuse, so a caller can prefix them with where they came from.
+    """
+    if response.status_code != 200:
+        return [f"{label}: answered {response.status_code}, so this is an error page rather "
+                f"than a console"]
+    answered = (response.json().get("terminal") or {})
+    snapshot = answered.get("snapshot")
+    # A NON-EMPTY STRING, not merely truthy. The console does `term.write(snapshot)`, so the
+    # field has to be text -- and review passed the old check with a numeric 123.
+    if not isinstance(snapshot, str) or not snapshot:
+        return [f"{label}: the snapshot is {type(snapshot).__name__} rather than a non-empty "
+                f"string, and the console writes that field verbatim"]
+    reasons = []
+    if str(answered.get("id")) != expected_id:
+        reasons.append(f"{label}: the response is for terminal {answered.get('id')!r}, and this "
+                       f"arm asked about {expected_id!r}")
+    # THE WHOLE SCREEN, not a substring of the raw bytes: a witness string followed by an
+    # erase-display passes a membership test and renders BLANK.
+    if snapshot != expected_screen:
+        reasons.append(f"{label}: the snapshot is not the screen this fixture's stored tail "
+                       f"renders to ({len(snapshot)} chars against {len(expected_screen)})")
+    seq_value = answered.get("outputSeq")
+    if not _is_sequence_number(seq_value):
+        reasons.append(f"{label}: outputSeq is {seq_value!r}, a {type(seq_value).__name__}, and "
+                       f"this field is an integer row sequence -- equality alone would have "
+                       f"admitted it")
+    elif seq_value != want_seq:
+        reasons.append(f"{label}: outputSeq is {seq_value!r} and this arm must be answered with "
+                       f"{want_seq} -- so it did not take the branch its label names")
+    return reasons
+
+
 def _is_sequence_number(value: object) -> bool:
     """Is this the INTEGER row sequence, rather than something merely equal to one?
 
@@ -268,16 +309,14 @@ async def _run() -> int:
         # proves the setup did NOT run, and this loop used to ignore the response entirely, so a
         # run whose every first request failed published exactly like one where they succeeded.
         # A discarded request evidences that a call was made and nothing else.
+        # THE SAME JUDGEMENT AS THE SAMPLES, and only the TIMING is discarded. Its own weaker
+        # rule -- status and identity -- let a warmup answered by the REPLAY selector pass on an
+        # arm labelled live, and let a correct-id warmup carrying the wrong snapshot pass too.
         for label, url in shapes.items():
             warm = await client.get(url)
-            if warm.status_code != 200:
-                refusals.append(f"WARMUP {label}: answered {warm.status_code}, so the setup this "
-                                f"arm's measurements assume did not complete")
-                continue
-            warmed = (warm.json().get("terminal") or {})
-            if str(warmed.get("id")) != expected_id[label]:
-                refusals.append(f"WARMUP {label}: warmed terminal {warmed.get('id')!r} while this "
-                                f"arm measures {expected_id[label]!r}")
+            refusals.extend(f"WARMUP {reason}" for reason in _admit(
+                label, warm, expected_id[label], expected_screen[label],
+                LIVE_SCREEN_SEQ if label == CONSOLE_LIVE else STORED_SEQ))
 
         for _ in range(SAMPLES):
             # INTERLEAVED, so a drift in the machine's load moves both columns rather than one.
@@ -285,55 +324,15 @@ async def _run() -> int:
                 started = time.perf_counter()
                 response = await client.get(url)
                 timings[label].append((time.perf_counter() - started) * 1000)
+                # ONE VALIDATOR, SHARED WITH THE WARMUP. What counts as a valid answer for an arm
+                # is decided in `_admit` and nowhere else -- these checks and the warmup's used to
+                # be separate copies, and the warmup's was the weaker one.
+                reasons = _admit(label, response, expected_id[label], expected_screen[label],
+                                 LIVE_SCREEN_SEQ if label == CONSOLE_LIVE else STORED_SEQ)
+                refusals.extend(reasons)
                 if response.status_code != 200:
-                    refusals.append(f"{label}: answered {response.status_code}, so this column times "
-                                    f"an error page rather than a console")
                     break
                 sizes[label] = len(response.content)
-                body = response.json()
-                # A NON-EMPTY STRING, not merely truthy. The console does `term.write(snapshot)`,
-                # so the field has to be text -- and review passed this check with a numeric 123.
-                answered = body.get("terminal") or {}
-                snapshot = answered.get("snapshot")
-                if not isinstance(snapshot, str) or not snapshot:
-                    refusals.append(f"{label}: the response's snapshot is {type(snapshot).__name__} "
-                                    f"rather than a non-empty string, and the console writes that "
-                                    f"field verbatim -- so whatever was timed is not this path")
-                # THE RESPONSE MUST BE FOR THE TERMINAL THIS ARM ASKED ABOUT, AND CARRY ITS
-                # CONTENT. A non-empty string closed the numeric case and nothing else: review
-                # published a foreign id carrying the right string, and a correct id carrying
-                # unrelated text.
-                elif str(answered.get("id")) != expected_id[label]:
-                    refusals.append(f"{label}: the response is for terminal "
-                                    f"{answered.get('id')!r}, and this arm asked about "
-                                    f"{expected_id[label]!r}")
-                # THE WHOLE SCREEN, not a substring of the raw bytes. A witness string followed
-                # by an erase-display and a cursor-home passes a membership test and renders
-                # BLANK; comparing against what the service's own renderer produces for this
-                # fixture's stored tail cannot be satisfied that way.
-                elif snapshot != expected_screen[label]:
-                    refusals.append(f"{label}: the snapshot is not the screen this fixture's "
-                                    f"stored tail renders to "
-                                    f"({len(snapshot)} chars against "
-                                    f"{len(expected_screen[label])})")
-                # AND THE BRANCH ITS LABEL NAMES. `terminal_snapshot_view` answers with the
-                # SCREEN's sequence on the live branch and the stored column's on the fallback,
-                # and the two are seeded apart -- so the RESPONSE says which one ran. Binding the
-                # label to the setup call instead let review suppress the feed and still be told
-                # LIVE on all 40 MEASURED requests -- the warm-up reaches no check at all.
-                # THE EXACT VALUE, NOT "ANYTHING ELSE IS REPLAY". This compared against the live
-                # sequence and called every other answer replay -- so `null`, which means UNKNOWN
-                # and is not the stored number either, published on a replay-labelled arm.
-                want_seq = LIVE_SCREEN_SEQ if label == CONSOLE_LIVE else STORED_SEQ
-                seq_value = answered.get("outputSeq")
-                if not _is_sequence_number(seq_value):
-                    refusals.append(f"{label}: outputSeq is {seq_value!r}, a "
-                                    f"{type(seq_value).__name__}, and this field is an integer "
-                                    f"row sequence -- equality alone would have admitted it")
-                elif seq_value != want_seq:
-                    refusals.append(f"{label}: outputSeq is {seq_value!r} and this "
-                                    f"arm must be answered with {want_seq} -- so it did not take "
-                                    f"the branch its label names")
 
         # EVERY SPAN, BEFORE ANY STATISTIC TOUCHES IT. `statistics.median([nan, 1, 2])` returns
         # 1.0 -- a corrupt clock does not propagate, it produces a PLAUSIBLE number -- and a
