@@ -342,6 +342,61 @@ class TerminalWriteQueueTests(unittest.TestCase):
 
         self.assertEqual(run(body()), 0)
 
+    # ── a handed-back batch keeps its own number ─────────────────────────────────────────────
+
+    def test_A_RETRIED_BATCH_DOES_NOT_SWALLOW_THE_NEXT_ONES_SEQUENCE(self):
+        """FOUND BY REVIEW, followed all the way through the real browser consumer.
+
+        `_requeue_front` used to prepend the failed bytes to whatever batch was pending, and
+        `enqueue` claims a sequence only when there is NO batch -- so a post arriving during a failed
+        write joined the failed one under a number a browser had ALREADY consumed. Review's trace:
+        write AA/1 then B/2, snapshot the browser at AAB/2, fail B's flush, enqueue C. The row ends
+        AABC correctly and the BROADCAST is `BC` at seq 2, which the browser drops as already seen.
+        C is never painted, no gap is detected, and nothing recovers.
+
+        ADVANCING THE NUMBER INSTEAD WOULD PAINT B TWICE, because the payload still carries bytes the
+        snapshot already showed. The batches stay separate, so the retry goes out as the frame it
+        already was and the new bytes go out adjacent to what the browser holds.
+        """
+        queue = self._queue(fail_times=1)
+
+        async def body():
+            await queue.enqueue(TERMINAL, "B", base_seq=1)
+            try:
+                await queue.flush_terminal(TERMINAL)
+            except RuntimeError:
+                pass
+            # C arrives while B is being handed back, which is the whole window.
+            await queue.enqueue(TERMINAL, "C", base_seq=1, autoschedule=False)
+            await queue.flush_terminal(TERMINAL)
+            return [(w["output"], w["seq"]) for w in queue.writes]
+
+        written = run(body())
+        self.assertEqual(written, [("B", 2), ("C", 3)],
+                         f"the retried batch and the new one were merged: {written}")
+
+    def test_AND_A_RETRY_THAT_FAILS_AGAIN_KEEPS_ITS_ORDER(self):
+        """NEGATIVE CONTROL for handing back a LIST: only the batch that threw and everything after
+        it may go back, and in order. Handing back one batch alone would reorder the stream, which is
+        exactly what the sequence exists to expose."""
+        queue = self._queue(fail_times=2)
+
+        async def body():
+            await queue.enqueue(TERMINAL, "B", base_seq=1)
+            for _ in range(2):
+                try:
+                    await queue.flush_terminal(TERMINAL)
+                except RuntimeError:
+                    pass
+                await queue.enqueue(TERMINAL, "C", base_seq=1, autoschedule=False)
+            await queue.flush_terminal(TERMINAL)
+            return [(w["output"], w["seq"]) for w in queue.writes]
+
+        written = run(body())
+        self.assertEqual([text for text, _ in written], ["B", "C", "C"],
+                         f"the handed-back batches lost their order: {written}")
+        self.assertEqual(written[0][1], 2, "the retried batch did not keep its own number")
+
     # ── the settle resolves its generation under the lock ────────────────────────────────────
 
     def test_a_settle_writes_the_GENERATION_THAT_EXISTS_WHEN_IT_WRITES(self):

@@ -53,6 +53,10 @@ def _new_pending_state(last_seq: int) -> dict[str, Any]:
     to forget.
     """
     return {
+        # BATCHES A WRITE HANDED BACK, oldest first, each keeping the SEQUENCE it was
+        # published under. They are flushed BEFORE this batch and never merged into it: a
+        # number already exposed to a browser must keep meaning what it meant.
+        "retry": deque(),
         "chunks": deque(),
         "chars": 0,
         "status": "",
@@ -105,8 +109,17 @@ class TerminalOutputWriteQueue:
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
+                state = _new_pending_state(0)
+                self._pending[terminal_id] = state
+            if not state["last_seq"]:
                 # THE NUMBER IS CLAIMED ONCE PER BATCH, HERE, and every post that joins the batch
                 # shares it -- because the batch becomes exactly ONE frame.
+                #
+                # A STATE CAN EXIST WITH NO NUMBER CLAIMED, and that is the case this condition
+                # exists for: a failed write hands its batches back into a fresh state, and those
+                # batches keep the numbers they were published under. The pending batch beside them
+                # has published nothing, so the first post claims its own number ABOVE the floor
+                # rather than inheriting a number a browser has already consumed.
                 #
                 # IT USED TO BE CLAIMED PER POST, and that is the whole of the operator's "our
                 # browser terminal kind of lags sometimes". `realtime-socket.mjs` reads this number
@@ -123,8 +136,7 @@ class TerminalOutputWriteQueue:
                 # request -- a REGRESSED sequence is worse than a jumped one, because the dashboard
                 # drops `seq <= lastSeq` outright and the output simply disappears.
                 seq_start = max(int(base_seq or 0), int(self._seq_floor.get(terminal_id, 0))) + 1
-                state = _new_pending_state(seq_start)
-                self._pending[terminal_id] = state
+                state["last_seq"] = seq_start
                 self._seq_floor[terminal_id] = seq_start
                 if autoschedule:
                     self._schedule_max_flush_locked(terminal_id)
@@ -227,15 +239,33 @@ class TerminalOutputWriteQueue:
         prefix = ""
         if state["dropped"]:
             prefix = f"[aify-comms dropped {state['dropped']} chars from terminal output backlog]\n"
-        output = prefix + "".join(state["chunks"])
-        status = state["status"]
-        seq = int(state.get("last_seq") or 0)
-        try:
-            async with self._write_lock:
-                await self._write_terminal_output(terminal_id, output, status=status, seq=seq)
-        except BaseException:
-            await self._requeue_front(terminal_id, output, status=status, seq=seq)
-            raise
+        # EACH BATCH IS ITS OWN FRAME, AND A HANDED-BACK ONE KEEPS ITS OWN NUMBER.
+        #
+        # They used to be merged: `_requeue_front` prepended the failed bytes to whatever batch was
+        # pending, and `enqueue` claims a sequence only when there is NO batch -- so a post that
+        # arrived during a failed write joined the failed one under a number a browser had already
+        # consumed. Review followed it through the real consumer: row correct at AABC, broadcast
+        # `BC` at seq 2, browser holding the AAB/2 snapshot drops it, C never painted, no gap, no
+        # recovery. Advancing the number instead would have painted B twice, because the payload
+        # still carries bytes the snapshot already showed.
+        #
+        # Separate, the two ends fix each other: the retried batch rewrites bytes the row already
+        # has (a no-op) under a number the browser correctly drops, and the new bytes go out
+        # adjacent to what the browser holds.
+        batches = [(text, "", int(number)) for text, number in state["retry"]]
+        batches.append((prefix + "".join(state["chunks"]), state["status"],
+                        int(state.get("last_seq") or 0)))
+        for index, (output, status, seq) in enumerate(batches):
+            if not output and not status:
+                continue
+            try:
+                async with self._write_lock:
+                    await self._write_terminal_output(terminal_id, output, status=status, seq=seq)
+            except BaseException:
+                # THIS BATCH AND EVERY ONE AFTER IT, in order. Handing back only the one that threw
+                # would reorder the stream, which is the defect the sequence exists to expose.
+                await self._requeue_front(terminal_id, batches[index:])
+                raise
         # THE STREAM MAY HAVE JUST STOPPED. The tail is written on the NEXT chunk once the interval
         # has passed -- and when output stops there is no next chunk, so the last frame was held for
         # ever. Two readers ask exactly then: the idle-prompt hint that closes a finished run, and
@@ -319,22 +349,42 @@ class TerminalOutputWriteQueue:
             # bare timer task with nobody to catch it.
             pass
 
-    async def _requeue_front(self, terminal_id: str, output: str, *, status: str = "", seq: int = 0) -> None:
-        if not output and not status:
+    async def _requeue_front(self, terminal_id: str, batches) -> None:
+        """Hand failed batches back, each keeping the sequence it was published under.
+
+        THEY DO NOT JOIN THE PENDING BATCH. A number already sent to a browser cannot be reused for
+        a larger payload -- see the note in `flush_terminal` -- so these wait in their own queue and
+        go out first, as the frames they already were.
+
+        A STATUS ON A RETRIED BATCH IS CARRIED ON THE PENDING ONE, because status is a property of
+        the terminal rather than of a frame, and the last one written must win.
+        """
+        keep = [(output, seq) for output, status, seq in batches if output]
+        status = next((status for _, status, _ in reversed(batches) if status), "")
+        if not keep and not status:
             return
         async with self._lock:
             state = self._pending.get(terminal_id)
             if not state:
-                state = _new_pending_state(int(seq or 0))
+                # NO NUMBER FOR THE PENDING BATCH. This state exists to hold frames that already
+                # have their own; the next post claims one above the floor for itself.
+                state = _new_pending_state(0)
                 self._pending[terminal_id] = state
-            if output:
-                state["chunks"].appendleft(output)
-                state["chars"] += len(output)
-                self._bound_pending_locked(state)
+            for output, seq in reversed(keep):
+                state["retry"].appendleft((output, int(seq)))
+            self._bound_retry_locked(state)
             if status:
                 state["status"] = status
-            if seq:
-                state["last_seq"] = max(int(state.get("last_seq") or 0), int(seq))
+
+    #: How many handed-back batches to hold before the oldest are given up. A write that keeps
+    #: failing must not grow memory, and the bound is a COUNT because each batch is already bounded
+    #: by `max_pending_chars` in its own right.
+    MAX_RETRY_BATCHES = 32
+
+    def _bound_retry_locked(self, state: dict[str, Any]) -> None:
+        while len(state["retry"]) > self.MAX_RETRY_BATCHES:
+            dropped = state["retry"].popleft()
+            state["dropped"] += len(dropped[0])
 
     async def append_outside_the_queue(self, db, terminal_id: str, output: str, *, status: str = "",
                                        fallback=None) -> None:
@@ -390,8 +440,14 @@ class TerminalOutputWriteQueue:
         # guard. Review executed both -- refuse the INSERT, or refuse the commit, then let the
         # connection close and roll back -- and the durable row returned to AA while the in-memory
         # cache still held AAB. The retry then appended B to a tail that already claimed it and
-        # persisted AABB. The bytes on disk were wrong, which is worse than the screen being wrong,
-        # and it reproduces against the ORIGINAL v0.6.1 source too.
+        # persisted AABB. The bytes on disk were wrong, which is worse than the screen being wrong.
+        #
+        # THE DURABLE HALF IS A REGRESSION OF THE HELD-TAIL WORK, and this comment claimed the
+        # opposite -- "it reproduces against the ORIGINAL v0.6.1 source too" -- until review checked
+        # both populations against the baseline. That source has no in-memory cache to disagree with
+        # the column, so its durable bytes stayed correct. What reproduces there is the SCREEN
+        # duplication, which is pre-existing. Calling the whole finding long-standing would have
+        # retired a regression by vocabulary.
         #
         # SNAPSHOTTED BEFORE THE FIRST MUTATION and restored on any exception through the commit.
         # Restoring twice -- once inside, once here -- is idempotent: both put back the same value.
