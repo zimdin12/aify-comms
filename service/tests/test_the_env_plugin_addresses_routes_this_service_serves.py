@@ -53,6 +53,13 @@ PLUGIN_DIR = Path("lib") / "plugins" / "aify-comms"
 #: parameter is filled with it, so a concrete address is judged rather than a template.
 PROBE = "PROBE-VALUE"
 
+#: THE PROBE IS AN OBJECT THAT PRINTS AS A STRING, and both halves are needed. Several of these
+#: methods SPREAD their argument into the request body -- `heartbeat`, `terminalOutput`, `report` --
+#: and a string spread into an object becomes `{0: "P", 1: "R", ...}`: the first version passed a
+#: string and the field check reported nine undeclared NUMERIC keys, a harness artefact wearing a
+#: defect's clothes. Others coerce it into a path segment or an action. An object whose `toString`
+#: is non-enumerable spreads to nothing and still prints as the probe, so one value serves both.
+
 #: Node, driving the real class with the injection it already exposes. `identity` and `credential`
 #: are synthetic; the fetch records and answers. The method list is read off the PROTOTYPE so a new
 #: request cannot be added without this gate seeing it.
@@ -69,10 +76,14 @@ const api = new CommsApi({
   credential: async () => '',
   identity: mintBridgeIdentity({ version: '0.0.0-probe' }),
   fetchImpl: async (url, init) => {
-    seen.push({ owner: running, url: String(url), method: String((init && init.method) || 'GET') });
+    seen.push({ owner: running, url: String(url), method: String((init && init.method) || 'GET'),
+                body: (init && init.body) ? String(init.body) : '' });
     return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
   },
 });
+// SPREADS TO NOTHING, PRINTS AS THE PROBE -- see the note beside PROBE in the Python module.
+const PROBE = Object.defineProperty({}, 'toString',
+  { value: () => '%(probe)s', enumerable: false });
 const names = Object.getOwnPropertyNames(Object.getPrototypeOf(api))
   .filter((n) => n !== 'constructor' && !n.startsWith('_'))
   .filter((n) => {
@@ -82,7 +93,7 @@ const names = Object.getOwnPropertyNames(Object.getPrototypeOf(api))
 const failed = [];
 for (const name of names) {
   running = name;
-  try { await api[name]('%(probe)s', '%(probe)s'); }
+  try { await api[name](PROBE, PROBE); }
   catch (error) { failed.push(name + ': ' + String(error && error.message)); }
   running = '(between calls)';
 }
@@ -135,6 +146,68 @@ def emitted_requests(repo: Path) -> dict:
             "the plugin's own client could not be driven, so this gate judged nothing: "
             f"{result.stdout[-400:]}{result.stderr[-400:]}")
     return json.loads(payload[-1])
+
+
+def declared_body_fields() -> dict[tuple[str, str], set[str]]:
+    """(method, path) -> the TOP-LEVEL field names that route's request model declares.
+
+    PYDANTIC IGNORES WHAT IT DOES NOT DECLARE, which is why this is worth asserting: a renamed or
+    mistyped key is not an error anywhere. The request succeeds, the value never arrives, and the
+    only symptom is behaviour that quietly stops happening.
+
+    Aliases count as declared names, because an alias is what the wire is allowed to say.
+    """
+    from service.main import create_app
+
+    app = create_app()
+    out: dict[tuple[str, str], set[str]] = {}
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        body = getattr(route, "body_field", None)
+        model = getattr(getattr(body, "field_info", None), "annotation", None)
+        fields = getattr(model, "model_fields", None)
+        if not path or not fields:
+            continue
+        names: set[str] = set()
+        for name, field in fields.items():
+            names.add(name)
+            alias = getattr(field, "alias", None)
+            if alias:
+                names.add(str(alias))
+            validation = getattr(field, "validation_alias", None)
+            if isinstance(validation, str):
+                names.add(validation)
+        for method in sorted(getattr(route, "methods", None) or []):
+            if method in {"HEAD", "OPTIONS"}:
+                continue
+            out[(method, path)] = names
+    return out
+
+
+def undeclared_fields(requests: list[dict], declared: dict[tuple[str, str], set[str]],
+                      routes: set[tuple[str, str]]) -> list[str]:
+    """Field names the plugin sends that the matching route does not declare."""
+    wrong = []
+    for request in requests:
+        if not request.get("body"):
+            continue
+        try:
+            sent = json.loads(request["body"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(sent, dict):
+            continue
+        path, method = _path_of(request["url"]), request["method"].upper()
+        for (m, route), names in declared.items():
+            if m != method or not _matches(path, route):
+                continue
+            for key in sorted(set(sent) - names):
+                wrong.append(f"{method} {path} sends `{key}`, which {route}'s model does not "
+                             f"declare -- Pydantic drops it silently")
+            break
+        else:
+            wrong.append(f"{method} {path} carries a body and matched no route with a model")
+    return wrong
 
 
 def served_routes() -> set[tuple[str, str]]:
@@ -197,6 +270,7 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
                 "routes")
         self.driven = emitted_requests(self.repo)
         self.routes = served_routes()
+        self.declared = declared_body_fields()
 
     def test_every_public_method_emitted_a_request(self) -> None:
         """EACH METHOD emits exactly one request, which is the relation the claim needs.
@@ -246,6 +320,38 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
             unserved(self.driven["requests"][:1], self.routes), [],
             "the first real request must still pass while the carrier fails, or this control is "
             "reporting something other than the address")
+
+    def test_the_field_scan_found_bodies_and_models(self) -> None:
+        """The control. No bodies, or no models, and the assertion below is satisfied by nothing."""
+        with_bodies = [r for r in self.driven["requests"] if r.get("body")]
+        self.assertGreaterEqual(
+            len(with_bodies), 4,
+            f"only {len(with_bodies)} emitted request(s) carried a body, so the field check "
+            "judged almost nothing")
+        self.assertGreaterEqual(
+            len(self.declared), 20,
+            "implausibly few routes declare a request model, so a match below would mean nothing")
+
+    def test_the_field_check_reports_a_name_the_model_does_not_declare(self) -> None:
+        """Positive control on the CHECK, driven by a field this service certainly does not have."""
+        invented = [{
+            "url": "http://h:1/api/v1/environments/heartbeat", "method": "POST",
+            "body": json.dumps({"not_a_field_this_service_declares": 1}),
+        }]
+        self.assertEqual(len(undeclared_fields(invented, self.declared, self.routes)), 1)
+
+    def test_every_field_the_plugin_sends_is_one_the_route_declares(self) -> None:
+        """TOP-LEVEL fields only, and a nested object's keys are not judged here.
+
+        Pydantic ignores an undeclared field, so a renamed key is not an error anywhere: the
+        request succeeds, the value never arrives, and the symptom is behaviour that quietly
+        stops happening. `only_if_no_live_session` is a live instance -- spell it wrong on the
+        wire and every other test still passes while the race it closes reopens.
+        """
+        wrong = undeclared_fields(self.driven["requests"], self.declared, self.routes)
+        self.assertEqual(wrong, [], (
+            "aify-env's plugin sends a field this service does not declare, which Pydantic drops "
+            "in silence:" + chr(10) + "  " + (chr(10) + "  ").join(wrong)))
 
     def test_every_request_the_plugin_emits_is_a_route_this_service_serves(self) -> None:
         wrong = unserved(self.driven["requests"], self.routes)
