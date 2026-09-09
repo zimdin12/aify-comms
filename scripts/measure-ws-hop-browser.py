@@ -29,11 +29,20 @@ other: the server's own inter-BROADCAST gaps from `perf_counter()`, and the tab'
 inter-ARRIVAL gaps from `performance.now()`. Whether the browser keeps up is a comparison of
 their SHAPES.
 
-WHAT AGREEING SHAPES DO AND DO NOT ESTABLISH, and the first version of this paragraph claimed
-too much. A gap vector is INVARIANT under a constant offset: add 500ms to every arrival and it
-does not move. So matching shapes rule out JITTER and STALLS -- the tab is not falling behind and
-catching up -- and say NOTHING about a uniform delivery delay. "No part of the operator's lag
-lives in this hop" is not a conclusion this instrument can reach, and it is not claimed.
+WHAT AGREEING SHAPES DO AND DO NOT ESTABLISH, and this paragraph has now been narrowed twice.
+A gap vector is INVARIANT under a constant offset -- add 500ms to every arrival and it does not
+move -- so no version of this can speak to a uniform delivery delay, and it does not try to.
+
+AND MARGINAL SHAPES DO NOT ESTABLISH ALIGNMENT EITHER, which the second version still assumed.
+Review's control: server gaps [10,30,10,30] against arrival gaps [30,10,30,10] have IDENTICAL
+complete distributions while the delivery offset alternates 100, 120, 100, 120. Two matching
+histograms are consistent with a tab falling behind and catching up on every frame.
+
+SO THE FRAMES ARE PAIRED. For each frame the server's own inter-broadcast gap and the tab's
+inter-arrival gap are differenced, and the PER-FRAME difference is what the alignment claim
+rests on. The two marginal columns stay -- they are what says the tab kept up at all -- but the
+sentence about jitter is drawn from the paired column, which review's counterexample would
+expose at 20ms per frame.
 
 THREE CONTROLS, ALL IN THE SAME RUN:
 
@@ -227,7 +236,24 @@ def account(probe: Probe) -> tuple[list[str], list[tuple[int, float]]]:
     """Every control, checked before a single figure is allowed out."""
     refusals: list[str] = []
     report = probe.reported or {}
-    arrivals = [[int(i), float(t)] for i, t in (report.get("arrivals") or [])]
+    # VALIDATED BEFORE ANYTHING COERCES IT, which is where the last version of this check was
+    # defeated. It read `[[int(i), float(t)] for i, t in ...]`, so review's frame 20.5 was
+    # reported faithfully by the page and turned back into 20 one line before the sequence
+    # comparison ran. A value that has to be converted before it can be compared was never the
+    # value that was reported.
+    raw = list(report.get("arrivals") or [])
+    malformed = [row for row in raw
+                 if not (isinstance(row, list) and len(row) == 2
+                         and isinstance(row[0], int) and not isinstance(row[0], bool)
+                         and isinstance(row[1], (int, float))
+                         and not isinstance(row[1], bool))]
+    if malformed:
+        refusals.append(
+            f"POSITIVE: {len(malformed)} arrival(s) are not an integer frame id with a numeric "
+            f"time, first {malformed[0]!r} -- a value that needs converting before it can be "
+            f"compared was never the value the tab reported")
+        return refusals, []
+    arrivals = [[row[0], float(row[1])] for row in raw]
 
     # CHECKED RAW, BEFORE ANYTHING SORTS OR DEDUPLICATES. This is the sequence the tab actually
     # saw, multiplicity and order included: a repeated frame and a transposed pair are both
@@ -325,6 +351,32 @@ def main() -> int:
     print(f"  {'worst':22} {max(server_ordinary):>15.2f} ms {max(ordinary):>13.2f} ms")
     print(f"  {'over 50ms':22} {sum(1 for ms in server_ordinary if ms > 50):>18} "
           f"{sum(1 for ms in ordinary if ms > 50):>16}")
+    # PAIRED PER FRAME, because two matching histograms are consistent with a tab that falls
+    # behind and catches up on alternate frames -- review's [10,30,10,30] against [30,10,30,10].
+    # This is the column the alignment sentence rests on, and its BOUNDS are reported rather than
+    # only its middle: one frame 20ms out of step is the finding, not the median.
+    by_server = dict(server)
+    paired_by_frame = [(frame, ms - by_server[frame]) for frame, ms in measured
+                       if frame in by_server and frame not in (STALL_AT, BLOCK_AT + 1)]
+    paired = [ms for _, ms in paired_by_frame]
+    if paired:
+        # NAMED, NOT COUNTED. A bare count of outliers invites the reader to assume they are
+        # scattered; where they SIT is the whole question. The block control stalls the main
+        # thread on purpose, so the frames queued behind it arrive back to back the moment it
+        # frees -- a catch-up burst this probe CAUSED, and one that has to be visible as such
+        # rather than folded into a summary line.
+        outliers = [(frame, ms) for frame, ms in paired_by_frame if abs(ms) > 5]
+        values = [ms for _, ms in paired_by_frame]
+        print()
+        print(f"  PER-FRAME (tab gap minus server gap, {len(values)} frames paired):")
+        print(f"    p50 {statistics.median(values):+.2f} ms"
+              f"   min {min(values):+.2f}   max {max(values):+.2f}"
+              f"   over 5ms either way {len(outliers)}")
+        if outliers:
+            named = ", ".join(f"frame {frame} {ms:+.1f}ms" for frame, ms in outliers[:8])
+            print(f"    those frames: {named}")
+            print(f"    the browser control blocks the main thread at frame {BLOCK_AT}, so frames"
+                  f" queued behind it arrive together when it frees -- a burst this run CAUSED.")
     # WHAT THE TAB CAN EVEN SEE. `performance.now()` is CLAMPED in Chrome, so on the firehose arm
     # the gaps land at or below its resolution and a p50 of 0.00 is the CLOCK, not a measurement.
     #

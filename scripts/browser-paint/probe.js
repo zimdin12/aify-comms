@@ -113,8 +113,9 @@
           + "wrote, so its spans timed something that never reached the screen");
       }
       if (arm.resetLeftTheOldScreen) {
-        refusals.push(arm.label + ": a sentinel pushed into SCROLLBACK survived term.reset(), so the "
-          + "recovery phase measured an append rather than a repaint");
+        refusals.push(arm.label + ": " + arm.recoveryUnwitnessed + " recovery(ies) left their own "
+          + "scrollback sentinel in place, so they appended rather than repainting -- one witness "
+          + "for the whole phase let the FIRST reset satisfy every later one");
       }
       if (arm.recoveryMs.length * 2 < RECOVERIES) {
         refusals.push(arm.label + ": only " + arm.recoveryMs.length + " of " + RECOVERIES
@@ -126,7 +127,8 @@
       // recovery phase shipped without one, which is how its exclusions ended up in the
       // paced phase's counter.
       var recoveryAccounted = arm.recoveryMs.length + arm.recoveryTimeouts
-        + arm.recoveryNoRender + arm.recoveryBadSpans + arm.recoveryRenderedBeforeParse;
+        + arm.recoveryNoRender + arm.recoveryBadSpans + arm.recoveryRenderedBeforeParse
+        + arm.recoveryUnwitnessed;
       if (recoveryAccounted !== RECOVERIES) {
         refusals.push(arm.label + ": " + recoveryAccounted + " recoveries are accounted for "
           + "out of " + RECOVERIES + ", so some went somewhere this probe does not name");
@@ -176,14 +178,21 @@
     lines.push("RESET. This is the browser's half of what a detected sequence gap pays; the HTTP");
     lines.push("refetch in front of it is measured elsewhere and is not in these numbers. No other");
     lines.push("phase here has ever timed a reset -- both of the others APPEND to a live screen.");
+    lines.push("BOTH spans start at the reset, so neither isolates it and their paired difference is");
+    lines.push("the paint AFTER the parse callback, not the reset's own cost. Nothing here measures");
+    lines.push("what the reset alone costs.");
     lines.push("");
-    lines.push("  renderer     offered B   parse p50  repaint p50   reset+paint    n");
+    lines.push("  renderer     offered B   parse p50  repaint p50   paint after parse    n");
     arms.forEach(function (arm) {
       lines.push("  " + arm.label.padEnd(13)
         + String(arm.bytes).padStart(8)
         + median(arm.recoveryParseMs).toFixed(3).padStart(12)
         + median(arm.recoveryMs).toFixed(3).padStart(13)
-        + (median(arm.recoveryMs) - median(arm.recoveryParseMs)).toFixed(3).padStart(14)
+        // PAIRED, PER RECOVERY, and named for what it is. This was a difference of two
+        // independently-taken medians labelled `reset+paint` -- wrong twice: both spans START at
+        // the reset, so subtracting removes it rather than isolating it, and a difference of
+        // medians is not the median of paired differences (review's control: 2 against 100).
+        + median(arm.recoveryPaintOnlyMs).toFixed(3).padStart(21)
         + String(arm.recoveryMs.length).padStart(5));
     });
     var ordering = arms.reduce(function (sum, arm) { return sum + arm.renderedBeforeParse; }, 0);

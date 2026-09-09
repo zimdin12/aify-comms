@@ -139,6 +139,14 @@
     //: attributed to the wrong phase makes a green run untrustworthy in both directions.
     this.recoveryBadSpans = 0;
     this.recoveryRenderedBeforeParse = 0;
+    //: RECOVERIES WHOSE OWN SENTINEL SURVIVED, i.e. that did not reset. Planting one sentinel
+    //: for the whole phase let the FIRST reset satisfy every later one -- review published
+    //: six arms with twenty samples each against `if (i === 0) term.reset()`.
+    this.recoveryUnwitnessed = 0;
+    //: PAIRED PER RECOVERY, like the paced phase's `paintOnlyMs`. A difference of two
+    //: independently-taken medians is a different statistic from the median of the paired
+    //: differences, and this file has published the wrong one of those before.
+    this.recoveryPaintOnlyMs = [];
     this.recoveryWrote = false;
     this.resetLeftTheOldScreen = false;
     this.foundAbsent = false;
@@ -301,11 +309,15 @@
   Arm.prototype.runRecovery = async function () {
     var body = paintedBytes(this.targetChars)
       .replace("@@MARKER@@", ESC + "[40;1H" + this.recoveryMarker);
-    // PUSHED INTO SCROLLBACK BEFORE THE PHASE, and outside every timed span.
     var filler = [];
     for (var f = 0; f < ROWS + 5; f += 1) filler.push("");
-    await this.writeOnce(CR + LF + this.scrollbackSentinel + filler.join(CR + LF));
     for (var i = 0; i < RECOVERIES; i += 1) {
+      // ONE SENTINEL PER RECOVERY, planted immediately before it and outside the timed bracket.
+      // A single sentinel for the whole phase is cleared by the FIRST reset, and every later
+      // recovery then inherits a witness it did not earn -- review published twenty samples an
+      // arm against a single real reset.
+      var sentinel = this.scrollbackSentinel + "-" + i + ">";
+      await this.writeOnce(CR + LF + sentinel + filler.join(CR + LF));
       var seenRenders = this.renderCount;
       var started = performance.now();
       // THE RESET IS INSIDE THE SPAN. A recovery that only wrote the snapshot would leave
@@ -325,22 +337,33 @@
       // deferred and neither promises to come first, and this table publishes REPAINT MINUS
       // PARSE -- which is not a renderer cost for a sample whose render finished first.
       if (painted < parse) { this.recoveryRenderedBeforeParse += 1; continue; }
+      // ASKED PER RECOVERY, AFTER ITS SPAN. The sentinel went into scrollback, which an append
+      // leaves in place and a reset clears -- so its survival says THIS recovery did not reset.
+      if (screenOf(this.term).indexOf(sentinel) !== -1) {
+        this.recoveryUnwitnessed += 1;
+        continue;
+      }
       this.recoveryParseMs.push(parse);
       this.recoveryMs.push(painted);
+      this.recoveryPaintOnlyMs.push(painted - parse);
     }
     var screen = screenOf(this.term);
     this.recoveryWrote = screen.indexOf(this.recoveryMarker) !== -1;
-    // THE CONTROL THAT MAKES THE REST OF THIS PHASE MEAN ANYTHING, and the second version of it.
+    // THE CONTROL THAT MAKES THE REST OF THIS PHASE MEAN ANYTHING, and the THIRD version of it.
     //
     // The first asked whether the SUSTAINED phase's marker survived, and could not fire: both
-    // markers are written at `ESC[40;1H`, so the repaint overwrites it with or without a reset.
-    // Removing `term.reset()` from this phase produced zero refusals, which is the probe failing
-    // its own positive control.
+    // markers are written at `ESC[40;1H`, so the repaint overwrites it either way. Removing
+    // `term.reset()` produced zero refusals.
     //
-    // A SENTINEL IN SCROLLBACK DISCRIMINATES. An append pushes it further back and leaves it
-    // there; a reset clears scrollback outright. `screenOf` walks the whole of `buffer.active`,
-    // so it sees scrollback as well as the viewport.
-    this.resetLeftTheOldScreen = screen.indexOf(this.scrollbackSentinel) !== -1;
+    // The second planted ONE scrollback sentinel for the whole phase, and the FIRST reset cleared
+    // it -- so `if (i === 0) term.reset()` published twenty samples an arm, nineteen of them
+    // unwitnessed. Review drove that too.
+    //
+    // A SENTINEL PER RECOVERY DISCRIMINATES PER RECOVERY. An append leaves it in scrollback and a
+    // reset clears it, `screenOf` walks the whole of `buffer.active`, and the check happens inside
+    // the loop against that recovery's own sentinel. What is left here is the ordinary
+    // end-of-phase question: did the last recovery reach the screen at all.
+    this.resetLeftTheOldScreen = this.recoveryUnwitnessed > 0;
     if (screen.indexOf(ABSENT_MARKER) !== -1) this.foundAbsent = true;
   };
 
