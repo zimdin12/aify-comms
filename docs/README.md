@@ -39,6 +39,7 @@ describe live behaviour, and none was reachable from any entry point.
 | [`HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md`](HARNESS_KNOWLEDGE_BELONGS_TO_AIFY_WRAPPER.md) | Which repo owns harness-driver semantics, and why. |
 | [`AIFY_ENV_BOUNDARY.md`](AIFY_ENV_BOUNDARY.md) | What moved to aify-env, what stayed, which doctor owns which check. |
 | [`PHASE8_STATUS.md`](PHASE8_STATUS.md) | Spawn delegation as it stands, including the three defects the first real spawn exposed. Read before touching spawn or terminals. |
+| [`V063_ACCEPTANCE_LEDGER.md`](V063_ACCEPTANCE_LEDGER.md) | What v0.6.3 owes, one row per OBLIGATION: required behaviour, the exact assertion, and a disposition. Includes what is UNREVIEWED and what is an open operator decision. Read before arguing the release is ready. |
 | [`BRIDGE_SETUP.md`](BRIDGE_SETUP.md) | Setting up the environment bridge. |
 | [`HERMES_INTEGRATION.md`](HERMES_INTEGRATION.md) · [`HERMES_AIFY_PLUGIN.md`](HERMES_AIFY_PLUGIN.md) | The hermes runtime and its plugin. |
 | [`SKILLS.md`](SKILLS.md) | What the skill trees are and where they install to. |
