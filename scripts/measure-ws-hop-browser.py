@@ -341,7 +341,10 @@ def main() -> int:
     server_ordinary = [ms for frame, ms in server if frame != STALL_AT]
     print()
     print("HOP FOUR IN A BROWSER. Two distributions, each measured on ONE clock and never")
-    print("subtracted from the other. Whether the tab keeps up is whether their shapes agree.")
+    print("subtracted from the other, and a PER-FRAME column pairing them. Matching marginal")
+    print("shapes do not establish alignment -- [10,30,10,30] against [30,10,30,10] have identical")
+    print("distributions while every frame is 20ms out of step -- so the paired column below is")
+    print("what speaks to whether the tab kept up, and none of this speaks to a constant delay.")
     print()
     print(f"  {'':22} {'server broadcast':>18} {'tab onmessage':>16}")
     print(f"  {'gaps measured':22} {len(server_ordinary):>18} {len(ordinary):>16}")
@@ -374,9 +377,15 @@ def main() -> int:
               f"   over 5ms either way {len(outliers)}")
         if outliers:
             named = ", ".join(f"frame {frame} {ms:+.1f}ms" for frame, ms in outliers[:8])
-            print(f"    those frames: {named}")
-            print(f"    the browser control blocks the main thread at frame {BLOCK_AT}, so frames"
-                  f" queued behind it arrive together when it frees -- a burst this run CAUSED.")
+            more = "" if len(outliers) <= 8 else f" (first 8 of {len(outliers)})"
+            print(f"    those frames{more}: {named}")
+            # STATED, NOT EXPLAINED. This line used to name the browser block as the cause of
+            # whatever outliers existed, wherever they sat -- an explanation that was true of the
+            # runs it was written for and unconditional for every other. The block's frame is a
+            # fact of the run; which outliers it accounts for is for a reader with the
+            # identities in front of them, and this probe does not discriminate it.
+            print(f"    the browser control blocks the main thread at frame {BLOCK_AT}; whether"
+                  f" any of these follow from it is not established here.")
     # WHAT THE TAB CAN EVEN SEE. `performance.now()` is CLAMPED in Chrome, so on the firehose arm
     # the gaps land at or below its resolution and a p50 of 0.00 is the CLOCK, not a measurement.
     #

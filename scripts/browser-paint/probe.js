@@ -112,10 +112,27 @@
         refusals.push(arm.label + ": the buffer does not contain the marker the RECOVERY phase "
           + "wrote, so its spans timed something that never reached the screen");
       }
-      if (arm.resetLeftTheOldScreen) {
-        refusals.push(arm.label + ": " + arm.recoveryUnwitnessed + " recovery(ies) left their own "
-          + "scrollback sentinel in place, so they appended rather than repainting -- one witness "
-          + "for the whole phase let the FIRST reset satisfy every later one");
+      // TWO OBLIGATIONS, NAMED APART. A recovery has to RESET (its scrollback sentinel is gone)
+      // and to REPAINT (its own payload marker is on screen). One counter for both reported a
+      // carrier that reset twenty times and painted once as a reset failure.
+      if (arm.recoveryNotReset) {
+        refusals.push(arm.label + ": " + arm.recoveryNotReset + " recovery(ies) left their own "
+          + "scrollback sentinel in place, so they appended rather than resetting");
+      }
+      if (arm.recoveryNotPainted) {
+        refusals.push(arm.label + ": " + arm.recoveryNotPainted + " recovery(ies) reset but left "
+          + "no payload marker on screen, so the span timed a repaint that never arrived");
+      }
+      // A REFUSAL OF ITS OWN, NOT ONLY A LEDGER ENTRY. Moving these counters off the paced
+      // phase fixed the misattribution and LOST THE REJECTION: `recoveryBadSpans` was read only
+      // by the identity, which it balances, so one interval that is not a number published with
+      // nineteen samples and no refusal at all. A render that finished before its own parse
+      // callback is a legitimate ordering exclusion; a span that is not a positive finite number
+      // is the instrument saying it does not know what it measured.
+      if (arm.recoveryTimeouts || arm.recoveryNoRender || arm.recoveryBadSpans) {
+        refusals.push(arm.label + ": " + arm.recoveryTimeouts + " recovery write(s) never called "
+          + "back, " + arm.recoveryNoRender + " never rendered and " + arm.recoveryBadSpans
+          + " produced a span that is not a positive finite number");
       }
       if (arm.recoveryMs.length * 2 < RECOVERIES) {
         refusals.push(arm.label + ": only " + arm.recoveryMs.length + " of " + RECOVERIES
@@ -128,7 +145,7 @@
       // paced phase's counter.
       var recoveryAccounted = arm.recoveryMs.length + arm.recoveryTimeouts
         + arm.recoveryNoRender + arm.recoveryBadSpans + arm.recoveryRenderedBeforeParse
-        + arm.recoveryUnwitnessed;
+        + arm.recoveryNotReset + arm.recoveryNotPainted;
       if (recoveryAccounted !== RECOVERIES) {
         refusals.push(arm.label + ": " + recoveryAccounted + " recoveries are accounted for "
           + "out of " + RECOVERIES + ", so some went somewhere this probe does not name");

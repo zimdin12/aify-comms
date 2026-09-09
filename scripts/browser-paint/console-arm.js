@@ -142,7 +142,8 @@
     //: RECOVERIES WHOSE OWN SENTINEL SURVIVED, i.e. that did not reset. Planting one sentinel
     //: for the whole phase let the FIRST reset satisfy every later one -- review published
     //: six arms with twenty samples each against `if (i === 0) term.reset()`.
-    this.recoveryUnwitnessed = 0;
+    this.recoveryNotReset = 0;
+    this.recoveryNotPainted = 0;
     //: PAIRED PER RECOVERY, like the paced phase's `paintOnlyMs`. A difference of two
     //: independently-taken medians is a different statistic from the median of the paired
     //: differences, and this file has published the wrong one of those before.
@@ -307,8 +308,15 @@
    * live screen -- so this is the only figure here about the recovery path.
    */
   Arm.prototype.runRecovery = async function () {
-    var body = paintedBytes(this.targetChars)
-      .replace("@@MARKER@@", ESC + "[40;1H" + this.recoveryMarker);
+    var self = this;
+    // THE PAYLOAD'S MARKER IS PER RECOVERY TOO, and for the same reason the sentinel is. Checking
+    // one marker after the phase let a single real repaint certify twenty: review painted a space
+    // nineteen times and the real body once, and all six arms published twenty samples. Reset
+    // COMPLETION and repaint EFFECT are two obligations, so they get two witnesses, each per
+    // sample and each outside the timed bracket.
+    var bodyFor = function (marker) {
+      return paintedBytes(self.targetChars).replace("@@MARKER@@", ESC + "[40;1H" + marker);
+    };
     var filler = [];
     for (var f = 0; f < ROWS + 5; f += 1) filler.push("");
     for (var i = 0; i < RECOVERIES; i += 1) {
@@ -317,6 +325,8 @@
       // recovery then inherits a witness it did not earn -- review published twenty samples an
       // arm against a single real reset.
       var sentinel = this.scrollbackSentinel + "-" + i + ">";
+      var marker = this.recoveryMarker + "-" + i + ">";
+      var body = bodyFor(marker);
       await this.writeOnce(CR + LF + sentinel + filler.join(CR + LF));
       var seenRenders = this.renderCount;
       var started = performance.now();
@@ -339,16 +349,23 @@
       if (painted < parse) { this.recoveryRenderedBeforeParse += 1; continue; }
       // ASKED PER RECOVERY, AFTER ITS SPAN. The sentinel went into scrollback, which an append
       // leaves in place and a reset clears -- so its survival says THIS recovery did not reset.
-      if (screenOf(this.term).indexOf(sentinel) !== -1) {
-        this.recoveryUnwitnessed += 1;
-        continue;
-      }
+      // TWO QUESTIONS, ASKED PER RECOVERY, AFTER ITS SPAN. Did this reset happen -- the sentinel
+      // went to scrollback, which an append leaves and a reset clears -- and did THIS recovery's
+      // payload reach the screen. Either answer alone certifies half of what the sample claims.
+      var after = screenOf(this.term);
+      // COUNTED APART, because a message that names the wrong obligation is the defect this
+      // phase has already been corrected for twice. A surviving sentinel says the RESET did not
+      // happen; a missing marker says the REPAINT did not reach the screen. One counter for both
+      // reported review's paint-a-space carrier as a reset failure, which it was not.
+      if (after.indexOf(sentinel) !== -1) { this.recoveryNotReset += 1; continue; }
+      if (after.indexOf(marker) === -1) { this.recoveryNotPainted += 1; continue; }
       this.recoveryParseMs.push(parse);
       this.recoveryMs.push(painted);
       this.recoveryPaintOnlyMs.push(painted - parse);
     }
     var screen = screenOf(this.term);
     this.recoveryWrote = screen.indexOf(this.recoveryMarker) !== -1;
+    void body;
     // THE CONTROL THAT MAKES THE REST OF THIS PHASE MEAN ANYTHING, and the THIRD version of it.
     //
     // The first asked whether the SUSTAINED phase's marker survived, and could not fire: both
@@ -363,7 +380,7 @@
     // reset clears it, `screenOf` walks the whole of `buffer.active`, and the check happens inside
     // the loop against that recovery's own sentinel. What is left here is the ordinary
     // end-of-phase question: did the last recovery reach the screen at all.
-    this.resetLeftTheOldScreen = this.recoveryUnwitnessed > 0;
+    this.resetLeftTheOldScreen = this.recoveryNotReset > 0 || this.recoveryNotPainted > 0;
     if (screen.indexOf(ABSENT_MARKER) !== -1) this.foundAbsent = true;
   };
 
