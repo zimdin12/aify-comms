@@ -102,7 +102,9 @@ const report = {
   readMs,
   blank: screenIsBlank(cells),
   lineCount: lines.length,
-  widestLine: Math.max(...lines.map((line) => [...line].length)),
+  // CODEPOINTS, NOT TERMINAL CELLS, and the name says so: two wide characters fill four
+  // columns and this counts 2. Enough to catch a truncated render, not a cell-width measure.
+  widestLineCodepoints: Math.max(...lines.map((line) => [...line].length)),
   nonEmptyLines: lines.filter((line) => line.trim()).length,
   outputUnprintable: countUnprintable(rendered),
   outputBoxDrawing: (rendered.match(/[─-╿]/g) || []).length,

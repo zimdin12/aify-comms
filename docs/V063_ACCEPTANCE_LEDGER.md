@@ -555,17 +555,32 @@ recorded here rather than attempted in a release cut.
    beside `codeOnDisk` on its own `/health`. They differ (`3b2bf8f9` vs `1c36464c`), which is
    PID-bound, content-based, and says exactly what is true: **this process is not running the
    code that is there now.** It does not decompose into WHICH files, so it cannot say the
-   renderer specifically was absent, and that is not claimed. **Nothing in aify-comms reads that
-   pair**: `tier-version` compares VERSIONS, and a daemon running stale bytes reports the same
-   version as one that is current. That is a gap worth a doctor row and is named, not built.
+   renderer specifically was absent, and that is not claimed.
+
+   **A CLAIM THAT NOTHING READS THAT PAIR STOOD HERE AND IS FALSE.** Review caught it and the
+   code confirms it: `service/api_core/code_currency.py` compares `metadata.instance` against
+   `metadata.codeOnDisk`, `records.py` publishes the verdict as `codeCurrency`, and
+   `environments-panels.mjs` renders it as a badge. The real gap was narrower -- `aify-comms
+   doctor` had no row, which `env-code-currency` now adds.
+
+   **AND CHECKING IT FOUND SOMETHING WORSE THAN THE CLAIM.** On this host the published verdict
+   reads `{state: unknown, running: '', onDisk: ''}` while the daemon's own `/health` answers
+   `3b2bf8f9` and `1c36464c`. The daemon computes the pair, the service knows how to compare it,
+   the dashboard knows how to show it -- and the two halves never travel. A complete mechanism
+   fed nothing, which is why no instrument reported the staleness this version was built on. It
+   is not explained by the daemon being old: `lib/advertise.mjs` gained both fields in `093e9e2`
+   on 2026-09-04, and this daemon started on 2026-09-08. Handed to the reviewer to trace end to
+   end rather than guessed at here.
 
    AND THE FILES ON DISK DO NOT SETTLE IT EITHER, which nearly sent this out wrong. The daemon
    runs
    `C:/nvm4w/nodejs/node_modules/aify-env/bin/aify-env.mjs` -- which reads as a global install of
    a published package and is a SYMLINK to `~/projects/aify-env`. Every renderer file is present
    and current there, so a check that asked "is the code deployed" would answer yes. What is
-   stale is the PROCESS: Node loaded `lib/` at boot, an hour before `screen-emulator.mjs`
-   existed. That is the same shape as the bridge row above, where new code sits in
+   stale is the PACKAGE SOURCE the process was started from, which is what `PackageBuild`
+   hashes -- it walks the package's own `lib/` and `bin/` files, NOT Node's loaded-module
+   inventory, so a mismatch is package-source drift and not proof about which modules executed.
+   That is the same shape as the bridge row above, where new code sits in
    `~/.aify-comms` while every running client executes what it loaded at start-up -- and it is
    why this table reads process facts rather than file facts wherever it can.
 
@@ -591,9 +606,18 @@ recorded here rather than attempted in a release cut.
    cannot return PRESENT.
 
    IT IS STILL PASSES IN TESTS, and the distinction is the whole reason this row exists: real
-   bytes through the real modules is not the deployed path, and the deployed path is a daemon that
-   has never loaded them. What it removes is the weaker worry -- that the renderer only works on
-   fixtures written to make it work.
+   bytes through the real modules is not the deployed path, and the deployed path is a daemon whose
+   package source has drifted from what is on disk. (This sentence said the daemon "has never
+   loaded them", which is the withdrawn claim of W1 surviving in a second place.) What it removes
+   is the weaker worry -- that the renderer only works on fixtures written to make it work.
+
+   **IT IS A SMOKE OBSERVATION AND NOT A FIDELITY ORACLE**, and review demonstrated the difference:
+   writing deliberately WRONG content still exits 0, with the same geometry, line count and zero
+   unprintables, because nothing here compares against an independently justified screen. The one
+   correctness signal is internal coherence -- the status line's token ratio (56.0%), printed
+   percent (56%) and bar fill (6/10) agree, computed inside node with no extractor in the path.
+   Three facts at three screen positions agreeing is what a mis-placed cell would break; it is
+   weaker than an oracle, and it is not called one.
 
    **AND MY FIRST RUN OF IT REPORTED A DEFECT THAT WAS MINE.** The capture went
    curl -> python -> a scratch file -> node, and the python hop re-encoded: the render came out
