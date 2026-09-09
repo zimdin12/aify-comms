@@ -1193,6 +1193,18 @@ const EXTRACTIONS = [
         marker: "// renderSpawnRequests moved to ./environments-panels.mjs in v0.5.4.",
         editedSince: [
           {
+            // The Bridge / error cell CLIPPED to one line, so a refused spawn read
+            // `Workspace "/home/dev/..." is` and the half naming the cause was gone. That column
+            // is the one an operator has to read. It wraps now, and the whole text is on the
+            // title so a narrow column still shows it on hover.
+            was: [
+              "      <td class=\"clip\">${esc(detail)}</td>",
+            ],
+            now: [
+              "      <td class=\"clip spawn-detail\" title=\"${esc(detail)}\">${esc(detail)}</td>",
+            ],
+          },
+          {
             was: [
               "  const requests = [...state.spawnRequests].sort((a, b) =>",
               "    String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));",
@@ -3844,6 +3856,31 @@ const EXTRACTIONS = [
         // The other half of the same fix: the snapshot alone left the console behind the stream, so
         // whatever the socket held is replayed before live frames resume.
         editedSince: [
+          {
+            // A FAILED FETCH STRANDED EVERY FRAME HELD DURING IT. The catch kept the buffer and
+            // the finally cleared `resyncing`, but `unresolved` was still false -- so the pass
+            // loop read the recovery as finished and returned with the frames still held. On a
+            // quiet agent nothing else arrives, so the final prompt was never painted. Draining
+            // is safe here precisely because this path resets nothing and moves no sequence.
+            was: [
+              "  } catch { /* keep current buffer */ }",
+            ],
+            now: [
+              "  } catch {",
+              "    // THE FETCH FAILED, SO NOTHING RESET THE SCREEN -- and the frames the socket held while this",
+              "    // was in flight are still measured against exactly the screen they were held off. Returning",
+              "    // here left them in `pendingFrames` with the recovery marked finished, so a frame carrying the",
+              "    // final prompt was stranded and the terminal simply went quiet. Reproduced by review against",
+              "    // v0.6.1: lastSeq 4, frame 5 arriving during the GET, the GET rejecting, nothing ever painted.",
+              "    //",
+              "    // Draining is safe precisely BECAUSE this path changed nothing: no `reset()`, no snapshot, no",
+              "    // move of `lastSeq`. And its answer is the honest verdict -- whatever it cannot place leaves",
+              "    // the recovery UNRESOLVED, which the pass loop below already handles with another fetch.",
+              "    unresolved = drainHeldFrames(entry);",
+              "    updateAwaitPill();",
+              "  }",
+            ],
+          },
           {
             was: [
               "    entry.term.write(String(snapshot || data?.terminal?.output || ''));",

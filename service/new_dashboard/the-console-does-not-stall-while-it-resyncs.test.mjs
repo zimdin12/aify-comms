@@ -67,12 +67,16 @@ function mountedConsole({ lastSeq = 4 } = {}) {
  * THE RESYNC IS THE REAL ONE. Injecting a stub would test the socket's decision to call it and
  * nothing about the bookkeeping that follows, which is where the loop lives.
  */
-function withRealResync(run, { snapshotSeq = 5, snapshotSeqs = null, snapshot = "SNAPSHOT", delayMs = 0 } = {}) {
+function withRealResync(run, { snapshotSeq = 5, snapshotSeqs = null, snapshot = "SNAPSHOT", delayMs = 0, failFetches = [] } = {}) {
   const saved = { fetch: globalThis.fetch, document: globalThis.document };
   const fetches = [];
   globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] };
   globalThis.fetch = async (url) => {
     fetches.push(String(url));
+    // A FETCH THAT REJECTS, chosen by index so a later pass can still succeed. Every double in
+    // this file answered `ok` until 2026-09-09, so the whole failure path -- the one where the
+    // screen is never reset and the held frames have nowhere to go -- was untested.
+    if (failFetches.includes(fetches.length)) throw new Error("network down");
     // A SERVER THAT MOVES BETWEEN FETCHES, which a constant snapshot cannot express. The recovery
     // may now take a second pass, and the whole point of the second pass is that the server has
     // more of the stream by then -- so the double has to be able to answer differently the second
@@ -465,4 +469,40 @@ test("AND IT DROPS WHAT THE SCREEN NO LONGER SHOWS", async () => {
     assert.equal(entry.recentText, "just some output");
     assert.equal(consoleAwaitingInputHint(entry.recentText), false);
   }, { snapshotSeq: 6, snapshot: "just some output" });
+});
+
+test("A FAILED FETCH PAINTS WHAT IT HELD, instead of stranding it with the recovery finished", async () => {
+  // FOUND BY REVIEW 2026-09-09 and reproduced against v0.6.1. The catch kept the buffer and the
+  // `finally` cleared `resyncing`, but `unresolved` was still its initial false -- so the pass
+  // loop read the recovery as FINISHED and returned with frame 5 still held. On a quiet agent no
+  // further frame arrives, so the operator's final prompt was never painted and the terminal
+  // simply went silent.
+  //
+  // Draining here is safe BECAUSE the failure path changed nothing: no reset, no snapshot, no
+  // move of the sequence, so the held run is still measured against the screen it was held off.
+  await withRealResync(async ({ fetches }) => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    const recovery = resyncActiveConsole();
+    frame(5, "FINAL_PROMPT");
+    assert.deepEqual(painted, [], "a frame arriving during the fetch is held, not painted");
+    await recovery;
+    assert.deepEqual(painted, ["FINAL_PROMPT"], "the held frame is painted once the fetch fails");
+    assert.equal(entry.lastSeq, 5, "and the sequence follows the screen");
+    assert.deepEqual(entry.pendingFrames || [], [], "nothing is left stranded");
+    assert.equal(fetches.length, 1, "a drained recovery does not fetch again");
+  }, { failFetches: [1] });
+});
+
+test("AND A FAILED FETCH THAT CANNOT PLACE WHAT IT HELD STAYS UNRESOLVED, so it fetches again", async () => {
+  // The other half, and the one that separates "drain" from "drain and declare victory". A held
+  // frame the screen cannot reach is exactly the case the pass loop exists for; returning as
+  // finished here would strand it just as silently as before.
+  await withRealResync(async ({ fetches }) => {
+    const { entry, painted } = mountedConsole({ lastSeq: 4 });
+    const recovery = resyncActiveConsole();
+    frame(9, "LATER");
+    await recovery;
+    assert.deepEqual(painted, ["<reset>", "SNAPSHOT"], "the second pass succeeded and repainted");
+    assert.equal(fetches.length, 2, "the failed pass did not end the recovery");
+  }, { failFetches: [1], snapshotSeqs: [null, 9] });
 });

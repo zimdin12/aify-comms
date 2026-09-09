@@ -112,7 +112,19 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
     if (Number.isFinite(snapshotSeq)) entry.lastSeq = snapshotSeq;
     unresolved = drainHeldFrames(entry);
     updateAwaitPill();
-  } catch { /* keep current buffer */ }
+  } catch {
+    // THE FETCH FAILED, SO NOTHING RESET THE SCREEN -- and the frames the socket held while this
+    // was in flight are still measured against exactly the screen they were held off. Returning
+    // here left them in `pendingFrames` with the recovery marked finished, so a frame carrying the
+    // final prompt was stranded and the terminal simply went quiet. Reproduced by review against
+    // v0.6.1: lastSeq 4, frame 5 arriving during the GET, the GET rejecting, nothing ever painted.
+    //
+    // Draining is safe precisely BECAUSE this path changed nothing: no `reset()`, no snapshot, no
+    // move of `lastSeq`. And its answer is the honest verdict -- whatever it cannot place leaves
+    // the recovery UNRESOLVED, which the pass loop below already handles with another fetch.
+    unresolved = drainHeldFrames(entry);
+    updateAwaitPill();
+  }
   finally { entry.resyncing = false; }
 
   // A SECOND FETCH, NOT A WAIT FOR ANOTHER FRAME. The drain stops at the first gap it cannot cross
