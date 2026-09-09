@@ -30,21 +30,23 @@ does not close it. No product-code defect is established. The deploy and the tag
 
 A result with no candidate attached is not a receipt. Every such row was measured on:
 
-- **Candidate:** the tree at `05ad53df` carrying round sixteen's repairs. The run before it, at
-  `0bdb788c`, became `7ed8b302`, `46dc16d0` and `5f3c1891`, and every figure below was re-taken
-  on the current one. A row measured on anything else says so in its own cell.
+- **Candidate: `970f0bf6`** -- the commit the tested tree BECAME, written after that commit exists
+  rather than predicted before it. An earlier version of this line named "the tree at `05ad53df`
+  carrying round sixteen's repairs"; `05ad53df` is immutable and holds neither X-1 nor the repaired
+  census, so it named a tree nobody could check out. A candidate has to be a thing another person
+  can obtain. A row measured on anything else says so in its own cell.
 - **The five suites, ONE run each, all exit status 0**, quoted here so every figure in this
   document reconciles against the same run:
 
 | suite | command | result | exit |
 |---|---|---|---|
-| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,622 passed, 10,934 subtests | 0 |
+| python | `python -m pytest service/tests -q -n 8 --dist loadfile` | 5,623 passed, 10,934 subtests | 0 |
 | bridge | `cd mcp/stdio && node tests/run-all.mjs` | all 363 suites passed; 1 test skipped in `runtime-launch-helpers.test.js` | 0 |
 | dashboard | `cd service/new_dashboard && node --test *.test.mjs` | 1,709 passed, 0 skipped | 0 |
 | aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 219 passed, 0 skipped | 0 |
 | aify-env | `cd ~/projects/aify-env && npm test` | 1,683 tests, 1,682 passed, 1 skipped | 0 |
 
-`TIME_WAIT` was **287** before the python run and **12,190** after it, against this host's 16,384-port
+`TIME_WAIT` was **990** before the python run and **12,181** after it, against this host's 16,384-port
 ephemeral range — the socket pressure CLAUDE.md documents, sampled DURING the run rather than
 between runs. Nothing failed, so it attributes nothing here; it is recorded because a later red must
 be read against a measured before-and-after rather than a remembered one.
@@ -62,8 +64,18 @@ run.** B-1's row carries both and says which is which.
 | B-4 | An UNNUMBERED chunk clears the live screen's sequence, so the GET answers `null` and the browser replays rather than trusting a stale number | `service/terminal_snapshot.py`, `service/api_core/terminal_output.py` | `test_live_terminal_screen.py`; `test_status_reads_the_live_screen_not_the_stored_tail.py` | PASSES IN TESTS on the candidate, in the python run quoted above | Met by the candidate |
 
 **Not claimed by any row above:** that these repair the operator's reported lag. The lag is
-UNATTRIBUTED — 106 verified continuous minutes of live observation produced zero wire gaps, so the
-mechanism is present in the deployed build and was not caught firing.
+UNATTRIBUTED. Live observation is now **166 verified continuous minutes** producing **zero** wire
+gaps: the earlier 106 (guarded windows of 55, 45 and 6 minutes) plus a 60-minute window taken
+2026-09-09 that made **22,521 comparisons across 5 terminals** -- 0 gaps, 0 drops, 0 unnumbered
+frames. Arrival intervals p50 382.9ms, p05 12.4ms, min 7.9ms, and **no margin is derived from
+them**: they are receiver-side spacing, and the queue, its flush timer, the event loop and the
+socket all sit between a POST and an arrival.
+
+**What 166 minutes of zero supports, and what it does not.** It supports "no wire gap was seen in
+the windows watched". It does NOT establish that the deployed defect is rare: zero steps over one is
+equally consistent with every flush carrying exactly one post, which the wire alone cannot separate
+from a queue numbering correctly. And nothing here observes a console, a fetch, a reset or a person
+waiting. The mechanism is present in the deployed build and has not been caught firing.
 
 ## Retirement — the environment-bridge tier, 35 deleted modules
 
