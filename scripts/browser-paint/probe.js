@@ -120,6 +120,17 @@
         refusals.push(arm.label + ": only " + arm.recoveryMs.length + " of " + RECOVERIES
           + " recoveries produced a usable sample, which is too few to publish a median from");
       }
+      // THE RECOVERY PHASE'S OWN IDENTITY. Samples plus every named exclusion must be the
+      // number of recoveries attempted; anything else means a repaint went somewhere this
+      // probe does not name. The paced phase has had this check from the start and the
+      // recovery phase shipped without one, which is how its exclusions ended up in the
+      // paced phase's counter.
+      var recoveryAccounted = arm.recoveryMs.length + arm.recoveryTimeouts
+        + arm.recoveryNoRender + arm.recoveryBadSpans + arm.recoveryRenderedBeforeParse;
+      if (recoveryAccounted !== RECOVERIES) {
+        refusals.push(arm.label + ": " + recoveryAccounted + " recoveries are accounted for "
+          + "out of " + RECOVERIES + ", so some went somewhere this probe does not name");
+      }
     });
     // THE CONTROL THAT MATTERS MOST. "We loaded the addon" is exactly the kind of claim that
     // reports success and changes nothing, and two arms running one renderer would publish a

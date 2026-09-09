@@ -133,6 +133,12 @@
     this.recoveryParseMs = [];
     this.recoveryTimeouts = 0;
     this.recoveryNoRender = 0;
+    //: THIS PHASE'S OWN EXCLUSIONS. They were counted into the PACED phase's `badSpans`,
+    //: which its accounting identity reads against WRITES -- so one bad recovery span broke
+    //: the paced check and reported it with the paced phase's message. An exclusion
+    //: attributed to the wrong phase makes a green run untrustworthy in both directions.
+    this.recoveryBadSpans = 0;
+    this.recoveryRenderedBeforeParse = 0;
     this.recoveryWrote = false;
     this.resetLeftTheOldScreen = false;
     this.foundAbsent = false;
@@ -314,7 +320,11 @@
       var parse = callbackAt - started;
       var painted = renderAt - started;
       if (!(parse >= 0) || !(painted >= 0) || !Number.isFinite(parse)
-          || !Number.isFinite(painted)) { this.badSpans += 1; continue; }
+          || !Number.isFinite(painted)) { this.recoveryBadSpans += 1; continue; }
+      // COUNTED, NOT AVERAGED IN, exactly as the paced phase does it. Both spans are
+      // deferred and neither promises to come first, and this table publishes REPAINT MINUS
+      // PARSE -- which is not a renderer cost for a sample whose render finished first.
+      if (painted < parse) { this.recoveryRenderedBeforeParse += 1; continue; }
       this.recoveryParseMs.push(parse);
       this.recoveryMs.push(painted);
     }
