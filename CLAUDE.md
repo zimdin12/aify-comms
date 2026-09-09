@@ -395,10 +395,10 @@ gate below names as a claim it enforces.
 this table had been wrong four times: every row matches its measured line count exactly and the
 membership matches the measured ranking, so nothing here needed correcting on either date. The
 census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> 538 -> 539
--> 540 -> **541 on 2026-09-09** -- 262 Python and 279 JS -- as `service/new_dashboard/console-cursor.mjs`,
+-> 540 -> 541 -> **542 on 2026-09-09** -- 263 Python and 279 JS -- as `service/new_dashboard/console-cursor.mjs`,
 `scripts/measure-ws-hop-browser.py`, `scripts/measure-console-projection.py`,
 `scripts/check-deployed-console-transport.py`, `scripts/measure-live-frame-gaps.mjs` and
-`scripts/measure-live-console-fetch.py` arrived
+`scripts/measure-live-console-fetch.py` and `scripts/measure-coalescing-severity.py` arrived
 with the console and transport work.
 
 **AND THE `.monitor/` TRAP CAUGHT SOMEBODY A SECOND TIME, WHICH WAS ME.** The paragraph below
