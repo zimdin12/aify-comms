@@ -71,7 +71,7 @@ A result with no candidate attached is not a receipt. Every such row was measure
 | aify-wrapper | `cd ~/projects/aify-wrapper && node --test tests/*.test.js` | 219 passed, 0 skipped | 0 |
 | aify-env | `cd ~/projects/aify-env && npm test` | 1,683 tests, 1,682 passed, 1 skipped | 0 |
 
-`TIME_WAIT` was **298** before the python run and **12,192** after it. A reading of 1,888 taken
+`TIME_WAIT` was **295** before the python run and **12,185** after it. A reading of 1,888 taken
 before an earlier run in this session was residue from the run before it, not ambient load -- the
 misreading CLAUDE.md records, and worth naming because the number looks like a host condition, against this host's 16,384-port
 ephemeral range — the socket pressure CLAUDE.md documents, sampled DURING the run rather than
@@ -91,16 +91,18 @@ run.** B-1's row carries both and says which is which.
 | B-4 | An UNNUMBERED chunk clears the live screen's sequence, so the GET answers `null` and the browser replays rather than trusting a stale number | `service/terminal_snapshot.py`, `service/api_core/terminal_output.py` | `test_live_terminal_screen.py`; `test_status_reads_the_live_screen_not_the_stored_tail.py` | PASSES IN TESTS on the candidate, in the python run quoted above | Met by the candidate |
 
 **Not claimed by any row above:** that these repair the operator's reported lag. The lag is
-UNATTRIBUTED. Live observation is now **226 verified continuous minutes** producing **zero** wire
-gaps: the earlier 106 (guarded windows of 55, 45 and 6 minutes) plus TWO 60-minute windows taken
-2026-09-09 -- **22,521 comparisons across 5 terminals** and **24,160 across 5** -- with 0 gaps, 0
-drops and 0 unnumbered frames in each. Arrival intervals were p50 382.9ms / p05 12.4ms / min 7.9ms
-and p50 237.4ms / p05 12.7ms / min 8.1ms, and **no margin is derived from them**: they are
-receiver-side spacing, and the queue, its flush timer, the event loop and the socket all sit between
-a POST and an arrival.
+UNATTRIBUTED. Observation totals **226 minutes across FIVE guarded windows** -- 60, 60, 55, 45 and 6
+-- producing **zero** wire gaps in every one. **That is cumulative, not one uninterrupted run**, and
+an earlier version of this line said "226 verified continuous minutes", which claims a continuity
+property no window has: the longest single uninterrupted window is 60 minutes. The two 60-minute
+windows were taken 2026-09-09 and made **22,521 comparisons across 5 terminals** and **24,160 across
+5**, with 0 gaps, 0 drops and 0 unnumbered frames in each. Arrival intervals were p50 382.9ms / p05
+12.4ms / min 7.9ms and p50 237.4ms / p05 12.7ms / min 8.1ms, and **no margin is derived from them**:
+they are receiver-side spacing, and the queue, its flush timer, the event loop and the socket all sit
+between a POST and an arrival.
 
-**What 226 minutes of zero supports, and what it does not.** It supports "no wire gap was seen in
-the windows watched". It does NOT establish that the deployed defect is rare: zero steps over one is
+**What 226 cumulative minutes of zero supports, and what it does not.** It supports "no wire gap was seen in
+any of the five windows watched", each bounded by its own start and end. It does NOT establish that the deployed defect is rare: zero steps over one is
 equally consistent with every flush carrying exactly one post, which the wire alone cannot separate
 from a queue numbering correctly. And nothing here observes a console, a fetch, a reset or a person
 waiting. The mechanism is present in the deployed build and has not been caught firing.
