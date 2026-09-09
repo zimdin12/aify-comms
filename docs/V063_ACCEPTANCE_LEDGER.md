@@ -299,6 +299,7 @@ ledger has no standing to make, so they sit in the open list below instead.
 | X-3 | aify-env's own READERS work on what this service actually answers | `lib/startable-agents.mjs` (aify-env) against real `/agents` and `/sessions` responses | `test_the_env_plugin_reads_what_this_service_answers.py` — seeds a managed agent and two sessions, fetches through the real routes, and runs the plugin's OWN `startabilityOf` and `restartTargetFor` on the payload | PASSES IN TESTS on the candidate. Four reader mutants killed: a field we do not send (`last_seen`), a live-vocabulary drift, a different session-mode spelling, and a reader that stops refusing a live session | Met for the two readings that gate "start available agent". **The vocabulary check is the part only this side can answer** — if the reader's live statuses were ones this service never emits, the check would never fire and every session would read restartable. Other responses and any live round trip are NOT covered |
 | X-4 | Every request the plugin sends is ACCEPTED by this service's real auth middleware, and a host with no key sends no header rather than an empty one | `lib/plugins/aify-comms/api.mjs` (aify-env) against `service/main.py`'s `APIKeyMiddleware` | `test_the_env_plugin_addresses_routes_this_service_serves.py` — the harness records HEADERS and is driven twice, with a credential and without. Each captured request is then REPLAYED through the real middleware class, constructed with a synthetic key and awaited directly: no app, no network, no deployed service. The verdict asserted is acceptance, per request, named with its owner method and URL | PASSES IN TESTS on the successor named in the candidate section. SEVEN mutants, each killed by the obligation it names, and THREE of them are the review's own reproduced false-green arms kept as standing mutants. A negative control removes the key header and every request must be REFUSED, so an accepting middleware cannot make the run above read as evidence | Met for the HTTP carrier. **The first three shapes of this row each PASSED while proving nothing, and only the third was caught by me.** It derived the accepted header NAME out of `service/main.py`: first from any `headers.get(...)` in the module; then, scoped to the `provided_key` assignment, still satisfied by `_authorize_websocket`'s copy of the same literal; then, scoped to the `request` carrier, still satisfied by an UNUSED module-level function assigning that name while the middleware's real read was broken — reproduced by review, both arms driven. Beside it the header names were UNIONED across all ten requests, so a plugin sending its key on `/agents` alone passed. **A name can always be supplied by code that never runs, and a relation is not judged by one of its members**; both dissolve into executing the middleware per request. The WEBSOCKET handshake's own key read is not judged here, and no live 401 or 200 from a deployed service is involved |
 | X-5 | What the host tier says about ITSELF, nested inside the heartbeat's `metadata`, reaches the code on this side that acts on it | `lib/plugins/aify-comms/api.mjs` (aify-env) against `service/routers/environments.py` and `service/api_core/environment_registration.py` | `test_the_env_plugin_identity_survives_the_heartbeat.py` — the plugin's own `heartbeat()` is called, the body it emits is POSTed to the real route, and each key is witnessed by the behaviour it gates: `bridgeVersion` through the published field `tier-version` compares, `bridgeKind` through an arbitration a legacy bridge would otherwise win | PASSES IN TESTS on `c1a1d46b`. TEN mutants, each killed by the obligation it names, including one aimed at the instrument: with nothing nested the population is empty and the control refuses rather than passes | Met for the two nested keys with a consumer here. **The first draft passed first time and proved nothing** — it asserted the keys came back in the stored row, and this service keeps `metadata` VERBATIM, so a renamed key round-tripped intact while the arbitration saw nothing. Two further false greens were mine and were found by mutation, not by review: a far-future `bridgeStartedAt` is CLAMPED on the way in, so the legacy beat never won on start time and the preference under test never ran; and the mutant was aimed at the branch the witness did not drive, which is how the OTHER branch turned out to have no witness at all. `bridgeStartedAt` has no witness here by decision, the top-level version carrier is NOT judged, and no live 401 or deployed response is involved |
+| X-6 | The RETURN LEG: what the plugin READS off a claim answer, this service sends — asserted as the OUTCOME its claim pass reaches | `lib/plugins/aify-comms/claim.mjs` (aify-env) against this app's `/spawn-requests/claim` | `test_the_env_plugin_can_read_what_the_claim_answers.py` — a spawn request is seeded through the real routes, the real claim response is fetched, and the plugin's own `runClaimPass` is driven on it through the `api` injection it already takes. Every property read off the spawn request is recorded by a Proxy and printed WITH a failure, so a red test names the field | PASSES IN TESTS. SIX mutants: the `request.launcher` incident reconstructed, a renamed id, a pass that stops reporting running, a claim that answers no request, and a renamed `resumePolicy` all go RED. One SURVIVES BY CONSTRUCTION and is labelled so in the test and the driver: `_SPAWN_MODES = {"managed-warm"}` is the only mode this service issues and it is identical to the plugin's own fallback, so a renamed `mode` read is replaced by the same value and nothing can observe it | Met for the claim answer. **The assertion is the OUTCOME, never the field names** — a name check is satisfied by a name, which this seam has now produced four times, and it is also FALSE of correct code, since `workspace || workspaceRoot` reads a fallback by design. **Two of my own controls were weak and mutation found both**: the negative control removed ONE of the workspace's TWO carriers (this service sends both, measured carrying the same value) so the guard never fired; and the fidelity witness seeded the plugin's DEFAULT `resumePolicy`, which made a renamed read indistinguishable from a working one. The terminal-launch response is NOT covered, nor is any response neither this nor X-3 reads |
 
 ## Packaging
 
@@ -439,11 +440,12 @@ recorded here rather than attempted in a release cut.
    withdrawn. What remains open is a different claim: what is PROVEN is that no literal
    spelling of a deleted module's name appears outside a comment — not unreachability, since
    nothing resolves a specifier. Behaviour is UNREVIEWED.
-4. **The cross-repo seam — FIVE LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
+4. **The cross-repo seam — SIX LAYERS COVERED, still UNVERIFIED FOR THIS RELEASE.** X-1 proves
    the plugin's ADDRESSES, X-2 the top-level FIELDS it sends, X-3 that its own READERS work on
    what this service actually answers, X-4 that a request the plugin sends is ACCEPTED by this
    service's real auth middleware, and X-5 that what the host tier says about itself reaches the
-   code that acts on it — all five driven from both sides — and
+   code that acts on it, and X-6 that the plugin can READ a claim answer through to a
+   registered agent — all six driven from both sides — and
    `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` proves the credential
    reference's grammar and directory agreement, not lifecycle integration. What remains unproved:
    the responses X-3 does not read, and any LIVE round trip, where six
@@ -452,23 +454,25 @@ recorded here rather than attempted in a release cut.
    same as saying a real key authenticates — no assertion here has ever seen a 401 or a 200 from
    the deployed service. Moving the rest out of this release is an owner's decision and has not
    been made.
-4b. **X-6, NAMED AND NOT BUILT: every field the plugin READS off a response is one this service
-   SENDS.** X-5 closed the direction the plugin WRITES; this is the return leg, and it is the one
-   layer here with a defect already on the record rather than a hypothetical. `claim.mjs` says it
-   in its own words: six spawn requests were claimed within seconds and all six failed with "a
-   start request must name a launcher to run", because the plugin built a start spec from
-   `request.launcher` -- a field the wire has never carried. Nothing would catch that today.
+4b. **X-6 IS BUILT for the CLAIM answer, and the terminal-launch answer is what remains** —
+   the return leg of the seam. X-5 closed the direction the plugin WRITES; this is what it READS.
+   It is the one layer here with a defect already on the record rather than a hypothetical:
+   `claim.mjs` says in its own words that six spawn requests were claimed within seconds and all
+   six failed with "a start request must name a launcher to run", because the plugin built a
+   start spec from `request.launcher` -- a field the wire has never carried. That mutant is
+   reconstructed in the driver and goes RED.
 
-   THE INSTRUMENT HAS TO RECORD READS, NOT PARSE FOR THEM. A source scan for `response.<name>` is
-   the shape review already broke twice on this seam, and a typed list of expected fields is
-   satisfied by itself. The shape that works: fetch the REAL response through the real route, wrap
-   it in a Proxy that records every property the plugin asks for, and drive the plugin's own
-   consumer -- `runTerminalControl` and the claim pass both take their dependencies by injection
-   already. A property read that is absent from the real response IS the defect, named.
+   THE INSTRUMENT RECORDS READS AND ASSERTS THE OUTCOME. A source scan for `response.<name>` is
+   the shape review broke twice on this seam, and "every property read is present" is also FALSE
+   of correct code, since `workspace || workspaceRoot` reads a fallback by design. So the Proxy
+   supplies the DIAGNOSIS -- it names the field beside a failure -- while the VERDICT is whether
+   the plugin's own pass reaches a registered agent on this service's real answer.
 
-   NOT STARTED, and deliberately: it is a substantial instrument and the tree is under review. It
-   is written down here rather than held in a session, because that is where the last one rotted.
-
+   STILL OPEN: the terminal-launch answer (`GET /terminals/{id}/launch`), whose consumer
+   `runTerminalControl` takes a much larger dependency set -- process handles, a sender, a
+   launcher resolver -- so driving it needs more scaffolding than the claim pass did. Its reads
+   are `launch.argv` and `launch.cwd`, and the second is what stops a service launching a process
+   anywhere on the host, so it is worth doing rather than dropping.
 5. **P-2** — CLOSED FOR v0.6.3, AND THE TREE HAS MOVED PAST IT. `v0.6.3` is tagged; `VERSION`,
    `version.js`, both manifests and `plugin.json` now declare **`0.6.4`**, which is what
    `test_version_is_not_an_already_released_tag.py` requires of a tree carrying work past a
