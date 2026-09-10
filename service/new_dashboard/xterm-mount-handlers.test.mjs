@@ -299,6 +299,40 @@ test("an observer BURST coalesces to one frame", async () => {
 
 // ── input: the gate, the throttle, the failure report ───────────────────────
 
+// Handler-level proof only: a browser owns the actual paste event and xterm's native listener.
+for (const secure of [true, false]) {
+  test(`paste shortcuts leave browser defaults intact with isSecureContext=${secure}`, async () => {
+    const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const previousSecure = window.isSecureContext;
+    let reads = 0;
+    let prevented = 0;
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: secure ? {
+      clipboard: { readText: async () => { reads += 1; throw new Error('permission denied'); } },
+    } : {} });
+    window.isSecureContext = secure;
+    try {
+      const { term, terminalId } = await mount();
+      requests.length = 0;
+      for (const shiftKey of [true, false]) {
+        assert.equal(term.keyHandler({ type: 'keydown', key: 'V', ctrlKey: true, shiftKey,
+          preventDefault: () => { prevented += 1; } }), false);
+      }
+      assert.equal(prevented, 0);
+      assert.equal(reads, 0, 'native paste must not compete with an async clipboard reader');
+      assert.equal(requests.length, 0, 'the key handler must not send a second copy');
+      // Model the one onData emission from xterm after its native paste listener runs.
+      await term.onDataHandler('paste text\r');
+      const posts = requestsTo(`/terminals/${terminalId}/input`);
+      assert.equal(posts.length, 1);
+      assert.equal(JSON.parse(posts[0].body).body, 'paste text\r');
+    } finally {
+      window.isSecureContext = previousSecure;
+      if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
+      else delete globalThis.navigator;
+    }
+  });
+}
+
 test("typing reaches the PTY through the serialized poster", async () => {
   const { terminalId, term } = await mount();
   requests.length = 0;

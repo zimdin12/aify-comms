@@ -92,6 +92,28 @@ test("an explicit ?apiOrigin= still overrides, even on https", () => {
   assert.equal(origin, "https://other:9443");
 });
 
+for (const source of ['query', 'storage']) {
+  test(`HTTPS refuses an HTTP override from ${source} without persisting mixed content`, () => {
+    const store = withBrowser({
+      protocol: 'https:', hostname: 'dashboard.test', origin: 'https://dashboard.test:8443',
+      search: source === 'query' ? '?apiOrigin=http://other:8800' : '',
+      stored: source === 'storage' ? 'http://other:8800' : null,
+    }, (store) => {
+      assert.equal(resolveApiOrigin(), 'https://dashboard.test:8443');
+      return store;
+    });
+    assert.equal(store.has(KEY), false);
+  });
+}
+
+test('an insecure HTTPS-page query does not replace a valid stored HTTPS override', () => {
+  withBrowser({ protocol: 'https:', origin: 'https://dashboard.test:8443',
+    search: '?apiOrigin=http://other:8800', stored: 'https://chosen.test:9443' }, (store) => {
+    assert.equal(resolveApiOrigin(), 'https://chosen.test:9443');
+    assert.equal(store.get(KEY), 'https://chosen.test:9443');
+  });
+});
+
 test("?apiOrigin= wins AND PERSISTS — it outlives the query string that set it", () => {
   // The durable half. After this call the key is set, so the NEXT load with no query string resolves to
   // the same host. This is the behaviour that makes a shared debug link sticky.

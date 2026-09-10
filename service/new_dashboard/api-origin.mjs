@@ -34,6 +34,9 @@ function asHttpOrigin(value) {
   try {
     const url = new URL(String(value));
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    // An override must not downgrade an HTTPS page's API and realtime socket to mixed content.
+    // Reject rather than upgrade: the HTTP port need not speak TLS. Applies to stored values too.
+    if (location.protocol === 'https:' && url.protocol !== 'https:') return '';
     return url.origin;
   } catch {
     return '';
