@@ -81,11 +81,17 @@ if command -v curl >/dev/null 2>&1; then
 fi
 registry="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
 registered=no
-if [ -f "$registry" ]; then
+if [ -e "$registry" ] || [ -L "$registry" ]; then
   registered=unknown
-  if [ -r "$registry" ]; then
-    registered=no
-    grep -q '"aify-comms"' "$registry" && registered=yes
+  if [ -r "$registry" ] && command -v node >/dev/null 2>&1; then
+    reader="$REPO_ROOT/scripts/registry-state.mjs"
+    native_registry="$registry"
+    if command -v cygpath >/dev/null 2>&1; then
+      reader="$(cygpath -m "$reader")"
+      native_registry="$(cygpath -m "$registry")"
+    fi
+    result="$(node "$reader" "$native_registry" 2>/dev/null)" || result=unknown
+    case "$result" in yes|no) registered="$result" ;; esac
   fi
 fi
 bridge_copy=absent

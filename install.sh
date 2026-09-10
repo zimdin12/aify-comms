@@ -401,11 +401,11 @@ copy_bridge_to_native_dir() {
   # not being a git repo -> write "unknown" so --version never errors.
   local _stamp="$AIFY_NATIVE_BASE/.aify-version"
   local _vsha="unknown" _vshort="unknown" _vbranch="unknown" _vdate="unknown"
-  if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-    _vsha="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
-    _vshort="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-    _vbranch="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-    _vdate="$(git -C "$SCRIPT_DIR" log -1 --format=%cI HEAD 2>/dev/null || echo unknown)"
+  if command -v git >/dev/null 2>&1 && git -C "$(path_for_node "$SCRIPT_DIR")" rev-parse --git-dir >/dev/null 2>&1; then
+    _vsha="$(git -C "$(path_for_node "$SCRIPT_DIR")" rev-parse HEAD 2>/dev/null || echo unknown)"
+    _vshort="$(git -C "$(path_for_node "$SCRIPT_DIR")" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    _vbranch="$(git -C "$(path_for_node "$SCRIPT_DIR")" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    _vdate="$(git -C "$(path_for_node "$SCRIPT_DIR")" log -1 --format=%cI HEAD 2>/dev/null || echo unknown)"
   fi
   printf 'sha=%s\nshort=%s\nbranch=%s\ndate=%s\n' \
     "$_vsha" "$_vshort" "$_vbranch" "$_vdate" > "$_stamp" 2>/dev/null || true
@@ -1393,7 +1393,7 @@ SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
 # so a first argument of "doctor" can never come from that path.
 if [ "\${1:-}" = "doctor" ]; then
   shift
-  exec node "$AIFY_BRIDGE_DIR/doctor.js" "\$@"
+  exec node "$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")" "\$@"
 fi
 # \`--check\` — validate the launcher WITHOUT registering anything.
 #
@@ -1416,7 +1416,7 @@ if [ "\${1:-}" = "--check" ]; then
   rc=0
   command -v node >/dev/null 2>&1 || { echo "  node:   MISSING from PATH" >&2; rc=1; }
   [ -f "$AIFY_BRIDGE_DIR/server.js" ] || { echo "  script: MISSING" >&2; rc=1; }
-  if [ "\$rc" = "0" ] && ! node --check "$AIFY_BRIDGE_DIR/server.js" >/dev/null 2>&1; then
+  if [ "\$rc" = "0" ] && ! node --check "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")" >/dev/null 2>&1; then
     echo "  script: does not parse" >&2; rc=1
   fi
   [ "\$rc" = "0" ] && echo "  OK — node is present and the MCP bridge script parses."
@@ -1427,7 +1427,7 @@ if [ "\${1:-}" = "--version" ] || [ "\${1:-}" = "-V" ]; then
   # $SCRIPT_DIR below are the install-time literals; everything network/git is
   # best-effort and MUST fail silently (offline-safe).
   STAMP_FILE="$AIFY_NATIVE_BASE/.aify-version"
-  REPO_DIR="$SCRIPT_DIR"
+  REPO_DIR="$(path_for_node "$SCRIPT_DIR")"
   echo "aify-comms host bridge:"
   if [ -f "\$STAMP_FILE" ]; then
     sed 's/^/  /' "\$STAMP_FILE" 2>/dev/null || cat "\$STAMP_FILE" 2>/dev/null || true
@@ -2520,17 +2520,17 @@ register_stdio_server() {
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env AIFY_API_KEY="$api_key" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
-      -- node "$AIFY_BRIDGE_DIR/server.js"
+      -- node "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add "$server_name" \
       "${scope_args[@]}" \
       --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
-      -- node "$AIFY_BRIDGE_DIR/server.js"
+      -- node "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
   else
     "$cli" mcp add "$server_name" \
       "${scope_args[@]}" \
-      -- node "$AIFY_BRIDGE_DIR/server.js"
+      -- node "$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
   fi
 
   # Plan 6 follow-up (2026-05-26): for codex, the `[mcp_servers.X.env]` block
@@ -2632,12 +2632,12 @@ register_claude_channel_server() {
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
       --env AIFY_API_KEY="$api_key" \
       --env CLAUDE_MCP_API_KEY="$api_key" \
-      -- node "$AIFY_BRIDGE_DIR/claude-channel.js"
+      -- node "$(path_for_node "$AIFY_BRIDGE_DIR/claude-channel.js")"
   elif [ -n "$SERVER_URL" ]; then
     "$cli" mcp add --scope user "$server_name" \
       --env AIFY_SERVER_URL="$SERVER_URL" \
       --env CLAUDE_MCP_SERVER_URL="$SERVER_URL" \
-      -- node "$AIFY_BRIDGE_DIR/claude-channel.js"
+      -- node "$(path_for_node "$AIFY_BRIDGE_DIR/claude-channel.js")"
   else
     "$cli" mcp remove --scope local "$server_name" >/dev/null 2>&1 || true
     "$cli" mcp remove --scope project "$server_name" >/dev/null 2>&1 || true
@@ -2724,7 +2724,7 @@ copy_bridge_to_native_dir
 # registering afterwards left every first install with a launcher stale by the entry it had just added.
 # Non-fatal -- launchers not learning about aify-comms is not aify-comms being broken.
 node "$(path_for_node "$AIFY_BRIDGE_DIR/register-service-cli.mjs")" "$(path_for_node "$AIFY_SERVICE_REGISTRY")" \
-  "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$AIFY_BRIDGE_DIR" \
+  "${SERVER_URL:-$DEFAULT_AIFY_SERVER_URL}" "$(path_for_node "$AIFY_BRIDGE_DIR")" \
   || echo "warning: aify-comms was not registered in $AIFY_SERVICE_REGISTRY (see above)." >&2
 echo "  Done."
 
@@ -2831,8 +2831,8 @@ elif [ "$CLIENT" = "hermes" ]; then
   echo "  non-zero (no silent no-op). Both modes share this gateway-host path so"
   echo "  injected messages render in the visible terminal (2026-06-02 convergence)."
   if command -v node >/dev/null 2>&1; then
-    if node --check "$AIFY_BRIDGE_DIR/hermes-daemon-cli.js" >/dev/null 2>&1 \
-      && node --check "$AIFY_BRIDGE_DIR/hermes-managed-host.js" >/dev/null 2>&1; then
+    if node --check "$(path_for_node "$AIFY_BRIDGE_DIR/hermes-daemon-cli.js")" >/dev/null 2>&1 \
+      && node --check "$(path_for_node "$AIFY_BRIDGE_DIR/hermes-managed-host.js")" >/dev/null 2>&1; then
       echo "  Bridges verified: hermes-daemon-cli.js + hermes-managed-host.js parse OK."
     else
       echo "  ERROR: hermes-daemon-cli.js / hermes-managed-host.js failed node --check — fix before launch." >&2
@@ -2852,7 +2852,7 @@ echo ""
 # Note WHY codex matters even for a hermes-only user: hermes DELEGATES its OpenAI auth to the
 # codex CLI's store, so without codex installed + logged in there is no token to read anywhere.
 if command -v node >/dev/null 2>&1 && [ -f "$AIFY_BRIDGE_DIR/usage-preflight.js" ]; then
-  node "$AIFY_BRIDGE_DIR/usage-preflight.js" 2>/dev/null || true
+  node "$(path_for_node "$AIFY_BRIDGE_DIR/usage-preflight.js")" 2>/dev/null || true
 fi
 
 # `aify-doctor` — the one command that verifies an install/update actually TOOK EFFECT.
@@ -2865,7 +2865,7 @@ mkdir -p "$DOCTOR_BIN_DIR"
 DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
 {
   echo "#!/usr/bin/env bash"
-  echo "exec node \"$AIFY_BRIDGE_DIR/doctor.js\" \"\$@\""
+  echo "exec node \"$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")\" \"\$@\""
 } > "$DOCTOR_PATH"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
 echo ""

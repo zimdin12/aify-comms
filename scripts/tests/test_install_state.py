@@ -46,6 +46,58 @@ class InstallStateTests(unittest.TestCase):
     def state(self):
         return json.loads(self.run_script("install-state.sh", "--json").stdout)
 
+    def test_unparseable_registry_never_reports_absence_or_presence(self):
+        registry = self.home / "services.json"
+        self.env["AIFY_SERVICE_REGISTRY"] = registry.as_posix()
+        for text in ('{broken', '{"aify-comms":', '{"version":99,"services":{}}'):
+            with self.subTest(text=text):
+                registry.write_text(text)
+                report = self.state()
+                self.assertEqual(report["registeredInRegistry"], "unknown")
+                self.assertEqual(registry.read_text(), text)
+
+    @unittest.skipUnless(os.environ.get("AIFY_UPGRADE_DEPS"), "set AIFY_UPGRADE_DEPS to installed dependencies")
+    def test_real_registry_reader_distinguishes_valid_invalid_and_read_error(self):
+        # The ordinary fixture has no Node/dependencies. Exercise the parser too,
+        # with positive controls so an import/path failure cannot pass as UNKNOWN.
+        stdio = self.repo / "mcp/stdio"
+        parser = stdio / "node_modules/aify-wrapper/lib/registry.mjs"
+        parser.parent.mkdir(parents=True)
+        shutil.copy2(Path(os.environ["AIFY_UPGRADE_DEPS"]) / "aify-wrapper/lib/registry.mjs", parser)
+        shutil.copy2(REPO / "mcp/stdio/service-name.mjs", stdio / "service-name.mjs")
+        self.fake("node", 'exec "' + Path(shutil.which("node")).as_posix() + '" "$@"')
+        registry = self.home / "registry with spaces.json"
+        native = registry.as_posix()
+        if os.name == "nt":
+            native = subprocess.check_output([BASH, "-c", 'cygpath -u "$1"', "fixture", native], text=True).strip()
+        self.env.update(AIFY_SERVICE_REGISTRY=native, MSYS2_ARG_CONV_EXCL="*")
+        entry = {"endpoint": "http://127.0.0.2:1", "mcp": []}
+        cases = [
+            (json.dumps({"version": 1, "services": {"aify-comms": entry}}), "yes"),
+            (json.dumps({"version": 1, "services": {"other": entry}}), "no"),
+            ('{"version":1,"services":{}}', "no"),
+            ('{broken', "unknown"),
+            ('{"aify-comms":', "unknown"),
+            ('{"version":99,"services":{}}', "unknown"),
+            ('{"version":1,"services":{"aify-comms":{}}}', "unknown"),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                registry.write_text(text)
+                self.assertEqual(self.state()["registeredInRegistry"], expected)
+                self.assertEqual(registry.read_text(), text)
+        registry.unlink()
+        registry.mkdir()  # Real fs.readFileSync error, not a replacement helper.
+        self.assertEqual(self.state()["registeredInRegistry"], "unknown")
+        registry.rmdir()
+        registry.write_text(cases[0][0])
+        parser.unlink()  # Import failure must not turn a valid entry into absence.
+        self.assertEqual(self.state()["registeredInRegistry"], "unknown")
+
+    def test_missing_registry_reports_no(self):
+        self.env["AIFY_SERVICE_REGISTRY"] = (self.home / "absent.json").as_posix()
+        self.assertEqual(self.state()["registeredInRegistry"], "no")
+
     def test_hermes_hook_uses_explicit_profile_root(self):
         profile = self.home / "active profile"
         profile.mkdir()
