@@ -7,6 +7,26 @@ components and verify the result. Each repository installs its own product. aify
 installer never installs either external product. This follows the
 [repo-owner contract](superpowers/plans/2026-09-07-herdr-as-the-pane-surface.md#installing-it-every-repo-installs-its-own-and-points-at-the-next).
 
+## Start with the selected repository's instructions
+
+An older installed skill is not the update authority. For an existing installation, including
+v0.5.6, read this guide from the selected current checkout before running its installer. A release
+tag and the default branch can contain different fixes even when a package VERSION is unchanged.
+Report the chosen commit as well as the version. A successful client reinstall does not update the
+service container, environment daemon or already-running workers.
+
+A user who wants the current default-branch fixes can give their agent this prompt:
+
+> Read the current main branch's docs/INSTALL_ONBOARDING.md. Inspect this installation, then install
+> or update the components this host needs from current main. Preserve my configuration and data.
+> Ask about missing choices and optional Herdr or LAN HTTPS. Report installed and running revisions
+> separately, and ask before any action that interrupts the service or running agents.
+
+This is an agent-guided workflow, not an all-in-one unattended installer. The agent must follow the
+owning repositories and verify each selected component. The legacy-upgrade fixture in
+`scripts/tests/test_legacy_upgrade.py` exercises old installer-produced configuration with isolated
+substitutes for external CLIs and package/network operations; it is not proof of every old host.
+
 ## Discover and choose
 
 1. Inspect this host's OS, architecture and shell. Distinguish native Windows from WSL; they have
@@ -29,6 +49,11 @@ installer never installs either external product. This follows the
    endpoint and credential gaps. Also ask whether to install/update optional herdr or skip it. If no
    app was found, ask about a portable/custom install before choosing a new location. Skipping herdr
    does not block comms, managed agents, or `aify-env attach`.
+6. For LAN/browser access, ask whether to enable optional HTTPS and obtain the exact URL and client
+   devices. Follow [HTTPS setup and limits](HTTPS.md). Certificate trust is per device; successful
+   validation on the server's own Windows account does not establish trust on a phone or another PC.
+   Preserve TLS verification and the chosen hostname. Treat CA imports and proxy changes as explicit
+   selections, not prerequisites for a local agent-only installation.
 
 If the operator asked for verify-only, stop after the report. If they asked for plan-only, add the
 selected versions and exact commands with restart impact, but execute no changes. These are workflow
@@ -42,6 +67,9 @@ resetting local work. Compare against that saved SHA, not an assumed `HEAD@{1}`.
 lookup means the latest version is unknown. Do not invent an update verdict.
 
 - **Service host:** preserve `.env` and service configuration; run `./setup.sh` only on first setup.
+  Before a database-bearing update, create and verify a backup with SQLite's online backup API or
+  the documented stopped-service procedure. Copying only a live `.db` file can omit WAL contents.
+  Keep the backup outside the active data volume and retain the previous source/image identity.
   For a selected service update, `bash scripts/stamp.sh` then `docker compose up -d --build` after
   separate approval for the service interruption. Service runtime includes `service/`, `mcp/` outside
   `mcp/stdio/`, and `config/`. A healthy container alone is no reason to skip an outdated build.

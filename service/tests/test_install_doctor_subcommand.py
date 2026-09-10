@@ -63,7 +63,10 @@ def test_the_standalone_alias_is_still_installed():
     """Removing it would break docs, skills and agent habits that name `aify-doctor`."""
     text = _install_sh()
     assert 'DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"' in text
-    assert 'exec node \\"$AIFY_BRIDGE_DIR/doctor.js\\"' in text
+    alias = text[text.index('DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"') :]
+    alias = alias[:alias.index('chmod +x "$DOCTOR_PATH"')]
+    assert 'exec node \\"$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")\\"' in alias
+    assert '} > "$DOCTOR_PATH"' in alias
 
 
 def test_the_installer_tells_the_operator_the_preferred_name_first():
