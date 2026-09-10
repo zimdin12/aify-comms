@@ -7,6 +7,10 @@ components and verify the result. Each repository installs its own product. aify
 installer never installs either external product. This follows the
 [repo-owner contract](superpowers/plans/2026-09-07-herdr-as-the-pane-surface.md#installing-it-every-repo-installs-its-own-and-points-at-the-next).
 
+## Optional Herdr scope
+
+The available `aify-env herdr` adapter attaches to existing workers only. It does not launch an env-first Herdr workspace, populate native available-agent rows, automatically synchronize worker workspaces, or restore aify launches after reboot. Full integration is on hold while plugin-style and other extension options are evaluated; installing the adapter does not complete it. Read [aify-env's current Herdr contract](https://github.com/zimdin12/aify-env/blob/main/docs/HERDR.md) before offering this option.
+
 ## Start with the selected repository's instructions
 
 An older installed skill is not the update authority. For an existing installation, including

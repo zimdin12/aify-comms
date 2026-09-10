@@ -90,12 +90,11 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
-**Launch with the agent id BEFORE registering** — `claude-aify --aify-agent <id>` (or
-`codex-aify`/`hermes-aify`). The turn hooks gate on `AIFY_AGENT_ID`, which the wrapper sets at
-launch and which cannot be added to a running process. Registering from a plain `claude` succeeds
-but leaves the agent broken: no turn signals (**status latches**) and no session handle (no
-"Continue in CLI"). `comms_register` warns; the only fix is relaunching. A healthy resident has a
-non-empty `sessionHandle` in `comms_agent_info`.
+For a new resident, use `claude-aify --aify-agent <id>` or the runtime's wrapper.
+`comms_register` warns about absent/unresolved or mismatched MCP launch identity, not proven
+hook failure or a missing handle. Check the runtime and MCP environments separately before
+choosing a repair. Native `sessionHandle` and live delivery are separate checks; Hermes also
+needs a usable gateway binding. A warning alone does not establish a need to relaunch.
 
 Do not emulate registration with raw `POST /api/v1/agents` from a shell or
 Node snippet. Raw HTTP can write metadata such as `runtimeConfig.gatewayUrl`,

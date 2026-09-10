@@ -193,6 +193,34 @@ test("a real bridge-only commit is not selected by the real pathspec", () => {
   );
 });
 
+test("real Git pathspec separates service runtime from shipped installer and test cargo", () => {
+  const gitFiles = (...spec) => execFileSync("git", ["ls-files", "-z", "--", ...spec], {
+    cwd: REPO, encoding: "utf8",
+  }).split("\0").filter(Boolean);
+  const tracked = new Set(gitFiles());
+  const selected = new Set(gitFiles(
+    ...SERVICE_RUNTIME_PATHS,
+    ...SERVICE_RUNTIME_EXCLUDE_PATHS.map((p) => `:(exclude)${p}`),
+  ));
+  // scripts/ is shipped for operator install/inventory/measurement commands, not invoked
+  // by uvicorn or the SSE transport. Do not turn COPY coverage into a blanket rebuild trigger.
+  const cargo = [
+    ...gitFiles("scripts"), "install.sh", "docs/INSTALL_ONBOARDING.md",
+    "service/tests/test_service_runtime_boundary.py",
+    "service/new_dashboard/api-client.test.mjs", "mcp/stdio/register-identity.js",
+  ];
+  assert.ok(cargo.some((p) => p === "scripts/install-state.sh"));
+  assert.ok(cargo.some((p) => p === "scripts/tests/test_install_state.py"));
+  for (const file of cargo) {
+    assert.ok(tracked.has(file), `${file} must exist or this exclusion proves nothing`);
+    assert.ok(!selected.has(file), `${file} is not executed by the running service`);
+  }
+  for (const file of ["service/main.py", "mcp/sse_server.py", "Dockerfile"]) {
+    assert.ok(tracked.has(file), `${file} must exist as a positive control`);
+    assert.ok(selected.has(file), `${file} MUST remain a service rebuild trigger`);
+  }
+});
+
 test("test files under a runtime path are excluded", () => {
   // Found by this very fix flagging its own commit: adding service/tests/... demanded a rebuild.
   // Nothing in the image runs pytest, so a test-only commit cannot change what the service does.

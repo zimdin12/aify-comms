@@ -276,6 +276,9 @@ export const SERVICE_IMAGE_NON_RUNTIME_PATHS = {
     + "mcp/sse_server.py",
   ".agents": "Codex skill mirror cargo; referenced only by health/info text and tests",
   "install.sh": "operator installer shipped for convenience; never executed by the service",
+  "scripts": "operator installer/inventory helpers, build stamping and development probes; "
+    + "install.sh and scripts/install-state.sh call them, but service.main and the SSE transport "
+    + "do not; scripts/tests and browser-paint are test/measurement cargo",
 };
 
 /**

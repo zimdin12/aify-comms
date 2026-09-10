@@ -5,11 +5,10 @@
 // "dependency" of the dispatch tool group, because the group reads them. Fifty-two call sites say they
 // are not the group's; they are a property of the process, fixed the moment it started.
 //
-// WHY IT IS FIXED AT START, WHICH IS THE WHOLE POINT OF THE MODULE. `AIFY_AGENT_ID` is exported by the
-// `*-aify` wrapper at launch, and environment variables cannot be injected into a running process. A
-// session that starts as a plain `claude` and only then calls `comms_register` can never acquire one —
-// see `register-identity.js`, which exists entirely to warn about that case. So there is no "refresh"
-// here and there must not be one: a module-load read is the correct shape, not a limitation.
+// WHY IT IS FIXED AT START. This is the identity available when the MCP bridge loads,
+// not a claim about the parent runtime's environment. Registration can learn an explicit
+// agent id without changing this launch-time snapshot. See `register-identity.js` for the
+// advisory comparison; diagnose parent hooks and live delivery separately.
 //
 // THE PLACEHOLDER CASE IS A REAL FAILURE, NOT DEFENSIVENESS. A wrapper or MCP config that writes
 // `${AIFY_AGENT_ID}` without expanding it hands this process the literal seven-character string

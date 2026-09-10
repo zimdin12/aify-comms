@@ -41,12 +41,7 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 
 //: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
-  "aify-comms/SKILL.md": 15_086,  // LOWERED AGAIN 2026-09-03, and the reason is that the
-  // warning below became unnecessary. 15_103 on 2026-09-02 held a caution that `comms_envs`
-  // reporting `online` did not mean a spawn could run -- prose compensating for a tool that
-  // answered from the wrong field. The tool now reports the claim answer itself, so the skill
-  // says how to READ it instead of warning about it, in fewer characters. Fixing the
-  // instrument is the cheapest way to shrink a skill: the guidance it needed goes away.
+  "aify-comms/SKILL.md": 15_014,  // Lowered after narrowing the resident identity diagnostic guidance.
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
   // RAISED 2026-09-07 -- a DECISION, argued here as this file requires. An independent docs

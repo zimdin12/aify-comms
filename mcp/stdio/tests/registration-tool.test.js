@@ -45,7 +45,7 @@ function register({ remote = true, status = 200, preArm = false, args = {}, env 
       let body = "";
       req.on("data", (c) => { body += c; });
       req.on("end", () => {
-        requests.push({ method: req.method, url: req.url });
+        requests.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null });
         if (req.method === "POST" && req.url.endsWith("/agents")) {
           res.writeHead(${status}, { "content-type": "application/json" });
           return res.end(JSON.stringify({
@@ -95,7 +95,8 @@ function register({ remote = true, status = 200, preArm = false, args = {}, env 
         ...sealedChildEnv(),
         AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "",
         CLAUDE_MCP_MESSAGES_DIR: store,
-        AIFY_AGENT_ID: "reg-test-agent",
+        AIFY_AGENT_ID: "reg-test-agent", AIFY_COMMS_AGENT_ID: "",
+        AIFY_SESSION_HANDLE: "", AIFY_SESSION_MODE: "resident",
         // EXPLICIT, because it decides whether the detector can arm at all. `__runtimeAdapter` is resolved
         // from `AIFY_RUNTIME` at module load, and `armClaudeTurnEndDetector` refuses unless the adapter is
         // claude-code. The first version of these tests inherited the ambient value — they passed only
@@ -133,6 +134,36 @@ test("A SUCCESSFUL REMOTE REGISTRATION STARTS THE DISPATCH LOOP", () => {
   assert.equal(r.error, null, `registration should succeed: ${r.error}`);
   assert.equal(r.loopCalls, 1, "a successful remote registration must ask for the dispatch loop, exactly once");
   assert.match(r.text, /Registered "reg-test-agent"/, "…and must really have registered, not short-circuited");
+});
+
+for (const [label, envAgentId] of [["absent", undefined], ["placeholder", "${AIFY_AGENT_ID}"], ["mismatch", "other-agent"]]) {
+  test(`Hermes explicit native handle survives ${label} identity with evidence-scoped warning`, () => {
+    const sessionHandle = "20260907_192520_2d35dd";
+    const r = register({
+      args: { runtime: "hermes", sessionMode: "resident", sessionHandle },
+      env: { AIFY_RUNTIME: "hermes", AIFY_AGENT_ID: envAgentId },
+    });
+    assert.equal(r.error, null);
+    const post = r.requests.find((q) => q.method === "POST" && q.url === "/api/v1/agents");
+    assert.ok(post, "must exercise real registration, not only the warning helper");
+    assert.equal(post.body.sessionHandle, sessionHandle);
+    assert.equal(post.body.agentId, "reg-test-agent");
+    assert.equal(post.body.sessionMode, "resident");
+    assert.equal(post.body.runtime, "hermes");
+    assert.equal(r.loopCalls, 1);
+    assert.match(r.text, /Session: 20260907_192520_2d35dd/);
+    assert.match(r.text, /WARNING.*MCP bridge/);
+    assert.doesNotMatch(r.text, /\$\{|no session handle is captured|status will latch|cannot report turns|will receive none/);
+    if (label === "mismatch") assert.match(r.text, /"other-agent".*not "reg-test-agent"/);
+    else assert.match(r.text, /no usable.*AIFY_AGENT_ID/);
+  });
+}
+
+test("registration warning uses the canonical launch identity alias", () => {
+  const r = register({ env: { AIFY_AGENT_ID: "", AIFY_COMMS_AGENT_ID: "reg-test-agent" } });
+  assert.equal(r.error, null);
+  assert.match(r.text, /Registered "reg-test-agent"/);
+  assert.doesNotMatch(r.text, /WARNING/);
 });
 
 test("A FAILED REMOTE REGISTRATION DOES NOT START IT", () => {

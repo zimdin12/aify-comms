@@ -41,7 +41,7 @@ import { ACTIVE_RUNS, REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
 import { armClaudeTurnEndDetector, isClaudeTurnDetectorArmed } from "./claude-turn-detector-state.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
-import { IS_MANAGED_DISPATCH } from "./launch-identity.mjs";
+import { AIFY_AGENT_ID, IS_MANAGED_DISPATCH } from "./launch-identity.mjs";
 import { reconcileLocalActiveRun } from "./local-active-run.mjs";
 import { INBOX_DIR, readAgents, writeAgents } from "./local-store.mjs";
 import { fillSessionHandleFromAdapter } from "./register-helpers.js";
@@ -330,12 +330,11 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
             text:
               `Registered "${r.agentId}" (${resolvedSessionMode}, role: ${r.role}, runtime: ${resolvedRuntime}, machine: ${resolvedMachineId}).` +
               (resolvedSessionHandle ? ` Session: ${resolvedSessionHandle}` : "") +
-              // A resident that registered from a session with no AIFY_AGENT_ID is registered but
-              // structurally unable to report turns — say so HERE, the one moment the agent is
-              // listening. See register-identity.js for why it cannot be fixed after launch.
+              // Compare the sanitized launch identity, not raw MCP template values.
+              // This advisory does not diagnose the parent's hooks or delivery binding.
               residentIdentityWarning({
                 registeredAgentId: r.agentId,
-                envAgentId: process.env.AIFY_AGENT_ID,
+                envAgentId: AIFY_AGENT_ID,
                 sessionMode: resolvedSessionMode,
                 runtime: resolvedRuntime,
               }) +

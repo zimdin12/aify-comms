@@ -1320,16 +1320,17 @@ an indicator to compensate for it.
 session whose `AIFY_AGENT_ID` is missing, or differs from the id being registered. See
 `mcp/stdio/register-identity.js`.
 
-**Why.** Every turn hook is gated on `AIFY_AGENT_ID`, which the `*-aify` wrapper exports at LAUNCH.
-An environment variable cannot be injected into a running process, so a session that starts as a
-plain `claude` and only then registers can NEVER acquire it. The agent registers successfully and is
-structurally broken: no session handle is bound (empty `sessionHandle`, hence no "Continue in CLI"
-command) and no turn signals are reported, so its status latches with nothing alive able to clear it.
-Registration reported success, so nothing told the agent. Same state-that-lies class the status work
-exists to remove.
+**Diagnostic scope, corrected 2026-09-10.** Compare the sanitized bridge launch identity,
+including its `AIFY_COMMS_AGENT_ID` alias. An unresolved template is unavailable, never an
+identity to register under. A concrete different identity still warrants a warning.
 
-The BRIDGE can detect what the server cannot: it is a child of the session, so
-`process.env.AIFY_AGENT_ID` is exactly the identity the hooks will use, or its absence.
+The MCP child's environment does not establish the parent's hook environment. In particular,
+Hermes can filter and configure its MCP environment separately. Registration preserves an explicit
+native handle and can start registered-agent heartbeat paths independently of launch identity.
+The warning therefore does not prove a missing handle, latched status, or a need to relaunch.
+Check identity propagation, turn reporting and delivery binding separately before choosing a repair.
+For resident Hermes, the legacy `hermes-missing-handle` wake label checks for a usable gateway URL,
+not a missing native handle. This diagnostic correction changes neither predicate nor lifecycle.
 
 **Scope:** residents only. Managed sessions get their identity from the spawner and their turn
 signals from the runtime host, not shell hooks. A warning, not a refusal — anonymous
