@@ -282,6 +282,17 @@ your file (`79b878c4`). And two files on DIFFERENT workers touching one external
 `~/.claude.json`, the service registry, a fixed port — is the genuine hazard `--dist loadfile` does
 not cover; a test that reaches outside its own sandbox needs pinning, not a retry.
 
+**AND ONE GATE THAT IS NOT IN ANY OF THE FIVE, because it needs a browser.**
+`service/new_dashboard/fixtures/messenger-browser.mjs` is the only thing that exercises the REAL
+message sanitizer: DOMPurify needs a DOM and reports `isSupported === false` under `node --test`, so
+every Node assertion about `richMessageHtml` exercises its no-DOM ESCAPE FALLBACK -- the branch that
+does not sanitize -- while reading as coverage. Nothing ran that file until 2026-09-11, when it was
+served and driven in Chrome 152: **15 of 15 passed**, including nine XSS vectors, and the green was
+negative-controlled by flipping `ALLOW_DATA_ATTR`, which took it to 14 of 15 naming the exact attack
+(`unsafe attr data-chat-view`). `message-format.test.mjs` gates the POLICY every run; that fixture
+proves the policy is enforced, and it runs when somebody remembers. `fixtures/README.md` has the
+procedure and the trap that wastes the first ten minutes (`.mjs` served as `text/plain`).
+
 **AND THE TWO SIBLING REPOS, because a change here can redden them and a change there can redden this
 one.** They are not optional extras:
 `the-credential-ref-we-write-is-one-aify-env-resolves.test.js` in the BRIDGE suite starts a real

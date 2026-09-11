@@ -19,7 +19,9 @@ test('richMessageHtml accepts nullish and non-string message values', () => {
 //
 // In Node `DOMPurify.isSupported` is false, so every assertion about `richMessageHtml` above
 // exercises the ESCAPE FALLBACK — the branch that never consults the policy. Real sanitization lives
-// in `fixtures/messenger-browser.mjs`, which NO suite runs. So the config is what this file can
+// in `fixtures/messenger-browser.mjs`, which no suite runs -- but which WAS run: 15/15 in Chrome 152
+// on 2026-09-11, and negative-controlled by flipping ALLOW_DATA_ATTR, which took it to 14/15 naming
+// `unsafe attr data-chat-view`. See `fixtures/README.md` for the procedure. So the config is what this file can
 // hold, and a loosened config is the regression that would otherwise reach the operator's dashboard
 // with every gate green.
 
