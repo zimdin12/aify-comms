@@ -19,6 +19,7 @@
 // Bodies byte-identical to what stood in `chat.js`.
 import { esc, relTime } from './util.js';
 import { resolveStatus } from './status.js';
+import { richMessageHtml } from './message-format.mjs';
 
 // Chat overview shown when no conversation is open (re-click an open chat to return here).
 // EXPORTED, and it was not in `chat.js` — the one declared substitution in this move. It was
@@ -140,12 +141,12 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   // The ⋯ detail lookup only searches the DM store, so it's dead on channel rows — DMs only.
   const detail = !isChannel ? `<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>` : '';
   const actions = `${runChip}${reply}${readToggle}${unsendBtn}${detail}`;
-  return `<article class="chat-msg${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
+  return `<article class="chat-msg${m.read === false ? ' chat-msg-unread' : ''}${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
     <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
       <span class="chat-msg-badges">${badges}${actions}</span>
     </div>
     ${subjectIsEchoOfBody(m.subject, m.body || m.preview || '') ? '' : (m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : '')}
-    <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
+    <div class="chat-msg-body">${richMessageHtml(m.body || m.preview || '')}</div>
     <small class="chat-msg-time">${(() => { const t = relTime(m.timestamp || m.createdAt); return t ? esc(t) + ' ago' : ''; })()}</small>
   </article>`;
 }

@@ -41,6 +41,8 @@ describe live behaviour, and none was reachable from any entry point.
 | [`PHASE8_STATUS.md`](PHASE8_STATUS.md) | Spawn delegation as it stands, including the three defects the first real spawn exposed. Read before touching spawn or terminals. |
 | [`V063_ACCEPTANCE_LEDGER.md`](V063_ACCEPTANCE_LEDGER.md) | What v0.6.3 owes, one row per OBLIGATION: required behaviour, the exact assertion, and a disposition. Includes what is UNREVIEWED and what is an open operator decision. Read before arguing the release is ready. |
 | [`BRIDGE_SETUP.md`](BRIDGE_SETUP.md) | Setting up the environment bridge. |
+| [`HTTPS.md`](HTTPS.md) | Current HTTPS routing, isolated validation, certificate trust requirements and unverified deployment paths. |
+| [`INSTALL_ONBOARDING.md`](INSTALL_ONBOARDING.md) | Agent-led installation and updates across the owning repositories, optional components and approval-bound verification. |
 | [`HERMES_INTEGRATION.md`](HERMES_INTEGRATION.md) · [`HERMES_AIFY_PLUGIN.md`](HERMES_AIFY_PLUGIN.md) | The hermes runtime and its plugin. |
 | [`SKILLS.md`](SKILLS.md) | What the skill trees are and where they install to. |
 | [`TEAMWORK_STRATEGY.md`](TEAMWORK_STRATEGY.md) | How a multi-agent team is meant to work here. |

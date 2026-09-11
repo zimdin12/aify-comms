@@ -324,8 +324,8 @@ test("A SUCCESSFUL SWITCH APPLIES THE SERVER'S ANSWER IMMEDIATELY, not on the ne
   // that is to click it again.
   const h = withActions({ confirm: true });
   try {
-    // `switchAgentSessionMode` calls fetch DIRECTLY and reads `res.json()` — it does not go through
-    // `api()`, which reads `.text()`. A fake that only offers `text` makes the body silently null.
+    // The mode switch reads the authenticated Response with `res.json()`, while `api()` reads
+    // `.text()`. Supply both interfaces so this fake models the browser Response.
     const answer = { mode: "managed", agent: { id: "coder", sessionMode: "managed", status: "available" } };
     globalThis.fetch = async () => ({
       ok: true, status: 200, statusText: "OK",

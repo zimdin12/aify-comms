@@ -74,6 +74,7 @@ export function mergeById(existing, incoming) {
 export class MessageHistory {
   #rows = [];
   #exhausted = false;
+  #complete = false;
   #loading = false;
   #fetchPage;
 
@@ -86,6 +87,7 @@ export class MessageHistory {
 
   /** True once paging has reached the beginning of history — the caller stops asking. */
   get exhausted() { return this.#exhausted; }
+  get complete() { return this.#complete; }
 
   /** Everything the timeline may show: the live window first, then what has been paged in. */
   combined(live) { return mergeById(live, this.#rows); }
@@ -100,6 +102,7 @@ export class MessageHistory {
   reset() {
     this.#rows = [];
     this.#exhausted = false;
+    this.#complete = false;
   }
 
   /**
@@ -140,7 +143,8 @@ export class MessageHistory {
       // rows already held would otherwise ask for the same page forever, so no progress means stop.
       // Stopping early is the safe failure here -- the operator sees a "load older" that does nothing
       // rather than a tab spinning on a loop it cannot leave.
-      if (!page?.truncated || added === 0) this.#exhausted = true;
+      this.#complete = page?.truncated === false;
+      if (this.#complete || added === 0) this.#exhausted = true;
       return added;
     } finally {
       this.#loading = false;

@@ -96,7 +96,8 @@ test("A PAGE OF PURE OVERLAP ENDS THE LOOP instead of repeating forever", async 
     return { messages: held, truncated: true };
   });
   await history.loadOlder(held);
-  assert.equal(history.exhausted, true, "no new messages arrived, so there is nothing further back");
+  assert.equal(history.exhausted, true, "a stalled cursor stops further requests");
+  assert.equal(history.complete, false, "a truncated stalled cursor cannot prove the beginning");
   await history.loadOlder(held);
   assert.equal(calls, 1, "it asked again for a page it had already been given");
 });

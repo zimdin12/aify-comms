@@ -36,8 +36,7 @@ export function openChatConversation(chatOpen, chatController, markConversationR
     chatController.close();
   } else {
     chatController.open(key);
-    // Opening a DM marks its messages read — UNLESS Peek mode is on (watch without marking).
-    if (!state.chat.peek && key.startsWith('dm:')) markConversationRead(key.slice('dm:'.length), { quiet: true });
+    // The controller acknowledges only visible Messenger rows after positioning.
   }
 }
 

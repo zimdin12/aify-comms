@@ -10,7 +10,7 @@
 // set `multipart/form-data` with its own boundary. See api-client.test.mjs, which pins that as an
 // invariant rather than an accident.
 
-import { api, apiBase } from './api-client.mjs';
+import { api, apiBase, apiResponse } from './api-client.mjs';
 import { noteSliceFailure } from './refresh-status.mjs';
 import { persistChatDrafts } from './chat-prefs.mjs';
 import { state } from './state.mjs';
@@ -28,6 +28,13 @@ export async function loadFiles() {
 export function renderFiles() {
   const host = byId('files-list');
   if (!host) return;
+  // Replace the handler on rerender, rather than stacking download listeners.
+  host.onclick = (event) => {
+    const button = event.target.closest('[data-file-download]');
+    if (!button) return;
+    event.stopPropagation();
+    return downloadSharedFile(button.dataset.fileDownload);
+  };
   const files = filtered(state.files, ['name', 'from', 'description']);
   host.innerHTML = files.length ? files.map((f) => `
     <article class="file-row" data-kind="file" data-id="${esc(f.name)}">
@@ -37,10 +44,31 @@ export function renderFiles() {
         <small>${esc(f.from || 'unknown')} · ${esc(fileSizeLabel(f.size))}${f.sharedAt ? ' · ' + esc(relTime(f.sharedAt)) + ' ago' : ''}</small>
       </div>
       <div class="file-actions">
-        <a class="ghost" href="${apiBase}/shared/${encodeURIComponent(f.name)}" target="_blank" rel="noreferrer">Download</a>
+        <button class="ghost" data-file-download="${esc(f.name)}">Download</button>
         <button class="ghost danger" data-file-delete="${esc(f.name)}">Delete</button>
       </div>
     </article>`).join('') : '<div class="empty-state"><span class="empty-icon">📂</span><strong>No shared files</strong><p>Upload an artifact above, or share one from an agent with comms_share.</p></div>';
+}
+export async function downloadSharedFile(name) {
+  let url;
+  let anchor;
+  try {
+    // Never follow a redirect carrying either service credential to another origin.
+    const response = await apiResponse(`/shared/${encodeURIComponent(name)}`, { headers: {}, redirect: 'error' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    url = URL.createObjectURL(await response.blob());
+    anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+  } catch (err) {
+    toast(`Download failed: ${err?.message || err}`, 'error');
+  } finally {
+    anchor?.remove();
+    // Give the browser time to consume the URL before releasing its bytes.
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 export async function uploadSharedFile() {
   const input = byId('files-upload-input');
@@ -108,7 +136,7 @@ export async function uploadPastedImage(blob, targetEl) {
   form.append('name', name);
   form.append('description', 'Pasted image from Dashboard Next');
   form.append('file', blob, name);
-  const response = await fetch(`${apiBase}/shared`, { method: 'POST', body: form });
+  const response = await apiResponse('/shared', { method: 'POST', body: form, headers: {} });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.ok === false) throw new Error(result.detail || result.error || 'Image upload failed');
   const link = `${apiBase}/shared/${encodeURIComponent(name)}`;
@@ -117,6 +145,7 @@ export async function uploadPastedImage(blob, targetEl) {
   targetEl.value = current ? `${current}${current.endsWith('\n') ? '' : '\n'}${ref}` : ref;
   targetEl.dispatchEvent(new Event('input', { bubbles: true }));
   targetEl.focus();
+  toast('Image link added. On protected services, opening shared links requires a separate service browser login. Use Files Download with your dashboard key.', 'warn');
 }
 
 // The delete button on a shared-file row, moved out of app.js's delegated click handler in v0.5.4. It

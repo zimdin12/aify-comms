@@ -58,6 +58,7 @@ test("updateStaticLinks points the legacy dashboard link at the same origin", ()
   withOrigin("http://host:8800", {}, (els) => {
     updateStaticLinks();
     assert.equal(els["legacy-dashboard-link"].href, "http://host:8800/api/v1/dashboard");
+    assert.match(els["legacy-dashboard-link"].textContent, /service browser login required/);
   });
 });
 

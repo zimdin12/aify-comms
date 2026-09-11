@@ -16,5 +16,9 @@ export function renderInstallSnippet() {
 
 export function updateStaticLinks() {
   const legacy = byId('legacy-dashboard-link');
-  if (legacy) legacy.href = `${apiOrigin}/api/v1/dashboard`;
+  if (legacy) {
+    legacy.href = `${apiOrigin}/api/v1/dashboard`;
+    legacy.textContent = 'Legacy dashboard (service browser login required when protected)';
+    legacy.title = 'Dashboard key login does not establish a service browser cookie. Authenticate separately on the service before opening this link.';
+  }
 }

@@ -6,9 +6,8 @@
 // which reads `location`/`localStorage`/`document` and would make this module, and everything importing
 // it, as unimportable as app.js.
 //
-// app.js keeps its own `apiBase` const unchanged for the four places that build a URL directly (download
-// links, the shared-file endpoints, the session-mode PATCH). This module does not own that constant; it
-// owns the REQUEST.
+// app.js keeps its own `apiBase` const. Direct download links need the URL; mutations use
+// this module, which owns authentication for both parsed data and raw Response callers.
 
 // EXPORTED AS A LIVE BINDING. Modules extracted from app.js that build a URL directly — a download link,
 // a multipart upload — need the base itself, not a wrapped request. An ESM import of a `let` reflects
@@ -55,7 +54,9 @@ export function setOperatorKey(key) {
   operatorKey = String(key || '');
 }
 
-export async function api(path, options = {}) {
+// Return the untouched Response for callers with status-specific workflows (409 consent).
+// Authentication and the 401 prompt still have exactly one owner.
+export async function apiResponse(path, options = {}) {
   // A CALLER'S HEADERS REPLACE THE DEFAULT — deliberately, and two tests pin it: `headers: {}` is how
   // file upload drops the JSON content-type, and a multipart POST carrying `application/json` does not
   // upload. My first version merged them and broke exactly that; the tests said so.
@@ -74,14 +75,15 @@ export async function api(path, options = {}) {
   const serviceKey = apiKeyHeader();
   if (serviceKey) Object.assign(headers, serviceKey);
   const response = await fetch(`${apiBase}${path}`, { headers, ...rest });
+  if (response.status === 401) ensureApiKeyPrompt();
+  return response;
+}
+
+export async function api(path, options = {}) {
+  const response = await apiResponse(path, options);
   const text = await response.text();
   const data = text ? JSON.parse(text) : {};
   if (!response.ok) {
-    // A 401 IS ANSWERABLE, so answer it rather than rendering "Invalid or missing API key" into a
-    // panel. Before this, a keyed service showed a dashboard that polled, failed and retried with
-    // no way for the operator to supply the key except by hand-editing the URL. The prompt mounts
-    // once however many requests fail together.
-    if (response.status === 401) ensureApiKeyPrompt();
     // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old
     // `data.detail` coerced that to "[object Object]". Flatten to readable text.
     let detail = data.error || data.detail || response.statusText;

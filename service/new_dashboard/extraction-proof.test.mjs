@@ -47,6 +47,8 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: Newest first, for the same reason the import undo runs in reverse: each entry finds the text the
 //: entry after it left.
 const CARRIER_EDITS = [
+  { now: ["import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, markVisibleRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';"], was: ["import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';"] },
+  { now: ["const chatController = createChatController({", "  state, byId, markVisibleRead,"], was: ["const chatController = createChatController({", "  state, byId,"] },
   {
     // The paging store is imported beside the modules the orchestrator already consumes.
     now: [
@@ -480,6 +482,45 @@ const EXTRACTIONS = [
         // two tests pin that a caller's `headers` REPLACE the default, because `headers: {}` is how a
         // multipart upload drops the JSON content-type. My first attempt merged them and broke upload.
         editedSince: [
+          // Auth transport moved into apiResponse; undo before the earlier declarations.
+          {
+            was: [
+              "  // A CALLER'S HEADERS REPLACE THE DEFAULT — deliberately, and two tests pin it: `headers: {}` is how",
+              "  // file upload drops the JSON content-type, and a multipart POST carrying `application/json` does not",
+              "  // upload. My first version merged them and broke exactly that; the tests said so.",
+              "  //",
+              "  // The operator key is attached AFTER, so it survives either shape without changing which",
+              "  // content-type a caller ends up with.",
+              "  const { headers: callerHeaders, ...rest } = options;",
+              "  const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };",
+              "  if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;",
+              "  // THE SERVICE KEY, AND A HEADER RATHER THAN THE COOKIE ON PURPOSE. This page is served from the",
+              "  // dashboard port and calls the API back on the service port, so every request here is",
+              "  // cross-origin -- and a cookie does not ride a cross-origin fetch unless credentialed CORS is on,",
+              "  // which `main.py` switches OFF whenever `CORS_ORIGINS` is `*`. See `api-key.mjs` for why leaving",
+              "  // it off is the right call. Attached AFTER the caller's headers for the same reason the operator",
+              "  // key is: so it survives a caller that replaced the defaults wholesale.",
+              "  const serviceKey = apiKeyHeader();",
+              "  if (serviceKey) Object.assign(headers, serviceKey);",
+              "  const response = await fetch(`${apiBase}${path}`, { headers, ...rest });",
+            ],
+            now: ["  const response = await apiResponse(path, options);"],
+          },
+          {
+            was: [
+              "  if (!response.ok) {",
+              "    // A 401 IS ANSWERABLE, so answer it rather than rendering \"Invalid or missing API key\" into a",
+              "    // panel. Before this, a keyed service showed a dashboard that polled, failed and retried with",
+              "    // no way for the operator to supply the key except by hand-editing the URL. The prompt mounts",
+              "    // once however many requests fail together.",
+              "    if (response.status === 401) ensureApiKeyPrompt();",
+              "    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old",
+            ],
+            now: [
+              "  if (!response.ok) {",
+              "    // FastAPI validation errors return `detail` as an array of {loc,msg,...}; the old",
+            ],
+          },
           {
             was: [
               "  const response = await fetch(`${apiBase}${path}`, {",
@@ -622,12 +663,43 @@ const EXTRACTIONS = [
           ],
         }],
       },
-      { name: "renderFiles", at: 310, marker: "// renderFiles moved to ./shared-files.mjs in v0.5.4." },
+      { name: "renderFiles", at: 310, marker: "// renderFiles moved to ./shared-files.mjs in v0.5.4.",
+        editedSince: [
+          {
+            "was": [],
+            "now": [
+              "  // Replace the handler on rerender, rather than stacking download listeners.",
+              "  host.onclick = (event) => {",
+              "    const button = event.target.closest('[data-file-download]');",
+              "    if (!button) return;",
+              "    event.stopPropagation();",
+              "    return downloadSharedFile(button.dataset.fileDownload);",
+              "  };"
+            ]
+          },
+          {
+            "was": [
+              "        <a class=\"ghost\" href=\"${apiBase}/shared/${encodeURIComponent(f.name)}\" target=\"_blank\" rel=\"noreferrer\">Download</a>"
+            ],
+            "now": [
+              "        <button class=\"ghost\" data-file-download=\"${esc(f.name)}\">Download</button>"
+            ]
+          }
+        ]
+      },
       { name: "uploadSharedFile", at: 327, marker: "// uploadSharedFile moved to ./shared-files.mjs in v0.5.4." },
       { name: "attachChatFile", at: 353, marker: "// attachChatFile moved to ./shared-files.mjs in v0.5.4." },
       { name: "deleteSharedFile", at: 376, marker: "// deleteSharedFile moved to ./shared-files.mjs in v0.5.4." },
       { name: "pastedImageName", at: 4169, marker: "// pastedImageName moved to ./shared-files.mjs in v0.5.4." },
-      { name: "uploadPastedImage", at: 4174, marker: "// uploadPastedImage moved to ./shared-files.mjs in v0.5.4." },
+      { name: "uploadPastedImage", at: 4174, marker: "// uploadPastedImage moved to ./shared-files.mjs in v0.5.4.",
+        editedSince: [
+          {
+            was: ["  const response = await fetch(`${apiBase}/shared`, { method: 'POST', body: form });"],
+            now: ["  const response = await apiResponse('/shared', { method: 'POST', body: form, headers: {} });"],
+          },
+          { was: [], now: ["  toast('Image link added. On protected services, opening shared links requires a separate service browser login. Use Files Download with your dashboard key.', 'warn');"] },
+        ],
+      },
     ],
   },
   {
@@ -1505,7 +1577,7 @@ const EXTRACTIONS = [
     module: "chat-prefs.mjs",
     importLine: "import { persistChatDrafts, persistChatPrefs, syncChatChips } from './chat-prefs.mjs';",
     items: [
-      { name: "persistChatPrefs", at: 4803, marker: "// persistChatPrefs moved to ./chat-prefs.mjs in v0.5.4." },
+      { name: "persistChatPrefs", editedSince: [{ now: ["      sortMode: state.chat.sortMode, compact: state.chat.compact, peek: state.chat.peek, jumpUnread: !!state.chat.jumpUnread,"], was: ["      sortMode: state.chat.sortMode, compact: state.chat.compact, peek: state.chat.peek,"] }], at: 4803, marker: "// persistChatPrefs moved to ./chat-prefs.mjs in v0.5.4." },
       { name: "syncChatChips", at: 4815, marker: "// syncChatChips moved to ./chat-prefs.mjs in v0.5.4." },
       { name: "persistChatDrafts", at: 4907, marker: "// persistChatDrafts moved to ./chat-prefs.mjs in v0.5.4." },
     ],
@@ -1622,6 +1694,7 @@ const EXTRACTIONS = [
       },
       {
         name: "openChatConversation",
+        editedSince: [{ now: ["      // The controller acknowledges only visible Messenger rows after positioning."], was: ["      // Opening a DM marks its messages read \u2014 UNLESS Peek mode is on (watch without marking).", "      if (!state.chat.peek && key.startsWith('dm:')) markConversationRead(key.slice('dm:'.length), { quiet: true });"] }],
         at: 4295,
         marker: "    openChatConversation(chatOpen, chatController, markConversationRead);",
         wrapper: {
@@ -2217,7 +2290,22 @@ const EXTRACTIONS = [
     importLine: "import { renderInstallSnippet, updateStaticLinks } from './static-links.mjs';",
     items: [
       { name: "renderInstallSnippet", at: 36, marker: "// renderInstallSnippet moved to ./static-links.mjs in v0.5.4." },
-      { name: "updateStaticLinks", at: 4231, marker: "// updateStaticLinks moved to ./static-links.mjs in v0.5.4." },
+      { name: "updateStaticLinks", at: 4231, marker: "// updateStaticLinks moved to ./static-links.mjs in v0.5.4.",
+        editedSince: [
+          {
+            "was": [
+              "  if (legacy) legacy.href = `${apiOrigin}/api/v1/dashboard`;"
+            ],
+            "now": [
+              "  if (legacy) {",
+              "    legacy.href = `${apiOrigin}/api/v1/dashboard`;",
+              "    legacy.textContent = 'Legacy dashboard (service browser login required when protected)';",
+              "    legacy.title = 'Dashboard key login does not establish a service browser cookie. Authenticate separately on the service before opening this link.';",
+              "  }"
+            ]
+          }
+        ]
+      },
     ],
   },
   {
@@ -3389,6 +3477,14 @@ const EXTRACTIONS = [
         marker: "// switchAgentSessionMode moved to ./agent-session-actions.mjs in v0.5.4.",
         editedSince: [
           {
+            was: ["  const url = `${apiBase}/agents/${encodeURIComponent(agentId)}/session-mode`;"],
+            now: ["  const path = `/agents/${encodeURIComponent(agentId)}/session-mode`;"],
+          },
+          {
+            was: ["    res = await fetch(url, {"],
+            now: ["    res = await apiResponse(path, {"],
+          },
+          {
             was: [
               "  state.sessions.forEach((session) => {",
               "    if (sessionAgentId(session) === String(agentId)) session.sessionMode = updatedMode;",
@@ -3614,6 +3710,7 @@ const EXTRACTIONS = [
       },
       {
         name: "openAgentChat",
+        editedSince: [{ now: ["  // The Messenger controller owns visibility-scoped automatic receipts."], was: ["  if (!state.chat.peek) markConversationRead(agentId, { quiet: true }); // respect Peek mode on deep-link opens too"] }],
         at: 4033,
         // `at` points at the first COMMENT line, not the declaration: 1 lines of prose
         // moved with it, and `leading` restores them FROM THE MODULE so they are byte-checked too.
@@ -4225,6 +4322,7 @@ const EXTRACTIONS = [
         // and a title that never changed. DE-INDENTED by the wrapper's two spaces, because
         // undoEdits runs AFTER unwrapBody.
         editedSince: [
+          { now: ["  state.chat.peek = !!p.peek;", "  state.chat.jumpUnread = p.jumpUnread === true;"], was: ["  state.chat.peek = !!p.peek;"] },
           {
             was: [
               "try {",

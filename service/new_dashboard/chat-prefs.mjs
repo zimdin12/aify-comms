@@ -26,7 +26,7 @@ export function persistChatPrefs() {
       liveOnly: state.chat.liveOnly, openOnly: state.chat.openOnly,
       workingUp: state.chat.workingUp, unreadOnly: state.chat.unreadOnly,
       scope: state.chat.scope, statusFilter: [...(state.chat.statusFilter || [])],
-      sortMode: state.chat.sortMode, compact: state.chat.compact, peek: state.chat.peek,
+      sortMode: state.chat.sortMode, compact: state.chat.compact, peek: state.chat.peek, jumpUnread: !!state.chat.jumpUnread,
     }));
   } catch { /* ignore */ }
 }

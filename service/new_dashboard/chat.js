@@ -12,6 +12,7 @@ import { fleetPulseHtml } from './analytics.js';
 // a document — and it is the only caller of both.
 import { chatConversationItems, dmMessages, sortChronological } from './chat-select.mjs';
 import { anchoredScrollTop } from './message-history.mjs';
+import { createMessengerReading } from './messenger-reading.mjs';
 // The pure HTML builders left for `chat-render.mjs` in v0.5.4 — data in, string out, no app state and
 // no DOM. The controller below is their only caller here; `chat.test.mjs` imports them from their new
 // owner rather than through this module, so nothing re-exports them.
@@ -43,6 +44,7 @@ export function createChatController(deps) {
   // at the OLDEST scrollback (2026-07-06 fix follow-up). Poll re-renders still
   // use the gentler follow-bottom heuristic so we never yank someone reading up.
   let forceScrollBottom = false;
+  const reading = createMessengerReading({ state, byId, history, render, markVisibleRead: deps.markVisibleRead });
 
   function renderRail() {
     const host = byId('chat-rail-list');
@@ -110,6 +112,7 @@ export function createChatController(deps) {
   }
 
   function renderConversation() {
+    reading.update();
     const titleEl = byId('chat-conv-title');
     const timeline = byId('chat-timeline');
     if (!timeline) return;
@@ -228,15 +231,16 @@ export function createChatController(deps) {
     // WHAT THE TOP OF THE TIMELINE SAYS while paging back. Only on DMs: channels load their own
     // newest-80 per channel, which is a per-conversation depth rather than a shared fleet window,
     // so they have nothing to page.
-    const olderBanner = (!isChannel && history && !msgFilter && allMsgs.length)
+    const olderBanner = (!isChannel && history && !msgFilter)
       ? (history.loading
           ? '<p class="chat-search-banner">Loading older messages…</p>'
-          : (history.exhausted ? '<p class="chat-search-banner">Beginning of this conversation.</p>' : ''))
+          : (history.complete ? '<p class="chat-search-banner">Beginning of this conversation.</p>' : history.exhausted ? '<p class="chat-search-banner">History cursor stopped. Older messages may remain.</p>' : ''))
       : '';
     const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
-    timeline.innerHTML = allMsgs.length
-      ? olderBanner + searchBanner + (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
-      : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages yet</strong><p>Send the first message below to start this conversation.</p></div>';
+    // A bounded global window can contain no rows for this peer. Recovery still belongs here.
+    timeline.innerHTML = (reading.notice ? `<p class="chat-search-banner${reading.failed ? ' chat-history-error' : ''}"${reading.failed ? ' role="alert"' : ''}>${esc(reading.notice)}${reading.failed ? ' <button type="button" data-messenger-retry>Retry oldest unread</button>' : ''}</p>` : '') + olderBanner + searchBanner + (allMsgs.length
+      ? (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
+      : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages loaded for this conversation</strong></div>');
     if (pinBottom || (nearBottom && !msgFilter)) {
       timeline.scrollTop = timeline.scrollHeight;
       // A forced pin (open/send) must land EXACTLY at the bottom. Setting scrollTop right after
@@ -256,15 +260,17 @@ export function createChatController(deps) {
       timeline.addEventListener('scroll', () => {
         // CHECKED AT FIRE TIME, never captured: this listener outlives the render that added it, so
         // the conversation on screen when it runs is not the one that wired it.
-        if (!String(state.chat.selected || '').startsWith('dm:')) return;
+        if (!reading.visible() || reading.jumping || reading.failed || state.chat.msgFilter) return;
         if (history.loading || history.exhausted) return;
         if (timeline.scrollTop > 120) return;
+        const selection = `${state.chat.identity}:${state.chat.selected}:${state.chat.view}`;
         const prevHeight = timeline.scrollHeight;
         const prevTop = timeline.scrollTop;
         // The banner has to appear straight away, or a slow page reads as a dead scroll.
         const inFlight = history.loadOlder(state.messages);
         render();
         inFlight.then((added) => {
+          if (selection !== `${state.chat.identity}:${state.chat.selected}:${state.chat.view}`) return;
           render();
           // Older messages are prepended ABOVE the reading position, so holding scrollTop would
           // teleport the operator backwards by exactly the height just inserted.

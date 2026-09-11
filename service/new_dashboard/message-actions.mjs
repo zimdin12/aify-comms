@@ -33,6 +33,17 @@ export function initMessageActions(deps) {
 }
 
 
+export async function markVisibleRead(messages, identity) {
+  // Keep the reader's pending keys owned until every sibling request has settled.
+  const results = await Promise.allSettled(messages.map(async (m) => {
+    if (String(m.to || m.targetAgentId || m.target_agent_id || '') !== identity) return false;
+    await api(`/messages/${encodeURIComponent(messageIdOf(m))}/read`, { method: 'POST', body: JSON.stringify({ agentId: identity, read: true }) });
+    m.read = true;
+    return true;
+  }));
+  return results.every(r => r.status === 'fulfilled' && r.value === true);
+}
+
 // WS-I1/I2: per-message read/unread, unsend, and mark-conversation-read. The recipient for a
 // read toggle is the viewing identity (POST /messages/{id}/read {agentId, read}).
 export async function markMessageRead(msgId, read) {

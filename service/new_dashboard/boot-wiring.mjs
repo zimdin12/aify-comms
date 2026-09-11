@@ -367,6 +367,7 @@ export function restorePersistedPreferences({ setPage }) {
     if (p.sortMode) state.chat.sortMode = p.sortMode;
     state.chat.compact = !!p.compact;
     state.chat.peek = !!p.peek;
+    state.chat.jumpUnread = p.jumpUnread === true;
     const so = byId('chat-sort'); if (so) so.value = state.chat.sortMode;
     syncChatChips();
   } catch { /* ignore */ }

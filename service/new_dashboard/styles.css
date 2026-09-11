@@ -302,7 +302,6 @@ small, .subtle { color: var(--muted); }
 .attention-strip .contract .preview { -webkit-line-clamp: 1; margin-top: 2px; }
 .attention-strip .contract-meta { margin-top: 2px; }
 .attention-strip .contract-actions { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; min-width: max-content; }
-.attention-strip .contract-actions button { padding: 5px 11px; font-size: .8em; }
 .band { padding: 12px; }
 .section-head {
   display: flex;
@@ -543,7 +542,6 @@ small, .subtle { color: var(--muted); }
 /* Keep the lifecycle actions a compact horizontal row (the base .contract-actions is a 1fr grid =
    full-width stacked; the old .runtime-card override made it flex — restore that for the bar). */
 .session-actions-bar .contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-.session-actions-bar .contract-actions button { padding: 6px 12px; font-size: .82em; min-height: 32px; }
 .contract { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; }
 /* Long workflow text must never break the card: clamp the preview + wrap unbreakable tokens,
    and keep the action column from squeezing the text into a thin sliver (operator: a long
@@ -559,7 +557,6 @@ small, .subtle { color: var(--muted); }
 .contract-actions, .run-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-content: start; }
 /* Session console header actions read as a compact wrapping row, not a full-width stack (WS-J). */
 .runtime-card .contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-.runtime-card .contract-actions button { padding: 6px 11px; font-size: .82em; }
 .contract-meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .runtime-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: stretch; }
 /* Env cards: equal height with the action row pinned to the bottom so side-by-side cards line
@@ -1236,7 +1233,7 @@ small, .subtle { color: var(--muted); }
 .chat-rail-list { flex: 1; overflow-y: auto; padding: 6px; }
 /* The partial-list hint: annotates the rail without taking a row from it. `margin-left: auto` on a
    block button does the alignment, so there is no wrapper element and no wrapper rule. */
-.chat-rail-why { margin-left: 6px; vertical-align: middle; width: 16px; height: 16px; padding: 0; line-height: 1; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; cursor: help; }
+.chat-rail-section .chat-rail-why { min-width: 16px; min-height: 16px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; flex: 0 0 16px; margin-left: 6px; vertical-align: middle; width: 16px; height: 16px; padding: 0; line-height: 1; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; cursor: help; }
 .chat-rail-why:hover, .chat-rail-why:focus-visible { color: var(--text); border-color: var(--muted); }
 .chat-rail-section { /* flex: the `?` sits ON this line, so a partial render costs no row */ display: flex; align-items: center; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .6px; color: var(--muted); padding: 10px 8px 4px; }
 .chat-rail-empty { padding: 4px 8px 8px; }
@@ -1323,6 +1320,11 @@ small, .subtle { color: var(--muted); }
 .msg-badge.woke { color: var(--green); border-color: rgba(84,197,139,.4); }
 .msg-badge.stored { color: var(--muted); }
 .chat-msg-subject { margin: 6px 0 4px; font-size: .92em; }
+.chat-msg-unread { border-left: 3px solid var(--accent); }
+.chat-msg-body pre { overflow-x: auto; padding: 10px; background: var(--bg); }
+.chat-msg-body p { margin: 0 0 .6em; }
+.chat-msg-body table { border-collapse: collapse; display: block; overflow-x: auto; }
+.chat-msg-body th, .chat-msg-body td { border: 1px solid var(--line); padding: 4px 8px; }
 .chat-msg-body { margin: 0; color: var(--soft); white-space: pre-wrap; line-height: 1.45; font-size: .9em; }
 .chat-msg-time { color: var(--muted); font-size: .72em; }
 .chat-conversation .composer { border-top: 1px solid var(--line-soft, var(--line)); padding: 11px; }
@@ -1346,7 +1348,6 @@ small, .subtle { color: var(--muted); }
 .chat-msg-search { flex: 0 1 180px; }
 .chat-conv-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; justify-content: flex-end; }
 .chat-members { font-size: .76em; color: var(--muted); }
-.chat-conv-actions button { padding: 4px 10px; font-size: .78em; }
 
 /* Shared Files page (Phase 1.4b). */
 .files-upload { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 8px 12px; align-items: end; }
@@ -1443,7 +1444,6 @@ small, .subtle { color: var(--muted); }
 .agent-edit-env { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px; margin: 4px 0 10px; display: flex; flex-direction: column; gap: 8px; }
 .agent-edit-env legend { font-size: var(--fs-sm); color: var(--muted); padding: 0 6px; }
 .agent-drawer-actions { display: flex; flex-wrap: wrap; gap: 7px; }
-.agent-drawer-actions button { padding: 6px 11px; font-size: .82em; }
 
 /* Help & Reference band (Slice 7 "Help" half) — links + quick-start + endpoint reference. */
 .help-band { margin-top: 14px; }
@@ -1519,7 +1519,6 @@ small, .subtle { color: var(--muted); }
    KPI grid had 8px and splits had 10px — three different gaps). One 12px gap everywhere. */
 #page-analytics > .band, #page-analytics > .split { margin-top: 12px; }
 #page-analytics > .metric-grid { margin-bottom: 0; }
-.analytics-range button { padding: 5px 12px; min-height: 32px; font-size: .82em; }
 .analytics-range button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: 750; }
 .sc { background: var(--panel-3); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 13px 16px; min-width: 0; box-shadow: var(--shadow-card); }
 .sc .n { font-size: 1.7em; font-weight: 750; color: var(--text); line-height: 1; } /* neutral — semantic tone via .sc.warn/.good/.bad; brand palette must not recolor all stats */
@@ -1772,6 +1771,7 @@ button.filter-hidden-note:focus-visible { color: var(--text); }
 .runs-search-field { flex: 1 1 180px; }
 .runs-search-field input { width: 100%; }
 .chat-msg-search { max-width: 200px; min-height: 34px; }
+.chat-history-error { position: sticky; top: 0; z-index: 2; }
 .chat-search-banner { color: var(--muted); font-size: .8em; margin: 0 0 8px; padding: 4px 8px; background: var(--panel-3); border-radius: var(--radius-control); }
 .filter-presets { display: inline-flex; gap: 3px; margin-right: 6px; }
 /* Match .session-filter-chip (the status chips beside these presets) so the whole row reads as one chip group. */

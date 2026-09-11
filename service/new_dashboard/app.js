@@ -76,7 +76,7 @@ import { handleRunInspectorControl, initRunInspector, loadMoreRunEvents, loadRun
 import { deleteSessionById, initAgentSessionActions, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';
 import { loadAnalytics, renderAnalyticsPage, renderUsagePools } from './analytics-page.mjs';
 import { closeWorkContract, initWorkLoopActions, loadContractsForState, remindWorkContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';
-import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
+import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, markVisibleRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
 import { initConsoleActions, openRunConsole, resyncActiveConsole, startConsoleForSession, stopConsoleTerminal } from './console-actions.mjs';
 import { dispatchClick, initClickDispatch } from './click-dispatch.mjs';
 import { dashboardNotifier, notificationsEnabled, toggleNotifications } from './notifications.mjs';
@@ -156,7 +156,7 @@ let _refreshQueued = false;
 
 // toggleFavorite moved to ./message-actions.mjs in v0.5.4.
 const chatController = createChatController({
-  state, byId,
+  state, byId, markVisibleRead,
   sendMessage: chatSendMessage,
   loadChannels: chatLoadChannels,
   refresh: () => refresh(),

@@ -79,7 +79,10 @@ const api = new CommsApi({
     seen.push({ owner: running, url: String(url), method: String((init && init.method) || 'GET'),
                 body: (init && init.body) ? String(init.body) : '',
                 headers: Object.fromEntries(Object.entries((init && init.headers) || {})) });
-    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+    // Only the served agents request gets the minimal roster its reader requires.
+    const body = init?.method === 'GET' && new URL(url).pathname === '/api/v1/agents'
+      ? { agents: {} } : {};
+    return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
   },
 });
 // SPREADS TO NOTHING, PRINTS AS THE PROBE, AND ANSWERS ANY PROPERTY THE PLUGIN DESTRUCTURES.

@@ -121,14 +121,15 @@ test("…but NOT while per-agent analytics is showing — that pane owns the sel
   });
 });
 
-test("opening a DM marks it read, and PEEK MODE suppresses exactly that", () => {
+test("opening a DM delegates receipts to the viewport, including Peek", () => {
   // Peek mode's entire purpose. If the mark-read call ignored it, peek would silently do nothing — and
   // the only way to notice is that unread badges keep clearing.
   const marked = [];
   const ctl = controller();
   withChat({ selected: "" }, () => {
     openChatConversation({ dataset: { chatOpen: "dm:bob" } }, ctl, (id, opts) => marked.push([id, opts]));
-    assert.deepEqual(marked, [["bob", { quiet: true }]], "the dm: prefix is stripped and it is quiet");
+    assert.deepEqual(marked, [], "selection must not bulk-read offscreen messages");
+    assert.deepEqual(ctl.names(), ["open"]);
   });
 
   marked.length = 0;

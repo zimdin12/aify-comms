@@ -53,9 +53,10 @@ const result = upsertService(existing, SERVICE_NAME, {
   // WHERE THE KEY FILE IS, when the installer stored one. `keyEnv` only reaches a process somebody
   // exported a variable into, and nothing on this host does that for aify-env -- which is why
   // enabling API_KEY made every advertisement 401 in silence. This is the other half: one basename
-  // that aify-env resolves under its own root. Empty when no credential was stored, and the writer
-  // omits the field entirely rather than recording an empty one.
-  credentialRef: String(process.env.CREDENTIAL_REF || "").trim(),
+  // that aify-env resolves under its own root. Absent or blank means no new reference was supplied,
+  // including an unavailable carrier on reinstall. Pass undefined to preserve the published ref;
+  // intentional clearing remains the writer API's explicit credentialRef: null, not an env blank.
+  credentialRef: String(process.env.CREDENTIAL_REF || "").trim() || undefined,
   mcp: [
     { name: "aify-comms", command: "node", args: [`${bridgeDir}/server.js`] },
     { name: "aify-comms-channel", command: "node", args: [`${bridgeDir}/claude-channel.js`] },

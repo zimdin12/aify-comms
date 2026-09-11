@@ -12,7 +12,7 @@
 // and run-inspector.mjs.
 
 import { openAgentDrawer } from './agent-drawer.mjs';
-import { api, apiBase } from './api-client.mjs';
+import { api, apiResponse } from './api-client.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { renderSessionRail, selectedSessionIds } from './session-rail.mjs';
 import { state } from './state.mjs';
@@ -40,10 +40,10 @@ export function initAgentSessionActions(deps) {
 
 export async function switchAgentSessionMode(agentId, targetMode, { force = false } = {}) {
   if (!agentId || !targetMode) return null;
-  const url = `${apiBase}/agents/${encodeURIComponent(agentId)}/session-mode`;
+  const path = `/agents/${encodeURIComponent(agentId)}/session-mode`;
   let res;
   try {
-    res = await fetch(url, {
+    res = await apiResponse(path, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode: targetMode, force, requestedBy: 'dashboard' }),
@@ -287,6 +287,6 @@ export function openAgentChat(agentId) {
   // "Message in Chat" must land on the messenger, not follow a stale open analytics panel.
   state.chat.analytics = { agent: '', data: null };
   chatController.open(`dm:${agentId}`);
-  if (!state.chat.peek) markConversationRead(agentId, { quiet: true }); // respect Peek mode on deep-link opens too
+  // The Messenger controller owns visibility-scoped automatic receipts.
   byId('chat-composer-body')?.focus();
 }
