@@ -29,14 +29,23 @@ if command -v curl >/dev/null 2>&1; then
   esac
 fi
 
+# THE FILTER IS A SUBSTRING AND THE SHELL DOES THE EXACT MATCH, deliberately. This asked docker for
+# `name=^/aify-comms-service$` -- the leading slash is the old container-name convention -- and on
+# Docker 29 that anchored form matches NOTHING, so this reported the service container ABSENT while
+# it was up and serving, with `health: healthy` printed on the same line. An inventory that denies a
+# running container is the state-that-lies shape this repo exists to catch, and it was invisible
+# because the only test of this block stubs docker away entirely and asserts `unknown`.
+#
+# Anchoring is a docker-version dialect; `grep -Fx` is not. Filtering loosely and comparing exactly
+# here is correct on both old and new daemons and stops this from turning on a flag we do not own.
 container=unknown
+service_container=aify-comms-service
 if command -v docker >/dev/null 2>&1; then
-  if running="$(docker ps --filter name=^/aify-comms-service$ --format '{{.Names}}' 2>/dev/null)"; then
-    if [ -n "$running" ]; then container=running
-    elif all="$(docker ps -a --filter name=^/aify-comms-service$ --format '{{.Names}}' 2>/dev/null)"; then
-      container=absent
-      [ -z "$all" ] || container=stopped
-    fi
+  if running="$(docker ps --filter "name=$service_container" --format '{{.Names}}' 2>/dev/null | grep -Fx "$service_container")" && [ -n "$running" ]; then
+    container=running
+  elif all="$(docker ps -a --filter "name=$service_container" --format '{{.Names}}' 2>/dev/null)"; then
+    container=absent
+    printf '%s\n' "$all" | grep -Fxq "$service_container" && container=stopped
   fi
 fi
 

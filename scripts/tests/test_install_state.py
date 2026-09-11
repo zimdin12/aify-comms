@@ -46,6 +46,58 @@ class InstallStateTests(unittest.TestCase):
     def state(self):
         return json.loads(self.run_script("install-state.sh", "--json").stdout)
 
+    def docker_like_real_docker(self, present_running=(), present_all=()):
+        """A docker stub that answers the way the REAL daemon answered when measured.
+
+        Grounded in an observation, not invented: on Docker 29.5.3 a `name=` filter matches the
+        container name WITHOUT a leading slash, so `^/aify-comms-service$` finds nothing while
+        `^aify-comms-service$` and a bare substring both find it. That difference is the whole bug,
+        and a stub that ignored it could not tell the broken filter from the fixed one.
+        """
+        running = " ".join(present_running)
+        allc = " ".join(present_all)
+        self.fake("docker", f"""
+if [ "$1" != "ps" ]; then exit 1; fi
+shift
+all=0; filter=""
+for arg in "$@"; do
+  case "$arg" in
+    -a) all=1 ;;
+    name=*) filter="${{arg#name=}}" ;;
+  esac
+done
+names="{running}"; [ "$all" = 1 ] && names="{allc}"
+# A leading slash in the filter matches nothing, exactly as the real daemon behaved.
+case "$filter" in "^/"*) exit 0 ;; esac
+needle="$filter"; needle="${{needle#^}}"; needle="${{needle%$}}"
+for n in $names; do case "$n" in *"$needle"*) printf '%s
+' "$n" ;; esac; done
+exit 0
+""")
+
+    def test_a_running_service_container_is_never_reported_absent(self):
+        # THE REGRESSION: the filter carried a leading slash, so this said `absent` while the
+        # container was up and `health: healthy` printed beside it.
+        self.docker_like_real_docker(present_running=["aify-comms-service"], present_all=["aify-comms-service"])
+        self.assertEqual(self.state()["container"], "running")
+
+    def test_the_container_check_can_still_say_no(self):
+        # Drive the control by REMOVING what it watches. Without this, a filter matching everything
+        # would pass the test above and report `running` on a host with no container at all.
+        self.docker_like_real_docker(present_running=[], present_all=[])
+        self.assertEqual(self.state()["container"], "absent")
+        # And a container that exists but is not up is neither of those.
+        self.docker_like_real_docker(present_running=[], present_all=["aify-comms-service"])
+        self.assertEqual(self.state()["container"], "stopped")
+
+    def test_another_projects_container_is_not_mistaken_for_ours(self):
+        # The filter is a substring, so the exactness has to come from the comparison. A host
+        # running `aify-comms-service-staging` and nothing else has no service container here —
+        # `absent`, because ours does not exist, running or otherwise. (This assertion first said
+        # `stopped`; the code was right and the expectation was wrong.)
+        self.docker_like_real_docker(present_running=["aify-comms-service-staging"], present_all=["aify-comms-service-staging"])
+        self.assertEqual(self.state()["container"], "absent")
+
     def test_unparseable_registry_never_reports_absence_or_presence(self):
         registry = self.home / "services.json"
         self.env["AIFY_SERVICE_REGISTRY"] = registry.as_posix()
