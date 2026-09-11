@@ -128,9 +128,50 @@ conversation. Left alone rather than edited into reviewed code.
 
 | item | state | waiting on |
 |---|---|---|
-| herdr-aify Windows Job supervisor | not built | next slice; buildable now |
-| herdr-aify Herdr bootstrap | not built | a generic Herdr extension stock 0.9.0 lacks |
+| herdr-aify supervisor | **BUILT** 2026-09-12 | an operator-run end-to-end test; it starts a real aify-env, which is their action |
+| herdr-aify Herdr bootstrap | **BUILT AND PROVEN** 2026-09-12 | nothing — see below |
+| Ordinary Herdr keeps aify wrappers | **BUILT, PROVEN, INSTALLED** 2026-09-12 | nothing |
 | Console lag | **UNATTRIBUTED** | an operator decision: the only defensible fix changes the event protocol |
 | Component probe writes `.npm` | open | round 4's fix was rejected for a silent empty root |
 | Bare shared-link navigation | partly addressed | a service browser-login feature — a security decision, not a bug fix |
 | Hermes exit 137 | cause UNKNOWN | a retained-object capture nobody has |
+
+
+## The Herdr integration, 2026-09-12
+
+Two things the operator asked for, and the row above that said one of them needed "a generic Herdr
+extension stock 0.9.0 lacks" was wrong. Stock 0.9.0 has both pieces; they were found by driving a
+live Herdr rather than by reading more source.
+
+**1. Ordinary Herdr keeps aify wrappers — PROVEN, and installed on this host.**
+
+Herdr plans a resume only for agents reported under one of its own hardcoded (source, agent) pairs.
+Reporting under `herdr:aify` makes it persist NO agent session for that pane, so the pane restores as
+an empty shell carrying only `cwd` and `label`. A plugin `[[startup]]` hook — which Herdr runs once
+after it restores a session — matches those labels against a ledger and puts the recorded wrapper
+command back.
+
+Measured, with the control in the same run: two official-source panes persisted a session and came
+back with their agent; the aify-source pane came back empty with its label; the restore pass reported
+ONE pane, not two. Then, with the plugin linked and nobody running any command, Herdr's own log:
+`event startup, exit_code 0, status succeeded, restored 1 pane(s)`.
+
+Installed here: wrappers re-rendered (`install.sh --client claude`, `--client hermes`, both verified
+to carry the block, `~/.claude.json` byte-identical and still parsing), and the plugin linked from
+`~/.aify-comms/mcp/stdio/node_modules/aify-wrapper/herdr-plugin` — the path `install.sh` refreshes,
+so it survives reinstalls. `herdr plugin unlink aify.wrappers` undoes it.
+
+**2. `herdr-aify` — BUILT, and its isolation half is proven; its daemon half is not.**
+
+The isolated-Herdr half is what every measurement above ran on, so it is proven. What has never been
+executed is the dedicated `aify-env` start, because that starts a real aify-env and supersession
+there reaps the predecessor's workers — the operator's action, not mine.
+
+**The Windows Job Object in the design notes was aspirational and is now corrected.** A real
+kill-on-close Job needs a native addon and this package has none. Teardown works structurally
+instead: the env runs in a PANE, its workers are its children, so stopping the server ends all of it;
+the tree kill is a backstop that deliberately does not fire on a clean stop. The honest limit: a hard
+kill of the launcher can leave processes, but it can never let the NEXT invocation adopt them — that
+is enforced by a fresh UUID per invocation and a daemon that refuses a context whose receipts exist.
+
+Design, measurements and the one install step: `~/projects/aify-wrapper/HERDR.md`.
