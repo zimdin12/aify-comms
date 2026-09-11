@@ -74,9 +74,16 @@ landable tree is `0bdb8d66` — r4 is dropped, and the npm-discovery question go
 
 ## Standing facts that outlive this file
 
-- The running backend and env are still the OLD processes: backend build `3e7387a6`, env startup hash
-  `3b2bf8f9` (PID 77176). Landing source changes nothing about what is running. Container rebuild,
-  `install.sh` and any aify-env restart remain the operator's actions — they reap running workers.
+- The running backend and env are still OLD processes. Landing source changes nothing about what is
+  running. Container rebuild, `install.sh` and any aify-env restart remain the operator's actions —
+  they reap running workers.
+- **Measured 2026-09-11 from `127.0.0.1:8802/health`, not carried forward:** aify-env is `0.6.3`,
+  PID `112092`, `build 631df46d`, `codeOnDisk 50ad45fd`. The pair DISAGREES, so that daemon is not
+  running the code on its disk — which is what `env-code-currency` exists to say, and here the cause
+  is this session's own `a13c37e` landing after the daemon booted. **An earlier draft of this file
+  said PID `77176` and hash `3b2bf8f9`**, copied from a report written earlier the previous day; the
+  process had been replaced at 2026-09-10 19:25 and both figures were wrong. A PID is a mutable fact
+  and belongs to the message that reads it.
 - `aify-repairs/` is outside every repo, so its evidence is not reachable by anyone who clones. Any
   conclusion that has to survive gets copied into the repo that owns it.
 
