@@ -34,14 +34,20 @@ evidence is the `*-result.md` / `*-review.md` files beside them.
 |---|---|---|---|---|
 | `herdr-instance-safety` | env `0036b70` | `b03b76dc` | **ACCEPT+SEALED** (independent R2) | LAND |
 | `dashboard-integrated` | `a14100a8` | `ac4c124d` | R2 sealed at `93cd6f15`; **R5 REJECTS r4** | LAND AT `0bdb8d66` |
-| `registry-credential-cli` | `a14100a8` | `b4e70715` | fixed + independently reviewed | LAND |
+| `registry-credential-cli` | `a14100a8` | `b4e70715` | fixed + independently reviewed | ALREADY INSIDE `dashboard-integrated` |
 | `ws-output-isolation` | `a14100a8` | `541a8eb7` | **BLOCKING REVISE, high** | DO NOT LAND |
 | `dashboard-messenger` | `e16f54f6` | `eb493644` | superseded | DROP |
 | `dashboard-mode-auth` | `a14100a8` | `d00a6324` | superseded | DROP |
 
-**The two DROPs are proven redundant, not assumed:** every path either lane touches is also touched
-by `dashboard-integrated`, measured with `comm -23` over the two name lists — zero files unique to
-either.
+**The DROPs are proven redundant, not assumed:** every path `dashboard-messenger` or
+`dashboard-mode-auth` touches is also touched by `dashboard-integrated`, measured with `comm -23`
+over the two name lists — zero files unique to either.
+
+**And the table above was wrong once, in the direction that would have caused a second landing.** It
+listed `registry-credential-cli` as its own LAND item. `dashboard-integrated` already contained that
+fix: the lane is the integration of four lanes, not one, and the 38-file diffstat I first read was
+truncated to its last 25 rows so the `mcp/stdio/` half was never on screen. Caught by applying the
+lane and watching `git status` report nothing to do. **Read a diffstat's total, not its tail.**
 
 **The dashboard-integrated tree chain, measured rather than taken from the reports:**
 `93cd6f15` (R2 ACCEPT+SEALED) → `0bdb8d66` (r3, generated-env fixture, one python test file) →
