@@ -79,3 +79,51 @@ landable tree is `0bdb8d66` — r4 is dropped, and the npm-discovery question go
   `install.sh` and any aify-env restart remain the operator's actions — they reap running workers.
 - `aify-repairs/` is outside every repo, so its evidence is not reachable by anyone who clones. Any
   conclusion that has to survive gets copied into the repo that owns it.
+
+## The review of `5b55ee3b..HEAD`
+
+Eleven commits in aify-comms (81 files, +3185/-554), plus aify-env `0036b70`+`a13c37e` and
+aify-wrapper `ce259bb`. Reviewed by reading the code, not the reports. **One real finding**, fixed in
+`afa8c3cc`; everything else held up.
+
+**THE FINDING — the sanitizer was gated by nothing.** `richMessageHtml` is the only place the
+dashboard turns untrusted text into HTML; every other field in `chat-render.mjs` goes through `esc`.
+Its defence is a DOMPurify policy, and DOMPurify needs a DOM — so under `node --test`,
+`isSupported` is false and the function returns escaped text without ever reading the policy. The
+tests therefore exercised only the escape fallback while reading as coverage of the formatter. The
+real sanitization lives in `fixtures/messenger-browser.mjs`, and **nothing in the repo runs that
+file**: its only reference anywhere is a comment in the test pointing at it. Widening the policy to
+allow `data-*`, `target`, `javascript:` hrefs or `<script>` would have reddened no gate. The policy
+is now a named export with mutation-proven tests. The contrast that confirms it is specific:
+`https-origin.test.mjs` SPAWNS its fixture, so that one is genuinely exercised.
+
+**What held up under reading:**
+
+- `apiResponse` — both credentials attach AFTER the caller's headers, so `headers: {}` (needed to
+  drop the JSON content-type for multipart) still authenticates. Verified in source, not assumed.
+- Shared-file Download became an authenticated fetch to a blob, with `redirect: 'error'` so a
+  redirect cannot carry a service credential to another origin. The pasted-image upload moved off a
+  bare `fetch` that would have 401'd on any keyed service.
+- The HTTPS override guard rejects an `http:` API origin on an `https:` page rather than upgrading
+  it, and says why: the HTTP port need not speak TLS.
+- `register-identity.js` got WEAKER and more honest. Its old warning asserted that the bridge's
+  `AIFY_AGENT_ID` is what the shell hooks will use; the bridge's environment comes from the MCP
+  client's configuration, which is not the parent shell's. The new text claims only what the bridge
+  can see.
+
+**One observation, not changed:** `messenger-reading.mjs`'s paging loop does not count an iteration
+when `history.loading` is true, so a load that never settles leaves `jumping` true and suppresses
+read receipts for that conversation indefinitely. Bounded in practice by the generation and
+visibility checks at the top of each iteration, so it needs a hung request AND an unchanged
+conversation. Left alone rather than edited into reviewed code.
+
+## Still open after this session, and what each is waiting on
+
+| item | state | waiting on |
+|---|---|---|
+| herdr-aify Windows Job supervisor | not built | next slice; buildable now |
+| herdr-aify Herdr bootstrap | not built | a generic Herdr extension stock 0.9.0 lacks |
+| Console lag | **UNATTRIBUTED** | an operator decision: the only defensible fix changes the event protocol |
+| Component probe writes `.npm` | open | round 4's fix was rejected for a silent empty root |
+| Bare shared-link navigation | partly addressed | a service browser-login feature — a security decision, not a bug fix |
+| Hermes exit 137 | cause UNKNOWN | a retained-object capture nobody has |
