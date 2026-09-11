@@ -175,3 +175,37 @@ kill of the launcher can leave processes, but it can never let the NEXT invocati
 is enforced by a fresh UUID per invocation and a daemon that refuses a context whose receipts exist.
 
 Design, measurements and the one install step: `~/projects/aify-wrapper/HERDR.md`.
+
+
+## The review of the Herdr work, and what it found
+
+I asked two adversarial reviews to attack the integration above, on separate slices. **Both found
+real defects, and several contradicted claims I had made explicitly.** Fourteen are fixed, each with
+the test that fails without it, and thirteen mutations were run to prove those tests can fail.
+
+The four worth knowing, because each is a shape this project keeps meeting:
+
+1. **A guard built on an ABSENCE.** The restore decided a pane was free when Herdr reported no agent
+   on it. Herdr runs the startup hook again during a live handoff, and a handoff keeps the PTYs — so
+   every RUNNING aify pane looked empty and would have had a command typed into it. The guard is now
+   a positive identity, the pane's `terminal_id`, measured to change across a restart.
+2. **A proof whose payload could not fail.** My end-to-end run replayed `echo
+   RESTORED_BY_THE_PLUGIN` — one bare token. Driven afterwards with a real argument,
+   `echo --flag "be terse"` printed `be` and `terse` on separate lines: `pane run` TYPES its
+   arguments, and the boundary was gone. The feature did not work for real wrapper invocations, and
+   the proof said it did.
+3. **A safety claim the code contradicted.** The wrapper block says it can never fail a launch. Under
+   `set -euo pipefail`, `VAR="$(cygpath ...)"` takes the substitution's exit status, so a cygpath
+   failure aborted the wrapper before the agent ran — proven with a control that launched normally.
+4. **A mitigation with no caller.** `HERDR.md` stated that wrappers clear the XDG roots for agents
+   started inside a dedicated instance. The function that looked like the mitigation was never
+   invoked from any production path and no wrapper touched XDG at all.
+
+**And one defect only a live run could find.** After every unit test was green, running the restore
+pass twice retyped into both panes: the record still named the pre-restart terminal, so the pane kept
+looking free. Fixed, and re-proven live — the second pass now restores 0.
+
+**A near-miss worth recording.** One mutation SURVIVED: the supervisor's test double set its failure
+flag synchronously while a real child sets it a tick later, so a test written for exactly that defect
+passed against the broken code. The double was corrected, not the test. A test that cannot fail is
+worse than no test, and the only thing that exposed this one was mutating the code it guards.
