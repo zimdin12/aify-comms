@@ -30,7 +30,8 @@ normal reload** — if the module "does not load", hard-reload ignoring cache be
 Fifteen checks: read-receipt timing against real layout and visibility, the bounded oldest-unread
 history search, failure and retry behaviour, and **nine XSS vectors** — `<script>`, `onerror`,
 `<svg onload>`, `<iframe srcdoc>`, `<style>`, an entity-encoded `jav&#x61;script:` href, a markdown
-`[bad](javascript:)` link, a `data:text/html` href, and the `<math><mtext><table><mglyph><style>`
+markdown link whose href is a `javascript:` scheme, a `data:text/html` href, and the
+`<math><mtext><table><mglyph><style>`
 mutation-XSS clobbering payload. It also asserts no element carries an `on*`, `style`, `id` or
 `data-*` attribute, because this dashboard dispatches clicks through one delegated handler keyed on
 `data-` attributes — so a message body able to carry one would be planting a control under the

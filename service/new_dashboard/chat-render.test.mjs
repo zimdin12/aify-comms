@@ -302,3 +302,46 @@ test("railItemHtml omits the separator when there is no message to introduce", (
   const html = railItemHtml(item({ role: "coder", status: "online", preview: "" }), "none");
   assert.match(html, /<span class="chat-rail-meta">coder · online<\/span>/);
 });
+
+// ── The empty DM timeline ────────────────────────────────────────────────────────────────────────
+//
+// OPERATOR-REPORTED 2026-09-12: "No messages loaded for this conversation (but we have history)".
+// Both halves were true. The view filters to messages BETWEEN the selected identity and the peer,
+// the default identity is `dashboard`, and that pair really had almost nothing while the
+// conversation the operator meant had 110 rows. The old wording never said whose conversation it
+// was describing.
+
+import { emptyConversationHtml } from './chat-render.mjs';
+
+test('the empty state names the identity being viewed, because that is the likeliest cause', () => {
+  const html = emptyConversationHtml({ identity: 'dashboard', peer: 'comms-tech-lead', canLoadOlder: false });
+  assert.match(html, /No messages between dashboard and comms-tech-lead/);
+  // It must point at the setting that fixes it rather than leaving the operator to guess.
+  assert.match(html, /Switch identity to <strong>all<\/strong>/);
+  assert.match(html, /comms-tech-lead/);
+});
+
+test('viewing as `all` drops the identity advice, which would then be nonsense', () => {
+  const html = emptyConversationHtml({ identity: 'all', peer: 'alice', canLoadOlder: false });
+  assert.match(html, /No messages with alice in the loaded window/);
+  assert.doesNotMatch(html, /Switch identity/);
+});
+
+test('an offer to load older messages appears ONLY when paging could add something', () => {
+  // The control is the whole point: an empty timeline cannot be scrolled, so the scroll-driven
+  // pager can never fire, and without this the operator has no way back through history at all.
+  assert.match(emptyConversationHtml({ identity: 'dashboard', peer: 'a', canLoadOlder: true }), /data-load-older/);
+  // Offering it when history is complete or exhausted would be a button that does nothing.
+  assert.doesNotMatch(emptyConversationHtml({ identity: 'dashboard', peer: 'a', canLoadOlder: false }), /data-load-older/);
+});
+
+test('the peer and identity are escaped, since both reach the timeline as HTML', () => {
+  const html = emptyConversationHtml({ identity: '<img src=x onerror=alert(1)>', peer: '"><script>bad()</script>', canLoadOlder: false });
+  assert.doesNotMatch(html, /<img|<script/);
+  assert.match(html, /&lt;img/);
+});
+
+test('a missing peer still produces a sentence rather than a dangling one', () => {
+  const html = emptyConversationHtml({ identity: 'dashboard', peer: '', canLoadOlder: false });
+  assert.match(html, /this agent/);
+});

@@ -225,3 +225,38 @@ export function renderAnalyticsPanelHtml(agentId, data) {
     <h4 class="an-h">Top peers</h4>${peerBars}
   </div>`;
 }
+
+/**
+ * What an empty DM timeline says.
+ *
+ * THE BUG IT EXISTS FOR, operator-reported 2026-09-12: "when i check your chat then i see: No
+ * messages loaded for this conversation (but we have history, why is it like this)". Both halves
+ * of that were true at once, which is why the old wording was a state that lies by omission.
+ *
+ * The DM view filters the polled window to messages BETWEEN the selected identity and the peer, and
+ * the default identity is `dashboard`. Measured that day: `comms-senior-dev <-> comms-tech-lead`
+ * held 110 messages, while `dashboard <-> comms-tech-lead` held exactly ONE — and that one sat
+ * outside the fleet-wide newest-80 window the poll fetches. So the timeline was correctly empty for
+ * the pair being viewed, while the conversation the operator had in mind was busy. Saying "no
+ * messages" without saying WHOSE conversation invites exactly that reading.
+ *
+ * AND THE PAGER COULD NOT BE REACHED. Older messages load when the operator scrolls to the top of
+ * the timeline, and an empty timeline cannot be scrolled — `scrollHeight` never exceeds the
+ * viewport, so the scroll event never fires. The one case the history pager was built for was the
+ * one case that could not invoke it. Hence an explicit control rather than a nudge to scroll.
+ */
+export function emptyConversationHtml({ identity, peer, canLoadOlder }) {
+  const viewer = String(identity || 'dashboard');
+  const who = viewer === 'all'
+    ? `No messages with ${esc(String(peer || 'this agent'))} in the loaded window`
+    : `No messages between ${esc(viewer)} and ${esc(String(peer || 'this agent'))}`;
+  // The identity is named because choosing the wrong one is the likeliest cause of an empty view,
+  // and `all` is the answer when it is.
+  const hint = viewer === 'all'
+    ? ''
+    : `<p class="chat-search-banner">You are viewing as <strong>${esc(viewer)}</strong>. Switch identity to <strong>all</strong> to see every message involving ${esc(String(peer || 'this agent'))}.</p>`;
+  const action = canLoadOlder
+    ? '<p class="chat-search-banner"><button type="button" data-load-older>Load older messages</button></p>'
+    : '';
+  return `<div class="empty-state"><span class="empty-icon">✉️</span><strong>${who}</strong></div>${hint}${action}`;
+}

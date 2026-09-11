@@ -21,6 +21,7 @@ import {
   messageHtml,
   railItemHtml,
   renderAnalyticsPanelHtml,
+  emptyConversationHtml,
 } from './chat-render.mjs';
 
 // Build the controller that renders the page and wires send. deps: { state, byId, sendMessage,
@@ -240,7 +241,12 @@ export function createChatController(deps) {
     // A bounded global window can contain no rows for this peer. Recovery still belongs here.
     timeline.innerHTML = (reading.notice ? `<p class="chat-search-banner${reading.failed ? ' chat-history-error' : ''}"${reading.failed ? ' role="alert"' : ''}>${esc(reading.notice)}${reading.failed ? ' <button type="button" data-messenger-retry>Retry oldest unread</button>' : ''}</p>` : '') + olderBanner + searchBanner + (allMsgs.length
       ? (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
-      : '<div class="empty-state"><span class="empty-icon">✉️</span><strong>No messages loaded for this conversation</strong></div>');
+      : emptyConversationHtml({
+          identity: state.chat.identity,
+          peer: String(state.chat.selected || '').slice(3),
+          // Only offer the control when paging could actually add something.
+          canLoadOlder: !isChannel && !!history && !msgFilter && !history.complete && !history.exhausted,
+        }));
     if (pinBottom || (nearBottom && !msgFilter)) {
       timeline.scrollTop = timeline.scrollHeight;
       // A forced pin (open/send) must land EXACTLY at the bottom. Setting scrollTop right after
@@ -257,6 +263,21 @@ export function createChatController(deps) {
     // times per scroll after N polls.
     if (history && !timeline.dataset.olderWired) {
       timeline.dataset.olderWired = '1';
+      // THE EMPTY-TIMELINE ESCAPE HATCH. Paging is otherwise driven by scrolling to the top, and a
+      // timeline with no rows cannot be scrolled -- so the one case the pager exists for could not
+      // reach it. Same guards and the same anchored re-render as the scroll path below; wired here
+      // so it is added exactly once rather than per render.
+      timeline.addEventListener('click', (event) => {
+        if (!event.target.closest?.('[data-load-older]')) return;
+        if (history.loading || history.exhausted) return;
+        const selection = `${state.chat.identity}:${state.chat.selected}:${state.chat.view}`;
+        const inFlight = history.loadOlder(state.messages);
+        render();
+        inFlight.then(() => {
+          if (selection !== `${state.chat.identity}:${state.chat.selected}:${state.chat.view}`) return;
+          render();
+        }).catch(() => { render(); });
+      });
       timeline.addEventListener('scroll', () => {
         // CHECKED AT FIRE TIME, never captured: this listener outlives the render that added it, so
         // the conversation on screen when it runs is not the one that wired it.
