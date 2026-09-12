@@ -41,7 +41,11 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 
 //: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
-  "aify-comms/SKILL.md": 15_014,  // Lowered after narrowing the resident identity diagnostic guidance.
+  // 15_014 -> 15_047 on 2026-09-12. RAISED, as a decision: every comms_send example here omitted
+  // `from`, which the tool REQUIRES and does not default from AIFY_AGENT_ID the way the console and
+  // dispatch tools do -- so every send example in the always-loaded skill failed schema validation.
+  // 33 bytes is three `from="me", ` prefixes.
+  "aify-comms/SKILL.md": 15_080,  // Lowered after narrowing the resident identity diagnostic guidance.
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
   // RAISED 2026-09-07 -- a DECISION, argued here as this file requires. An independent docs
@@ -61,12 +65,17 @@ const CEILINGS = {
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
   "aify-comms-install/SKILL.md": 4_821,
   "aify-comms-debug/SKILL.md": 3_117,
-  "aify-comms-debug/references/codex.md": 14_114,
+  // 14_114 -> 14_118 on 2026-09-12. RAISED: it told an agent to restart an `aify-comms` environment
+  // bridge -- a command that exits 2, for a tier deleted in v0.6.2. The danger is the substitution:
+  // the only restartable thing left is aify-env, which reaps its workers.
+  "aify-comms-debug/references/codex.md": 14_118,
   // 18_454 -> 18_426 on 2026-08-30. It went DOWN while gaining a correction, so record why: the
   // `terminalRuntimes` paragraph named the bridge as the advertiser, which is now only true when
   // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
   // paragraph above it already said.
-  "aify-comms-debug/references/dashboard-console.md": 17_974,
+  // 17_974 -> 18_013 on 2026-09-12. RAISED for the same reason as codex.md: "Then restart
+  // `aify-comms`" named a command that starts nothing, and the obvious substitute reaps the fleet.
+  "aify-comms-debug/references/dashboard-console.md": 18_013,
     // 26_968 -> 26_955 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
   // than leaving the ceiling slack: two references cited files deleted with the
   // environment-bridge tier and now name the service modules that own those questions, and
@@ -105,7 +114,9 @@ const CEILINGS = {
   // `bridgeLastSeen` answer different questions. The day after, the tool was fixed to ask the
   // right one -- so the entry no longer has to teach a reader to distrust it, and the section
   // shrank while gaining the note about which bridge builds still show the split.
-  "aify-comms-debug/references/dispatch-delivery.md": 26_579,
+  // 26_579 -> 26_604 on 2026-09-12. RAISED: same restart correction, partly paid back by replacing an
+  // `api_v2.py` reference for code that has moved out of that file.
+  "aify-comms-debug/references/dispatch-delivery.md": 26_604,
   // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
   //
   // Managed spawns are delegated to aify-env from that date, and it is REQUIRED: the bridge refuses
@@ -122,10 +133,18 @@ const CEILINGS = {
   // and starting a second aify-env reaps the first one's workers. Paid for by retiring four stale
   // instructions to `restart the Windows aify-comms bridge` -- a component v0.6.1 removed, so the
   // file was telling an operator to restart something that does not exist.
-  "aify-comms-debug/references/dispatch-launch.md": 14_970,
-  "aify-comms-debug/references/hermes-session.md": 27_285,
+  // 14_970 -> 15_002 on 2026-09-12. RAISED: the recovery block ended with `aify-env
+  // /path/to/workspace-root`, which exits 64 -- aify-env takes subcommands only, and an operator who
+  // hits that refusal may reach for a bare `aify-env`, which is the reaping path.
+  "aify-comms-debug/references/dispatch-launch.md": 15_002,
+  // 27_285 -> 27_280 on 2026-09-12. LOWERED: the same restart correction, and this file paid for
+  // itself -- a pointer to a section that does not exist was replaced by the fact it was pointing at.
+  "aify-comms-debug/references/hermes-session.md": 27_280,
   "aify-comms-debug/references/hermes-turns.md": 15_996,
-  "aify-comms-debug/references/lifecycle.md": 6_704,
+  // 6_704 -> 6_698 on 2026-09-12. LOWERED: the section heading named restarting a command that
+  // starts nothing, and step 1 told the reader to verify a tier deleted in v0.6.2. Both now name
+  // aify-env, and saying the true thing took fewer bytes than saying the false one.
+  "aify-comms-debug/references/lifecycle.md": 6_698,
   "aify-comms-debug/references/pi.md": 7_316,
     // 21_920 -> 21_919 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
   // than leaving the ceiling slack: two references cited files deleted with the

@@ -200,16 +200,15 @@ crashed/killed predecessor
 (plus a tombstoned-marker sweep that deletes `aify-hermes-{port,daemon-pid,key}-<agent>`
 for agents absent from the live `/agents` keyset) and reaps any whose owning bridge is
 no longer live. All scoped to the agents this env bridge owns; resident/other-env
-sessions are never touched. So **restarting `aify-comms` collapses the pile to zero
-managed survivors** — see "Restarting aify-comms kills all managed sessions (by
-design)" below. The daemon kill-prior above is the per-spawn backstop.
+sessions are never touched. So **restarting `aify-env` collapses the pile to zero managed
+survivors** — it reaps the workers it owns, so it is the operator's call. The daemon kill-prior above is the per-spawn backstop.
 
 **Caveat — REMOVE is not reaped synchronously.** Relaunch and STOP reap the triad
 **instantly**. Dashboard **REMOVE** does not: deleting the agent FK-cascades and wipes
 the emitted triad-reap stop control before the bridge claims it, so a removed
 managed-hermes agent's procs may linger until the **next env-bridge boot** (the
-tombstoned-marker + survivor sweeps clean them then). To clean up sooner, restart
-`aify-comms`, or stop the affected `hermes-aify` wrappers and kill stray `hermes.exe`
+tombstoned-marker + survivor sweeps clean them then). To clean up sooner, have the operator
+restart `aify-env`, or stop the affected `hermes-aify` wrappers and kill stray `hermes.exe`
 whose port files (`aify-hermes-port-*`) no longer match a live agent, then relaunch.
 
 ## Hermes-aify wrapper fell through to plain hermes (Plan 5 Section A)
@@ -260,10 +259,10 @@ A cluster of resident+managed hermes delivery bugs, all resolved 2026-06-03 (com
 - **Duplicate / stale resident sessions on the dashboard you can't tell apart.** Cause: the resident session id is a hash of `session_handle`, so each relaunch with a new native id minted a new `resident_*` row while the old stayed `running`. Fix: a 60s reconcile (`_reconcile_duplicate_resident_sessions`) keeps the resident session whose owning bridge is freshest/live per agent and retires the rest (it never retires a session whose owning bridge is still within the resident lease).
 - **Spawn fails "Workspace ... is outside this bridge's advertised roots" for a normal path under `/` or `~`.** Cause: `workspaceWithinRoots` (mcp/stdio/server.js) stripped `/` to empty (filtered out) and never expanded `~`. Fix: `/` is now match-all and `~` expands to `$HOME`.
 
-## Hermes starts a FRESH session after an aify-comms restart
+## Hermes starts a FRESH session after a host-tier restart
 
 **Symptom.** A managed/resident hermes agent (e.g. `next-tech-lead`) resumes fine while
-aify-comms stays up, but after you **close/start aify-comms** it restarts into a brand-new
+the host tier stays up, but after it is **closed/started** it restarts into a brand-new
 session — "session not found" errors, lost chat history. Often only some agents; over time
 "it just started giving fresh session".
 

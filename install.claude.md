@@ -74,7 +74,12 @@ Windows — they read `/proc` — so on Windows
 `bridge-current` is what tells you a running bridge is on the current build. A check that could not
 gather evidence reports `unknown-all` and fails; that is the tool working, not a bug to quieten.
 
-Resident Claude wakeups require a shared aify server URL. In local-only mode, the normal `comms_*` tools still work, but `claude-aify` and resident channel wakeups are intentionally not installed.
+Resident Claude wakeups require a shared aify server URL, and `install.sh` makes sure there always is
+one: with no URL given it PROMPTS, pre-filled with an already-installed wrapper's URL or loopback, and
+falls back to `http://127.0.0.1:8800`. **There is no "local-only mode" in which `claude-aify` is not
+installed** -- this line described one until 2026-09-12. The code path that removed the wrapper on an
+empty URL is now unreachable by construction, and the installer says why in its own comment: leaving it
+reachable deleted `~/.local/bin/claude-aify` on a run that printed "Installation complete".
 
 For dashboard-managed spawns, also start the HOST TIER on the machine that should run Claude Code. That
 is [aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms:
@@ -199,6 +204,22 @@ that one card cannot show live usage; nothing else is affected. `install.sh` pri
 `node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` gives an installing agent a machine-readable
 `{ok, code}` where `code` is `ok` / `no-token` / `rejected` / `unreachable`.
 
+## Two flags this guide used to omit, and one new behaviour
+
+`install.sh --help` is the authority; these are the two whose CONSEQUENCES are discussed above while
+the flags themselves were never named.
+
+| flag | what it does |
+|---|---|
+| `--mcp-transport <stdio\|sse>` | how the launcher reaches MCP. Default `stdio`. An "SSE-only install" is what this flag produces; an unknown value exits 78. |
+| `--delegate-spawns [url]` | managed spawns go to aify-env (default `http://127.0.0.1:8802`) instead of being hosted by the aify-comms bridge. **Delegation is OFF by default**, and with it off `aify-comms doctor` reports `spawn-delegation: local` — naming a bridge that v0.6.2 removed. Re-running the installer carries the setting the host already chose, so this is a one-time decision per host. |
+
+**Herdr (new 2026-09-12).** The rendered launchers now claim their Herdr pane, so an agent started in
+a Herdr pane comes back as `claude-aify` rather than as a bare `claude` after a reboot. It is gated on
+`HERDR_ENV`, so an ordinary terminal launch does nothing extra, it can never fail a launch, and its
+diagnostics go to `~/.aify/herdr/claim.log`. Nothing restores until the plugin is linked once with
+`aify-herdr-pane install`. Design and limits: aify-wrapper's `HERDR.md`.
+
 ## What This Installs
 
 - The `aify-comms` stdio MCP server, registered in Claude user scope (tool namespace retained for compatibility)
@@ -207,8 +228,22 @@ that one card cannot show live usage; nothing else is affected. `install.sh` pri
 - Slash commands in `~/.claude/commands/aify-comms`
 - Optional unread-message hook notifications
 - A `UserPromptSubmit` hook in `~/.claude/settings.json` that POSTs `/api/v1/agents/{id}/turn-start` on prompt submit. Flips the dashboard to `working` the moment the operator submits a prompt — even when the prompt didn't come through aify-comms's dispatch path (i.e., direct CLI typing). This is the turn-**START** event.
-- A `Stop` hook in `~/.claude/settings.json` that signals turn-**END** when the assistant is done. **As of 2026-06-19 it routes through `claude-stop-gate.js`** (in the native bridge dir) instead of a raw `curl`: the managed claude wrapper fires premature/duplicate `Stop` hooks BETWEEN the tool-bursts of one logical turn, which used to clear the turn mid-work and flap the status `working`→`online`→`working`. The gate reads the transcript tail and **suppresses** the `/turn-end` only when the turn is *confirmed still in-flight*; on a real end, an unreadable tail, or ANY error it posts `/turn-end` exactly as before (fail-safe — it can never cause a stuck `working`, and falls back to the raw `curl` if node is unavailable). **These two — `UserPromptSubmit` (start) and `Stop` (end) — are the ONLY turn hooks.** STATUS is pure-event: no timer window; the turn clears on the turn-end event (or the 30-min dropped-event backstop).
-- **No `PostToolUse` re-pulse (removed 2026-06-02, pure-event change #4).** Earlier installs wired a second `/turn-start` hook on `PostToolUse` to re-assert `turn_busy` on every tool call so a long turn held `working` past the old short staleness window. With status now pure-event there is no short window to outlast, and re-pulsing on every tool call would defeat the turn-END event (an agent that just finished a tool-using turn would keep re-arming `turn_busy`). The installer wires `UserPromptSubmit` only and actively **removes** any `PostToolUse` `/turn-start` hook a prior install left behind — rerun `install.sh` to pick this up.
+- A `Stop` hook in `~/.claude/settings.json` that signals turn-**END** when the assistant is done. **As of 2026-06-19 it routes through `claude-stop-gate.js`** (in the native bridge dir) instead of a raw `curl`: the managed claude wrapper fires premature/duplicate `Stop` hooks BETWEEN the tool-bursts of one logical turn, which used to clear the turn mid-work and flap the status `working`→`online`→`working`. The gate reads the transcript tail and **suppresses** the `/turn-end` only when the turn is *confirmed still in-flight*; on a real end, an unreadable tail, or ANY error it posts `/turn-end` exactly as before (fail-safe — it can never cause a stuck `working`, and falls back to the raw `curl` if node is unavailable). **Three turn hooks: `UserPromptSubmit` and `PostToolUse` (start), `Stop` (end)**, plus a `SessionStart` turn-end on compact. STATUS is pure-event: no timer window; the turn clears on the turn-end event (or the 30-min dropped-event backstop).
+- **`PostToolUse` re-pulse is BACK, and this guide said the opposite until 2026-09-12.** It was
+  removed on 2026-06-02 (pure-event change #4) on the premise that `turn_busy` stays set until the
+  turn-END event, making a mid-turn re-assert redundant. Two findings invalidated that premise, and
+  `install.sh` now wires it again (`wireTurnStart('UserPromptSubmit')` **and**
+  `wireTurnStart('PostToolUse')`): (1) `UserPromptSubmit` does NOT fire for an MCP/channel-WOKEN
+  managed turn; (2) the `Stop` hook is not a clean once-per-turn signal — it fires prematurely and
+  repeatedly inside one logical turn (Claude Code issue 54360) and around rate-limit retries,
+  clearing `turn_busy` mid-work. Without the re-assert a still-working managed claude fell to
+  `online` until someone opened the Console. **It cannot re-pin an idle agent:** `PostToolUse` fires
+  only on a real tool call, so an idle agent fires nothing; a tool call arriving after a `Stop` means
+  the turn was not actually over, and re-asserting there is correct. No time window is introduced and
+  the wiring is idempotent, filtered by the turn-start marker.
+
+  **Do not delete this hook.** The text here previously said the installer "actively removes" it,
+  which would lead an agent debugging a status flap to remove a hook `install.sh` had just written.
 - **Hook-independent BIDIRECTIONAL turn-state detector (in the bridge, no settings entry).** The fast-path hooks (`UserPromptSubmit` → `/turn-start`, `Stop` → `/turn-end`) only fire for operator-TYPED turns, and neither is a guaranteed terminator (`Stop` misses on interrupt/ESC, MCP-continuations, a crash, or a failed curl). So the `claude-channel.js`/`server.js` bridge runs a transcript turn-state detector for claude agents (resident AND managed; gated on `AIFY_AGENT_ID` + the `claude-code` adapter + `transcriptTail`, not session mode). It reads the session transcript TAIL structure (`adapters/claude.js` `transcriptTail` → `{lastRole, lastStopReason, pendingToolUse}`) every ~30s and drives `turn_busy` in BOTH directions, edge-triggered and idempotent:
   - **Tail IN-FLIGHT** (last assistant `stop_reason == 'tool_use'` / pending `tool_use`, a trailing user/tool_result, or no terminal `stop_reason`) → POSTs `/turn-start` (**SET** `working`). This is the resident under-report fix: a channel-woken or scheduled-task turn never fires `UserPromptSubmit`, so without this the agent showed NOT working while it was. A long blocking tool call or a Task sub-agent dispatch shows a pending `tool_use` (sub-agents write a separate `subagents/*.jsonl`, so the parent transcript is static) and correctly STAYS `working`.
   - **Tail ENDED** (terminal `stop_reason` ∈ `{end_turn, stop_sequence, max_tokens}`, no pending `tool_use`) → POSTs `/turn-end` (**CLEAR**).

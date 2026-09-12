@@ -31,7 +31,7 @@ All fixes are in current builds; symptoms below mean the running container or ho
 Get-Command claude
 Get-Command claude-aify.cmd
 ```
-If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real `claude` binary BEFORE starting the bridge (system-wide PATH leaks between WSL and Windows make this common). Then restart `aify-comms`. Re-check `/api/v1/environments` — `terminalRuntimes` should now include `claude-code`. Re-dispatch; the queued run should claim within the dispatch-poll cycle (~3s) and the channel notification land in the wrapper.
+If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real `claude` binary BEFORE starting the bridge (system-wide PATH leaks between WSL and Windows make this common). Then have the operator restart `aify-env` (it reaps its workers). Re-check `/api/v1/environments` — `terminalRuntimes` should now include `claude-code`. Re-dispatch; the queued run should claim within the dispatch-poll cycle (~3s) and the channel notification land in the wrapper.
 
 **Workaround if you can't fix the bridge host right now.** Launch a resident `claude-aify --aify-agent <id>` on any machine where claude resolves; the resident wrapper claims the channel dispatch directly (same machine isn't required for channel route — the wrapper's `claude-channel.js` polls the service over HTTP).
 

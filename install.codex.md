@@ -246,6 +246,22 @@ that one card cannot show live usage; nothing else is affected. `install.sh` pri
 `node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` gives an installing agent a machine-readable
 `{ok, code}` where `code` is `ok` / `no-token` / `rejected` / `unreachable`.
 
+## Two flags this guide used to omit, and one new behaviour
+
+`install.sh --help` is the authority; these are the two whose CONSEQUENCES are discussed above while
+the flags themselves were never named.
+
+| flag | what it does |
+|---|---|
+| `--mcp-transport <stdio\|sse>` | how the launcher reaches MCP. Default `stdio`. An "SSE-only install" is what this flag produces; an unknown value exits 78. |
+| `--delegate-spawns [url]` | managed spawns go to aify-env (default `http://127.0.0.1:8802`) instead of being hosted by the aify-comms bridge. **Delegation is OFF by default**, and with it off `aify-comms doctor` reports `spawn-delegation: local` — naming a bridge that v0.6.2 removed. Re-running the installer carries the setting the host already chose, so this is a one-time decision per host. |
+
+**Herdr (new 2026-09-12).** The rendered launchers now claim their Herdr pane, so an agent started in
+a Herdr pane comes back as `claude-aify` rather than as a bare `claude` after a reboot. It is gated on
+`HERDR_ENV`, so an ordinary terminal launch does nothing extra, it can never fail a launch, and its
+diagnostics go to `~/.aify/herdr/claim.log`. Nothing restores until the plugin is linked once with
+`aify-herdr-pane install`. Design and limits: aify-wrapper's `HERDR.md`.
+
 ## What This Installs
 
 - The `aify-comms` stdio MCP server for Codex (tool namespace retained for compatibility)

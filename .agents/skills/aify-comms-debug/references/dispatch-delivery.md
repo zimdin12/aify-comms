@@ -11,8 +11,8 @@ native `claude.exe` orphans accumulate. The kill-prior reaper is **agent-scoped*
 can never kill a different agent or a resident session — even if two agents share a
 `--resume` id. Root prevention: the cross-agent **session-collision guard** parks a
 handle a different LIVE agent already owns (`session-collision` note) instead of
-binding it. **Fix:** pull/rebuild + restart `aify-comms`; the reaper collapses each
-agent to one instance on next managed launch.
+binding it. **Fix:** pull/rebuild, then have the operator restart `aify-env` (it reaps its
+workers); its boot sweep collapses each agent to one instance on next launch.
 
 ## Dispatches stay `queued`/`delivered`, never claimed (delivery silently stalls)
 
@@ -259,7 +259,7 @@ If Hermes shows unavailable while `hermes-aify.cmd` exists, check the underlying
 
 **Cause.** Default capabilities for managed claude omit `managed-run` by design (claude has no headless managed-run API). Pre-`a4498a6`, `_agent_execution_mode` rejected dispatches on the missing cap before the channel branch could fire.
 
-**Fix.** Already fixed in `a4498a6` — the cap-check is skipped when runtime is `_CHANNEL_MANAGED_RUNTIMES` AND `runtime_config.channelEnabled=true`. Container needs rebuild to pick up the api_v2.py change. Do not add `managed-run` by hand in the database; that can mask the real channel/wrapper health problem.
+**Fix.** Already fixed in `a4498a6` — the cap-check is skipped when runtime is `_CHANNEL_MANAGED_RUNTIMES` AND `runtime_config.channelEnabled=true`. Container needs a rebuild to pick this up. Do not add `managed-run` by hand in the database; that can mask the real channel/wrapper health problem.
 
 ## Spawn-time initial message to managed claude sits queued forever
 

@@ -169,7 +169,7 @@ bash install.sh --client codex http://192.0.2.10:8800 --with-hook
 bash install.sh --client claude http://192.0.2.10:8800 --with-hook
 # Pi/OMP wrapper install is disabled; managed Pi uses the host tier plus `omp --mode rpc`.
 # OPERATOR-ONLY: a second aify-env reaps the first one's workers.
-aify-env /path/to/workspace-root
+aify-env doctor   # SUBCOMMANDS only; a positional root exits 64
 ```
 
 The next dashboard diagnostic should report the new build tag. If not, it is reading another checkout.

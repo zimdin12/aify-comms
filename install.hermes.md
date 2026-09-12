@@ -385,7 +385,12 @@ aify-comms.
 
 **Ordinary busy sends use native `session.steer` without interrupting the active turn.** Explicit `queueIfBusy` waits for turn-end. If steer rejects or errors after the gateway was observed working, the run is requeued; it never falls through to interrupting `prompt.submit`.
 
-**Bypass:** set `AIFY_HERMES_SKIP_GATEWAY=1` to fall back to plain `hermes` exec without the dashboard child. Use this if the dashboard probe is breaking your install and you don't need resident bridge-injection.
+**There is no gateway bypass.** This guide documented `AIFY_HERMES_SKIP_GATEWAY=1` until 2026-09-12;
+that variable appears in no executable code anywhere in the three repos -- only in this guide and
+two 2026-05 plan documents. Setting it changes nothing. If the dashboard probe is breaking a
+launch, the wrapper already falls back to plain `hermes` on its own, and
+`AIFY_HERMES_DISABLE_PLUGIN=1` (which does exist) is the switch for launching without the aify
+runtime shim.
 
 **Plugin A/B test:** set `AIFY_HERMES_DISABLE_PLUGIN=1` to launch
 `hermes-aify` without the aify runtime shim. This is useful for comparing
@@ -395,7 +400,7 @@ provided by aify-comms. The old in-place source edit path is legacy/debug only:
 set `AIFY_HERMES_LEGACY_SOURCE_PATCH=1` before running `install.sh --client
 hermes` if you explicitly want that behavior.
 
-**Cleanup:** `trap cleanup_aify_dashboard EXIT INT TERM` in the wrapper kills the dashboard child on wrapper exit, so `hermes-aify`'s lifecycle owns the dashboard process. Background dashboard logs go to `$XDG_STATE_HOME/aify-comms/hermes-aify-dashboard-<port>.log` (or `~/.local/state/aify-comms/...` on systems without XDG_STATE_HOME).
+**Cleanup:** `trap _aify_hermes_on_exit EXIT INT TERM` in the wrapper kills the dashboard child on wrapper exit, so `hermes-aify`'s lifecycle owns the dashboard process. Background gateway logs go to `$XDG_STATE_HOME/aify-comms/hermes-gateway-host-<port>.log` (or `~/.local/state/aify-comms/...` without XDG_STATE_HOME). **Both names were wrong here until 2026-09-12** -- the guide named a trap function that exists nowhere and a log file last written in May, so an operator diagnosing a gateway failure opened an empty file. `mcp/stdio/hermes-gateway.mjs` is the writer and owns the real name.
 
 **Known limitations.** The dashboard binds to 127.0.0.1 only and uses ephemeral per-process tokens — it's safe to leave running. The `--skip-build` flag relies on hermes having already built the web UI dist once; **`install.sh --client hermes` now pre-builds this automatically** (see "web_dist prebuild" below). If you skip install.sh's prebuild (e.g. install hermes after running install.sh), you can prime it manually with `hermes dashboard --no-open` once.
 
@@ -413,7 +418,7 @@ The prebuild is idempotent — re-running `install.sh --client hermes` after web
 
 ### Fallback warning (added 2026-05-25)
 
-When `hermes-aify` cannot start the dashboard gateway (port allocation failure, dashboard probe timeout, missing web_dist, token capture failure) or when `AIFY_HERMES_SKIP_GATEWAY=1` is set, it now prints a multi-line WARNING block before exec-ing plain `hermes`:
+**The banner below is NOT what ships.** Neither the `AIFY_HERMES_GATEWAY_URL was NOT exported` text nor its reason codes exist in any wrapper; this block describes a 2026-05 design that was never built that way. It is kept only so nobody hunts for output that cannot appear. What IS true: when `hermes-aify` cannot start the dashboard gateway it falls back to plain `hermes`, and comms wake/dispatch to that agent then reports `hermes-missing-handle`. Check `hermes-gateway-host-<port>.log` for the underlying error.
 
 ```text
 [hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session.
@@ -463,12 +468,31 @@ HOST TIER owns the PTY instead of your shell, and closing the window does not en
 needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
 `aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
 
+## Two flags this guide used to omit, and one new behaviour
+
+`install.sh --help` is the authority; these are the two whose CONSEQUENCES are discussed above while
+the flags themselves were never named.
+
+| flag | what it does |
+|---|---|
+| `--mcp-transport <stdio\|sse>` | how the launcher reaches MCP. Default `stdio`. An "SSE-only install" is what this flag produces; an unknown value exits 78. |
+| `--delegate-spawns [url]` | managed spawns go to aify-env (default `http://127.0.0.1:8802`) instead of being hosted by the aify-comms bridge. **Delegation is OFF by default**, and with it off `aify-comms doctor` reports `spawn-delegation: local` — naming a bridge that v0.6.2 removed. Re-running the installer carries the setting the host already chose, so this is a one-time decision per host. |
+
+**Herdr (new 2026-09-12).** The rendered launchers now claim their Herdr pane, so an agent started in
+a Herdr pane comes back as `claude-aify` rather than as a bare `claude` after a reboot. It is gated on
+`HERDR_ENV`, so an ordinary terminal launch does nothing extra, it can never fail a launch, and its
+diagnostics go to `~/.aify/herdr/claim.log`. Nothing restores until the plugin is linked once with
+`aify-herdr-pane install`. Design and limits: aify-wrapper's `HERDR.md`.
+
 ## What This Installs
 
 - The shared `aify-comms` local MCP server for Hermes.
 - A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
 - The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call and loads `integrations/hermes-aify-plugin` for Hermes runtime compatibility.
-- A `pre_llm_call` shell hook (`~/.hermes/agent-hooks/aify-turn-start.sh`) that POSTs `/api/v1/agents/{id}/turn-start` before each LLM call. Hermes has no matching upstream turn-end hook, so managed Hermes and gateway-bound resident Hermes use the continuous bidirectional gateway-status detector: gateway `working` sets turn-start and sustained gateway `idle` clears it. Explicit `queueIfBusy` holds on raw `turn_busy=1` until that authoritative end-event; the 30-minute status ceiling only backstops a dropped end-event.
+- A `pre_llm_call` shell hook, written under hermes' OWN config root -- on this host
+  `%LOCALAPPDATA%/hermes/agent-hooks/aify-turn-start.sh`, not `~/.hermes/`, which this line named
+  until 2026-09-12 and where only a May 2026 legacy copy sits. `install.sh` resolves it with
+  `hermes_config_root`, so read that rather than assuming a path. It POSTs `/api/v1/agents/{id}/turn-start` before each LLM call. Hermes has no matching upstream turn-end hook, so managed Hermes and gateway-bound resident Hermes use the continuous bidirectional gateway-status detector: gateway `working` sets turn-start and sustained gateway `idle` clears it. Explicit `queueIfBusy` holds on raw `turn_busy=1` until that authoritative end-event; the 30-minute status ceiling only backstops a dropped end-event.
 - With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
 
 Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes

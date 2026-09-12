@@ -54,8 +54,9 @@ hermes-aify         launcher
 
 Nothing else. No `aify-comms` command, no `aify-doctor`, no `aify-env-doctor` as a second binary.
 
-**Measured on this host, 2026-08-24, after installing all three layers at 0.6.0.** Eight, not four,
-and the gap is worth naming rather than leaving a list the machine visibly contradicts:
+**Measured on this host, 2026-08-24, after installing all three layers at 0.6.0; RE-MEASURED
+2026-09-12 and it is now TEN.** The gap is worth naming rather than leaving a list the machine
+visibly contradicts:
 
 | on PATH | why | goes when |
 |---|---|---|
@@ -63,8 +64,18 @@ and the gap is worth naming rather than leaving a list the machine visibly contr
 | `aify-comms` | **since v0.6.1, a VERIFIER and nothing else** -- `doctor`, `--check`, `--version`, `--help`; anything else exits 2 naming aify-env. It was the environment bridge, and the only thing that CLAIMED a spawn | the bridge half is GONE (2026-09-03), on the condition this table set: aify-env's comms plugin proven on real hardware. What is left is the doctor, and where the doctor should live is the open question below |
 | `aify-wrapper-check`, `aify-wrapper-install` | aify-wrapper's own commands, installed by the client path by construction. A launcher answering for itself needs a command to ask | they are the client path; the list above should include them |
 | `aify-doctor` | an alias for `aify-comms doctor`, kept for agent habits and older docs | **the only genuine leftover.** One line in install.sh, and the question is whether anything still reaches for the old name |
+| `herdr-aify` | **new 2026-09-12.** The integrated launcher: an isolated Herdr with a dedicated aify-env in its first space, which dies with the command. It is a LAUNCHER, so it belongs to aify-wrapper and to the client path by the same argument as the four | it is the client path; the list above should include it |
+| `aify-herdr-pane` | **new 2026-09-12.** The aify side of an ordinary Herdr -- links the plugin, claims a pane at launch, restores wrappers after a session restore. Mostly invoked BY the wrapper and by Herdr's plugin hook rather than by a person; the one operator-facing use is `aify-herdr-pane install`, once per machine | a candidate to become a `herdr-aify` subcommand, which would take this list back to nine |
 
-Three of the four extras are structural and one is a habit. `aify-env-doctor` is genuinely gone.
+Five of the six extras are structural and one is a habit. `aify-env-doctor` is genuinely gone.
+
+**BOTH NEW ONES WERE INSTALLED AND INERT ON THE DAY THEY LANDED**, which is the failure this section
+exists to surface. They were declared in aify-wrapper's `package.json` but the package was already
+`npm link`ed, so no shim existed until it was re-linked -- and once it did, npm's shim reaches the
+script through a SYMLINK, which their entry guard compared against `import.meta.url` and never
+matched. `herdr-aify --help` was on PATH, ran, exited 0 and printed nothing. A command that fails by
+being silent is the hardest kind to notice, and the only thing that found it was asking every name in
+this table whether it was actually on PATH and then whether it actually did anything.
 
 ## Where each doctor lives
 

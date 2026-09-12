@@ -109,7 +109,7 @@ Most operators don't need the flag — running `omp-aify` from a terminal Just W
 
 ## Keeping the session when you close the terminal
 
-Add `--shared` to the launcher: `pi-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
+Add `--shared` to the launcher: `pi-aify --shared --aify-agent <id>`. **You need pi-aify first, and this repo will not install it** -- `install.sh --client pi` exits 1 by design; render it with `aify-wrapper-install --client pi` from the aify-wrapper package. It execs `aify-env run`, so the
 HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
 needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
 `aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.

@@ -113,8 +113,8 @@ orphan waiting out the 60s hygiene reaper — the orphan path now only catches c
 residue, not an operator Stop/Restart. Host-side defenses back this: the managed worker tree is
 tree-killed when its console PTY closes, the channel-sidecar self-exits once its
 parent process is gone, and the env bridge reaps console rows whose local
-`process_id` is dead. After updating, restart the affected environment bridge or
-wrapper so a real worker can re-register and recreate the backing terminal.
+`process_id` is dead. After updating, restart the affected wrapper (or have
+the operator restart aify-env) so a real worker can re-register and recreate it.
 
 **Also (2026-06-02, `3ca464a`): a managed agent reads `offline` when its owning
 environment bridge is down**, regardless of any surviving delivery-loop heartbeat —

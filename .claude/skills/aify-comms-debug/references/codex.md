@@ -138,7 +138,7 @@ Add `sessionHandle="$CODEX_THREAD_ID"` only when it is non-empty in that same se
 
 **Fix (current build).** Resident Codex bridges now probe their app-server before heartbeating or claiming work. If the app-server is unreachable twice in a row, the bridge reports `resident-lost`, stops tracking the resident binding, and the backend marks the resident identity `stopped`; ownership never auto-switches. Superseded/lost bridge heartbeats are ignored, so orphaned MCP child processes cannot keep the identity active. Use Dashboard **Switch to managed**, then **Restart**, when the saved managed environment should take ownership.
 
-**Manual recovery on older builds.** Restart the relevant `aify-comms` environment bridge and stop the orphaned stdio process. Then use Dashboard **Sessions -> Restart** on the identity. If needed, inspect with `comms_agent_info(agentId="...")`; healthy fallback should show `sessionMode: managed` and `wakeMode: managed-worker`.
+**Manual recovery on older builds.** Have the operator restart `aify-env` (it reaps its workers); stop the orphaned stdio process. Then use Dashboard **Sessions -> Restart** on the identity. If needed, inspect with `comms_agent_info(agentId="...")`; healthy fallback should show `sessionMode: managed` and `wakeMode: managed-worker`.
 
 ## Codex native fallback persistent app-server session
 

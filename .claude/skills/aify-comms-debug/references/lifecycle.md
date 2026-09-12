@@ -99,12 +99,12 @@ handle, fresh wrapper bridge heartbeat, and runtime wake configuration.
 - A superseded bridge cannot claim new work or own new terminal controls.
 - Re-registering metadata does not repair a dead process. Relaunch the wrapper/bridge, then verify readback and delivery.
 
-## Restarting aify-comms
+## Restarting aify-env
 
 A service/bridge restart can terminate managed backings. Identity, chat, spawn spec, and stored
 native handle remain. After restart:
 
-1. Verify service health and the current environment bridge.
+1. Verify service health and that aify-env is answering.
 2. Read each affected agent; do not assume old console/session rows are live.
 3. Restart managed agents only when needed, preserving handles.
 4. Relaunch resident wrappers from their real native sessions.
