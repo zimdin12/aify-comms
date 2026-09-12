@@ -77,6 +77,18 @@ matched. `herdr-aify --help` was on PATH, ran, exited 0 and printed nothing. A c
 being silent is the hardest kind to notice, and the only thing that found it was asking every name in
 this table whether it was actually on PATH and then whether it actually did anything.
 
+**AND ASKING WHETHER IT RAN WAS STILL NOT ASKING WHETHER IT WORKED.** With the shims fixed, the
+operator ran `herdr-aify` as the first thing they tried and got `spawn herdr ENOENT`. FOUR defects
+stood between a green suite and a command that starts at all, and no test could have found one of
+them: `herdr` is on the PATH of the shells HERDR starts and nowhere else, so the bare name resolved
+for whoever built it and failed at the operator's prompt; the isolated socket was spelled as a
+Windows named pipe when Herdr wants a file path; the daemon's environment was handed to the `herdr`
+CLI, which TYPES into an existing shell rather than spawning one, so it never reached the daemon; and
+the second-launch refusal read a field its own helper has never returned, so it never once fired. All
+four are facts about this machine or about a CALL SITE, which is the class of defect this repo keeps
+meeting and the reason `aify-comms doctor` is built the way it is. The sequence is now proven end to
+end and recorded in aify-wrapper's `HERDR.md`.
+
 ## Where each doctor lives
 
 - **aify-comms' doctor runs inside the container.** It answers about the container: its build, its

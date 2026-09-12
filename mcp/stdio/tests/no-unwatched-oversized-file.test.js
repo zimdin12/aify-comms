@@ -152,7 +152,18 @@ const CEILINGS = {
   // lines of slack, which is exactly the room a ratchet must not leave. Tightened to the real
   // number as the payment for the styles.css entry below.
   // Shared Hermes command/profile resolution moved to scripts/hermes-config.sh.
-  "install.sh": 2941,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2941 -> 2951 on 2026-09-12, and it is a DECISION rather than a repair, so it says what it buys.
+  // What it buys is an install that cannot hang for ever: `hermes plugins enable aify-comms` was
+  // called with no bound, and on 2026-09-12 it sat at 0% CPU for twelve minutes during a routine
+  // reinstall while the config-patching fallback -- the `else` of that very `if` -- could not run,
+  // because the condition never finished evaluating. The installer's output for that call is
+  // redirected by design, so the run looked slow rather than stuck.
+  // The ten lines are a `timeout` helper and its call site. The first draft cost nineteen; the
+  // repair was moving the incident narrative into the test that proves the bound
+  // (`service/tests/test_install_hermes_plugin_enable_is_bounded.py`), where it belongs, instead of
+  // carrying it twice. IT IS NOT PAID FOR ELSEWHERE: the only other watched file, styles.css, sits
+  // exactly at its own ceiling with a census on the record saying there is no dead CSS to reclaim.
+  "install.sh": 2951,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

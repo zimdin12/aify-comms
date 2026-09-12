@@ -1886,13 +1886,23 @@ PYEOF
   # config.yaml's plugins.enabled list directly if the CLI is unavailable.
   local hermes_bin=""
   hermes_bin="$(hermes_cmd 2>/dev/null || true)"
-  if [ -n "$hermes_bin" ] && "$hermes_bin" plugins enable aify-comms >/dev/null 2>&1; then
+  # BOUNDED: unbounded, this blocked a whole install for 12 minutes at 0% CPU while the fallback one
+  # line below sat unreachable (2026-09-12). A CLI that never returns is unavailable.
+  if [ -n "$hermes_bin" ] && _bounded_hermes_call 30 "$hermes_bin" plugins enable aify-comms; then
     echo "Hermes plugin 'aify-comms' installed and enabled at $plugin_dir"
   else
     _enable_hermes_plugin_in_config "$(hermes_config_root)/config.yaml" "aify-comms"
     _enable_hermes_plugin_in_config "$HOME/.hermes/config.yaml" "aify-comms"
     echo "Hermes plugin 'aify-comms' installed at $plugin_dir (enabled via config.yaml)"
   fi
+}
+
+_bounded_hermes_call() {
+  # A hermes CLI call with a deadline, so a hang degrades to the fallback. Without `timeout` the call
+  # is made directly — today's behaviour, since this bounds a hang rather than adding a requirement.
+  local seconds="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$seconds" "$@" >/dev/null 2>&1
+  else "$@" >/dev/null 2>&1; fi
 }
 
 _enable_hermes_plugin_in_config() {
