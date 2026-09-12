@@ -40,8 +40,11 @@ fi
 # here is correct on both old and new daemons and stops this from turning on a flag we do not own.
 container=unknown
 service_container=aify-comms-service
-if command -v docker >/dev/null 2>&1; then
-  if running="$(docker ps --filter "name=$service_container" --format '{{.Names}}' 2>/dev/null | grep -Fx "$service_container")" && [ -n "$running" ]; then
+# THE RUNNING QUERY MUST SUCCEED BEFORE ITS SILENCE MEANS ANYTHING. Its status used to be grep's (no
+# pipefail), so a FAILED `docker ps` looked like "not running" and fell through to `ps -a` -- where
+# merely being listed reported a running container as `stopped`. Found by review; `unknown` it is.
+if command -v docker >/dev/null 2>&1 && names="$(docker ps --filter "name=$service_container" --format '{{.Names}}' 2>/dev/null)"; then
+  if printf '%s\n' "$names" | grep -Fxq "$service_container"; then
     container=running
   elif all="$(docker ps -a --filter "name=$service_container" --format '{{.Names}}' 2>/dev/null)"; then
     container=absent

@@ -235,7 +235,11 @@ export function createChatController(deps) {
     const olderBanner = (!isChannel && history && !msgFilter)
       ? (history.loading
           ? '<p class="chat-search-banner">Loading older messages…</p>'
-          : (history.complete ? '<p class="chat-search-banner">Beginning of this conversation.</p>' : history.exhausted ? '<p class="chat-search-banner">History cursor stopped. Older messages may remain.</p>' : ''))
+          // A FAILED PAGE SAYS SO. Both pagers only re-rendered on a rejection, which drew the same
+          // view again -- a click that silently did nothing. Found by review.
+          : history.error
+            ? `<p class="chat-search-banner chat-history-error" role="alert">Could not load older messages (${esc(history.error)}).</p>`
+            : (history.complete ? '<p class="chat-search-banner">Beginning of this conversation.</p>' : history.exhausted ? '<p class="chat-search-banner">History cursor stopped. Older messages may remain.</p>' : ''))
       : '';
     const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
     // A bounded global window can contain no rows for this peer. Recovery still belongs here.
@@ -243,9 +247,14 @@ export function createChatController(deps) {
       ? (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : emptyConversationHtml({
           identity: state.chat.identity,
-          peer: String(state.chat.selected || '').slice(3),
-          // Only offer the control when paging could actually add something.
-          canLoadOlder: !isChannel && !!history && !msgFilter && !history.complete && !history.exhausted,
+          // THE ID ALREADY DERIVED ABOVE. `.slice(3)` assumed a `dm:` key and named `channel:general`
+          // as `nnel:general`.
+          peer: id,
+          channel: isChannel,
+          // Only offer the control when paging could actually add something -- which needs a cursor
+          // -- and not while the reader is mid-jump or showing its own retry, the same guards the
+          // scroll pager applies.
+          canLoadOlder: !isChannel && !!history && !msgFilter && !reading.failed && !reading.jumping && history.canPage(state.messages),
         }));
     if (pinBottom || (nearBottom && !msgFilter)) {
       timeline.scrollTop = timeline.scrollHeight;

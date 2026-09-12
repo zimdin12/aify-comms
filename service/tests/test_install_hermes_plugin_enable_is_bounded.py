@@ -37,10 +37,10 @@ def _bash() -> str:
 
 
 def _call(script: str) -> subprocess.CompletedProcess:
-    """Source install.sh's function definitions and run `script` against them.
+    """Extract ONE function from install.sh and run `script` against it.
 
-    install.sh is sourced with a guard env var so it defines its functions and exits before doing
-    anything: this test must never touch the operator's wrappers, MCP configs or hermes install.
+    Nothing else in install.sh is sourced or run: this test must never touch the operator's
+    wrappers, MCP configs or hermes install.
     """
     body = (
         "set -u\n"
@@ -69,6 +69,18 @@ def test_a_hermes_that_hangs_is_abandoned_rather_than_waited_on() -> None:
     elapsed = time.monotonic() - started
     assert "exit=0" not in result.stdout, "a hung call reported success"
     assert elapsed < 30, f"the call was not bounded: {elapsed:.1f}s"
+
+
+def test_a_hermes_that_IGNORES_TERM_is_still_abandoned() -> None:
+    # Found by review: `timeout` sends TERM and then WAITS, so the test above -- whose `sleep` dies
+    # on TERM -- proved a bound only for children that cooperate. Measured on this host: a child
+    # trapping TERM held a 1s deadline for 4.28s. `-k` escalates to KILL; this child sleeps 30s, so
+    # returning well inside that is the kill, not the sleep ending.
+    started = time.monotonic()
+    result = _call("_bounded_hermes_call 1 bash -c 'trap \"\" TERM; sleep 30'; echo \"exit=$?\"")
+    elapsed = time.monotonic() - started
+    assert "exit=0" not in result.stdout, "a TERM-resistant hang reported success"
+    assert elapsed < 20, f"a child ignoring TERM outlived the deadline: {elapsed:.1f}s"
 
 
 def test_POSITIVE_CONTROL_a_hermes_that_answers_still_succeeds() -> None:

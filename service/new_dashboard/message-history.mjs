@@ -76,6 +76,9 @@ export class MessageHistory {
   #exhausted = false;
   #complete = false;
   #loading = false;
+  //: WHY THE LAST PAGE FAILED, or ''. Kept because a caller that only re-renders on a rejection draws
+  //: the same view again, and the operator cannot tell a failed request from a click that did nothing.
+  #error = '';
   #fetchPage;
 
   constructor(fetchPage) {
@@ -88,6 +91,17 @@ export class MessageHistory {
   /** True once paging has reached the beginning of history — the caller stops asking. */
   get exhausted() { return this.#exhausted; }
   get complete() { return this.#complete; }
+  get error() { return this.#error; }
+
+  /**
+   * Whether asking for an older page could add anything right now.
+   *
+   * THE CURSOR IS PART OF IT. With no timestamp in the combined window `loadOlder` returns 0 without
+   * fetching, so a "Load older" offered then was a button that could never do anything. Found by review.
+   */
+  canPage(live) {
+    return !this.#loading && !this.#exhausted && !this.#complete && oldestTimestamp(this.combined(live)) !== null;
+  }
 
   /** Everything the timeline may show: the live window first, then what has been paged in. */
   combined(live) { return mergeById(live, this.#rows); }
@@ -103,6 +117,7 @@ export class MessageHistory {
     this.#rows = [];
     this.#exhausted = false;
     this.#complete = false;
+    this.#error = '';
   }
 
   /**
@@ -119,6 +134,7 @@ export class MessageHistory {
     if (cursor === null) return 0;
 
     this.#loading = true;
+    this.#error = '';
     try {
       const page = await this.#fetchPage(cursor);
       const rows = page?.messages || [];
@@ -146,6 +162,10 @@ export class MessageHistory {
       this.#complete = page?.truncated === false;
       if (this.#complete || added === 0) this.#exhausted = true;
       return added;
+    } catch (err) {
+      // STILL REJECTED, so every existing caller behaves as before -- the reason is kept as well.
+      this.#error = String(err?.message || err || 'request failed');
+      throw err;
     } finally {
       this.#loading = false;
     }

@@ -459,3 +459,78 @@ test("open() restores on re-selecting the conversation already open", () => with
   await h.controller.open("dm:alice");
   assert.deepEqual(h.restored, ["dm:alice"]);
 }));
+
+// ── THE EMPTY CONVERSATION, RENDERED BY THE REAL CONTROLLER ─────────────────────────────────────
+//
+// Found by review, 2026-09-13: the five helper tests called `emptyConversationHtml` directly, so none
+// saw what the controller hands it. An empty CHANNEL got the DM wording plus identity advice and was
+// named `nnel:general`; a failed "Load older" re-rendered the same view in silence; and the button was
+// offered when there was no cursor to page from.
+
+function emptyChatHarness({ selected, messages = [], history = null }) {
+  const classList = { add() {}, remove() {}, toggle() {} };
+  const element = () => ({ innerHTML: "", textContent: "", hidden: false, value: "", dataset: {}, classList, querySelector: () => null, addEventListener() {}, scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
+  const ids = ["chat-rail-list", "chat-conv-title", "chat-timeline", "chat-msg-search", "chat-scroll-bottom", "chat-conv-actions", "chat-composer", "chat-identity", "chat-new-channel-form"];
+  const els = Object.fromEntries(ids.map((id) => [id, element()]));
+  const state = {
+    loaded: true,
+    agents: [{ id: "alice", status: "online" }],
+    messages,
+    chat: { identity: "dashboard", selected, view: "messages", analytics: {}, pulse: {}, channels: [{ name: "general", members: ["alice"], memberCount: 1 }], channelMessages: {}, drafts: {} },
+  };
+  const controller = createChatController({ state, byId: (id) => els[id] || null, history });
+  return { els, state, controller };
+}
+
+test("an EMPTY CHANNEL is named correctly and gets no DM advice", () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    const { els, controller } = emptyChatHarness({ selected: "channel:general" });
+    controller.renderConversation();
+    const html = els["chat-timeline"].innerHTML;
+    assert.match(html, /No messages in #general yet/, "the empty channel was not named");
+    assert.doesNotMatch(html, /nnel:/, "the channel name was sliced as if it were a dm key");
+    assert.doesNotMatch(html, /Switch identity|between dashboard/, "a channel got DM identity advice");
+    assert.doesNotMatch(html, /data-load-older/, "a channel was offered DM paging");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("an empty DM keeps its DM wording, and is offered paging only when there is a cursor", async () => {
+  // CONTROL for the test above: the DM path is untouched.
+  const { MessageHistory } = await import("./message-history.mjs");
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    const someoneElse = [{ id: "x1", from: "bob", to: "carol", body: "hi", timestamp: 1789300000 }];
+    const withCursor = emptyChatHarness({ selected: "dm:alice", messages: someoneElse, history: new MessageHistory(async () => ({ messages: [] })) });
+    withCursor.controller.renderConversation();
+    assert.match(withCursor.els["chat-timeline"].innerHTML, /No messages between dashboard and alice/);
+    assert.match(withCursor.els["chat-timeline"].innerHTML, /data-load-older/, "an empty DM with history to page lost its button");
+
+    // NO CURSOR: nothing in the window to page back from, so the button could only ever do nothing.
+    const noCursor = emptyChatHarness({ selected: "dm:alice", messages: [], history: new MessageHistory(async () => ({ messages: [] })) });
+    noCursor.controller.renderConversation();
+    assert.doesNotMatch(noCursor.els["chat-timeline"].innerHTML, /data-load-older/, "a button was offered with no cursor to page from");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a FAILED older page is shown, not re-rendered in silence", async () => {
+  const { MessageHistory } = await import("./message-history.mjs");
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    const history = new MessageHistory(async () => { throw new Error("503 service unavailable"); });
+    const window = [{ id: "x1", from: "bob", to: "carol", body: "hi", timestamp: 1789300000 }];
+    const { els, controller, state } = emptyChatHarness({ selected: "dm:alice", messages: window, history });
+    await assert.rejects(history.loadOlder(state.messages), /503/, "a failed page must still reject for its existing callers");
+    controller.renderConversation();
+    assert.match(els["chat-timeline"].innerHTML, /Could not load older messages \(503 service unavailable\)/, "the failure was not shown");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});

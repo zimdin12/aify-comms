@@ -46,7 +46,7 @@ class InstallStateTests(unittest.TestCase):
     def state(self):
         return json.loads(self.run_script("install-state.sh", "--json").stdout)
 
-    def docker_like_real_docker(self, present_running=(), present_all=()):
+    def docker_like_real_docker(self, present_running=(), present_all=(), running_query_fails=False):
         """A docker stub that answers the way the REAL daemon answered when measured.
 
         Grounded in an observation, not invented: on Docker 29.5.3 a `name=` filter matches the
@@ -66,6 +66,7 @@ for arg in "$@"; do
     name=*) filter="${{arg#name=}}" ;;
   esac
 done
+[ "$all" = 0 ] && [ "{int(running_query_fails)}" = 1 ] && exit 1
 names="{running}"; [ "$all" = 1 ] && names="{allc}"
 # A leading slash in the filter matches nothing, exactly as the real daemon behaved.
 case "$filter" in "^/"*) exit 0 ;; esac
@@ -89,6 +90,14 @@ exit 0
         # And a container that exists but is not up is neither of those.
         self.docker_like_real_docker(present_running=[], present_all=["aify-comms-service"])
         self.assertEqual(self.state()["container"], "stopped")
+
+    def test_a_failed_running_query_is_unknown_not_stopped(self):
+        # Found by review. The running query's status was grep's, so `docker ps` FAILING read as "not
+        # running", and the all-containers query that followed reported a container that was up as
+        # `stopped` -- a claim no evidence supported. Every other double here answers every query.
+        self.docker_like_real_docker(present_running=["aify-comms-service"], present_all=["aify-comms-service"],
+                                     running_query_fails=True)
+        self.assertEqual(self.state()["container"], "unknown")
 
     def test_another_projects_container_is_not_mistaken_for_ours(self):
         # The filter is a substring, so the exactness has to come from the comparison. A host

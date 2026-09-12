@@ -1898,10 +1898,10 @@ PYEOF
 }
 
 _bounded_hermes_call() {
-  # A hermes CLI call with a deadline, so a hang degrades to the fallback. Without `timeout` the call
-  # is made directly — today's behaviour, since this bounds a hang rather than adding a requirement.
+  # A hermes CLI call with a deadline, so a hang degrades to the fallback; `-k 5` KILLS a child that ignores
+  # TERM (without it a 1s deadline returned after 4.28s, measured). No `timeout`: called directly, as before.
   local seconds="$1"; shift
-  if command -v timeout >/dev/null 2>&1; then timeout "$seconds" "$@" >/dev/null 2>&1
+  if command -v timeout >/dev/null 2>&1; then timeout -k 5 "$seconds" "$@" >/dev/null 2>&1
   else "$@" >/dev/null 2>&1; fi
 }
 

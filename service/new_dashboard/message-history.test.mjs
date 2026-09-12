@@ -197,3 +197,23 @@ test("...but the LIVE window still outranks history, which is the opposite rule"
   assert.equal(a.body, "live copy", "a stale history copy overwrote the live row");
   assert.equal(a.read, true, "and would have marked a read message unread again");
 });
+
+test("a failed page keeps its reason, still rejects, and a new attempt clears it", async () => {
+  // Found by review: a rejection left no trace, so a caller that re-rendered drew the same view again.
+  let fail = true;
+  const history = new MessageHistory(async () => { if (fail) throw new Error("boom"); return { messages: [], truncated: false }; });
+  const live = [{ id: "a", timestamp: 1789300000 }];
+  await assert.rejects(history.loadOlder(live), /boom/);
+  assert.equal(history.error, "boom");
+  assert.equal(history.loading, false, "a failure left the in-flight guard set");
+  fail = false;
+  await history.loadOlder(live);
+  assert.equal(history.error, "", "a later successful page did not clear the old failure");
+});
+
+test("canPage says no when there is nothing to page from, and yes when there is", () => {
+  const history = new MessageHistory(async () => ({ messages: [] }));
+  assert.equal(history.canPage([]), false, "no cursor, yet paging was offered");
+  assert.equal(history.canPage([{ id: "a" }]), false, "a row with no timestamp is not a cursor");
+  assert.equal(history.canPage([{ id: "a", timestamp: 1789300000 }]), true, "a real cursor was refused");
+});

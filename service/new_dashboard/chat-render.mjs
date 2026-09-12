@@ -245,7 +245,14 @@ export function renderAnalyticsPanelHtml(agentId, data) {
  * viewport, so the scroll event never fires. The one case the history pager was built for was the
  * one case that could not invoke it. Hence an explicit control rather than a nudge to scroll.
  */
-export function emptyConversationHtml({ identity, peer, canLoadOlder }) {
+export function emptyConversationHtml({ identity, peer, canLoadOlder, channel = false }) {
+  // A CHANNEL IS NOT A PAIR, so none of the DM reasoning above applies: its rows are that channel's
+  // own, not a filter of the fleet window by identity, and switching identity changes nothing. Review
+  // found channels getting the DM text -- and a misnamed channel, `nnel:general`, from a `.slice(3)`
+  // that assumed every key was `dm:`.
+  if (channel) {
+    return `<div class="empty-state"><span class="empty-icon">#</span><strong>No messages in #${esc(String(peer || 'this channel'))} yet</strong></div>`;
+  }
   const viewer = String(identity || 'dashboard');
   const who = viewer === 'all'
     ? `No messages with ${esc(String(peer || 'this agent'))} in the loaded window`
