@@ -50,6 +50,7 @@ import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
 import { markFor } from "./doctor-mark.mjs";
 import { buildReport, summaryLine } from "./doctor-report.mjs";
 import { checkEnvProcesses } from "./env-processes-check.mjs";
+import { readyReceipts, servingEnvEndpoint } from "./serving-env-endpoint.mjs";
 import { checkContextWindow } from "./context-window-check.mjs";
 import { checkSessionHandles } from "./session-handle-check.mjs";
 import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
@@ -468,6 +469,24 @@ function checkSkillsInstalled() {
 
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService({ get, add, sh, repo, serverUrl: SERVER_URL });
+// WHICH aify-env THE ENV ROWS ASK. The launcher bakes 8802, and a `herdr-aify env` daemon listens on
+// its own port -- so on 2026-09-13 three rows reported a healthy daemon as unreachable. Resolved once,
+// only when delegating, so a host that never uses aify-env is probed exactly as before.
+const envSetting = launcherDelegation(installedLauncherText());
+const servingEnv = envSetting.on
+  ? await servingEnvEndpoint({
+    installed: envSetting.endpoint,
+    receipts: readyReceipts(join(homedir(), ".aify", "herdr")),
+    fetchHealth: async (endpoint) => {
+      try {
+        const response = await fetch(`${endpoint}/health`, { redirect: "manual", signal: AbortSignal.timeout(3000) });
+        return response.ok ? await response.json() : null;
+      } catch {
+        return null;
+      }
+    },
+  })
+  : { endpoint: "", answered: null };
 // IS EVERYTHING aify-env RUNS ACCOUNTED FOR? The operator watched a live PTY in aify-env that the
 // dashboard could not show, and asked for exactly this. Both reads it needs -- a terminal listing
 // and a pid on each terminal -- landed in e426e497; before that the comparison was unanswerable.
@@ -485,6 +504,7 @@ await checkEnvProcesses({
   },
   launcherText: installedLauncherText(),
   machineId: defaultMachineId(),
+  endpoint: servingEnv.endpoint,
 });
 // IS THAT aify-env RUNNING THE CODE ON ITS DISK? `tier-version` above compares VERSIONS, and a
 // daemon that loaded its modules days ago reports the same version as one started a minute ago --
@@ -493,11 +513,10 @@ await checkEnvProcesses({
 // never loaded, with every instrument green. aify-env already answers the question and nobody was
 // asking it. REPORTS ONLY: restarting reaps the predecessor's managed workers.
 {
-  const { on: delegating, endpoint } = launcherDelegation(installedLauncherText());
   await checkEnvCodeCurrency({
     add,
     skip,
-    endpoint: delegating ? endpoint : "",
+    endpoint: servingEnv.endpoint,
     fetchJson: async (url) => {
       try {
         const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(3000) });
@@ -660,22 +679,14 @@ function installedLauncherText() {
 
 async function checkSpawnDelegation() {
   const launcherText = installedLauncherText();
-  let endpointAnswered = null;
   // PARSED ONCE, by the module that also renders the verdict. These were two more copies of regexes
   // that already lived in doctor-predicates.js, and the copy here decides whether to PROBE while the
   // copy there decides the ANSWER -- so fixing this one alone would have bought a real probe and then
-  // handed it to a verdict that ignored it and reported ok:true.
+  // handed it to a verdict that ignored it and reported ok:true. The probe is `servingEnv`'s, above;
+  // with no endpoint baked and no daemon found it stays unasked, as it always was.
   const { on: delegating, endpoint } = launcherDelegation(launcherText);
-  if (delegating && endpoint) {
-    try {
-      const response = await fetch(`${endpoint}/health`,
-        { redirect: "manual", signal: AbortSignal.timeout(3000) });
-      endpointAnswered = response.ok;
-    } catch {
-      endpointAnswered = false;
-    }
-  }
-  const verdict = spawnDelegationVerdict({ launcherText, endpointAnswered });
+  const endpointAnswered = delegating && (endpoint || servingEnv.answered) ? servingEnv.answered : null;
+  const verdict = spawnDelegationVerdict({ launcherText, endpointAnswered, answeredAt: servingEnv.endpoint });
   return add("spawn-delegation", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 

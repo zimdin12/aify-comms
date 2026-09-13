@@ -42,6 +42,15 @@ test("delegated and answering is ok, and names where", () => {
   assert.match(v.detail, /127\.0\.0\.1:8802/);
 });
 
+test("answered by a herdr-aify env the launcher does not name: ok, and names BOTH addresses", () => {
+  // The operator's host, 2026-09-13: nothing on 8802, a dedicated aify-env on 57978 claiming spawns.
+  const v = spawnDelegationVerdict({ launcherText: DELEGATED, endpointAnswered: true, answeredAt: "http://127.0.0.1:57978" });
+  assert.equal(v.ok, true);
+  assert.equal(v.code, "delegated");
+  assert.match(v.detail, /127\.0\.0\.1:57978/);
+  assert.match(v.detail, /127\.0\.0\.1:8802 does not answer/);
+});
+
 test("delegated and NOT answering fails, and says every spawn will fail", () => {
   // The whole point. Without this the symptom is "spawning is broken" with no cause attached.
   const v = spawnDelegationVerdict({ launcherText: DELEGATED, endpointAnswered: false });

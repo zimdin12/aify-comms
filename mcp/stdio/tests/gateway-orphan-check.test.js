@@ -68,6 +68,29 @@ test("only ports in aify-comms' own range are ours to talk about", () => {
   assert.deepEqual(found.map((g) => g.port).sort(), [8823, 9342]);
 });
 
+test("ONE gateway is one host, not the three processes that carry it", () => {
+  // Measured 2026-09-13 on the operator's host: the doctor said "3 gateway host(s)" with ONE listener.
+  // hermes.exe relaunches itself under the venv python, which starts the runtime python, and all three
+  // command lines carry `hermes … dashboard --port 9341`. The pids and parents are that table's.
+  const chain = [
+    { pid: 94268, ppid: 91464, commandLine: "C:\\hermes-agent\\venv\\Scripts\\hermes.exe dashboard --port 9341 --host 127.0.0.1" },
+    { pid: 99944, ppid: 94268, commandLine: "\"C:\\hermes-agent\\venv\\Scripts\\python.exe\" \"C:\\hermes-agent\\venv\\Scripts\\hermes.exe\" dashboard --port 9341" },
+    { pid: 57060, ppid: 99944, commandLine: "\"C:\\hermes-agent\\.hermes-runtime\\python.exe\" \"C:\\hermes-agent\\venv\\Scripts\\hermes.exe\" dashboard --port 9341" },
+  ];
+  const found = gatewaysInRange(chain, { toPort: cmdlineHermesGatewayPort, base: BASE, span: SPAN });
+  // The ROOT is the one named, because it is the pid whose tree holds the whole gateway.
+  assert.deepEqual(found, [{ pid: 94268, port: 9341 }]);
+
+  // With the launcher gone the chain still collapses, onto the oldest survivor.
+  const orphanedChain = gatewaysInRange(chain.slice(1), { toPort: cmdlineHermesGatewayPort, base: BASE, span: SPAN });
+  assert.deepEqual(orphanedChain, [{ pid: 99944, port: 9341 }]);
+
+  // TWO UNRELATED processes naming one port are still two: only a same-port CHILD folds into its parent,
+  // so a second start that never bound is reported rather than hidden behind the first.
+  const unrelated = [chain[0], { pid: 5, ppid: 1, commandLine: "hermes dashboard --port 9341" }];
+  assert.equal(gatewaysInRange(unrelated, { toPort: cmdlineHermesGatewayPort, base: BASE, span: SPAN }).length, 2);
+});
+
 // ── gatewayOwners ───────────────────────────────────────────────────────────────────────────────
 
 test("the port markers are what bind a gateway to an agent", () => {

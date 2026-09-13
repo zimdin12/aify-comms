@@ -42,14 +42,27 @@
 // visible TUI; deciding it is unwanted is the operator's call, and a doctor that reaps on its own
 // judgement is one bad inference away from taking a session someone is reading.
 
-/** Gateways whose port falls in aify-comms' per-agent range, keyed by port. */
+/**
+ * Gateways whose port falls in aify-comms' per-agent range, one per host process tree.
+ *
+ * ONE GATEWAY IS SEVERAL PROCESSES. hermes.exe relaunches itself under the venv python, which starts
+ * the runtime python, and every one of those command lines carries `dashboard --port <n>`. Counted
+ * per process, the operator's single gateway read "3 gateway host(s)" (2026-09-13) and an orphan
+ * would be named three times. A same-port process whose PARENT is also on that port folds into it, so
+ * the pid reported is the tree's root; unrelated processes naming one port are still reported apart.
+ */
 export function gatewaysInRange(rows, { toPort, base, span }) {
-  const found = [];
+  const inRange = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
     const port = toPort(row && row.commandLine);
     if (port === null || port === undefined) continue;
     if (port < base || port >= base + span) continue;
-    found.push({ pid: row.pid, port });
+    inRange.set(row.pid, { pid: row.pid, ppid: row.ppid, port });
+  }
+  const found = [];
+  for (const gateway of inRange.values()) {
+    if (inRange.get(gateway.ppid)?.port === gateway.port) continue;
+    found.push({ pid: gateway.pid, port: gateway.port });
   }
   return found;
 }

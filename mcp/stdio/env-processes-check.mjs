@@ -23,9 +23,11 @@ import { launcherDelegation } from "./doctor-predicates.js";
  * @param deps.fetchJson    fetch a JSON URL outright (aify-env is not behind `get`'s base URL)
  * @param deps.launcherText the installed environment-bridge launcher, or null when there is none
  * @param deps.machineId    this host's machine id, used to find which environment is ours
+ * @param deps.endpoint     the aify-env found serving (`serving-env-endpoint.mjs`); the launcher's own when omitted
  */
-export async function checkEnvProcesses({ get, add, skip, fetchJson, launcherText, machineId }) {
-  const { on: delegating, endpoint } = launcherDelegation(launcherText);
+export async function checkEnvProcesses({ get, add, skip, fetchJson, launcherText, machineId, endpoint: serving }) {
+  const { on: delegating, endpoint: installed } = launcherDelegation(launcherText);
+  const endpoint = serving || installed;
   if (!delegating || !endpoint) {
     // NOT A PASS AND NOT A FAILURE. With spawns hosted by the bridge itself there is no second list
     // to compare against, so the question does not apply -- and answering `ok` would add a green row

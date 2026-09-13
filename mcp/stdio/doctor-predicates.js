@@ -723,7 +723,7 @@ export function launcherDelegation(launcherText) {
 }
 
 
-export function spawnDelegationVerdict({ launcherText = null, endpointAnswered = null } = {}) {
+export function spawnDelegationVerdict({ launcherText = null, endpointAnswered = null, answeredAt = "" } = {}) {
   if (launcherText === null) {
     return {
       ok: false,
@@ -766,11 +766,15 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
   }
   const endpoint = parsed.endpoint;
   if (endpointAnswered === true) {
+    // A `herdr-aify env` daemon answers on its own port, found from its ready receipt.
+    const elsewhere = answeredAt && answeredAt !== endpoint;
     return {
       ok: true,
       code: "delegated",
-      detail: `Managed spawns are delegated to aify-env at ${endpoint || "(no endpoint baked)"}, `
-        + "which is answering.",
+      detail: elsewhere
+        ? `Managed spawns are delegated to aify-env. The installed ${endpoint || "(no endpoint baked)"} does not `
+          + `answer; the herdr-aify env daemon at ${answeredAt} does, and spawns stop when it closes.`
+        : `Managed spawns are delegated to aify-env at ${endpoint || "(no endpoint baked)"}, which is answering.`,
       fix: "",
     };
   }

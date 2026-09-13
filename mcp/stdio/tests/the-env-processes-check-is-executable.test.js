@@ -125,6 +125,19 @@ test("THE OPERATOR'S CASE reaches the report, end to end", async () => {
   assert.match(s.added[0].detail, /ef-manager/);
 });
 
+test("it asks the aify-env the doctor found serving, not the launcher's baked address", async () => {
+  // A `herdr-aify env` daemon listens on its own port; doctor.js resolves it and passes it here.
+  const s = sink();
+  const asked = [];
+  await checkEnvProcesses({
+    get: serviceWith([]), add: s.add, skip: s.skip,
+    fetchJson: async (url) => { asked.push(url); return { processes: [] }; },
+    launcherText: DELEGATING, machineId: "win32:host", endpoint: "http://127.0.0.1:57978",
+  });
+  assert.deepEqual(asked, ["http://127.0.0.1:57978/processes"]);
+  assert.equal(s.added[0].ok, true);
+});
+
 test("it asks for LIVE terminals explicitly", async () => {
   // The default is live, and it is passed anyway because this check's meaning depends on it: a
   // listing including stopped rows would account for processes whose terminals ended -- the
