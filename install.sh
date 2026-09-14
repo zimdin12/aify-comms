@@ -1867,7 +1867,7 @@ def register(ctx) -> None:  # noqa: ANN001 - hermes PluginContext
         sys.path.insert(0, plugin_path)
     try:
         from aify_hermes_plugin.bootstrap import install
-        install()
+        install(ctx)
     except Exception as exc:  # never break hermes startup
         sys.stderr.write("[aify-comms-plugin] shim load failed: %s\n" % exc)
 PYEOF

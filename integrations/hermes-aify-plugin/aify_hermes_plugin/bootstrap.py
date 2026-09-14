@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.abc
 import importlib.machinery
+import importlib.util
 import os
 import sys
 from types import ModuleType
@@ -77,8 +78,34 @@ class _PatchFinder(importlib.abc.MetaPathFinder):
         return spec
 
 
-def install() -> None:
+_HERDR_STATE: ModuleType | None = None
+
+
+def _register_herdr_state(ctx) -> None:  # noqa: ANN001 - hermes PluginContext
+    """Hand the PluginContext to aify-wrapper's Herdr state plugin, which hermes-aify names in
+    AIFY_HERDR_HERMES_PLUGIN only when its pane is claimed or aify-env assigned one. It is not a
+    patch, so it is registered on EVERY context: hermes keeps hooks per plugin manager, runs one
+    manager per profile home, and a forced re-discovery clears them, while _INSTALLED is per process.
+    """
+    global _HERDR_STATE
+    path = os.environ.get("AIFY_HERDR_HERMES_PLUGIN", "").strip()
+    if ctx is None or not path:
+        return
+    try:
+        if _HERDR_STATE is None:
+            spec = importlib.util.spec_from_file_location("aify_herdr_state", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _HERDR_STATE = module
+        _HERDR_STATE.register(ctx)
+        _log(f"registered herdr state hooks from {path}")
+    except Exception as exc:  # the dot is cosmetic; hermes startup is not
+        _log(f"herdr state hooks not registered: {exc}")
+
+
+def install(ctx=None) -> None:  # noqa: ANN001 - hermes PluginContext
     global _INSTALLED
+    _register_herdr_state(ctx)
     if _INSTALLED:
         return
     _INSTALLED = True
