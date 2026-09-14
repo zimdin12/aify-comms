@@ -264,14 +264,14 @@ test("the resume nudge leaves OPEN and CONNECTING sockets alone", () => {
   }
 });
 
-test("resume wiring subscribes to all four signals and ignores a hidden visibilitychange", () => {
+test("resume wiring subscribes to every resume signal and ignores a hidden visibilitychange", () => {
   withFakes(({ built }) => {
     harness();
     const handlers = [];
     globalThis.document = { visibilityState: "hidden", addEventListener: (ev, fn) => handlers.push([ev, fn]) };
     globalThis.window = { addEventListener: (ev, fn) => handlers.push([ev, fn]) };
     wireRealtimeResumeReconnect();
-    assert.deepEqual(handlers.map(([ev]) => ev).sort(), ["focus", "online", "pageshow", "visibilitychange"]);
+    assert.deepEqual(handlers.map(([ev]) => ev).sort(), ["focus", "freeze", "online", "pageshow", "resume", "visibilitychange"]);
     connectRealtimeSocket();
     built[0].readyState = CLOSED;
     const onVisibility = handlers.find(([ev]) => ev === "visibilitychange")[1];
@@ -280,6 +280,67 @@ test("resume wiring subscribes to all four signals and ignores a hidden visibili
     globalThis.document.visibilityState = "visible";
     onVisibility({ type: "visibilitychange" });
     assert.equal(built.length, 2, "…and becoming visible must");
+  });
+});
+
+/** Wire the resume handlers against fake document/window and return a way to fire them. The clock
+ *  advances between fires so the 1s resume throttle does not swallow the step under test. */
+function wiredPage() {
+  const handlers = [];
+  globalThis.document = { visibilityState: "visible", addEventListener: (ev, fn) => handlers.push([ev, fn]) };
+  globalThis.window = { addEventListener: (ev, fn) => handlers.push([ev, fn]) };
+  wireRealtimeResumeReconnect();
+  const realNow = Date.now;
+  let clock = realNow() + 60_000;
+  Date.now = () => (clock += 5_000);
+  const fire = (ev, visibility) => {
+    if (visibility) globalThis.document.visibilityState = visibility;
+    for (const [name, fn] of handlers) if (name === ev) fn({ type: ev });
+  };
+  return { fire, restore: () => { Date.now = realNow; } };
+}
+
+test("A SLEPT TAB WHOSE SOCKET STAYED OPEN REPAINTS THE CONSOLE when it comes back", () => {
+  // The reconnect resync cannot run (nothing reconnects) and an idle agent sends no frame to trip the
+  // sequence-gap resync, so without this the canvas keeps whatever it held when the tab went to sleep.
+  withFakes(({ built }) => {
+    const calls = harness();
+    const page = wiredPage();
+    try {
+      state.activeXterm = { term: { write() {} } };
+      connectRealtimeSocket();
+      built[0].readyState = OPEN;
+      page.fire("visibilitychange", "hidden");
+      page.fire("visibilitychange", "visible");
+      assert.equal(calls.resyncActiveConsole, 1, "coming back visible must repaint once");
+      page.fire("focus");
+      assert.equal(calls.resyncActiveConsole, 1, "a focus with no sleep in between must not repaint again");
+      page.fire("freeze");
+      page.fire("resume");
+      assert.equal(calls.resyncActiveConsole, 2, "a frozen page that resumes must repaint too");
+      assert.equal(built.length, 1, "an OPEN socket is never replaced");
+    } finally {
+      page.restore();
+    }
+  });
+});
+
+test("a focus on a page that was never hidden does not repaint", () => {
+  // NEGATIVE CONTROL for the test above: alt-tabbing back to a visible dashboard must not reset the
+  // console every time.
+  withFakes(({ built }) => {
+    const calls = harness();
+    const page = wiredPage();
+    try {
+      state.activeXterm = { term: { write() {} } };
+      connectRealtimeSocket();
+      built[0].readyState = OPEN;
+      page.fire("focus");
+      page.fire("pageshow");
+      assert.equal(calls.resyncActiveConsole, 0);
+    } finally {
+      page.restore();
+    }
   });
 });
 

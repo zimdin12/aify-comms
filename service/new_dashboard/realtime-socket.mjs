@@ -114,25 +114,39 @@ export function connectRealtimeSocket() {
 // fresh connect. Throttled so a burst of resume events (focus+visibilitychange+online together)
 // fires one reconnect.
 let _wsResumeNudgeAt = 0;
+// Set when the page is hidden or frozen, cleared by the repaint on the way back.
+let _hiddenSinceRepaint = false;
 export function nudgeRealtimeSocketOnResume() {
   const now = Date.now();
   if (now - _wsResumeNudgeAt < 1000) return;
   _wsResumeNudgeAt = now;
   const rs = dashboardSocket ? dashboardSocket.readyState : WebSocket.CLOSED;
-  // OPEN → nothing to do. CONNECTING → leave it: it's either progressing (aborting a healthy slow
-  // connect just churns) or genuinely stuck, in which case the per-socket watchdog kills it within
-  // 8s. Only a CLOSED/CLOSING socket needs an immediate reconnect (short-circuiting the backoff).
-  if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
-  connectRealtimeSocket();
+  // CONNECTING → leave it: it's either progressing (aborting a healthy slow connect just churns) or
+  // genuinely stuck, in which case the per-socket watchdog kills it within 8s. Only a CLOSED/CLOSING
+  // socket needs an immediate reconnect (short-circuiting the backoff); its onopen repaints.
+  if (rs === WebSocket.CONNECTING) return;
+  if (rs !== WebSocket.OPEN) { connectRealtimeSocket(); return; }
+  // OPEN AFTER A SLEEP IS NOT PROOF THE SCREEN IS CURRENT. A slept or frozen tab keeps its socket, so
+  // the reconnect resync never runs, and an idle agent sends no frame to trip the sequence-gap
+  // resync either: whatever the canvas held when the tab went to sleep stays up, including cells the
+  // agent has since blanked. Repaint once from the server's screen when the page comes back.
+  if (!_hiddenSinceRepaint) return;
+  _hiddenSinceRepaint = false;
+  if (state.activeXterm && state.activeXterm.term) resyncActiveConsole().catch(() => {});
 }
 export function wireRealtimeResumeReconnect() {
   const onResume = (ev) => {
-    if (ev && ev.type === 'visibilitychange' && document.visibilityState !== 'visible') return;
+    if (ev && ev.type === 'visibilitychange' && document.visibilityState !== 'visible') {
+      _hiddenSinceRepaint = true;
+      return;
+    }
     nudgeRealtimeSocketOnResume();
   };
-  for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online']]) {
+  for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online'], [document, 'resume']]) {
     try { target.addEventListener(ev, onResume); } catch {}
   }
+  // A frozen page (Edge sleeping tabs, Chrome's lifecycle freeze) may never report hidden first.
+  try { document.addEventListener('freeze', () => { _hiddenSinceRepaint = true; }); } catch {}
 }
 
 export function applyRealtimeEvent(event, data = {}) {
