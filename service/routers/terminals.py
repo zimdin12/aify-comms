@@ -266,6 +266,13 @@ async def get_terminal_launch(terminal_id: str):
                     ),
                 }
 
+        # THE SPAWN'S OWN envVars, reached the way the restart path reaches a spec: terminal ->
+        # session -> spawn spec. A session with no spec (a resident, or a row predating specs)
+        # contributes none. Until 2026-09-14 this route never looked, so they were stored and dropped.
+        spec_row = await (await db.execute(
+            "SELECT s.env_vars FROM agent_sessions a JOIN spawn_specs s ON s.id = a.spawn_spec_id WHERE a.id = ?",
+            (row["session_id"],),
+        )).fetchone()
         settings = await _load_settings(db)
         runtime = str(terminal.get("runtime") or agent.get("runtime") or "")
         return {
@@ -289,6 +296,7 @@ async def get_terminal_launch(terminal_id: str):
                     workspace=terminal.get("workspace") or "",
                     terminal_id=terminal_id,
                     managed_via_wrapper=launches_via_wrapper(settings, runtime),
+                    spawn_env=_json_loads_or(spec_row["env_vars"] if spec_row else "", {}),
                 ),
             },
         }

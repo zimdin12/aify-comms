@@ -101,13 +101,13 @@ export function registerEnvironmentTools(server, z) {
 
   server.tool(
     "comms_spawn",
-    "Create a persistent dashboard-managed agent session through an environment bridge. The only normal agent-spawn path; choose an environment from comms_envs, or omit environmentId to take the first that can claim a spawn for the runtime.",
+    "Create a persistent dashboard-managed agent session. The only normal agent-spawn path; choose an environment from comms_envs, or omit environmentId to take the first that can claim a spawn for the runtime.",
     {
       from: z.string().describe("Owning/manager agent ID"),
       environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, the first environment able to claim a spawn for this runtime is used."),
       agentId: z.string().describe("Stable agent ID to create"),
       role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
-      runtime: z.string().describe("Runtime for the persistent agent session: codex, claude-code, hermes, opencode, or pi"),
+      runtime: z.string().describe("Runtime: codex, claude-code, hermes, opencode, or pi"),
       workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
       name: z.string().optional().describe("Friendly name"),
       model: z.string().optional().describe("Preferred model/profile value"),
@@ -115,8 +115,9 @@ export function registerEnvironmentTools(server, z) {
       initialMessage: z.string().optional().describe("Initial task/brief to deliver after spawn"),
       subject: z.string().optional().describe("Initial task subject"),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the initial task"),
+      envVars: z.record(z.string(), z.string()).optional().describe("Extra worker env vars (NAME: value); AIFY_* identity wins"),
     },
-    async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority }) => {
+    async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority, envVars }) => {
       if (!IS_REMOTE) {
         return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
       }
@@ -174,6 +175,7 @@ export function registerEnvironmentTools(server, z) {
         priority: priority || "normal",
         mode: "managed-warm",
         resumePolicy: "native_first",
+        ...(envVars ? { envVars } : {}),
       });
       const req = r.spawnRequest || {};
       return {

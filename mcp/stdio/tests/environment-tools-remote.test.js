@@ -63,7 +63,7 @@ function fakeZod() {
     };
     return self;
   };
-  return { string: () => spec("string"), enum: (values) => spec(`enum:${values.join("|")}`) };
+  return { string: () => spec("string"), enum: (values) => spec(`enum:${values.join("|")}`), record: () => spec("record") };
 }
 
 function tools() {
@@ -380,6 +380,24 @@ test("the RUNTIME is normalised before it is matched and before it is sent", asy
   });
   const posted = REQUESTS.filter((r) => r.method === "POST");
   assert.equal(JSON.parse(posted[0].body).runtime, "claude-code");
+});
+
+test("ENV VARS travel to the service unchanged, and are omitted when none were given", async () => {
+  // The tool had no envVars field at all, so a caller could not ask for one. The service composes them
+  // into the worker's launch (service/api_core/spawn_env.py) and validates them there, so this only
+  // carries them.
+  reset({ environments: [ONLINE] });
+  await tool("comms_spawn").callback({
+    from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code",
+    envVars: { DASHBOARD_PROJECT: "aify-dashboard" },
+  });
+  const [withVars] = REQUESTS.filter((r) => r.method === "POST");
+  assert.deepEqual(JSON.parse(withVars.body).envVars, { DASHBOARD_PROJECT: "aify-dashboard" });
+
+  reset({ environments: [ONLINE] });
+  await tool("comms_spawn").callback({ from: "manager", agentId: "new-agent", role: "coder", runtime: "claude-code" });
+  const [without] = REQUESTS.filter((r) => r.method === "POST");
+  assert.equal("envVars" in JSON.parse(without.body), false, "a spawn with no variables sent an empty set");
 });
 
 test("the WORKSPACE defaults to the environment's FIRST advertised root", async () => {

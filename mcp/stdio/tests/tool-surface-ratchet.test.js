@@ -66,7 +66,7 @@ const CEILINGS = {
   comms_search: 580,
   comms_send: 2532,
   comms_share: 305,
-  comms_spawn: 790,
+  comms_spawn: 784,
   comms_status: 800,
   comms_unsend: 164,
   comms_unshare: 116,

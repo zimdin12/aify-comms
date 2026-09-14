@@ -57,6 +57,7 @@ from service.env_status import (
     bridge_stamp_state as _bridge_stamp_state,
 )
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.spawn_env import spawn_env_problems
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -243,6 +244,11 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     mode = str(req.mode or "managed-warm").strip()
     if mode not in _SPAWN_MODES:
         raise HTTPException(400, f'Unsupported spawn mode "{mode}"')
+    # REFUSED BEFORE ANYTHING IS WRITTEN. These now reach the worker's environment, so a value no
+    # environment can hold must fail here, loudly, rather than launch a worker without it.
+    env_problems = spawn_env_problems(req.envVars)
+    if env_problems:
+        raise HTTPException(400, "; ".join(env_problems))
 
     db = await get_db()
     try:

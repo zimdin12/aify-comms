@@ -31,6 +31,7 @@ from __future__ import annotations
 from typing import Any
 
 from service.api_core.runtime import _normalize_runtime
+from service.api_core.spawn_env import spawn_env_overlay
 
 #: Set on EVERY managed launch, including to "". Not a default — an assignment.
 #:
@@ -104,8 +105,13 @@ def managed_launch_env(
     workspace: str = "",
     terminal_id: str = "",
     managed_via_wrapper: bool = False,
+    spawn_env: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """The aify-owned variables a managed worker is launched with.
+    """The aify-owned variables a managed worker is launched with, over the spawn's own `envVars`.
+
+    THE SPAWN'S VARIABLES GO DOWN FIRST and every aify-owned one on top, so a spawn can add to the
+    worker's environment but cannot rename the agent or re-role it. `service/api_core/spawn_env.py`
+    says why that is enforced by order rather than by a list of forbidden names.
 
     PURE: a dict in, a dict out, no environment read and no filesystem. That is what lets the two
     cases that only happen when something is already wrong — a missing agent row, a runtime with no
@@ -162,7 +168,7 @@ def managed_launch_env(
 
     for name in session_env_vars_for(runtime):
         env[name] = resume_handle
-    return env
+    return {**spawn_env_overlay(spawn_env), **env}
 
 
 def session_env_vars_for(runtime: str) -> list[str]:
