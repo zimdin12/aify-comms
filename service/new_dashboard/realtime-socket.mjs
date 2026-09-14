@@ -114,25 +114,56 @@ export function connectRealtimeSocket() {
 // fresh connect. Throttled so a burst of resume events (focus+visibilitychange+online together)
 // fires one reconnect.
 let _wsResumeNudgeAt = 0;
+// A REPAINT RESETS THE CONSOLE, scrollback included, so only a real sleep earns one. A tab hidden for
+// a few seconds keeps its socket and keeps processing frames; resetting it on every tab switch threw
+// away whatever the operator had scrolled back to read. Hidden this long, or frozen, it is stale.
+export const REPAINT_AFTER_HIDDEN_MS = 30_000;
+let _hiddenAt = 0;
+let _sleptSinceRepaint = false;
 export function nudgeRealtimeSocketOnResume() {
+  const rs = dashboardSocket ? dashboardSocket.readyState : WebSocket.CLOSED;
+  // OPEN AFTER A SLEEP IS NOT PROOF THE SCREEN IS CURRENT. A slept or frozen tab keeps its socket, so
+  // the reconnect resync never runs, and an idle agent sends no frame to trip the sequence-gap
+  // resync either: whatever the canvas held when the tab went to sleep stays up, including cells the
+  // agent has since blanked. Repaint once from the server's screen when the page comes back.
+  // AHEAD OF THE THROTTLE: a `focus` a moment before the visible `visibilitychange` would otherwise
+  // swallow the one nudge that knows the page slept. The flag makes it once; the resync coalesces.
+  if (rs === WebSocket.OPEN) {
+    if (!_sleptSinceRepaint) return;
+    _sleptSinceRepaint = false;
+    if (state.activeXterm && state.activeXterm.term) resyncActiveConsole().catch(() => {});
+    return;
+  }
   const now = Date.now();
   if (now - _wsResumeNudgeAt < 1000) return;
   _wsResumeNudgeAt = now;
-  const rs = dashboardSocket ? dashboardSocket.readyState : WebSocket.CLOSED;
-  // OPEN → nothing to do. CONNECTING → leave it: it's either progressing (aborting a healthy slow
-  // connect just churns) or genuinely stuck, in which case the per-socket watchdog kills it within
-  // 8s. Only a CLOSED/CLOSING socket needs an immediate reconnect (short-circuiting the backoff).
-  if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
+  // CONNECTING → leave it: it's either progressing (aborting a healthy slow connect just churns) or
+  // genuinely stuck, in which case the per-socket watchdog kills it within 8s. Only a CLOSED/CLOSING
+  // socket needs an immediate reconnect (short-circuiting the backoff). Either way its onopen repaints,
+  // so the sleep is answered.
+  _sleptSinceRepaint = false;
+  if (rs === WebSocket.CONNECTING) return;
   connectRealtimeSocket();
 }
 export function wireRealtimeResumeReconnect() {
   const onResume = (ev) => {
-    if (ev && ev.type === 'visibilitychange' && document.visibilityState !== 'visible') return;
+    if (ev && ev.type === 'visibilitychange') {
+      if (document.visibilityState !== 'visible') {
+        _hiddenAt = Date.now();
+        return;
+      }
+      // Judged when the page becomes VISIBLE, so time spent visible afterwards never counts as asleep.
+      if (_hiddenAt && Date.now() - _hiddenAt >= REPAINT_AFTER_HIDDEN_MS) _sleptSinceRepaint = true;
+      _hiddenAt = 0;
+    }
     nudgeRealtimeSocketOnResume();
   };
-  for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online']]) {
+  for (const [target, ev] of [[document, 'visibilitychange'], [window, 'pageshow'], [window, 'focus'], [window, 'online'], [document, 'resume']]) {
     try { target.addEventListener(ev, onResume); } catch {}
   }
+  // A frozen page (Edge sleeping tabs, Chrome's lifecycle freeze) may never report hidden first, and
+  // a freeze is a sleep whatever its length: nothing ran while it lasted.
+  try { document.addEventListener('freeze', () => { _sleptSinceRepaint = true; }); } catch {}
 }
 
 export function applyRealtimeEvent(event, data = {}) {

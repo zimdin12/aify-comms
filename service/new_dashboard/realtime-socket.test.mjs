@@ -15,6 +15,7 @@ import {
   connectRealtimeSocket,
   initRealtimeSocket,
   nudgeRealtimeSocketOnResume,
+  REPAINT_AFTER_HIDDEN_MS,
   wireRealtimeResumeReconnect,
 } from "./realtime-socket.mjs";
 
@@ -264,14 +265,14 @@ test("the resume nudge leaves OPEN and CONNECTING sockets alone", () => {
   }
 });
 
-test("resume wiring subscribes to all four signals and ignores a hidden visibilitychange", () => {
+test("resume wiring subscribes to every resume signal and ignores a hidden visibilitychange", () => {
   withFakes(({ built }) => {
     harness();
     const handlers = [];
     globalThis.document = { visibilityState: "hidden", addEventListener: (ev, fn) => handlers.push([ev, fn]) };
     globalThis.window = { addEventListener: (ev, fn) => handlers.push([ev, fn]) };
     wireRealtimeResumeReconnect();
-    assert.deepEqual(handlers.map(([ev]) => ev).sort(), ["focus", "online", "pageshow", "visibilitychange"]);
+    assert.deepEqual(handlers.map(([ev]) => ev).sort(), ["focus", "freeze", "online", "pageshow", "resume", "visibilitychange"]);
     connectRealtimeSocket();
     built[0].readyState = CLOSED;
     const onVisibility = handlers.find(([ev]) => ev === "visibilitychange")[1];
@@ -280,6 +281,90 @@ test("resume wiring subscribes to all four signals and ignores a hidden visibili
     globalThis.document.visibilityState = "visible";
     onVisibility({ type: "visibilitychange" });
     assert.equal(built.length, 2, "…and becoming visible must");
+  });
+});
+
+/** Wire the resume handlers against fake document/window, with an OPEN socket and a mounted console,
+ *  and a clock that moves only when the test says so. Any sleep an earlier test left recorded in the
+ *  module is drained first, with no console mounted, so every count here starts from this test. */
+function wiredPage(built) {
+  const handlers = [];
+  globalThis.document = { visibilityState: "visible", addEventListener: (ev, fn) => handlers.push([ev, fn]) };
+  globalThis.window = { addEventListener: (ev, fn) => handlers.push([ev, fn]) };
+  wireRealtimeResumeReconnect();
+  const realNow = Date.now;
+  let clock = realNow() + 3_600_000;
+  Date.now = () => clock;
+  const fire = (ev, visibility) => {
+    if (visibility) globalThis.document.visibilityState = visibility;
+    for (const [name, fn] of handlers) if (name === ev) fn({ type: ev });
+  };
+  connectRealtimeSocket();
+  built[0].readyState = OPEN;
+  state.activeXterm = null;
+  fire("focus");
+  state.activeXterm = { term: { write() {} } };
+  return { fire, advance: (ms) => { clock += ms; }, restore: () => { Date.now = realNow; } };
+}
+
+test("A SLEPT TAB WHOSE SOCKET STAYED OPEN REPAINTS THE CONSOLE when it comes back", () => {
+  // The reconnect resync cannot run (nothing reconnects) and an idle agent sends no frame to trip the
+  // sequence-gap resync, so without this the canvas keeps whatever it held when the tab went to sleep.
+  withFakes(({ built }) => {
+    const calls = harness();
+    const page = wiredPage(built);
+    try {
+      page.fire("visibilitychange", "hidden");
+      page.advance(REPAINT_AFTER_HIDDEN_MS);
+      page.fire("visibilitychange", "visible");
+      assert.equal(calls.resyncActiveConsole, 1, "coming back from a long hide must repaint once");
+      page.advance(REPAINT_AFTER_HIDDEN_MS);
+      page.fire("focus");
+      assert.equal(calls.resyncActiveConsole, 1, "time spent VISIBLE afterwards is not a sleep");
+      page.fire("freeze");
+      page.fire("resume");
+      assert.equal(calls.resyncActiveConsole, 2, "a frozen page that resumes must repaint, however short");
+      assert.equal(built.length, 1, "an OPEN socket is never replaced");
+    } finally {
+      page.restore();
+    }
+  });
+});
+
+test("the repaint is not swallowed by the resume throttle", () => {
+  // A `focus` arriving a moment before the visible `visibilitychange` spends the 1s throttle. The
+  // visibilitychange is the event that knows the page slept, so it must still repaint.
+  withFakes(({ built }) => {
+    const calls = harness();
+    const page = wiredPage(built);
+    try {
+      page.fire("visibilitychange", "hidden");
+      page.advance(REPAINT_AFTER_HIDDEN_MS * 4);
+      page.fire("focus");
+      page.fire("visibilitychange", "visible");
+      assert.equal(calls.resyncActiveConsole, 1);
+    } finally {
+      page.restore();
+    }
+  });
+});
+
+test("a SHORT tab switch keeps the console: a repaint resets its scrollback", () => {
+  // NEGATIVE CONTROL for the tests above. `resyncActiveConsole` calls `term.reset()`, so repainting on
+  // every hidden-then-visible threw away whatever the operator had scrolled back to read.
+  withFakes(({ built }) => {
+    const calls = harness();
+    const page = wiredPage(built);
+    try {
+      page.fire("visibilitychange", "hidden");
+      page.advance(REPAINT_AFTER_HIDDEN_MS - 1);
+      page.fire("visibilitychange", "visible");
+      page.fire("focus");
+      page.fire("pageshow");
+      assert.equal(calls.resyncActiveConsole, 0);
+    } finally {
+      page.restore();
+    }
   });
 });
 
