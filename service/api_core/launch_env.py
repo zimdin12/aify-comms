@@ -57,6 +57,29 @@ ALWAYS_SET = (
     "AIFY_TERMINAL_ID",
     "AIFY_SESSION_MODE",
     "AIFY_MANAGED_VIA_WRAPPER",
+    "AIFY_COMMS_AGENT_ROLE",
+)
+
+#: What a worker must NOT inherit from whatever started its host. The launch answer carries these as
+#: `unsetEnv` and the host REMOVES them from its own environment before laying this overlay on top.
+#:
+#: WHY A LIST THE HOST APPLIES, and not a value set here: an overlay can set a name, never remove one,
+#: and setting is not enough. `CLAUDE_CODE_CHILD_SESSION` marks a process as a child session, which
+#: turns transcript saving OFF -- what it is set TO is not the question, its presence is. The role is
+#: the other half: this overlay writes `AIFY_AGENT_ROLE=""` for an unknown role, launch-identity reads
+#: `AIFY_AGENT_ROLE || AIFY_COMMS_AGENT_ROLE || "coder"`, and "" is falsy, so an inherited alias won.
+#:
+#: THE REGRESSION THIS CLOSES, reported 2026-09-14 by graph-tech-lead and confirmed by reading both
+#: tiers: the strip lived in `mcp/stdio/terminal-env.js`, whose only production caller was the
+#: environment bridge v0.6.2 deleted. aify-env merges `{...process.env, ...launch.env}` and named
+#: neither variable, so from then on a host started inside a Claude Code session launched every
+#: managed claude with its transcript off.
+NEVER_INHERITED = (
+    "CLAUDE_CODE_CHILD_SESSION",
+    "AIFY_AGENT_ID",
+    "AIFY_COMMS_AGENT_ID",
+    "AIFY_AGENT_ROLE",
+    "AIFY_COMMS_AGENT_ROLE",
 )
 
 
@@ -145,6 +168,9 @@ def managed_launch_env(
         "AIFY_AGENT_ID": _text(terminal.get("agentId")) or _text(agent.get("id")),
         "AIFY_COMMS_AGENT_ID": _text(terminal.get("agentId")) or _text(agent.get("id")),
         "AIFY_AGENT_ROLE": _text(agent.get("role")) or _text(terminal.get("role")),
+        # THE ALIAS TOO, so a host too old to apply `unsetEnv` still cannot hand the worker an
+        # inherited role through it: "" here makes the `||` chain reach its own default.
+        "AIFY_COMMS_AGENT_ROLE": _text(agent.get("role")) or _text(terminal.get("role")),
         "AIFY_AGENT_CWD": workspace or "",
         "AIFY_SESSION_HANDLE": resume_handle,
         # This worker is a WORKER. A bridge flag inherited into one is how a test process once became

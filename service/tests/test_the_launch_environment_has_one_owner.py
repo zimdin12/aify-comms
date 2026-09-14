@@ -153,6 +153,20 @@ class TheLaunchEnvironmentHasOneOwnerTests(unittest.TestCase):
         self.assertEqual(missing, [], "the host writes these and this composer does not")
 
 
+    def test_THE_NEVER_INHERITED_LIST_AGREES_WITH_THE_ONE_IT_REPLACES(self):
+        """`child-env-hygiene.mjs` held this list, with the reason beside each name, for a bridge that
+        no longer runs. While both files exist a name dropped from either is a worker that inherits
+        it depending on which copy somebody reads, so they are held equal here."""
+        from service.api_core.launch_env import NEVER_INHERITED
+
+        source = (REPO / "mcp" / "stdio" / "child-env-hygiene.mjs").read_text(encoding="utf-8")
+        block = source[source.index("export const NEVER_INHERITED"):]
+        block = block[:block.index("});")]
+        js_names = set(re.findall(r"^\s{2}([A-Z][A-Z0-9_]+):", block, re.M))
+        self.assertIn("CLAUDE_CODE_CHILD_SESSION", js_names, f"the scanner read {js_names}")
+        self.assertEqual(set(NEVER_INHERITED), js_names)
+        self.assertEqual(len(NEVER_INHERITED), len(set(NEVER_INHERITED)), "a name is listed twice")
+
     def test_CLAUDE_CODE_ALWAYS_LAUNCHES_VIA_ITS_WRAPPER(self):
         """THE DEFECT THIS CLOSES, measured 2026-09-03 on a live fleet. Seven managed workers
         started, registered and read `online`, and every channel dispatch to them sat `queued` for

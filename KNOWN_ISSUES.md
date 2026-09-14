@@ -116,19 +116,27 @@ among them. See `api_core/authored_failures.py`.
 be corrected from here. Closing it needs either a runtime change or a note injected into the session
 after an interrupt so the agent learns what actually happened. Nothing in this repo currently does that.
 
-## Managed spawns inherit whatever launched the bridge (2026-08-25, one variable fixed)
+## Managed workers inherit whatever started their host (2026-08-25; regressed in v0.6.2, closed 2026-09-14)
 
-A bridge started from inside a Claude Code session carried `CLAUDE_CODE_CHILD_SESSION`, `...baseEnv`
-spread it into every worker, and every managed agent ran with **transcript saving off** — announced by
-one line in a TUI nobody reads and unrecoverable afterwards.
+A bridge started from inside a Claude Code session carried `CLAUDE_CODE_CHILD_SESSION`, spread it into
+every worker, and every managed agent ran with **transcript saving off**. That was fixed on 2026-08-25
+in `mcp/stdio/terminal-env.js`, with the list in `child-env-hygiene.mjs`.
 
-That variable is now cleared, the same way `AIFY_AGENT_ROLE` already was, and for the reason that file
-already documented: the bridge's own environment reaches everything it starts.
+**It regressed silently when v0.6.2 deleted the environment bridge.** `terminal-env.js` lost its only
+production caller, and aify-env merges `{...process.env, ...launch.env}` without naming the marker, so
+a host started inside a Claude Code session launched managed claudes with their transcript off again.
+The launch-overlay agreement test compared only the `AIFY_` names the JS ASSIGNS, so it could not see
+a strip. Reported by graph-tech-lead on 2026-09-14 and confirmed by reading both tiers.
 
-**The class is not closed.** Two variables have been caught this way, one at a time, each after it
-caused a visible problem. `terminalChildEnv` spreads the whole parent environment and clears the two we
-know about. What is missing is the inverse: a stated list of what a managed worker may inherit, so the
-next such variable is refused by construction rather than after somebody notices its symptom.
+**Now:** the service owns the list (`service/api_core/launch_env.py` `NEVER_INHERITED`) and sends it
+on `GET /terminals/{id}/launch` as `unsetEnv`; aify-env removes those names, in any case, before the
+overlay goes on top. The overlay also always writes `AIFY_COMMS_AGENT_ROLE`, so an older host that
+ignores `unsetEnv` still cannot hand a worker an inherited role. The seam is tested end to end in
+`test_the_env_plugin_can_run_what_the_launch_answers.py`, with a marked host environment.
+
+**Still open:** it is a denylist, so an as-yet-unknown harmful variable still gets through; and
+`terminal-env.js` / `child-env-hygiene.mjs` are dead code kept only until their tests are retired,
+held equal to the service's list by an agreement test meanwhile.
 
 ## Registration records `bridgeDir` as given, so its form depends on the shell (2026-08-21)
 

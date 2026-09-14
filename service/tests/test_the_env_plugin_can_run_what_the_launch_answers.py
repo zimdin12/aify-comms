@@ -127,10 +127,15 @@ const outcome = await runOneControl({
   // These are the two collisions that matter: an agent id inherited from whatever launched this
   // host is how a worker comes up reporting as somebody else, and an inherited
   // AIFY_ENVIRONMENT_BRIDGE=1 turns a worker into a second environment bridge.
+  //
+  // AND TWO THE OVERLAY CANNOT FIX BY SETTING, only the host by removing: a claude-code child-session
+  // marker, which turns a worker's transcript off by being present, and the role alias.
   baseEnv: {
     PATH: '/usr/bin',
     AIFY_AGENT_ID: 'parent-other',
     AIFY_ENVIRONMENT_BRIDGE: '1',
+    CLAUDE_CODE_CHILD_SESSION: '1',
+    AIFY_COMMS_AGENT_ROLE: 'manager',
   },
   sender: { send: () => {}, flush: async () => {} },
 });
@@ -291,6 +296,30 @@ class TheEnvPluginCanRunWhatTheLaunchAnswers(FastApiTestCase):
                 "service": "aify-comms",
             },
             "the execution plan the host would run is not the one this service composed")
+
+    def test_WHAT_A_WORKER_MUST_NEVER_INHERIT_DOES_NOT_REACH_IT(self):
+        """THE REGRESSION, end to end: this service's answer through the plugin's own merge.
+
+        The strip lived in the environment bridge v0.6.2 deleted, and the plugin merged its whole
+        environment under the overlay, so a host started inside a Claude Code session launched every
+        managed claude with `CLAUDE_CODE_CHILD_SESSION` set -- transcript saving off. Each half passed
+        its own tests; only the seam shows whether a worker is actually clean.
+        """
+        self._register()
+        self._terminal()
+        launch = self._launch_answer()["launch"]
+        # CONTROL: the harness really does hand the plugin a marked environment, so an absence below is
+        # the merge removing it rather than the fixture never carrying it.
+        self.assertIn("CLAUDE_CODE_CHILD_SESSION", HARNESS)
+        read = self._run_by_the_plugin({"launch": launch})
+        env = read["started"][0]["env"]
+        self.assertNotIn(
+            "CLAUDE_CODE_CHILD_SESSION", env,
+            "a child-session marker inherited by the host reached a managed worker, which launches it "
+            "with its transcript off")
+        self.assertNotEqual(
+            env.get("AIFY_COMMS_AGENT_ROLE"), "manager",
+            "the host's own role reached the worker through the alias launch-identity falls back to")
 
     def test_the_aify_variables_this_service_sends_reach_the_process(self):
         """The overlay, and it is a separate obligation from starting at all.

@@ -35,7 +35,7 @@ from service.api_core.terminal_output import _record_host_reported_alive
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.console_prompts import forget_terminal as _forget_answered_prompts
-from service.api_core.launch_env import launches_via_wrapper, managed_launch_env
+from service.api_core.launch_env import NEVER_INHERITED, launches_via_wrapper, managed_launch_env
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
@@ -298,6 +298,9 @@ async def get_terminal_launch(terminal_id: str):
                     managed_via_wrapper=launches_via_wrapper(settings, runtime),
                     spawn_env=_json_loads_or(spec_row["env_vars"] if spec_row else "", {}),
                 ),
+                # REMOVED from the host's own environment before `env` goes on top: an overlay can
+                # set a name but never unset one (`launch_env.NEVER_INHERITED` says why that matters).
+                "unsetEnv": list(NEVER_INHERITED),
             },
         }
     finally:
