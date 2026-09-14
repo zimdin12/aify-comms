@@ -35,7 +35,12 @@ logger = logging.getLogger("aify_comms.api_core.console_working")
 #: `✻ Actualizing… (49m 37s · ↓ 79.0k tokens)`. A completed row renders `+3 tool uses · ↓ 12.1k
 #: tokens` with no timer and no bracket, and a finished turn leaves `✻ Worked for 49m 37s`, so neither
 #: matches. This is the rule the bridge classifier used before it was deleted (`95ba31d3`).
-_RUNNING_FOOTER = re.compile(r"\((?:\d+h\s+)?(?:\d+m\s+)?\d+s\s*·\s*[↓↑]\s*[\d.]+k?\s*tokens")
+#: THE LINE MUST OPEN WITH A SPINNER FRAME. Unanchored, prose quoting a footer anywhere on an idle
+#: screen -- an agent explaining this very rule -- held the lease. `·` and `*` are frames too.
+_RUNNING_FOOTER = re.compile(
+    r"^[ \t]*[·*✱✶✽✺✹✷✵✳✢✻][ \t][^\n]*\((?:\d+h[ \t]+)?(?:\d+m[ \t]+)?\d+s[ \t]*·[ \t]*[↓↑][ \t]*[\d.]+k?[ \t]*tokens",
+    re.MULTILINE,
+)
 #: The older footer, `✻ Crunched for 3m 12s (esc to interrupt · ...)`. The spinner glyph must sit on
 #: the same line so prose quoting the phrase does not count.
 _INTERRUPT_FOOTER = re.compile(r"[✱✶✽✺✹✷✵✳✢✻][^\n]*esc to interrupt")

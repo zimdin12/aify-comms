@@ -32,26 +32,30 @@ _MODE_LINE = "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to inte
 
 RUNNING = _SGR + "⏺ Reading 3 files\r\n\r\n✻ Actualizing… (49m 37s · ↓ 79.0k tokens)\r\n\r\n> \r\n" + _MODE_LINE
 RUNNING_SHORT = _SGR + "· Thinking… (12s · ↑ 340 tokens)\r\n"
+RUNNING_STAR = _SGR + "  * Thinking… (1h 2m 3s · ↓ 1.5k tokens)\r\n"
 OLD_FOOTER = _SGR + "✻ Crunched for 3m 12s (esc to interrupt · ctrl+t to show todos)\r\n"
 
 FINISHED = _SGR + "⏺ Done.\r\n\r\n✻ Worked for 49m 37s\r\n\r\n> \r\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\r\n"
 FINISHED_WITH_SHELL = _SGR + "✻ Churned for 59m 12s · done 1:15 PM · 1 shell still running\r\n" + _MODE_LINE
 SUBAGENT_DONE = _SGR + "  ⎿  Done (+3 tool uses · ↓ 12.1k tokens)\r\n"
 PROSE = _SGR + "The run took (12s · 3 lines) and nothing else.\r\n" + _MODE_LINE
+#: Prose QUOTING a running footer, the whole shape included, on an idle screen. The rule matched it
+#: until the footer was anchored to a line opening with a spinner frame.
+QUOTED_FOOTER = _SGR + "⏺ The dot read online while the screen showed (49m 37s · ↓ 79.0k tokens).\r\n\r\n> \r\n"
 
 
 class TheFooterRuleTests(FastApiTestCase):
     DB_NAME = "aify-test-claude-footer-rule.db"
 
     def test_running_footers_match(self):
-        for screen in (RUNNING, RUNNING_SHORT, OLD_FOOTER):
+        for screen in (RUNNING, RUNNING_SHORT, RUNNING_STAR, OLD_FOOTER):
             with self.subTest(screen=screen[-50:]):
                 self.assertTrue(shows_claude_working(screen))
 
     def test_idle_screens_do_not(self):
         # An idle screen keeps a finished `Worked for` line, completed subagent rows and whatever
         # prose was last printed. None of it may hold the lease.
-        for screen in (FINISHED, FINISHED_WITH_SHELL, SUBAGENT_DONE, PROSE):
+        for screen in (FINISHED, FINISHED_WITH_SHELL, SUBAGENT_DONE, PROSE, QUOTED_FOOTER):
             with self.subTest(screen=screen[-50:]):
                 self.assertFalse(shows_claude_working(screen))
 
