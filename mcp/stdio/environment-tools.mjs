@@ -115,7 +115,7 @@ export function registerEnvironmentTools(server, z) {
       initialMessage: z.string().optional().describe("Initial task/brief to deliver after spawn"),
       subject: z.string().optional().describe("Initial task subject"),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the initial task"),
-      envVars: z.record(z.string(), z.string()).optional().describe("Extra worker env vars (NAME: value); aify launch vars win"),
+      envVars: z.record(z.string(), z.string()).optional().describe("Extra worker env vars (NAME: value); AIFY_* is reserved"),
     },
     async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority, envVars }) => {
       if (!IS_REMOTE) {

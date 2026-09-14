@@ -113,38 +113,35 @@ class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
         # The aify variables are still there beside them: added to, not replaced.
         self.assertEqual(env["AIFY_AGENT_ID"], "env-worker")
 
-    def test_a_spawn_cannot_rename_the_agent_it_launches(self):
-        """Order, not a denylist: the spawn's variables go down first and the launch's own identity on
-        top, so a caller can add to a worker's environment but not make it somebody else."""
-        created = self._spawn(agent_id="real-agent", envVars={
-            "AIFY_AGENT_ID": "impostor", "AIFY_SESSION_MODE": "resident", "AIFY_ENVIRONMENT_BRIDGE": "1",
-            "STILL_ARRIVES": "yes",
-        })
-        self.assertEqual(created.status_code, 200, created.text)
-        spec_id = created.json()["spawnRequest"]["spawnSpec"]["id"]
-        env = self._launch_env(self._terminal_for_spec("real-agent", spec_id))
-        self.assertEqual(env["AIFY_AGENT_ID"], "real-agent")
-        self.assertEqual(env["AIFY_SESSION_MODE"], "managed")
-        self.assertEqual(env["AIFY_ENVIRONMENT_BRIDGE"], "0")
-        self.assertEqual(env["STILL_ARRIVES"], "yes")
-
-    def test_a_spawn_cannot_rename_the_agent_by_changing_the_case_of_a_name(self):
-        """Order alone only wins against the EXACT name. `aify_agent_id` is a different key to Python and
-        to Linux, so it survived beside `AIFY_AGENT_ID` -- and ahead of it, because the spawn's variables
-        go down first. On Windows those are ONE variable: aify-env keeps the order when it merges and
-        node-pty passes the pairs through without de-duplicating, so the first one is the one a worker
-        can read. Any name the launch writes is dropped from the spawn in every spelling."""
-        created = self._spawn(agent_id="real-agent", envVars={
-            "aify_agent_id": "impostor", "Aify_Session_Mode": "resident", "aify_terminal_id": "t-other",
-            "still_arrives": "yes",
-        })
-        self.assertEqual(created.status_code, 200, created.text)
-        spec_id = created.json()["spawnRequest"]["spawnSpec"]["id"]
-        env = self._launch_env(self._terminal_for_spec("real-agent", spec_id))
-        for name in ("AIFY_AGENT_ID", "AIFY_SESSION_MODE", "AIFY_TERMINAL_ID"):
+    def test_a_spawn_cannot_set_an_aify_variable_in_any_case(self):
+        """The `AIFY_` namespace is the launch's. Dropping only the names the launch WRITES left the ones
+        the bridge reads and the launch does not -- `AIFY_SERVER_URL` would point the worker at another
+        service -- so the whole prefix is refused, in every spelling Windows would merge into one."""
+        before = self._spec_count()
+        for name in ("AIFY_AGENT_ID", "AIFY_SERVER_URL", "AIFY_AGENT_RUNTIME", "aify_agent_id", "Aify_Api_Key"):
             with self.subTest(name):
-                spellings = [key for key in env if key.upper() == name]
-                self.assertEqual(spellings, [name], f"the launch carries {spellings} for one Windows variable")
+                response = self._spawn(agent_id="real-agent", envVars={name: "impostor", "STILL_FINE": "yes"})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertIn(name, response.text)
+        self.assertEqual(self._spec_count(), before, "a refused spawn still wrote a spec")
+        # CONTROL: a name that merely CONTAINS the prefix is not in the namespace.
+        self.assertEqual(self._spawn(agent_id="real-agent", envVars={"MY_AIFY_FLAG": "1"}).status_code, 200)
+
+    def test_a_spawn_cannot_shadow_a_launch_variable_by_changing_its_case(self):
+        """Order alone only wins against the EXACT name. `claude_session_id` is a different key to Python
+        and to Linux, so it survived beside `CLAUDE_SESSION_ID` -- and ahead of it, because the spawn's
+        variables go down first. On Windows those are ONE variable: aify-env keeps the order when it
+        merges and node-pty passes the pairs through without de-duplicating, so the first one is the one a
+        worker can read. Any name the launch writes is dropped from the spawn in every spelling."""
+        created = self._spawn(agent_id="real-agent", envVars={
+            "claude_session_id": "someone-elses", "still_arrives": "yes",
+        })
+        self.assertEqual(created.status_code, 200, created.text)
+        spec_id = created.json()["spawnRequest"]["spawnSpec"]["id"]
+        env = self._launch_env(self._terminal_for_spec("real-agent", spec_id))
+        spellings = [key for key in env if key.upper() == "CLAUDE_SESSION_ID"]
+        self.assertEqual(spellings, ["CLAUDE_SESSION_ID"], f"the launch carries {spellings} for one Windows variable")
+        self.assertNotEqual(env["CLAUDE_SESSION_ID"], "someone-elses")
         self.assertEqual(env["AIFY_AGENT_ID"], "real-agent")
         # A name the launch does NOT write is the spawn's to set, in whatever case it chose.
         self.assertEqual(env["still_arrives"], "yes")
@@ -193,4 +190,5 @@ class SpawnEnvOverlayTests(FastApiTestCase):
         would start a worker with a configuration nobody asked for."""
         self.assertEqual(spawn_env_overlay({"GOOD": "1", "bad-name": "2"}), {})
         self.assertEqual(spawn_env_overlay(["NOT", "A", "DICT"]), {})
+        self.assertEqual(spawn_env_overlay({"GOOD": "1", "AIFY_SERVER_URL": "http://elsewhere"}), {})
         self.assertEqual(spawn_env_overlay({"GOOD": "1"}), {"GOOD": "1"})

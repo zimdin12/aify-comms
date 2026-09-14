@@ -19,6 +19,13 @@ function writes, and would agree with it until one changed.
 WHAT IS REFUSED is what cannot be an environment variable at all, or would make the overlay a way to
 ship a whole environment over the wire -- which `GET /terminals/{id}/launch` exists to never do.
 
+AND THE `AIFY_` NAMESPACE, in any case. The launch writes twelve of those names on every worker, and
+the bridge reads dozens more that it does not write -- `AIFY_SERVER_URL`, `AIFY_API_KEY`,
+`AIFY_AGENT_RUNTIME` -- so dropping only the written ones let a spawn point its worker at another
+service or change the runtime it reports, while the launch's own identity looked intact. The whole
+prefix is the launch's: a prefix is the namespace rule itself, where a list of reserved names would be
+a third copy of what the bridge reads.
+
 PURE: no database, no environment read.
 """
 from __future__ import annotations
@@ -36,6 +43,10 @@ MAX_SPAWN_ENV_VARS = 32
 #: Per value, in UTF-8 bytes. Windows' whole environment block is capped at 32,767 characters.
 MAX_SPAWN_ENV_VALUE_BYTES = 4096
 
+#: Names the launch and the aify bridge own. Compared upper-cased: Windows reads `aify_server_url`
+#: and `AIFY_SERVER_URL` as one variable.
+RESERVED_SPAWN_ENV_PREFIX = "AIFY_"
+
 
 def spawn_env_problems(env_vars: Any) -> list[str]:
     """Every reason this `envVars` cannot be stored, or [] when it can. Absent is valid."""
@@ -49,6 +60,8 @@ def spawn_env_problems(env_vars: Any) -> list[str]:
     for name, value in env_vars.items():
         if not isinstance(name, str) or not SPAWN_ENV_NAME.match(name):
             problems.append(f"envVars name {name!r} is not a valid variable name ([A-Za-z_][A-Za-z0-9_]*)")
+        elif name.upper().startswith(RESERVED_SPAWN_ENV_PREFIX):
+            problems.append(f"envVars {name}: {RESERVED_SPAWN_ENV_PREFIX}* names are set by the launch, not by a spawn")
         elif not isinstance(value, str):
             # NOT COERCED. `True` would become "True" and `None` would become "None" -- a value the
             # caller never wrote, which the worker would then read as though they had.
