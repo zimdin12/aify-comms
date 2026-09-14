@@ -109,9 +109,10 @@ def managed_launch_env(
 ) -> dict[str, str]:
     """The aify-owned variables a managed worker is launched with, over the spawn's own `envVars`.
 
-    THE SPAWN'S VARIABLES GO DOWN FIRST and every aify-owned one on top, so a spawn can add to the
-    worker's environment but cannot rename the agent or re-role it. `service/api_core/spawn_env.py`
-    says why that is enforced by order rather than by a list of forbidden names.
+    THE SPAWN'S VARIABLES GO DOWN FIRST and every aify-owned one on top, and a spawn variable naming
+    one of those in ANY case is dropped, so a spawn can add to the worker's environment but cannot
+    rename the agent or re-role it. `service/api_core/spawn_env.py` says why that is enforced against
+    the names written here rather than a list of forbidden names.
 
     PURE: a dict in, a dict out, no environment read and no filesystem. That is what lets the two
     cases that only happen when something is already wrong — a missing agent row, a runtime with no
@@ -168,7 +169,12 @@ def managed_launch_env(
 
     for name in session_env_vars_for(runtime):
         env[name] = resume_handle
-    return {**spawn_env_overlay(spawn_env), **env}
+    # COMPARED WITHOUT CASE, because the variables this launch writes are the ones a spawn must not
+    # reach and Windows spells a variable any way it likes. Order alone lets `aify_agent_id` survive
+    # beside `AIFY_AGENT_ID`, ahead of it, and a Windows worker reads whichever comes first.
+    written = {name.upper() for name in env}
+    spawn = {name: value for name, value in spawn_env_overlay(spawn_env).items() if name.upper() not in written}
+    return {**spawn, **env}
 
 
 def session_env_vars_for(runtime: str) -> list[str]:
