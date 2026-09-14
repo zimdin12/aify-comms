@@ -2218,8 +2218,10 @@ install_codex_turn_hooks() {
 
 install_hermes_turn_hooks() {
   # Checked against hermes-agent b9271bcb: pre_llm_call fires before each model call; on_session_end
-  # fires once PER TURN from finalize_turn, interrupted and failed turns included (api_request_error is
-  # per failed call, and a retry continues the turn); pre/post_approval_response bracket an approval.
+  # fires from finalize_turn at the end of a turn, and for an interrupted CLI turn or a session close. A
+  # turn that ends on an API error returns before finalize_turn and fires no end hook, so it stays in-turn
+  # until the gateway turn detector or the 30-minute ceiling clears it (api_request_error is per failed
+  # call, not per turn). pre_approval_request / post_approval_response bracket an approval.
   # Hermes approves a hook by its exact (event, command) pair, so aify-turn-start.sh keeps its command.
   local config_root="$(hermes_config_root)"
   local config_file="$config_root/config.yaml"
@@ -2820,7 +2822,7 @@ elif [ "$CLIENT" = "hermes" ]; then
   # is what gives the in-session hermes agent the comms_* tools for self-reply.
   install_hermes_plugin
   install_hermes_wrapper
-  # Turn-start (pre_llm_call), turn-end (on_session_end, once per turn) and approval
+  # Turn-start (pre_llm_call), turn-end (on_session_end) and approval
   # (pre_approval_request / post_approval_response) shell hooks; see install_hermes_turn_hooks.
   install_hermes_turn_hooks
   echo "  New hermes hooks run only once approved: see 'hermes hooks list'; approve at hermes' prompt or --accept-hooks."
