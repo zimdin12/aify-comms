@@ -9,10 +9,12 @@ and never took it. A caller setting one got a 200, a stored value and a worker w
 
 WHAT IS ALLOWED, AND WHY THIS IS NOT A DENYLIST. A spawn is an authenticated request from somebody
 who can already choose the program, the workspace and the model, so the variables are theirs to set.
-The one rule that is not negotiable is enforced by ORDER rather than by a list: `managed_launch_env`
-lays these down first and its own identity and wiring variables on top, so a spawn can add to the
-worker's environment but cannot rename the agent it is launching. A list of forbidden names would be
-a second copy of the names that function writes, and would agree with it until one changed.
+The one rule that is not negotiable is enforced against what the launch WRITES rather than a list:
+`managed_launch_env` lays these down first, drops any whose name matches one of its own identity and
+wiring variables in any case, and puts its own on top, so a spawn can add to the worker's environment
+but cannot rename the agent it is launching. Case matters because Windows treats `aify_agent_id` and
+`AIFY_AGENT_ID` as one variable. A list of forbidden names would be a second copy of the names that
+function writes, and would agree with it until one changed.
 
 WHAT IS REFUSED is what cannot be an environment variable at all, or would make the overlay a way to
 ship a whole environment over the wire -- which `GET /terminals/{id}/launch` exists to never do.
