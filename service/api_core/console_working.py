@@ -15,6 +15,13 @@ so this needs no new producer on the host and works for every host that streams 
 ADDITIVE ONLY, same contract as the route: a match stamps the lease, no match does nothing, and the
 lease expires on its own `CONSOLE_WORKING_LEASE_SECONDS`. It is still gated on a live worker where it
 is read, so it cannot make a dead agent look busy.
+
+NOW THE FALLBACK (2026-09-14). aify-env's aify-comms plugin evaluates Herdr's screen rules next to
+the authoritative screen and reports working / idle / blocked on liveness frames
+(`service/api_core/host_activity.py`); a fresh observation decides a managed agent's status ahead of
+this lease. The lease still answers for an aify-env that sends no observation, or whose observation
+has gone stale. It could be retired once every supported aify-env sends the observation; until
+then it stays.
 """
 
 from __future__ import annotations

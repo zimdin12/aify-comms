@@ -52,6 +52,22 @@ difference is not "agents are allowed now": it is that this list exists to **per
 operator asked for**, it lives behind a plugin, and the host degrades to a plain refusal with no plugin
 present. A panel that merely *shows* somebody else's domain data is still the wrong side of the line.
 
+### Screen knowledge — amended 2026-09-14
+
+**THE RULE, as the operator amended it:** aify-env's host core stays PTY-only. It exposes screen
+text and PTY activity, never what a runtime's screen means. A service's screen knowledge may live in
+that service's own plugin directory, `lib/plugins/<service>/`, because the plugin runs next to the
+authoritative screen. The 2026-09-03 ruling is amended, not overturned: it had moved a claude screen
+model out of aify-env's core after it was added there to unblock a fleet, and the core still may not
+carry one.
+
+What follows from it today: aify-comms' plugin vendors Herdr's per-runtime screen rules and reports
+working / idle / blocked for the managed terminals it runs; this service stores the report
+(`service/api_core/host_activity.py`) and uses a fresh one for a managed agent's status. The
+service's own screen code stays as it is for now: `console_prompts.py` answers dialogs, and the
+`console_working.py` footer lease is the fallback for an aify-env that sends no observation. The
+lease can be retired once every supported aify-env sends one.
+
 `aify-comms` as a BRIDGE is gone, v0.6.1. `install_bridge_launcher()` wrote `~/.local/bin/aify-comms`
 beside `claude-aify`, `codex-aify`, `hermes-aify` and `pi-aify` — four harness launchers and one
 environment bridge, same directory, same shape, entirely different job, and the BARE invocation was
@@ -99,7 +115,10 @@ every service asking it, collision gone by construction.
 
 **What it does not fix:** status. A dashboard asking aify-env "is this agent working?" gets nothing
 useful — aify-env knows the process is alive, not whether the agent is thinking. Worth being explicit
-now, because "aify-env tracks the agents" is the natural assumption and it is wrong.
+now, because "aify-env tracks the agents" is the natural assumption and it is wrong. (Since
+2026-09-14 the aify-comms PLUGIN reports what an agent's screen shows to this service, which decides
+the status; aify-env's host core still answers nothing about it. See the screen-knowledge section
+under the plugin carve-out.)
 
 ## The allowlist writes itself
 

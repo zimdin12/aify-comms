@@ -1,11 +1,11 @@
 """Console dialogs a worker cannot pass on its own, decided by the tier that knows what they mean.
 
-WHY HERE AND NOT ON THE HOST. These rules are a model of a claude SCREEN, which is a runtime
-concept, and this service already owns runtime concepts. The host that runs the process must not
-learn what claude looks like: it is about to run processes for aify-dashboard and
-aify-project-graph too, and a host carrying one service's screen model would end up carrying all of
-them. It was briefly implemented in aify-env to unblock a fleet at 5am on 2026-09-03; the operator
-said that was the wrong layer, and they were right.
+WHY HERE AND NOT IN THE HOST CORE. These rules are a model of a claude SCREEN, which is a runtime
+concept, and this service already owns runtime concepts. aify-env's host core must not learn what
+claude looks like: it runs processes for aify-dashboard and aify-project-graph too. Since the
+operator amended the rule on 2026-09-14, a service's screen knowledge may live in that service's
+own plugin directory inside aify-env; the dialog answers tested here stay in the service for now.
+(A first version sat in aify-env's core on 2026-09-03 and was ruled the wrong layer.)
 
 MATCHED AGAINST THE RENDERED SCREEN, and that is the whole reason the first attempt failed. Claude
 does not send spaces, it moves the cursor:
