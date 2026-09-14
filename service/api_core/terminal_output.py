@@ -27,6 +27,7 @@ from service.api_core.console_prompts import (
 )
 from service.api_core.console_working import note_console_working
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.host_activity import record_host_activity
 from service.api_core.terminal_status import _TERMINAL_END_STATUSES, _terminal_status_transition
 from service.clock import now as _now
 from service.api_core.terminal_tail_buffer import (
@@ -290,7 +291,7 @@ async def _resume_policy_for_agent(db, agent_id: str) -> str:
     return str((state or {}).get("resumePolicy") or "")
 
 
-async def _record_host_reported_alive(db, terminal) -> None:
+async def _record_host_reported_alive(db, terminal, activity=None) -> str:
     """The host says it is still running this terminal. Write down that it said so.
 
     THIS IS THE WHOLE LIVENESS MECHANISM, and until 2026-09-03 it wrote NOTHING. aify-env posts an
@@ -311,10 +312,17 @@ async def _record_host_reported_alive(db, terminal) -> None:
 
     NOT THROUGH THE OUTPUT QUEUE, on purpose. That queue exists to COALESCE a high-frequency byte
     stream; a liveness touch is one tiny row write with nothing to batch, and routing it through the
-    queue is what made it invisible. It writes ONE column: no status, so it cannot reopen anything;
-    no output, so it cannot disturb the stream or its sequence numbers.
+    queue is what made it invisible. It writes ONE lifecycle column: no status, so it cannot reopen
+    anything; no output, so it cannot disturb the stream or its sequence numbers. A frame carrying the
+    host's screen observation also records that (`host_activity.py`), which feeds status only.
     """
     await db.execute(
         "UPDATE terminal_sessions SET updated_at = ? WHERE id = ?",
         (_now(), str(terminal["id"])),
     )
+    # AND WHAT THE HOST SEES ON ITS SCREEN, when the frame carries it. Still no status and no output:
+    # an observation feeds the status engine and never the terminal's own lifecycle. Returns the agent
+    # id when the status may have moved, for the caller to broadcast once it has committed.
+    if activity is None:
+        return ""
+    return await record_host_activity(db, terminal, activity)

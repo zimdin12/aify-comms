@@ -51,6 +51,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+
 #: SQLite's default host-parameter ceiling is 999. Chunking keeps a large fleet from ever reaching it,
 #: and the chunk size is stated rather than assumed so the limit is visible to the next reader.
 _MAX_PARAMS_PER_QUERY = 400
@@ -71,6 +73,31 @@ _CONSOLE_SIGNAL_SQL = "SELECT agent_id, working_at, subagents_at FROM agent_cons
 _TURN_STATE_SQL = ("SELECT agent_id, turn_busy, turn_runtime, turn_updated_at, ready, "
                    "turn_started_at, turn_bridge_id "
                    "FROM agent_turn_state WHERE agent_id IN ({})")
+
+
+#: THE FOURTH, and NOT a single-row lookup: what the host last saw on the screen of an agent's newest
+#: reporting ACTIVE terminal. One query ordered newest first, keeping the first row per agent, answers
+#: the per-agent `ORDER BY ... LIMIT 1` for every agent in the batch; `id` breaks a tie the same way
+#: in both. Without it the sweep paid one more round-trip per agent
+#: (`test_the_live_state_refresh_holds_its_per_agent_cost.py`).
+_ACTIVE_TERMINAL_STATUSES = tuple(sorted(_TERMINAL_ACTIVE_STATUSES))
+_HOST_ACTIVITY_SQL = ("SELECT agent_id, activity_state, activity_reported_at FROM terminal_sessions"
+                      " WHERE agent_id IN ({})"
+                      f" AND status IN ({','.join('?' for _ in _ACTIVE_TERMINAL_STATUSES)})"
+                      " AND COALESCE(activity_state, '') != ''"
+                      " ORDER BY activity_reported_at DESC, id DESC")
+
+
+async def _load_newest_host_activity(db, agent_ids: list[str]) -> dict[str, Any]:
+    found: dict[str, Any] = {}
+    for start in range(0, len(agent_ids), _MAX_PARAMS_PER_QUERY):
+        chunk = agent_ids[start:start + _MAX_PARAMS_PER_QUERY]
+        if not chunk:
+            continue
+        sql = _HOST_ACTIVITY_SQL.format(",".join("?" for _ in chunk))
+        for row in await (await db.execute(sql, (*chunk, *_ACTIVE_TERMINAL_STATUSES))).fetchall():
+            found.setdefault(str(row["agent_id"]), row)
+    return found
 
 
 async def _load_by_agent(db, sql_template: str, agent_ids: list[str]) -> dict[str, Any]:
@@ -113,6 +140,11 @@ class LiveStatusSignals:
             (agent_id,),
         )).fetchone()
 
+    async def host_activity(self, db, agent_id: str):
+        return await (await db.execute(
+            _HOST_ACTIVITY_SQL.format("?") + " LIMIT 1", (str(agent_id), *_ACTIVE_TERMINAL_STATUSES),
+        )).fetchone()
+
 
 class PrefetchedStatusSignals:
     """Both signals for a whole batch, read up front. Answers from memory, never touching `db`.
@@ -126,13 +158,15 @@ class PrefetchedStatusSignals:
     prefetched = True
 
     def __init__(self, status_state_rows: dict[str, Any], console_signal_rows: dict[str, Any],
-                 turn_state_rows: dict[str, Any] | None = None):
+                 turn_state_rows: dict[str, Any] | None = None,
+                 host_activity_rows: dict[str, Any] | None = None):
         self._status_state = status_state_rows
         self._console_signal = console_signal_rows
         # Defaulted so a caller constructing this directly with two arguments -- the shape before
         # 2026-08-29 -- still gets an object that answers every question, rather than one that
         # raises on the third the moment a status refresh reaches it.
         self._turn_state = turn_state_rows or {}
+        self._host_activity = host_activity_rows or {}
 
     @classmethod
     async def load(cls, db, agent_ids: Iterable[str]) -> "PrefetchedStatusSignals":
@@ -143,6 +177,7 @@ class PrefetchedStatusSignals:
             await _load_by_agent(db, _STATUS_STATE_SQL, ids),
             await _load_by_agent(db, _CONSOLE_SIGNAL_SQL, ids),
             await _load_by_agent(db, _TURN_STATE_SQL, ids),
+            await _load_newest_host_activity(db, ids),
         )
 
     async def status_state(self, db, agent_id: str):
@@ -153,6 +188,9 @@ class PrefetchedStatusSignals:
 
     async def turn_state(self, db, agent_id: str):
         return self._turn_state.get(str(agent_id))
+
+    async def host_activity(self, db, agent_id: str):
+        return self._host_activity.get(str(agent_id))
 
 
 #: The default every existing caller gets. Stateless, so one instance is correct and shared.

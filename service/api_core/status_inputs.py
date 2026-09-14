@@ -34,6 +34,7 @@ from service.api_core.active_run_lookup import (
 )
 from service.api_core.agent_sessions import _current_agent_session_row
 from service.api_core.capabilities import _managed_env_reachable, _row_capabilities
+from service.api_core.host_activity import HOST_ACTIVITY_FRESH_SECONDS, host_activity_for
 from service.api_core.channel_delivery import _has_live_worker_for, _worker_liveness_for
 from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.api_core.claim_gating import (
@@ -273,11 +274,13 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
             not worker_present and env_reachable and not console_booting and not config_defect
             and await _managed_spawn_is_starting(db, aid)
         )
+        host_activity, host_activity_fresh, _ = await host_activity_for(db, aid)
         return StatusInputs(mode=mode, alive=worker_present, in_turn=in_turn, awaiting_input=awaiting,
                             worker_present=worker_present, env_reachable=env_reachable, disabled=disabled,
                             bridge_stale=False, has_live_session=worker_present,
                             console_booting=console_booting, config_defect=config_defect,
-                            spawn_starting=spawn_starting)
+                            spawn_starting=spawn_starting, host_activity=host_activity,
+                            host_activity_fresh=host_activity_fresh)
     # Phase I flip parity: a resident in a `*-missing-handle` wake-mode (no usable wake
     # handle — e.g. resident hermes with no live gatewayUrl, resident codex/pi without a
     # sessionHandle) CANNOT be woken, so it reads `stale` even if a bridge looks fresh
@@ -702,6 +705,14 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             and not _si_config_defect
             and await _managed_spawn_is_starting(db, agent_row["id"])
         )
+        # The SAME helper as the authoritative builder, so the two cannot disagree about it.
+        _si_host_activity, _si_host_fresh, _si_host_heard = await host_activity_for(
+            db, agent_row["id"], status_signals=status_signals)
+        if _si_host_fresh:
+            # A FRESH OBSERVATION EXPIRES, and nothing else would tell this cache: a host that stops
+            # reporting sends no event. Recompute when it would go stale.
+            _si_host_deadline = _iso_add_seconds(_si_host_heard, HOST_ACTIVITY_FRESH_SECONDS + 1)
+            refresh_after = min([v for v in (refresh_after, _si_host_deadline) if v])
         status_inputs = StatusInputs(
             mode=agent_session_mode, alive=has_live_worker, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=has_live_worker,
@@ -710,6 +721,8 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             console_booting=_si_console_booting,
             config_defect=_si_config_defect,
             spawn_starting=_si_spawn_starting,
+            host_activity=_si_host_activity,
+            host_activity_fresh=_si_host_fresh,
         )
     else:
         _si_fresh = bool(resident_bridge_fresh)

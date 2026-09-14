@@ -142,6 +142,13 @@ TERMINAL_SESSION_MIGRATIONS = {
     # the true width instead of inferring it.
     "cols": "ALTER TABLE terminal_sessions ADD COLUMN cols INTEGER DEFAULT 0",
     "rows": "ALTER TABLE terminal_sessions ADD COLUMN rows INTEGER DEFAULT 0",
+    # WHAT THE HOST SEES ON THE SCREEN (`service/api_core/host_activity.py`): the state and the rule
+    # that decided it, when the host first saw it, and when this service last heard it -- the last
+    # is what freshness is judged on.
+    "activity_state": "ALTER TABLE terminal_sessions ADD COLUMN activity_state TEXT DEFAULT ''",
+    "activity_rule": "ALTER TABLE terminal_sessions ADD COLUMN activity_rule TEXT DEFAULT ''",
+    "activity_observed_at": "ALTER TABLE terminal_sessions ADD COLUMN activity_observed_at TEXT DEFAULT ''",
+    "activity_reported_at": "ALTER TABLE terminal_sessions ADD COLUMN activity_reported_at TEXT DEFAULT ''",
 }
 
 # Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed

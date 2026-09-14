@@ -82,6 +82,17 @@ class StatusInputs:
     # which says "not here right now", it says "sending to this will never work until a human
     # fixes it". Gathered in api_v2._gather_status_inputs; empty string means fine.
     config_defect: str = ""
+    # managed: what the HOST sees on the worker's screen, evaluated with Herdr's rules for the
+    # runtime (`service/api_core/host_activity.py`): "working", "idle", "blocked", or "" for none.
+    host_activity: str = ""
+    # ...and whether it is FRESH, i.e. heard within HOST_ACTIVITY_FRESH_SECONDS. Kept as its own
+    # input so the engine stays clock-free and a stale observation is visibly a different input.
+    host_activity_fresh: bool = False
+
+
+#: A fresh host observation, as the live status it decides. `idle` is `online`: the vocabulary has no
+#: idle, and an alive managed worker at its prompt is exactly what `online` means.
+HOST_ACTIVITY_STATUS = {"working": "working", "blocked": "blocked", "idle": "online"}
 
 
 def derive(i: StatusInputs) -> str:
@@ -99,6 +110,13 @@ def derive(i: StatusInputs) -> str:
     # available/offline. Live turns are unaffected — every real in_turn→working path has
     # worker_present (managed) / has_live_session (resident) true.
     live = i.worker_present if i.mode == "managed" else (i.has_live_session and not i.bridge_stale)
+    # WHAT THE SCREEN SHOWS OUTRANKS THE TURN BOOKKEEPING, for a managed worker that is present and a
+    # host that reported within the freshness window. The bookkeeping is inferred from hook events
+    # that can be lost -- a lost turn-end is `working` over an idle prompt for as long as nothing else
+    # arrives -- while the screen is what the worker is doing now. Stale or absent, it decides
+    # nothing and every rule below reads as it always did.
+    if i.mode == "managed" and live and i.host_activity_fresh and i.host_activity in HOST_ACTIVITY_STATUS:
+        return HOST_ACTIVITY_STATUS[i.host_activity]
     if i.in_turn and live:
         return "blocked" if i.awaiting_input else "working"
     if i.mode == "managed":
