@@ -86,7 +86,9 @@ def sources():
         if not base.exists():
             continue
         for path in sorted(base.rglob("*.py")):
-            if "__pycache__" not in path.parts:
+            # NOT node_modules: that prose belongs to another repo and names ITS paths -- aify-wrapper's
+            # hermes plugin cites a module inside hermes itself, which no checkout here holds.
+            if "__pycache__" not in path.parts and "node_modules" not in path.parts:
                 yield path
 
 

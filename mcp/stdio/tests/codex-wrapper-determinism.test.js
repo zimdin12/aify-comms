@@ -92,7 +92,7 @@ test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the fo
   // The app-server launch applies the permission-flags array (both setsid and the
   // no-setsid fallback path).
   assert.ok(
-    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" app-server --listen "\$APP_SERVER_URL"/.test(text),
+    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?app-server --listen "\$APP_SERVER_URL"/.test(text),
     "the app-server launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
   );
   // The foreground (fresh) TUI launch applies the permission-flags array.

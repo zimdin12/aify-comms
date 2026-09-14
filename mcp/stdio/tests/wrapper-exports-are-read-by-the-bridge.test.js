@@ -35,8 +35,14 @@ const EXPORTED = /^[ \t]*export[ \t]+(AIFY_[A-Z0-9_]+)=/gm;
 
 // Where a reader can live. install.sh and the templates are excluded deliberately: they WRITE these
 // names, so counting them would make every assertion below pass by finding the producer.
-const READER_ROOTS = ["mcp/stdio", "integrations", "service"];
-const READER_EXT = [".js", ".mjs", ".py"];
+//
+// AND THE WRAPPER PACKAGE'S OWN HELPERS, which are readers and not templates: `bin/aify-herdr-state.sh`
+// reads AIFY_HERDR_AGENT and AIFY_HERDR_LAUNCH, which the launchers export for exactly that script.
+// Their roots are named below node_modules, so the skip set does not prune them; `.sh` is a reader
+// extension because that script is one.
+const WRAPPER_PACKAGE = "mcp/stdio/node_modules/aify-wrapper";
+const READER_ROOTS = ["mcp/stdio", "integrations", "service", `${WRAPPER_PACKAGE}/bin`, `${WRAPPER_PACKAGE}/lib`];
+const READER_EXT = [".js", ".mjs", ".py", ".sh"];
 const SKIP_DIRS = new Set(["node_modules", "tests", "fixtures", "__pycache__", ".git", "new_dashboard"]);
 
 export function exportedNames(dir = TEMPLATES) {
@@ -83,6 +89,7 @@ test("both scans find what is known to be there, or every result below is vacuou
   const text = readerText();
   assert.ok(text.length > 100_000, `implausibly little reader source scanned: ${text.length} bytes`);
   assert.ok(text.includes("AIFY_SERVER_URL"), "a known reader is missing from the scan");
+  assert.ok(text.includes("pane report-agent"), "the wrapper package's own state script is missing from the scan");
   assert.equal(text.includes("AIFY_NOT_A_REAL_NAME"), false, "the reader scan must be able to say no");
 });
 

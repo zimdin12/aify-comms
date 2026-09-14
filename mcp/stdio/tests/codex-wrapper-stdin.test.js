@@ -12,7 +12,7 @@ const installScript = readFileSync(join(renderWrapper("codex"), "codex-aify"), "
 
 assert.match(
   installScript,
-  /setsid codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" app-server --listen "\$APP_SERVER_URL" <\/dev\/null >>"\$LOG_FILE" 2>&1 &/,
+  /setsid codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?app-server --listen "\$APP_SERVER_URL" <\/dev\/null >>"\$LOG_FILE" 2>&1 &/,
   "codex-aify must not leave the background app-server attached to terminal stdin",
 );
 

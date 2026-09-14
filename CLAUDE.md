@@ -327,13 +327,13 @@ resolves. If a future change needs stronger cross-repo evidence, it has to be bu
 seam that is actually load-bearing now -- aify-env's own plugin talking to this service's HTTP API.
 
 ```bash
-cd ~/projects/aify-wrapper && npm test                      # 391 tests, 1 skipped. `npm test`
+cd ~/projects/aify-wrapper && npm test                      # 420 tests, 19 skipped on Windows. `npm test`
                                                            # NOT a bare `node --test`: the script
                                                            # runs the suite under ONE temp root and
                                                            # deletes it, which is why this machine
                                                            # stopped accumulating ~150 aify-* temp
                                                            # directories per morning.
-cd ~/projects/aify-env    && npm test                          # 1773 tests, 1 skipped; `npm test`
+cd ~/projects/aify-env    && npm test                          # 1813 tests, 2 skipped; `npm test`
                                                            # NOT a bare `node --test`: the script
                                                            # carries --test-timeout=60000, and a
                                                            # hang there once left a test process
