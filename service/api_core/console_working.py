@@ -24,6 +24,7 @@ import re
 import time
 
 from service.api_core.console_prompts import plain_text
+from service.api_core.runtime import _normalize_runtime
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state
 from service.terminal_snapshot import render_live_screen
@@ -56,7 +57,7 @@ async def note_console_working(db, terminal) -> None:
     try:
         keys = terminal.keys()
         agent_id = str(terminal["agent_id"] if "agent_id" in keys else "") or ""
-        runtime = str(terminal["runtime"] if "runtime" in keys else "") or ""
+        runtime = _normalize_runtime(terminal["runtime"] if "runtime" in keys else "")
         if not agent_id or runtime != "claude-code":
             return
         terminal_id = str(terminal["id"])

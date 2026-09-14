@@ -155,3 +155,16 @@ class AClaudePastTheCeilingTests(FastApiTestCase):
             self._stream("fw4", RUNNING)
         self.assertEqual(rendered, ["term_fw4"])
         self.assertIsNotNone(self._lease("fw4"))
+
+    def test_an_idle_stream_renders_once_per_window_too(self):
+        # The throttle must be spent by the render, not by a match. An idle claude is the common case,
+        # and a throttle that only armed on a running footer would render its screen on every chunk.
+        self._agent_in_a_long_turn("fw5")
+        rendered: list[str] = []
+        real = console_working.render_live_screen
+        console_working.render_live_screen = lambda tid: rendered.append(tid) or real(tid)
+        self.addCleanup(setattr, console_working, "render_live_screen", real)
+        for _ in range(20):
+            self._stream("fw5", FINISHED)
+        self.assertEqual(rendered, ["term_fw5"])
+        self.assertIsNone(self._lease("fw5"))
