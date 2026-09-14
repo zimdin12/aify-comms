@@ -25,6 +25,7 @@ from service.api_core.console_prompts import (
     needs_resume_policy,
     should_answer,
 )
+from service.api_core.console_working import note_console_working
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_status import _TERMINAL_END_STATUSES, _terminal_status_transition
 from service.clock import now as _now
@@ -211,6 +212,7 @@ async def _append_terminal_output(
         # nothing more, so the chunk that drew it is never followed by one that would trigger the
         # check. The screen is fed a few lines above; this is the first moment it is true.
         await _answer_console_prompt(db, terminal)
+        await note_console_working(db, terminal)
 
 
 async def _answer_console_prompt(db, terminal) -> None:
