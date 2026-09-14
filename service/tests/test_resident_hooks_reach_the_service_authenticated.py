@@ -272,12 +272,12 @@ def test_the_written_commands_reach_the_service_with_the_key(installed):
     hermes = _hermes_hooks((installed / ".hermes" / "config.yaml").read_text())
     cases = [
         (_one_aify(_commands(claude["PermissionRequest"]), "blocked"), "/status-event", {"kind": "blocked"}),
-        (_one_aify(_commands(claude["StopFailure"]), "turn-end"), "/turn-end", None),
-        (_one_aify(_commands(claude["PostToolUse"]), "turn-start"), "/turn-start", None),
-        (_one_aify(_commands(codex["Interrupt"]), "turn-end"), "/turn-end", None),
+        (_one_aify(_commands(claude["StopFailure"]), "turn-end"), "/turn-end", {}),
+        (_one_aify(_commands(claude["PostToolUse"]), "turn-start"), "/turn-start", {}),
+        (_one_aify(_commands(codex["Interrupt"]), "turn-end"), "/turn-end", {}),
         (_one_aify(_commands(codex["PostToolUse"]), "unblocked"), "/status-event", {"kind": "unblocked"}),
-        (shlex.split(hermes["pre_llm_call"][0]), "/turn-start", None),
-        (shlex.split(hermes["on_session_end"][0]), "/turn-end", None),
+        (shlex.split(hermes["pre_llm_call"][0]), "/turn-start", {}),
+        (shlex.split(hermes["on_session_end"][0]), "/turn-end", {}),
         (shlex.split(hermes["pre_approval_request"][0]), "/status-event", {"kind": "blocked"}),
         (shlex.split(hermes["post_approval_response"][0]), "/status-event", {"kind": "unblocked"}),
     ]

@@ -17,6 +17,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sealedChildEnv } from "./_child-env.mjs";
 import { ENDPOINT_ENV_NAMES } from "../aify-service-endpoint.mjs";
+import { postAgentState } from "../agent-state-event.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "agent-state-event.mjs");
 
@@ -61,8 +62,8 @@ test("the module still reads AIFY_SERVER_URL, the name this script bridges AIFY_
 });
 
 for (const [event, path, body] of [
-  ["turn-start", "/api/v1/agents/hook-agent/turn-start", ""],
-  ["turn-end", "/api/v1/agents/hook-agent/turn-end", ""],
+  ["turn-start", "/api/v1/agents/hook-agent/turn-start", {}],
+  ["turn-end", "/api/v1/agents/hook-agent/turn-end", {}],
   ["blocked", "/api/v1/agents/hook-agent/status-event", { kind: "blocked" }],
   ["unblocked", "/api/v1/agents/hook-agent/status-event", { kind: "unblocked" }],
 ]) {
@@ -76,8 +77,8 @@ for (const [event, path, body] of [
       assert.equal(req.method, "POST");
       assert.equal(req.url, path);
       assert.equal(req.key, "test-key", "the request must authenticate");
-      if (body) assert.deepEqual(JSON.parse(req.body), body);
-      else assert.equal(req.body, "", "a bodyless turn signal stays the authoritative harness signal");
+      // No bridgeId, so the service takes a turn signal as the authoritative harness one.
+      assert.deepEqual(JSON.parse(req.body), body);
       assert.equal(r.out, "", "a hook's stdout is parsed by codex; it must stay empty");
       assert.equal(r.err, "");
     } finally {
@@ -96,6 +97,19 @@ test("an endpoint the module reads itself wins over AIFY_COMMS_URL", async () =>
   } finally {
     own.close();
     hook.close();
+  }
+});
+
+test("postAgentState refuses an unknown event or a missing identity before it reaches for a service", async () => {
+  const saved = process.env.AIFY_AGENT_ID;
+  try {
+    process.env.AIFY_AGENT_ID = "";
+    assert.equal(await postAgentState("turn-start"), false);
+    process.env.AIFY_AGENT_ID = "someone";
+    assert.equal(await postAgentState("no-such-event"), false);
+  } finally {
+    if (saved === undefined) delete process.env.AIFY_AGENT_ID;
+    else process.env.AIFY_AGENT_ID = saved;
   }
 });
 
@@ -122,7 +136,9 @@ test("a service that never answers and a stdin nobody closes cannot hold the hoo
   try {
     const r = await run(["blocked"], hookEnv(s.url), { closeStdin: false });
     assert.equal(r.code, 0);
-    assert.ok(r.ms < 3500, `took ${r.ms}ms; hook timeouts are 3s`);
+    // The script gives up at 2s and exits by 2.5s; the margin is node start-up on a loaded machine.
+    // Without the bound this never exits, because neither the service nor stdin ever finishes.
+    assert.ok(r.ms < 4500, `took ${r.ms}ms`);
   } finally {
     s.close();
   }

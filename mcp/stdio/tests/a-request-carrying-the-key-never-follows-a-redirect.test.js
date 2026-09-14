@@ -177,11 +177,15 @@ test("POSITIVE CONTROL: a correct call passes", () => {
 test("DEFEAT 2: the population does not depend on how a header is spelled", () => {
   // HTTP headers are case-insensitive, so `x-api-key` is the same header -- and keying the judged set
   // on `X-API-Key` let a file leave the population by being renamed. Every fetch is judged now.
-  const sources = bridgeSources();
-  const mentioningTheHeader = sources.filter((f) => /x-api-key/i.test(f.text)).length;
-  const withFetches = sources.filter((f) => fetchCallArguments(f.text).length > 0).length;
-  assert.ok(withFetches > mentioningTheHeader,
-    "the judged set is no larger than the header-mentioning set, so spelling still decides scope");
+  //
+  // Asked of fixtures, not of the tree. It used to require more bridge files with a fetch than files
+  // naming the header, which held only while claude-stop-gate.js posted with a bare fetch and no key --
+  // the defect that was then fixed. A real improvement must not be what turns this red.
+  assert.equal(fetchCallArguments('await fetch(url, { method: "POST" })').length, 1,
+    "a fetch that names no header at all must still be judged");
+  const [lowercase] = fetchCallArguments('fetch(url, { headers: { "x-api-key": key } })');
+  assert.ok(lowercase, "a fetch spelling the header in lowercase must still be judged");
+  assert.match(redirectPolicyProblem(lowercase.args), /no redirect policy/);
 });
 
 test("NO REQUEST THIS BRIDGE MAKES MAY FOLLOW A REDIRECT", () => {

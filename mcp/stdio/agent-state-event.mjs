@@ -2,7 +2,7 @@
 // agent-state-event.mjs <turn-start|turn-end|blocked|unblocked>
 //
 // What a runtime hook runs to tell the service a resident's turn started, ended, or is waiting for an
-// approval. The hooks used to curl the routes directly with no `X-API-Key`; once the service enforced
+// approval. The hooks used to curl the routes directly with no key header; once the service enforced
 // a key every one of those was answered 401 and swallowed by `|| true`, so no hook event landed.
 //
 // The endpoint and key come ONLY from `aify-service-endpoint.mjs`, the resolver every bridge process
@@ -16,29 +16,28 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROUTES = {
-  "turn-start": { endpoint: "turn-start", body: null },
-  "turn-end": { endpoint: "turn-end", body: null },
-  blocked: { endpoint: "status-event", body: { kind: "blocked" } },
-  unblocked: { endpoint: "status-event", body: { kind: "unblocked" } },
-};
+const EVENTS = new Set(["turn-start", "turn-end", "blocked", "unblocked"]);
 
 const TIMEOUT_MS = 2000;
 
 /** Post one state event for `AIFY_AGENT_ID`. Resolves true when the service accepted it; never throws. */
 export async function postAgentState(event) {
-  const route = ROUTES[event];
   const agentId = String(process.env.AIFY_AGENT_ID || "").trim();
-  if (!route || !agentId) return false;
+  if (!EVENTS.has(event) || !agentId) return false;
   if (!process.env.AIFY_SERVER_URL && process.env.AIFY_COMMS_URL) {
     process.env.AIFY_SERVER_URL = process.env.AIFY_COMMS_URL;
   }
   try {
     const { httpCall, IS_REMOTE } = await import("./aify-service-endpoint.mjs");
     if (!IS_REMOTE) return false;
-    // A bodyless turn-start / turn-end is the authoritative harness signal; the service treats one
-    // carrying a bridgeId as a detector's and can refuse it.
-    await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/${route.endpoint}`, route.body, { timeoutMs: TIMEOUT_MS });
+    const id = encodeURIComponent(agentId);
+    const opts = { timeoutMs: TIMEOUT_MS };
+    // No bridgeId: that is what keeps a turn-start / turn-end the authoritative harness signal, since
+    // the service treats one carrying a bridgeId as a detector's and can refuse it. Each call is
+    // spelled out so the bridge write-body gate can read its path and body.
+    if (event === "turn-start") await httpCall("POST", `/agents/${id}/turn-start`, {}, opts);
+    else if (event === "turn-end") await httpCall("POST", `/agents/${id}/turn-end`, {}, opts);
+    else await httpCall("POST", `/agents/${id}/status-event`, { kind: event }, opts);
     return true;
   } catch {
     return false;
