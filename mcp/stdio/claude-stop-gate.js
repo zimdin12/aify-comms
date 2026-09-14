@@ -13,12 +13,15 @@
 // (worst case = today's behavior). No timer; pure structural event.
 //
 // Input: the Claude Stop hook JSON on stdin ({ transcript_path, session_id, ... }).
-// Env:   AIFY_AGENT_ID + AIFY_COMMS_URL (present in the claude hook env, set by the wrapper).
+// Env:   AIFY_AGENT_ID + AIFY_COMMS_URL (present in the claude hook env, set by the wrapper); endpoint
+//        and key resolve through agent-state-event.mjs.
 // Exit:  always 0 — a Stop hook must never block the agent.
 
 import { readFileSync, fstatSync, openSync, readSync, closeSync } from "node:fs";
 import { summarizeTranscriptTail } from "./adapters/claude.js";
 import { classify } from "./turn-end-detector.js";
+// The same poster every other resident hook uses, so the turn-end carries the key the service requires.
+import { postAgentState } from "./agent-state-event.mjs";
 
 const TAIL_BYTES = 65536;
 
@@ -46,24 +49,6 @@ function readTail(path) {
   }
 }
 
-async function postTurnEnd() {
-  const agentId = process.env.AIFY_AGENT_ID;
-  const base = process.env.AIFY_COMMS_URL;
-  if (!agentId || !base) return; // mirror the hook's own guard
-  const url = `${base.replace(/\/$/, "")}/api/v1/agents/${encodeURIComponent(agentId)}/turn-end`;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 2000); // match the curl --max-time 2
-  try {
-    // No body → stays the authoritative harness Stop signal (server distinguishes a
-    // bridge-detector turn-end by its bridgeId; a bodyless POST is the Stop hook).
-    await fetch(url, { method: "POST", redirect: "manual", signal: ctrl.signal });
-  } catch {
-    /* best-effort, exactly like the original `|| true` curl */
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function main() {
   let suppress = false;
   try {
@@ -77,7 +62,7 @@ async function main() {
   } catch {
     suppress = false; // fail-safe: never suppress on error
   }
-  if (!suppress) await postTurnEnd();
+  if (!suppress) await postAgentState("turn-end");
 }
 
 main().finally(() => process.exit(0));

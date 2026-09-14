@@ -28,14 +28,15 @@ const ENDED = jl({ type: "assistant", message: { role: "assistant", stop_reason:
 const INFLIGHT = jl({ type: "assistant", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t1", name: "Bash" }] } });
 
 // Spawn the gate with a stub /turn-end server; resolve whether a POST arrived.
-function runGate({ transcript, badPath = false, noPath = false }) {
+function runGate({ transcript, badPath = false, noPath = false, onPost = () => {} }) {
   return new Promise((resolve) => {
     let posted = false;
     const server = createServer((req, res) => {
-      if (req.method === "POST" && /\/turn-end$/.test(req.url)) posted = true;
+      if (req.method === "POST" && /\/turn-end$/.test(req.url)) { posted = true; onPost(req); }
       res.end("{}");
     });
-    server.listen(0, "127.0.0.1", () => {
+    // 127.0.0.2: a 127.0.0.1 endpoint makes the endpoint module add the real 127.0.0.1:8800 as a fallback.
+    server.listen(0, "127.0.0.2", () => {
       const port = server.address().port;
       let transcriptPath = "";
       if (noPath) {
@@ -48,7 +49,7 @@ function runGate({ transcript, badPath = false, noPath = false }) {
         writeFileSync(transcriptPath, transcript);
       }
       const child = spawn(process.execPath, [GATE], {
-        env: { ...sealedChildEnv(), AIFY_AGENT_ID: "gate-test", AIFY_COMMS_URL: `http://127.0.0.1:${port}` },
+        env: { ...sealedChildEnv(), AIFY_AGENT_ID: "gate-test", AIFY_COMMS_URL: `http://127.0.0.2:${port}`, AIFY_API_KEY: "gate-key" },
         stdio: ["pipe", "ignore", "ignore"],
       });
       child.stdin.end(JSON.stringify(noPath ? {} : { transcript_path: transcriptPath }));
@@ -78,4 +79,10 @@ test("e2e: FAIL-SAFE — no transcript_path in payload → gate POSTs", async ()
 
 test("e2e: FAIL-SAFE — empty/garbage transcript → unknown → gate POSTs", async () => {
   assert.equal(await runGate({ transcript: "not json\n{partial\n" }), true);
+});
+
+test("e2e: the gate's turn-end carries the key, or a keyed service refuses it", async () => {
+  let key;
+  assert.equal(await runGate({ transcript: ENDED, onPost: (req) => { key = req.headers["x-api-key"]; } }), true);
+  assert.equal(key, "gate-key");
 });
