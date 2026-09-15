@@ -197,6 +197,11 @@ test("THE INCIDENT 2026-09-15: an ELEVATED gateway, whose command line reads as 
   assert.deepEqual([verdict.ok, verdict.code], [false, "unidentified"]);
   assert.match(verdict.detail, /mc-senior-dev port 9273 pid 65916/);
   assert.match(verdict.fix, /ELEVATED/);
+  // The pid named is the top of the unreadable chain, which is what `taskkill /T` needs; a readable parent stops the climb.
+  const chain = [{ pid: 65916, ppid: 66464, commandLine: "" }, { pid: 66464, ppid: 109472, commandLine: "" }, { pid: 109472, ppid: 78724, commandLine: "" },
+    { pid: 5, ppid: 4, commandLine: "" }, { pid: 4, ppid: 1, commandLine: "C:\Windows\explorer.exe" }];
+  assert.deepEqual(unreadableListeners({ listeners: [{ port: 9273, pid: 65916 }, { port: 9009, pid: 5 }], rows: chain, gateways: [], owners }),
+    [{ port: 9273, pid: 109472 }, { port: 9009, pid: 5 }]);
   // A port a readable gateway already accounts for is that gateway, not a hidden one.
   assert.deepEqual(unreadableListeners({ listeners: [{ port: 8823, pid: 9 }], rows: [], gateways: [{ pid: 56540, port: 8823 }], owners: gatewayOwners({ a: 8823 }) }), []);
   // CONTROL: with the hidden listener gone, the same inputs are an honest pass.

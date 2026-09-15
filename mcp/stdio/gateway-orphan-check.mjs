@@ -86,7 +86,15 @@ export function unreadableListeners({ listeners, rows, gateways, owners }) {
   for (const listener of listeners || []) {
     if (!owners?.has(listener.port) || accounted.has(listener.port)) continue;
     if (String(byPid.get(listener.pid)?.commandLine || "").trim()) continue;
-    found.set(listener.port, { port: listener.port, pid: listener.pid });
+    // The pid a tree kill needs is the top of the unreadable chain: the listener is hermes' runtime python,
+    // two unreadable parents below hermes.exe (2026-09-15: 65916 < 66464 < 109472).
+    let root = listener.pid;
+    const seen = new Set([root]);
+    for (let parent = byPid.get(root)?.ppid; byPid.has(parent) && !seen.has(parent) && !String(byPid.get(parent)?.commandLine || "").trim(); parent = byPid.get(parent)?.ppid) {
+      seen.add(parent);
+      root = parent;
+    }
+    found.set(listener.port, { port: listener.port, pid: root });
   }
   return [...found.values()];
 }
