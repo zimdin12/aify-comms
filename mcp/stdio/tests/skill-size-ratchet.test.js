@@ -144,7 +144,7 @@ const CEILINGS = {
   // 6_704 -> 6_698 on 2026-09-12. LOWERED: the section heading named restarting a command that
   // starts nothing, and step 1 told the reader to verify a tier deleted in v0.6.2. Both now name
   // aify-env, and saying the true thing took fewer bytes than saying the false one.
-  "aify-comms-debug/references/lifecycle.md": 6_681,
+  "aify-comms-debug/references/lifecycle.md": 6_602,
   "aify-comms-debug/references/pi.md": 7_316,
     // 21_920 -> 21_919 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
   // than leaving the ceiling slack: two references cited files deleted with the

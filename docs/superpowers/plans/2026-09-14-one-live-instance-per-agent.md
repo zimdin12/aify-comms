@@ -155,6 +155,20 @@ Where the build differs from the design above, each measured or read rather than
   ancestor, and letting it run would be a second instance. No ancestor of the claimer is ever
   stopped. The service unsets `AIFY_AGENT_LEASE` in every managed launch (`NEVER_INHERITED`): a host
   started from an agent's shell would otherwise make every start of that agent read as nested.
+- **Only a launch that NAMES its agent replaces a live one; a shell inside a session names nobody.**
+  Found live on 2026-09-15, after this shipped: the resident Herdr server had been started from inside
+  comms-tech-lead's Claude Code session, so every pane carried `AIFY_AGENT_ID=comms-tech-lead` and its
+  `CLAUDE_SESSION_ID` (read from the server's process environment). A bare `claude-aify` typed into a new
+  pane started as comms-tech-lead, was read as a person at a terminal, and replaced the live instance.
+  The operator then registered that window as general-manager, and two agents held one conversation.
+  The nested refusal above did not fire: the server predated the lease, so it carried no
+  `AIFY_AGENT_LEASE`, and the instance it came from had long since restarted. Three changes in
+  aify-wrapper: an identity that is not `--aify-agent`/`--agent-id` on the command line only starts
+  (`startIntent`, `--identity`); a launcher whose environment carries `AIFY_AGENT_LEASE` or
+  `CLAUDE_CODE_CHILD_SESSION` first unsets that session's id, mode, intent and conversation
+  (`lib/inherited-session.mjs`); and `herdr-aify` starts its server without any of them. `CLAUDECODE`
+  is deliberately not a marker: nothing strips it from a managed launch, so a host started inside Claude
+  Code would make every worker forget the identity and mode it was given.
 - **The lock names its holder** (pid, moment, nonce). A waiter re-asks every 2 s whether the holder is
   alive. The lock is taken over when the holder is gone, or it is older than 2 minutes, or it names no
   holder and is older than 10 s. Takeover is an atomic rename. A start still waiting after 60 s is

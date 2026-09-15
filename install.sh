@@ -541,7 +541,9 @@ render_wrapper_template() {
   for _pair in "${@:3}"; do
     text="${text//@@${_pair%%=*}@@/${_pair#*=}}"
   done
-  printf '%s\n' "$text" > "$target"
+  # RENAMED INTO PLACE, NEVER REWRITTEN: a running launcher reads on from its byte offset when its runtime
+  # exits, so a rewrite under a live agent (seven, 2026-09-15) hands it the middle of a different file.
+  printf '%s\n' "$text" > "$target.render.$$" && chmod +x "$target.render.$$" && mv -f "$target.render.$$" "$target"
 }
 
 install_claude_wrapper() {
@@ -586,8 +588,7 @@ install_pi_wrapper() {
   mkdir -p "$wrapper_dir"
   render_wrapper_template "pi-aify.sh.in" "$wrapper_path"
   chmod +x "$wrapper_path"
-  cp "$wrapper_path" "$alias_path"
-  chmod +x "$alias_path"
+  render_wrapper_template "pi-aify.sh.in" "$alias_path"
   install_windows_cmd_shim "pi-aify" "$wrapper_dir"
   install_windows_cmd_shim "omp-aify" "$wrapper_dir"
 }
@@ -836,9 +837,7 @@ install_hermes_wrapper() {
     hermes_tui_dir="$_hermes_root_for_tui/ui-tui"
   fi
   mkdir -p "$wrapper_dir"
-  # Write atomically via a temp file + mv so reinstalling while a hermes-aify
-  # session is running doesn't fail with ETXTBSY ("Text file busy") — rename
-  # replaces the dir entry; any running process keeps its old inode.
+  # Staged like every launcher (render_wrapper_template), because the URL below is substituted after it.
   local wrapper_tmp="$wrapper_path.tmp.$$"
   render_wrapper_template "hermes-aify.sh.in" "$wrapper_tmp" \
     "HERMES_PLUGIN_PATH=$hermes_plugin_path" \
@@ -849,7 +848,6 @@ install_hermes_wrapper() {
   # operator's install-time URL.
   sed -i.bak "s|__AIFY_INSTALL_TIME_URL__|${SERVER_URL:-http://127.0.0.1:8800}|" "$wrapper_tmp" 2>/dev/null && rm -f "$wrapper_tmp.bak" || true
   chmod +x "$wrapper_tmp"
-  # Atomic swap over any running wrapper (avoids ETXTBSY on in-place rewrite).
   mv -f "$wrapper_tmp" "$wrapper_path"
   install_windows_cmd_shim "hermes-aify" "$wrapper_dir"
   install_hermes_windows_tui_shim "$wrapper_dir" "$default_server" "$hermes_plugin_path"

@@ -27,6 +27,13 @@ These were left on purpose:
 - **Launchers rendered before v0.6.8 have no lease** until `install.sh` is re-run for that client.
   Their kill-prior no longer reaps by port or session either: `hermes-daemon-cli.js stop` reaps only
   for a launcher holding the lease.
+- **A terminal host started inside an agent's session keeps that session until it is restarted.**
+  Found live on 2026-09-15: a Herdr server started from comms-tech-lead's Claude Code session gave
+  every pane that agent's id and conversation, and a bare `claude-aify` in one replaced the live
+  agent. Since then only `--aify-agent` replaces, a launcher ignores an inherited session, and
+  `herdr-aify` starts its server clean (aify-wrapper `lib/inherited-session.mjs`). A server started
+  earlier, or started outside `herdr-aify`, still hands its environment to every pane: the launchers
+  now ignore it there, but a bare runtime such as `claude` typed into that pane does not.
 - **`requestedBy: "dashboard"` is a string any caller can send**, and it replaces. Nothing
   authenticates the dashboard, so refusing it in the MCP tools would move the spoof, not end it.
 - **Not yet proven on the live fleet.** The suites and mutation runs pass; no live hermes, claude or

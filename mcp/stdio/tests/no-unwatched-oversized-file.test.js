@@ -165,7 +165,9 @@ const CEILINGS = {
   // exactly at its own ceiling with a census on the record saying there is no dead CSS to reclaim.
   // 2951 -> 2950 on 2026-09-15: the resident-hook round needed ~54 lines for codex trust; they went to
   // mcp/stdio/codex-hook-trust.mjs instead, and the tightening takes up the line the move freed.
-  "install.sh": 2950,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2950 -> 2948 on 2026-09-15: every launcher is now renamed into place, paid for by the hermes writer's
+  // staging comments that the shared render made redundant and an omp alias rendered instead of copied.
+  "install.sh": 2948,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

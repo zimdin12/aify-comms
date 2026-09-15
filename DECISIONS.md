@@ -8,7 +8,10 @@ Short rationale log for non-obvious choices, plus the current runtime limits. If
 doesnt matter)." Asked how, the operator chose two parts. Leftovers of a dead instance are always
 stopped before a start. A live instance is replaced only on an EXPLICIT start: a dashboard
 Start/Restart/spawn, an agent's `comms_restart`, a `comms_compact` handoff of an agent to itself, or a
-person running the launcher in a terminal. An
+person running the launcher in a terminal and NAMING the agent with `--aify-agent`. An identity the
+launcher took from its environment or recovered from a conversation only starts: on 2026-09-15 a bare
+`claude-aify` in a pane that had inherited comms-tech-lead's session environment started as that agent
+and replaced it (aify-wrapper `lib/inherited-session.mjs`, README "One live instance per agent"). An
 AUTOMATIC start (a message cold-starting the agent, the queued-run backstop, an agent's `comms_spawn`)
 is refused with launcher exit 75. Replacing on every start was built once and reverted: a message woke
 an idle lane and the host killed four working sessions in ten minutes on 2026-09-03.

@@ -1,8 +1,5 @@
 # aify-comms troubleshooting: lifecycle and ownership
 
-Use this file for stop/restart/reset, managed↔resident switching, registration conflicts,
-send gating, duplicate owners, and safe interruption.
-
 ## Baseline
 
 Before changing state, read `comms_agent_info`; when a dispatch run exists, read
@@ -56,9 +53,10 @@ record its run `failed`, because it killed the process that would reply; judge b
 
 ## Start refused by the agent lease
 
-One instance per agent per host (v0.6.8). Explicit starts (terminal launch, dashboard
-Start/Restart, `comms_restart`, a `comms_compact` handoff to itself) replace a live instance;
-automatic ones (cold start, backstop, `comms_spawn`, a Herdr restore) exit 75.
+One instance per agent per host (v0.6.8). Explicit starts (a terminal launch naming `--aify-agent`,
+dashboard Start/Restart, `comms_restart`, a `comms_compact` handoff to itself) replace a live instance;
+automatic ones (cold start, backstop, `comms_spawn`, a Herdr restore, an id from the environment or
+`--resume`) exit 75.
 
 | Console shows | Cause | Remedy |
 |---|---|---|
