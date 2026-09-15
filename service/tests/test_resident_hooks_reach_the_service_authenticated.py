@@ -10,6 +10,8 @@ records the path, body and key.
 Lifted, not restated: a copy here would pass while install.sh did something else.
 """
 
+import functools
+import hashlib
 import json
 import os
 import re
@@ -62,6 +64,29 @@ def _posix(p) -> str:
     return str(p).replace("\\", "/")
 
 
+@functools.lru_cache(maxsize=1)
+def _git_bash() -> bool:
+    """Whether the bash these writers run under is Git Bash, where install.sh's path_for_node is `cygpath -w`."""
+    result = subprocess.run([_bash(), "-c", "uname -s"], capture_output=True, text=True)
+    return result.stdout.strip().upper().startswith(("MINGW", "MSYS", "CYGWIN"))
+
+
+def _native(p) -> str:
+    """A path in the form the installer writes into a runtime's config on this host: what hermes and codex
+    themselves hold, so it is the form an operator's approval and codex's trust are recorded against."""
+    return _posix(p).replace("/", "\\") if _git_bash() else _posix(p)
+
+
+def _other_separator(p) -> str:
+    return _posix(p) if _git_bash() else _posix(p).replace("/", "\\")
+
+
+def _codex_hash(event: str, command: str) -> str:
+    """Codex's trusted_hash for a plain command hook: sha256 over sorted compact JSON of its identity."""
+    identity = {"event_name": event, "hooks": [{"async": False, "command": command, "timeout": 3, "type": "command"}]}
+    return "sha256:" + hashlib.sha256(json.dumps(identity, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
+
+
 def _lifted() -> str:
     text = INSTALL_SH.read_text(encoding="utf-8")
     blocks = []
@@ -102,13 +127,28 @@ def _seed(home: Path) -> None:
         "hooks:\n"
         "  pre_llm_call:\n"
         '    - matcher: ".*"\n'
-        f"      command: {json.dumps('bash ' + json.dumps(_posix(start)))}\n"
+        f"      command: {json.dumps('bash ' + json.dumps(_native(start)))}\n"
         "      timeout: 3\n"
         "    - command: echo mine\n"
         "  post_tool_call:\n"
         '    - matcher: ".*"\n'
         f'      command: bash "{_posix(hooks)}/aify-notify.sh"\n'
         "      timeout: 3\n",
+        encoding="utf-8",
+    )
+    hooks_json = _native(home / ".codex" / "hooks.json")
+    (home / ".codex" / "config.toml").write_text(
+        "[features]\n"
+        "hooks = true\n"
+        "\n"
+        f"[hooks.state.'{hooks_json}:stop:0:0']\n"
+        'trusted_hash = "sha256:the-old-curl-hook"\n'
+        "\n"
+        f"[hooks.state.'{hooks_json}:stop:1:0']\n"
+        'trusted_hash = "sha256:the-operators-own-hook"\n'
+        "\n"
+        "[shell_environment_policy.set]\n"
+        'KEEP = "me"\n',
         encoding="utf-8",
     )
 
@@ -255,15 +295,105 @@ def test_codex_hooks_replace_the_curl_entries_once_and_keep_the_users(installed)
 def test_hermes_keeps_the_approved_turn_start_command_and_adds_one_entry_per_event(installed):
     root = installed / ".hermes"
     events = _hermes_hooks((root / "config.yaml").read_text())
-    start = f'bash "{_posix(root / "agent-hooks" / "aify-turn-start.sh")}"'
+    start = f'bash "{_native(root / "agent-hooks" / "aify-turn-start.sh")}"'
     # Hermes approves a shell hook by its exact (event, command) pair, so changing this string would
     # silently unregister a turn-start the operator already approved.
     assert events["pre_llm_call"] == [start, "echo mine"], events
     for event, script in (("on_session_end", "aify-turn-end.sh"), ("pre_approval_request", "aify-blocked.sh"),
                           ("post_approval_response", "aify-unblocked.sh")):
-        assert events.get(event) == [f'bash "{_posix(root / "agent-hooks" / script)}"'], events
+        assert events.get(event) == [f'bash "{_native(root / "agent-hooks" / script)}"'], events
     assert len(events["post_tool_call"]) == 1
     assert "curl" not in (root / "agent-hooks" / "aify-turn-start.sh").read_text()
+
+
+HERMES_WIRING = (("pre_llm_call", "aify-turn-start.sh"), ("on_session_end", "aify-turn-end.sh"),
+                 ("pre_approval_request", "aify-blocked.sh"), ("post_approval_response", "aify-unblocked.sh"))
+
+
+def test_hermes_reinstall_finds_its_entries_written_with_EITHER_separator():
+    """On Git Bash the command names its script after a backslash, and an older install may hold either
+    form. The writer looked for `/<script>` only, so on Windows every reinstall added one more copy of
+    each hook and hermes ran all of them. Seeded here in the form this host does NOT write."""
+    with tempfile.TemporaryDirectory(prefix="aify-statehooks-sep-") as tmp:
+        home = Path(tmp)
+        _seed(home)
+        hooks = home / ".hermes" / "agent-hooks"
+        config = "model: x\nhooks:\n" + "".join(
+            f"  {event}:\n    - command: {json.dumps('bash ' + json.dumps(_other_separator(hooks / script)))}\n"
+            "      timeout: 3\n"
+            for event, script in HERMES_WIRING)
+        (home / ".hermes" / "config.yaml").write_text(config, encoding="utf-8")
+        _install(home)
+        _install(home)
+        events = _hermes_hooks((home / ".hermes" / "config.yaml").read_text())
+        for event, script in HERMES_WIRING:
+            assert events.get(event) == [f'bash "{_native(hooks / script)}"'], (event, events)
+
+
+def _trust(config: str) -> dict:
+    """`[hooks.state.'<key>']` -> its trusted_hash, and every such header in order, read as codex writes them."""
+    found, headers, key = {}, [], None
+    for line in config.splitlines():
+        header = re.match(r"^\[hooks\.state\.'(.+)'\]\s*$", line)
+        if header:
+            key = header.group(1)
+            headers.append(key)
+            continue
+        if line.startswith("["):
+            key = None
+        value = re.match(r'^trusted_hash = "([^"]*)"$', line)
+        if value and key:
+            found[key] = value.group(1)
+    return found, headers
+
+
+def test_codex_trust_is_recorded_for_exactly_the_hooks_written_at_their_index(installed):
+    """Codex skips an untrusted hooks.json hook, and a managed worker resuming a thread waits at codex's
+    review screen with nobody to answer. So the writer records codex's hash for each hook it writes,
+    keyed by the group's index, and replaces the old aify entry IN PLACE so the operator's own hook
+    after it keeps its index and the trust recorded for it."""
+    hooks_file = installed / ".codex" / "hooks.json"
+    hooks = json.loads(hooks_file.read_text())["hooks"]
+    config = (installed / ".codex" / "config.toml").read_text()
+    found, headers = _trust(config)
+    assert len(headers) == len(set(headers)), f"a trust table was written twice: {headers}"
+
+    assert _commands(hooks["Stop"])[1] == "echo mine", "the operator's hook moved off the index its trust names"
+    assert found[f"{_native(hooks_file)}:stop:1:0"] == "sha256:the-operators-own-hook"
+    assert 'KEEP = "me"' in config
+
+    expected = {}
+    for event, needle in CODEX_WIRING.items():
+        index = next(i for i, g in enumerate(hooks[event]) if "agent-state-event.mjs" in json.dumps(g))
+        snake = re.sub(r"(?<!^)([A-Z])", r"_\1", event).lower()
+        expected[f"{_native(hooks_file)}:{snake}:{index}:0"] = _codex_hash(snake, hooks[event][index]["hooks"][0]["command"])
+    assert {k: found.get(k) for k in expected} == expected
+    assert set(found) == set(expected) | {f"{_native(hooks_file)}:stop:1:0"}, found
+    pytest.importorskip("tomllib").loads(config)
+
+
+def test_codex_hash_is_the_one_codex_itself_records():
+    """A vector codex-cli 0.153.4 wrote into a real config.toml on 2026-09-15, for the stop hook an earlier
+    install of this service put in hooks.json. It is what makes _codex_hash codex's formula and not ours."""
+    assert _codex_hash("stop", LEGACY_CURL.replace("ROUTE", "turn-end")) == (
+        "sha256:8b910bca97ab5099b112cb419d506e83970cba70f51b4d2cf9623522a4bb8141")
+
+
+def test_codex_trust_leaves_a_key_the_config_defines_another_way():
+    """A second definition of one TOML key makes a config.toml codex refuses to load, which stops every
+    codex session on the host. A key already set some other way is left for codex to ask about."""
+    with tempfile.TemporaryDirectory(prefix="aify-statehooks-dotted-") as tmp:
+        home = Path(tmp)
+        _seed(home)
+        key = f"{_native(home / '.codex' / 'hooks.json')}:stop:0:0"
+        dotted = f'hooks.state.{json.dumps(key)}.trusted_hash = "sha256:set-as-a-dotted-key"'
+        (home / ".codex" / "config.toml").write_text(dotted + "\n", encoding="utf-8")
+        _install(home)
+        config = (home / ".codex" / "config.toml").read_text()
+        assert config.count(json.dumps(key)[1:-1]) == 1, config
+        assert f"'{key}'" not in config, config
+        assert f":user_prompt_submit:0:0']" in config, "control: the other hooks were still trusted"
+        pytest.importorskip("tomllib").loads(config)
 
 
 def test_the_written_commands_reach_the_service_with_the_key(installed):
@@ -276,10 +406,10 @@ def test_the_written_commands_reach_the_service_with_the_key(installed):
         (_one_aify(_commands(claude["PostToolUse"]), "turn-start"), "/turn-start", {}),
         (_one_aify(_commands(codex["Interrupt"]), "turn-end"), "/turn-end", {}),
         (_one_aify(_commands(codex["PostToolUse"]), "unblocked"), "/status-event", {"kind": "unblocked"}),
-        (shlex.split(hermes["pre_llm_call"][0]), "/turn-start", {}),
-        (shlex.split(hermes["on_session_end"][0]), "/turn-end", {}),
-        (shlex.split(hermes["pre_approval_request"][0]), "/status-event", {"kind": "blocked"}),
-        (shlex.split(hermes["post_approval_response"][0]), "/status-event", {"kind": "unblocked"}),
+        (hermes["pre_llm_call"][0], "/turn-start", {}),
+        (hermes["on_session_end"][0], "/turn-end", {}),
+        (hermes["pre_approval_request"][0], "/status-event", {"kind": "blocked"}),
+        (hermes["post_approval_response"][0], "/status-event", {"kind": "unblocked"}),
     ]
     stub = _Stub()
     try:

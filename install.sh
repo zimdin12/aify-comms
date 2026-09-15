@@ -2179,9 +2179,18 @@ install_codex_turn_hooks() {
   enable_codex_hooks_feature
   local node_hooks_file
   node_hooks_file="$(path_for_node "$hooks_file")"
+  # TRUST. Codex skips a hooks.json hook whose `[hooks.state.'<file>:<event>:<group>:<hook>']` holds no
+  # matching trusted_hash, and a managed worker RESUMING a thread stops at codex's "hooks are new or
+  # changed" screen with nobody to answer it. Every reinstall that changes these command strings would
+  # do that to hooks the operator already trusted, so the writer records trust for exactly the entries
+  # it writes, with codex's own hash: sha256 over sorted compact JSON of {event_name, hooks:[{async,
+  # command, timeout, type}]}. That formula reproduced the hashes codex-cli 0.153.4 itself wrote for
+  # this installer's earlier stop and user_prompt_submit hooks (2026-09-15). A hook with a matcher or a
+  # statusMessage hashes differently and is never written here.
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const [hooksPath, startCmd, endCmd, blockedCmd, unblockedCmd] = process.argv.slice(1);
+    const crypto = require('crypto');
+    const [hooksPath, configPath, startCmd, endCmd, blockedCmd, unblockedCmd] = process.argv.slice(1);
     let data = { hooks: {} };
     try {
       data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
@@ -2197,14 +2206,18 @@ install_codex_turn_hooks() {
     if (!data || typeof data !== 'object') data = {};
     if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
     const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-start', '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'agent-state-event.mjs'];
+    const ours = (group) => OURS.some(marker => JSON.stringify(group).includes(marker));
+    const written = [];
+    // IN PLACE, not appended: codex files trust by a group's INDEX in its event, so moving ours to the
+    // end would shift every user hook after it onto trust recorded for a different hook.
     const wire = (eventKey, cmd) => {
-      if (!Array.isArray(data.hooks[eventKey])) data.hooks[eventKey] = [];
-      data.hooks[eventKey] = data.hooks[eventKey].filter(
-        group => !OURS.some(marker => JSON.stringify(group).includes(marker))
-      );
-      data.hooks[eventKey].push({
-        hooks: [{ type: 'command', command: cmd, timeout: 3 }],
-      });
+      const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
+      const first = groups.findIndex(ours);
+      const kept = groups.filter(group => !ours(group));
+      const index = first < 0 ? kept.length : first;
+      kept.splice(index, 0, { hooks: [{ type: 'command', command: cmd, timeout: 3 }] });
+      data.hooks[eventKey] = kept;
+      written.push({ eventKey, index, cmd });
     };
     wire('UserPromptSubmit', startCmd);
     wire('Stop', endCmd);
@@ -2212,7 +2225,44 @@ install_codex_turn_hooks() {
     wire('PermissionRequest', blockedCmd);
     wire('PostToolUse', unblockedCmd);
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
-  " "$node_hooks_file" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" \
+
+    const SQ = String.fromCharCode(39);
+    const snake = (name) => name.replace(/[A-Z]/g, (c, i) => (i ? '_' : '') + c.toLowerCase());
+    let toml = '';
+    try { toml = fs.readFileSync(configPath, 'utf-8'); } catch (_) {}
+    const eol = toml.includes('\r\n') ? '\r\n' : '\n';
+    const lines = toml.split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    const untouched = [];
+    for (const { eventKey, index, cmd } of written) {
+      const event = snake(eventKey);
+      const key = hooksPath + ':' + event + ':' + index + ':0';
+      const identity = { event_name: event, hooks: [{ async: false, command: cmd, timeout: 3, type: 'command' }] };
+      const hash = 'sha256:' + crypto.createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+      const headers = ['[hooks.state.' + SQ + key + SQ + ']', '[hooks.state.' + JSON.stringify(key) + ']'];
+      const at = lines.findIndex(line => headers.includes(line.trim()));
+      // The key anywhere else (a dotted key, an inline table) would be a second definition, and a
+      // config.toml codex cannot parse stops every codex session on the host. That one is left alone.
+      const escaped = JSON.stringify(key).slice(1, -1);
+      if (key.includes(SQ) || lines.some((line, i) => i !== at && (line.includes(key) || line.includes(escaped)))) {
+        untouched.push(key);
+        continue;
+      }
+      const record = 'trusted_hash = ' + JSON.stringify(hash);
+      if (at < 0) {
+        if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
+        lines.push(headers[0], record);
+        continue;
+      }
+      let end = lines.findIndex((line, i) => i > at && line.trim().startsWith('['));
+      if (end < 0) end = lines.length;
+      const hashAt = lines.findIndex((line, i) => i > at && i < end && /^\s*trusted_hash\s*=/.test(line));
+      if (hashAt < 0) lines.splice(at + 1, 0, record);
+      else lines[hashAt] = record;
+    }
+    fs.writeFileSync(configPath, lines.join(eol) + eol);
+    if (untouched.length) console.error('[aify-install] WARN: codex trust not recorded for ' + untouched.join(', ') + ' (the key is also defined another way in ' + configPath + '); codex will ask once.');
+  " "$node_hooks_file" "$(path_for_node "$codex_home/config.toml")" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" \
     "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)"
 }
 
@@ -2253,11 +2303,15 @@ EOF
     for (let i = 0; i < pairs.length; i += 2) {
       const event = pairs[i];
       const hookCommand = pairs[i + 1];
-      const script = "/" + hookCommand.split("/").pop().replace(/"$/, "");
+      // path_for_node is `cygpath -w` on Git Bash, so the command names its script after a BACKSLASH there,
+      // and an older install may have written either. Found after `/` alone, every reinstall on Windows
+      // added another copy of each hook. The separator is what keeps aify-blocked.sh off aify-unblocked.sh.
+      const script = hookCommand.split(/[\\/]/).pop().replace(/"$/, "");
+      const names = (line) => line.includes("/" + script) || line.includes("\\" + script);
       let replaced = false;
       lines = lines.map((line) => {
         const m = line.match(/^([ \t]*(?:- )?)command:[ \t]*/);
-        if (m && line.includes(script)) {
+        if (m && names(line)) {
           replaced = true;
           // Preserve existing indentation — see aify-notify replace above.
           return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
