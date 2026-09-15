@@ -68,6 +68,30 @@ export function gatewaysInRange(rows, { toPort, base, span }) {
 }
 
 /**
+ * Ports an agent's marker claims that a listener holds while no readable command line accounts for it.
+ *
+ * AN ELEVATED PROCESS HAS NO COMMAND LINE to a non-elevated reader, so a gateway started from an
+ * Administrator terminal is invisible to `gatewaysInRange` (2026-09-15: hermes' own `update` had relaunched
+ * one on 9273, and this row said no gateway was running). The socket table still names its pid.
+ *
+ * ONLY A CLAIMED PORT. The range is a thousand ports and holds other things -- this service's own 8800, a
+ * browser extension's server, a Windows service whose command line nobody here can read -- so an unreadable
+ * listener counts only on a port an `aify-hermes-port-<agent>` marker names. A listener whose command line
+ * IS readable and is not a gateway is somebody else's program, and is left alone too.
+ */
+export function unreadableListeners({ listeners, rows, gateways, owners }) {
+  const accounted = new Set((gateways || []).map((gateway) => gateway.port));
+  const byPid = new Map((rows || []).map((row) => [row && row.pid, row]));
+  const found = new Map();
+  for (const listener of listeners || []) {
+    if (!owners?.has(listener.port) || accounted.has(listener.port)) continue;
+    if (String(byPid.get(listener.pid)?.commandLine || "").trim()) continue;
+    found.set(listener.port, { port: listener.port, pid: listener.pid });
+  }
+  return [...found.values()];
+}
+
+/**
  * Which agent owns each gateway, from the port markers on disk.
  *
  * THE MARKER IS THE ONLY LINK. A gateway's command line carries a port and no agent id, and the
@@ -99,9 +123,10 @@ export function gatewayOwners(portMarkers) {
  * a service that did not answer, and no readable markers each make the answer unknown rather than
  * clean.
  */
-export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgentIds = null, agents = null } = {}) {
+export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgentIds = null, agents = null, unreadable = null } = {}) {
   const missing = [];
   if (gateways === null) missing.push("the process table could not be read");
+  if (unreadable === null) missing.push("the listening ports could not be read");
   if (owners === null) missing.push("the gateway port markers could not be read");
   if (loopAgentIds === null) missing.push("the delivery loops could not be enumerated");
   if (agents === null) missing.push("the service did not answer");
@@ -115,8 +140,21 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
     };
   }
 
-  if (!gateways.length) {
+  const hidden = unreadable.map((listener) => `${owners.get(listener.port)} port ${listener.port} pid ${listener.pid}`);
+  const hiddenFix = "A process whose command line this doctor cannot read holds a port in the managed range. That is "
+    + "almost always an ELEVATED process -- started from an Administrator terminal, or relaunched by `hermes update` "
+    + "run from one -- and no reap of this non-elevated install can identify or stop it. Stop it from an "
+    + "Administrator terminal with `taskkill /F /T /PID <pid>`, or run this doctor elevated to name it.";
+  if (!gateways.length && !hidden.length) {
     return { ok: true, code: "none", detail: "no hermes gateway host is running in the managed port range" };
+  }
+  if (!gateways.length) {
+    return {
+      ok: false,
+      code: "unidentified",
+      detail: `no gateway could be identified, but ${hidden.length} port(s) in the managed range are held by a process whose command line cannot be read: ${hidden.join(", ")}`,
+      fix: hiddenFix,
+    };
   }
 
   const live = new Set(loopAgentIds);
@@ -136,6 +174,15 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
     orphans.push({ ...gw, agentId, why: agent ? "managed agent with no delivery loop" : "no such agent" });
   }
 
+  if (!orphans.length && hidden.length) {
+    return {
+      ok: false,
+      code: "unidentified",
+      detail: `${gateways.length} gateway host(s) running, each with a live delivery loop or a resident owner; `
+        + `${hidden.length} more port(s) in the managed range are held by a process whose command line cannot be read: ${hidden.join(", ")}`,
+      fix: hiddenFix,
+    };
+  }
   if (!orphans.length) {
     return {
       ok: true,
@@ -149,7 +196,8 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
     ok: false,
     code: "orphaned",
     detail: `${orphans.length} of ${gateways.length} hermes gateway host(s) have no worker behind them: `
-      + named.join(", "),
+      + named.join(", ")
+      + (hidden.length ? `; and ${hidden.length} port(s) are held by a process whose command line cannot be read: ${hidden.join(", ")}` : ""),
     fix: "On Windows these hold hermes' native `.pyd` files locked, which makes `hermes update` refuse "
       + "to run and list them. A gateway host is DETACHED, so a hard kill of the host tier leaves it "
       + "running; relaunching the named agent collects its own (its launcher's kill-prior), and one "
@@ -164,11 +212,12 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
 /**
  * Enumerate the gateways, name their owners, and say which have nothing behind them.
  */
-export async function checkGatewayOrphans({ get, add, listProcesses, toPort, readPortMarkers, loopAgent, base, span }) {
+export async function checkGatewayOrphans({ get, add, listProcesses, listListeners, toPort, readPortMarkers, loopAgent, base, span }) {
   let gateways = null;
   let loopAgentIds = null;
+  let rows = null;
   try {
-    const rows = listProcesses();
+    rows = listProcesses();
     // AN EMPTY PROCESS TABLE IS NOT AN EMPTY ANSWER -- the same conflation that hid a broken default
     // for a whole release. This process is running, so a table without it did not read the host.
     if (!rows.some((row) => row && row.pid === process.pid)) throw new Error("enumeration did not include this process");
@@ -186,9 +235,16 @@ export async function checkGatewayOrphans({ get, add, listProcesses, toPort, rea
     owners = null;
   }
 
+  let unreadable = null;
+  try {
+    if (gateways !== null && owners !== null) unreadable = unreadableListeners({ listeners: listListeners(), rows, gateways, owners });
+  } catch {
+    unreadable = null;
+  }
+
   const body = await get("/api/v1/agents");
   const agents = body && body.agents && typeof body.agents === "object" ? body.agents : null;
 
-  const verdict = gatewayOrphanVerdict({ gateways, owners, loopAgentIds, agents });
+  const verdict = gatewayOrphanVerdict({ gateways, owners, loopAgentIds, agents, unreadable });
   return add("gateway-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }

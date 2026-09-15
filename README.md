@@ -109,7 +109,7 @@ looking at somebody's running work — and each row carries its own `fix`:
 | `spawn-queue` | a host CLAIMED a spawn request and never started it — work taken and not done, which every other row reads as healthy |
 | `session-handles` | more than one agent is pointing at one conversation; every message to the loser is refused and relayed |
 | `context-window` | an agent's conversation is near or past its model's limit. A near-full agent may still be answering, so this is a warning to compact rather than an instruction to reset — read the agent before acting. `unknown-all` means no console could be read, which is no evidence rather than a healthy fleet |
-| `managed-orphans` / `gateway-orphans` | delivery loops and hermes gateway hosts still running for agents that no longer have a live bridge. Since v0.6.8, relaunching a hermes agent collects its own leftover gateway; an agent that is never relaunched keeps its orphans, and this row is what reports them |
+| `managed-orphans` / `gateway-orphans` | delivery loops and hermes gateway hosts still running for agents that no longer have a live bridge. Since v0.6.8 a gateway ends with its agent, and this row also names a port held by a process it cannot identify, such as a gateway `hermes update` relaunched elevated |
 | `claude-login` | the one OAuth grant every claude-code agent on this host shares is running out. Keys on the REFRESH window, which is the deadline that matters |
 | `usage-openai` | the ChatGPT quota token no longer works — asked by calling the API, since an expired token passes a file check |
 

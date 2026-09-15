@@ -30,6 +30,8 @@
 delete process.env.AIFY_HERMES_GATEWAY_URL;
 delete process.env.HERMES_TUI_GATEWAY_URL;
 
+// FIRST: this file writes hermes markers, which must not land in the real %TEMP% when it is run on its own.
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { EventEmitter } from "node:events";
@@ -39,6 +41,7 @@ import path from "node:path";
 import {
   MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
+  gatewayOwnerEnv,
   gatewayUnreachableMessage,
   installShutdownTeardown,
   isGatewayConnectRefused,
@@ -1224,6 +1227,24 @@ test("ensureGatewayHost: spawns hermes dashboard (NO --tui; rejected on the subc
   assert.equal(out.port, 8765);
   assert.equal(out.token, "tok-abc123");
   assert.equal(out.wsUrl, "ws://127.0.0.1:8765/api/ws?token=tok-abc123");
+});
+
+test("THE GATEWAY ENDS WITH ITS AGENT: it carries the launcher's lease as hermes' parent pid", async () => {
+  // 2026-09-15: a gateway outlived its agent and `hermes update` relaunched it, elevated. hermes exits a
+  // dashboard whose HERMES_PARENT_PID is gone, and leaves one whose parent is alive to that parent.
+  const spawnWith = async (env) => {
+    const { spawn, spawns } = makeFakeSpawn();
+    await ensureGatewayHost({ agentId: "sc-hermes", port: 8765, hermesCmd: "hermes", spawn, fetchImpl: makeFakeFetch(), probeFirst: false,
+      readyIntervalMs: 1, openWsImpl: async () => ({ close() {} }), env });
+    return spawns[0].opts.env;
+  };
+  const owned = await spawnWith({ AIFY_AGENT_LEASE: "4812", HERMES_PARENT_START_MARKER: "winms:1", HERMES_PARENT_NONCE: "n", KEEP: "me" });
+  assert.deepEqual([owned.HERMES_PARENT_PID, owned.HERMES_PARENT_START_MARKER, owned.HERMES_PARENT_NONCE, owned.KEEP, owned.HERMES_DASHBOARD_TUI],
+    ["4812", "", "", "me", "1"], "the lease did not reach the gateway as its parent, or an inherited marker would describe another parent");
+  // PID ONLY: hermes treats a start-marker mismatch as conclusive, so a marker off by a millisecond would end a live gateway.
+  const leaseless = await spawnWith({ PATH: "/bin" });
+  assert.equal("HERMES_PARENT_PID" in leaseless, false, "control: a launcher with no lease gives the gateway no parent");
+  for (const bad of ["", "0", "-3", "abc", undefined]) assert.deepEqual(gatewayOwnerEnv({ AIFY_AGENT_LEASE: bad }), {}, String(bad));
 });
 
 test("ensureGatewayHost: waits for the dashboard to bind (retries on connection failure)", async () => {

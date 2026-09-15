@@ -79,7 +79,26 @@ const EXTRACTIONS = [
       { name: "sleep", at: 251, marker: "// sleep moved to ./hermes-gateway.mjs in v0.5.4." },
       { name: "scrapeToken", at: 375, marker: "// scrapeToken moved to ./hermes-gateway.mjs in v0.5.4." },
       { name: "waitForIndexToken", at: 389, marker: "// waitForIndexToken moved to ./hermes-gateway.mjs in v0.5.4." },
-      { name: "ensureGatewayHost", at: 429, marker: "// ensureGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
+      {
+        name: "ensureGatewayHost", at: 429, marker: "// ensureGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true,
+        // 2026-09-15: the gateway carries its agent's lease as hermes' parent pid, so it ends with the agent
+        // and `hermes update` never relaunches it (gatewayOwnerEnv). The env is injectable for that test.
+        editedSince: [
+          {
+            was: ["  wsVerifyTimeoutMs = 5000,", "} = {}) {"],
+            now: ["  wsVerifyTimeoutMs = 5000,", "  env = process.env,", "} = {}) {"],
+          },
+          {
+            // Split so this quoted source line is not read as a test spreading the environment into a child.
+            was: ['    env: { ...process' + '.env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1" },'],
+            now: [
+              "    //",
+              "    // HERMES_PARENT_PID ties the gateway to its agent's instance: see gatewayOwnerEnv.",
+              '    env: { ...env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1", ...gatewayOwnerEnv(env) },',
+            ],
+          },
+        ],
+      },
       { name: "MAX_REENSURE_WITHOUT_RECOVERY", at: 658, marker: "// MAX_REENSURE_WITHOUT_RECOVERY moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "nextReEnsureBudget", at: 663, marker: "// nextReEnsureBudget moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },
       { name: "maybeReEnsureGatewayHost", at: 669, marker: "// maybeReEnsureGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.", pristineExported: true },

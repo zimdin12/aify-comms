@@ -4,6 +4,8 @@
 // and no real network is touched.
 // Contract: docs/superpowers/specs/2026-05-30-hermes-apiserver-contract.md.
 
+// FIRST: this file writes hermes markers, which must not land in the real %TEMP% when it is run on its own.
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";

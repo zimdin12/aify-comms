@@ -34,6 +34,7 @@ import { identify, isAlive, killTree, sleepMs, startTimes } from "aify-wrapper/l
 
 import { gatewaysInRange } from "./gateway-orphan-check.mjs";
 import { PORT_BASE, PORT_SPAN, agentPort, claimedByOtherAgents, defaultMarkerTmpDir, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
+import { listListeners } from "./listening-ports.mjs";
 import { cmdlineHermesGatewayPort, defaultListProcesses } from "./proc-probes.js";
 
 const STOP_WAIT_MS = 8_000;
@@ -145,6 +146,8 @@ export function reapPriorHermes({
   spawnSync = nodeSpawnSync,
   // STRICT: a failed or partial listing throws, so a port is never read as free on a table nobody saw.
   listProcesses = () => defaultListProcesses(spawnSync, { strict: true }),
+  // The socket table, which names a listener even when its command line cannot be read (an elevated one).
+  listeners = () => listListeners({ run: spawnSync }),
   leases = () => readSessionLeases(hermesHome()),
   sessionIdOf = (id) => readSessionIdMarker(id, { tempDir }),
   starts = startTimes,
@@ -175,8 +178,19 @@ export function reapPriorHermes({
     // The agent's own marker port counts as held even when another marker also names it: clearing the
     // marker while a gateway still listens there is how the 2026-09-14 leftover lost its only record.
     const held = new Set([...ports, persistedGatewayPort(agentId, { tempDir })].filter(Boolean));
-    const portStillHeld = listProcesses().some((row) => held.has(cmdlineHermesGatewayPort(row.commandLine)));
-    return { stopped: plan, portStillHeld };
+    const after = listProcesses();
+    const byCommandLine = after.some((row) => held.has(cmdlineHermesGatewayPort(row.commandLine)));
+    // A port can be held by a process whose command line reads as empty -- an ELEVATED gateway, which
+    // `hermes update` run from an Administrator terminal relaunches (2026-09-15). Unseen by the plan above
+    // and unstoppable from here, it still holds the port, so the marker stays and the operator is told.
+    const readable = new Set(after.filter((row) => String(row.commandLine || "").trim()).map((row) => row.pid));
+    const bySocket = listeners().filter((listener) => held.has(listener.port));
+    for (const listener of bySocket.filter((entry) => !readable.has(entry.pid))) {
+      try {
+        console.error(`[hermes] kill-prior ${agentId}: port ${listener.port} is held by pid ${listener.pid}, whose command line this process cannot read -- almost always an elevated process. It was not stopped; stop it from an Administrator terminal (taskkill /F /T /PID ${listener.pid}).`);
+      } catch { /* ignore */ }
+    }
+    return { stopped: plan, portStillHeld: byCommandLine || bySocket.length > 0 };
   } catch {
     // Unable to look is not the same as nothing left: keep the marker.
     return { stopped: [], portStillHeld: true };

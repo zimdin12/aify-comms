@@ -24,6 +24,8 @@
 // reader at this call site — `killTree(priorPid)` discards it — so nothing here can tell true from false.
 // The other kill sites in hermes-daemon.js do consult it and are tested with their own injected fakes.
 
+// FIRST: this file writes hermes markers, which must not land in the real %TEMP% when it is run on its own.
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawn } from "node:child_process";

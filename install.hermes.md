@@ -283,12 +283,20 @@ trees of the worker PTYs it started, and on start reaps what a dead predecessor
 recorded. Starting it is the operator's call, because supersession reaps the
 workers the running instance holds.
 
-The gateway host is detached on purpose, so a hard kill of the host tier leaves it
-running (KNOWN_ISSUES.md). Since v0.6.8 the agent's next `hermes-aify` start
-collects it: the agent lease stops what a dead instance attached, and kill-prior
-stops a previous generation's gateway host on a port the agent owns plus hermes'
-session-lease holder. An agent that is never relaunched keeps its leftover, and
-`aify-comms doctor`'s `gateway-orphans` row reports it.
+The gateway host is detached on purpose, and since v0.6.8 it still ends with its
+agent:
+
+- It carries the launcher's lease pid as `HERMES_PARENT_PID`, so hermes' own watchdog
+  exits it when the launcher dies. While the agent lives, `hermes update` refuses
+  to run and names the gateway, rather than relaunching it detached.
+- The lease's watch stops everything the instance attached, and what it left
+  running, once the launcher is gone.
+- The next `hermes-aify` start stops what is still left: kill-prior stops a gateway
+  on a port the agent owns, and hermes' session-lease holder.
+
+Run `hermes update` from an ordinary terminal. Run from an Administrator terminal,
+it relaunches any orphaned gateway elevated, where no aify reap can stop it;
+`gateway-orphans` reports that as `unidentified`.
 
 The shared gateway's lifetime ties to the TUI/console, NOT to the delivery loop.
 The loop kills the gateway host **only if it spawned that host itself** (an owned

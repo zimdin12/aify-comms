@@ -95,18 +95,31 @@ but supersession reaps whatever the incumbent was running -- the hazard
 [starting-aify-env-reaps-the-running-fleet] exists for. Neither choice is free, and today the escape
 is that a sweep is safe precisely when there is nothing left to lose.
 
-**Partly fixed in v0.6.8: relaunching the agent collects its own leftover gateway.** Every
-`hermes-aify` start now claims the agent lease, which stops a dead instance's attached gateway host,
-and its kill-prior (`hermes-prior-reap.mjs`) stops a previous generation's gateway host on a port that
-agent owns plus hermes' session-lease holder for its session. So the bind above now applies only to
-agents that are never relaunched: their orphans still accumulate, and `gateway-orphans` still reports
-them. Two markers naming one port make that gateway nobody's, so neither agent's relaunch collects it.
+**Fixed in v0.6.8: a gateway ends with its agent, however the agent ends.** Three layers, each
+covering the one before:
 
-**The general fix is still not obvious.** A reaper that must survive a SIGKILL of its own process
-cannot live in that process. The candidates are a Windows Job Object with kill-on-close (which would
-also kill the gateway on an intentional bridge restart, defeating the reason it is detached), a
-periodic sweep in the service rather than the host, or having the gateway host self-exit when its
-owning agent stops heartbeating. Each is a real design decision.
+- **The gateway exits by itself.** It is spawned with `HERMES_PARENT_PID` set to the agent launcher's
+  lease pid (`gatewayOwnerEnv` in `hermes-gateway.mjs`), which arms hermes' own parent-death watchdog.
+  hermes' `update` also reads that pid as the gateway's spawner, so while the agent lives it refuses to
+  run, naming the gateway, instead of stopping it and relaunching it detached (read in
+  `hermes_cli/update_cmd_windows.py`, not yet observed).
+- **The lease's watch stops what is left.** Every claim starts a detached watch (aify-wrapper
+  `lib/agent-lease-watch.mjs`). When the launcher dies, killed or not, the watch stops everything the
+  instance attached and every process it left running.
+- **The next start collects the rest.** The claim stops a dead instance's leftovers, and kill-prior
+  (`hermes-prior-reap.mjs`) stops a previous generation's gateway on a port the agent owns.
+
+Two gaps remain. A gateway started by a launcher older than v0.6.8 carries no parent pid. And two
+markers naming one port make that gateway nobody's, so neither agent's relaunch collects it.
+
+**Found live on 2026-09-15, and fixed with it: an ELEVATED gateway was invisible.** `hermes update`,
+run four times from an Administrator terminal, relaunched mc-senior-dev's orphaned gateway on 9273. To
+a non-elevated process its command line read as empty. `gateway-orphans` reported "no hermes gateway
+host is running" in the same minute netstat showed the socket, and kill-prior could not see it either.
+Both now also read the socket table (`listening-ports.mjs`): a port an agent's marker claims, held by a
+process whose command line cannot be read, is reported (`unidentified`), and kill-prior keeps the marker
+and says what holds the port. Neither can stop an elevated process; that takes an Administrator
+terminal.
 
 **Meanwhile `gateway-orphans` reports it.** That row is the instrument; it named all six by pid and
 port, and read `none` immediately after they were killed.

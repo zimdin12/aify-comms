@@ -18,6 +18,7 @@ import {
   gatewayOrphanVerdict,
   gatewayOwners,
   gatewaysInRange,
+  unreadableListeners,
 } from "../gateway-orphan-check.mjs";
 
 const BASE = 8642;
@@ -116,6 +117,7 @@ test("a gateway whose agent has a live delivery loop is NOT an orphan", () => {
     owners: gatewayOwners({ "graph-senior-dev": 8826 }),
     loopAgentIds: ["graph-senior-dev"],
     agents: managed,
+    unreadable: [],
   });
   assert.equal(verdict.ok, true);
   assert.equal(verdict.code, "ok");
@@ -127,6 +129,7 @@ test("THE INCIDENT: loops gone, gateway still running -> orphaned", () => {
     owners: gatewayOwners({ "graph-senior-dev": 8826 }),
     loopAgentIds: [],
     agents: managed,
+    unreadable: [],
   });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.code, "orphaned");
@@ -142,6 +145,7 @@ test("a RESIDENT session's gateway is never an orphan, however few loops are run
     owners: gatewayOwners({ "operator-session": 8826 }),
     loopAgentIds: [],
     agents: { "operator-session": { sessionMode: "resident" } },
+    unreadable: [],
   });
   assert.equal(verdict.ok, true);
 });
@@ -154,13 +158,14 @@ test("a gateway NO marker claims is reported, not dropped", () => {
     owners: gatewayOwners({}),
     loopAgentIds: [],
     agents: managed,
+    unreadable: [],
   });
   assert.equal(verdict.ok, false);
   assert.match(verdict.detail, /\(unclaimed\) pid 33333 port 9342/);
 });
 
 test("no gateways at all is an honest pass", () => {
-  const verdict = gatewayOrphanVerdict({ gateways: [], owners: new Map(), loopAgentIds: [], agents: {} });
+  const verdict = gatewayOrphanVerdict({ gateways: [], owners: new Map(), loopAgentIds: [], agents: {}, unreadable: [] });
   assert.equal(verdict.ok, true);
   assert.equal(verdict.code, "none");
 });
@@ -171,6 +176,7 @@ test("the fix explains WHY nothing collects them, and refuses to reap", () => {
     owners: gatewayOwners({ "graph-senior-dev": 8826 }),
     loopAgentIds: [],
     agents: managed,
+    unreadable: [],
   });
   assert.match(verdict.fix, /DETACHED/, "it does not say why nothing collects them");
   assert.match(verdict.fix, /relaunching the named agent/, "it does not say what does collect one");
@@ -178,11 +184,30 @@ test("the fix explains WHY nothing collects them, and refuses to reap", () => {
   assert.match(verdict.fix, /Reported rather than reaped/, "it does not say the decision is the operator's");
 });
 
+test("THE INCIDENT 2026-09-15: an ELEVATED gateway, whose command line reads as empty, is not \"no gateway\"", () => {
+  // netstat, captured that minute: `TCP 127.0.0.1:9273 0.0.0.0:0 LISTENING 65916`, and pid 65916 had no
+  // readable command line. Beside it, a browser extension's server on 9009 that is nobody's gateway.
+  const rows = [{ pid: 65916, ppid: 66464, commandLine: "" }, { pid: 104172, ppid: 8084, commandLine: "node @browsermcp/mcp/dist/index.js" }];
+  // 8800 is this service, inside the range, owned by a process whose command line is not in these rows.
+  const listeners = [{ port: 9273, pid: 65916 }, { port: 9009, pid: 104172 }, { port: 8800, pid: 11744 }];
+  const owners = gatewayOwners({ "mc-senior-dev": 9273, "somebody-else": 9009 });
+  const unreadable = unreadableListeners({ listeners, rows, gateways: [], owners });
+  assert.deepEqual(unreadable, [{ port: 9273, pid: 65916 }], "a readable program, or an unreadable one on a port no marker claims, was reported");
+  const verdict = gatewayOrphanVerdict({ gateways: [], owners, loopAgentIds: [], agents: managed, unreadable });
+  assert.deepEqual([verdict.ok, verdict.code], [false, "unidentified"]);
+  assert.match(verdict.detail, /mc-senior-dev port 9273 pid 65916/);
+  assert.match(verdict.fix, /ELEVATED/);
+  // A port a readable gateway already accounts for is that gateway, not a hidden one.
+  assert.deepEqual(unreadableListeners({ listeners: [{ port: 8823, pid: 9 }], rows: [], gateways: [{ pid: 56540, port: 8823 }], owners: gatewayOwners({ a: 8823 }) }), []);
+  // CONTROL: with the hidden listener gone, the same inputs are an honest pass.
+  assert.equal(gatewayOrphanVerdict({ gateways: [], owners: new Map(), loopAgentIds: [], agents: managed, unreadable: [] }).ok, true);
+});
+
 test("each missing input makes the answer UNKNOWN, never clean", () => {
   // No evidence is not a pass. `env-bridge` and `bridge-current` both shipped green-by-default and
   // both were wrong the same way.
-  const full = { gateways: [], owners: new Map(), loopAgentIds: [], agents: {} };
-  for (const key of ["gateways", "owners", "loopAgentIds", "agents"]) {
+  const full = { gateways: [], owners: new Map(), loopAgentIds: [], agents: {}, unreadable: [] };
+  for (const key of ["gateways", "owners", "loopAgentIds", "agents", "unreadable"]) {
     const verdict = gatewayOrphanVerdict({ ...full, [key]: null });
     assert.equal(verdict.ok, false, `${key} missing was reported as clean`);
     assert.equal(verdict.code, "unknown-all");
@@ -191,7 +216,7 @@ test("each missing input makes the answer UNKNOWN, never clean", () => {
 
 // ── the CHECK ───────────────────────────────────────────────────────────────────────────────────
 
-function harness({ procRows, markers = {}, agents = managed } = {}) {
+function harness({ procRows, markers = {}, agents = managed, listeners = [] } = {}) {
   const calls = { added: [] };
   return {
     calls,
@@ -199,6 +224,7 @@ function harness({ procRows, markers = {}, agents = managed } = {}) {
       get: async () => (agents ? { agents } : null),
       add: (...args) => { calls.added.push(args); return args; },
       listProcesses: () => procRows,
+      listListeners: () => listeners,
       toPort: cmdlineHermesGatewayPort,
       loopAgent: cmdlineDeliveryLoopAgent,
       readPortMarkers: () => markers,
@@ -253,6 +279,16 @@ test("a throwing enumerator does not take the doctor down with it", () => {
   return checkGatewayOrphans(deps).then(() => {
     assert.equal(calls.added[0][2], "unknown-all");
   });
+});
+
+test("an elevated gateway is reported through the CHECK, and a listing that fails is unknown", async () => {
+  const hidden = harness({ procRows: [selfRow, { pid: 65916, commandLine: "" }], markers: { "mc-senior-dev": 9273 }, listeners: [{ port: 9273, pid: 65916 }] });
+  await checkGatewayOrphans(hidden.deps);
+  assert.deepEqual(hidden.calls.added[0].slice(1, 3), [false, "unidentified"]);
+  const failing = harness({ procRows: [selfRow] });
+  failing.deps.listListeners = () => { throw new Error("netstat failed"); };
+  await checkGatewayOrphans(failing.deps);
+  assert.equal(failing.calls.added[0][2], "unknown-all", "a listing that failed read as no hidden listener");
 });
 
 test("a service that does not answer is unknown too", () => {

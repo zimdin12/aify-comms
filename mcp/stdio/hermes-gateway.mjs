@@ -101,6 +101,30 @@ async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, 
 }
 
 
+/**
+ * PURE. The environment that makes a gateway end with the agent instance that started it.
+ *
+ * A gateway is spawned detached on purpose, so nothing of ours ends it when the agent dies, and on
+ * 2026-09-15 one outlived its agent and was then RESURRECTED: `hermes update` stops every dashboard holding
+ * its venv whose spawner is dead and relaunches it on its recorded port -- elevated, when the update ran in
+ * an Administrator terminal, where no reap of ours could see or stop it.
+ *
+ * hermes already has the answer. A dashboard started with `HERMES_PARENT_PID` runs a parent-death watchdog
+ * and exits when that pid does (hermes_cli/web_server_lifecycle.py `_start_parent_death_watchdog`), and
+ * `hermes update` records that pid as the spawner, so it leaves a gateway whose agent is alive alone
+ * instead of stopping and relaunching it. The pid is the launcher's `AIFY_AGENT_LEASE`.
+ *
+ * PID ONLY. hermes' start-marker check needs millisecond equality and treats a mismatch as conclusive, so
+ * a marker off by one millisecond would end a live agent's gateway at once. An inherited marker and nonce
+ * are blanked for the same reason: they would describe some other parent. With no lease -- an older
+ * launcher -- nothing is set and the gateway behaves as before.
+ */
+export function gatewayOwnerEnv(env = {}) {
+  const lease = Number(env.AIFY_AGENT_LEASE);
+  if (!Number.isInteger(lease) || lease <= 0) return {};
+  return { HERMES_PARENT_PID: String(lease), HERMES_PARENT_START_MARKER: "", HERMES_PARENT_NONCE: "" };
+}
+
 export async function ensureGatewayHost({
   agentId,
   port,
@@ -114,6 +138,7 @@ export async function ensureGatewayHost({
   verifyWs = String(process.env.AIFY_HERMES_VERIFY_WS || "1").trim() !== "0",
   openWsImpl = openGatewayWsClient,
   wsVerifyTimeoutMs = 5000,
+  env = process.env,
 } = {}) {
   if (!spawn) throw new Error("ensureGatewayHost requires an injected spawn");
   if (!fetchImpl) throw new Error("ensureGatewayHost requires a fetch implementation");
@@ -230,7 +255,9 @@ export async function ensureGatewayHost({
     // and this env is a harmless no-op. DO NOT REMOVE IT — it is retained as the crash-safe
     // lever for PINNED-OLDER hermes 0.15.x builds (pre-`cae6b5486`), where `/api/ws` still
     // closes 4403 without it. (See KNOWN_ISSUES.md and DECISIONS.md.)
-    env: { ...process.env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1" },
+    //
+    // HERMES_PARENT_PID ties the gateway to its agent's instance: see gatewayOwnerEnv.
+    env: { ...env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1", ...gatewayOwnerEnv(env) },
   });
   if (typeof gwErrFd === "number") {
     try { fs.closeSync(gwErrFd); } catch {}

@@ -14,6 +14,8 @@
 // Tests use dependency injection: a recording fake aify httpCall + the real
 // api_server client pointed at the fake-hermes-apiserver fixture.
 
+// FIRST: this file writes hermes markers, which must not land in the real %TEMP% when it is run on its own.
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createHermesApiServerClient } from "../hermes-apiserver-client.js";

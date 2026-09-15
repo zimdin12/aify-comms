@@ -221,6 +221,32 @@ Where the build differs from the design above, each measured or read rather than
   guarantee, never the launch. Kill decisions still fail closed. A lock still held by another start
   after a minute is a refusal, not a helper failure.
 
+- **An instance that ends leaves nothing running, however it ends** (operator, 2026-09-15: "orphan
+  processes suck"). `release` now STOPS what the instance attached before giving the lease up, instead of
+  keeping the record while it ran. Every claim also starts a **watch**
+  (aify-wrapper `lib/agent-lease-watch.mjs`): a detached process outside the launcher's tree that, once
+  the instance is gone or its pid reused, runs `AgentLease.collect`. Collect stops the attached processes
+  and every child the instance left running. A claim over a dead instance stops those children too.
+  Children are found by the dead pid as their parent, and on Linux also by process group: Linux
+  re-parents them to init, and under WSL the killed launcher's runtime was found by neither parent nor
+  tree until the group was read. Both are bounded by the instance's life, so a reused pid's children are
+  never taken.
+- **A hermes gateway carries its agent's lease pid as `HERMES_PARENT_PID`**, which arms hermes' own
+  parent-death watchdog, so it exits with the launcher. It is pid only: hermes' start-marker check needs
+  millisecond equality and treats a mismatch as conclusive. Found live the same day: after every agent
+  was stopped, `hermes update` run from an Administrator terminal had relaunched mc-senior-dev's orphaned
+  gateway ELEVATED. hermes relaunches serves whose spawner is dead; with a live parent pid it refuses to
+  run instead (read in `update_cmd_windows.py`, not observed).
+- **An elevated process has no readable command line**, so `gateway-orphans` said no gateway ran while
+  netstat showed the socket, and kill-prior could not see it. Both now read the socket table
+  (`listening-ports.mjs`). A port an agent's marker claims, held by a process whose command line cannot
+  be read, is reported as `unidentified`; kill-prior keeps the marker and names the pid. Neither can stop
+  an elevated process.
+- **Test files run on their own leaked hermes markers into the real %TEMP%.** The runner seals TEMP, but
+  `node --test` on one file did not, and five files wrote `aify-hermes-*` markers for ids like
+  `sc-hermes`. They import `tests/_sealed-temp.mjs` first now; a probe running each of the 64
+  hermes-related files alone in an empty TEMP found five leaking before and none after.
+
 Four independent reviews shaped the points above: 12 findings on the first build, 11 on the first fix
 round, 7 on the second, and a fourth, end-to-end review of both repos. What was deliberately left:
 

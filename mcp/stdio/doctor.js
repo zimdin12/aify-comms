@@ -746,12 +746,18 @@ await checkManagedOrphans();
 // enumerate processes must fail in THIS row, with the reason, rather than taking the doctor's module
 // load down and silencing every other check with it.
 const gatewayProbes = await import("./proc-probes.js").catch(() => null);
+const listeningPorts = await import("./listening-ports.mjs").catch(() => null);
 await checkGatewayOrphans({
   get,
   add,
   listProcesses: () => {
     if (!gatewayProbes) throw new Error("the process probes could not be loaded");
     return gatewayProbes.defaultListProcesses();
+  },
+  // Sockets name their pid even when the process is elevated and its command line reads as empty.
+  listListeners: () => {
+    if (!listeningPorts) throw new Error("the listening-port probe could not be loaded");
+    return listeningPorts.listListeners();
   },
   toPort: (line) => (gatewayProbes ? gatewayProbes.cmdlineHermesGatewayPort(line) : null),
   loopAgent: (line) => (gatewayProbes ? gatewayProbes.cmdlineDeliveryLoopAgent(line) : null),

@@ -9,6 +9,8 @@
 // real processes whose command lines are shaped like a gateway host and a lease holder, sealed to a temp
 // marker directory and a temp HERMES_HOME, which is the Windows path kill-prior actually takes.
 
+// FIRST: this file writes hermes markers, which must not land in the real %TEMP% when it is run on its own.
+import "./_sealed-temp.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -87,7 +89,7 @@ test("reapPriorHermes keeps the port marker's answer honest: held while somethin
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reap-"));
   fs.writeFileSync(path.join(tempDir, "aify-hermes-port-probe-a"), "9272");
   let table = [{ pid: 700, ppid: 4, commandLine: gatewayCmd(9272) }];
-  const common = { agentId: "probe-a", tempDir, leases: () => [], sessionIdOf: () => "", starts: () => new Map(), waitMs: 0, self: 1 };
+  const common = { agentId: "probe-a", tempDir, leases: () => [], sessionIdOf: () => "", starts: () => new Map(), waitMs: 0, self: 1, listeners: () => [] };
   const killed = [];
   const gone = reapPriorHermes({ ...common, listProcesses: () => table, kill: (pid) => { killed.push(pid); table = []; }, alive: () => false });
   assert.deepEqual([killed, gone.portStillHeld], [[700], false]);
@@ -98,9 +100,34 @@ test("reapPriorHermes keeps the port marker's answer honest: held while somethin
 
   // Through the real listing: a query that timed out is no table, not an empty host.
   const row = process.platform === "win32" ? "1\t2\tnode a.js\n" : "1 2 node a.js\n";
-  const listed = (res) => reapPriorHermes({ ...common, kill: () => { throw new Error("must not kill"); }, spawnSync: () => res }).portStillHeld;
+  const { listeners: _sealed, ...unsealed } = common;
+  const listed = (res) => reapPriorHermes({ ...unsealed, kill: () => { throw new Error("must not kill"); }, spawnSync: () => res }).portStillHeld;
   assert.equal(listed({ status: 0, stdout: row }), false, "control: a good table with no gateway frees the port");
   assert.equal(listed({ status: null, error: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }), stdout: "" }), true, "a timed-out listing read as nothing listening");
+});
+
+test("THE INCIDENT 2026-09-15: an ELEVATED gateway, whose command line reads as empty, still holds the port", () => {
+  // `hermes update` in an Administrator terminal relaunched mc-senior-dev's gateway on 9273. To this
+  // process its command line was empty, so no plan could name it and no kill could reach it.
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reap-elevated-"));
+  fs.writeFileSync(path.join(tempDir, "aify-hermes-port-probe-e"), "9273");
+  const common = { agentId: "probe-e", tempDir, leases: () => [], sessionIdOf: () => "", starts: () => new Map(), waitMs: 0, self: 1, alive: () => false,
+    kill: () => { throw new Error("nothing it can identify may be killed"); }, listProcesses: () => [{ pid: 65916, ppid: 66464, commandLine: "" }] };
+  const said = [];
+  const realError = console.error;
+  console.error = (line) => said.push(String(line));
+  try {
+    const held = reapPriorHermes({ ...common, listeners: () => [{ port: 9273, pid: 65916 }, { port: 9009, pid: 104172 }] });
+    assert.deepEqual(held, { stopped: [], portStillHeld: true }, "an unreadable listener on the agent's own port read as a free port");
+    assert.ok(said.some((line) => /port 9273 is held by pid 65916/.test(line) && /Administrator/.test(line)), "the operator was not told what holds the port");
+    // CONTROL: the socket gone, the same table frees the port.
+    said.length = 0;
+    assert.equal(reapPriorHermes({ ...common, listeners: () => [{ port: 9009, pid: 104172 }] }).portStillHeld, false);
+    assert.deepEqual(said, [], "a listener on some other port was reported");
+    assert.equal(reapPriorHermes({ ...common, listeners: () => { throw new Error("netstat failed"); } }).portStillHeld, true, "a socket listing that failed read as a free port");
+  } finally {
+    console.error = realError;
+  }
 });
 
 test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent also names, are never collected", () => {
@@ -114,7 +141,7 @@ test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent a
     reapPriorHermes({
       agentId: "probe-x", tempDir, listProcesses: () => table, leases: () => leaseList,
       starts: () => new Map(leaseList.map((l) => [l.pid, l.process_start_time * 1000])),
-      kill: (pid) => killed.push(pid), alive: () => false, waitMs: 0, self: 1,
+      kill: (pid) => killed.push(pid), alive: () => false, waitMs: 0, self: 1, listeners: () => [],
     });
     return killed;
   };
@@ -161,7 +188,7 @@ test("a port another agent's marker claims is never killed by port, and a shared
   const shared = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reap-shared-"));
   fs.writeFileSync(path.join(shared, "aify-hermes-port-probe-y"), "9272");
   fs.writeFileSync(path.join(shared, "aify-hermes-port-other"), "9272");
-  const common = { agentId: "probe-y", tempDir: shared, leases: () => [], sessionIdOf: () => "", starts: () => new Map(), waitMs: 0, self: 1, kill: () => { throw new Error("must not kill"); }, alive: () => false };
+  const common = { agentId: "probe-y", tempDir: shared, leases: () => [], sessionIdOf: () => "", starts: () => new Map(), waitMs: 0, self: 1, kill: () => { throw new Error("must not kill"); }, alive: () => false, listeners: () => [] };
   const held = reapPriorHermes({ ...common, listProcesses: () => [{ pid: 800, ppid: 4, commandLine: gatewayCmd(9272) }] });
   assert.deepEqual([held.stopped, held.portStillHeld], [[], true]);
   assert.equal(reapPriorHermes({ ...common, listProcesses: () => [] }).portStillHeld, false, "control: nothing listening, the marker may go");
