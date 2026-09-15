@@ -1,6 +1,9 @@
 # One live instance per agent, per host
 
-Status: DESIGN, 2026-09-14. Operator decision recorded below; nothing built yet.
+Status: BUILT 2026-09-15 in aify-wrapper 0.6.5 and aify-comms 0.6.8; aify-env unchanged. The design
+below is kept as written; **"As built" at the end records where the build departed from it and why**,
+and is the authority where the two disagree. Not yet proven on the live fleet: that needs the
+operator's restart (step 5).
 
 ## The operator's rule, and the decision that bounds it
 
@@ -120,3 +123,55 @@ not in the caller's tree. This collects leftovers that predate the lease file, o
 - `aify-env/lib/kill-tree.mjs` and `orphan-reap.mjs` answer part of the same question. aify-env does not
   depend on aify-wrapper today, so step 1 carries its own small implementation; converging them is a
   follow-up, recorded here so the second copy is known.
+
+## As built, 2026-09-15
+
+Where the build differs from the design above, each measured or read rather than decided on paper.
+
+- **The launcher's pid is `/proc/$$/winpid` on Git Bash, not node's parent.** Measured: under Git Bash
+  node's `process.ppid` is a short-lived MSYS stub (launcher winpid 88808; three runs gave ppid 130368,
+  58336, 19600). `exec` keeps the launcher's winpid as the runtime's parent, and `/proc/$!/winpid` is
+  the native pid for `&` and `nohup`. `bin/aify-lease.sh` carries this once for all four templates.
+- **`AIFY_AGENT_LEASE` is the launcher pid alone**, not `pid:startedAtMs`. The attach helper reads the
+  start time itself, and the claim compares it with the record.
+- **A Linux zombie counts as gone.** A killed but unreaped process still answers `kill(pid, 0)` and keeps
+  its `/proc` entry, so `isAlive` reads the `/proc` state and treats `Z`/`X` as dead. The real-process
+  tests failed under WSL until it did.
+- **An unverifiable instance lets the claim proceed and kills nothing.** When the host cannot read a
+  start time, nothing is killed and the start is not refused. A question the host cannot answer
+  never blocks a start.
+- **The intent is stamped on the TERMINAL row, not joined through the session.** `terminal_sessions.start_intent`
+  is written by every insert path. A spawn request's terminal copies the request's intent
+  (`running_spawn.py`). Consoles and virtual terminals are `start`. `GET /terminals/{id}/launch`
+  always sets `AIFY_START_INTENT`. `replace` comes from: a spawn request created by the dashboard
+  (or with no creator), `session_restart.py` restart/recreate, and the dashboard session Start
+  button.
+- **A resident launch's intent comes from the mode.** `startIntent({explicit, mode})`: an explicit
+  `AIFY_START_INTENT` wins. Otherwise managed means `start` and anything else means `replace`. The
+  launcher unsets `AIFY_START_INTENT` after the claim, so a shell the agent opens later cannot pass
+  it on. Switching an agent from resident to managed is an ordinary `start`.
+- **The MCP bridge does NOT attach its parent.** That was dropped. Every runtime's main process is in
+  its launcher's process tree (Windows) or process group (POSIX). The real-process tests showed that
+  `taskkill /T` and a group kill reach a grandchild, so the launcher's own record already covers the
+  runtime. Only DETACHED children escape, and those are attached by name: codex's app-server and
+  hermes' gateway host (`agent-lease-attach.mjs`, from `ensure-host`, only for a gateway it started).
+- **Codex attaches its app-server and releases in `cleanup()`.** Claude claims above its `--shared`
+  branch, so a shared launch claims nothing. Hermes claims at the start of its gateway branch and
+  attaches the delivery loop. Pi claims before `exec`.
+- **The hermes fix is `hermes-prior-reap.mjs`, and only kill-prior runs it.** `stopDaemon({reapPrior})`
+  is called with `reapPrior: true` from `hermes-daemon-cli.js stop`, and a sidecar's own stop never
+  reaps. The planner stops gateway host trees on the persisted or hashed port, plus hermes' session
+  lease holder when its recorded start matches the OS and its command line is hermes. It never stops
+  the caller's ancestry. The port marker is cleared only when nothing still names that port. If the
+  process table cannot be read, the marker is kept.
+- **Refusal is exit 75, and a helper failure exits 0 with a warning.** A broken helper costs the
+  guarantee, never the launch. Kill decisions still fail closed.
+
+Evidence: the wrapper suite ran on Windows and under WSL, including `an-agent-runs-once-per-host`
+with real processes and `a-launcher-holds-the-agent-lease` against the rendered launchers. In
+aify-comms, `test_a_start_says_whether_it_replaces_a_live_instance.py` checks the routes, and
+`kill-prior-collects-what-a-previous-hermes-left.test.js` runs the real `stop` against real processes.
+Mutants reddened the start-intent chain (8 of 8), the reap (8 of 8) and the ensure-host attach call
+site (2 of 2). **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
+restarted through the new launchers yet. Also ASSUMED: that codex honours the hook trust
+`install.sh` writes at runtime (only the hash formula is proven).
