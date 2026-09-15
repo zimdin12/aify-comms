@@ -137,39 +137,38 @@ Where the build differs from the design above, each measured or read rather than
 - **A Linux zombie counts as gone.** A killed but unreaped process still answers `kill(pid, 0)` and keeps
   its `/proc` entry, so `isAlive` reads the `/proc` state and treats `Z`/`X` as dead. The real-process
   tests failed under WSL until it did.
-- **An unverifiable instance lets the claim proceed and kills nothing.** When the host cannot read a
-  start time, nothing is killed and the start is not refused. A question the host cannot answer
-  never blocks a start. What cannot be verified is CARRIED into the new record, so a later claim
-  collects it. Every entry also records `seenAliveAtMs`, which identifies it without a start time: a
-  process holding that pid which started no later than that moment is the one that was seen.
+- **An unverifiable entry lets the start proceed, kills nothing, and writes nothing.** When the host
+  cannot read a start time, nothing is killed and the start is not refused. The claim leaves the
+  record as it was, so a later claim that can read it still decides it. (Carrying unverifiable entries
+  into a new record was tried first. It let a later automatic start kill a still-live instance's
+  gateway.) Every entry records `seenAliveAtMs`, which identifies it without a start time: a process
+  holding that pid which started no later than that moment is the one that was seen.
 - **The start-time tolerance is 2 s, not 30 s.** hermes' own record of a live process and CIM
   differed by 0.4 ms (measured 2026-09-15). At 30 s, a pid reused within half a minute read as ours.
 - **A start inside the live instance is refused.** That covers a launcher that inherited the
   instance's `AIFY_AGENT_LEASE`, or whose ancestor is the instance. Replacing would end its own
-  ancestor, and letting it run would be a second instance. No ancestor of the claimer is ever stopped.
-- **The lock names its holder.** It is taken over only when that holder is gone (or after 2 minutes),
-  by an atomic rename. A start still waiting after 60 s is REFUSED (75), not let through: two starts
-  racing past the lock was the duplicate the lease exists to prevent.
-- **Trees are read from the process table**, not `taskkill /T` or a group signal. A child is followed
-  only if it started after its parent, because Windows never clears a stale `ParentProcessId`. An
-  unreadable table ends the pid alone.
-- **claude claims before its managed reap.** The reap ran first and could end a live instance that the
-  claim would then refuse.
-- **The hermes reap stops only what the agent OWNS.** That is a port no other agent's marker claims
+  ancestor, and letting it run would be a second instance. No ancestor of the claimer is ever
+  stopped. The service unsets `AIFY_AGENT_LEASE` in every managed launch (`NEVER_INHERITED`): a host
+  started from an agent's shell would otherwise make every start of that agent read as nested.
+- **The lock names its holder** (pid, moment, nonce). A waiter re-asks every 2 s whether the holder is
+  alive. The lock is taken over when the holder is gone, or it is older than 2 minutes, or it names no
+  holder and is older than 10 s. Takeover is an atomic rename. A start still waiting after 60 s is
+  REFUSED (75), not let through. A claim removes only its own lock, and one that lost the lock
+  mid-claim writes no record.
+- **Trees and ancestry are read from the process table**, not `taskkill /T` or a group signal. A child
+  is followed only if it started after its parent, and an ancestor only if it started before its
+  child, because Windows never clears a stale `ParentProcessId`. A query that failed or timed out is no
+  table (a timed-out CIM query printed 139 of 838 rows). With no table, nothing is killed: a live
+  instance is not replaced, and leftovers stay on record.
+- **claude claims before its managed reap**, and a `--shared` launch runs neither. The reap ran first
+  and could end a live instance that the claim would then refuse.
+- **The hermes reap stops only what the agent OWNS.** That means a port no other agent's marker claims
   (its persisted port, else its hash port), and a session lease only when no other agent's session
-  marker names that session.
+  marker names that session. `stopDaemon`'s port kill skips a port another agent claims. The agent's
+  own marker is kept while anything listens on its port, even when another marker names it too.
 - **The gateway attach takes its agent from ensure-host**, and never joins a lease inherited from
   another agent's launcher.
 - **A blank requester is START.** Only an explicit `dashboard` requester replaces.
-
-The last eight points came from an independent review of the first build (12 findings). Three were
-not changed:
-
-- The queued-run backstop meeting a live but deaf instance is refused. That is the operator's policy
-  for automatic starts. aify-env has no respawn loop, so nothing retries in a loop.
-- The dashboard "Start console" route is START.
-- A dashboard spawn-spec assignment stores the column default, START. A live instance refuses it
-  rather than being replaced.
 - **The intent is stamped on the TERMINAL row, not joined through the session.** `terminal_sessions.start_intent`
   is written by every insert path. A spawn request's terminal copies the request's intent
   (`running_spawn.py`). Consoles and virtual terminals are `start`. `GET /terminals/{id}/launch`
@@ -198,11 +197,26 @@ not changed:
   guarantee, never the launch. Kill decisions still fail closed. A lock still held by another start
   after a minute is a refusal, not a helper failure.
 
+Two independent reviews shaped the points above. The first build had 12 findings; the fix round
+had 11. What was deliberately left:
+
+- The queued-run backstop meeting a live but deaf instance is refused. That is the operator's policy
+  for automatic starts. aify-env has no respawn loop, so nothing retries in a loop.
+- The dashboard "Start console" route is START.
+- A dashboard spawn-spec assignment stores the column default, START.
+- `seenAliveAtMs` is compared with no tolerance. A clock stepped backwards (VM resume, a large time
+  sync) after a pid was recorded could let a pid reused after the step read as ours.
+- The takeover's rename-then-restore leaves a microsecond window for two holders. The loser writes no
+  record, but what it already stopped stays stopped.
+- A claim that could not verify the instance still lets claude's managed reap run, and that reap does
+  its own process matching.
+
 Evidence: the wrapper suite ran on Windows and under WSL, including `an-agent-runs-once-per-host`
 with real processes and `a-launcher-holds-the-agent-lease` against the rendered launchers. In
 aify-comms, `test_a_start_says_whether_it_replaces_a_live_instance.py` checks the routes, and
 `kill-prior-collects-what-a-previous-hermes-left.test.js` runs the real `stop` against real processes.
 Mutants reddened the start-intent chain (8 of 8), the reap (8 of 8) and the ensure-host attach call
-site (2 of 2). **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
+site (2 of 2) in the first build. After both review rounds, a mutant per fix reddens its test: 22 of 22
+in aify-wrapper and 11 of 11 in aify-comms. **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
 restarted through the new launchers yet. Also ASSUMED: that codex honours the hook trust
 `install.sh` writes at runtime (only the hash formula is proven).
