@@ -32,6 +32,7 @@ from typing import Any
 
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.spawn_env import spawn_env_overlay
+from service.api_core.start_intent import START, normalize_start_intent
 
 #: Set on EVERY managed launch, including to "". Not a default — an assignment.
 #:
@@ -58,6 +59,7 @@ ALWAYS_SET = (
     "AIFY_SESSION_MODE",
     "AIFY_MANAGED_VIA_WRAPPER",
     "AIFY_COMMS_AGENT_ROLE",
+    "AIFY_START_INTENT",
 )
 
 #: What a worker must NOT inherit from whatever started its host. The launch answer carries these as
@@ -129,6 +131,7 @@ def managed_launch_env(
     terminal_id: str = "",
     managed_via_wrapper: bool = False,
     spawn_env: dict[str, Any] | None = None,
+    start_intent: str = START,
 ) -> dict[str, str]:
     """The aify-owned variables a managed worker is launched with, over the spawn's own `envVars`.
 
@@ -185,6 +188,10 @@ def managed_launch_env(
         # Only true wrapper-backed runtimes set this. Pi and OpenCode stay native managed and must
         # not make their child bridge advertise channel/resident claim modes.
         "AIFY_MANAGED_VIA_WRAPPER": "1" if managed_via_wrapper else "0",
+        # What the launcher's agent lease does about a live instance (`start_intent.py`). Always
+        # written: absent, a launcher treats a managed launch as a start, which is right, but a host's
+        # own environment could carry an intent meant for somebody else.
+        "AIFY_START_INTENT": normalize_start_intent(start_intent),
     }
     # CONDITIONAL, and correctly so: these two are OVERRIDES. Writing "" would state that the spawn
     # chose an empty model, which a runtime cannot act on, where absence lets it use its own default.

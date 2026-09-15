@@ -72,6 +72,10 @@ def _combined_split_source() -> str:
 #: they now interpolate a fragment from `api_core/terminal_status.py`. Undone here rather than
 #: re-captured, so the pre-split baseline survives.
 EDITED_SINCE = [
+    #: DECLARED EDIT SINCE THE SPLIT (2026-09-15). A launch says whether it may replace a live instance
+    #: of its agent (`service/api_core/start_intent.py`), so the settled spawn hands its request's intent to the terminal it brings up.
+    ('                        for_session_id=str(row["session_id"] or ""),\n                        # The one terminal this request brings up, so the only one carrying its intent.\n                        start_intent=row["start_intent"] if "start_intent" in row.keys() else "",\n',
+     '                        for_session_id=str(row["session_id"] or ""),\n'),
     (
         '\nfrom service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',
         '\nfrom service.api_core.agent_sessions import ENDED_AGENT_SESSION_STATUS_SQL',

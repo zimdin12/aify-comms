@@ -298,6 +298,7 @@ async def get_terminal_launch(terminal_id: str):
                     terminal_id=terminal_id,
                     managed_via_wrapper=launches_via_wrapper(settings, runtime),
                     spawn_env=_json_loads_or(spec_row["env_vars"] if spec_row else "", {}),
+                    start_intent=row["start_intent"] if "start_intent" in row.keys() else "",
                 ),
                 # REMOVED from the host's own environment before `env` goes on top: an overlay can
                 # set a name but never unset one (`launch_env.NEVER_INHERITED` says why that matters).

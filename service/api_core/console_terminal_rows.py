@@ -46,6 +46,7 @@ from service.api_core.serialization import _json_loads_or
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMANDS_BY_RUNTIME
 from service.api_core.workspace import _workspace_for_environment
 from service.api_core.ws import _get_ws
+from service.api_core.start_intent import START
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
@@ -58,8 +59,8 @@ async def _insert_virtual_console_terminal(
                 """
                 INSERT INTO terminal_sessions (
                     id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
-                    output, status, requested_by, created_at, updated_at, stopped_at, error
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     terminal_id,
@@ -78,6 +79,7 @@ async def _insert_virtual_console_terminal(
                     now,
                     None,
                     "",
+                    START,
                 ),
             )
 
@@ -90,8 +92,8 @@ async def _insert_pty_console_terminal(
             """
             INSERT INTO terminal_sessions (
                 id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
-                output, status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 terminal_id,
@@ -110,6 +112,7 @@ async def _insert_pty_console_terminal(
                 now,
                 None,
                 "",
+                START,
             ),
         )
 

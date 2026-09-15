@@ -45,6 +45,7 @@ from service.routers.agents.shared import _synth_terminal_should_be_created
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
 from service.models import VirtualTerminalEnsureRequest
+from service.api_core.start_intent import START
 
 router = domain_router()
 
@@ -148,8 +149,8 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
             """
             INSERT INTO terminal_sessions (
                 id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
-                output, status, requested_by, created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 terminal_id,
@@ -170,6 +171,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
                 now,
                 None,
                 "",
+                START,
             ),
         )
         await _append_terminal_event(

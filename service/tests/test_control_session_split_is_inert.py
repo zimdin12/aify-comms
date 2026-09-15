@@ -62,6 +62,14 @@ def _combined_split_source() -> str:
 #: Written down with BOTH texts rather than re-capturing the fixture, which would erase the
 #: baseline and leave this gate proving only that the split is inert against today's code.
 EDITED_SINCE = [
+    #: DECLARED EDIT SINCE THE SPLIT (2026-09-15). A launch says whether it may replace a live instance
+    #: of its agent (`service/api_core/start_intent.py`), so a restart or recreate records REPLACE on the request it queues.
+    ('                    warnings=coldstart_warnings,\n                    start_intent=REPLACE,\n',
+     '                    warnings=coldstart_warnings,\n'),
+    ('resume_policy, status, session_handle, created_at, updated_at, start_intent\n                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+     'resume_policy, status, session_handle, created_at, updated_at\n                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
+    ('                        request_session_handle,\n                        now,\n                        now,\n                        REPLACE,\n',
+     '                        request_session_handle,\n                        now,\n                        now,\n'),
     #: DECLARED EDIT SINCE THE SPLIT (2026-09-09). The caller's PRECONDITION, and the write
     #: reservation that makes it atomic with the writes it authorises. Added after review traced a
     #: race -- aify-env reads which agents have no live session, then restarts the one it chose --

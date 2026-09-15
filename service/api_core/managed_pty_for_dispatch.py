@@ -33,12 +33,13 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _json_loads_or
 from service.api_core.terminal_ownership import _active_terminal_for_agent
 from service.api_core.workspace import _workspace_for_environment
+from service.api_core.start_intent import START, normalize_start_intent
 from service.clock import now as _now
 
 
 async def _ensure_managed_pty_for_dispatch(
     db, agent_id: str, *, runtime: str, settings: dict[str, Any], requested_by: str,
-    for_session_id: str = "",
+    for_session_id: str = "", start_intent: str = START,
 ):
     """`for_session_id` scopes adoption to ONE session, and a restart is why it exists.
 
@@ -120,8 +121,8 @@ async def _ensure_managed_pty_for_dispatch(
         """
         INSERT INTO terminal_sessions (
             id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv,
-            output, status, requested_by, created_at, updated_at, stopped_at, error
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             terminal_id,
@@ -140,6 +141,7 @@ async def _ensure_managed_pty_for_dispatch(
             now,
             None,
             "",
+            normalize_start_intent(start_intent),
         ),
     )
     await _append_terminal_event(

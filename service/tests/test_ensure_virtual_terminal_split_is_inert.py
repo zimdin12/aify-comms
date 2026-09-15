@@ -52,6 +52,16 @@ def _combined_split_source() -> str:
     return "\n\n".join(p.read_text(encoding="utf-8") for p in MODULES)
 
 
+EDITED_SINCE = [
+    #: DECLARED EDIT SINCE THE SPLIT (2026-09-15). A launch says whether it may replace a live instance
+    #: of its agent (`service/api_core/start_intent.py`), so every terminal row names its intent, and a virtual console is never a replacing launch.
+    ('output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent\n            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)\n            """,\n            (\n                terminal_id,\n                session_id,\n                agent_id,',
+     'output, status, requested_by, created_at, updated_at, stopped_at, error\n            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)\n            """,\n            (\n                terminal_id,\n                session_id,\n                agent_id,'),
+    ('                "",\n                START,\n            ),\n        )\n        await _append_terminal_event(',
+     '                "",\n            ),\n        )\n        await _append_terminal_event('),
+]
+
+
 class EnsureVirtualTerminalSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -60,7 +70,7 @@ class EnsureVirtualTerminalSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.

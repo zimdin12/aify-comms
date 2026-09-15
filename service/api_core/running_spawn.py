@@ -351,6 +351,8 @@ async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):
                         # outgoing worker's terminal — which is killed two seconds later — and the
                         # agent ends up `running` with no worker at all. Reproduced live.
                         for_session_id=str(row["session_id"] or ""),
+                        # The one terminal this request brings up, so the only one carrying its intent.
+                        start_intent=row["start_intent"] if "start_intent" in row.keys() else "",
                     )
                 except Exception as exc:
                     # The dispatch path's lazy spawn is still the fallback — this must never fail a

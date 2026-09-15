@@ -70,6 +70,20 @@ def _declared(path: Path) -> set[str]:
     }
 
 
+EDITED_SINCE = [
+    #: DECLARED EDIT SINCE THE SPLIT (2026-09-15). A launch says whether it may replace a live instance
+    #: of its agent (`service/api_core/start_intent.py`), so every terminal row names its intent, and a console the operator opens is never a replacing launch.
+    ('                    output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent\n                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+     '                    output, status, requested_by, created_at, updated_at, stopped_at, error\n                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
+    ('                    "",\n                    START,\n                ),',
+     '                    "",\n                ),'),
+    ('                output, status, requested_by, created_at, updated_at, stopped_at, error, start_intent\n            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+     '                output, status, requested_by, created_at, updated_at, stopped_at, error\n            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'),
+    ('                "",\n                START,\n            ),',
+     '                "",\n            ),'),
+]
+
+
 class StartSessionConsoleSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -78,7 +92,7 @@ class StartSessionConsoleSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_source_function_is_still_where_this_proof_looks(self):
         """`CALLER` is a location pin, and a relocation is what breaks it.

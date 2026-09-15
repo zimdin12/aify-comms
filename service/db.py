@@ -149,6 +149,13 @@ TERMINAL_SESSION_MIGRATIONS = {
     "activity_rule": "ALTER TABLE terminal_sessions ADD COLUMN activity_rule TEXT DEFAULT ''",
     "activity_observed_at": "ALTER TABLE terminal_sessions ADD COLUMN activity_observed_at TEXT DEFAULT ''",
     "activity_reported_at": "ALTER TABLE terminal_sessions ADD COLUMN activity_reported_at TEXT DEFAULT ''",
+    # WHAT THIS LAUNCH DOES ABOUT A LIVE INSTANCE OF ITS AGENT (`service/api_core/start_intent.py`):
+    # only the terminal a spawn request brings up carries that request's intent.
+    "start_intent": "ALTER TABLE terminal_sessions ADD COLUMN start_intent TEXT DEFAULT 'start'",
+}
+
+SPAWN_REQUEST_MIGRATIONS = {
+    "start_intent": "ALTER TABLE spawn_requests ADD COLUMN start_intent TEXT DEFAULT 'start'",
 }
 
 # Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed
@@ -267,6 +274,14 @@ async def _migrate_bridge_instances_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(bridge_instances)")
     existing = {row[1] for row in await cursor.fetchall()}
     for column, statement in BRIDGE_INSTANCE_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
+async def _migrate_spawn_requests_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(spawn_requests)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in SPAWN_REQUEST_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
 
@@ -423,6 +438,7 @@ async def init_db(db_path: Path = None):
         await _migrate_environments_table(db)
         await _migrate_agent_sessions_table(db)
         await _migrate_terminal_sessions_table(db)
+        await _migrate_spawn_requests_table(db)
         await _migrate_bridge_instances_table(db)
         await _migrate_console_signal_table(db)
         await _migrate_agent_turn_state_table(db)

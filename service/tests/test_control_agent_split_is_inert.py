@@ -54,6 +54,14 @@ def _helper() -> ast.AST:
     )
 
 
+EDITED_SINCE = [
+    #: DECLARED EDIT SINCE THE SPLIT (2026-09-15). A launch says whether it may replace a live instance
+    #: of its agent (`service/api_core/start_intent.py`), so the Start button records REPLACE for the dashboard and START for an agent.
+    ('                warnings=coldstart_warnings,\n                start_intent=start_intent_for_requester(req.from_agent),\n',
+     '                warnings=coldstart_warnings,\n'),
+]
+
+
 class ControlAgentSplitIsInertTests(unittest.TestCase):
     def test_the_extraction_inlines_back_to_the_original(self):
         fixture_src = FIXTURE.read_text(encoding="utf-8")
@@ -62,7 +70,7 @@ class ControlAgentSplitIsInertTests(unittest.TestCase):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == SOURCE_FUNCTION
         )
         assert_extractions_preserve_behaviour(
-            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS)
+            ast.get_source_segment(fixture_src, original), _combined_split_source(), EXTRACTIONS, EDITED_SINCE)
 
     def test_the_fixture_is_the_function_it_claims_to_be(self):
         """A fixture that stopped containing the function would make the test above vacuous."""

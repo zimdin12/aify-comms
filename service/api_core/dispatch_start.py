@@ -56,6 +56,7 @@ from service.api_core.runtime import (
 )
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
+from service.api_core.start_intent import START, normalize_start_intent
 from service.api_core.workspace import _workspace_for_environment
 from service.clock import now as _now
 
@@ -101,6 +102,7 @@ async def _coldstart_spawn_request_for_dispatch(
     settings: dict[str, Any],
     requested_by: str,
     warnings: Optional[list[str]] = None,
+    start_intent: str = START,
 ) -> bool:
     """Cold-start a managed worker on the send path.
 
@@ -308,8 +310,8 @@ async def _coldstart_spawn_request_for_dispatch(
         INSERT INTO spawn_requests (
             id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
             workspace, workspace_root, initial_message, priority, subject, mode,
-            resume_policy, status, session_handle, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            resume_policy, status, session_handle, created_at, updated_at, start_intent
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             request_id,
@@ -331,6 +333,7 @@ async def _coldstart_spawn_request_for_dispatch(
             coldstart_session_handle,
             now,
             now,
+            normalize_start_intent(start_intent),
         ),
     )
     return True

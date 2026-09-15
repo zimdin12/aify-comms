@@ -98,6 +98,10 @@ def _helper() -> ast.AST:
 #: `SPAWN_REQUEST_STATUSES` rather than written beside it. Undone here rather than re-captured,
 #: so the pre-split baseline survives.
 EDITED_SINCE = [
+    #: DECLARED EDIT SINCE THE SPLIT (2026-09-15). A launch says whether it may replace a live instance
+    #: of its agent (`service/api_core/start_intent.py`), so the settled spawn hands its request's intent to the terminal it brings up.
+    ('                        for_session_id=str(row["session_id"] or ""),\n                        # The one terminal this request brings up, so the only one carrying its intent.\n                        start_intent=row["start_intent"] if "start_intent" in row.keys() else "",\n',
+     '                        for_session_id=str(row["session_id"] or ""),\n'),
     (
         '\n\n#: EVERY STATUS A SPAWN REQUEST CAN HOLD, in the order it moves through them.\n#:\n#: `queued` is the column default and arrives with the row; the other five are what\n#: `PATCH /spawn-requests/{id}` accepts, and it answers 400 for anything else. This set existed as a\n#: literal at that validation site with `_SPAWN_TERMINAL_STATUSES` three hundred lines above holding\n#: a subset -- two spellings of one vocabulary, neither naming the other, and `queued` in neither.\n#:\n#: It is named so a test can read it. `service/tests/test_the_spawn_panel_names_real_statuses.py`\n#: compares it against the words the dashboard\'s spawn panel puts in front of an operator, which is\n#: how the panel\'s promise of a "completed" spawn -- a state the service refuses -- was found.\nSPAWN_REQUEST_STATUSES = ("queued", "claimed", "starting", "running", "failed", "cancelled")\n\n#: The subset a bridge may PATCH. `queued` is not one: nothing moves a request BACK to unclaimed.\nSPAWN_REQUEST_PATCHABLE_STATUSES = frozenset(SPAWN_REQUEST_STATUSES) - {"queued"}\n',
         '\n',

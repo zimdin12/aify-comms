@@ -39,6 +39,7 @@ from service.api_core.turn_state import _clear_status_state_in_turn
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.api_core.tuning import LIVE_SESSION_STATUSES
+from service.api_core.start_intent import start_intent_for_requester
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 import sqlite3
@@ -144,6 +145,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 settings=settings,
                 requested_by=req.from_agent or "dashboard",
                 warnings=coldstart_warnings,
+                start_intent=start_intent_for_requester(req.from_agent),
             )
             await db.commit()
             if not started:

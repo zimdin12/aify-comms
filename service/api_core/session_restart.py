@@ -22,6 +22,7 @@ from service.api_core.dispatch_text import _coldstart_refusal_message
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.settings import _load_settings
 from service.api_core.spawn_request_state import _has_claimable_spawn_request
+from service.api_core.start_intent import REPLACE
 from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_root_for
 
 
@@ -59,6 +60,7 @@ async def _prepare_restart_spawn(db, req, session, session_id: str, agent_id: st
                     settings=settings,
                     requested_by=req.from_agent or "dashboard",
                     warnings=coldstart_warnings,
+                    start_intent=REPLACE,
                 )
                 if not coldstarted and not await _has_claimable_spawn_request(db, agent_id):
                     # The refusal REASON is already in `coldstart_warnings` — the helper records
@@ -114,8 +116,8 @@ async def _prepare_restart_spawn(db, req, session, session_id: str, agent_id: st
                     INSERT INTO spawn_requests (
                         id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
                         workspace, workspace_root, initial_message, priority, subject, mode,
-                        resume_policy, status, session_handle, created_at, updated_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        resume_policy, status, session_handle, created_at, updated_at, start_intent
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         request_id,
@@ -137,6 +139,7 @@ async def _prepare_restart_spawn(db, req, session, session_id: str, agent_id: st
                         request_session_handle,
                         now,
                         now,
+                        REPLACE,
                     ),
                 )
                 spawn_request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
