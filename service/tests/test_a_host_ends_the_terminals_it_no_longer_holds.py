@@ -29,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
 from service.reconcilers.host_held_terminals import (
     HELD_TERMINALS_GRACE_SECONDS,
+    PEER_SILENCE_SECONDS,
     terminals_the_host_no_longer_holds,
 )
 from service.tests._base import FastApiTestCase
@@ -48,11 +49,25 @@ class TheSelectionIsPure(FastApiTestCase):
 
     NOW = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc).timestamp()
 
-    def _row(self, terminal_id, status="attached", updated_at=LONG_AGO, command="claude-aify"):
-        return {"id": terminal_id, "status": status, "updated_at": updated_at, "command": command}
+    def _row(self, terminal_id, status="attached", updated_at=LONG_AGO, command="claude-aify", bridge_id=BRIDGE):
+        return {"id": terminal_id, "status": status, "updated_at": updated_at, "command": command,
+                "bridge_id": bridge_id}
 
     def _select(self, rows, held, grace=HELD_TERMINALS_GRACE_SECONDS):
-        return terminals_the_host_no_longer_holds(rows, held, now_epoch=self.NOW, grace_seconds=grace)
+        return terminals_the_host_no_longer_holds(rows, held, now_epoch=self.NOW, grace_seconds=grace,
+                                                  bridge_id=BRIDGE)
+
+    def test_ANOTHER_BRIDGES_terminal_needs_silence_not_just_absence(self):
+        """A live peer daemon on the same environment refreshes its terminals every control pass; this
+        host's list cannot name them. Only a peer terminal that has gone silent is over."""
+        recent = _iso(datetime.fromtimestamp(self.NOW - PEER_SILENCE_SECONDS + 5, timezone.utc))
+        silent = _iso(datetime.fromtimestamp(self.NOW - PEER_SILENCE_SECONDS - 5, timezone.utc))
+        rows = [self._row("t-peer-live", updated_at=recent, bridge_id="bridge-peer"),
+                self._row("t-peer-dead", updated_at=silent, bridge_id="bridge-peer"),
+                self._row("t-own", updated_at=recent)]
+        self.assertEqual(self._select(rows, []), ["t-peer-dead", "t-own"])
+        # AND NO GRACE (an offline beat) DOES NOT WAIVE IT: going offline ends this host's own work only.
+        self.assertEqual(self._select(rows, [], grace=0), ["t-peer-dead", "t-own"])
 
     def test_a_confirmed_terminal_the_host_does_not_name_is_selected(self):
         rows = [self._row("t-attached"), self._row("t-running", "running"), self._row("t-idle", "idle"),
@@ -104,7 +119,7 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
         return response.json()
 
     def _seed(self, terminal_id, *, status="attached", updated_at=LONG_AGO, env=ENV,
-              command="claude-aify --aify-agent a1"):
+              command="claude-aify --aify-agent a1", bridge="old-bridge"):
         from service.db import get_db
 
         session_id = f"sess-{terminal_id}"
@@ -129,7 +144,7 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
                     "INSERT INTO terminal_sessions (id, agent_id, session_id, environment_id, "
                     "runtime, bridge_id, command, argv, workspace, status, output, "
                     "error, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (terminal_id, agent_id, session_id, env, "claude-code", "old-bridge",
+                    (terminal_id, agent_id, session_id, env, "claude-code", bridge,
                      command, json.dumps(command.split()), "/work", status, "", "",
                      LONG_AGO, updated_at),
                 )
@@ -199,7 +214,7 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
 
     def test_an_online_beat_waits_out_the_grace_and_an_offline_beat_does_not(self):
         self._beat()
-        self._seed("t-fresh", updated_at=_iso(datetime.now(timezone.utc)))
+        self._seed("t-fresh", updated_at=_iso(datetime.now(timezone.utc)), bridge=BRIDGE)
         self._beat(heldTerminals=[])
         self.assertEqual(self._terminal("t-fresh")["status"], "attached",
                          "a start confirmed just before the beat arrived was ended")
@@ -234,6 +249,21 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
         answer = self._beat(bridge="bridge-new", started=new_start, heldTerminals=[])
         self.assertIs((answer.get("claimer") or {}).get("accepted"), True, answer)
         self.assertEqual(self._terminal("t-predecessor")["status"], "stopped")
+
+    def test_a_LIVE_PEER_daemons_terminal_survives_the_accepted_beat_of_another(self):
+        """THE REVIEW'S REPRODUCTION, 2026-09-15: daemon A runs a worker, daemon B starts later on the
+        same environment and takes the row. A's terminal is still refreshed by A's liveness frames, so
+        B's list -- which cannot name it -- must not end it."""
+        self._beat(bridge="bridge-a", started=LONG_AGO)
+        self._seed("t-a-live", bridge="bridge-a",
+                   updated_at=_iso(datetime.now(timezone.utc) - timedelta(seconds=30)))
+        b_start = _iso(datetime.now(timezone.utc) - timedelta(seconds=5))
+        answer = self._beat(bridge="bridge-b", started=b_start, heldTerminals=[])
+        self.assertIs((answer.get("claimer") or {}).get("accepted"), True, "B did not take the row, so this proves nothing")
+        self.assertEqual(self._terminal("t-a-live")["status"], "attached", "a live peer's terminal was ended")
+        # AND B GOING OFFLINE DOES NOT REACH IT EITHER.
+        self._beat(bridge="bridge-b", started=b_start, heldTerminals=[], status="offline")
+        self.assertEqual(self._terminal("t-a-live")["status"], "attached", "an offline beat ended a peer's live terminal")
 
     def test_the_list_is_not_kept_in_the_environments_stored_metadata(self):
         """An observation of one beat, not configuration: kept, it would read as current long after

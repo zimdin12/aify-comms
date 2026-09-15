@@ -249,7 +249,7 @@ EDITED_SINCE = EDITED_SINCE + [
 #: the registration has committed. Declared as deletions, appended, so the baseline survives.
 EDITED_SINCE = EDITED_SINCE + [
     ('    #: WHICH TERMINALS THE HOST HOLDS is an observation of this one beat, read here and never stored:\n    #: kept in the row\'s metadata it would read as current long after the host that sent it had gone.\n    held_terminals = metadata.pop("heldTerminals", None) if isinstance(metadata, dict) else None\n', ''),
-    ('        #: ONLY HERE, past every refusal: a superseded or refused beat carries another host\'s view.\n        if str(req.bridgeId or "").strip():\n            await end_terminals_the_host_no_longer_holds(\n                db, env_id, held_terminals, offline=requested_status == "offline",\n            )\n', ''),
+    ('        #: ONLY HERE, past every refusal: a superseded or refused beat carries another host\'s view.\n        if str(req.bridgeId or "").strip():\n            await end_terminals_the_host_no_longer_holds(\n                db, env_id, held_terminals, offline=requested_status == "offline",\n                bridge_id=str(req.bridgeId or "").strip(),\n            )\n', ''),
 ]
 
 

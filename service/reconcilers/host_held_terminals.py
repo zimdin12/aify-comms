@@ -15,6 +15,15 @@ close-out a terminal-ending output takes.
 
 ABSENT IS NOT EMPTY. An aify-env older than this sends no list, and a beat without one ends nothing.
 
+A HOST ONLY SPEAKS FOR ITS OWN TERMINALS, AND FOR SILENT ONES. Accepted is not the same as alone: a
+`herdr-aify env` instance and an ordinary daemon run one environment id from the same host, a refused
+daemon keeps its workers and control loop, and its terminals are rows this beat cannot name. Review
+2026-09-15 reproduced the damage: the peer's live terminals ended, and ten quiet minutes later its
+host killed their idle workers as orphans. So a row carrying THIS beat's `bridge_id` is judged by the
+list with the start grace, and a row carrying another bridge's id only once it has had no liveness
+frame for `PEER_SILENCE_SECONDS` -- which a live peer refreshes every control pass, and a dead
+predecessor (the restart this module was written for) does not.
+
 A LEAF: the router calls it and nothing here reaches back up.
 """
 
@@ -45,6 +54,12 @@ from service.reconcilers.status_cache import invalidate_agent_live_state
 #: pass, a terminal the host does not hold gets none, so it ends on the first beat after this window.
 HELD_TERMINALS_GRACE_SECONDS = 20
 
+#: How long a terminal ANOTHER bridge created must have gone without a liveness frame before this
+#: host's list may end it. A live host repeats one every control pass, gated by its claim long-poll
+#: (`CLAIM_WAIT_MS`, 25 s in aify-env's `api.mjs`) -- so this is more than three missed passes, the
+#: margin `host_activity.HOST_ACTIVITY_FRESH_SECONDS` also allows.
+PEER_SILENCE_SECONDS = 90
+
 #: What a terminal the host no longer holds becomes -- the same end status the ghost reaper writes.
 ENDED_STATUS = "stopped"
 
@@ -56,12 +71,14 @@ ENDED_REASON = "the host no longer holds a process for this terminal (reported b
 _CONFIRMED_STATUSES = frozenset(_TERMINAL_ACTIVE_STATUSES - {"starting"})
 
 
-def terminals_the_host_no_longer_holds(rows, held_terminals, *, now_epoch: float, grace_seconds: float) -> list:
+def terminals_the_host_no_longer_holds(rows, held_terminals, *, now_epoch: float, grace_seconds: float,
+                                        bridge_id: str = "", peer_silence_seconds: float = PEER_SILENCE_SECONDS) -> list:
     """The ids among `rows` that the host's list says are over. Pure: no clock, no database.
 
-    Each row needs `id`, `status`, `updated_at` and `command`. A virtual-rpc console is a frame buffer
-    with no host process behind it, so no host ever names one and none is selected. An `updated_at`
-    that cannot be read is not evidence of age.
+    Each row needs `id`, `status`, `updated_at`, `command` and `bridge_id`. A virtual-rpc console is a
+    frame buffer with no host process behind it, so no host ever names one and none is selected. An
+    `updated_at` that cannot be read is not evidence of age. A row whose `bridge_id` is not this beat's
+    is only selected once it has been silent for `peer_silence_seconds`, whatever the grace.
     """
     held = {str(terminal_id) for terminal_id in held_terminals}
     selected = []
@@ -73,15 +90,18 @@ def terminals_the_host_no_longer_holds(rows, held_terminals, *, now_epoch: float
             continue
         if terminal_id.startswith("vterm_") or str(row["command"] or "") in VIRTUAL_RPC_COMMAND_SET:
             continue
-        if grace_seconds:
+        own = bool(bridge_id) and str(row["bridge_id"] or "").strip() == bridge_id
+        wait = grace_seconds if own else peer_silence_seconds
+        if wait:
             touched = iso_to_epoch(row["updated_at"])
-            if not touched or now_epoch - touched <= grace_seconds:
+            if not touched or now_epoch - touched <= wait:
                 continue
         selected.append(terminal_id)
     return selected
 
 
-async def end_terminals_the_host_no_longer_holds(db, environment_id: str, held_terminals, *, offline: bool) -> list:
+async def end_terminals_the_host_no_longer_holds(db, environment_id: str, held_terminals, *, offline: bool,
+                                                bridge_id: str = "") -> list:
     """Close every terminal in `environment_id` the host's accepted beat does not name.
 
     CALL ONLY FOR AN ACCEPTED BEAT. `held_terminals` that is not a list ends nothing. An OFFLINE beat
@@ -92,7 +112,7 @@ async def end_terminals_the_host_no_longer_holds(db, environment_id: str, held_t
         return []
     rows = await (await db.execute(
         f"""
-        SELECT id, session_id, agent_id, status, updated_at, command
+        SELECT id, session_id, agent_id, status, updated_at, command, bridge_id
         FROM terminal_sessions
         WHERE environment_id = ? AND status IN {TERMINAL_LIVE_FILTER_SQL}
         """,
@@ -100,7 +120,7 @@ async def end_terminals_the_host_no_longer_holds(db, environment_id: str, held_t
     )).fetchall()
     ended = terminals_the_host_no_longer_holds(
         rows, held_terminals, now_epoch=time.time(),
-        grace_seconds=0 if offline else HELD_TERMINALS_GRACE_SECONDS,
+        grace_seconds=0 if offline else HELD_TERMINALS_GRACE_SECONDS, bridge_id=str(bridge_id or "").strip(),
     )
     by_id = {str(row["id"]): row for row in rows}
     for terminal_id in ended:

@@ -582,6 +582,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
         if str(req.bridgeId or "").strip():
             await end_terminals_the_host_no_longer_holds(
                 db, env_id, held_terminals, offline=requested_status == "offline",
+                bridge_id=str(req.bridgeId or "").strip(),
             )
         row_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
         row = await row_cursor.fetchone()
