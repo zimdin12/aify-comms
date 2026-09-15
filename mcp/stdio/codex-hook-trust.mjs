@@ -14,27 +14,30 @@
 //
 // A config.toml codex cannot parse stops every codex session on the host, so a key the file already
 // defines some other way (a dotted key, an inline table) is left alone and reported.
+//
+// A script, not a library: install.sh runs it, and the call site is what is proven, by
+// service/tests/test_resident_hooks_reach_the_service_authenticated.py against a hash codex itself wrote.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** What marks a hooks.json command as one install.sh wrote. */
-export const AIFY_HOOK_MARKER = "agent-state-event.mjs";
+const AIFY_HOOK_MARKER = "agent-state-event.mjs";
 
 const SQ = "'";
 
-export function snakeEvent(name) {
+function snakeEvent(name) {
   return String(name).replace(/[A-Z]/g, (c, i) => (i ? "_" : "") + c.toLowerCase());
 }
 
-export function codexHookHash(event, command, timeout) {
+function codexHookHash(event, command, timeout) {
   const identity = { event_name: event, hooks: [{ async: false, command, timeout, type: "command" }] };
   return `sha256:${crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
 }
 
 /** The trust entries for the aify hooks in a parsed hooks.json, keyed as codex keys them. */
-export function aifyHookTrust(hooksJson, hooksPath) {
+function aifyHookTrust(hooksJson, hooksPath) {
   const entries = [];
   for (const [eventName, groups] of Object.entries(hooksJson?.hooks || {})) {
     if (!Array.isArray(groups)) continue;
@@ -53,7 +56,7 @@ export function aifyHookTrust(hooksJson, hooksPath) {
 }
 
 /** `tomlText` with a trusted_hash recorded for each entry. Pure. */
-export function withTrust(tomlText, entries) {
+function withTrust(tomlText, entries) {
   const text = String(tomlText || "");
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
