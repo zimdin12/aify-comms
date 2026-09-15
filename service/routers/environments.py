@@ -51,6 +51,7 @@ from service.models import (
     EnvironmentRootsUpdate,
 )
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.reconcilers.host_held_terminals import end_terminals_the_host_no_longer_holds
 
 logger = logging.getLogger("aify_comms.routers.environments")
 
@@ -304,6 +305,9 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
     cwd_roots = _normalize_roots(req.cwdRoots) if req.cwdRoots is not None else None
     runtimes = _canonical_runtimes(req.runtimes) if req.runtimes is not None else None
     metadata = req.metadata or {}
+    #: WHICH TERMINALS THE HOST HOLDS is an observation of this one beat, read here and never stored:
+    #: kept in the row's metadata it would read as current long after the host that sent it had gone.
+    held_terminals = metadata.pop("heldTerminals", None) if isinstance(metadata, dict) else None
     # A START TIME IN THE FUTURE IS BOUNDED ON THE WAY IN, once, against the clock as it is now.
     # External review, Round 8 M1: arbitration prefers the LATER start time and nothing bounded how
     # late, so a value in the future outranked every correctly clocked bridge until real time caught
@@ -574,6 +578,12 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
                 if bound_agent:
                     await _invalidate_agent_live_state(db, bound_agent)
         await db.commit()
+        #: ONLY HERE, past every refusal: a superseded or refused beat carries another host's view.
+        if str(req.bridgeId or "").strip():
+            await end_terminals_the_host_no_longer_holds(
+                db, env_id, held_terminals, offline=requested_status == "offline",
+                bridge_id=str(req.bridgeId or "").strip(),
+            )
         row_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
         row = await row_cursor.fetchone()
         environment = _environment_record_to_dict(row)
