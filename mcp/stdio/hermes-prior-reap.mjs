@@ -113,21 +113,32 @@ export function ancestry(pid, rows) {
  *
  * A gateway host tree is stopped when its port is one this agent owns. A lease holder is stopped only
  * when hermes' recorded start time for it is the one the OS reports -- a recycled pid is somebody
- * else -- and its command line is hermes. Nothing in `protect` is ever stopped.
+ * else -- its command line is hermes, and it runs INSIDE a gateway host tree in aify's port range.
+ * Nothing in `protect` is ever stopped.
+ *
+ * WHY ONLY INSIDE A GATEWAY TREE (external review, 2026-09-15): a holder anywhere else may be the
+ * operator's own `hermes --resume <this agent's session>`, and every start of the agent -- a message
+ * cold-starting it included -- killed it. What aify itself left holding the session is either in a gateway
+ * tree, which the agent lease attaches and cannot otherwise find, or the previous launcher's own TUI, which
+ * the lease already stops as that instance's leftover. A plain TUI outside both is left running; if it
+ * really is a leftover, hermes refuses the new start and names its pid.
  *
  * @returns {Array<{pid: number, why: string}>}
  */
 export function planPriorReap({ ports, rows, leases, sessionId, leaseStarts, protect }) {
   const stop = new Map();
   const wanted = new Set(ports.filter(Boolean));
-  for (const gateway of gatewaysInRange(rows, { toPort: cmdlineHermesGatewayPort, base: PORT_BASE, span: PORT_SPAN })) {
+  const gateways = gatewaysInRange(rows, { toPort: cmdlineHermesGatewayPort, base: PORT_BASE, span: PORT_SPAN });
+  for (const gateway of gateways) {
     if (wanted.has(gateway.port) && !protect.has(gateway.pid)) stop.set(gateway.pid, `gateway host on port ${gateway.port}`);
   }
+  const gatewayPids = new Set(gateways.map((gateway) => gateway.pid));
   const commandOf = new Map((rows || []).map((row) => [row.pid, String(row.commandLine || "")]));
   for (const lease of sessionId ? leases : []) {
     const pid = Number(lease?.pid);
     if (lease?.session_id !== sessionId || !Number.isInteger(pid) || protect.has(pid) || stop.has(pid)) continue;
     if (!/hermes/i.test(commandOf.get(pid) || "")) continue;
+    if (![...ancestry(pid, rows)].some((above) => gatewayPids.has(above))) continue;
     const state = identify({ startedAtMs: Number(lease.process_start_time) * 1000 }, { alive: commandOf.has(pid), startedAt: leaseStarts.get(pid) });
     if (state === "ours") stop.set(pid, `holds hermes' lease on session ${sessionId}`);
   }

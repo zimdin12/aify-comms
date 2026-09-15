@@ -20,6 +20,7 @@ import {
   gatewaysInRange,
   unreadableListeners,
 } from "../gateway-orphan-check.mjs";
+import { imageName, parseTasklistImage } from "../listening-ports.mjs";
 
 const BASE = 8642;
 const SPAN = 1000;
@@ -197,15 +198,35 @@ test("THE INCIDENT 2026-09-15: an ELEVATED gateway, whose command line reads as 
   assert.deepEqual([verdict.ok, verdict.code], [false, "unidentified"]);
   assert.match(verdict.detail, /mc-senior-dev port 9273 pid 65916/);
   assert.match(verdict.fix, /ELEVATED/);
-  // The pid named is the top of the unreadable chain, which is what `taskkill /T` needs; a readable parent stops the climb.
+  // The pid named is the top of the gateway's unreadable chain, which is what `taskkill /T` needs. The elevated
+  // terminal that ran `hermes update` (78724) is unreadable too, and a /T of it ends the terminal and everything
+  // in it (external review, 2026-09-15): the climb passes only through a gateway's own images.
   const chain = [{ pid: 65916, ppid: 66464, commandLine: "" }, { pid: 66464, ppid: 109472, commandLine: "" }, { pid: 109472, ppid: 78724, commandLine: "" },
-    { pid: 5, ppid: 4, commandLine: "" }, { pid: 4, ppid: 1, commandLine: "C:\Windows\explorer.exe" }];
-  assert.deepEqual(unreadableListeners({ listeners: [{ port: 9273, pid: 65916 }, { port: 9009, pid: 5 }], rows: chain, gateways: [], owners }),
-    [{ port: 9273, pid: 109472 }, { port: 9009, pid: 5 }]);
+    { pid: 78724, ppid: 2760, commandLine: "" }, { pid: 5, ppid: 4, commandLine: "" }, { pid: 4, ppid: 1, commandLine: "C:\Windows\explorer.exe" }];
+  const images = new Map([[65916, "python.exe"], [66464, "python.exe"], [109472, "hermes.exe"], [78724, "pwsh.exe"], [5, "python.exe"]]);
+  const imageOf = (pid) => images.get(pid) ?? null;
+  assert.deepEqual(unreadableListeners({ listeners: [{ port: 9273, pid: 65916 }, { port: 9009, pid: 5 }], rows: chain, gateways: [], owners, imageOf }),
+    [{ port: 9273, pid: 109472 }, { port: 9009, pid: 5 }], "the climb stopped short of hermes.exe, or went on into the terminal");
+  // A parent that cannot be named stops the climb: a narrower tree kill is the safe one.
+  assert.deepEqual(unreadableListeners({ listeners: [{ port: 9273, pid: 65916 }], rows: chain, gateways: [], owners }), [{ port: 9273, pid: 65916 }]);
+  assert.equal(parseTasklistImage('"python.exe","65916","Console","1","29 380 K"\r\n'), "python.exe");
+  assert.equal(parseTasklistImage("INFO: No tasks are running which match the specified criteria.\r\n"), null);
   // A port a readable gateway already accounts for is that gateway, not a hidden one.
   assert.deepEqual(unreadableListeners({ listeners: [{ port: 8823, pid: 9 }], rows: [], gateways: [{ pid: 56540, port: 8823 }], owners: gatewayOwners({ a: 8823 }) }), []);
   // CONTROL: with the hidden listener gone, the same inputs are an honest pass.
   assert.equal(gatewayOrphanVerdict({ gateways: [], owners: new Map(), loopAgentIds: [], agents: managed, unreadable: [] }).ok, true);
+});
+
+test("imageName reads THIS process's executable, and nothing for a pid that is not running", () => {
+  const own = imageName(process.pid);
+  assert.match(String(own), /node/i, `this process's image read as ${own}`);
+  assert.equal(imageName(0), null);
+  for (const platform of ["win32", "linux"]) {
+    const row = platform === "win32" ? '"python.exe","7","Console","1","1 K"\r\n' : "python\n";
+    assert.equal(imageName(7, { platform, run: () => ({ status: 0, stdout: row }) }), platform === "win32" ? "python.exe" : "python",`control: ${platform} did not read a good probe`);
+    assert.equal(imageName(7, { platform, run: () => ({ status: 1, stdout: row }) }), null, `a failed ${platform} probe named something`);
+    assert.equal(imageName(7, { platform, run: () => ({ status: 0, stdout: row, error: new Error("timeout") }) }), null, `a ${platform} probe that errored named something`);
+  }
 });
 
 test("each missing input makes the answer UNKNOWN, never clean", () => {
@@ -290,6 +311,12 @@ test("an elevated gateway is reported through the CHECK, and a listing that fail
   const hidden = harness({ procRows: [selfRow, { pid: 65916, commandLine: "" }], markers: { "mc-senior-dev": 9273 }, listeners: [{ port: 9273, pid: 65916 }] });
   await checkGatewayOrphans(hidden.deps);
   assert.deepEqual(hidden.calls.added[0].slice(1, 3), [false, "unidentified"]);
+  // The check hands its image reader to the climb, so the pid it names is the top of the gateway's chain.
+  const chained = harness({ procRows: [selfRow, { pid: 65916, ppid: 109472, commandLine: "" }, { pid: 109472, ppid: 78724, commandLine: "" }, { pid: 78724, ppid: 1, commandLine: "" }],
+    markers: { "mc-senior-dev": 9273 }, listeners: [{ port: 9273, pid: 65916 }] });
+  const images = new Map([[65916, "python.exe"], [109472, "hermes.exe"], [78724, "pwsh.exe"]]);
+  await checkGatewayOrphans({ ...chained.deps, imageOf: (pid) => images.get(pid) ?? null });
+  assert.match(chained.calls.added[0][3], /pid 109472\b/, "the check did not climb to the gateway's top with the image reader it was given");
   const failing = harness({ procRows: [selfRow] });
   failing.deps.listListeners = () => { throw new Error("netstat failed"); };
   await checkGatewayOrphans(failing.deps);

@@ -231,8 +231,11 @@ Where the build differs from the design above, each measured or read rather than
 - **A handoff of an agent to itself replaces.** `comms_compact` into the same agent id stores REPLACE
   (`start_intent_for_spawn`). Stored as START, the live worker it names would refuse its own
   successor. A handoff to a different agent is a start.
-- **Refusal is exit 75, and a helper failure exits 0 with a warning.** A broken helper costs the
-  guarantee, never the launch. Kill decisions still fail closed. A lock still held by another start
+- **Refusal is exit 75, and a helper failure lets the launch through with a warning.** A broken helper
+  costs the guarantee, never the launch. A failed CLAIM exits 70, and the launcher then neither exports
+  `AIFY_AGENT_LEASE` nor acts as the holder: before the external review of 2026-09-15 it exited 0, the
+  launcher exported the lease anyway, and hermes' kill-prior reaped as if the claim had established that
+  no live instance ran. Kill decisions still fail closed. A lock still held by another start
   after a minute is a refusal, not a helper failure.
 
 - **An instance that ends leaves nothing running, however it ends** (operator, 2026-09-15: "orphan
@@ -260,6 +263,37 @@ Where the build differs from the design above, each measured or read rather than
   `node --test` on one file did not, and five files wrote `aify-hermes-*` markers for ids like
   `sc-hermes`. They import `tests/_sealed-temp.mjs` first now; a probe running each of the 64
   hermes-related files alone in an empty TEMP found five leaking before and none after.
+
+An external review of the merged work (2026-09-15) found six more, fixed with tests watched failing on
+mutants (aify-wrapper `6e04d4a`):
+
+- **A leaked marker could still replace.** A host-composed launch carrying `--aify-agent` from a host
+  whose environment leaked `CLAUDE_CODE_CHILD_SESSION` or `AIFY_AGENT_LEASE` read as a person naming the
+  agent. Under a marker a launch now always drops the conversation and the start intent, and drops the
+  identity, role, mode and host values only when the command names no agent; an intent passed as
+  `--aify-start-intent=` is the command's own and is kept (a Herdr restore depends on it). Reproduced in
+  a test that drives claude and hermes in a real terminal (`script -qec`).
+- **A process hosting another agent is never stopped.** A replace stopped the live instance's whole tree,
+  so a Herdr server or aify-env started from its shell went too, with every agent inside it. A process
+  above another agent's leased process is a host: `killTree` skips it, a live instance hosting one is
+  refused a replace (`hosts-another-agent`), and collection leaves it running.
+- **No POSIX group signal.** `kill(-pgid)` reached another agent's launcher sharing the group before any
+  boundary was consulted. Group members are now signalled one by one, skipping hosts and anything
+  beneath another agent.
+- **Linux start times survive a clock step.** `/proc` start times are boot time plus ticks, and the
+  kernel derives boot time from the wall clock at each read, so a step over the 2 s tolerance made a live
+  instance read as a reused pid. The first reader after boot keeps boot time in
+  `/dev/shm/aify-boot-<uid>-<boot id>`, accepted only when that uid owns it.
+- **kill-prior stops a session-lease holder only inside an old gateway's tree.** An automatic start
+  ended the operator's own `hermes --resume` of the agent's session.
+- **The socket table reads any locale, and the doctor names a gateway's top, not the terminal above
+  it.** netstat translates `LISTENING` (`ABHÖREN` on German Windows), so a listener is now known by its
+  foreign port 0. The unreadable-chain climb passes only through `hermes`, `python` and `uv` images
+  (`tasklist` names an elevated process), because the elevated terminal that ran `hermes update` is
+  unreadable too and a `taskkill /T` of it ends the terminal.
+
+Deferred from that review: the PR #11 hooks report turns for an inherited agent id (KNOWN_ISSUES). Deploy
+order across two machines: aify-env first, then aify-wrapper through this pin, then `install.sh`.
 
 Four independent reviews shaped the points above: 12 findings on the first build, 11 on the first fix
 round, 7 on the second, and a fourth, end-to-end review of both repos. What was deliberately left:

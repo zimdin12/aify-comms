@@ -79,7 +79,10 @@ export function gatewaysInRange(rows, { toPort, base, span }) {
  * listener counts only on a port an `aify-hermes-port-<agent>` marker names. A listener whose command line
  * IS readable and is not a gateway is somebody else's program, and is left alone too.
  */
-export function unreadableListeners({ listeners, rows, gateways, owners }) {
+/** The executables a hermes gateway host tree is made of: hermes' launcher and the Python it runs. */
+const GATEWAY_IMAGE = /^(hermes|python[0-9.]*|pythonw|uv)(\.exe)?$/i;
+
+export function unreadableListeners({ listeners, rows, gateways, owners, imageOf = () => null }) {
   const accounted = new Set((gateways || []).map((gateway) => gateway.port));
   const byPid = new Map((rows || []).map((row) => [row && row.pid, row]));
   const found = new Map();
@@ -88,9 +91,14 @@ export function unreadableListeners({ listeners, rows, gateways, owners }) {
     if (String(byPid.get(listener.pid)?.commandLine || "").trim()) continue;
     // The pid a tree kill needs is the top of the unreadable chain: the listener is hermes' runtime python,
     // two unreadable parents below hermes.exe (2026-09-15: 65916 < 66464 < 109472).
+    //
+    // ONLY THROUGH A GATEWAY'S OWN PROCESSES. The terminal that ran `hermes update` is elevated too, so it
+    // reads as unreadable, and a climb that reached it made the fix text a `taskkill /T` of that terminal and
+    // everything in it (external review, 2026-09-15). The climb continues only into a parent whose image is
+    // one a hermes gateway is built from; a parent it cannot name stops it.
     let root = listener.pid;
     const seen = new Set([root]);
-    for (let parent = byPid.get(root)?.ppid; byPid.has(parent) && !seen.has(parent) && !String(byPid.get(parent)?.commandLine || "").trim(); parent = byPid.get(parent)?.ppid) {
+    for (let parent = byPid.get(root)?.ppid; byPid.has(parent) && !seen.has(parent) && !String(byPid.get(parent)?.commandLine || "").trim() && GATEWAY_IMAGE.test(String(imageOf(parent) || "")); parent = byPid.get(parent)?.ppid) {
       seen.add(parent);
       root = parent;
     }
@@ -220,7 +228,7 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
 /**
  * Enumerate the gateways, name their owners, and say which have nothing behind them.
  */
-export async function checkGatewayOrphans({ get, add, listProcesses, listListeners, toPort, readPortMarkers, loopAgent, base, span }) {
+export async function checkGatewayOrphans({ get, add, listProcesses, listListeners, imageOf = () => null, toPort, readPortMarkers, loopAgent, base, span }) {
   let gateways = null;
   let loopAgentIds = null;
   let rows = null;
@@ -245,7 +253,7 @@ export async function checkGatewayOrphans({ get, add, listProcesses, listListene
 
   let unreadable = null;
   try {
-    if (gateways !== null && owners !== null) unreadable = unreadableListeners({ listeners: listListeners(), rows, gateways, owners });
+    if (gateways !== null && owners !== null) unreadable = unreadableListeners({ listeners: listListeners(), rows, gateways, owners, imageOf });
   } catch {
     unreadable = null;
   }

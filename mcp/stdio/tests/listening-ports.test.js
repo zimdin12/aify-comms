@@ -21,6 +21,16 @@ test("netstat rows, as captured on 2026-09-15 with an elevated gateway on 9273",
     "an established connection is not a listener, and an IPv6 address still has a port");
 });
 
+test("a translated state column still reads: a German Windows says ABHÖREN (external review, 2026-09-15)", () => {
+  const german = [
+    "  Proto  Lokale Adresse         Remoteadresse          Status           PID",
+    "  TCP    127.0.0.1:9273         0.0.0.0:0              ABHÖREN          65916",
+    "  TCP    127.0.0.1:50123        127.0.0.1:8800         HERGESTELLT      4000",
+    "  TCP    [::1]:8811             [::]:0                 ABHÖREN          12924",
+  ].join("\r\n");
+  assert.deepEqual(parseNetstatListeners(german), [{ port: 9273, pid: 65916 }, { port: 8811, pid: 12924 }]);
+});
+
 test("ss and lsof rows, including a socket whose pid this user may not see", () => {
   const ss = [
     'LISTEN 0 511 127.0.0.1:9273 0.0.0.0:* users:(("python3",pid=4321,fd=7))',

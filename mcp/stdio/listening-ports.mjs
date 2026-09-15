@@ -21,11 +21,18 @@ function portOf(address) {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
 }
 
-/** `netstat -ano -p TCP` (Windows): `  TCP    127.0.0.1:9273    0.0.0.0:0    LISTENING    65916`. */
+/**
+ * `netstat -ano -p TCP` (Windows): `  TCP    127.0.0.1:9273    0.0.0.0:0    LISTENING    65916`.
+ *
+ * KNOWN BY ITS SHAPE, NOT BY THE WORD. netstat translates the state column -- `ABHÖREN` on a German Windows --
+ * so matching `LISTENING` found no listener at all there, and kill-prior then cleared a port marker while a
+ * gateway still held the port (external review, 2026-09-15). A listening socket is the one whose foreign
+ * address is port 0 (`0.0.0.0:0`, `[::]:0`); every other state names a remote port.
+ */
 export function parseNetstatListeners(text) {
   const found = [];
   for (const line of String(text || "").split(/\r?\n/)) {
-    const match = /^\s*TCP\s+(\S+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i.exec(line);
+    const match = /^\s*TCP\s+(\S+)\s+\S+:0\s+\S+\s+(\d+)\s*$/i.exec(line);
     const port = match ? portOf(match[1]) : null;
     if (port) found.push({ port, pid: Number(match[2]) });
   }
@@ -55,6 +62,29 @@ export function parseLsofListeners(text) {
     if (port) found.push({ port, pid });
   }
   return found;
+}
+
+/** The image name in `tasklist /FO CSV /NH` output (`"python.exe","65916",...`), or null when no row names one. */
+export function parseTasklistImage(text) {
+  const match = /^"([^"]+)","\d+"/m.exec(String(text || ""));
+  return match ? match[1] : null;
+}
+
+/**
+ * The executable name of `pid`, or null when it cannot be read. Unlike a command line, an ELEVATED process's
+ * image name is readable here: `tasklist` names it (measured 2026-09-15). The caller treats null as unknown.
+ */
+export function imageName(pid, { platform = process.platform, run = nodeSpawnSync } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    const res = platform === "win32"
+      ? run("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { encoding: "utf8", windowsHide: true, timeout: 10_000 })
+      : run("ps", ["-o", "comm=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 });
+    if (!res || res.error || res.status !== 0) return null;
+    return platform === "win32" ? parseTasklistImage(res.stdout) : (String(res.stdout || "").trim() || null);
+  } catch {
+    return null;
+  }
 }
 
 const PROBES = Object.freeze({

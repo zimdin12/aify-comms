@@ -46,24 +46,41 @@ function plan(overrides = {}) {
   });
 }
 
-test("THE INCIDENT: the gateway on the PERSISTED port and the session's lease holder are stopped, once each", () => {
+test("THE INCIDENT: the gateway on the PERSISTED port, and a lease holder inside an old gateway's tree, are stopped once each", () => {
   const rows = [
     { pid: 59544, ppid: 4, commandLine: gatewayCmd(9272) },
     { pid: 59545, ppid: 59544, commandLine: `python -m hermes dashboard --port 9272` },
-    { pid: 70000, ppid: 4, commandLine: "hermes --tui --resume 20260715_001441_960b8f" },
+    // A previous generation's gateway on a port no marker names any more, whose TUI child still holds the session.
+    { pid: 61000, ppid: 4, commandLine: gatewayCmd(9400) },
+    { pid: 61001, ppid: 61000, commandLine: "hermes --tui --resume 20260715_001441_960b8f" },
   ];
-  const leases = [lease(59544, "20260715_001441_960b8f", T0), lease(70000, "20260715_001441_960b8f", T0 + 1000)];
-  const stops = plan({ rows, leases, leaseStarts: new Map([[59544, T0 + 200], [70000, T0 + 1200]]) });
-  assert.deepEqual(stops.map((s) => s.pid), [59544, 70000], JSON.stringify(stops));
+  const leases = [lease(59544, "20260715_001441_960b8f", T0), lease(61001, "20260715_001441_960b8f", T0 + 1000)];
+  const stops = plan({ rows, leases, leaseStarts: new Map([[59544, T0 + 200], [61001, T0 + 1200]]) });
+  assert.deepEqual(stops.map((s) => s.pid), [59544, 61001], JSON.stringify(stops));
   assert.match(stops[0].why, /port 9272/);
   assert.match(stops[1].why, /lease on session 20260715_001441_960b8f/);
+});
+
+test("the operator's own `hermes --resume` holding the agent's session is never stopped (external review, 2026-09-15)", () => {
+  // Outside any gateway tree: a person resumed the agent's conversation in their own terminal. Every start of the
+  // agent, a message cold-starting it included, killed it.
+  const rows = [
+    { pid: 70000, ppid: 4, commandLine: "hermes --resume 20260715_001441_960b8f" },
+    { pid: 61000, ppid: 4, commandLine: gatewayCmd(9400) },
+    { pid: 61001, ppid: 61000, commandLine: "hermes --tui --resume 20260715_001441_960b8f" },
+  ];
+  const leaseStarts = new Map([[70000, T0], [61001, T0]]);
+  assert.deepEqual(plan({ rows, leases: [lease(70000, "20260715_001441_960b8f", T0)], leaseStarts }), []);
+  // CONTROL: the same holder rule, the holder inside a gateway tree, is stopped.
+  assert.deepEqual(plan({ rows, leases: [lease(61001, "20260715_001441_960b8f", T0)], leaseStarts }).map((s) => s.pid), [61001]);
 });
 
 test("nothing else is stopped: another agent's port, another session, a recycled pid, a non-hermes pid, the caller's own ancestry", () => {
   const rows = [
     { pid: 10, ppid: 4, commandLine: gatewayCmd(9000) },
     { pid: 11, ppid: 4, commandLine: "hermes --tui --resume other-session" },
-    { pid: 12, ppid: 4, commandLine: "hermes --tui --resume 20260715_001441_960b8f" },
+    { pid: 12, ppid: 20, commandLine: "hermes --tui --resume 20260715_001441_960b8f" },
+    { pid: 20, ppid: 4, commandLine: gatewayCmd(9500) },
     { pid: 13, ppid: 4, commandLine: "node some-dev-server.js" },
     { pid: 2, ppid: 1, commandLine: gatewayCmd(9272) },
   ];
@@ -153,7 +170,7 @@ test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent a
   assert.deepEqual(run({ markers: { "aify-hermes-port-probe-x": "9300" }, table: onHash, leaseList: [] }), [],
     "an agent with a persisted port does not own its hash port too");
 
-  const holder = [{ pid: 600, ppid: 4, commandLine: "hermes --tui --resume shared-sess" }];
+  const holder = [{ pid: 590, ppid: 4, commandLine: gatewayCmd(9600) }, { pid: 600, ppid: 590, commandLine: "hermes --tui --resume shared-sess" }];
   const leaseList = [lease(600, "shared-sess", T0)];
   const sessions = { "aify-hermes-session-probe-x": "shared-sess" };
   assert.deepEqual(run({ markers: { ...sessions, "aify-hermes-session-other-agent": "shared-sess" }, table: holder, leaseList }), [],
@@ -270,17 +287,26 @@ test("REAL PROCESSES through the real `stop`: the leftover gateway and lease hol
   const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
   const gateway = sleeper("hermes", "dashboard", "--port", String(persisted));
-  const holder = sleeper("hermes", "--tui", "--resume", "sess-real");
+  // The holder runs inside an older gateway's tree, on a port no marker names: a REAL child of that gateway.
+  const childPidFile = path.join(tempDir, "holder.pid");
+  const oldGateway = spawn(process.execPath, ["-e",
+    `const c=require("child_process").spawn(process.execPath,["-e","setInterval(()=>{},1e3)","hermes","--tui","--resume","sess-real"],{stdio:"ignore",windowsHide:true});require("fs").writeFileSync(${JSON.stringify(childPidFile)},String(c.pid));setInterval(()=>{},1e3)`,
+    "hermes", "dashboard", "--port", String(persisted + 1)], { stdio: "ignore", detached: true, windowsHide: true });
+  started.push(oldGateway.pid);
+  const operator = sleeper("hermes", "--resume", "sess-real");
   const stranger = sleeper("hermes", "--tui", "--resume", "sess-real");
   await new Promise((r) => setTimeout(r, 1500));
-  const starts = startTimes([holder, stranger]);
-  assert.ok(starts.get(holder) && starts.get(stranger), "control: this host reads start times");
+  const holder = Number(fs.readFileSync(childPidFile, "utf8"));
+  started.push(holder);
+  const starts = startTimes([holder, stranger, operator]);
+  assert.ok(starts.get(holder) && starts.get(stranger) && starts.get(operator), "control: this host reads start times");
   fs.writeFileSync(path.join(tempDir, `aify-hermes-port-${agentId}`), String(persisted));
   assert.ok(writeSessionIdMarker(agentId, "sess-real", { tempDir }));
   fs.mkdirSync(path.join(home, "runtime"));
   fs.writeFileSync(path.join(home, "runtime", "active_sessions.json"), JSON.stringify({ entries: [
     lease(holder, "sess-real", starts.get(holder)),
     lease(stranger, "sess-real", starts.get(stranger) - 3_600_000),
+    lease(operator, "sess-real", starts.get(operator)),
   ] }));
 
   const res = spawnSync(process.execPath, [CLI, "stop", agentId], {
@@ -292,6 +318,7 @@ test("REAL PROCESSES through the real `stop`: the leftover gateway and lease hol
   assert.equal(alive(gateway), false, `the gateway on the persisted port survived:\n${res.stderr}`);
   assert.equal(alive(holder), false, `the session's lease holder survived:\n${res.stderr}`);
   assert.equal(alive(stranger), true, "a pid whose recorded start differs from the OS's was killed");
+  assert.equal(alive(operator), true, "a `hermes --resume` outside every gateway tree -- the operator's own -- was killed");
   assert.equal(fs.existsSync(path.join(tempDir, `aify-hermes-port-${agentId}`)), false, "the port marker outlived a port nothing holds");
   assert.equal(fs.existsSync(path.join(tempDir, `aify-hermes-session-${agentId}`)), true, "the session marker is the resume binding and must survive");
 });

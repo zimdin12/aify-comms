@@ -759,6 +759,8 @@ await checkGatewayOrphans({
     if (!listeningPorts) throw new Error("the listening-port probe could not be loaded");
     return listeningPorts.listListeners();
   },
+  // Only for the few unreadable pids a climb passes through: an elevated process still has a readable image name.
+  imageOf: (pid) => (listeningPorts ? listeningPorts.imageName(pid) : null),
   toPort: (line) => (gatewayProbes ? gatewayProbes.cmdlineHermesGatewayPort(line) : null),
   loopAgent: (line) => (gatewayProbes ? gatewayProbes.cmdlineDeliveryLoopAgent(line) : null),
   // The markers live beside the session markers, one file per agent holding its port.

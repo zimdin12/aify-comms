@@ -34,6 +34,20 @@ These were left on purpose:
   `herdr-aify` starts its server clean (aify-wrapper `lib/inherited-session.mjs`). A server started
   earlier, or started outside `herdr-aify`, still hands its environment to every pane: the launchers
   now ignore it there, but a bare runtime such as `claude` typed into that pane does not.
+- **An agent that hosts another agent cannot be replaced until what it hosts is stopped.** External
+  review, 2026-09-15: a replace stopped the whole tree of the live instance, including a Herdr server or
+  aify-env started from its shell and every agent inside it. A process whose tree holds another agent's
+  leased process is now never stopped, a replace of an instance hosting one exits 75 naming
+  `hosts-another-agent`, and collection leaves it running. The operator stops the hosted agents, or the
+  host, first. A daemon started from the session that hosts no agent is still stopped with it.
+- **The PR #11 notification hooks post turns for an inherited agent id.** The Claude hooks in
+  `~/.claude/settings.json` gate only on `AIFY_AGENT_ID` and `AIFY_COMMS_URL`, so a bare `claude` in a
+  pane that inherited an agent's environment reports its turns as that agent. Deferred: the hook needs
+  to check that it runs under the launcher holding that agent's lease.
+- **`gateway-orphans` is only tested below `doctor.js`.** The check's image reader is proven through
+  `checkGatewayOrphans`, but the line in `doctor.js` that hands it `listening-ports.imageName` is reached
+  by no test, because importing `doctor.js` runs the doctor. Removing it makes the climb stop at the
+  listener, a narrower pid than a tree kill needs, never a wider one.
 - **`requestedBy: "dashboard"` is a string any caller can send**, and it replaces. Nothing
   authenticates the dashboard, so refusing it in the MCP tools would move the spoof, not end it.
 - **Not yet proven on the live fleet.** The suites and mutation runs pass; no live hermes, claude or
@@ -126,7 +140,9 @@ host is running" in the same minute netstat showed the socket, and kill-prior co
 Both now also read the socket table (`listening-ports.mjs`): a port an agent's marker claims, held by a
 process whose command line cannot be read, is reported (`unidentified`), and kill-prior keeps the marker
 and says what holds the port. Neither can stop an elevated process; that takes an Administrator
-terminal.
+terminal. The listener is known by its foreign port 0, so a translated state column (`ABHÖREN`) still
+reads, and the pid named for a tree kill is the top of the gateway's own `hermes`/`python` chain, never
+the elevated terminal above it (external review, 2026-09-15).
 
 **Meanwhile `gateway-orphans` reports it.** That row is the instrument; it named all six by pid and
 port, and read `none` immediately after they were killed.

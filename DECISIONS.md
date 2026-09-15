@@ -11,7 +11,10 @@ Start/Restart/spawn, an agent's `comms_restart`, a `comms_compact` handoff of an
 person running the launcher in a terminal and NAMING the agent with `--aify-agent`. An identity the
 launcher took from its environment or recovered from a conversation only starts: on 2026-09-15 a bare
 `claude-aify` in a pane that had inherited comms-tech-lead's session environment started as that agent
-and replaced it (aify-wrapper `lib/inherited-session.mjs`, README "One live instance per agent"). An
+and replaced it (aify-wrapper `lib/inherited-session.mjs`, README "One live instance per agent"). Even
+an explicit start is refused when the live instance HOSTS another agent (a Herdr server or aify-env
+started from its shell, running an agent): replacing it would end that agent too, which no start of
+this one asked for. An
 AUTOMATIC start (a message cold-starting the agent, the queued-run backstop, an agent's `comms_spawn`)
 is refused with launcher exit 75. Replacing on every start was built once and reverted: a message woke
 an idle lane and the host killed four working sessions in ten minutes on 2026-09-03.
