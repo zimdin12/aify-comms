@@ -163,7 +163,9 @@ const CEILINGS = {
   // (`service/tests/test_install_hermes_plugin_enable_is_bounded.py`), where it belongs, instead of
   // carrying it twice. IT IS NOT PAID FOR ELSEWHERE: the only other watched file, styles.css, sits
   // exactly at its own ceiling with a census on the record saying there is no dead CSS to reclaim.
-  "install.sh": 2951,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2951 -> 2950 on 2026-09-15: the resident-hook round needed ~54 lines for codex trust; they went to
+  // mcp/stdio/codex-hook-trust.mjs instead, and the tightening takes up the line the move freed.
+  "install.sh": 2950,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
