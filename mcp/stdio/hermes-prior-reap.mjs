@@ -25,6 +25,7 @@
 // 2026-08-31), so a session lease is collected only when no other agent names that session: otherwise
 // starting one agent would end another's live TUI.
 
+import { spawnSync as nodeSpawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,17 +33,14 @@ import path from "node:path";
 import { identify, isAlive, killTree, sleepMs, startTimes } from "aify-wrapper/lib/process-identity.mjs";
 
 import { gatewaysInRange } from "./gateway-orphan-check.mjs";
-import { PORT_BASE, PORT_SPAN, agentPort, claimedByOtherAgents, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
+import { PORT_BASE, PORT_SPAN, agentPort, claimedByOtherAgents, defaultMarkerTmpDir, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
 import { cmdlineHermesGatewayPort, defaultListProcesses } from "./proc-probes.js";
 
 const STOP_WAIT_MS = 8_000;
 
-function markerDir() {
-  return process.env.TEMP || process.env.TMP || os.tmpdir();
-}
 
 /** The port the agent persisted, or null when there is no readable in-range marker. */
-export function persistedGatewayPort(agentId, { tempDir = markerDir(), io = fs } = {}) {
+export function persistedGatewayPort(agentId, { tempDir = defaultMarkerTmpDir(), io = fs } = {}) {
   try {
     const value = Number(String(io.readFileSync(path.join(tempDir, `aify-hermes-port-${sanitizeAgentId(agentId)}`), "utf8")).trim());
     return Number.isInteger(value) && value >= PORT_BASE && value < PORT_BASE + PORT_SPAN ? value : null;
@@ -58,16 +56,21 @@ export function hermesHome({ env = process.env, platform = process.platform, hom
   return path.join(home, ".hermes");
 }
 
-/** The ports a reap of `agentId` may treat as its own: its persisted port, else its hash port, never one another agent claims. */
-export function ownedGatewayPorts(agentId, { tempDir = markerDir() } = {}) {
-  const others = claimedByOtherAgents(tempDir, agentId);
+/**
+ * The ports a reap of `agentId` may treat as its own: its persisted port, else its hash port, never one
+ * another agent claims. None when the other agents' claims cannot be read: a port this cannot prove is
+ * nobody else's is not one to stop a process on.
+ */
+export function ownedGatewayPorts(agentId, { tempDir = defaultMarkerTmpDir() } = {}) {
+  const others = claimedByOtherAgents(tempDir, agentId, { strict: true });
+  if (!others) return [];
   const persisted = persistedGatewayPort(agentId, { tempDir });
   const port = persisted ?? agentPort(agentId);
   return others.has(port) ? [] : [port];
 }
 
 /** Whether a session marker of any agent other than `agentId` names `sessionId`. */
-export function sessionNamedByAnotherAgent(agentId, sessionId, { tempDir = markerDir(), io = fs } = {}) {
+export function sessionNamedByAnotherAgent(agentId, sessionId, { tempDir = defaultMarkerTmpDir(), io = fs } = {}) {
   if (!sessionId) return false;
   const own = `aify-hermes-session-${sanitizeAgentId(agentId)}`;
   try {
@@ -138,8 +141,10 @@ export function planPriorReap({ ports, rows, leases, sessionId, leaseStarts, pro
  */
 export function reapPriorHermes({
   agentId,
-  tempDir = markerDir(),
-  listProcesses = defaultListProcesses,
+  tempDir = defaultMarkerTmpDir(),
+  spawnSync = nodeSpawnSync,
+  // STRICT: a failed or partial listing throws, so a port is never read as free on a table nobody saw.
+  listProcesses = () => defaultListProcesses(spawnSync, { strict: true }),
   leases = () => readSessionLeases(hermesHome()),
   sessionIdOf = (id) => readSessionIdMarker(id, { tempDir }),
   starts = startTimes,

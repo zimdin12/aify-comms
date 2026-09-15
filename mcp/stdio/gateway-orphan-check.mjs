@@ -151,8 +151,9 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
     detail: `${orphans.length} of ${gateways.length} hermes gateway host(s) have no worker behind them: `
       + named.join(", "),
     fix: "On Windows these hold hermes' native `.pyd` files locked, which makes `hermes update` refuse "
-      + "to run and list them. aify-comms' own survivor sweep runs at bridge BOOT and on GRACEFUL "
-      + "shutdown, so an abrupt kill is not covered by it; hermes has an idle reaper of its own, but "
+      + "to run and list them. A gateway host is DETACHED, so a hard kill of the host tier leaves it "
+      + "running; relaunching the named agent collects its own (its launcher's kill-prior), and one "
+      + "that is never relaunched keeps it. hermes has an idle reaper of its own, but "
       + "it exempts any session that is mid-turn and how long these processes actually live has NOT "
       + "been established. Stop one with `hermes dashboard stop` or by pid once you have confirmed "
       + "nobody is reading that TUI. Reported rather than reaped: a live gateway may be a session "

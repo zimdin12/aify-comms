@@ -117,6 +117,15 @@ import {
 
   const failed = () => ({ status: 1, stdout: "", stderr: "nope" });
   assert.deepEqual(defaultListProcesses(failed), [], "a non-zero exit is no processes, not garbage");
+
+  // STRICT is for a caller that concludes something from ABSENCE: kill-prior clears a port marker when
+  // nothing listens on the port, so a listing that failed, timed out or printed nothing must not read
+  // as an empty host.
+  const timedOut = () => ({ status: null, error: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }), stdout: onWindows ? "1\t2\tnode a.js\n" : "1 2 node a.js\n" });
+  for (const [label, spawnSync] of [["threw", throwing], ["non-zero", failed], ["timed out", timedOut], ["printed nothing", () => ({ status: 0, stdout: "" })]]) {
+    assert.throws(() => defaultListProcesses(spawnSync, { strict: true }), Error, `strict: a listing that ${label} read as a table`);
+  }
+  assert.deepEqual(defaultListProcesses(fakeSpawn, { strict: true }), [{ pid: 1, ppid: 2, commandLine: "node a.js" }], "control: strict still reads a good table");
 }
 
 console.log("proc-probes.test.js: all assertions passed");

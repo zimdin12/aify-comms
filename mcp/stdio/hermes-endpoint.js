@@ -34,7 +34,7 @@ export const PORT_SPAN = 1000; // range is PORT_BASE .. PORT_BASE + PORT_SPAN - 
 // helpers must default to the SAME order, else on a host where $TEMP/$TMP differ
 // from os.tmpdir() (Windows Git-Bash) the loop writes one dir and the wrapper
 // reads another → resume silently fails. (Review fix 2026-06-03.)
-function defaultMarkerTmpDir() {
+export function defaultMarkerTmpDir() {
   return process.env.TEMP || process.env.TMP || os.tmpdir();
 }
 
@@ -104,7 +104,10 @@ export function isPortFree(port, host = "127.0.0.1") {
 // branch can return its own previously-claimed port even when the gateway is
 // already bound (and therefore not "free" by isPortFree). Unreadable or
 // out-of-range entries are silently ignored.
-export function claimedByOtherAgents(tempDir = defaultMarkerTmpDir(), selfAgentId) {
+//
+// `strict` answers null instead when the directory cannot be listed or a marker cannot be read (for
+// example mid-write): a caller about to STOP a process on a port needs "unknown", not "unclaimed".
+export function claimedByOtherAgents(tempDir = defaultMarkerTmpDir(), selfAgentId, { strict = false } = {}) {
   const ownFile = `aify-hermes-port-${sanitizeAgentId(selfAgentId)}`;
   const claimed = new Set();
   try {
@@ -118,11 +121,13 @@ export function claimedByOtherAgents(tempDir = defaultMarkerTmpDir(), selfAgentI
           claimed.add(val);
         }
       } catch {
-        /* unreadable file → treat as no claim */
+        /* unreadable file → treat as no claim, unless strict */
+        if (strict) return null;
       }
     }
   } catch {
-    /* tempDir missing or unlistable → no claims */
+    /* tempDir missing or unlistable → no claims, unless strict */
+    if (strict) return null;
   }
   return claimed;
 }
@@ -201,17 +206,6 @@ function loadOrCreateKey(agentId, tempDir) {
   return key;
 }
 
-// Clear the per-agent GATEWAY markers — the `aify-hermes-port-<agent>` and
-// `aify-hermes-key-<agent>` files. Best-effort, scoped to ONE agent, NEVER
-// throws (missing files are fine).
-//
-// CALL ONLY ON A TERMINAL TEARDOWN — agent removed (410 from /dispatch/claim),
-// explicit `stopDaemon`, or the delivery-loop's terminal-condition self-exit.
-// Do NOT call on a transient gateway retry: the same agent reuses the SAME
-// stable port across a restart, and dropping the port marker mid-restart would
-// force a needless re-probe (and risk a different port). The marker writers
-// (`resolveGatewayPort` / `loadOrCreateKey`) NEVER delete these today — this is
-// the single owned deletion path (Task 4.1).
 // Agent-keyed gateway-URL marker. The gateway host (`hermes dashboard --tui`)
 // spawns the agent's MCP bridge with AIFY_HERMES_GATEWAY_URL still set to the
 // literal `${AIFY_HERMES_GATEWAY_URL}` placeholder — the host cannot inject its
@@ -308,12 +302,15 @@ export function readSessionIdMarker(agentId, { tempDir = defaultMarkerTmpDir() }
   }
 }
 
-// Clears the EPHEMERAL per-launch markers (port/key/gateway). These re-derive on
-// the next launch, so it is safe (and correct) to call this on a relaunch reap
-// (kill-prior -> stopDaemon) as well as terminal teardown. It deliberately does
-// NOT touch the SESSION-id marker: that is the persistent agent->real-session
-// binding the next launch must read to resume the SAME transcript — clearing it
-// here was the 2026-06-03 regression that made every relaunch start fresh.
+// Clears the per-launch markers (port/key/gateway) of ONE agent. Best-effort, never throws; the marker
+// writers (`resolveGatewayPort` / `loadOrCreateKey`) never delete them, so this is the one deletion path.
+//
+// NOT while a gateway still holds the port: the port marker is then the only record of where that
+// gateway is, and clearing it is how the 2026-09-14 leftover was lost (kill-prior now keeps it; see
+// hermes-prior-reap.mjs). NOT on a transient gateway retry either: the agent reuses the same port.
+// It deliberately does NOT touch the SESSION-id marker: that is the persistent agent->real-session
+// binding the next launch must read to resume the SAME transcript — clearing it here was the
+// 2026-06-03 regression that made every relaunch start fresh.
 export function clearGatewayMarkers(agentId, dir = defaultMarkerTmpDir()) {
   const safe = sanitizeAgentId(agentId);
   if (!safe) return;

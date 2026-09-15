@@ -127,7 +127,7 @@ export function registerLifecycleTools(server, z) {
 
   server.tool(
     "comms_restart",
-    "Gracefully restart another agent's MANAGED session — the same safe path as the dashboard's Sessions -> Restart: it stops the live worker and re-spawns it via the environment bridge, keeping the agent's native session/context. Set freshContext=true for a Reset (discards the native session and starts clean, = the dashboard 'Reset' button). Only works on session_mode='managed' agents: RESIDENT sessions are operator-owned and CANNOT be restarted remotely (a session-restart on a live resident would fork a managed twin) — use comms_run_interrupt to stop its current run, or ask the operator to relaunch. Prefer this over delete_session+send: it is the graceful, dashboard-equivalent recreate.",
+    "Gracefully restart another agent's MANAGED session — the same path as the dashboard's Sessions -> Restart: a replace start, so the live worker is stopped and aify-env starts the new one, keeping the agent's native session/context. Set freshContext=true for a Reset (discards the native session and starts clean, = the dashboard 'Reset' button). Only works on session_mode='managed' agents: RESIDENT sessions are operator-owned and CANNOT be restarted remotely (a restart would stop the operator's terminal) — use comms_run_interrupt to stop its current run, or ask the operator to relaunch. Prefer this over delete_session+send: it is the graceful, dashboard-equivalent recreate.",
     {
       agentId: z.string().describe("Agent whose managed session to restart"),
       freshContext: z.boolean().optional().describe("true = Reset (discard native session, fresh context); false/omitted = Restart (keep native session)"),
@@ -167,7 +167,7 @@ export function registerLifecycleTools(server, z) {
             type: "text",
             text: r && r.ok === false
               ? `Restart of "${id}" was not accepted: ${r.error || "unknown reason"}.`
-              : `Managed session for "${id}" ${verb} (session ${target.id}, action=${action}); it re-spawns via the environment bridge.`,
+              : `Managed session for "${id}" ${verb} (session ${target.id}, action=${action}); the live worker is stopped and aify-env starts the replacement.`,
           }],
         };
       } catch (error) {

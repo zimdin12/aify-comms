@@ -4,7 +4,7 @@
 // without re-implementing the probe/spawn/poll loop in bash/PowerShell.
 //
 // Usage:  node hermes-daemon-cli.js <agentId>
-//         node hermes-daemon-cli.js stop <agentId>   (tear down the daemon)
+//         node hermes-daemon-cli.js stop <agentId>   (tear down the daemon; kill-prior's step)
 //
 // On success: prints ONE JSON line with the resolved endpoint to stdout and
 //   exits 0, e.g. {"agentId":"sc-hermes","host":"127.0.0.1","port":8765,
@@ -39,12 +39,19 @@ const USAGE_STOP =
 // Tear down the per-agent daemon: `node hermes-daemon-cli.js stop <agentId>`.
 // Best-effort (stopDaemon never throws); prints the result JSON and exits 0 so
 // shell wrappers can call it unconditionally on relaunch/teardown.
-async function runStop(agentId, { stop, stdout, stderr }) {
+//
+// THE PRIOR REAP RUNS ONLY FOR A LAUNCHER THAT HOLDS THE AGENT LEASE (AIFY_AGENT_LEASE, exported by
+// aify-wrapper's claim). That claim is what established that no live instance of this agent is running
+// -- or that this start was explicit and has already replaced it. Without it (an older launcher, a helper
+// that failed), a leftover-looking gateway may belong to a live instance, and an automatic start must
+// not end one.
+async function runStop(agentId, { stop, stdout, stderr, env }) {
   if (!agentId) {
     stderr(USAGE_STOP);
     return 2;
   }
-  const result = await stop({ agentId, reapPrior: true });
+  const holdsLease = Number(env?.AIFY_AGENT_LEASE) > 0;
+  const result = await stop({ agentId, reapPrior: holdsLease });
   stdout(JSON.stringify({ agentId, stopped: !!result.stopped, pid: result.pid }) + "\n");
   return 0;
 }
@@ -55,11 +62,12 @@ export async function runHermesDaemonCli({
   stop = stopDaemon,
   stdout = (text) => process.stdout.write(text),
   stderr = (text) => process.stderr.write(text),
+  env = process.env,
 } = {}) {
   try {
     // Subcommand form: `stop <agentId>`.
     if (String(argv[2] || "").trim().toLowerCase() === "stop") {
-      return await runStop(String(argv[3] || "").trim(), { stop, stdout, stderr });
+      return await runStop(String(argv[3] || "").trim(), { stop, stdout, stderr, env });
     }
 
     const agentId = String(argv[2] || "").trim();

@@ -886,7 +886,7 @@ export function managedOrphanVerdict({ loops = null, agents = null, liveBridgeId
     detail: `${orphans.length} of ${byAgent.size} managed delivery loop(s) belong to no live bridge, `
       + `so they hold a gateway and a session that nothing can address: ${named}. Their agents read `
       + "`available` on the dashboard while these processes are running.",
-    fix: "Restart each named agent -- the wrapper reaps that agent's prior loop as it spawns -- or "
-      + "relaunch the environment bridge, whose boot survivor sweep collects them all.",
+    fix: "Restart each named agent -- its launcher reaps that agent's prior loop as it spawns. A loop "
+      + "whose agent is gone has no launcher coming: stop it by the pid named here.",
   };
 }

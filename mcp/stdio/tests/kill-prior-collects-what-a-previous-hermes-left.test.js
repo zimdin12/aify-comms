@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { startTimes } from "aify-wrapper/lib/process-identity.mjs";
 
+import { runHermesDaemonCli } from "../hermes-daemon-cli.js";
 import { stopDaemon } from "../hermes-daemon.js";
 import { agentPort, claimedByOtherAgents, writeSessionIdMarker } from "../hermes-endpoint.js";
 import { ancestry, hermesHome, ownedGatewayPorts, persistedGatewayPort, planPriorReap, readSessionLeases, reapPriorHermes, sessionNamedByAnotherAgent } from "../hermes-prior-reap.mjs";
@@ -94,6 +95,12 @@ test("reapPriorHermes keeps the port marker's answer honest: held while somethin
   const stuck = reapPriorHermes({ ...common, listProcesses: () => table, kill: () => {}, alive: () => true });
   assert.deepEqual([stuck.stopped.map((s) => s.pid), stuck.portStillHeld], [[701], true]);
   assert.deepEqual(reapPriorHermes({ ...common, listProcesses: () => { throw new Error("no table"); } }), { stopped: [], portStillHeld: true });
+
+  // Through the real listing: a query that timed out is no table, not an empty host.
+  const row = process.platform === "win32" ? "1\t2\tnode a.js\n" : "1 2 node a.js\n";
+  const listed = (res) => reapPriorHermes({ ...common, kill: () => { throw new Error("must not kill"); }, spawnSync: () => res }).portStillHeld;
+  assert.equal(listed({ status: 0, stdout: row }), false, "control: a good table with no gateway frees the port");
+  assert.equal(listed({ status: null, error: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }), stdout: "" }), true, "a timed-out listing read as nothing listening");
 });
 
 test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent also names, are never collected", () => {
@@ -170,8 +177,32 @@ test("stopDaemon clears the gateway markers only when the reap says the port is 
   let reaped = 0;
   await stopDaemon({ ...base, reap: () => { reaped += 1; return { stopped: [], portStillHeld: false }; } });
   assert.equal(reaped, 0, "a sidecar's own stop reaped another generation");
-  const cli = fs.readFileSync(CLI, "utf8");
-  assert.match(cli, /stop\(\{ agentId, reapPrior: true \}\)/, "kill-prior's stop does not reap");
+});
+
+test("kill-prior's `stop` reaps only for a launcher holding the agent lease", async () => {
+  // The lease claim is what established that no live instance is running, or that this start replaced it.
+  // Without one, a leftover-looking gateway may be a live instance's, and an automatic start must not end it.
+  const quiet = { stdout: () => {}, stderr: () => {} };
+  const asked = async (env) => {
+    const calls = [];
+    const code = await runHermesDaemonCli({ ...quiet, argv: ["node", CLI, "stop", "probe-l"], env, stop: async (a) => { calls.push(a); return { stopped: false }; } });
+    assert.equal(code, 0);
+    return calls;
+  };
+  assert.deepEqual(await asked({ AIFY_AGENT_LEASE: "4812" }), [{ agentId: "probe-l", reapPrior: true }], "a launcher holding the lease does not reap");
+  for (const env of [{}, { AIFY_AGENT_LEASE: "" }, { AIFY_AGENT_LEASE: "0" }, { AIFY_AGENT_LEASE: "not-a-pid" }]) {
+    assert.deepEqual(await asked(env), [{ agentId: "probe-l", reapPrior: false }], `reaped without a lease: ${JSON.stringify(env)}`);
+  }
+});
+
+test("a reap owns no port when the other agents' claims cannot be read", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-owned-"));
+  assert.deepEqual(ownedGatewayPorts("probe-o", { tempDir: dir }), [agentPort("probe-o")], "control: a readable, empty marker dir leaves the hash port owned");
+  const notADir = path.join(dir, "file");
+  fs.writeFileSync(notADir, "");
+  assert.deepEqual(ownedGatewayPorts("probe-o", { tempDir: notADir }), [], "an unlistable marker dir read as nobody else's claim");
+  assert.equal(claimedByOtherAgents(notADir, "probe-o", { strict: true }), null);
+  assert.deepEqual([...claimedByOtherAgents(notADir, "probe-o")], [], "control: the lenient read still answers no claims for its other callers");
 });
 
 test("markers and leases are read from where hermes and this bridge write them", () => {
@@ -226,7 +257,7 @@ test("REAL PROCESSES through the real `stop`: the leftover gateway and lease hol
   ] }));
 
   const res = spawnSync(process.execPath, [CLI, "stop", agentId], {
-    encoding: "utf8", timeout: 120_000, env: sealedChildEnv({ TEMP: tempDir, TMP: tempDir, HERMES_HOME: home }),
+    encoding: "utf8", timeout: 120_000, env: sealedChildEnv({ TEMP: tempDir, TMP: tempDir, HERMES_HOME: home, AIFY_AGENT_LEASE: String(process.pid) }),
   });
   assert.equal(res.status, 0, res.stderr);
   const deadline = Date.now() + 15_000;

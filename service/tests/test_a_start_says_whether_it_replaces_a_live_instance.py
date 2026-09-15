@@ -14,7 +14,13 @@ from __future__ import annotations
 import asyncio
 
 from service.api_core.launch_env import ALWAYS_SET, managed_launch_env
-from service.api_core.start_intent import REPLACE, START, normalize_start_intent, start_intent_for_requester
+from service.api_core.start_intent import (
+    REPLACE,
+    START,
+    normalize_start_intent,
+    start_intent_for_requester,
+    start_intent_for_spawn,
+)
 from service.tests._base import FastApiTestCase
 
 
@@ -147,6 +153,56 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
                 self.assertEqual(newest[0]["start_intent"], REPLACE, newest)
                 self.assertEqual(newest[0]["status"], "queued", "control: the restart queued a new request")
 
+    def test_a_RESTART_of_a_session_with_no_spawn_spec_replaces_too(self):
+        """A resident-origin session has no spawn spec, so its restart cold-starts through the dispatch
+        path -- whose default is START. The restart must still say REPLACE."""
+        agent_id = "restarted-without-spec"
+        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        session_id = self._rows("SELECT id FROM agent_sessions WHERE agent_id = ?", (agent_id,))[0]["id"]
+        self._rows("UPDATE agent_sessions SET spawn_spec_id = NULL WHERE id = ?", (session_id,))
+        self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
+        before = len(self._rows("SELECT id FROM spawn_requests WHERE agent_id = ?", (agent_id,)))
+        control = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "restart", "from_agent": "sc-manager"})
+        self.assertEqual(control.status_code, 200, control.text)
+        rows = self._rows("SELECT start_intent FROM spawn_requests WHERE agent_id = ? ORDER BY rowid", (agent_id,))
+        self.assertEqual(len(rows), before + 1, f"control: the restart cold-started a request: {control.text}")
+        self.assertEqual(rows[-1]["start_intent"], REPLACE)
+
+    def test_an_AUTOMATIC_cold_start_is_a_start(self):
+        """The send path and the queued-run backstop cold-start a lane through one helper, and a message
+        waking a lane must never replace a live instance. Its default is what they all get."""
+        from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
+        from service.api_core.settings import _load_settings
+        from service.db import get_db
+
+        agent_id = "woken-by-a-message"
+        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        self._rows("UPDATE spawn_requests SET status = 'running', finished_at = '2026-01-01T00:00:00Z' WHERE agent_id = ?", (agent_id,))
+
+        async def coldstart():
+            db = await get_db()
+            try:
+                started = await _coldstart_spawn_request_for_dispatch(
+                    db, agent_id, runtime="claude-code", settings=await _load_settings(db), requested_by="sc-manager")
+                await db.commit()
+                return started
+            finally:
+                await db.close()
+
+        self.assertTrue(asyncio.run(coldstart()), "control: the helper created a request")
+        newest = self._rows("SELECT start_intent FROM spawn_requests WHERE agent_id = ? ORDER BY rowid DESC LIMIT 1", (agent_id,))
+        self.assertEqual(newest, [{"start_intent": START}])
+
+    def test_a_HANDOFF_of_an_agent_to_itself_replaces_it(self):
+        """`comms_compact` into the same agent id asks for its live worker to give way; the dashboard's
+        identical handoff already replaces. A handoff to a DIFFERENT agent is an ordinary start."""
+        cases = (("self-handoff", "self-handoff", REPLACE), ("successor", "someone-else", START))
+        for agent_id, compacted_from, want in cases:
+            with self.subTest(agent_id):
+                spawn_id = self._spawn(agent_id, createdBy="sc-manager", metadata={
+                    "compactMode": "handoff", "compactedFromAgentId": compacted_from, "sameAgentId": agent_id == compacted_from})
+                self.assertEqual(self._rows("SELECT start_intent FROM spawn_requests WHERE id = ?", (spawn_id,)), [{"start_intent": want}])
+
     def test_the_START_BUTTON_replaces_and_an_agent_starting_one_does_not(self):
         for from_agent, want in (("dashboard", REPLACE), ("sc-manager", START)):
             with self.subTest(from_agent):
@@ -173,6 +229,10 @@ class StartIntentValues(FastApiTestCase):
         for requester in (None, "", "  ", "sc-manager", "Dashboard-ish"):
             self.assertEqual(start_intent_for_requester(requester), START, repr(requester))
         self.assertEqual(start_intent_for_requester(" dashboard "), REPLACE, "control: the dashboard replaces")
+        handoff = {"compactMode": "handoff", "compactedFromAgentId": "a"}
+        self.assertEqual(start_intent_for_spawn("sc-manager", "a", handoff), REPLACE)
+        for agent_id, metadata in (("b", handoff), ("a", {"compactMode": "fork", "compactedFromAgentId": "a"}), ("a", None), ("a", "junk")):
+            self.assertEqual(start_intent_for_spawn("sc-manager", agent_id, metadata), START, repr((agent_id, metadata)))
 
     def test_the_launch_always_writes_it(self):
         self.assertIn("AIFY_START_INTENT", ALWAYS_SET)

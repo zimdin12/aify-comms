@@ -42,3 +42,17 @@ def start_intent_for_requester(requested_by: Any) -> str:
     guessing wrong in the other costs somebody's working session.
     """
     return REPLACE if str(requested_by or "").strip() == "dashboard" else START
+
+
+def start_intent_for_spawn(requested_by: Any, agent_id: Any, metadata: Any) -> str:
+    """The intent of a spawn request: the requester's, except that a HANDOFF of an agent to itself replaces.
+
+    `comms_compact` into the same agent id asks, explicitly, for that agent's live worker to give way to
+    a fresh-context one. Stored as START, the live worker it names would refuse its own successor -- the
+    dashboard's identical handoff already replaces, because the dashboard is its requester.
+    """
+    meta = metadata if isinstance(metadata, dict) else {}
+    target = str(agent_id or "").strip()
+    if meta.get("compactMode") == "handoff" and target and str(meta.get("compactedFromAgentId") or "").strip() == target:
+        return REPLACE
+    return start_intent_for_requester(requested_by)

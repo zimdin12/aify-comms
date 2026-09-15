@@ -63,7 +63,7 @@ test("comms_clear states the blast radius, the absence of undo, and that it cros
 });
 
 test("comms_restart refuses resident sessions, which are operator-owned", () => {
-  // A session-restart on a live resident would fork a managed twin of a session a human is sitting in.
+  // A restart is a replace start, so on a live resident it would stop the terminal a human is sitting in.
   // The description carries that reasoning and must keep carrying it.
   const d = tools.get("comms_restart").description;
   assert.match(d, /RESIDENT/i, "it must name the mode it cannot act on");

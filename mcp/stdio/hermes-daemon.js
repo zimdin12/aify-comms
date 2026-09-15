@@ -385,8 +385,11 @@ export async function defaultKillByPort(
 // whatever process is LISTENING on its api_server port. Symmetric counterpart to
 // ensureDaemon: the sidecar that ensured the daemon tears it down on exit.
 //   - Resolve the port: explicit endpoint.port/port wins; else agentEndpoint(agentId).
-//   - killByPort(port) is injectable (defaults to defaultKillByPort).
-//   - Idempotent: no daemon on that port → { stopped:false }.
+//   - killByPort(port) is injectable (defaults to defaultKillByPort). Skipped when another agent's
+//     marker claims that port.
+//   - With `reapPrior` (kill-prior only), also collect what a previous generation of this agent left,
+//     and keep the gateway markers while its port is still held.
+//   - Idempotent: nothing to stop → { stopped:false }.
 //   - NEVER throws.
 // Returns { stopped:bool, pid? }.
 export async function stopDaemon({
@@ -405,9 +408,8 @@ export async function stopDaemon({
   // Injectable cmdline lookup so the tracked-pid cross-check is testable without
   // touching real processes.
   getCmdline = defaultGetCmdline,
-  // Terminal teardown clears the agent's port/key markers (Task 4.1). stopDaemon
-  // is an explicit/terminal stop, so dropping the markers here is safe (NOT a
-  // transient retry). Injectable for tests.
+  // Terminal teardown clears the agent's port/key markers (Task 4.1) -- except, with reapPrior, while a
+  // gateway still holds the port (see below). Injectable for tests.
   clearGatewayMarkers = defaultClearGatewayMarkers,
   // KILL-PRIOR ONLY (`hermes-daemon-cli.js stop`): also collect what a previous generation of this
   // agent left -- its gateway host tree on the PERSISTED port and hermes' session-lease holder -- and

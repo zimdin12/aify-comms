@@ -1420,6 +1420,14 @@ test("runEnsureHostCli: a gateway it STARTED joins the agent lease; a reused one
   await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: second.spawn, fetchImpl: makeFakeFetch(), attach: (a) => reused.push(a) });
   assert.equal(second.spawns.length, 0, "control: the probe found a live host, so nothing was spawned");
   assert.deepEqual(reused, []);
+  // A gateway that never comes up still runs, detached: ensureGatewayHost throws, and the lease must
+  // already name the child, or the next start of this agent cannot find it.
+  const failed = [];
+  const broken = makeFakeSpawnWithStderr(`Installing TUI dependencies...\nnpm error Missing script: "build"\n`);
+  await assert.rejects(() => runEnsureHostCli("sc-hermes-lease", {
+    ...quiet, spawnImpl: broken.spawn, fetchImpl: async () => { throw new Error("ECONNREFUSED"); }, attach: (a) => failed.push(a) }));
+  assert.equal(broken.spawns.length, 1, "control: the gateway was spawned before the launch failed");
+  assert.deepEqual(failed, [{ agentId: "sc-hermes-lease", pid: 4243, kind: "gateway" }]);
 });
 
 test("runEnsureHostCli: no agentId → throws (non-zero exit at the CLI boundary)", async () => {

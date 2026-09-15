@@ -613,10 +613,15 @@ export async function runEnsureHostCli(agentId, deps = {}) {
     ensureStableSession({ agentId: id, spawnSync: deps.spawnSyncImpl });
   }
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
-  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });
-  // A gateway THIS call started is detached from the launcher, so it joins the agent lease: the next start of
-  // this agent can then find it however this generation ends. A reused one was started by somebody else.
-  if (host.child?.pid) attach({ agentId: id, pid: host.child.pid, kind: "gateway" });
+  // A gateway THIS call starts is detached from the launcher, so it joins the agent lease the moment it is
+  // spawned: the next start of this agent can then find it however this generation ends -- including a
+  // gateway that never becomes ready, which ensureGatewayHost throws on while the child keeps running.
+  const spawnJoiningLease = (...args) => {
+    const child = spawn(...args);
+    if (child?.pid) attach({ agentId: id, pid: child.pid, kind: "gateway" });
+    return child;
+  };
+  const host = await ensureGatewayHost({ agentId: id, port, spawn: spawnJoiningLease, fetchImpl, openWsImpl });
   // Persist the gateway URL in an AGENT-KEYED marker so the in-session MCP
   // bridge (server.js) can auto-register the gateway even though its env only
   // ever has the unresolved `${AIFY_HERMES_GATEWAY_URL}` placeholder — the

@@ -92,8 +92,17 @@ export function cmdlineResidentAgent(commandLine) {
 // Enumerate running processes as [{ pid, ppid, commandLine }].
 //   - win32: Get-CimInstance Win32_Process (ProcessId + ParentProcessId + CommandLine)
 //   - posix: `ps -eo pid=,ppid=,args=`
-// Never throws → returns [] on failure.
-export function defaultListProcesses(spawnSync = nodeSpawnSync) {
+// Never throws → returns [] on failure, UNLESS `strict`: then a query that failed, timed out or printed
+// nothing throws. A caller deciding that nothing is running needs that difference -- a timed-out query
+// can print part of the table, and an empty or partial listing read as the host's truth let kill-prior
+// clear a port marker while the leftover gateway still held the port.
+export function defaultListProcesses(spawnSync = nodeSpawnSync, { strict = false } = {}) {
+  const checked = (res) => {
+    if (strict && (!res || res.error || res.status !== 0 || !String(res.stdout || "").trim())) {
+      throw new Error(`process listing failed: ${res?.error?.code || res?.error?.message || `status ${res?.status}`}`);
+    }
+    return res;
+  };
   try {
     if (process.platform === "win32") {
       // PS_UTF8_PRELUDE: survivor matching compares command lines against
@@ -108,12 +117,12 @@ export function defaultListProcesses(spawnSync = nodeSpawnSync) {
         ["-NoProfile", "-NonInteractive", "-Command", ps],
         { encoding: "utf8", windowsHide: true, timeout: 10000 },
       );
-      return parseProcLines(String(res.stdout || ""));
+      return parseProcLines(String(checked(res).stdout || ""));
     }
-    const res = spawnSync("ps", ["-eo", "pid=,ppid=,args="], {
+    const res = checked(spawnSync("ps", ["-eo", "pid=,ppid=,args="], {
       encoding: "utf8",
       timeout: 10000,
-    });
+    }));
     return String(res.stdout || "")
       .split(/\r?\n/)
       .map((line) => {
@@ -122,7 +131,8 @@ export function defaultListProcesses(spawnSync = nodeSpawnSync) {
         return { pid: Number(m[1]), ppid: Number(m[2]), commandLine: m[3] };
       })
       .filter(Boolean);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }

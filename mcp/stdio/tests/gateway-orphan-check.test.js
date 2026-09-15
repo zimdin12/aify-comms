@@ -172,7 +172,8 @@ test("the fix explains WHY nothing collects them, and refuses to reap", () => {
     loopAgentIds: [],
     agents: managed,
   });
-  assert.match(verdict.fix, /BOOT/, "it does not say why nothing collects them");
+  assert.match(verdict.fix, /DETACHED/, "it does not say why nothing collects them");
+  assert.match(verdict.fix, /relaunching the named agent/, "it does not say what does collect one");
   assert.match(verdict.fix, /\.pyd/, "it does not name the consequence the operator actually hit");
   assert.match(verdict.fix, /Reported rather than reaped/, "it does not say the decision is the operator's");
 });

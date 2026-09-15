@@ -64,7 +64,7 @@ from service.clock import now as _now
 from service.db import get_db
 from service.models import SpawnRequestClaim, SpawnRequestCreate, SpawnRequestUpdate
 from service.api_core.workspace import _normalize_workspace_for_environment, _workspace_root_for
-from service.api_core.start_intent import start_intent_for_requester
+from service.api_core.start_intent import start_intent_for_spawn
 from service.api_core.spawn_requests_io import (
     _claim_spawn_request_once,
     _spawn_request_to_dict,
@@ -408,7 +408,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
                 "queued",
                 now,
                 now,
-                start_intent_for_requester(req.createdBy),
+                start_intent_for_spawn(req.createdBy, req.agentId, req.metadata),
             ),
         )
         await db.commit()
