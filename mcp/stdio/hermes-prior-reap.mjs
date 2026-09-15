@@ -167,7 +167,9 @@ export function reapPriorHermes({
     }
     const deadline = Date.now() + waitMs;
     while (plan.some((entry) => alive(entry.pid)) && Date.now() < deadline) sleepMs(250);
-    const held = new Set(ports);
+    // The agent's own marker port counts as held even when another marker also names it: clearing the
+    // marker while a gateway still listens there is how the 2026-09-14 leftover lost its only record.
+    const held = new Set([...ports, persistedGatewayPort(agentId, { tempDir })].filter(Boolean));
     const portStillHeld = listProcesses().some((row) => held.has(cmdlineHermesGatewayPort(row.commandLine)));
     return { stopped: plan, portStillHeld };
   } catch {

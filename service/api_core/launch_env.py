@@ -82,6 +82,9 @@ NEVER_INHERITED = (
     "AIFY_COMMS_AGENT_ID",
     "AIFY_AGENT_ROLE",
     "AIFY_COMMS_AGENT_ROLE",
+    # The lease of whichever agent's launcher started the host (aify-wrapper's agent lease). Inherited, a
+    # start of that agent reads as nested inside its own live instance and is refused, replace or not.
+    "AIFY_AGENT_LEASE",
 )
 
 

@@ -58,6 +58,10 @@ export const NEVER_INHERITED = Object.freeze({
   AIFY_COMMS_AGENT_ID:
     "the same identity by its other name; stripping one and not the other leaves the child holding two "
     + "answers to who it is.",
+  AIFY_AGENT_LEASE:
+    "the launcher pid holding the lease of the agent that started this host. A launch inheriting it "
+    + "reads as a start INSIDE that agent's instance, so every start of that agent through this host "
+    + "is refused as nested, even the dashboard's explicit replace.",
 });
 
 /**

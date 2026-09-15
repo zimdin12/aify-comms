@@ -93,6 +93,18 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
                 self.assertEqual(terminals[0]["start_intent"], want)
                 self.assertEqual(self._launch_intent(terminals[0]["id"]), want)
 
+    def test_THE_LAUNCH_UNSETS_AN_INHERITED_AGENT_LEASE(self):
+        """A host started from an agent's shell carries that agent's AIFY_AGENT_LEASE. Inherited by a
+        worker, it makes every start of that agent through the host read as nested in its own live
+        instance, so even the dashboard's replace is refused."""
+        agent_id = "lease-unset"
+        self._bring_up(self._spawn(agent_id, createdBy="dashboard"))
+        terminal = self._terminals(agent_id)[0]
+        launch = self.client.get(f"/api/v1/terminals/{terminal['id']}/launch").json()["launch"]
+        self.assertIn("AIFY_AGENT_ID", launch["unsetEnv"], "control: the unset list is the one the host applies")
+        self.assertIn("AIFY_AGENT_LEASE", launch["unsetEnv"])
+        self.assertNotIn("AIFY_AGENT_LEASE", launch["env"])
+
     def test_ANY_OTHER_terminal_launches_as_a_start(self):
         """A PTY recovered for a dispatch, or anything relaunched later, was not asked for by anybody: an
         old REPLACE must never reach it, or a message could kill a live instance."""

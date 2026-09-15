@@ -25,7 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { probeApiServer } from "./hermes-version.js";
-import { agentEndpoint, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
+import { agentEndpoint, claimedByOtherAgents, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { terminateProcessTree } from "./runtimes.js";
 import { reapPriorHermes } from "./hermes-prior-reap.mjs";
 // The filename sanitiser has ONE owner (`hermes-endpoint.js`); this module carried a
@@ -425,7 +425,11 @@ export async function stopDaemon({
     const effPort = port ?? derived?.port;
 
     // 1. Port-based kill: take down whatever is LISTENING on the current port.
-    if (effPort) {
+    //    NOT when another agent's marker claims that port: the derived port is the HASH port, which
+    //    collides, and resolveGatewayPort walks a neighbour's gateway into it -- while killByPort only
+    //    checks that the listener looks like hermes. This agent's own daemon is never on a claimed port.
+    const claimedElsewhere = effPort && agentId && claimedByOtherAgents(tempDir || undefined, agentId).has(effPort);
+    if (effPort && !claimedElsewhere) {
       const res = await killByPort(effPort);
       if (res && res.killed) {
         stopped = true;

@@ -136,6 +136,30 @@ test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent a
   assert.deepEqual([...claimedByOtherAgents(markers, "probe-x")], [9401], "the agent's own marker and an out-of-range one are not claims");
 });
 
+test("a port another agent's marker claims is never killed by port, and a shared marker port is never cleared while held", async () => {
+  // stopDaemon's port kill: the derived port is the HASH port, which a neighbour's gateway can hold.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-stop-claimed-"));
+  const hashed = agentPort("probe-z");
+  const calls = [];
+  const base = { agentId: "probe-z", tempDir: dir, killByPort: async (p) => { calls.push(p); return { killed: false }; },
+    readPid: () => null, clearPid: () => {}, clearGatewayMarkers: () => {}, reapPrior: true, reap: () => ({ stopped: [], portStillHeld: false }) };
+  await stopDaemon(base);
+  assert.deepEqual(calls, [hashed], "control: unclaimed, this agent's own daemon port is killed by port");
+  fs.writeFileSync(path.join(dir, "aify-hermes-port-neighbour"), String(hashed));
+  await stopDaemon(base);
+  assert.deepEqual(calls, [hashed], "a neighbour's gateway on this agent's hash port was killed by port");
+
+  // Two markers naming one port (a raced first launch): the reap stops nothing there, and must not clear
+  // this agent's marker while a gateway still listens on it.
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reap-shared-"));
+  fs.writeFileSync(path.join(shared, "aify-hermes-port-probe-y"), "9272");
+  fs.writeFileSync(path.join(shared, "aify-hermes-port-other"), "9272");
+  const common = { agentId: "probe-y", tempDir: shared, leases: () => [], sessionIdOf: () => "", starts: () => new Map(), waitMs: 0, self: 1, kill: () => { throw new Error("must not kill"); }, alive: () => false };
+  const held = reapPriorHermes({ ...common, listProcesses: () => [{ pid: 800, ppid: 4, commandLine: gatewayCmd(9272) }] });
+  assert.deepEqual([held.stopped, held.portStillHeld], [[], true]);
+  assert.equal(reapPriorHermes({ ...common, listProcesses: () => [] }).portStillHeld, false, "control: nothing listening, the marker may go");
+});
+
 test("stopDaemon clears the gateway markers only when the reap says the port is free, and only kill-prior reaps", async () => {
   const cleared = [];
   const base = { agentId: "probe-a", killByPort: async () => ({ killed: false }), readPid: () => null, clearPid: () => {}, clearGatewayMarkers: (id) => cleared.push(id) };
