@@ -115,7 +115,16 @@ def derive(i: StatusInputs) -> str:
     # that can be lost -- a lost turn-end is `working` over an idle prompt for as long as nothing else
     # arrives -- while the screen is what the worker is doing now. Stale or absent, it decides
     # nothing and every rule below reads as it always did.
-    if i.mode == "managed" and live and i.host_activity_fresh and i.host_activity in HOST_ACTIVITY_STATUS:
+    #
+    # EXCEPT THAT AN IDLE SCREEN DOES NOT END A TURN THE SERVICE STILL HOLDS. Delivery keys on the same
+    # turn (`claim_gating._turn_busy_holds_delivery`), so `online` here would show a free agent whose
+    # sends wait up to the turn ceiling -- the status/delivery disagreement that module names as a
+    # regression class. And an idle screen is weak evidence of a finished turn: Herdr falls back to
+    # idle when NO rule matches, and a runtime whose screen does not show its turn (a managed hermes
+    # behind its gateway host) would read idle for all of it. Working and blocked are positive
+    # sightings and outrank the bookkeeping; idle only ever confirms it.
+    if (i.mode == "managed" and live and i.host_activity_fresh and i.host_activity in HOST_ACTIVITY_STATUS
+            and not (i.host_activity == "idle" and i.in_turn)):
         return HOST_ACTIVITY_STATUS[i.host_activity]
     if i.in_turn and live:
         return "blocked" if i.awaiting_input else "working"

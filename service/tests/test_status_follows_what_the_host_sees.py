@@ -8,7 +8,8 @@ its terminal liveness frames.
 
 WHAT THESE PIN.
   - derive(): a FRESH observation for a managed agent with a live worker decides the live states --
-    working -> working, blocked -> blocked, idle -> online -- ahead of `in_turn`. Stale, absent, no
+    working -> working, blocked -> blocked, idle -> online -- working and blocked ahead of `in_turn`,
+    idle only when no turn is held (review 2026-09-15: delivery holds on that turn). Stale, absent, no
     worker, an unreachable environment or a disabled agent: exactly today's answer.
   - The route: a liveness frame carrying `activity` records it on the terminal and changes nothing
     else about the frame's semantics -- no status, no output, no sequence.
@@ -56,9 +57,17 @@ class DeriveReadsTheHostObservation(unittest.TestCase):
         self.assertEqual(derive(_inputs(host_activity="", host_activity_fresh=True, in_turn=True)), "working")
         self.assertEqual(derive(_inputs(host_activity="unknown", host_activity_fresh=True)), "online")
 
-    def test_the_observation_OUTRANKS_in_turn_both_ways(self):
-        """The case this exists for: a lost turn-end keeps `in_turn` set while the screen is idle."""
-        self.assertEqual(derive(_inputs(in_turn=True, host_activity="idle", host_activity_fresh=True)), "online")
+    def test_a_positive_sighting_OUTRANKS_in_turn_and_an_idle_screen_does_not_end_one(self):
+        """Working and blocked are seen, so they outrank the bookkeeping. An idle screen does NOT end a
+        held turn: delivery waits on that turn, so `online` would show a free agent whose sends queue,
+        and idle is also Herdr's answer when no rule matched at all."""
+        self.assertEqual(derive(_inputs(in_turn=True, host_activity="idle", host_activity_fresh=True)), "working")
+        self.assertEqual(
+            derive(_inputs(in_turn=True, awaiting_input=True, host_activity="idle", host_activity_fresh=True)),
+            "blocked")
+        # CONTROL: with no turn held the same idle observation does decide, so the refusal above is the
+        # held turn and not an idle report that never counts.
+        self.assertEqual(derive(_inputs(in_turn=False, host_activity="idle", host_activity_fresh=True)), "online")
         self.assertEqual(
             derive(_inputs(in_turn=True, awaiting_input=True, host_activity="working", host_activity_fresh=True)),
             "working")
@@ -171,6 +180,18 @@ class AHostObservationReachesTheStatus(FastApiTestCase):
         self.assertEqual(row["activity_reported_at"], heard,
                          "a frame that carried no observation was taken as a fresh one")
 
+    def test_an_OLDER_observation_arriving_late_does_not_replace_a_newer_one(self):
+        """A liveness frame and a transition can cross in flight. The host's `observedAt` orders them:
+        a frame observed before the stored one is stale news, whatever order it arrived in."""
+        self._frame({"state": "idle", "rule": "live_prompt_box", "observedAt": "2026-09-14T10:00:05.000Z"})
+        self._frame({"state": "working", "rule": "osc_title_working", "observedAt": "2026-09-14T10:00:00.000Z"})
+        row = self._row()
+        self.assertEqual(row["activity_state"], "idle", "an observation older than the stored one replaced it")
+        self.assertEqual(row["activity_observed_at"], "2026-09-14T10:00:05.000Z")
+        # CONTROL: a newer one still lands.
+        self._frame({"state": "working", "rule": "osc_title_working", "observedAt": "2026-09-14T10:00:06.000Z"})
+        self.assertEqual(self._row()["activity_state"], "working")
+
     def test_an_unknown_state_is_not_recorded(self):
         self._frame({"state": "idle", "rule": "r", "observedAt": "2026-09-14T10:00:00.000Z"})
         self._frame({"state": "thinking", "rule": "r2", "observedAt": "2026-09-14T10:00:01.000Z"})
@@ -230,7 +251,8 @@ class AHostObservationReachesTheStatus(FastApiTestCase):
         self._frame({"state": "idle", "rule": "live_prompt_box", "observedAt": "2026-09-14T10:00:02.000Z"})
         self.assertEqual(self._status(), "online")
 
-        # A LOST TURN-END: the turn bookkeeping says working while the screen is idle. The screen wins.
+        # A HELD TURN: the bookkeeping says working while the screen is idle. The turn stands, because
+        # delivery is still waiting on it; a positive sighting would move it, an idle screen does not.
         conn = sqlite3.connect(str(self._db_path))
         conn.execute(
             "INSERT INTO agent_status_state (agent_id, in_turn, awaiting_input, last_event_at, turn_started_at)"
@@ -238,7 +260,9 @@ class AHostObservationReachesTheStatus(FastApiTestCase):
         conn.commit()
         conn.close()
         self._expire_cached_status()
-        self.assertEqual(self._status(), "online", "the screen is idle and a lost turn-end still won")
+        self.assertEqual(self._status(), "working", "an idle screen ended a turn delivery is still holding")
+        self._frame({"state": "blocked", "rule": "bash_permission_prompt", "observedAt": "2026-09-14T10:00:03.000Z"})
+        self.assertEqual(self._status(), "blocked", "a positive sighting did not outrank the held turn")
 
         # STALE: the host stopped refreshing it, so the turn bookkeeping decides again.
         old = (_dt.datetime.now(_dt.timezone.utc)

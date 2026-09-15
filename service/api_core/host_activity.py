@@ -57,14 +57,22 @@ async def record_host_activity(db, terminal, activity) -> str:
         return ""
     terminal_id = str(terminal["id"])
     prior = await (await db.execute(
-        "SELECT activity_state, activity_reported_at FROM terminal_sessions WHERE id = ?",
+        "SELECT activity_state, activity_observed_at, activity_reported_at FROM terminal_sessions WHERE id = ?",
         (terminal_id,),
     )).fetchone()
+    observed_at = str(getattr(activity, "observedAt", "") or "")[:64]
+    # OLDER THAN WHAT IS STORED IS STALE NEWS. A liveness frame and a transition can cross in flight, so
+    # arrival order is not observation order; the host's own `observedAt` is. Compared only when both
+    # parse -- an observation that carries no usable time is judged by arrival, as before.
+    incoming_epoch = _iso_to_epoch(observed_at)
+    stored_epoch = _iso_to_epoch(prior["activity_observed_at"]) if prior else 0
+    if incoming_epoch and stored_epoch and incoming_epoch < stored_epoch:
+        return ""
     await db.execute(
         "UPDATE terminal_sessions SET activity_state = ?, activity_rule = ?, activity_observed_at = ?,"
         " activity_reported_at = ? WHERE id = ?",
         (state, str(getattr(activity, "rule", "") or "")[:200],
-         str(getattr(activity, "observedAt", "") or "")[:64], _now(), terminal_id),
+         observed_at, _now(), terminal_id),
     )
     now_epoch = datetime.now(timezone.utc).timestamp()
     if prior and str(prior["activity_state"] or "") == state and _fresh(prior["activity_reported_at"], now_epoch):
