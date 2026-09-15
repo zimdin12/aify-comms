@@ -139,12 +139,42 @@ Where the build differs from the design above, each measured or read rather than
   tests failed under WSL until it did.
 - **An unverifiable instance lets the claim proceed and kills nothing.** When the host cannot read a
   start time, nothing is killed and the start is not refused. A question the host cannot answer
-  never blocks a start.
+  never blocks a start. What cannot be verified is CARRIED into the new record, so a later claim
+  collects it. Every entry also records `seenAliveAtMs`, which identifies it without a start time: a
+  process holding that pid which started no later than that moment is the one that was seen.
+- **The start-time tolerance is 2 s, not 30 s.** hermes' own record of a live process and CIM
+  differed by 0.4 ms (measured 2026-09-15). At 30 s, a pid reused within half a minute read as ours.
+- **A start inside the live instance is refused.** That covers a launcher that inherited the
+  instance's `AIFY_AGENT_LEASE`, or whose ancestor is the instance. Replacing would end its own
+  ancestor, and letting it run would be a second instance. No ancestor of the claimer is ever stopped.
+- **The lock names its holder.** It is taken over only when that holder is gone (or after 2 minutes),
+  by an atomic rename. A start still waiting after 60 s is REFUSED (75), not let through: two starts
+  racing past the lock was the duplicate the lease exists to prevent.
+- **Trees are read from the process table**, not `taskkill /T` or a group signal. A child is followed
+  only if it started after its parent, because Windows never clears a stale `ParentProcessId`. An
+  unreadable table ends the pid alone.
+- **claude claims before its managed reap.** The reap ran first and could end a live instance that the
+  claim would then refuse.
+- **The hermes reap stops only what the agent OWNS.** That is a port no other agent's marker claims
+  (its persisted port, else its hash port), and a session lease only when no other agent's session
+  marker names that session.
+- **The gateway attach takes its agent from ensure-host**, and never joins a lease inherited from
+  another agent's launcher.
+- **A blank requester is START.** Only an explicit `dashboard` requester replaces.
+
+The last eight points came from an independent review of the first build (12 findings). Three were
+not changed:
+
+- The queued-run backstop meeting a live but deaf instance is refused. That is the operator's policy
+  for automatic starts. aify-env has no respawn loop, so nothing retries in a loop.
+- The dashboard "Start console" route is START.
+- A dashboard spawn-spec assignment stores the column default, START. A live instance refuses it
+  rather than being replaced.
 - **The intent is stamped on the TERMINAL row, not joined through the session.** `terminal_sessions.start_intent`
   is written by every insert path. A spawn request's terminal copies the request's intent
   (`running_spawn.py`). Consoles and virtual terminals are `start`. `GET /terminals/{id}/launch`
   always sets `AIFY_START_INTENT`. `replace` comes from: a spawn request created by the dashboard
-  (or with no creator), `session_restart.py` restart/recreate, and the dashboard session Start
+  (explicitly `dashboard`; a blank creator is `start`), `session_restart.py` restart/recreate, and the dashboard session Start
   button.
 - **A resident launch's intent comes from the mode.** `startIntent({explicit, mode})`: an explicit
   `AIFY_START_INTENT` wins. Otherwise managed means `start` and anything else means `replace`. The
@@ -165,7 +195,8 @@ Where the build differs from the design above, each measured or read rather than
   the caller's ancestry. The port marker is cleared only when nothing still names that port. If the
   process table cannot be read, the marker is kept.
 - **Refusal is exit 75, and a helper failure exits 0 with a warning.** A broken helper costs the
-  guarantee, never the launch. Kill decisions still fail closed.
+  guarantee, never the launch. Kill decisions still fail closed. A lock still held by another start
+  after a minute is a refusal, not a helper failure.
 
 Evidence: the wrapper suite ran on Windows and under WSL, including `an-agent-runs-once-per-host`
 with real processes and `a-launcher-holds-the-agent-lease` against the rendered launchers. In

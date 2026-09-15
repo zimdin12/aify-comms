@@ -231,7 +231,7 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5783 tests, 3 skipped (+11231 subtests)
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5783 tests, 3 skipped (+11232 subtests)
 cd mcp/stdio && node tests/run-all.mjs                 # 371 suites, 2 skipped tests (named in its output)
 cd service/new_dashboard && node --test *.test.mjs     # 1750 tests
 ```
@@ -327,7 +327,7 @@ resolves. If a future change needs stronger cross-repo evidence, it has to be bu
 seam that is actually load-bearing now -- aify-env's own plugin talking to this service's HTTP API.
 
 ```bash
-cd ~/projects/aify-wrapper && npm test                      # 473 tests, 49 skipped on Windows. `npm test`
+cd ~/projects/aify-wrapper && npm test                      # 486 tests, 49 skipped on Windows. `npm test`
                                                            # NOT a bare `node --test`: the script
                                                            # runs the suite under ONE temp root and
                                                            # deletes it, which is why this machine
