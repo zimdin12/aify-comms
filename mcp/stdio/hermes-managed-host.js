@@ -616,7 +616,7 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });
   // A gateway THIS call started is detached from the launcher, so it joins the agent lease: the next start of
   // this agent can then find it however this generation ends. A reused one was started by somebody else.
-  if (host.child?.pid) attach({ pid: host.child.pid, kind: "gateway" });
+  if (host.child?.pid) attach({ agentId: id, pid: host.child.pid, kind: "gateway" });
   // Persist the gateway URL in an AGENT-KEYED marker so the in-session MCP
   // bridge (server.js) can auto-register the gateway even though its env only
   // ever has the unresolved `${AIFY_HERMES_GATEWAY_URL}` placeholder — the

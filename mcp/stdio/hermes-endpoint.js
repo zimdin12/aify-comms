@@ -104,7 +104,7 @@ export function isPortFree(port, host = "127.0.0.1") {
 // branch can return its own previously-claimed port even when the gateway is
 // already bound (and therefore not "free" by isPortFree). Unreadable or
 // out-of-range entries are silently ignored.
-function claimedByOtherAgents(tempDir, selfAgentId) {
+export function claimedByOtherAgents(tempDir, selfAgentId) {
   const ownFile = `aify-hermes-port-${sanitizeAgentId(selfAgentId)}`;
   const claimed = new Set();
   try {

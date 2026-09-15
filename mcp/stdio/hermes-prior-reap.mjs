@@ -13,10 +13,17 @@
 //   4. the `--tui --resume <id>` matcher never matched, because the lease holder was the dashboard host.
 //
 // So this finds the leftovers by what they HOLD rather than by how they were started: a gateway host tree
-// on the agent's persisted or hashed port, and the process hermes records as the owner of the agent's
-// session. It keeps the port marker while anything still listens there. It runs on the kill-prior path
-// only -- the start of a new instance of this agent, whose launcher has already claimed the agent lease
-// (aify-wrapper) -- and never kills its own ancestry.
+// on a port this agent owns, and the process hermes records as the owner of the agent's session. It keeps
+// the port marker while anything still listens there. It runs on the kill-prior path only -- the start of
+// a new instance of this agent, whose launcher has already claimed the agent lease (aify-wrapper) -- and
+// never kills its own ancestry.
+//
+// OWNED, NOT MERELY NAMED. Hash ports collide (two agents both hashed to 9341 on 2026-05-31) and
+// `resolveGatewayPort` walks forward into a neighbour's slot, so a port is this agent's only when no
+// OTHER agent's marker claims it; the hash port counts only for an agent that never persisted one. And a
+// conversation can be named by more than one agent's session marker (four hermes agents shared one on
+// 2026-08-31), so a session lease is collected only when no other agent names that session: otherwise
+// starting one agent would end another's live TUI.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,7 +32,7 @@ import path from "node:path";
 import { identify, isAlive, killTree, sleepMs, startTimes } from "aify-wrapper/lib/process-identity.mjs";
 
 import { gatewaysInRange } from "./gateway-orphan-check.mjs";
-import { PORT_BASE, PORT_SPAN, agentPort, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
+import { PORT_BASE, PORT_SPAN, agentPort, claimedByOtherAgents, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
 import { cmdlineHermesGatewayPort, defaultListProcesses } from "./proc-probes.js";
 
 const STOP_WAIT_MS = 8_000;
@@ -49,6 +56,33 @@ export function hermesHome({ env = process.env, platform = process.platform, hom
   if (env.HERMES_HOME) return env.HERMES_HOME;
   if (platform === "win32" && env.LOCALAPPDATA) return path.join(env.LOCALAPPDATA, "hermes");
   return path.join(home, ".hermes");
+}
+
+/** The ports a reap of `agentId` may treat as its own: its persisted port, else its hash port, never one another agent claims. */
+export function ownedGatewayPorts(agentId, { tempDir = markerDir() } = {}) {
+  const others = claimedByOtherAgents(tempDir, agentId);
+  const persisted = persistedGatewayPort(agentId, { tempDir });
+  const port = persisted ?? agentPort(agentId);
+  return others.has(port) ? [] : [port];
+}
+
+/** Whether a session marker of any agent other than `agentId` names `sessionId`. */
+export function sessionNamedByAnotherAgent(agentId, sessionId, { tempDir = markerDir(), io = fs } = {}) {
+  if (!sessionId) return false;
+  const own = `aify-hermes-session-${sanitizeAgentId(agentId)}`;
+  try {
+    return io.readdirSync(tempDir).some((name) => {
+      if (!name.startsWith("aify-hermes-session-") || name === own) return false;
+      try {
+        return String(io.readFileSync(path.join(tempDir, name), "utf8")).trim() === sessionId;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    // Unable to look is not the same as nobody else: do not collect the lease.
+    return true;
+  }
 }
 
 /** hermes' own session leases (`runtime/active_sessions.json`), or none when unreadable. */
@@ -115,14 +149,15 @@ export function reapPriorHermes({
   waitMs = STOP_WAIT_MS,
 } = {}) {
   try {
-    const ports = [...new Set([persistedGatewayPort(agentId, { tempDir }), agentPort(agentId)].filter(Boolean))];
+    const ports = ownedGatewayPorts(agentId, { tempDir });
     const rows = listProcesses();
     const sessionLeases = leases();
+    const ownSession = String(sessionIdOf(agentId) || "");
     const plan = planPriorReap({
       ports,
       rows,
       leases: sessionLeases,
-      sessionId: String(sessionIdOf(agentId) || ""),
+      sessionId: sessionNamedByAnotherAgent(agentId, ownSession, { tempDir }) ? "" : ownSession,
       leaseStarts: starts(sessionLeases.map((lease) => Number(lease?.pid))),
       protect: ancestry(self, rows),
     });

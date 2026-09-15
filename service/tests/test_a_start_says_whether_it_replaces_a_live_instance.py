@@ -74,11 +74,12 @@ class AStartSaysWhetherItReplacesALiveInstance(FastApiTestCase):
         return response.json()["launch"]["env"]["AIFY_START_INTENT"]
 
     def test_the_REQUESTER_decides_what_is_stored(self):
-        cases = {"dashboard": REPLACE, None: REPLACE, "sc-manager": START}
+        cases = {"dashboard": REPLACE, None: START, "": START, "sc-manager": START}
         for created_by, want in cases.items():
             with self.subTest(created_by):
                 extra = {} if created_by is None else {"createdBy": created_by}
-                spawn_id = self._spawn(f"stored-{created_by or 'omitted'}", **extra)
+                label = {None: "omitted", "": "empty"}.get(created_by, created_by)
+                spawn_id = self._spawn(f"stored-{label}", **extra)
                 self.assertEqual(self._rows("SELECT start_intent FROM spawn_requests WHERE id = ?", (spawn_id,)), [{"start_intent": want}])
 
     def test_THE_REQUESTS_OWN_TERMINAL_carries_its_intent_into_the_launch(self):
@@ -154,11 +155,12 @@ class StartIntentValues(FastApiTestCase):
     DB_NAME = "aify-test-start-intent-values.db"
 
     def test_anything_unrecognised_reads_as_a_start(self):
-        for value in (None, "", "bogus", "REPLACE ", 1):
-            self.assertIn(normalize_start_intent(value), (START, REPLACE))
-        self.assertEqual(normalize_start_intent("bogus"), START)
-        self.assertEqual(normalize_start_intent(" Replace "), REPLACE)
-        self.assertEqual(start_intent_for_requester("  "), REPLACE)
+        for value in (None, "", "bogus", 1, "start ", "replace-all"):
+            self.assertEqual(normalize_start_intent(value), START, repr(value))
+        self.assertEqual(normalize_start_intent(" Replace "), REPLACE, "control: a real REPLACE survives")
+        for requester in (None, "", "  ", "sc-manager", "Dashboard-ish"):
+            self.assertEqual(start_intent_for_requester(requester), START, repr(requester))
+        self.assertEqual(start_intent_for_requester(" dashboard "), REPLACE, "control: the dashboard replaces")
 
     def test_the_launch_always_writes_it(self):
         self.assertIn("AIFY_START_INTENT", ALWAYS_SET)

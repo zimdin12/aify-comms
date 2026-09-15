@@ -33,6 +33,12 @@ def normalize_start_intent(value: Any) -> str:
 
 
 def start_intent_for_requester(requested_by: Any) -> str:
-    """REPLACE for the dashboard, START for an agent. An absent requester is the dashboard, as every
-    writer that defaults one already records it."""
-    return REPLACE if str(requested_by or "").strip() in ("", "dashboard") else START
+    """REPLACE only for a request that says it is the dashboard's; START for anyone else.
+
+    AN ABSENT REQUESTER IS NOT THE DASHBOARD here, although the attribution columns record it as one.
+    Both dashboard writers send `dashboard` explicitly, while an agent's `comms_spawn` accepts an empty
+    `from` and any HTTP caller can omit the field -- and reading those as the dashboard would let them
+    end a live instance. Guessing wrong in this direction costs a refused start, which is retried;
+    guessing wrong in the other costs somebody's working session.
+    """
+    return REPLACE if str(requested_by or "").strip() == "dashboard" else START

@@ -553,7 +553,7 @@ const HOST_EDITS = [
       "  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });",
       "  // A gateway THIS call started is detached from the launcher, so it joins the agent lease: the next start of",
       "  // this agent can then find it however this generation ends. A reused one was started by somebody else.",
-      '  if (host.child?.pid) attach({ pid: host.child.pid, kind: "gateway" });',
+      '  if (host.child?.pid) attach({ agentId: id, pid: host.child.pid, kind: "gateway" });',
     ],
     was: ["  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });"],
   },

@@ -20,8 +20,8 @@ import { fileURLToPath } from "node:url";
 import { startTimes } from "aify-wrapper/lib/process-identity.mjs";
 
 import { stopDaemon } from "../hermes-daemon.js";
-import { agentPort, writeSessionIdMarker } from "../hermes-endpoint.js";
-import { ancestry, hermesHome, persistedGatewayPort, planPriorReap, readSessionLeases, reapPriorHermes } from "../hermes-prior-reap.mjs";
+import { agentPort, claimedByOtherAgents, writeSessionIdMarker } from "../hermes-endpoint.js";
+import { ancestry, hermesHome, ownedGatewayPorts, persistedGatewayPort, planPriorReap, readSessionLeases, reapPriorHermes, sessionNamedByAnotherAgent } from "../hermes-prior-reap.mjs";
 import { defaultListProcesses } from "../proc-probes.js";
 import { sealedChildEnv } from "./_child-env.mjs";
 
@@ -94,6 +94,46 @@ test("reapPriorHermes keeps the port marker's answer honest: held while somethin
   const stuck = reapPriorHermes({ ...common, listProcesses: () => table, kill: () => {}, alive: () => true });
   assert.deepEqual([stuck.stopped.map((s) => s.pid), stuck.portStillHeld], [[701], true]);
   assert.deepEqual(reapPriorHermes({ ...common, listProcesses: () => { throw new Error("no table"); } }), { stopped: [], portStillHeld: true });
+});
+
+test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent also names, are never collected", () => {
+  // The reap must stop only what is THIS agent's: hash ports collide, and one conversation can be named by
+  // several agents' session markers. Each refusal below has a control that DOES reap, so the refusal is
+  // the ownership rule and not a broken probe.
+  const run = ({ markers, table, leaseList }) => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reap-own-"));
+    for (const [name, value] of Object.entries(markers)) fs.writeFileSync(path.join(tempDir, name), value);
+    const killed = [];
+    reapPriorHermes({
+      agentId: "probe-x", tempDir, listProcesses: () => table, leases: () => leaseList,
+      starts: () => new Map(leaseList.map((l) => [l.pid, l.process_start_time * 1000])),
+      kill: (pid) => killed.push(pid), alive: () => false, waitMs: 0, self: 1,
+    });
+    return killed;
+  };
+  const hashed = agentPort("probe-x");
+  const onHash = [{ pid: 500, ppid: 4, commandLine: gatewayCmd(hashed) }];
+  assert.deepEqual(run({ markers: { "aify-hermes-port-other-agent": String(hashed) }, table: onHash, leaseList: [] }), [],
+    "another agent's gateway on this agent's hash port was stopped");
+  assert.deepEqual(run({ markers: {}, table: onHash, leaseList: [] }), [500], "control: unclaimed, the hash port is this agent's");
+  assert.deepEqual(run({ markers: { "aify-hermes-port-probe-x": "9300" }, table: onHash, leaseList: [] }), [],
+    "an agent with a persisted port does not own its hash port too");
+
+  const holder = [{ pid: 600, ppid: 4, commandLine: "hermes --tui --resume shared-sess" }];
+  const leaseList = [lease(600, "shared-sess", T0)];
+  const sessions = { "aify-hermes-session-probe-x": "shared-sess" };
+  assert.deepEqual(run({ markers: { ...sessions, "aify-hermes-session-other-agent": "shared-sess" }, table: holder, leaseList }), [],
+    "a session another agent also names was collected, ending that agent's TUI");
+  assert.deepEqual(run({ markers: { ...sessions, "aify-hermes-session-other-agent": "different" }, table: holder, leaseList }), [600],
+    "control: named by this agent alone, the lease holder is collected");
+  assert.equal(sessionNamedByAnotherAgent("probe-x", "s", { tempDir: path.join(os.tmpdir(), "no-such-dir-aify") }), true,
+    "an unreadable marker directory must not read as nobody else");
+  assert.deepEqual(ownedGatewayPorts("probe-x", { tempDir: fs.mkdtempSync(path.join(os.tmpdir(), "aify-own-")) }), [hashed]);
+  const markers = fs.mkdtempSync(path.join(os.tmpdir(), "aify-claims-"));
+  fs.writeFileSync(path.join(markers, "aify-hermes-port-probe-x"), "9400");
+  fs.writeFileSync(path.join(markers, "aify-hermes-port-other-agent"), "9401");
+  fs.writeFileSync(path.join(markers, "aify-hermes-port-broken"), "80");
+  assert.deepEqual([...claimedByOtherAgents(markers, "probe-x")], [9401], "the agent's own marker and an out-of-range one are not claims");
 });
 
 test("stopDaemon clears the gateway markers only when the reap says the port is free, and only kill-prior reaps", async () => {

@@ -1414,7 +1414,7 @@ test("runEnsureHostCli: a gateway it STARTED joins the agent lease; a reused one
   const started = [];
   const { spawn } = makeFakeSpawn();
   await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: spawn, fetchImpl: makeFakeFetch({ failTimes: 1 }), attach: (a) => started.push(a) });
-  assert.deepEqual(started, [{ pid: 4242, kind: "gateway" }]);
+  assert.deepEqual(started, [{ agentId: "sc-hermes-lease", pid: 4242, kind: "gateway" }]);
   const reused = [];
   const second = makeFakeSpawn();
   await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: second.spawn, fetchImpl: makeFakeFetch(), attach: (a) => reused.push(a) });

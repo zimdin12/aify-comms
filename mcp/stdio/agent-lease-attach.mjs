@@ -17,18 +17,25 @@ function defaultHelper() {
   return fileURLToPath(import.meta.resolve("aify-wrapper/bin/aify-agent-lease.mjs"));
 }
 
-/** The argv for one attach, or null when there is no lease to join or nothing to attach. */
-export function leaseAttachArgv({ env, pid, kind, helper }) {
-  const agentId = String(env?.AIFY_AGENT_ID || "").trim();
+/**
+ * The argv for one attach of `agentId`'s process, or null when there is no lease to join or nothing to
+ * attach. The agent is the CALLER'S, never read from the environment: the lease this process inherited
+ * belongs to whichever agent's launcher started it, and a gateway attached to another agent's lease is
+ * killed by that agent's next replace. An inherited identity naming a different agent means no attach.
+ */
+export function leaseAttachArgv({ env, agentId, pid, kind, helper }) {
+  const agent = String(agentId || "").trim();
+  const inheritedAgent = String(env?.AIFY_AGENT_ID || "").trim();
   const instance = Number(env?.AIFY_AGENT_LEASE);
-  if (!agentId || !Number.isInteger(instance) || instance <= 0 || !Number.isInteger(pid) || pid <= 0) return null;
-  return [helper, "attach", "--agent", agentId, "--instance", String(instance), "--pid", String(pid), "--kind", String(kind || "")];
+  if (!agent || (inheritedAgent && inheritedAgent !== agent)) return null;
+  if (!Number.isInteger(instance) || instance <= 0 || !Number.isInteger(pid) || pid <= 0) return null;
+  return [helper, "attach", "--agent", agent, "--instance", String(instance), "--pid", String(pid), "--kind", String(kind || "")];
 }
 
-/** Attach `pid` to the lease this process's launcher holds. Returns whether an attach was started. Never throws. */
-export function attachToAgentLease({ pid, kind, env = process.env, spawn = nodeSpawn, helper } = {}) {
+/** Attach `agentId`'s `pid` to the lease this process's launcher holds. Returns whether an attach was started. Never throws. */
+export function attachToAgentLease({ agentId, pid, kind, env = process.env, spawn = nodeSpawn, helper } = {}) {
   try {
-    const argv = leaseAttachArgv({ env, pid, kind, helper: helper || defaultHelper() });
+    const argv = leaseAttachArgv({ env, agentId, pid, kind, helper: helper || defaultHelper() });
     if (!argv) return false;
     const child = spawn(process.execPath, argv, { detached: true, stdio: "ignore", windowsHide: true });
     child.on?.("error", () => {});
