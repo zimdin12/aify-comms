@@ -40,7 +40,9 @@ def test_turn_start_hook_wires_userpromptsubmit_and_posttooluse(install_text: st
     assert "wireTurnStart('PostToolUse')" in install_text, (
         "turn-start must re-assert on PostToolUse (proof-based #224: channel-woken + premature-Stop coverage)"
     )
-    assert "/api/v1/agents/${AIFY_AGENT_ID}/turn-start" in install_text
+    # Posted through agent-state-event.mjs so it carries the key; the curl it replaced carried none.
+    # test_resident_hooks_reach_the_service_authenticated.py runs what this writes.
+    assert 'hook_command="$(agent_state_hook_command turn-start)"' in install_text
 
 
 def test_turn_end_hook_wires_stop_and_post_compaction_session_start(install_text: str):
@@ -48,7 +50,7 @@ def test_turn_end_hook_wires_stop_and_post_compaction_session_start(install_text
     # firing Stop; SessionStart(matcher=compact) is the first authoritative event
     # after that boundary and must clear the otherwise latched working state.
     assert "install_claude_turn_end_hook()" in install_text
-    assert "/api/v1/agents/${AIFY_AGENT_ID}/turn-end" in install_text
+    assert "$(agent_state_hook_command turn-end)" in install_text
     assert "wireTurnEnd('Stop')" in install_text
     assert "wireTurnEnd('SessionStart', 'compact')" in install_text
 

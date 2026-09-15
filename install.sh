@@ -2160,14 +2160,16 @@ EOF
   ' "$(path_for_node "$config_file")" "$hook_command"
 }
 
+agent_state_hook_command() {
+  # One resident state change, posted with the endpoint and key the bridge resolves (the old curl hooks
+  # sent no key and a keyed service refused them). The guard keeps plain sessions from starting node.
+  local script="$AIFY_BRIDGE_DIR/agent-state-event.mjs"
+  printf '%s' 'if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then node "'"$script"'" '"$1"' >/dev/null 2>&1 || true; fi'
+}
+
 install_codex_turn_hooks() {
-  # Symmetric to install_claude_turn_*_hook. Codex's hooks.json
-  # supports the same hook event schema as Claude Code. Adding
-  # UserPromptSubmit + Stop entries lets direct codex-aify CLI typing
-  # flip the dashboard to "working" mid-turn AND clear it cleanly when
-  # the turn ends — matching the claude path. If a particular codex CLI
-  # version doesn't recognize these event names yet, the entries are
-  # inert (no harm).
+  # Claude Code's event schema. Interrupt fires INSTEAD of Stop on a cancelled turn; PermissionRequest
+  # waits for an approval, PostToolUse follows the tool. All five are events in codex-cli 0.154.0.
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
   local hooks_file="$codex_home/hooks.json"
   mkdir -p "$codex_home"
@@ -2177,15 +2179,18 @@ install_codex_turn_hooks() {
   enable_codex_hooks_feature
   local node_hooks_file
   node_hooks_file="$(path_for_node "$hooks_file")"
-  local start_command
-  start_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-start" >/dev/null 2>&1 || true; fi'
-  local end_command
-  end_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-end" >/dev/null 2>&1 || true; fi'
+  # TRUST. Codex skips a hooks.json hook whose `[hooks.state.'<file>:<event>:<group>:<hook>']` holds no
+  # matching trusted_hash, and a managed worker RESUMING a thread stops at codex's "hooks are new or
+  # changed" screen with nobody to answer it. Every reinstall that changes these command strings would
+  # do that to hooks the operator already trusted, so the writer records trust for exactly the entries
+  # it writes, with codex's own hash: sha256 over sorted compact JSON of {event_name, hooks:[{async,
+  # command, timeout, type}]}. That formula reproduced the hashes codex-cli 0.153.4 itself wrote for
+  # this installer's earlier stop and user_prompt_submit hooks (2026-09-15). A hook with a matcher or a
+  # statusMessage hashes differently and is never written here.
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const hooksPath = process.argv[1];
-    const startCmd = process.argv[2];
-    const endCmd = process.argv[3];
+    const crypto = require('crypto');
+    const [hooksPath, configPath, startCmd, endCmd, blockedCmd, unblockedCmd] = process.argv.slice(1);
     let data = { hooks: {} };
     try {
       data = JSON.parse(fs.readFileSync(hooksPath, 'utf-8'));
@@ -2200,96 +2205,138 @@ install_codex_turn_hooks() {
     }
     if (!data || typeof data !== 'object') data = {};
     if (!data.hooks || typeof data.hooks !== 'object') data.hooks = {};
-    const wire = (eventKey, cmd, marker) => {
-      if (!Array.isArray(data.hooks[eventKey])) data.hooks[eventKey] = [];
-      data.hooks[eventKey] = data.hooks[eventKey].filter(
-        group => !JSON.stringify(group).includes(marker)
-      );
-      data.hooks[eventKey].push({
-        hooks: [{ type: 'command', command: cmd, timeout: 3 }],
-      });
+    const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-start', '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'agent-state-event.mjs'];
+    const ours = (group) => OURS.some(marker => JSON.stringify(group).includes(marker));
+    const written = [];
+    // IN PLACE, not appended: codex files trust by a group's INDEX in its event, so moving ours to the
+    // end would shift every user hook after it onto trust recorded for a different hook.
+    const wire = (eventKey, cmd) => {
+      const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
+      const first = groups.findIndex(ours);
+      const kept = groups.filter(group => !ours(group));
+      const index = first < 0 ? kept.length : first;
+      kept.splice(index, 0, { hooks: [{ type: 'command', command: cmd, timeout: 3 }] });
+      data.hooks[eventKey] = kept;
+      written.push({ eventKey, index, cmd });
     };
-    wire('UserPromptSubmit', startCmd, '/api/v1/agents/\${AIFY_AGENT_ID}/turn-start');
-    wire('Stop', endCmd, '/api/v1/agents/\${AIFY_AGENT_ID}/turn-end');
+    wire('UserPromptSubmit', startCmd);
+    wire('Stop', endCmd);
+    wire('Interrupt', endCmd);
+    wire('PermissionRequest', blockedCmd);
+    wire('PostToolUse', unblockedCmd);
     fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
-  " "$node_hooks_file" "$start_command" "$end_command"
+
+    const SQ = String.fromCharCode(39);
+    const snake = (name) => name.replace(/[A-Z]/g, (c, i) => (i ? '_' : '') + c.toLowerCase());
+    let toml = '';
+    try { toml = fs.readFileSync(configPath, 'utf-8'); } catch (_) {}
+    const eol = toml.includes('\r\n') ? '\r\n' : '\n';
+    const lines = toml.split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    const untouched = [];
+    for (const { eventKey, index, cmd } of written) {
+      const event = snake(eventKey);
+      const key = hooksPath + ':' + event + ':' + index + ':0';
+      const identity = { event_name: event, hooks: [{ async: false, command: cmd, timeout: 3, type: 'command' }] };
+      const hash = 'sha256:' + crypto.createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+      const headers = ['[hooks.state.' + SQ + key + SQ + ']', '[hooks.state.' + JSON.stringify(key) + ']'];
+      const at = lines.findIndex(line => headers.includes(line.trim()));
+      // The key anywhere else (a dotted key, an inline table) would be a second definition, and a
+      // config.toml codex cannot parse stops every codex session on the host. That one is left alone.
+      const escaped = JSON.stringify(key).slice(1, -1);
+      if (key.includes(SQ) || lines.some((line, i) => i !== at && (line.includes(key) || line.includes(escaped)))) {
+        untouched.push(key);
+        continue;
+      }
+      const record = 'trusted_hash = ' + JSON.stringify(hash);
+      if (at < 0) {
+        if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
+        lines.push(headers[0], record);
+        continue;
+      }
+      let end = lines.findIndex((line, i) => i > at && line.trim().startsWith('['));
+      if (end < 0) end = lines.length;
+      const hashAt = lines.findIndex((line, i) => i > at && i < end && /^\s*trusted_hash\s*=/.test(line));
+      if (hashAt < 0) lines.splice(at + 1, 0, record);
+      else lines[hashAt] = record;
+    }
+    fs.writeFileSync(configPath, lines.join(eol) + eol);
+    if (untouched.length) console.error('[aify-install] WARN: codex trust not recorded for ' + untouched.join(', ') + ' (the key is also defined another way in ' + configPath + '); codex will ask once.');
+  " "$node_hooks_file" "$(path_for_node "$codex_home/config.toml")" "$(agent_state_hook_command turn-start)" "$(agent_state_hook_command turn-end)" \
+    "$(agent_state_hook_command blocked)" "$(agent_state_hook_command unblocked)"
 }
 
 install_hermes_turn_hooks() {
-  # Hermes-side symmetric hook. Hermes shell hooks support events
-  # pre_tool_call / post_tool_call / pre_llm_call / subagent_stop
-  # (see `hermes hooks --help`). `pre_llm_call` fires before each
-  # LLM call — close enough to a user-prompt-submit signal that
-  # the dashboard flips to "working" the moment the operator
-  # submits a prompt in hermes-aify. No clean upstream turn-end
-  # hook exists for shell hooks, so RESIDENT hermes has no
-  # event-driven turn-end (pure-event-status change #6, 2026-06-02):
-  # it relies on the single LONG status ceiling
-  # (TURN_BUSY_BACKSTOP_SECONDS, 30m) to self-heal status off
-  # 'working', and on the short 120s claim-gate window so a queued
-  # send is not stranded. (Managed hermes dispatches still get the
-  # per-process exit signal as a precise turn-end.) Unlike claude,
-  # resident hermes is NOT covered by the transcript turn-END detector
-  # (that keys on the claude transcript), so the long ceiling is its
-  # only status backstop -- intentional, no behaviour change here.
+  # Checked against hermes-agent b9271bcb: pre_llm_call fires before each model call; on_session_end
+  # fires from finalize_turn at the end of a turn, and for an interrupted CLI turn or a session close. A
+  # turn that ends on an API error returns before finalize_turn and fires no end hook, so it stays in-turn
+  # until the gateway turn detector or the 30-minute ceiling clears it (api_request_error is per failed
+  # call, not per turn). pre_approval_request / post_approval_response bracket an approval.
+  # Hermes approves a hook by its exact (event, command) pair, so aify-turn-start.sh keeps its command.
   local config_root="$(hermes_config_root)"
   local config_file="$config_root/config.yaml"
   local hook_dir="$config_root/agent-hooks"
-  local hook_path="$hook_dir/aify-turn-start.sh"
-  local hook_command_path=""
-  local hook_command=""
+  local node_state_script=""
+  local pairs=()
+  local spec="" event="" script="" state=""
   mkdir -p "$hook_dir"
   touch "$config_file"
-  cat > "$hook_path" <<EOF
+  node_state_script="$(path_for_node "$AIFY_BRIDGE_DIR/agent-state-event.mjs")"
+  for spec in pre_llm_call:aify-turn-start.sh:turn-start on_session_end:aify-turn-end.sh:turn-end \
+    pre_approval_request:aify-blocked.sh:blocked post_approval_response:aify-unblocked.sh:unblocked; do
+    IFS=: read -r event script state <<<"$spec"
+    cat > "$hook_dir/$script" <<EOF
 #!/usr/bin/env bash
 if [ -n "\${AIFY_AGENT_ID:-}" ] && [ -n "\${AIFY_COMMS_URL:-}" ]; then
-  curl -sS --max-time 2 -X POST "\${AIFY_COMMS_URL%/}/api/v1/agents/\${AIFY_AGENT_ID}/turn-start" >/dev/null 2>&1 || true
+  node $(shell_quote "$node_state_script") $state >/dev/null 2>&1 || true
 fi
 EOF
-  chmod +x "$hook_path"
-  hook_command_path="$(path_for_node "$hook_path" | sed 's#\\\\#/#g')"
-  hook_command="bash \"$hook_command_path\""
+    chmod +x "$hook_dir/$script"
+    pairs+=("$event" "bash \"$(path_for_node "$hook_dir/$script" | sed 's#\\\\#/#g')\"")
+  done
   MSYS_NO_PATHCONV=1 node -e '
     const fs = require("fs");
-    const file = process.argv[1];
-    const hookCommand = process.argv[2];
+    const [file, ...pairs] = process.argv.slice(1);
     let text = "";
     try { text = fs.readFileSync(file, "utf8"); } catch (_) {}
     let lines = text.replace(/\s*$/, "").split(/\r?\n/);
-    const commandLine = `      command: ${JSON.stringify(hookCommand)}`;
-    let replaced = false;
-    lines = lines.map((line) => {
-      const m = line.match(/^([ \t]*)command:[ \t]*.*aify-turn-start\.sh/);
-      if (m) {
-        replaced = true;
-        // Preserve existing indentation — see aify-notify replace above.
-        return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
+    for (let i = 0; i < pairs.length; i += 2) {
+      const event = pairs[i];
+      const hookCommand = pairs[i + 1];
+      // path_for_node is `cygpath -w` on Git Bash, so the command names its script after a BACKSLASH there,
+      // and an older install may have written either. Found after `/` alone, every reinstall on Windows
+      // added another copy of each hook. The separator is what keeps aify-blocked.sh off aify-unblocked.sh.
+      const script = hookCommand.split(/[\\/]/).pop().replace(/"$/, "");
+      const names = (line) => line.includes("/" + script) || line.includes("\\" + script);
+      let replaced = false;
+      lines = lines.map((line) => {
+        const m = line.match(/^([ \t]*(?:- )?)command:[ \t]*/);
+        if (m && names(line)) {
+          replaced = true;
+          // Preserve existing indentation — see aify-notify replace above.
+          return `${m[1]}command: ${JSON.stringify(hookCommand)}`;
+        }
+        return line;
+      });
+      if (replaced) continue;
+      // No matcher: hermes honours one only on tool events and warns elsewhere.
+      const entry = [`    - command: ${JSON.stringify(hookCommand)}`, "      timeout: 3"];
+      const eventIndex = lines.findIndex((line) => new RegExp(`^[ \\t]*${event}:[ \\t]*$`).test(line));
+      if (eventIndex >= 0) {
+        lines.splice(eventIndex + 1, 0, ...entry);
+        continue;
       }
-      return line;
-    });
-    if (replaced) {
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-      process.exit(0);
+      let hooksIndex = lines.findIndex((line) => /^[ \t]*hooks:[ \t]*$/.test(line));
+      if (hooksIndex < 0) {
+        lines = lines.filter(Boolean);
+        if (lines.length) lines.push("");
+        lines.push("hooks:");
+        hooksIndex = lines.length - 1;
+      }
+      lines.splice(hooksIndex + 1, 0, `  ${event}:`, ...entry);
     }
-    const entry = [
-      "    - matcher: \".*\"",
-      commandLine,
-      "      timeout: 3",
-    ];
-    const preIndex = lines.findIndex((line) => /^[ \t]*pre_llm_call:[ \t]*$/.test(line));
-    if (preIndex >= 0) {
-      lines.splice(preIndex + 1, 0, ...entry);
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-      process.exit(0);
-    }
-    const hooksIndex = lines.findIndex((line) => /^[ \t]*hooks:[ \t]*$/.test(line));
-    if (hooksIndex >= 0) {
-      lines.splice(hooksIndex + 1, 0, "  pre_llm_call:", ...entry);
-      fs.writeFileSync(file, lines.join("\n") + "\n");
-      process.exit(0);
-    }
-    fs.writeFileSync(file, lines.filter(Boolean).join("\n") + `${lines.some(Boolean) ? "\n\n" : ""}hooks:\n  pre_llm_call:\n${entry.join("\n")}\n`);
-  ' "$(path_for_node "$config_file")" "$hook_command"
+    fs.writeFileSync(file, lines.join("\n") + "\n");
+  ' "$(path_for_node "$config_file")" "${pairs[@]}"
 }
 
 install_claude_turn_start_hook() {
@@ -2313,7 +2360,7 @@ install_claude_turn_start_hook() {
   local node_settings_file
   node_settings_file="$(path_for_node "$settings_file")"
   local hook_command
-  hook_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-start" >/dev/null 2>&1 || true; fi'
+  hook_command="$(agent_state_hook_command turn-start)"
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
     const settingsPath = process.argv[1];
@@ -2356,11 +2403,13 @@ install_claude_turn_start_hook() {
     // so in_turn clears on the Stop hook and stays cleared. A tool call firing AFTER a Stop
     // means the turn was NOT actually over (premature Stop) -- re-asserting is CORRECT there.
     // A genuinely missed turn-END still self-heals at the single long ceiling, unchanged.
-    // No time-window is introduced. Idempotent: filtered by the turn-start marker.
+    // No time-window is introduced.
+    // It is also claude's unblock: turn_start clears awaiting_input once the approved tool has run.
+    const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-start', 'agent-state-event.mjs'];
     const wireTurnStart = (eventKey) => {
       if (!Array.isArray(settings.hooks[eventKey])) settings.hooks[eventKey] = [];
       settings.hooks[eventKey] = settings.hooks[eventKey].filter(
-        h => !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-start')
+        h => !OURS.some(marker => JSON.stringify(h).includes(marker))
       );
       settings.hooks[eventKey].push({
         hooks: [{ type: 'command', command, timeout: 3 }]
@@ -2383,6 +2432,8 @@ install_claude_turn_end_hook() {
   # the canonical signal. The hook command no-ops if AIFY_AGENT_ID
   # isn't set, so a regular `claude` session (no aify wrapper) is
   # unaffected.
+  # StopFailure replaces Stop on an API error; PermissionRequest fires as soon as an approval waits
+  # (Claude Code 2.1.270). Esc-interrupt fires no hook, so it is not covered.
   local settings_file="$HOME/.claude/settings.json"
   mkdir -p "$(dirname "$settings_file")"
   if [ ! -f "$settings_file" ]; then
@@ -2392,17 +2443,14 @@ install_claude_turn_end_hook() {
   node_settings_file="$(path_for_node "$settings_file")"
   # SECONDARY pure-event fix (2026-06-19): route the Stop hook through claude-stop-gate.js, which
   # SUPPRESSES a premature/duplicate Stop fired mid-turn (it reads the transcript tail and only
-  # posts /turn-end when the turn is NOT still in-flight). FAIL-SAFE: if node or the gate file is
-  # unavailable, fall back to the original raw curl /turn-end — worst case is exactly the old
-  # behavior, never a stuck-`working`. The curl-fallback string also keeps the dedup filter below
-  # matching this hook on re-install.
+  # posts /turn-end when the turn is NOT still in-flight). The gate posts through
+  # agent-state-event.mjs, so it carries the key.
   local gate_path="$AIFY_BRIDGE_DIR/claude-stop-gate.js"
-  local hook_command
-  hook_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then if command -v node >/dev/null 2>&1 && [ -f "'"$gate_path"'" ]; then node "'"$gate_path"'" 2>/dev/null || true; else curl -sS --max-time 2 -X POST "${AIFY_COMMS_URL%/}/api/v1/agents/${AIFY_AGENT_ID}/turn-end" >/dev/null 2>&1 || true; fi; fi'
+  local gate_command
+  gate_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then node "'"$gate_path"'" >/dev/null 2>&1 || true; fi'
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
-    const settingsPath = process.argv[1];
-    const command = process.argv[2];
+    const [settingsPath, gateCommand, endCommand, blockedCommand] = process.argv.slice(1);
     let settings = {};
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
@@ -2420,10 +2468,11 @@ install_claude_turn_end_hook() {
     }
     if (!settings || typeof settings !== 'object') settings = {};
     if (!settings.hooks) settings.hooks = {};
-    const wireTurnEnd = (eventKey, matcher = '') => {
+    const OURS = ['/api/v1/agents/\${AIFY_AGENT_ID}/turn-end', 'claude-stop-gate.js', 'agent-state-event.mjs'];
+    const wireTurnEnd = (eventKey, matcher = '', command = gateCommand) => {
       if (!Array.isArray(settings.hooks[eventKey])) settings.hooks[eventKey] = [];
       settings.hooks[eventKey] = settings.hooks[eventKey].filter(
-        h => !JSON.stringify(h).includes('/api/v1/agents/\${AIFY_AGENT_ID}/turn-end')
+        h => !OURS.some(marker => JSON.stringify(h).includes(marker))
       );
       const group = {
         hooks: [{ type: 'command', command, timeout: 3 }]
@@ -2437,8 +2486,11 @@ install_claude_turn_end_hook() {
     // "compact". Clear the old turn there; if Claude continues the same logical
     // turn, the next real PostToolUse re-asserts /turn-start immediately.
     wireTurnEnd('SessionStart', 'compact');
+    // An API error ends the turn with StopFailure and no Stop. No transcript gate: the turn is over.
+    wireTurnEnd('StopFailure', '', endCommand);
+    wireTurnEnd('PermissionRequest', '', blockedCommand);
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-  " "$node_settings_file" "$hook_command"
+  " "$node_settings_file" "$gate_command" "$(agent_state_hook_command turn-end)" "$(agent_state_hook_command blocked)"
 }
 
 install_claude_hook() {
@@ -2796,10 +2848,9 @@ if [ "$CLIENT" = "claude" ]; then
   fi
 elif [ "$CLIENT" = "codex" ]; then
   install_codex_wrapper
-  # Symmetric turn-start/turn-end hooks for direct codex-aify typing,
-  # mirroring claude-aify. Codex's hooks.json shares the Claude Code
-  # schema (UserPromptSubmit, Stop). Inert if a particular codex CLI
-  # version doesn't recognize the events yet.
+  # Turn-start/turn-end, interrupt and approval hooks for codex-aify, mirroring claude-aify.
+  # Codex's hooks.json shares the Claude Code schema. Inert if a codex CLI version doesn't
+  # recognize an event.
   install_codex_turn_hooks
 elif [ "$CLIENT" = "hermes" ]; then
   # Plan 1.4 (2026-05-30): the dead `patch_hermes_gateway_visible_bind` source
@@ -2825,11 +2876,10 @@ elif [ "$CLIENT" = "hermes" ]; then
   # is what gives the in-session hermes agent the comms_* tools for self-reply.
   install_hermes_plugin
   install_hermes_wrapper
-  # Symmetric turn-start hook for hermes-aify direct typing via the
-  # pre_llm_call shell-hook event. No matching turn-end hook because
-  # upstream hermes shell-hooks don't expose one; the gateway-status detector
-  # supplies turn-end and the long server backstop covers a dropped end-event.
+  # Turn-start (pre_llm_call), turn-end (on_session_end) and approval
+  # (pre_approval_request / post_approval_response) shell hooks; see install_hermes_turn_hooks.
   install_hermes_turn_hooks
+  echo "  New hermes hooks run only once approved: see 'hermes hooks list'; approve at hermes' prompt or --accept-hooks."
   # Post-install LOUD probe (Plan 1.4 Step 4): there is no silent success path.
   # We cannot ensure a real per-agent daemon at install time without an agent
   # id, but we MUST tell the operator the daemon is brought up lazily at launch

@@ -267,7 +267,7 @@ diagnostics go to `~/.aify/herdr/claim.log`. Nothing restores until the plugin i
 - The `aify-comms` stdio MCP server for Codex (tool namespace retained for compatibility)
 - The aify skill in `$CODEX_HOME/skills/aify-comms`
 - Optional unread-message hook notifications via `$CODEX_HOME/hooks.json`
-- `UserPromptSubmit` + `Stop` hooks in `$CODEX_HOME/hooks.json` that POST `/api/v1/agents/{id}/turn-start` and `/turn-end` to the aify service. Symmetric with claude-aify's hooks — direct CLI typing flips status to `working`, end-of-turn flips it back. Codex's hooks.json schema accepts these events; inert on CLI versions that don't yet recognize them.
+- `UserPromptSubmit` + `Stop` hooks in `$CODEX_HOME/hooks.json` that post turn-start and turn-end through `agent-state-event.mjs`, which carries the API key, plus `Interrupt` (turn-end on a cancelled turn), `PermissionRequest` (`blocked`) and `PostToolUse` (`unblocked`). They see only the environment the codex app-server started with, and `codex-aify` starts that before it exports `AIFY_AGENT_ID`, so a resident launched without the id already in its environment reports nothing through them. Symmetric with claude-aify's hooks — direct CLI typing flips status to `working`, end-of-turn flips it back. Codex's hooks.json schema accepts these events; inert on CLI versions that don't yet recognize them.
 - An `aify-comms` verifier in `~/.local/bin` (`doctor`, `--check`, `--version`; it starts nothing)
 - A `codex-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` so the turn hooks know which aify service to call
 

@@ -475,6 +475,9 @@ async function shutdownWithStatus(code) {
 process.on("exit", cleanupOnExit);
 process.on("SIGINT", () => { shutdownWithStatus(130); });
 process.on("SIGTERM", () => { shutdownWithStatus(143); });
+// A closed terminal window sends SIGHUP. Node's default action for it exits without running any
+// handler, so a resident never posted resident-lost and read `available` for the whole lease.
+process.on("SIGHUP", () => { shutdownWithStatus(129); });
 // LOCAL_RUNTIME_STATE moved to ./spawn-triggered-agent.mjs in v0.5.4 — all three of its uses
 // are inside that function, so it owns the Map.
 // VIRTUAL_TERMINALS_BY_AGENT moved to ./virtual-terminals.mjs in v0.5.4.

@@ -25,6 +25,10 @@ export async function main({
 }) {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // The client closing our stdin is the MCP stdio shutdown request, and a client that died closes it too.
+  // The SDK transport does not listen for it, so this takes the same teardown as SIGTERM. Registered
+  // here rather than at import so importing server.js (the hermes warm-up does) attaches nothing.
+  process.stdin.once("end", () => { shutdownWithStatus(0); });
   console.error(`aify-comms-mcp v${AIFY_VERSION} running on stdio`);
   console.error(`Mode: ${IS_REMOTE ? "REMOTE (" + SERVER_URL + ")" : "LOCAL (" + MESSAGES_DIR + ")"}`);
   console.error(`Working dir: ${DEFAULT_CWD}`);
