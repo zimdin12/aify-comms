@@ -90,7 +90,6 @@ comms_agents()
 comms_agent_info(agentId="my-agent")
 ```
 
-For a new resident, use `claude-aify --aify-agent <id>` or the runtime's wrapper.
 `comms_register` warns about absent/unresolved or mismatched MCP launch identity, not proven
 hook failure or a missing handle. Check the runtime and MCP environments separately before
 choosing a repair. Native `sessionHandle` and live delivery are separate checks; Hermes also
@@ -101,7 +100,7 @@ Node snippet. Raw HTTP can write metadata such as `runtimeConfig.gatewayUrl`,
 but it does not create the live resident bridge heartbeat/claim loop. A
 resident agent without that bridge is `offline` and cannot receive live sends.
 
-To open a known agent directly, use `*-aify --aify-agent <id>`. Managed agents are created through the dashboard or `comms_spawn(...)` and must not
+To start a resident or open a known agent, use `*-aify --aify-agent <id>`; it stops that agent's live instance on this host, managed worker, too. Managed agents are created through the dashboard or `comms_spawn(...)` and must not
 re-register from delivered runs. Ownership switches and lifecycle verbs are operator
 actions. If only a saved native handle is wrong, use **Set handle** rather than
 re-registering unrelated fields.

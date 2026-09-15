@@ -9,8 +9,8 @@ Install Oh My Pi first so the `omp` command is available in the same shell/user 
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-# Pi/OMP wrapper install is intentionally disabled. Managed Pi uses the
-# environment bridge plus persistent `omp --mode rpc`, not `omp-aify`.
+# Pi/OMP wrapper install is intentionally disabled. Managed Pi is spawned by
+# the host tier (aify-env) and uses persistent `omp --mode rpc`, not `omp-aify`.
 ```
 
 There is no resident Pi wrapper install step for normal use. Restart the host tier (`aify-env`) after updating the repo so managed Pi loads the current controller code.
@@ -55,7 +55,7 @@ If you are resuming a known Pi session, pass the resume handle so aify-comms can
 omp-aify --aify-agent my-pi --resume <session-id-or-prefix>
 ```
 
-OMP's RPC channel is single-client, so aify-comms does not inject dashboard messages into an already-open Pi TUI. Triggerable Pi delivery is managed RPC (`omp --mode rpc`) through the environment bridge.
+OMP's RPC channel is single-client, so aify-comms does not inject dashboard messages into an already-open Pi TUI. Triggerable Pi delivery is managed RPC (`omp --mode rpc`), spawned through the host tier (aify-env).
 
 ## Managed Pi
 

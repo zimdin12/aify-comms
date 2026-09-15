@@ -2,6 +2,46 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## One live instance per agent per host, replaced only on an explicit start (2026-09-14, built in v0.6.8)
+
+**The operator's rule:** "we should never allow 2 of same agent to run basically (resident or managed,
+doesnt matter)." Asked how, the operator chose two parts. Leftovers of a dead instance are always
+stopped before a start. A live instance is replaced only on an EXPLICIT start: a dashboard
+Start/Restart/spawn, an agent's `comms_restart`, a `comms_compact` handoff of an agent to itself, or a
+person running the launcher in a terminal. An
+AUTOMATIC start (a message cold-starting the agent, the queued-run backstop, an agent's `comms_spawn`)
+is refused with launcher exit 75. Replacing on every start was built once and reverted: a message woke
+an idle lane and the host killed four working sessions in ten minutes on 2026-09-03.
+
+**Every launcher enforces it**, through a lease at `~/.aify/agents/<id>.json` claimed before the runtime
+starts. The launchers are the one place every runtime, resident or managed, passes through.
+
+**Why start intent is its own field.** `spawn_requests.created_by` cannot carry it: a cold start
+records the SENDER's agent id, so a message waking a lane reads exactly like that agent spawning it on
+purpose. So the intent is decided where the start is asked for, stored as `spawn_requests.start_intent`,
+stamped on the terminal row, and handed to the launch as `AIFY_START_INTENT`.
+
+**A blank requester counts as START.** Only a requester of exactly `dashboard` replaces
+(`service/api_core/start_intent.py`). An agent's `comms_spawn` accepts an empty `from`, and any HTTP
+caller can omit it. Reading those as the dashboard would let them end a live instance. A wrong guess
+toward START costs a refused start, which can be retried. A wrong guess toward REPLACE costs somebody's
+working session.
+
+**Failing open and failing closed.** If the lease helper itself fails (a bad argument, an unwritable
+directory), it warns and exits 0: a broken helper costs the guarantee, never the launch. Kill decisions
+fail closed. If a recorded process is still running and the process table cannot be read, the start is
+refused (75, retryable), because proceeding could make a second instance. A lock another start still
+holds after a minute is also a refusal.
+
+**A terminal launch replaces, and a Herdr restore does not.** A person typing the launcher meant to
+start that agent now, so a non-managed launch defaults to replace. A Herdr pane restore replays that
+command without anyone asking for it just then, so it passes start intent and a live instance refuses
+it. A launcher started inside the agent's own live instance is refused whatever its intent.
+
+Design, departures from it, and the residuals deliberately left:
+[docs/superpowers/plans/2026-09-14-one-live-instance-per-agent.md](docs/superpowers/plans/2026-09-14-one-live-instance-per-agent.md)
+("As built"). The residuals are also listed in KNOWN_ISSUES.md.
+
 ## Three repos, and which concern each one owns (2026-08-20)
 
 **Decision.** aify-comms owns messaging, dispatch and sessions.

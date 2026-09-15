@@ -166,14 +166,14 @@ session restarts and wrapper churn.
 
 **Fix (2026-06-02, `8fd3da9`).** `ensureDaemon` now tracks each agent's daemon
 PID in `aify-hermes-daemon-pid-<agent>` and kills the prior live daemon before
-spawning a replacement; `stopDaemon` kills by BOTH port and tracked PID — one
-daemon per agent from then on. Takes effect when the agent's `hermes-aify`
-relaunches.
+spawning a replacement; `stopDaemon` kills by port and tracked PID. Since v0.6.8
+its port kill skips a port another agent's marker claims, and kill-prior also
+stops an old gateway on the agent's port and hermes' session-lease
+holder, keeping the marker while the port is held.
 
 **Relaunch also reaps the prior visible resume-TUI (2026-06-02, `99563af`).**
-kill-prior used to reap the prior delivery loop, gateway host, and daemon but NOT
-the prior `hermes --tui --resume <real-session-id>` visible TUI, so each silent
-relaunch leaked a duplicate resume-TUI. kill-prior now reaps that prior resume-TUI
+Each relaunch used to leak a duplicate visible
+`hermes --tui --resume <real-session-id>`. kill-prior now reaps that prior resume-TUI
 too, matched to the agent's stored native session id (from the
 `aify-hermes-session-<agentId>` marker), never a broad `hermes --tui`, gated
 **pre-spawn only** so the post-spawn self-reap-race call can't kill the

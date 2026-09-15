@@ -198,12 +198,31 @@ Where the build differs from the design above, each measured or read rather than
   lease holder when its recorded start matches the OS and its command line is hermes. It never stops
   the caller's ancestry. The port marker is cleared only when nothing still names that port. If the
   process table cannot be read, the marker is kept.
+- **A stop never enters another agent's lease.** The tree walk treats every pid another agent's record
+  names as a boundary, so replacing one agent cannot end a process a second agent attached.
+- **Release keeps the record while an attached process is still running** (or cannot be probed). A
+  launcher that exits leaving its detached gateway behind hands the next start something to find.
+- **A Herdr restore carries `--aify-start-intent=start`.** The launcher strips the flag before the
+  runtime sees it and never records it in the replay argv. A reboot restoring panes is automatic, so
+  it must not replace an instance some other path already brought back.
+- **kill-prior reaps only for a launcher holding the lease.** `hermes-daemon-cli.js stop` passes
+  `reapPrior` only when `AIFY_AGENT_LEASE` names a pid. An older launcher, or one whose helper failed,
+  has not established that no live instance runs, so it stops nothing by port or session.
+- **A failed process listing is no table.** The reap lists processes strictly: a query that failed,
+  timed out or printed nothing throws, so the port reads as held and the marker stays. The other
+  agents' port claims are read strictly too: an unlistable marker directory or unreadable marker means
+  the reap owns no port.
+- **The gateway joins the lease the moment it is spawned**, not once it is ready. A gateway that never
+  comes up still runs, detached, and the next start has to find it.
+- **A handoff of an agent to itself replaces.** `comms_compact` into the same agent id stores REPLACE
+  (`start_intent_for_spawn`). Stored as START, the live worker it names would refuse its own
+  successor. A handoff to a different agent is a start.
 - **Refusal is exit 75, and a helper failure exits 0 with a warning.** A broken helper costs the
   guarantee, never the launch. Kill decisions still fail closed. A lock still held by another start
   after a minute is a refusal, not a helper failure.
 
-Three independent reviews shaped the points above: 12 findings on the first build, 11 on the first fix
-round, and 7 on the second. What was deliberately left:
+Four independent reviews shaped the points above: 12 findings on the first build, 11 on the first fix
+round, 7 on the second, and a fourth, end-to-end review of both repos. What was deliberately left:
 
 - The queued-run backstop meeting a live but deaf instance is refused. That is the operator's policy
   for automatic starts. aify-env has no respawn loop, so nothing retries in a loop.
@@ -221,6 +240,11 @@ round, and 7 on the second. What was deliberately left:
   do not carry.
 - The sidecar's own teardown (`hermes-channel.js`, `reapPrior: false`) still clears the gateway markers
   without checking the port, as before this work.
+- `requestedBy: "dashboard"` is a string any caller can send. An agent that names itself the dashboard
+  gets a replace. Refusing it in `comms_spawn` and `comms_compact` was dropped: nothing authenticates
+  the dashboard, so the refusal would move the spoof rather than end it.
+- `stopDaemon` still kills by this agent's hash port when no other marker claims it. That port is where
+  this agent's own daemon listens, so an unmarked process there is taken as this agent's.
 
 Evidence: the wrapper suite ran on Windows and under WSL, including `an-agent-runs-once-per-host`
 with real processes and `a-launcher-holds-the-agent-lease` against the rendered launchers. In
@@ -228,6 +252,8 @@ aify-comms, `test_a_start_says_whether_it_replaces_a_live_instance.py` checks th
 `kill-prior-collects-what-a-previous-hermes-left.test.js` runs the real `stop` against real processes.
 Mutants reddened the start-intent chain (8 of 8), the reap (8 of 8) and the ensure-host attach call
 site (2 of 2) in the first build. After both review rounds, a mutant per fix reddens its test: 22 of 22
-in aify-wrapper and 11 of 11 in aify-comms; after the third, 27 of 27 in aify-wrapper. **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
+in aify-wrapper and 11 of 11 in aify-comms; after the third, 27 of 27 in aify-wrapper; after the fourth,
+14 of 14 in aify-comms. One of those 14 survived at first: the reap's default listing losing `strict`
+was unobservable until the listing's spawn became injectable. **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
 restarted through the new launchers yet. Also ASSUMED: that codex honours the hook trust
 `install.sh` writes at runtime (only the hash formula is proven).

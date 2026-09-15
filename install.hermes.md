@@ -241,10 +241,14 @@ same live TUI symmetry as wrapper mode.
 ### Managed launch flow (no loop health-gate; the TUI launches directly)
 
 The managed-hermes triad is the gateway host, the background delivery loop, and
-the visible TUI. The `hermes-aify` wrapper's managed flow is: **ensure the
-gateway host is up → spawn the background delivery loop (capture its PID, then
-kill-prior excluding that PID — the self-reap-race guard) → exec/Invoke the
-visible `hermes --tui` directly.** The wrapper does NOT block the TUI on the
+the visible TUI. The `hermes-aify` wrapper's managed flow is: **claim the agent
+lease (refused with exit 75 if a live instance of this agent is running and the
+start is not a replace; see "One live instance per agent" below) → pre-spawn
+kill-prior, which also stops a previous generation's gateway host on a port this
+agent owns and hermes' session-lease holder for its session → ensure the gateway
+host is up → spawn the background delivery loop (capture its PID, attach it to the
+lease, then kill-prior excluding that PID — the self-reap-race guard) →
+exec/Invoke the visible `hermes --tui` directly.** The wrapper does NOT block the TUI on the
 loop becoming a live claimer.
 
 There is **no loop health-gate** (removed 2026-06-02). An earlier build inserted
@@ -267,54 +271,32 @@ status accurately reflects whether the loop is delivering.
 
 The gateway host is **shared between the loop and the visible TUI**: the
 wrapper's ensure-host spawns it for the TUI, and the loop REUSES it. The loop
-never kills a reused/shared gateway — see "Restarting aify-comms is a clean
-slate" below for how the gateway's lifetime ties to the TUI/console.
+never kills a reused/shared gateway — see "What collects a managed-hermes
+triad" below for how the gateway's lifetime ties to the TUI/console.
 
-### Restarting aify-comms is a clean slate
+### What collects a managed-hermes triad
 
-The host tier OWNS the managed-hermes triads it spawned. Two hooks
-keep a restart honest:
+This section used to describe the environment bridge's shutdown teardown, its
+stop-control triad reap and its boot survivor sweep over `bridge_instances`. That
+bridge was deleted in v0.6.2; aify-env is the host tier. aify-env ends the process
+trees of the worker PTYs it started, and on start reaps what a dead predecessor
+recorded. Starting it is the operator's call, because supersession reaps the
+workers the running instance holds.
 
-- **Shutdown teardown** — on graceful shutdown (and on the supersede path), the
-  bridge tears down every managed session it owns: it stops the console PTYs,
-  port-kills the gateway hosts, and reaps the detached delivery loops/daemons
-  for its owned agents.
-- **Dashboard STOP reaps the whole triad** (2026-06-02) — a dashboard **Stop**
-  on a managed-hermes agent now tears down the entire triad (gateway host +
-  delivery loop + daemon), agent-scoped, not just the console PTY. The stop
-  control carries the target's `agentId` + runtime + sessionMode so the bridge
-  recognizes a managed-hermes stop and runs an agent-scoped teardown; a resident
-  hermes / claude / other-runtime stop is never touched, and another agent's
-  processes are never enumerated. (STOP and Relaunch reap **synchronously**.)
-- **Boot-time survivor sweep + marker sweep** — on the next env-bridge start,
-  before the spawn loop comes up, the bridge sweeps for managed-triad survivors
-  of a crashed/SIGKILL'd predecessor and reaps any whose owning bridge is no
-  longer live in `bridge_instances`. A companion **tombstoned-marker sweep**
-  deletes the `aify-hermes-{port,daemon-pid,key}-<agent>` marker files for any
-  agent absent from the live `/agents` keyset (removed/tombstoned). Fail-safe:
-  a still-known agent (including a co-located other-env's live agent) is never
-  swept, and an unknown keyset sweeps nothing.
-
-Both are **scoped to the agents this env bridge owns** (its `cwdRoots`) and
-**never touch resident sessions or another env's agents**. The net effect:
-restarting `aify-comms` is a guaranteed clean slate for managed sessions — no
-orphaned gateway hosts, no zombie `hermes.exe` proliferation, even after a hard
-crash. Managed sessions are re-spawned fresh by the dashboard/spawn loop, not
-inherited.
-
-The boot sweep also checks live process truth before trusting backend ownership
-metadata. If a live resident wrapper exists for an agent, its associated process
-family is protected even when the service still carries stale managed ownership.
-This guard prevents an environment-bridge restart from killing the resident
-gateway/TUI and surfacing `gateway websocket connection failed`.
+The gateway host is detached on purpose, so a hard kill of the host tier leaves it
+running (KNOWN_ISSUES.md). Since v0.6.8 the agent's next `hermes-aify` start
+collects it: the agent lease stops what a dead instance attached, and kill-prior
+stops a previous generation's gateway host on a port the agent owns plus hermes'
+session-lease holder. An agent that is never relaunched keeps its leftover, and
+`aify-comms doctor`'s `gateway-orphans` row reports it.
 
 The shared gateway's lifetime ties to the TUI/console, NOT to the delivery loop.
 The loop kills the gateway host **only if it spawned that host itself** (an owned
 child handle); it **never port-kills a reused/shared gateway** and never clears
 the gateway port/key markers — those tie to the gateway and kill-prior needs the
 persisted port marker to reap it on relaunch. So the gateway a managed agent
-shares with its visible TUI is reaped by **kill-prior on relaunch** and the
-**env-bridge survivor sweep on restart** (above), not by a transient loop exit.
+shares with its visible TUI is reaped by **kill-prior on relaunch** (above),
+not by a transient loop exit.
 This is what fixed the "gateway websocket connection failed" incident where a
 loop exit (e.g. a transient 410) port-killed the gateway out from under the live
 TUI and dropped the TUI's WebSocket.
@@ -454,6 +436,12 @@ the PRIMARY id source. The `session.most_recent` binding path is not used: it
 reported historical Hermes DB state and could bind to a session that could not
 visibly receive delivery. The aify-comms bridge confirms the live session via
 WS `session.active_list`.
+
+**One live instance per agent (v0.6.8).** Running `hermes-aify --aify-agent <id>` in a terminal stops
+that agent's running instance on this host first, a managed worker included, along with its gateway
+host and delivery loop. An automatic start (a message cold-starting the agent, the queued-run
+backstop, an agent's `comms_spawn`) is refused with exit 75 instead; to replace a running agent on
+purpose, start or restart it from the dashboard.
 
 If dispatch says `visible session not found`, the open terminal was started
 with an old wrapper, with `AIFY_HERMES_DISABLE_PLUGIN=1`, or before the visible

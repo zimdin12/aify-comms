@@ -149,6 +149,12 @@ Two guards now make this hard to hit:
 **A running session cannot be repaired** — relaunch through the wrapper. Verify with
 `comms_agent_info(agentId=…)`: a healthy resident has a non-empty `sessionHandle`.
 
+**One live instance per agent (v0.6.8).** Running `codex-aify --aify-agent <id>` in a terminal stops
+that agent's running instance on this host first, a managed worker and its app-server included. An
+automatic start (a message cold-starting the agent, the queued-run backstop, an agent's
+`comms_spawn`) is refused with exit 75 instead; to replace a running agent on purpose, start or
+restart it from the dashboard.
+
 ### Session handle binding
 
 Fresh `codex-aify` launches do **not** scan `~/.codex/sessions/` to invent `CODEX_THREAD_ID`. The newest rollout file can be an unrelated historical thread, and binding a fresh visible TUI to that ID makes resident/channel delivery target the wrong session. For fresh launches, `CODEX_THREAD_ID` and `AIFY_SESSION_HANDLE` stay unset until Codex exposes a real current thread.

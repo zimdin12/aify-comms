@@ -4,6 +4,38 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## One live instance per agent: what v0.6.8 deliberately left (2026-09-15)
+
+v0.6.8 gives every launcher a per-agent lease on the host, so one agent runs once per host. The design
+and the reasoning behind each item are in
+[the plan's "As built" section](docs/superpowers/plans/2026-09-14-one-live-instance-per-agent.md).
+These were left on purpose:
+
+- **The queued-run backstop is refused by a live but deaf instance.** That is the operator's policy
+  for automatic starts. aify-env has no respawn loop, so nothing retries in a loop; replacing the
+  instance takes a dashboard Start/Restart.
+- **Two hermes port markers naming one port make that port nobody's.** A leftover gateway on it is
+  stopped by neither agent's reap. The next launch moves one agent to a new port, and
+  `gateway-orphans` reports the gateway. Deciding which agent owns it needs evidence the markers do
+  not carry.
+- **The hermes sidecar's own teardown still clears the gateway markers** (`hermes-channel.js`,
+  `reapPrior: false`) without checking whether the port is still held, as before this release.
+- **A clock stepped backwards can defeat `seenAliveAtMs`.** It is compared with no tolerance, so after
+  a VM resume or a large time sync a pid reused after the step could read as the recorded one.
+- **claude's managed reap (`reap-managed-claude.js`) does its own process matching** after a
+  successful claim, rather than reading the lease's process table.
+- **Launchers rendered before v0.6.8 have no lease** until `install.sh` is re-run for that client.
+  Their kill-prior no longer reaps by port or session either: `hermes-daemon-cli.js stop` reaps only
+  for a launcher holding the lease.
+- **`requestedBy: "dashboard"` is a string any caller can send**, and it replaces. Nothing
+  authenticates the dashboard, so refusing it in the MCP tools would move the spoof, not end it.
+- **Not yet proven on the live fleet.** The suites and mutation runs pass; no live hermes, claude or
+  codex agent had been restarted through the new launchers when this was written.
+
+The plan also records two smaller residuals: the dashboard "Start console" route and a dashboard
+spawn-spec assignment both store START, and the lock takeover leaves a microsecond window for two
+holders, where the loser writes no record but what it already stopped stays stopped.
+
 ## A snapshot taken mid-escape-sequence loses the parser's half-read state (2026-09-09)
 
 FOUND BY REVIEW during the v0.6.3 whole-diff pass, reproduced against BOTH the original base and the
@@ -63,7 +95,14 @@ but supersession reaps whatever the incumbent was running -- the hazard
 [starting-aify-env-reaps-the-running-fleet] exists for. Neither choice is free, and today the escape
 is that a sweep is safe precisely when there is nothing left to lose.
 
-**Not fixed, and the fix is not obvious.** A reaper that must survive a SIGKILL of its own process
+**Partly fixed in v0.6.8: relaunching the agent collects its own leftover gateway.** Every
+`hermes-aify` start now claims the agent lease, which stops a dead instance's attached gateway host,
+and its kill-prior (`hermes-prior-reap.mjs`) stops a previous generation's gateway host on a port that
+agent owns plus hermes' session-lease holder for its session. So the bind above now applies only to
+agents that are never relaunched: their orphans still accumulate, and `gateway-orphans` still reports
+them. Two markers naming one port make that gateway nobody's, so neither agent's relaunch collects it.
+
+**The general fix is still not obvious.** A reaper that must survive a SIGKILL of its own process
 cannot live in that process. The candidates are a Windows Job Object with kill-on-close (which would
 also kill the gateway on an intentional bridge restart, defeating the reason it is detached), a
 periodic sweep in the service rather than the host, or having the gateway host self-exit when its
