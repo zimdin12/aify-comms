@@ -1,0 +1,142 @@
+// What a previous generation of an agent's hermes left running, found by what it holds.
+//
+// MEASURED 2026-09-14. After the operator restarted `herdr-aify env`, mc-senior-dev refused every message:
+// `Session 20260715_001441_960b8f already has a live owner (tui, pid 59544, running 3h43m)`. pid 59544 was
+// the previous generation's `hermes dashboard --port 9272` host -- detached, parent gone, holding hermes'
+// own session lease. Two more agents had the same leftover, one since 2026-09-12. Nothing reaped them:
+//
+//   1. kill-prior reaps with `pkill -f` and `lsof`, which on Git Bash cannot see native Windows processes;
+//   2. its fallback, `stopDaemon`, killed whatever listened on the HASH port, while the gateway sat on the
+//      port the agent had PERSISTED (9272);
+//   3. `stopDaemon` then cleared the port marker anyway, destroying the only record of 9272, so the next
+//      launch chose 9273 and the old gateway kept the lease;
+//   4. the `--tui --resume <id>` matcher never matched, because the lease holder was the dashboard host.
+//
+// So this finds the leftovers by what they HOLD rather than by how they were started: a gateway host tree
+// on the agent's persisted or hashed port, and the process hermes records as the owner of the agent's
+// session. It keeps the port marker while anything still listens there. It runs on the kill-prior path
+// only -- the start of a new instance of this agent, whose launcher has already claimed the agent lease
+// (aify-wrapper) -- and never kills its own ancestry.
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { identify, isAlive, killTree, sleepMs, startTimes } from "aify-wrapper/lib/process-identity.mjs";
+
+import { gatewaysInRange } from "./gateway-orphan-check.mjs";
+import { PORT_BASE, PORT_SPAN, agentPort, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
+import { cmdlineHermesGatewayPort, defaultListProcesses } from "./proc-probes.js";
+
+const STOP_WAIT_MS = 8_000;
+
+function markerDir() {
+  return process.env.TEMP || process.env.TMP || os.tmpdir();
+}
+
+/** The port the agent persisted, or null when there is no readable in-range marker. */
+export function persistedGatewayPort(agentId, { tempDir = markerDir(), io = fs } = {}) {
+  try {
+    const value = Number(String(io.readFileSync(path.join(tempDir, `aify-hermes-port-${sanitizeAgentId(agentId)}`), "utf8")).trim());
+    return Number.isInteger(value) && value >= PORT_BASE && value < PORT_BASE + PORT_SPAN ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Where hermes keeps its state: HERMES_HOME, else %LOCALAPPDATA%\hermes on Windows, else ~/.hermes. */
+export function hermesHome({ env = process.env, platform = process.platform, home = os.homedir() } = {}) {
+  if (env.HERMES_HOME) return env.HERMES_HOME;
+  if (platform === "win32" && env.LOCALAPPDATA) return path.join(env.LOCALAPPDATA, "hermes");
+  return path.join(home, ".hermes");
+}
+
+/** hermes' own session leases (`runtime/active_sessions.json`), or none when unreadable. */
+export function readSessionLeases(home, { io = fs } = {}) {
+  try {
+    const entries = JSON.parse(io.readFileSync(path.join(home, "runtime", "active_sessions.json"), "utf8"))?.entries;
+    return Array.isArray(entries) ? entries : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The pids from `pid` up through its parents, as far as `rows` can say. */
+export function ancestry(pid, rows) {
+  const parentOf = new Map((rows || []).map((row) => [row.pid, row.ppid]));
+  const chain = new Set();
+  for (let at = pid; at && !chain.has(at); at = parentOf.get(at)) chain.add(at);
+  return chain;
+}
+
+/**
+ * PURE. Which processes a reap of one agent stops, from a process table, hermes' session leases and the
+ * start times of the lease holders.
+ *
+ * A gateway host tree is stopped when its port is one this agent owns. A lease holder is stopped only
+ * when hermes' recorded start time for it is the one the OS reports -- a recycled pid is somebody
+ * else -- and its command line is hermes. Nothing in `protect` is ever stopped.
+ *
+ * @returns {Array<{pid: number, why: string}>}
+ */
+export function planPriorReap({ ports, rows, leases, sessionId, leaseStarts, protect }) {
+  const stop = new Map();
+  const wanted = new Set(ports.filter(Boolean));
+  for (const gateway of gatewaysInRange(rows, { toPort: cmdlineHermesGatewayPort, base: PORT_BASE, span: PORT_SPAN })) {
+    if (wanted.has(gateway.port) && !protect.has(gateway.pid)) stop.set(gateway.pid, `gateway host on port ${gateway.port}`);
+  }
+  const commandOf = new Map((rows || []).map((row) => [row.pid, String(row.commandLine || "")]));
+  for (const lease of sessionId ? leases : []) {
+    const pid = Number(lease?.pid);
+    if (lease?.session_id !== sessionId || !Number.isInteger(pid) || protect.has(pid) || stop.has(pid)) continue;
+    if (!/hermes/i.test(commandOf.get(pid) || "")) continue;
+    const state = identify({ startedAtMs: Number(lease.process_start_time) * 1000 }, { alive: commandOf.has(pid), startedAt: leaseStarts.get(pid) });
+    if (state === "ours") stop.set(pid, `holds hermes' lease on session ${sessionId}`);
+  }
+  return [...stop].map(([pid, why]) => ({ pid, why }));
+}
+
+/**
+ * Stop what the previous generation of `agentId` left, and say whether its port is still held.
+ * Never throws.
+ *
+ * @returns {{stopped: Array<{pid: number, why: string}>, portStillHeld: boolean}}
+ */
+export function reapPriorHermes({
+  agentId,
+  tempDir = markerDir(),
+  listProcesses = defaultListProcesses,
+  leases = () => readSessionLeases(hermesHome()),
+  sessionIdOf = (id) => readSessionIdMarker(id, { tempDir }),
+  starts = startTimes,
+  kill = killTree,
+  alive = isAlive,
+  self = process.pid,
+  waitMs = STOP_WAIT_MS,
+} = {}) {
+  try {
+    const ports = [...new Set([persistedGatewayPort(agentId, { tempDir }), agentPort(agentId)].filter(Boolean))];
+    const rows = listProcesses();
+    const sessionLeases = leases();
+    const plan = planPriorReap({
+      ports,
+      rows,
+      leases: sessionLeases,
+      sessionId: String(sessionIdOf(agentId) || ""),
+      leaseStarts: starts(sessionLeases.map((lease) => Number(lease?.pid))),
+      protect: ancestry(self, rows),
+    });
+    for (const entry of plan) {
+      kill(entry.pid);
+      try { console.error(`[hermes] kill-prior ${agentId}: stopped pid ${entry.pid} (${entry.why})`); } catch { /* ignore */ }
+    }
+    const deadline = Date.now() + waitMs;
+    while (plan.some((entry) => alive(entry.pid)) && Date.now() < deadline) sleepMs(250);
+    const held = new Set(ports);
+    const portStillHeld = listProcesses().some((row) => held.has(cmdlineHermesGatewayPort(row.commandLine)));
+    return { stopped: plan, portStillHeld };
+  } catch {
+    // Unable to look is not the same as nothing left: keep the marker.
+    return { stopped: [], portStillHeld: true };
+  }
+}

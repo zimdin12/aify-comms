@@ -55,6 +55,7 @@ import {
 // ./hermes-delivery-run.mjs — 998 lines together, which one module could not hold without a fresh
 // violation of the 1000-line rule. The CLI entry points below stay here and call in.
 import { runDeliveryLoop } from "./hermes-delivery-loop.mjs";
+import { attachToAgentLease } from "./agent-lease-attach.mjs";
 
 loadSettingsEnv();
 
@@ -595,6 +596,7 @@ export async function runEnsureHostCli(agentId, deps = {}) {
     spawnImpl,
     fetchImpl,
     openWsImpl = openGatewayWsClient,
+    attach = attachToAgentLease,
     out = (s) => process.stdout.write(s),
     err = (s) => process.stderr.write(s),
   } = deps;
@@ -612,6 +614,9 @@ export async function runEnsureHostCli(agentId, deps = {}) {
   }
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
   const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });
+  // A gateway THIS call started is detached from the launcher, so it joins the agent lease: the next start of
+  // this agent can then find it however this generation ends. A reused one was started by somebody else.
+  if (host.child?.pid) attach({ pid: host.child.pid, kind: "gateway" });
   // Persist the gateway URL in an AGENT-KEYED marker so the in-session MCP
   // bridge (server.js) can auto-register the gateway even though its env only
   // ever has the unresolved `${AIFY_HERMES_GATEWAY_URL}` placeholder — the

@@ -1385,6 +1385,9 @@ test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,
     openWsImpl: async () => ({ close() {} }), // /api/ws readiness probe opens OK
     // Fake the python pre-seed so the test never touches the real SessionDB.
     spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
+    // SEALED: the real attach reads AIFY_AGENT_LEASE from this process, and a suite run inside a leased
+    // agent session would otherwise attach this fake pid to that agent's real lease.
+    attach: () => {},
     out: (s) => (stdout += s),
     err: (s) => (stderr += s),
   });
@@ -1404,6 +1407,19 @@ test("runEnsureHostCli: ensures the gateway host and prints ONE JSON line {port,
   assert.ok(!("resumeKey" in parsed), "resumeKey must NOT be emitted (dead synthetic resume key)");
   // Loud-ish stderr breadcrumb, never on stdout.
   assert.ok(stderr.includes("sc-hermes"));
+});
+
+test("runEnsureHostCli: a gateway it STARTED joins the agent lease; a reused one does not", async () => {
+  const quiet = { openWsImpl: async () => ({ close() {} }), spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }), out: () => {}, err: () => {} };
+  const started = [];
+  const { spawn } = makeFakeSpawn();
+  await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: spawn, fetchImpl: makeFakeFetch({ failTimes: 1 }), attach: (a) => started.push(a) });
+  assert.deepEqual(started, [{ pid: 4242, kind: "gateway" }]);
+  const reused = [];
+  const second = makeFakeSpawn();
+  await runEnsureHostCli("sc-hermes-lease", { ...quiet, spawnImpl: second.spawn, fetchImpl: makeFakeFetch(), attach: (a) => reused.push(a) });
+  assert.equal(second.spawns.length, 0, "control: the probe found a live host, so nothing was spawned");
+  assert.deepEqual(reused, []);
 });
 
 test("runEnsureHostCli: no agentId → throws (non-zero exit at the CLI boundary)", async () => {

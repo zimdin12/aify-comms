@@ -31,6 +31,9 @@ export const LIVE_ENV_CARRIERS = Object.freeze([
   "AIFY_AGENT_ID", "AIFY_AGENT_ROLE", "AIFY_RUNTIME", "AIFY_TERMINAL_ID",
   // role flags that make a process take over fleet responsibilities — never inherited into a test child
   "AIFY_ENVIRONMENT_BRIDGE", "AIFY_ENVIRONMENT_ID", "AIFY_MANAGED_VIA_WRAPPER",
+  // The agent lease a launcher holds (aify-wrapper): a child inheriting it attaches its own processes to that
+  // agent's live record, and a later explicit start of the agent would stop them.
+  "AIFY_AGENT_LEASE", "AIFY_START_INTENT",
 ]);
 
 /**

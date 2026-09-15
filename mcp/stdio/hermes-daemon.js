@@ -27,6 +27,7 @@ import path from "node:path";
 import { probeApiServer } from "./hermes-version.js";
 import { agentEndpoint, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { terminateProcessTree } from "./runtimes.js";
+import { reapPriorHermes } from "./hermes-prior-reap.mjs";
 // The filename sanitiser has ONE owner (`hermes-endpoint.js`); this module carried a
 // byte-identical copy until v0.5.4. Three copies of a function that turns an agent id into a
 // PATH is three chances for the same agent to get two different files.
@@ -408,6 +409,11 @@ export async function stopDaemon({
   // is an explicit/terminal stop, so dropping the markers here is safe (NOT a
   // transient retry). Injectable for tests.
   clearGatewayMarkers = defaultClearGatewayMarkers,
+  // KILL-PRIOR ONLY (`hermes-daemon-cli.js stop`): also collect what a previous generation of this
+  // agent left -- its gateway host tree on the PERSISTED port and hermes' session-lease holder -- and
+  // keep the port marker while that port is still held. See hermes-prior-reap.mjs for the incident.
+  reapPrior = false,
+  reap = reapPriorHermes,
 } = {}) {
   let stopped = false;
   let pid;
@@ -447,10 +453,21 @@ export async function stopDaemon({
         }
       }
       clearPid(agentId, tempDir);
+      let portStillHeld = false;
+      if (reapPrior) {
+        const reaped = reap(tempDir ? { agentId, tempDir } : { agentId });
+        if (reaped.stopped.length) {
+          stopped = true;
+          if (pid === undefined) pid = reaped.stopped[0].pid;
+        }
+        portStillHeld = reaped.portStillHeld;
+      }
       // Terminal stop → also drop the agent's port/key gateway markers so a
-      // restart is a clean slate (Task 4.1). Best-effort; never throws.
+      // restart is a clean slate (Task 4.1). Best-effort; never throws. NOT while a gateway still
+      // holds the port: clearing it then is what sent the next launch to a new port and left the old
+      // gateway holding the session.
       try {
-        clearGatewayMarkers(agentId, tempDir);
+        if (!portStillHeld) clearGatewayMarkers(agentId, tempDir);
       } catch {
         /* best-effort */
       }

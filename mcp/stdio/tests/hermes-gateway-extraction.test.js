@@ -411,6 +411,10 @@ const IMPORT_EDITS = [
     ],
   },
   {
+    // 0.6.8, not an extraction: ensure-host attaches the gateway it starts to the agent lease.
+    added: 'import { attachToAgentLease } from "./agent-lease-attach.mjs";',
+  },
+  {
     // The env import became a multi-line block when resolveHermesPython joined it, so it is pinned as one.
     addedBlock: [
       "import {  // v0.5.4: neutral owner",
@@ -532,8 +536,42 @@ function restoreSweptImports(lines, pristineLines) {
   return [...lines.slice(0, start), ...pristine, ...lines.slice(end)];
 }
 
+// Edits to the HOST's own code since the slice -- code that was never extracted, so no span's `editedSince`
+// can declare it. Undone before the comparison, each verified verbatim and exactly once, for the same
+// reason as `editedSince`: re-capturing the pristine fixture would erase the baseline this proof is about.
+const HOST_EDITS = [
+  {
+    // 0.6.8: ensure-host attaches the gateway it starts to the agent lease (agent-lease-attach.mjs).
+    now: [
+      "    openWsImpl = openGatewayWsClient,",
+      "    attach = attachToAgentLease,",
+    ],
+    was: ["    openWsImpl = openGatewayWsClient,"],
+  },
+  {
+    now: [
+      "  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });",
+      "  // A gateway THIS call started is detached from the launcher, so it joins the agent lease: the next start of",
+      "  // this agent can then find it however this generation ends. A reused one was started by somebody else.",
+      '  if (host.child?.pid) attach({ pid: host.child.pid, kind: "gateway" });',
+    ],
+    was: ["  const host = await ensureGatewayHost({ agentId: id, port, spawn, fetchImpl, openWsImpl });"],
+  },
+];
+
+function hostWithHostEditsUndone() {
+  const NL = String.fromCharCode(10);
+  let text = read("hermes-managed-host.js");
+  for (const edit of HOST_EDITS) {
+    const now = edit.now.join(NL);
+    assert.equal(text.split(now).length - 1, 1, `host edit not found exactly once, so it no longer describes the file: ${edit.now[0]}`);
+    text = text.replace(now, edit.was.join(NL));
+  }
+  return text;
+}
+
 function hostWithoutSliceImports() {
-  const lines = read("hermes-managed-host.js").split(String.fromCharCode(10));
+  const lines = hostWithHostEditsUndone().split(String.fromCharCode(10));
   for (const edit of IMPORT_EDITS) {
     const block = edit.addedBlock ?? [edit.added];
     const at = lines.indexOf(block[0]);

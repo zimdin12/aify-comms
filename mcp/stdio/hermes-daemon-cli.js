@@ -44,7 +44,7 @@ async function runStop(agentId, { stop, stdout, stderr }) {
     stderr(USAGE_STOP);
     return 2;
   }
-  const result = await stop({ agentId });
+  const result = await stop({ agentId, reapPrior: true });
   stdout(JSON.stringify({ agentId, stopped: !!result.stopped, pid: result.pid }) + "\n");
   return 0;
 }

@@ -139,8 +139,18 @@ def _without_comments(text, path):
     )
 
 
+def _field_pattern(field):
+    """The field's name as a word, but not as a FILE NAME.
+
+    A FILE NAME IS NOT A READER either. hermes keeps its session leases in
+    `runtime/active_sessions.json`, and the bridge module that reads that file moved `active_sessions`
+    out of KNOWN_UNREAD on 2026-09-15 while nothing had begun reading the `/stats` field.
+    """
+    return re.compile(r"\b" + re.escape(field) + r"\b(?!\.(?:json|jsonl|txt|md|py|js|mjs)\b)")
+
+
 def _mentions(field):
-    pattern = re.compile(r"\b" + re.escape(field) + r"\b")
+    pattern = _field_pattern(field)
     hits = []
     for path in FILES:
         try:
@@ -168,6 +178,13 @@ class TheStatsEndpointHasADeadFieldLedger(unittest.TestCase):
         """The other half of the control: a scan reading nothing reports every field as unread."""
         self.assertGreater(len(FILES), 200, len(FILES))
         self.assertGreater(len(_mentions("status")), 20, "a common name is barely mentioned")
+
+    def test_a_file_name_is_not_a_reader_and_a_field_access_still_is(self):
+        """Both directions of the file-name exclusion, so it cannot quietly hide a real reader."""
+        pattern = _field_pattern("active_sessions")
+        self.assertIsNone(pattern.search('path.join(home, "runtime", "active_sessions.json")'))
+        for reader in ("stats.active_sessions", 'payload["active_sessions"]', "active_sessions.toFixed(0)"):
+            self.assertIsNotNone(pattern.search(reader), reader)
 
     def test_the_two_fields_the_dashboard_uses_are_NOT_unread(self):
         """Anti-vacuity with teeth: if the scan called everything unread, these would be in the set
