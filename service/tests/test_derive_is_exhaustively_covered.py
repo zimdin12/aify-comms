@@ -42,12 +42,16 @@ MODES = ("managed", "resident")
 #: Empty and non-empty is the whole distinction the engine draws on this field; the TEXT is a message,
 #: not a branch.
 DEFECTS = ("", "no wake path")
+#: What the host sees on the screen: none, the three states it reports, and one it does not, which
+#: must read exactly like none.
+ACTIVITIES = ("", "working", "idle", "blocked", "thinking")
 
 
 def _all_inputs():
-    for mode, defect in itertools.product(MODES, DEFECTS):
+    for mode, defect, activity in itertools.product(MODES, DEFECTS, ACTIVITIES):
         for combo in itertools.product([False, True], repeat=len(BOOL_FIELDS)):
-            yield StatusInputs(mode=mode, config_defect=defect, **dict(zip(BOOL_FIELDS, combo)))
+            yield StatusInputs(mode=mode, config_defect=defect, host_activity=activity,
+                               **dict(zip(BOOL_FIELDS, combo)))
 
 
 class DeriveIsExhaustivelyCoveredTests(unittest.TestCase):
@@ -60,7 +64,7 @@ class DeriveIsExhaustivelyCoveredTests(unittest.TestCase):
         """Anti-vacuity. An empty or tiny enumeration proves nothing about totality, and the field
         list is discovered rather than typed -- so a rename that emptied it would show up here."""
         self.assertGreaterEqual(len(BOOL_FIELDS), 10, f"only {len(BOOL_FIELDS)} boolean fields found")
-        self.assertEqual(len(self.results), 2 * 2 * 2 ** len(BOOL_FIELDS))
+        self.assertEqual(len(self.results), 2 * 2 * len(ACTIVITIES) * 2 ** len(BOOL_FIELDS))
 
     def test_every_declared_status_is_reachable(self):
         never = [status for status in VALID_STATUSES if status not in self.produced]
@@ -111,6 +115,17 @@ class DeriveIsExhaustivelyCoveredTests(unittest.TestCase):
                 for inputs, status in self.results
             )
             self.assertTrue(changed, f"{field} never changes derive()'s answer")
+        for activity in ("working", "idle", "blocked"):
+            self.assertTrue(
+                any(derive(StatusInputs(**{**inputs.__dict__, "host_activity": activity})) != status
+                    for inputs, status in self.results if inputs.host_activity == ""),
+                f"a host observation of {activity!r} never changes derive()'s answer")
+
+    def test_an_unreported_host_state_reads_exactly_like_none(self):
+        """A newer host may send a state this service does not know. It must decide nothing."""
+        for inputs, status in self.results:
+            if inputs.host_activity == "thinking":
+                self.assertEqual(status, derive(StatusInputs(**{**inputs.__dict__, "host_activity": ""})))
 
     def test_derive_is_total(self):
         """No input raises, and none returns empty. A status the caller has to special-case for

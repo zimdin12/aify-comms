@@ -88,6 +88,13 @@ CASES: dict[str, dict] = {
         mode="managed", session=True, terminal=True, in_turn=1, awaiting=0,
         terminal_output="Apply this change? (y/n)"),
     "managed-wake-none":     dict(mode="managed", session=True, wake_none=True),
+    # WHAT THE HOST SEES. Both producers read it through one helper; these make it vary -- fresh,
+    # stale, and fresh beside a turn it contradicts -- so agreement on it means something.
+    "managed-host-working-fresh": dict(mode="managed", session=True, terminal=True, activity="working"),
+    "managed-host-idle-stale": dict(mode="managed", session=True, terminal=True, activity="idle",
+                                    activity_heard=OLD),
+    "managed-host-blocked-in-turn": dict(mode="managed", session=True, terminal=True, in_turn=1,
+                                         activity="blocked"),
 }
 #: KNOWN DIVERGENCE, pinned rather than hidden (M2, 2026-08-18). `_gather_status_inputs` sets
 #: `config_defect` for a resident whose wake mode ends in `-missing-handle`; the cheap producer does
@@ -182,6 +189,15 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
                         " updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                         (tid, sid, agent_id, eid, f"eb_{agent_id}", runtime, "/w", "x", "attached",
                          "dashboard", OLD, FRESH))
+                    if kw.get("activity"):
+                        # STAMPED NOW, not with FRESH: that is taken at import, and under xdist a case
+                        # can run minutes later, past the 75s bound, so "fresh" was never fresh and both
+                        # producers agreed on False (the anti-vacuity test below caught it).
+                        heard = kw.get("activity_heard") or _dt.datetime.now(_dt.timezone.utc).strftime(
+                            "%Y-%m-%dT%H:%M:%SZ")
+                        conn.execute(
+                            "UPDATE terminal_sessions SET activity_state=?, activity_reported_at=? WHERE id=?",
+                            (kw["activity"], heard, tid))
                     if kw.get("terminal_output"):
                         conn.execute("UPDATE terminal_sessions SET output=? WHERE id=?",
                                      (kw["terminal_output"], tid))
@@ -281,7 +297,8 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
             for field, value in auth.items():
                 seen.setdefault(field, set()).add(value)
 
-        flat = {"in_turn", "awaiting_input", "worker_present", "env_reachable", "disabled", "alive"}
+        flat = {"in_turn", "awaiting_input", "worker_present", "env_reachable", "disabled", "alive",
+                "host_activity_fresh"}
         constant = sorted(f for f in flat if len(seen.get(f, set())) < 2)
         self.assertEqual(
             constant, [],

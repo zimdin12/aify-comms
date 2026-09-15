@@ -32,6 +32,7 @@ from fastapi import HTTPException, Request
 from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_output import _record_host_reported_alive
+from service.api_core.status_broadcast import _broadcast_engine_status
 from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.console_prompts import forget_terminal as _forget_answered_prompts
@@ -622,8 +623,10 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
                     "terminal_owner_reported",
                     json.dumps({"from": existing_bridge_id, "to": new_bridge_id}),
                 )
-            await _record_host_reported_alive(db, terminal)
+            observed_agent = await _record_host_reported_alive(db, terminal, req.activity)
             await db.commit()
+            if observed_agent:
+                await _broadcast_engine_status(await _get_ws(request), db, observed_agent)
             reported = _terminal_session_to_dict(terminal)
             # NO OVERRIDE HERE ANY MORE. This used to re-read `terminal["output_seq"]` so a client
             # never took the 0 the queue would have answered for a real seq. The serialiser now

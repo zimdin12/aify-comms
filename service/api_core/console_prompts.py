@@ -2,12 +2,17 @@
 
 WHY THIS TIER. These rules are a model of a claude SCREEN, which is a runtime concept, and this
 service already owns runtime concepts: `service/runtimes/*.py` declares each runtime's session
-variables and builds its launch. The host that runs the process must not learn what claude looks
-like — it is about to run processes for aify-dashboard and aify-project-graph too, and a host
-carrying one service's screen model would have to carry all of them.
+variables and builds its launch. aify-env's HOST CORE must not learn what claude looks like -- it
+runs processes for aify-dashboard and aify-project-graph too, and a core carrying one service's
+screen model would have to carry all of them.
 
-It was briefly implemented in aify-env, to unblock a fleet at 5am on 2026-09-03. That was the wrong
-layer and the operator said so; this is the move.
+THE BOUNDARY, as the operator amended it on 2026-09-14: the host core stays PTY-only (it exposes
+screen text and PTY activity, never what a runtime's screen means), and a service's screen
+knowledge MAY live in that service's own plugin directory inside aify-env (`lib/plugins/<service>/`),
+because the plugin runs next to the authoritative screen. aify-comms' plugin now evaluates Herdr's
+screen rules there and reports working / idle / blocked (`service/api_core/host_activity.py`).
+These dialog answers stay here for now. History: a first version lived in aify-env's core, to
+unblock a fleet at 5am on 2026-09-03; the operator ruled that the wrong layer and it moved here.
 
 MATCHED AGAINST THE RENDERED SCREEN, never the raw stream, and that distinction is not academic.
 Measured the same night: claude does not send spaces, it moves the cursor --

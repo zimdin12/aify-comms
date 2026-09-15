@@ -558,6 +558,20 @@ class TerminalDeadReport(BaseModel):
     reason: Optional[str] = None
 
 
+class TerminalActivity(BaseModel):
+    """What the host sees on a terminal's screen, evaluated with Herdr's rules for its runtime.
+
+    `state` is kept a plain string: a host newer than this service may send a state it does not know,
+    and refusing the whole liveness frame for it would cost the terminal its liveness. Unknown states
+    are ignored where they are recorded (`service/api_core/host_activity.py`).
+    """
+    state: str
+    rule: Optional[str] = None
+    #: When the host first saw this state (its clock). Freshness is judged on the service's receipt
+    #: time instead, so a skewed host clock cannot make an observation look fresh or stale.
+    observedAt: Optional[str] = None
+
+
 class TerminalOutputRequest(BaseModel):
     bridgeId: Optional[str] = None
     output: Optional[str] = None
@@ -571,6 +585,8 @@ class TerminalOutputRequest(BaseModel):
     #: reported.
     exitCode: Optional[int] = None
     exitSignal: Optional[str] = None
+    #: The host's screen observation, carried on liveness frames only (no output, no status).
+    activity: Optional[TerminalActivity] = None
 
 
 class VirtualTerminalEnsureRequest(BaseModel):
