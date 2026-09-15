@@ -137,12 +137,17 @@ Where the build differs from the design above, each measured or read rather than
 - **A Linux zombie counts as gone.** A killed but unreaped process still answers `kill(pid, 0)` and keeps
   its `/proc` entry, so `isAlive` reads the `/proc` state and treats `Z`/`X` as dead. The real-process
   tests failed under WSL until it did.
-- **An unverifiable entry lets the start proceed, kills nothing, and writes nothing.** When the host
-  cannot read a start time, nothing is killed and the start is not refused. The claim leaves the
-  record as it was, so a later claim that can read it still decides it. (Carrying unverifiable entries
-  into a new record was tried first. It let a later automatic start kill a still-live instance's
-  gateway.) Every entry records `seenAliveAtMs`, which identifies it without a start time: a process
-  holding that pid which started no later than that moment is the one that was seen.
+- **One process table decides a claim.** A claim reads the table once, and every recorded process's
+  identity, the launcher's ancestry and every tree a stop ends come from it. When a record names a
+  process that is still running and the table cannot be read, the start is REFUSED (75, retryable).
+  Two earlier designs were wrong. The first proceeded and carried unverifiable entries into the new
+  record, which let a later automatic start kill a live instance's gateway. The second proceeded and
+  wrote nothing, which left a live launcher off the record so the next automatic start ran as well.
+  Both came from separate probes (start times, liveness, the table) failing on their own. Every entry
+  records `seenAliveAtMs`, which identifies it without a start time: a process holding that pid which
+  started no later than that moment is the one that was seen. An entry an older build wrote with
+  neither is `unknown`. It never blocks, and nothing of a live one is stopped. A pid the table does not
+  list is gone, whatever the entry recorded.
 - **The start-time tolerance is 2 s, not 30 s.** hermes' own record of a live process and CIM
   differed by 0.4 ms (measured 2026-09-15). At 30 s, a pid reused within half a minute read as ours.
 - **A start inside the live instance is refused.** That covers a launcher that inherited the
@@ -157,9 +162,9 @@ Where the build differs from the design above, each measured or read rather than
   mid-claim writes no record.
 - **Trees and ancestry are read from the process table**, not `taskkill /T` or a group signal. A child
   is followed only if it started after its parent, and an ancestor only if it started before its
-  child, because Windows never clears a stale `ParentProcessId`. A query that failed or timed out is no
-  table (a timed-out CIM query printed 139 of 838 rows). With no table, nothing is killed: a live
-  instance is not replaced, and leftovers stay on record.
+  child (the same millisecond counts), because Windows never clears a stale `ParentProcessId`. A query
+  that failed or timed out is no table (a timed-out CIM query printed 139 of 838 rows). A zombie is not
+  listed. The stop wait treats a failed probe as a process still running.
 - **claude claims before its managed reap**, and a `--shared` launch runs neither. The reap ran first
   and could end a live instance that the claim would then refuse.
 - **The hermes reap stops only what the agent OWNS.** That means a port no other agent's marker claims
@@ -197,8 +202,8 @@ Where the build differs from the design above, each measured or read rather than
   guarantee, never the launch. Kill decisions still fail closed. A lock still held by another start
   after a minute is a refusal, not a helper failure.
 
-Two independent reviews shaped the points above. The first build had 12 findings; the fix round
-had 11. What was deliberately left:
+Three independent reviews shaped the points above: 12 findings on the first build, 11 on the first fix
+round, and 7 on the second. What was deliberately left:
 
 - The queued-run backstop meeting a live but deaf instance is refused. That is the operator's policy
   for automatic starts. aify-env has no respawn loop, so nothing retries in a loop.
@@ -208,8 +213,14 @@ had 11. What was deliberately left:
   sync) after a pid was recorded could let a pid reused after the step read as ours.
 - The takeover's rename-then-restore leaves a microsecond window for two holders. The loser writes no
   record, but what it already stopped stays stopped.
-- A claim that could not verify the instance still lets claude's managed reap run, and that reap does
-  its own process matching.
+- claude's managed reap (`reap-managed-claude.js`) does its own process matching after a successful
+  claim.
+- Two hermes port markers naming ONE port make that port nobody's, so a leftover gateway on it is never
+  stopped by either agent's reap. The next launch moves one agent to a new port. The doctor's
+  `gateway-orphans` row reports such a gateway. Deciding which agent owns it needs evidence the markers
+  do not carry.
+- The sidecar's own teardown (`hermes-channel.js`, `reapPrior: false`) still clears the gateway markers
+  without checking the port, as before this work.
 
 Evidence: the wrapper suite ran on Windows and under WSL, including `an-agent-runs-once-per-host`
 with real processes and `a-launcher-holds-the-agent-lease` against the rendered launchers. In
@@ -217,6 +228,6 @@ aify-comms, `test_a_start_says_whether_it_replaces_a_live_instance.py` checks th
 `kill-prior-collects-what-a-previous-hermes-left.test.js` runs the real `stop` against real processes.
 Mutants reddened the start-intent chain (8 of 8), the reap (8 of 8) and the ensure-host attach call
 site (2 of 2) in the first build. After both review rounds, a mutant per fix reddens its test: 22 of 22
-in aify-wrapper and 11 of 11 in aify-comms. **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
+in aify-wrapper and 11 of 11 in aify-comms; after the third, 27 of 27 in aify-wrapper. **PASSES IN TESTS, not PROVEN**: no live hermes, claude or codex agent has been
 restarted through the new launchers yet. Also ASSUMED: that codex honours the hook trust
 `install.sh` writes at runtime (only the hash formula is proven).
