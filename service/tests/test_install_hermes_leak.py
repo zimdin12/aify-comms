@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -155,7 +156,9 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
     assert 'HERMES_LOOP_PID="$!"' in branch, (
         "resident branch must capture the detached delivery-loop PID to reap it"
     )
-    assert '_aify_hermes_on_exit() { kill "$HERMES_LOOP_PID"' in branch, (
+    # The teardown's FIRST act is the kill, whatever else it grew (aify-wrapper f97c0ea added a report of
+    # the TUI's exit after it, and laid the function over several lines).
+    assert re.search(r'_aify_hermes_on_exit\(\) \{\s*kill "\$HERMES_LOOP_PID"', branch), (
         "resident branch must define a teardown that kills the delivery loop"
     )
     assert "trap _aify_hermes_on_exit EXIT INT TERM" in branch, (
