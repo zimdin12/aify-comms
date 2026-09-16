@@ -71,10 +71,16 @@ export async function commsConsoleTailHandler({ agentId, lines }, { httpCall: ca
     if (!r.live) {
       return { content: [{ type: "text", text: r.message || `${agentId} has no live console.` }] };
     }
+    // A SCREEN THE SERVICE REBUILT FROM ITS STORED TAIL can be overlapping fragments until the program
+    // clears it, and it looks like any other screen. Said only when the service says so: an older
+    // service sends no field, and that is not a warning.
+    const rebuilt = r.reconstructed === true
+      ? "NOTE: this screen was rebuilt from the stored log after a service restart and the program has not redrawn it since; text may overlap or be missing.\n"
+      : "";
     return {
       content: [{
         type: "text",
-        text: `Console of ${agentId} (terminal ${r.terminalId}, status ${r.status}), last ${r.lines} lines:\n${r.output || "(empty)"}`,
+        text: `Console of ${agentId} (terminal ${r.terminalId}, status ${r.status}), last ${r.lines} lines:\n${rebuilt}${r.output || "(empty)"}`,
       }],
     };
   } catch (error) {

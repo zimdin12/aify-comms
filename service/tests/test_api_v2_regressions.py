@@ -14493,6 +14493,64 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(output.rstrip().endswith("2"), output)
         self.assertNotIn("\x1b", output)
 
+    def test_agent_console_tail_says_when_its_screen_was_rebuilt_from_the_stored_tail(self):
+        # A service restart leaves an existing terminal with no live screen; the next chunk rebuilds it
+        # from the stored 64 KB tail. With no full clear in that tail the screen is fragments, and the
+        # console must say so rather than serve it as what the program shows (2026-09-16).
+        from service.terminal_snapshot import drop_live_screen
+        self._seed_managed_claude_with_attached_terminal("console-rebuilt", "term_console_rebuilt")
+        drop_live_screen("term_console_rebuilt")
+        self.addCleanup(drop_live_screen, "term_console_rebuilt")
+        self._execute(
+            "UPDATE terminal_sessions SET output = ?, cols = 100, rows = 28 WHERE id = ?",
+            ("184;134;11m2\x1b[39m\x1b[H\r\x1b[34C\x1b[20Bstale fragment", "term_console_rebuilt"),
+        )
+
+        def write(chunk):
+            written = self.client.post(
+                "/api/v1/terminals/term_console_rebuilt/output",
+                json={"bridgeId": "bridge-current", "output": chunk, "status": "attached"},
+            )
+            self.assertEqual(written.status_code, 200, written.text)
+            resp = self.client.get("/api/v1/agents/console-rebuilt/console?lines=5")
+            self.assertEqual(resp.status_code, 200, resp.text)
+            return resp.json()
+
+        self.assertIs(write("\x1b[1;1Htick")["reconstructed"], True, "a screen rebuilt from the tail read as whole")
+        self.assertIs(write("\x1b[2J\x1b[Hwhole frame")["reconstructed"], False, "a full clear did not make it whole")
+
+    def test_agent_console_tail_control_a_screen_from_the_first_byte_is_not_rebuilt(self):
+        from service.terminal_snapshot import drop_live_screen
+        self._seed_managed_claude_with_attached_terminal("console-fresh", "term_console_fresh")
+        drop_live_screen("term_console_fresh")
+        self.addCleanup(drop_live_screen, "term_console_fresh")
+        written = self.client.post(
+            "/api/v1/terminals/term_console_fresh/output",
+            json={"bridgeId": "bridge-current", "output": "\x1b[1;1Hfirst bytes", "status": "attached"},
+        )
+        self.assertEqual(written.status_code, 200, written.text)
+        data = self.client.get("/api/v1/agents/console-fresh/console?lines=5").json()
+        self.assertIs(data["reconstructed"], False, data)
+
+    def test_agent_console_tail_replay_without_a_full_clear_is_rebuilt(self):
+        self._seed_managed_claude_with_attached_terminal("console-replay-partial", "term_console_replay_partial")
+        self._execute(
+            "UPDATE terminal_sessions SET output = ?, cols = 100, rows = 28 WHERE id = ?",
+            ("\x1b[28;67H1\x1b[Hfragment", "term_console_replay_partial"),
+        )
+        with patch.object(agents_console, "_render_live_terminal_screen", return_value=None):
+            data = self.client.get("/api/v1/agents/console-replay-partial/console?lines=40").json()
+        self.assertIs(data["reconstructed"], True, data)
+        # CONTROL on the replay path: the same route with a full clear in the stored log.
+        self._seed_managed_claude_with_attached_terminal("console-replay-whole", "term_console_replay_whole")
+        self._execute(
+            "UPDATE terminal_sessions SET output = ?, cols = 100, rows = 28 WHERE id = ?",
+            ("junk\x1b[2J\x1b[Hwhole frame", "term_console_replay_whole"),
+        )
+        with patch.object(agents_console, "_render_live_terminal_screen", return_value=None):
+            data = self.client.get("/api/v1/agents/console-replay-whole/console?lines=40").json()
+        self.assertIs(data["reconstructed"], False, data)
+
     def test_agent_console_tail_live_false_when_no_live_console(self):
         # Registered managed agent with NO consoleTerminal pointer / no terminal.
         self._heartbeat_environment(

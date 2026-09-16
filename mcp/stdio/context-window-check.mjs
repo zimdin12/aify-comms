@@ -271,7 +271,10 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24, max
       notRunning += 1;
       continue;
     }
-    rows.push({ agentId, runtime: agent.runtime, usage: parseContextUsage(console_ && console_.output) });
+    // A REBUILT SCREEN IS NOT READ. After a service restart it is fragments of different frames painted
+    // over a blank grid, and digits from two frames can form a pair nobody drew. It stays a row, unread.
+    const usage = console_ && console_.reconstructed === true ? null : parseContextUsage(console_ && console_.output);
+    rows.push({ agentId, runtime: agent.runtime, usage });
   }
 
   const verdict = contextWindowVerdict(rows, { unmeasured, notRunning });
