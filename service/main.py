@@ -551,7 +551,7 @@ def create_app() -> FastAPI:
             return
         agent_id = ws.query_params.get("agent_id")
         manager = app.state.ws_manager
-        await manager.connect(ws, agent_id)
+        await manager.connect(ws, agent_id, wants_changes=ws.query_params.get("changes") == "1")
         try:
             while True:
                 await ws.receive_text()  # Keep alive, ignore client messages

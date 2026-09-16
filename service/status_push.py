@@ -11,7 +11,7 @@ With the dashboard updating on change, nothing asked in between. This loop asks 
 the cache itself as a change to `agents` (service/change_feed.py). It is the same recompute the
 roster ran, minus building and serialising the roster.
 
-ONLY WHILE A DASHBOARD IS CONNECTED. With no socket open there is nobody to push to, and the sweep
+ONLY WHILE A DASHBOARD THAT READS CHANGES IS CONNECTED. With none there is nobody to push to, and the sweep
 still keeps the cache honest for every other reader, so an idle host with no tab open pays nothing.
 """
 
@@ -42,7 +42,7 @@ async def refresh_expired_statuses_once() -> int:
 async def periodic_status_push(manager, *, interval_s: float = STATUS_PUSH_INTERVAL_S) -> None:
     while True:
         await asyncio.sleep(interval_s)
-        if not manager.active_count():
+        if not manager.change_subscribers():
             continue
         try:
             await refresh_expired_statuses_once()

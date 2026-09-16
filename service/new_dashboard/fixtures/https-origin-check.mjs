@@ -58,7 +58,7 @@ try {
   const NativeWebSocket = globalThis.WebSocket;
   globalThis.WebSocket = class extends NativeWebSocket {
     constructor(url) {
-      assert.equal(url, `${origin.replace('https:', 'wss:')}/ws`);
+      assert.equal(url, `${origin.replace('https:', 'wss:')}/ws?changes=1`);
       super(url);
       socket = this;
     }
@@ -70,7 +70,7 @@ try {
   connectRealtimeSocket();
   assert.deepEqual(await frame, { event: 'https_fixture', data: { received: true } });
   assert.equal(state.realtimeConnected, true);
-  assert.deepEqual(requests.map((r) => r.url), ['/api/v1/probe', '/api/v1/terminals/fixture-terminal/input', '/ws']);
+  assert.deepEqual(requests.map((r) => r.url), ['/api/v1/probe', '/api/v1/terminals/fixture-terminal/input', '/ws?changes=1']);
   assert.ok(requests.every((r) => r.host === new URL(origin).host));
   assert.equal(requests[1].method, 'POST');
   assert.deepEqual(JSON.parse(requests[1].body), { body: 'native paste payload\r', requestedBy: 'dashboard' });

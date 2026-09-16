@@ -245,7 +245,8 @@ class ChangeFeed:
             "liveness": sorted(liveness),
         }
         try:
-            await manager.broadcast("data_changed", payload)
+            # Only to the sockets that asked for it: see ConnectionManager.change_subscribers.
+            await manager.broadcast("data_changed", payload, to=manager.change_subscribers())
         except Exception:  # noqa: BLE001 -- a failed push must never fail anything else
             logger.exception("data_changed push failed")
         return payload

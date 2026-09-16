@@ -160,7 +160,7 @@ class TheENDPOINTActuallyChecksTests(unittest.TestCase):
         # runs BEFORE the manager is touched, so a stand-in is enough to tell "accepted" from
         # "refused" -- and the connection tracking is not what is under test.
         class _Manager:
-            async def connect(self, ws, agent_id):
+            async def connect(self, ws, agent_id, *, wants_changes=False):
                 await ws.accept()
 
             def disconnect(self, ws):

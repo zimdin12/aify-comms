@@ -8,16 +8,23 @@ class ConnectionManager:
     def __init__(self):
         self._connections: list[WebSocket] = []
         self._agents: dict[str, WebSocket] = {}
+        #: Sockets that asked for `data_changed` (`/ws?changes=1`). A dashboard loaded before that event
+        #: existed treats any unknown event as "refetch everything", so sending it one would turn every
+        #: heartbeat batch into a full refetch -- measured 2026-09-17 on a tab left open across the deploy.
+        self._change_subscribers: set = set()
 
-    async def connect(self, ws: WebSocket, agent_id: str = None):
+    async def connect(self, ws: WebSocket, agent_id: str = None, *, wants_changes: bool = False):
         await ws.accept()
         self._connections.append(ws)
+        if wants_changes:
+            self._change_subscribers.add(ws)
         if agent_id:
             self._agents[agent_id] = ws
 
     def disconnect(self, ws: WebSocket):
         if ws in self._connections:
             self._connections.remove(ws)
+        self._change_subscribers.discard(ws)
         self._agents = {k: v for k, v in self._agents.items() if v != ws}
 
     def online_agents(self) -> set:
@@ -26,7 +33,10 @@ class ConnectionManager:
     def active_count(self) -> int:
         return len(self._connections)
 
-    async def broadcast(self, event: str, data: dict = None):
+    def change_subscribers(self) -> list:
+        return [ws for ws in self._connections if ws in self._change_subscribers]
+
+    async def broadcast(self, event: str, data: dict = None, *, to: list = None):
         """Send one event to every connected client, CONCURRENTLY.
 
         THE COST WAS THE SUM OF THE CLIENTS, NOT THE MAX. `await send_text` in a loop makes every
@@ -53,7 +63,8 @@ class ConnectionManager:
         to it positionally so a client that went away mid-send is still the one disconnected.
         """
         msg = json.dumps({"event": event, "data": data or {}})
-        targets = list(self._connections)
+        # `to` narrows the audience to a snapshot the caller took; None is every connection.
+        targets = list(self._connections) if to is None else list(to)
         if not targets:
             return
         results = await asyncio.gather(

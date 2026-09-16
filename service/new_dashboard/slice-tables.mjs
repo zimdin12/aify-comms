@@ -52,4 +52,3 @@ export function slicesReading(tables, among = Object.keys(SLICE_TABLES)) {
   if (!touched.size) return [];
   return among.filter((slice) => (SLICE_TABLES[slice] || []).some((table) => touched.has(table)));
 }
-

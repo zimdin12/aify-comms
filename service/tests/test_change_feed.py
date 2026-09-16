@@ -165,7 +165,10 @@ class _Manager:
     def __init__(self):
         self.sent = []
 
-    async def broadcast(self, event, data=None):
+    def change_subscribers(self):
+        return ["subscriber"]
+
+    async def broadcast(self, event, data=None, *, to=None):
         self.sent.append((event, data))
 
 
@@ -327,7 +330,7 @@ class TheServiceRunsTheFeed(unittest.TestCase):
             self.assertIs(feed._manager, manager)
             sent = []
 
-            async def record(event, data=None):
+            async def record(event, data=None, *, to=None):
                 sent.append((event, data))
             manager.broadcast = record
             response = client.post("/api/v1/agents", json={"agentId": "feed-agent", "role": "coder"})
@@ -339,6 +342,44 @@ class TheServiceRunsTheFeed(unittest.TestCase):
         self.assertTrue(changes, f"no data_changed was sent; saw {[event for event, _ in sent]}")
         self.assertIn("agents", {table for data in changes for table in data["tables"]})
         self.assertIsNone(feed._manager, "the feed stayed attached after the service stopped")
+
+
+class OnlyASocketThatAskedIsSentChanges(unittest.TestCase):
+    """MEASURED 2026-09-17: a dashboard tab loaded before `data_changed` existed refetched all ten endpoints
+    on every one, because its code refetches on any unknown event. Service CPU went 1.58% -> 4.21% of a
+    core with one such tab open. So the event goes only to sockets that asked for it."""
+
+    class _Socket:
+        def __init__(self):
+            self.frames = []
+
+        async def accept(self):
+            pass
+
+        async def send_text(self, text):
+            self.frames.append(text)
+
+    def test_data_changed_reaches_the_asking_socket_and_not_the_old_one(self):
+        import json
+        from service.ws import ConnectionManager
+
+        async def body():
+            manager = ConnectionManager()
+            old, new = self._Socket(), self._Socket()
+            await manager.connect(old)
+            await manager.connect(new, wants_changes=True)
+            feed = ChangeFeed()
+            feed.attach(manager)
+            feed.committed([Write("messages", frozenset())])
+            await feed.flush()
+            await manager.broadcast("message_sent", {})
+            manager.disconnect(new)
+            self.assertEqual(manager.change_subscribers(), [], "a closed socket is still subscribed")
+            return old, new
+        old, new = asyncio.run(body())
+        events = lambda sock: [json.loads(frame)["event"] for frame in sock.frames]
+        self.assertEqual(events(new), ["data_changed", "message_sent"])
+        self.assertEqual(events(old), ["message_sent"], "a socket that did not ask was sent data_changed")
 
 
 class TheStatusPushRunsOnlyWhileSomebodyWatches(unittest.TestCase):
@@ -354,8 +395,8 @@ class TheStatusPushRunsOnlyWhileSomebodyWatches(unittest.TestCase):
         class Manager:
             count = 0
 
-            def active_count(self):
-                return self.count
+            def change_subscribers(self):
+                return ["subscriber"] * self.count
 
         async def body():
             manager = Manager()

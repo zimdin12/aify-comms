@@ -58,7 +58,8 @@ export function connectRealtimeSocket() {
     // browser WebSocket API takes no headers. Until 2026-09-02 this URL was bare, so with
     // `API_KEY` set every handshake was refused and the client's own backoff below turned a
     // permanent refusal into a dashboard that reported "reconnecting" for ever.
-    dashboardSocket = new WebSocket(withApiKey(`${wsOrigin}/ws`));
+    // `changes=1` asks for `data_changed`; a socket that does not ask is never sent it (service/ws.py).
+    dashboardSocket = new WebSocket(withApiKey(`${wsOrigin}/ws?changes=1`));
   } catch {
     state.realtimeConnected = false;
     return;

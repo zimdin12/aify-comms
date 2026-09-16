@@ -110,7 +110,7 @@ test("connect builds a ws:// URL from the http api origin", () => {
     harness();
     connectRealtimeSocket();
     assert.equal(built.length, 1);
-    assert.equal(built[0].url, "ws://fake.invalid/ws");
+    assert.equal(built[0].url, "ws://fake.invalid/ws?changes=1");
   });
 });
 
@@ -565,7 +565,7 @@ test("connect carries the stored key, because a WebSocket cannot send a header",
     withFakes(({ built }) => {
       harness();
       connectRealtimeSocket();
-      assert.equal(built[0].url, "ws://fake.invalid/ws?api_key=banana");
+      assert.equal(built[0].url, "ws://fake.invalid/ws?changes=1&api_key=banana");
     });
   } finally {
     if (realStore === undefined) delete globalThis.localStorage;
@@ -582,7 +582,7 @@ test("CONTROL: with no key stored the URL is exactly what it always was", () => 
     withFakes(({ built }) => {
       harness();
       connectRealtimeSocket();
-      assert.equal(built[0].url, "ws://fake.invalid/ws");
+      assert.equal(built[0].url, "ws://fake.invalid/ws?changes=1");
     });
   } finally {
     if (realStore === undefined) delete globalThis.localStorage;
