@@ -19,7 +19,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { startTimes } from "aify-wrapper/lib/process-identity.mjs";
+import { anchorOffsetMs, startTimes } from "aify-wrapper/lib/process-identity.mjs";
 
 import { runHermesDaemonCli } from "../hermes-daemon-cli.js";
 import { stopDaemon } from "../hermes-daemon.js";
@@ -199,6 +199,11 @@ test("ANOTHER AGENT'S gateway on a colliding port, and a session another agent a
     reapPriorHermes({
       agentId: "probe-x", tempDir, listProcesses: () => table, leases: () => leaseList,
       starts: () => new Map(leaseList.map((l) => [l.pid, l.process_start_time * 1000])),
+      // Both times above are written on ONE clock, so the conversion between hermes' clock and this host's
+      // anchored one has nothing to do here. Left real, this read the host's own `anchorOffsetMs()`: on a
+      // Linux host whose clock had moved (574 s here) the control below collected nothing and the test
+      // failed for a reason no change of this repo's could cause.
+      clockOffset: () => 0,
       kill: (pid) => killed.push(pid), alive: () => false, waitMs: 0, self: 1, listeners: () => [],
     });
     return killed;
@@ -341,13 +346,18 @@ test("REAL PROCESSES through the real `stop`: the leftover gateway and lease hol
   started.push(holder);
   const starts = startTimes([holder, stranger, operator]);
   assert.ok(starts.get(holder) && starts.get(stranger) && starts.get(operator), "control: this host reads start times");
+  // ON HERMES' CLOCK, because this file below is hermes' own record and hermes writes the wall clock. On Linux
+  // `startTimes` is on the boot anchor's clock, which drifts from it (574 s on the review host, 2026-09-16),
+  // and the reap converts between the two -- so a fixture left anchored is a start time hermes would never
+  // have written, and this proof would fail on a host whose clock had moved. 0 on Windows, where there is no anchor.
+  const onHermesClock = (at) => at - anchorOffsetMs();
   fs.writeFileSync(path.join(tempDir, `aify-hermes-port-${agentId}`), String(persisted));
   assert.ok(writeSessionIdMarker(agentId, "sess-real", { tempDir }));
   fs.mkdirSync(path.join(home, "runtime"));
   fs.writeFileSync(path.join(home, "runtime", "active_sessions.json"), JSON.stringify({ entries: [
-    lease(holder, "sess-real", starts.get(holder)),
-    lease(stranger, "sess-real", starts.get(stranger) - 3_600_000),
-    lease(operator, "sess-real", starts.get(operator)),
+    lease(holder, "sess-real", onHermesClock(starts.get(holder))),
+    lease(stranger, "sess-real", onHermesClock(starts.get(stranger)) - 3_600_000),
+    lease(operator, "sess-real", onHermesClock(starts.get(operator))),
   ] }));
 
   const res = spawnSync(process.execPath, [CLI, "stop", agentId], {
