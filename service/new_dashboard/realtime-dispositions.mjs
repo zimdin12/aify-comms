@@ -33,6 +33,7 @@
  */
 export const GRANULAR = Object.freeze([
   'agent_status',
+  'data_changed',
   'terminal_output',
   'terminal_started',
 ]);

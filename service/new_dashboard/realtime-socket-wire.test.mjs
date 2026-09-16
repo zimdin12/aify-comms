@@ -97,7 +97,7 @@ test("an UNKNOWN event before init is equally harmless", () => {
 
 function wire() {
   const calls = { routed: [], evaluateFlowGates: 0, refreshSoon: 0, scheduleRenderAll: 0 };
-  initRealtimeSocket({
+  initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },
     // The notifier is called FIRST inside applyRealtimeEvent, so it doubles as a record of what was routed.
     dashboardNotifier: { handle: (event, data) => calls.routed.push([event, data]) },
     evaluateFlowGates: () => { calls.evaluateFlowGates += 1; },

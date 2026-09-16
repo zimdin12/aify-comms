@@ -23,6 +23,7 @@ import { dispositionOf } from './realtime-dispositions.mjs';
 import { updateAwaitPill } from './console-await.mjs';
 import { holdFrame, rememberPainted } from './console-cursor.mjs';
 
+let changeRefresh = { covering: false, opened() {}, closed() {}, changed() {} };
 let dashboardNotifier = { handle() {} };
 let evaluateFlowGates = () => {};
 let refreshSoon = () => {};
@@ -31,10 +32,10 @@ let scheduleRenderAll = () => {};
 
 /** Supply the app.js-side dependencies. Throws rather than silently accepting a partial bag. */
 export function initRealtimeSocket(deps) {
-  const REQUIRED = ['dashboardNotifier', 'evaluateFlowGates', 'refreshSoon', 'resyncActiveConsole', 'scheduleRenderAll'];
+  const REQUIRED = ['changeRefresh', 'dashboardNotifier', 'evaluateFlowGates', 'refreshSoon', 'resyncActiveConsole', 'scheduleRenderAll'];
   const missing = REQUIRED.filter((k) => deps == null || deps[k] == null);
   if (missing.length) throw new TypeError(`initRealtimeSocket requires ${missing.join(', ')}`);
-  ({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll } = deps);
+  ({ changeRefresh, dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll } = deps);
   // Re-initialising means starting over, so any socket from a previous init is CLOSED, not abandoned.
   // app.js calls this once, before the first connect, where there is nothing to close. It matters for
   // the suite, which inits per test: without it the CONNECTING guard in `connectRealtimeSocket` sees a
@@ -77,6 +78,8 @@ export function connectRealtimeSocket() {
     const wasReconnect = state.realtimeConnected === false && _wsReconnectAttempts > 0;
     state.realtimeConnected = true;
     _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry
+    // Changes arrive on this socket from here on, and the timed poll stops (change-refresh.mjs).
+    changeRefresh.opened({ reconnected: wasReconnect });
     evaluateFlowGates();
     // After a dropped-then-reconnected WS (deploy, network blip, laptop sleep), any live
     // terminal_output frames emitted during the outage were missed — an IDLE agent emits no
@@ -98,6 +101,8 @@ export function connectRealtimeSocket() {
   sock.onclose = () => {
     clearTimeout(watchdog);
     state.realtimeConnected = false;
+    // Nothing reports changes until the next open, so the timed poll takes over.
+    changeRefresh.closed();
     // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker
     // service restarts on every deploy; a flat retry from every open tab piles load on exactly
     // when it's weakest. Reset to fast on a successful open (see onopen below).
@@ -171,9 +176,15 @@ export function applyRealtimeEvent(event, data = {}) {
   // on which branch the event takes, and must never be able to break the dashboard's own handling
   // of it. The notifier swallows its own errors and returns a reason string.
   try { dashboardNotifier.handle(event, data); } catch {}
+  // WHAT CHANGED, by table, after every commit. It is what refreshes the dashboard's data now, so an
+  // event below that only announces a change refetches nothing while this socket is delivering them.
+  if (event === 'data_changed') {
+    changeRefresh.changed(data);
+    return;
+  }
   if (event === 'terminal_started' && data.terminalId && data.agentId) {
     state.terminalOwners.set(String(data.terminalId), String(data.agentId));
-    refreshSoon();
+    if (!changeRefresh.covering) refreshSoon();
     return;
   }
   if (event === 'terminal_output' && data.terminalId) {
@@ -264,7 +275,7 @@ export function applyRealtimeEvent(event, data = {}) {
       scheduleRenderAll();
       return;
     }
-    refreshSoon(); // unknown agent — a registration we haven't loaded yet
+    if (!changeRefresh.covering) refreshSoon(); // unknown agent — a registration we haven't loaded yet
     return;
   }
   // EVERY event has a declared disposition, in realtime-dispositions.mjs. This used to be an inline
@@ -275,7 +286,11 @@ export function applyRealtimeEvent(event, data = {}) {
   //
   // Safe because refreshSoon debounces 250ms AND app.js coalesces while a bundle is in flight, so a
   // burst of events collapses into one refetch rather than stacking bundles.
-  if (dispositionOf(event) === 'refresh') {
+  //
+  // AND ONLY UNTIL THIS CONNECTION HAS DELIVERED A `data_changed`. Every named event but `agent_status`
+  // is sent from a function that commits (69 of 72 broadcast sites, read 2026-09-17), so its data
+  // arrives as a change to the tables it wrote -- and refetches only the slices that read them.
+  if (dispositionOf(event) === 'refresh' && !changeRefresh.covering) {
     refreshSoon();
   }
 }

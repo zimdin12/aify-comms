@@ -64,7 +64,7 @@ try {
     }
   };
   const frame = new Promise((resolve) => {
-    initRealtimeSocket({ dashboardNotifier: { handle: (event, data) => resolve({ event, data }) },
+    initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },  dashboardNotifier: { handle: (event, data) => resolve({ event, data }) },
       evaluateFlowGates() {}, refreshSoon() {}, resyncActiveConsole: async () => {}, scheduleRenderAll() {} });
   });
   connectRealtimeSocket();

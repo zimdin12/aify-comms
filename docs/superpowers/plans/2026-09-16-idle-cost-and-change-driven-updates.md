@@ -205,3 +205,57 @@ earliest deadline recomputes the agents it passed and publishes the ones whose d
 5. **The bridge socket decision,** measured.
 
 Each step is measured before and after with the same py-spy, tcpdump and socket counts used above.
+
+## Built after v0.6.9: the dashboard updates on change (A, C and D)
+
+Written 2026-09-17. B (claims wake from the feed) is not built; the claim re-poll was already measured
+not to be the idle cost.
+
+**A. The feed** (`service/change_feed.py`).
+
+- The pool's checkout notes the table each write names and reports it on commit. A rollback, or a
+  return without a commit, reports nothing.
+- `data_changed {seq, instance, tables, liveness}` goes to every dashboard socket, coalesced over
+  250 ms. When only liveness is waiting, the window is 10 s.
+- Liveness is declared by table and column: heartbeats, turn markers and streamed terminal output.
+- Checked against SQLite's own reading: every literal write statement in the service is compiled with
+  an authorizer, and the parser must report the same table and SET columns. On its first run it found
+  one shape the parser misread, a table alias (`UPDATE terminal_controls AS stale SET`).
+- Only pooled checkouts report, so only the running service publishes. Tests without the lifespan see
+  no change.
+
+**C. Status that changes without a write.**
+
+- `_live_state_set` reports a derived status that moved as a change to `agents`.
+- While a dashboard socket is open, `service/status_push.py` recomputes expired entries every 15 s.
+  That recompute used to happen as a side effect of the dashboard's `GET /agents` poll. With no socket
+  open it does nothing, and the 60 s sweep still keeps the cache honest.
+
+**D. The dashboard.**
+
+- `change-refresh.mjs` maps tables to slices (`slice-tables.mjs`) and fetches only those slices
+  (`slice-loaders.mjs`).
+- Throttles: `stats` at most every 30 s. Liveness-only changes refresh agents, sessions and
+  environments at most once a minute.
+- A skipped `seq` or a new `instance` triggers one full refresh. So do a reconnect and showing a hidden
+  tab.
+- The timed poll runs only while the socket is down.
+- Named events stop refetching once the connection has delivered a `data_changed`: 69 of 72 broadcast
+  sites sit in functions that commit.
+- The table map was checked by measurement, not by reading. A Python test runs each slice's endpoint
+  on a seeded database and records the tables SQLite reads. The hand-written first draft had missed
+  four:
+  - `/agents` reads `messages` and `read_receipts` (unread counts);
+  - `/stats` reads sessions, tombstones, environments and spawn requests;
+  - two lists read `settings`.
+
+**Known limits, stated rather than fixed.**
+
+- The first socket open does not refetch. A change committed between the boot fetch and the open waits
+  for the next change to that slice, or for the tab being shown again.
+- A slice that fails inside a FULL refresh is marked current and is not retried until its next change.
+  A slice that fails in a partial refresh is retried after 5 s.
+- A partial agents or channels refresh does not close a conversation whose agent or channel was
+  removed. The full refresh still does.
+- The slice test sees only the queries its seed reaches. The map errs wide for that reason.
+- Unmeasured on the live service when written. The before and after figures go below once deployed.

@@ -26,6 +26,7 @@ from service.api_core.browser_origin import (
 )
 from service.routers import health, containers as containers_router
 from service.routers.api_v2 import router as api_router
+from service.change_feed import CHANGE_FEED
 from service.db import CONNECTION_POOL, init_db
 from service.ws import ConnectionManager
 from service.ntfy import get_relay
@@ -371,6 +372,10 @@ async def lifespan(app: FastAPI):
 
     # WebSocket manager
     app.state.ws_manager = ConnectionManager()
+    # Committed writes and derived status changes reach dashboards as `data_changed` from here on.
+    CHANGE_FEED.attach(app.state.ws_manager)
+    from service.status_push import periodic_status_push
+    status_push_task = asyncio.create_task(periodic_status_push(app.state.ws_manager))
 
     # Store config on app state
     app.state.config = config
@@ -431,6 +436,11 @@ async def lifespan(app: FastAPI):
             await reconcile_task
         except asyncio.CancelledError:
             pass
+        status_push_task.cancel()
+        try:
+            await status_push_task
+        except asyncio.CancelledError:
+            pass
         pi_flip_task.cancel()
         try:
             await pi_flip_task
@@ -438,6 +448,7 @@ async def lifespan(app: FastAPI):
             pass
         # After every background task has stopped, so nothing checks a connection out again.
         await CONNECTION_POOL.aclose()
+        CHANGE_FEED.detach()
 
     # --- SHUTDOWN ---
     if container_manager:

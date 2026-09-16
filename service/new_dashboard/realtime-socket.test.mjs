@@ -46,8 +46,14 @@ function installFakeWebSocket() {
 
 /** Seed the module with recording dependencies and a clean socket state. */
 function harness({ deps = {} } = {}) {
-  const calls = { evaluateFlowGates: 0, refreshSoon: 0, resyncActiveConsole: 0, scheduleRenderAll: 0, notified: [] };
+  const calls = { evaluateFlowGates: 0, refreshSoon: 0, resyncActiveConsole: 0, scheduleRenderAll: 0, notified: [], opened: [], closed: 0, changed: [] };
   initRealtimeSocket({
+    changeRefresh: {
+      covering: false,
+      opened: (arg) => calls.opened.push(arg),
+      closed: () => { calls.closed += 1; },
+      changed: (data) => calls.changed.push(data),
+    },
     dashboardNotifier: { handle: (event, data) => calls.notified.push([event, data]) },
     evaluateFlowGates: () => { calls.evaluateFlowGates += 1; },
     refreshSoon: () => { calls.refreshSoon += 1; },
@@ -83,6 +89,7 @@ test("INIT REFUSES A PARTIAL BAG rather than defaulting to a no-op", () => {
   // socket connected and the page never updating — the exact symptom the socket exists to prevent, and
   // indistinguishable from a network problem. A silent default would make that a supported state.
   const full = {
+    changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },
     dashboardNotifier: { handle() {} },
     evaluateFlowGates() {},
     refreshSoon() {},
@@ -488,6 +495,38 @@ test("an event nobody classified refetches rather than vanishing", () => {
   seedState();
   applyRealtimeEvent("something_nobody_handles", {});
   assert.equal(calls.refreshSoon, 1, "an unclassified event was silently dropped again");
+});
+
+test("data_changed goes to the change refresher and refetches nothing itself", () => {
+  const calls = harness();
+  seedState();
+  applyRealtimeEvent("data_changed", { seq: 1, instance: "svc", tables: ["messages"], liveness: [] });
+  assert.deepEqual(calls.changed, [{ seq: 1, instance: "svc", tables: ["messages"], liveness: [] }]);
+  assert.equal(calls.refreshSoon, 0);
+});
+
+test("once changes are arriving, a named event no longer refetches the whole bundle", () => {
+  const covering = { covering: true, opened() {}, closed() {}, changed() {} };
+  const calls = harness({ deps: { changeRefresh: covering } });
+  seedState();
+  for (const event of ["message_sent", "channel_message", "something_nobody_handles"]) applyRealtimeEvent(event, {});
+  applyRealtimeEvent("terminal_started", { terminalId: "t9", agentId: "a1" });
+  applyRealtimeEvent("agent_status", { agentId: "not-loaded-yet", status: "working" });
+  assert.equal(calls.refreshSoon, 0, "a named event refetched everything although its change arrives as data_changed");
+  assert.equal(state.terminalOwners.get("t9"), "a1", "terminal ownership must still be recorded");
+});
+
+test("the socket tells the refresher when it opens and closes", () => {
+  withFakes(({ built }) => {
+    const calls = harness();
+    state.realtimeConnected = false;
+    connectRealtimeSocket();
+    built[0].onopen();
+    assert.deepEqual(calls.opened, [{ reconnected: false }]);
+    built[0].readyState = CLOSED;
+    built[0].onclose();
+    assert.equal(calls.closed, 1, "a closed socket left the poll off");
+  });
 });
 
 test("the measured-noisy event is still not refetching", () => {

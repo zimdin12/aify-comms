@@ -28,7 +28,7 @@ import { setApiBase } from '/api-client.mjs';
 import { resyncActiveConsole } from '/console-actions.mjs';
 import { connectRealtimeSocket, initRealtimeSocket } from '/realtime-socket.mjs';
 setApiBase('/fixture-api', location.origin);
-initRealtimeSocket({dashboardNotifier:{handle(){}}, evaluateFlowGates(){}, refreshSoon(){}, resyncActiveConsole, scheduleRenderAll(){}});
+initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} }, dashboardNotifier:{handle(){}}, evaluateFlowGates(){}, refreshSoon(){}, resyncActiveConsole, scheduleRenderAll(){}});
 connectRealtimeSocket();
 window.fixture = { state, disposeActiveXterm, resyncActiveConsole,
   mount: () => mountXtermForTerminal('fixture-terminal', 'fixture-agent', document.getElementById('console'), {}, {resyncActiveConsole}),

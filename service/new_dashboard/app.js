@@ -84,6 +84,8 @@ import { restorePersistedPreferences, wireGlobalControls, wireInspectorGestures,
 import { loadVersionBadge } from './version-badge.mjs';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 import { createRefreshGate } from './refresh-visibility.mjs';
+import { ChangeDrivenRefresh } from './change-refresh.mjs';
+import { loadSlices } from './slice-loaders.mjs';
 
 // resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
@@ -221,6 +223,7 @@ function evaluateFlowGates() {
 // api moved to ./api-client.mjs in v0.5.4.
 setApiBase(apiBase, apiOrigin);
 const refreshGate = createRefreshGate({ onVisibleAgain: () => refresh() }); // a hidden tab fetches nothing and catches up once when shown (refresh-visibility.mjs)
+const changeRefresh = new ChangeDrivenRefresh({ fullRefresh: () => refresh(), refreshSlices: (slices) => (refreshGate.admit() ? loadSlices(slices, { evaluateFlowGates, renderAll, refreshOpenInspector }) : Promise.resolve([])), pollSeconds: () => state.settings?.dashboard_refresh_seconds }); // what changed is refetched, and the timer runs only while the socket is down (change-refresh.mjs)
 
 // awaitTerminalSize moved to ./xterm-lifecycle.mjs in v0.5.4.
 
@@ -256,7 +259,9 @@ async function refresh() {
   if (_refreshInFlight) { _refreshQueued = true; return; }
   _refreshInFlight = true;
   try {
+    const startedAt = Date.now();
     await _refreshImpl();
+    changeRefresh.fullyRefreshed(startedAt); // every slice is current as of the start (change-refresh.mjs)
   } finally {
     _refreshInFlight = false;
     if (_refreshQueued) { _refreshQueued = false; refreshSoon(); }
@@ -976,20 +981,12 @@ initEnvironmentActions({ closeInspector, inspect, refresh, refreshSoon });
 initClickDispatch({ chatController, closeInspector, refreshSoon, renderSessionWorkspace, setPage });
 initWorkLoopActions({ refresh });
 initRunInspector({ closeInspector, evaluateFlowGates, openInspector, openRunConsole, refresh, renderDiagnosticsBulkToolbar });
-initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });
+initRealtimeSocket({ changeRefresh, dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });
 connectRealtimeSocket();
 wireRealtimeResumeReconnect();
 refresh();
-// Poll fallback interval, honoring the `dashboard_refresh_seconds` setting (was hardcoded
-// to 15s — the setting silently did nothing). Re-armed when the setting changes.
-let __refreshTimer = null, __refreshSecs = 0;
-function armRefreshTimer() {
-  const secs = Math.max(5, Number(state.settings && state.settings.dashboard_refresh_seconds) || 15);
-  if (secs === __refreshSecs && __refreshTimer) return;
-  __refreshSecs = secs;
-  if (__refreshTimer) clearInterval(__refreshTimer);
-  __refreshTimer = setInterval(refresh, secs * 1000);
-}
+// The timed poll honours `dashboard_refresh_seconds` and runs only while the socket is down (change-refresh.mjs).
+function armRefreshTimer() { changeRefresh.armPoll(); }
 armRefreshTimer();
 // The Settings page's controls moved to ./boot-wiring.mjs in v0.5.4.
 wireSettingsControls({ saveSettings });

@@ -82,7 +82,7 @@ async function deliver(stride, behind = 0) {
   };
   setApiBase("");
   initConsoleActions({ closeInspector() {}, refresh: async () => {}, refreshSoon() {}, setPage() {} });
-  initRealtimeSocket({
+  initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },
     dashboardNotifier: { handle() {} },
     evaluateFlowGates() {},
     refreshSoon() {},

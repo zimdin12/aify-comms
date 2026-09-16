@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from service.api_core.serialization import _iso_add_seconds
 from service.clock import now as _now
+from service.change_feed import CHANGE_FEED
 
 # ---- In-memory live-status cache (2026-06-18) --------------------------------------------
 # The derived agent status is a CACHE, not durable state: it is recomputed from inputs and is
@@ -58,7 +59,15 @@ def _live_state_fresh(agent_id: str, *, now: Optional[str] = None) -> Optional[d
 
 
 def _live_state_set(agent_id: str, data: dict[str, Any]) -> None:
-    _LIVE_STATE_CACHE[str(agent_id or "").strip()] = data
+    key = str(agent_id or "").strip()
+    previous = _LIVE_STATE_CACHE.get(key)
+    _LIVE_STATE_CACHE[key] = data
+    # THE ONE PLACE A DERIVED STATUS CHANGES, so it is the one place that says so. An agent goes
+    # offline because its lease ran out, and nothing is written when that happens; without this the
+    # dashboard would only learn it from a timed refetch. A first computation has nothing to differ
+    # from and reports nothing.
+    if previous and (previous.get("status") or "") != (data.get("status") or ""):
+        CHANGE_FEED.agent_status_moved(key)
 
 
 def _live_state_drop(agent_id: str) -> None:

@@ -94,7 +94,7 @@ function withRealResync(run, { snapshotSeq = 5, snapshotSeqs = null, snapshot = 
   };
   setApiBase("");
   initConsoleActions({ closeInspector() {}, refresh: async () => {}, refreshSoon() {}, setPage() {} });
-  initRealtimeSocket({
+  initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },
     dashboardNotifier: { handle() {} },
     evaluateFlowGates() {},
     refreshSoon() {},

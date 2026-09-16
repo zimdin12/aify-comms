@@ -7,6 +7,7 @@ import time
 import aiosqlite
 from pathlib import Path
 
+from service.change_feed import CHANGE_FEED
 from service.db_pool import ConnectionPool
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
 # SCHEMA moved to service/schema.py in v0.5.4 — 431 lines of DDL is data, and this module opens
@@ -469,7 +470,8 @@ async def _open_connection(path, busy_timeout_ms: int) -> aiosqlite.Connection:
 #: Reused connections, ENABLED ONLY BY THE SERVICE'S LIFESPAN (service/main.py). Without it every
 #: `get_db()` opens a fresh connection, exactly as before -- see service/db_pool.py for why and what a
 #: pooled connection may never carry across requests.
-CONNECTION_POOL = ConnectionPool(_open_connection)
+#: Every commit through it is reported to the change feed, which tells dashboards what to refetch.
+CONNECTION_POOL = ConnectionPool(_open_connection, on_commit=CHANGE_FEED.committed)
 
 
 async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Connection:

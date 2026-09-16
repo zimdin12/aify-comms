@@ -48,6 +48,56 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: entry after it left.
 const CARRIER_EDITS = [
   {
+    // change-driven refresh: the timed poll moved into change-refresh.mjs and runs only while the socket is down.
+    now: [
+      "// The timed poll honours `dashboard_refresh_seconds` and runs only while the socket is down (change-refresh.mjs).",
+      "function armRefreshTimer() { changeRefresh.armPoll(); }",
+      "armRefreshTimer();",
+    ],
+    was: [
+      "// Poll fallback interval, honoring the `dashboard_refresh_seconds` setting (was hardcoded",
+      "// to 15s — the setting silently did nothing). Re-armed when the setting changes.",
+      "let __refreshTimer = null, __refreshSecs = 0;",
+      "function armRefreshTimer() {",
+      "  const secs = Math.max(5, Number(state.settings && state.settings.dashboard_refresh_seconds) || 15);",
+      "  if (secs === __refreshSecs && __refreshTimer) return;",
+      "  __refreshSecs = secs;",
+      "  if (__refreshTimer) clearInterval(__refreshTimer);",
+      "  __refreshTimer = setInterval(refresh, secs * 1000);",
+      "}",
+      "armRefreshTimer();",
+    ],
+  },
+  {
+    now: [
+      "    const startedAt = Date.now();",
+      "    await _refreshImpl();",
+      "    changeRefresh.fullyRefreshed(startedAt); // every slice is current as of the start (change-refresh.mjs)",
+    ],
+    was: [
+      "    await _refreshImpl();",
+    ],
+  },
+  {
+    now: [
+      "const refreshGate = createRefreshGate({ onVisibleAgain: () => refresh() }); // a hidden tab fetches nothing and catches up once when shown (refresh-visibility.mjs)",
+      "const changeRefresh = new ChangeDrivenRefresh({ fullRefresh: () => refresh(), refreshSlices: (slices) => (refreshGate.admit() ? loadSlices(slices, { evaluateFlowGates, renderAll, refreshOpenInspector }) : Promise.resolve([])), pollSeconds: () => state.settings?.dashboard_refresh_seconds }); // what changed is refetched, and the timer runs only while the socket is down (change-refresh.mjs)",
+    ],
+    was: [
+      "const refreshGate = createRefreshGate({ onVisibleAgain: () => refresh() }); // a hidden tab fetches nothing and catches up once when shown (refresh-visibility.mjs)",
+    ],
+  },
+  {
+    now: [
+      "import { createRefreshGate } from './refresh-visibility.mjs';",
+      "import { ChangeDrivenRefresh } from './change-refresh.mjs';",
+      "import { loadSlices } from './slice-loaders.mjs';",
+    ],
+    was: [
+      "import { createRefreshGate } from './refresh-visibility.mjs';",
+    ],
+  },
+  {
     // v0.6.9 idle cost: a hidden tab stops fetching the poll bundle. The gate is consulted first in refresh().
     now: [
       "async function refresh() {",
@@ -3142,7 +3192,7 @@ const EXTRACTIONS = [
     importLine: "import { connectRealtimeSocket, initRealtimeSocket, wireRealtimeResumeReconnect } from './realtime-socket.mjs';",
     // The boot call this slice added. It restores no body — the module did not exist before — so it is
     // declared here rather than smuggled in as some unrelated declaration's marker.
-    seeding: "initRealtimeSocket({ dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });",
+    seeding: "initRealtimeSocket({ changeRefresh, dashboardNotifier, evaluateFlowGates, refreshSoon, resyncActiveConsole, scheduleRenderAll });",
     items: [
       {
         name: "dashboardSocket",
@@ -3168,7 +3218,28 @@ const EXTRACTIONS = [
         // query parameter is the only carrier a browser has. Bare, it was refused whenever `API_KEY`
         // was set, and the backoff below turned that permanent refusal into a dashboard that reported
         // "reconnecting" for ever.
+        // change-driven refresh: the socket reports open and close to the refresher.
         editedSince: [{
+          was: [
+            "    _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry",
+          ],
+          now: [
+            "    _wsReconnectAttempts = 0; // healthy connection → reset backoff to fast retry",
+            "    // Changes arrive on this socket from here on, and the timed poll stops (change-refresh.mjs).",
+            "    changeRefresh.opened({ reconnected: wasReconnect });",
+          ],
+        }, {
+          was: [
+            "    state.realtimeConnected = false;",
+            "    // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker",
+          ],
+          now: [
+            "    state.realtimeConnected = false;",
+            "    // Nothing reports changes until the next open, so the timed poll takes over.",
+            "    changeRefresh.closed();",
+            "    // Exponential backoff (capped) instead of hammering /ws every 2.5s. The single-worker",
+          ],
+        }, {
           was: ["    dashboardSocket = new WebSocket(`${wsOrigin}/ws`);"],
           now: [
             "    // THE SOCKET NEEDS THE KEY TOO, and a query parameter is the only carrier it has: the",
@@ -3291,6 +3362,36 @@ const EXTRACTIONS = [
       {
         name: "applyRealtimeEvent",
         editedSince: [
+          {
+            // change-driven refresh: named events stop refetching once data_changed is arriving.
+            was: [
+              "  try { dashboardNotifier.handle(event, data); } catch {}",
+              "  if (event === 'terminal_started' && data.terminalId && data.agentId) {",
+              "    state.terminalOwners.set(String(data.terminalId), String(data.agentId));",
+              "    refreshSoon();",
+            ],
+            now: [
+              "  try { dashboardNotifier.handle(event, data); } catch {}",
+              "  // WHAT CHANGED, by table, after every commit. It is what refreshes the dashboard's data now, so an",
+              "  // event below that only announces a change refetches nothing while this socket is delivering them.",
+              "  if (event === 'data_changed') {",
+              "    changeRefresh.changed(data);",
+              "    return;",
+              "  }",
+              "  if (event === 'terminal_started' && data.terminalId && data.agentId) {",
+              "    state.terminalOwners.set(String(data.terminalId), String(data.agentId));",
+              "    if (!changeRefresh.covering) refreshSoon();",
+            ],
+          },
+          {
+            // change-driven refresh: named events stop refetching once data_changed is arriving.
+            was: [
+              "    refreshSoon(); // unknown agent — a registration we haven't loaded yet",
+            ],
+            now: [
+              "    if (!changeRefresh.covering) refreshSoon(); // unknown agent — a registration we haven't loaded yet",
+            ],
+          },
           {
             // WHATEVER PAINTS, REMEMBERS. `entry.recentText` is the only input to the await pill, and
             // this was the ONE path that maintained it -- so a snapshot repaint and a drained frame
@@ -3423,7 +3524,11 @@ const EXTRACTIONS = [
             "  //",
             "  // Safe because refreshSoon debounces 250ms AND app.js coalesces while a bundle is in flight, so a",
             "  // burst of events collapses into one refetch rather than stacking bundles.",
-            "  if (dispositionOf(event) === 'refresh') {",
+            "  //",
+            "  // AND ONLY UNTIL THIS CONNECTION HAS DELIVERED A `data_changed`. Every named event but `agent_status`",
+            "  // is sent from a function that commits (69 of 72 broadcast sites, read 2026-09-17), so its data",
+            "  // arrives as a change to the tables it wrote -- and refetches only the slices that read them.",
+            "  if (dispositionOf(event) === 'refresh' && !changeRefresh.covering) {",
           ],
         }],
         at: 629,

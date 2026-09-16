@@ -30,6 +30,12 @@ they were. Idle connections hold no transaction and no statement, so they take n
 sweep retires them before its TRUNCATE checkpoint anyway, so an idle connection can never be the reader
 that starves it (the 83 MB WAL of 2026-06-18).
 
+WHAT A CHECKOUT ALSO REPORTS. Each checkout notes the table every INSERT, UPDATE, DELETE or REPLACE
+names, and hands that list to `on_commit` when the transaction commits (service/change_feed.py, which
+tells the dashboard what to refetch). A rollback, or a return without a commit, reports nothing, since
+nothing was written. This is the one place every write passes, which is why the report lives here and
+not beside the 400 statements that make one.
+
 OPT-IN. The service enables the pool in its lifespan and closes it on shutdown. A caller that uses
 `get_db()` with no lifespan -- most of the test suite -- gets a fresh connection exactly as before, so a
 pooled file handle can never outlive the temporary directory a test deletes.
@@ -43,6 +49,8 @@ import re
 from typing import Awaitable, Callable, Optional
 
 import aiosqlite
+
+from service.change_feed import written_table, written_tables_of_script
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +101,7 @@ def _retire(conn: aiosqlite.Connection) -> None:
 class PooledConnection:
     """One checkout. Behaves as the `aiosqlite.Connection` it wraps; `close()` returns it to the pool."""
 
-    __slots__ = ("_pool", "_conn", "_path", "_busy_ms", "_dirty")
+    __slots__ = ("_pool", "_conn", "_path", "_busy_ms", "_dirty", "_writes")
 
     def __init__(self, pool: "ConnectionPool", conn: aiosqlite.Connection, path, busy_ms: int) -> None:
         object.__setattr__(self, "_pool", pool)
@@ -101,6 +109,8 @@ class PooledConnection:
         object.__setattr__(self, "_path", path)
         object.__setattr__(self, "_busy_ms", busy_ms)
         object.__setattr__(self, "_dirty", False)
+        # What this checkout has written since its last commit or rollback, in statement order.
+        object.__setattr__(self, "_writes", [])
 
     def _target(self) -> aiosqlite.Connection:
         conn = object.__getattribute__(self, "_conn")
@@ -112,30 +122,64 @@ class PooledConnection:
     def _mark_dirty(self) -> None:
         object.__setattr__(self, "_dirty", True)
 
+    def _note(self, sql) -> None:
+        # Noted when the statement is ISSUED. One that then fails leaves a write reported for a
+        # table that did not change, if the caller still commits -- an extra refetch, never a missed one.
+        write = written_table(sql) if isinstance(sql, str) else None
+        if write is not None:
+            object.__getattribute__(self, "_writes").append(write)
+
+    def _take_writes(self) -> list:
+        writes = object.__getattribute__(self, "_writes")
+        object.__setattr__(self, "_writes", [])
+        return writes
+
     def execute(self, sql, parameters=None):
         if changes_connection_state(sql):
             self._mark_dirty()
+        self._note(sql)
         return self._target().execute(sql, parameters)
 
     def executemany(self, sql, parameters):
         if changes_connection_state(sql):
             self._mark_dirty()
+        self._note(sql)
         return self._target().executemany(sql, parameters)
 
     def execute_fetchall(self, sql, parameters=None):
         if changes_connection_state(sql):
             self._mark_dirty()
+        self._note(sql)
         return self._target().execute_fetchall(sql, parameters)
 
     def execute_insert(self, sql, parameters=None):
         if changes_connection_state(sql):
             self._mark_dirty()
+        self._note(sql)
         return self._target().execute_insert(sql, parameters)
 
-    def executescript(self, sql_script):
+    async def executescript(self, sql_script):
         if changes_connection_state(sql_script):
             self._mark_dirty()
-        return self._target().executescript(sql_script)
+        # sqlite3 COMMITS whatever is pending before a script and runs the script outside a
+        # transaction, so both are durable the moment it returns.
+        cursor = await self._target().executescript(sql_script)
+        self._report(self._take_writes() + written_tables_of_script(sql_script))
+        return cursor
+
+    async def commit(self) -> None:
+        await self._target().commit()
+        self._report(self._take_writes())
+
+    async def rollback(self) -> None:
+        try:
+            await self._target().rollback()
+        finally:
+            self._take_writes()
+
+    def _report(self, writes) -> None:
+        if writes:
+            object.__getattribute__(self, "_pool").report_commit(writes)
 
     def __getattr__(self, name):
         attr = getattr(self._target(), name)
@@ -176,8 +220,10 @@ class ConnectionPool:
     """Idle connections for one database path and one event loop."""
 
     def __init__(self, open_connection: Callable[[object, int], Awaitable[aiosqlite.Connection]],
-                 *, idle_max: int = POOL_IDLE_MAX) -> None:
+                 *, idle_max: int = POOL_IDLE_MAX,
+                 on_commit: Optional[Callable[[list], None]] = None) -> None:
         self._open = open_connection
+        self._on_commit = on_commit
         self._idle_max = idle_max
         self._idle: dict[int, list[aiosqlite.Connection]] = {}
         self._path = None
@@ -224,6 +270,15 @@ class ConnectionPool:
             except Exception:  # noqa: BLE001 -- a broken connection still has to be let go
                 _retire(conn)
         return len(idle)
+
+    def report_commit(self, writes: list) -> None:
+        """A checkout committed `writes`. Never raises into the request that committed them."""
+        if self._on_commit is None:
+            return
+        try:
+            self._on_commit(writes)
+        except Exception:  # noqa: BLE001 -- the data is already committed; a report must not undo that
+            logger.exception("reporting committed writes failed")
 
     def idle_count(self) -> int:
         return sum(len(bucket) for bucket in self._idle.values())
