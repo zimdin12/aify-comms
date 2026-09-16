@@ -230,10 +230,28 @@ _HISTORY_LINES = 400
 _ALT_ENTER_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)h")
 _ALT_LEAVE_RE = re.compile(r"\x1b\[\?(?:1049|1047|47)l")
 
+# A WHOLE-SCREEN CLEAR: erase display (`CSI 2J`) or a full reset (`ESC c`). Everything a program draws
+# after one is on the screen exactly, whatever came before it. A rebuilt screen is only trustworthy
+# again after the program issues one on the MAIN screen (2026-09-16: after a service rebuild, three
+# idle TUIs had overlapping text in their consoles for hours, with 0, 0 and 1 clears in their tails).
+_FULL_CLEAR_RE = re.compile(r"\x1b\[2J|\x1bc")
+
+
+def stored_log_is_partial(raw_output: str) -> bool:
+    """Whether a screen replayed from this stored log can be missing what was drawn before it.
+
+    The stored log is a 64 KB TAIL. Replayed, it is exact only from its last main-screen full clear
+    onward; with none, the screen is fragments painted over a blank grid. CONSERVATIVE on purpose: a
+    short log that really is the whole stream from byte 0 is reported partial too, because nothing in
+    the stored bytes says where the stream began, and a false "partial" costs a warning where a false
+    "whole" costs a wrong reading.
+    """
+    return not _FULL_CLEAR_RE.search(_strip_balanced_alt_screens(str(raw_output or "")))
+
 
 class _LiveScreen:
     __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt",
-                 "_pending", "seq")
+                 "_pending", "seq", "reconstructed")
 
     def __init__(self, cols: int, rows: int) -> None:
         self.cols = cols
@@ -244,6 +262,9 @@ class _LiveScreen:
         # screen beside the old number, which is the tear review constructed. None means "no number
         # covers what is on this screen", which a reader must treat as unknown rather than as zero.
         self.seq = None
+        # BUILT FROM THE STORED LOG rather than from the program's first byte, and not cleared since.
+        # Set by `feed_live_screen` when it seeds; cleared by a full clear on the main screen.
+        self.reconstructed = False
         # HistoryScreen (not Screen): keeps the lines that scroll off the top, which IS the
         # console's scrollback. Without it there is nothing to scroll back to after a reset.
         self.screen = pyte.HistoryScreen(cols, rows, history=_HISTORY_LINES, ratio=0.5)
@@ -293,10 +314,13 @@ class _LiveScreen:
                 chunk = chunk[m.end():]
             else:
                 m = _ALT_ENTER_RE.search(chunk)
+                main = chunk if not m else chunk[: m.start()]
+                if _FULL_CLEAR_RE.search(main):
+                    self.reconstructed = False
                 if not m:
                     self.stream.feed(chunk)
                     return
-                self.stream.feed(chunk[: m.start()])
+                self.stream.feed(main)
                 self._enter_alt()
                 chunk = chunk[m.end():]
 
@@ -348,6 +372,10 @@ def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any =
     (service restart, or a PTY that predates this code): we replay the stored log into it so
     the console is never WORSE than the old behaviour, and it then self-heals as new output
     scrolls the imperfect rows away. A PTY started after this code is correct from byte 0.
+
+    AN IDLE TUI DOES NOT SCROLL, so the healing can take hours or never come (2026-09-16: three
+    consoles stayed overlapping after a rebuild). A seeded screen is therefore marked
+    `reconstructed` until the program clears the main screen, and readers are told.
     Best-effort throughout: any failure drops the live screen and the caller falls back to the
     replay path. Returns True when the chunk was accepted.
 
@@ -372,6 +400,9 @@ def feed_live_screen(terminal_id: str, chunk: str, *, cols: Any = 0, rows: Any =
                 return False  # bounded: never grow without limit
             live = _LiveScreen(c, r)
             if seed:
+                # MARKED BEFORE THE SEED IS FED, so a full clear inside the seed unmarks it: what the
+                # program drew after that clear is all in the seed, and the screen is exact.
+                live.reconstructed = True
                 live.feed(_strip_balanced_alt_screens(seed))
             _LIVE_SCREENS[tid] = live
         elif (c, r) != (live.cols, live.rows):
@@ -422,6 +453,15 @@ def render_live_screen(terminal_id: str) -> Optional[tuple[str, int, int]]:
     except Exception:
         _LIVE_SCREENS.pop(str(terminal_id), None)
         return None
+
+
+def live_screen_reconstructed(terminal_id: str) -> Optional[bool]:
+    """Whether this terminal's live screen was rebuilt from the stored log and not cleared since.
+
+    None when there is no live screen, which is unknown rather than whole.
+    """
+    live = _LIVE_SCREENS.get(str(terminal_id or ""))
+    return None if live is None else bool(live.reconstructed)
 
 
 def resize_live_screen(terminal_id: str, cols: Any, rows: Any) -> bool:

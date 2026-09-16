@@ -35,6 +35,8 @@ from service.terminal_diagnostics import (
     richest_recording as _richest_recording,
 )
 from service.terminal_snapshot import (
+    live_screen_reconstructed as _live_terminal_screen_reconstructed,
+    stored_log_is_partial as _stored_terminal_log_is_partial,
     render_live_screen as _render_live_terminal_screen,
     render_snapshot as _render_terminal_snapshot,
 )
@@ -220,13 +222,18 @@ async def get_agent_console(agent_id: str, lines: int = 40):
         keys = terminal.keys()
         full_output = (terminal["output"] if "output" in keys else "") or ""
         screen_output = full_output
+        # A SCREEN REBUILT FROM THE STORED TAIL can be fragments painted over a blank grid, and it looks
+        # like any other screen. Said here so a reader does not take it as what the program shows.
+        reconstructed = False
         terminal_id = str(terminal["id"] or "")
         if terminal_id and not terminal_id.startswith("vterm_"):
             try:
                 live = _render_live_terminal_screen(terminal_id)
                 if live:
                     screen_output = live[0]
+                    reconstructed = bool(_live_terminal_screen_reconstructed(terminal_id))
                 elif "\x1b" in full_output:
+                    reconstructed = _stored_terminal_log_is_partial(full_output)
                     screen_output = await asyncio.to_thread(
                         _render_terminal_snapshot,
                         full_output,
@@ -252,6 +259,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             "status": terminal["status"] or "",
             "lines": len(selected),
             "output": output,
+            "reconstructed": reconstructed,
         }
     finally:
         await db.close()
