@@ -258,4 +258,34 @@ not to be the idle cost.
 - A partial agents or channels refresh does not close a conversation whose agent or channel was
   removed. The full refresh still does.
 - The slice test sees only the queries its seed reaches. The map errs wide for that reason.
-- Unmeasured on the live service when written. The before and after figures go below once deployed.
+
+### Measured after deploy (2026-09-17, build `7f542e7d`, nothing running)
+
+Service CPU from `/proc/1/stat` over 150 s windows, each taken twice, same build throughout:
+
+| setup | run 1 | run 2 |
+|---|---|---|
+| A: no dashboard open | 0.61% | 0.64% |
+| B: one visible dashboard on the socket | 1.05% | 1.45% |
+| C': the old 15 s poll bundle replayed with the key, no dashboard | 2.03% | 2.02% |
+
+- **What a visible dashboard costs:** about 1.4 points of a core when it polls, and 0.4 to 0.8 when it
+  follows changes.
+- **Requests from the socket tab:** 11 to 13 API requests in 150 to 170 s. The old tab issued 9 per
+  15 s cycle.
+  - `/analytics/pulse` accounts for 5 of them. It is its own poll and not part of this work.
+  - The rest are the once-a-minute liveness refresh of agents, sessions and environments.
+- **B varies between runs and was not decomposed.** It includes `/analytics/pulse` and the 15 s status
+  push loop, which runs only while such a tab is connected. Neither was measured on its own.
+
+Three measurement mistakes on the way, recorded because each one produced a plausible number:
+
+1. **A tab at `localhost:8811` is not a dashboard.** Its socket is refused by the origin guard, and its
+   API requests are blocked cross-origin (status 0, 111 of 111). A "1.58% baseline" taken with such a
+   tab measured mostly the operator's own tab and was discarded.
+2. **A dashboard loaded before `data_changed` existed refetches everything on it.** The old code
+   refetches on any unknown event. The first deploy sent it every liveness batch, and CPU went to 4.21%.
+   Fixed in 0.6.10: the event goes only to sockets that connect with `changes=1`.
+3. **A commit reported every UPDATE it issued, including ones that matched no rows.** The minute sweep
+   therefore made each dashboard refetch contracts, runs, messages and stats. Fixed: nothing is
+   reported when the connection's changed-row count did not move.
