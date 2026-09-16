@@ -160,7 +160,8 @@ class SessionResolvePairTests(FastApiTestCase):
     def test_the_two_routes_leave_the_agent_in_DIFFERENT_states(self):
         """Asserted directly, because it is the whole point of there being two routes and the only
         thing that stops them being one. Two agents, same parked change, opposite outcomes."""
-        self._register("other-agent", session_handle="handle-one")
+        # Its OWN id: registering with pinned-agent's live `handle-one` is refused since 2026-09-16.
+        self._register("other-agent", session_handle="handle-other")
         self._park_pending("pinned-agent", "handle-two")
         self._park_pending("other-agent", "handle-two")
 
@@ -168,7 +169,7 @@ class SessionResolvePairTests(FastApiTestCase):
         self.assertEqual(self._resolve("other-agent", "keep").status_code, 200)
 
         self.assertEqual(self._agent("pinned-agent")["sessionHandle"], "handle-two")
-        self.assertEqual(self._agent("other-agent")["sessionHandle"], "handle-one")
+        self.assertEqual(self._agent("other-agent")["sessionHandle"], "handle-other")
 
     def test_resolving_twice_refuses_the_second_time_without_changing_anything(self):
         """The idempotence the docstrings claim, checked as STATE rather than as a status code: the

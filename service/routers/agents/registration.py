@@ -45,6 +45,11 @@ from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
+from service.api_core.registration_handle_collision import (
+    after_registration_path,
+    park_registration_handle_collision,
+    registration_handle_owner,
+)
 from service.api_core.registration_gates import (
     _enforce_driving_mode_switch_gate,
     _enforce_tombstone_registration_gate,
@@ -164,6 +169,12 @@ async def register_agent(req: AgentRegister, request: Request):
         # literal never gets stored as the resume handle — see
         # _sanitize_session_handle.
         session_handle = _sanitize_session_handle(req.sessionHandle or "")
+        # A DIFFERENT live agent holding this id keeps it: register without it and park it, as the
+        # session-handle route does. See service/api_core/registration_handle_collision.py.
+        requested_handle = session_handle
+        handle_owner = await registration_handle_owner(db, req.agentId, session_handle)
+        if handle_owner:
+            session_handle = ""
         existing_state = json.dumps(_runtime_state_with_handle(normalized_runtime, {}, session_handle))
         # Description is team-facing metadata that survives re-register when the
         # caller does not pass a new value. Passing "" explicitly clears it.
@@ -189,10 +200,10 @@ async def register_agent(req: AgentRegister, request: Request):
                 )
             ).fetchone()
         if console_terminal:
-            return await _register_via_adopted_console_terminal(
+            return await after_registration_path(db, req.agentId, requested_handle, handle_owner, now, await _register_via_adopted_console_terminal(
                 db, req, request, row, console_terminal, terminal_id,
                 bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,
-            )
+            ))
         fresh_state = _runtime_state_with_handle(normalized_runtime, {}, session_handle)
         # WHOSE ID THIS IS. `fresh_state` starts EMPTY and the upsert replaces `runtime_state`, so
         # taking `bridgeInstanceId` from the request meant a managed agent's own sidecar overwrote the
@@ -239,10 +250,10 @@ async def register_agent(req: AgentRegister, request: Request):
             fresh_state["pi_resident_pending_flip"] = True
         existing_state = json.dumps(fresh_state)
         if row and normalized_session_mode == "resident" and _normalize_session_mode(row["session_mode"] or "resident") == "managed":
-            return await _register_via_manual_resident_takeover(
+            return await after_registration_path(db, req.agentId, requested_handle, handle_owner, now, await _register_via_manual_resident_takeover(
                 bridge_id, capabilities, db, normalized_runtime, now, req,
                 request, resolved_cwd, row, runtime_config, session_handle, terminal_id,
-            )
+            ))
         await _upsert_registered_agent_row(
             db, req, row, normalized_runtime, normalized_session_mode, session_handle,
             resolved_cwd, description_value, model_value, capabilities, runtime_config,
@@ -286,6 +297,7 @@ async def register_agent(req: AgentRegister, request: Request):
                 capabilities=capabilities or [],
                 now=now,
             )
+        collision = await park_registration_handle_collision(db, req.agentId, requested_handle, handle_owner, now) if handle_owner else {}
         await db.commit()
         ws = await _get_ws(request)
         if ws:
@@ -305,6 +317,7 @@ async def register_agent(req: AgentRegister, request: Request):
             "machineId": req.machineId or "",
             "bridgeId": bridge_id,
             "sessionMode": normalized_session_mode,
+            **collision,
         }
     finally:
         await db.close()

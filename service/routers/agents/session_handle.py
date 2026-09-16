@@ -94,7 +94,8 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         #   • Deliberate operator re-pin (any other requestedBy, e.g. dashboard
         #     manual set, console attach) → unguarded, as before.
         #   • Re-register (POST /agents) is a separate write site and remains a
-        #     full state refresh — it is NOT routed through here.
+        #     full state refresh — it is NOT routed through here. It applies the
+        #     same cross-agent guard itself (registration_handle_collision.py).
         requested_by = str(req.requestedBy or "").strip()
         persisted_handle = str(row["session_handle"] or "").strip()
 
