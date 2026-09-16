@@ -44,6 +44,10 @@ These were left on purpose:
   `~/.claude/settings.json` gate only on `AIFY_AGENT_ID` and `AIFY_COMMS_URL`, so a bare `claude` in a
   pane that inherited an agent's environment reports its turns as that agent. Deferred: the hook needs
   to check that it runs under the launcher holding that agent's lease.
+- **A lease record written before v0.6.8's clock fix mixes two clocks.** On Linux a record whose start time
+  could not be read keeps the moment the pid was seen alive; before `c65593c` that moment was wall-clock while
+  start times are anchored, so the first start after the upgrade can misjudge such a record by the drift
+  between them. It lasts one instance: the next record is written on one clock.
 - **`gateway-orphans` is only tested below `doctor.js`.** The check's image reader is proven through
   `checkGatewayOrphans`, but the line in `doctor.js` that hands it `listening-ports.imageName` is reached
   by no test, because importing `doctor.js` runs the doctor. Removing it makes the climb stop at the

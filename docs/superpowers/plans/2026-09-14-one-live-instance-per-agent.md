@@ -295,6 +295,27 @@ mutants (aify-wrapper `6e04d4a`):
 Deferred from that review: the PR #11 hooks report turns for an inherited agent id (KNOWN_ISSUES). Deploy
 order across two machines: aify-env first, then aify-wrapper through this pin, then `install.sh`.
 
+A re-review the next morning (2026-09-16) confirmed each of those against the merged code, and found that
+the clock fix had introduced a worse defect than the one it fixed (aify-wrapper `c65593c`):
+
+- **The anchor and the wall clock are two clocks.** Anchored start times stop moving, which is the point,
+  but they are then on the anchor's clock: the reviewer's host had drifted 18 s in an hour, and this
+  machine's WSL 121 s in a day. The LOCK compared a holder's anchored start time with the wall-clock moment
+  it took the lock, so where the anchor runs ahead a holder that had just taken the lock read as a pid
+  recycled after it, and the next start took over a LIVE holder's lock -- two starts of one agent at once,
+  the case the lock exists to prevent. `anchorOffsetMs()` now says how far the clocks sit apart and
+  `identify()` puts a start time on the entry's own clock first. The wall-clock readers are the lock and
+  hermes' own session record (`planPriorReap`, whose `offsetMs` the reap reads from the host); everything
+  the lease writes down is on one clock. The reviewer notes their own check of the original fix only tested
+  that start times stopped moving, never against a wall clock, which is exactly where it broke.
+- **The session's values travel to its own agent only.** Keeping them for every NAMED launch meant one
+  agent's shell running `claude-aify --aify-agent other` handed `other` this session's role, cwd, terminal,
+  mode and model, so it would report itself running in the first agent's terminal. They are kept now only
+  when the command names the agent this environment belongs to -- or names one where the environment names
+  nobody, which is a host that composed the launch. That last clause is not a softening: dropping the mode
+  there makes a managed worker read as a person at a terminal and turns its start into a REPLACE, which two
+  launcher tests caught when the rule was first written without it.
+
 Four independent reviews shaped the points above: 12 findings on the first build, 11 on the first fix
 round, 7 on the second, and a fourth, end-to-end review of both repos. What was deliberately left:
 

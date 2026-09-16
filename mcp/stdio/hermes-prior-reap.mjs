@@ -30,7 +30,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { identify, isAlive, killTree, sleepMs, startTimes } from "aify-wrapper/lib/process-identity.mjs";
+import { anchorOffsetMs, identify, isAlive, killTree, sleepMs, startTimes } from "aify-wrapper/lib/process-identity.mjs";
 
 import { gatewaysInRange } from "./gateway-orphan-check.mjs";
 import { PORT_BASE, PORT_SPAN, agentPort, claimedByOtherAgents, defaultMarkerTmpDir, readSessionIdMarker, sanitizeAgentId } from "./hermes-endpoint.js";
@@ -125,7 +125,7 @@ export function ancestry(pid, rows) {
  *
  * @returns {Array<{pid: number, why: string}>}
  */
-export function planPriorReap({ ports, rows, leases, sessionId, leaseStarts, protect }) {
+export function planPriorReap({ ports, rows, leases, sessionId, leaseStarts, protect, offsetMs = 0 }) {
   const stop = new Map();
   const wanted = new Set(ports.filter(Boolean));
   const gateways = gatewaysInRange(rows, { toPort: cmdlineHermesGatewayPort, base: PORT_BASE, span: PORT_SPAN });
@@ -139,7 +139,9 @@ export function planPriorReap({ ports, rows, leases, sessionId, leaseStarts, pro
     if (lease?.session_id !== sessionId || !Number.isInteger(pid) || protect.has(pid) || stop.has(pid)) continue;
     if (!/hermes/i.test(commandOf.get(pid) || "")) continue;
     if (![...ancestry(pid, rows)].some((above) => gatewayPids.has(above))) continue;
-    const state = identify({ startedAtMs: Number(lease.process_start_time) * 1000 }, { alive: commandOf.has(pid), startedAt: leaseStarts.get(pid) });
+    // hermes records its own start from the WALL CLOCK; `leaseStarts` is anchored on Linux, and the two
+    // drift apart (external review, 2026-09-16), so the start time is put back on hermes' clock first.
+    const state = identify({ startedAtMs: Number(lease.process_start_time) * 1000 }, { alive: commandOf.has(pid), startedAt: leaseStarts.get(pid), offsetMs });
     if (state === "ours") stop.set(pid, `holds hermes' lease on session ${sessionId}`);
   }
   return [...stop].map(([pid, why]) => ({ pid, why }));
@@ -162,6 +164,7 @@ export function reapPriorHermes({
   leases = () => readSessionLeases(hermesHome()),
   sessionIdOf = (id) => readSessionIdMarker(id, { tempDir }),
   starts = startTimes,
+  clockOffset = anchorOffsetMs,
   kill = killTree,
   alive = isAlive,
   self = process.pid,
@@ -179,6 +182,7 @@ export function reapPriorHermes({
       sessionId: sessionNamedByAnotherAgent(agentId, ownSession, { tempDir }) ? "" : ownSession,
       leaseStarts: starts(sessionLeases.map((lease) => Number(lease?.pid))),
       protect: ancestry(self, rows),
+      offsetMs: clockOffset(),
     });
     for (const entry of plan) {
       kill(entry.pid);

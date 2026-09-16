@@ -75,6 +75,23 @@ test("the operator's own `hermes --resume` holding the agent's session is never 
   assert.deepEqual(plan({ rows, leases: [lease(61001, "20260715_001441_960b8f", T0)], leaseStarts }).map((s) => s.pid), [61001]);
 });
 
+test("hermes' own wall-clock record is matched against an anchored start time (external review, 2026-09-16)", () => {
+  // hermes writes `process_start_time` from the wall clock; on Linux this repo reads start times through the
+  // boot anchor, which drifts from that clock (121 s on this machine's WSL). Unconverted, a leftover the reap
+  // exists to collect reads as a recycled pid and is left running.
+  const offsetMs = 18_000;
+  const rows = [
+    { pid: 61000, ppid: 4, commandLine: gatewayCmd(9400) },
+    { pid: 61001, ppid: 61000, commandLine: "hermes --tui --resume 20260715_001441_960b8f" },
+  ];
+  const leases = [lease(61001, "20260715_001441_960b8f", T0)];
+  const leaseStarts = new Map([[61001, T0 + offsetMs]]);
+  assert.deepEqual(plan({ rows, leases, leaseStarts, offsetMs }).map((s) => s.pid), [61001], "the leftover was left running");
+  assert.deepEqual(plan({ rows, leases, leaseStarts }), [], "control: the same drift, unconverted, hides it");
+  // CONTROL: a pid recycled well past the drift is still not ours.
+  assert.deepEqual(plan({ rows, leases, leaseStarts: new Map([[61001, T0 + offsetMs + 60_000]]), offsetMs }), []);
+});
+
 test("nothing else is stopped: another agent's port, another session, a recycled pid, a non-hermes pid, the caller's own ancestry", () => {
   const rows = [
     { pid: 10, ppid: 4, commandLine: gatewayCmd(9000) },
@@ -96,6 +113,30 @@ test("nothing else is stopped: another agent's port, another session, a recycled
   assert.deepEqual(plan({ rows, leases: [lease(12, "20260715_001441_960b8f", T0)], leaseStarts }).map((s) => s.pid), [12]);
   // And with no session marker, no lease is consulted at all.
   assert.deepEqual(plan({ rows, leases: [lease(12, "20260715_001441_960b8f", T0)], leaseStarts, sessionId: "" }), []);
+});
+
+test("reapPriorHermes ASKS for the clock offset and hands it to the plan", () => {
+  // The rule above is only worth having if the real reap uses it: the offset is read from this host, not
+  // assumed, so a leftover is collected on a Linux host whose anchored start times sit away from hermes' clock.
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reap-clock-"));
+  fs.writeFileSync(path.join(tempDir, "aify-hermes-session-probe-c"), "20260715_001441_960b8f");
+  const offsetMs = 18_000;
+  const rows = [{ pid: 61000, ppid: 4, commandLine: gatewayCmd(9400) }, { pid: 61001, ppid: 61000, commandLine: "hermes --tui --resume 20260715_001441_960b8f" }];
+  const killed = [];
+  const common = {
+    agentId: "probe-c", tempDir, waitMs: 0, self: 1, alive: () => false, listeners: () => [],
+    listProcesses: () => rows,
+    leases: () => [lease(61001, "20260715_001441_960b8f", T0)],
+    sessionIdOf: () => "20260715_001441_960b8f",
+    starts: () => new Map([[61001, T0 + offsetMs]]),
+    kill: (pid) => killed.push(pid),
+  };
+  reapPriorHermes({ ...common, clockOffset: () => offsetMs });
+  assert.deepEqual(killed, [61001], "the offset this host reports did not reach the plan");
+  // CONTROL: with no drift reported, the same leftover reads as a recycled pid and is left alone.
+  killed.length = 0;
+  reapPriorHermes({ ...common, clockOffset: () => 0 });
+  assert.deepEqual(killed, [], "control: the offset is not being ignored on both paths");
 });
 
 test("ancestry walks parents without looping on a cycle", () => {
