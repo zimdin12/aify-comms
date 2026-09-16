@@ -101,7 +101,7 @@ def _retire(conn: aiosqlite.Connection) -> None:
 class PooledConnection:
     """One checkout. Behaves as the `aiosqlite.Connection` it wraps; `close()` returns it to the pool."""
 
-    __slots__ = ("_pool", "_conn", "_path", "_busy_ms", "_dirty", "_writes")
+    __slots__ = ("_pool", "_conn", "_path", "_busy_ms", "_dirty", "_writes", "_rows_changed")
 
     def __init__(self, pool: "ConnectionPool", conn: aiosqlite.Connection, path, busy_ms: int) -> None:
         object.__setattr__(self, "_pool", pool)
@@ -111,6 +111,8 @@ class PooledConnection:
         object.__setattr__(self, "_dirty", False)
         # What this checkout has written since its last commit or rollback, in statement order.
         object.__setattr__(self, "_writes", [])
+        # The connection's running count of rows changed, at checkout and after each commit or rollback.
+        object.__setattr__(self, "_rows_changed", conn.total_changes)
 
     def _target(self) -> aiosqlite.Connection:
         conn = object.__getattribute__(self, "_conn")
@@ -133,6 +135,12 @@ class PooledConnection:
         writes = object.__getattribute__(self, "_writes")
         object.__setattr__(self, "_writes", [])
         return writes
+
+    def _rows_changed_since_last(self) -> bool:
+        now = self._target().total_changes
+        changed = now != object.__getattribute__(self, "_rows_changed")
+        object.__setattr__(self, "_rows_changed", now)
+        return changed
 
     def execute(self, sql, parameters=None):
         if changes_connection_state(sql):
@@ -164,18 +172,26 @@ class PooledConnection:
         # sqlite3 COMMITS whatever is pending before a script and runs the script outside a
         # transaction, so both are durable the moment it returns.
         cursor = await self._target().executescript(sql_script)
-        self._report(self._take_writes() + written_tables_of_script(sql_script))
+        writes = self._take_writes() + written_tables_of_script(sql_script)
+        if self._rows_changed_since_last():
+            self._report(writes)
         return cursor
 
     async def commit(self) -> None:
         await self._target().commit()
-        self._report(self._take_writes())
+        writes = self._take_writes()
+        # A transaction whose statements matched no rows changed nothing, and says so. MEASURED
+        # 2026-09-17: with nothing running, the reconcile sweep's settling UPDATEs matched no rows every
+        # minute and made every open dashboard refetch its contracts, runs, messages and stats.
+        if self._rows_changed_since_last():
+            self._report(writes)
 
     async def rollback(self) -> None:
         try:
             await self._target().rollback()
         finally:
             self._take_writes()
+            self._rows_changed_since_last()
 
     def _report(self, writes) -> None:
         if writes:

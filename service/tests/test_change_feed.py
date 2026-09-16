@@ -205,16 +205,28 @@ class ACheckoutReportsWhatItCommitted(unittest.TestCase):
         self.run_async(body)
         self.assertEqual([[w.table for w in report] for report in self.reports], [["settings"]])
 
+    def test_a_commit_whose_writes_matched_no_rows_reports_nothing(self):
+        async def body():
+            db = await self.pool.acquire(self.path, SQLITE_BUSY_TIMEOUT_MS)
+            await db.execute("UPDATE agents SET model = 'x' WHERE id = 'nobody'")
+            await db.commit()
+            await db.execute(self._insert())
+            await db.commit()
+            await db.close()
+        self.run_async(body)
+        self.assertEqual([[w.table for w in report] for report in self.reports], [["settings"]],
+                         "a no-op UPDATE was reported, or a real insert after it was not")
+
     def test_a_rollback_reports_nothing_and_does_not_leak_into_the_next_commit(self):
         async def body():
             db = await self.pool.acquire(self.path, SQLITE_BUSY_TIMEOUT_MS)
             await db.execute(self._insert())
             await db.rollback()
-            await db.execute("UPDATE agents SET model = 'x' WHERE id = 'nobody'")
+            await db.execute("INSERT INTO settings (key, value) VALUES ('change-feed-after-rollback', '1')")
             await db.commit()
             await db.close()
         self.run_async(body)
-        self.assertEqual([[w.table for w in report] for report in self.reports], [["agents"]])
+        self.assertEqual([[w.table for w in report] for report in self.reports], [["settings"]])
 
     def test_a_connection_returned_without_a_commit_reports_nothing(self):
         async def body():
