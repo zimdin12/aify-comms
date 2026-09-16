@@ -86,27 +86,43 @@ export function contextWindowVerdict(rows = [], {
   fullAt = CONTEXT_FULL_RATIO,
   nearAt = CONTEXT_NEAR_RATIO,
   unmeasured = 0,
+  notRunning = 0,
 } = {}) {
   const considered = Array.isArray(rows) ? rows : [];
   const skipped = Math.max(0, Math.floor(unmeasured) || 0);
+  const stopped = Math.max(0, Math.floor(notRunning) || 0);
+  const stoppedNote = stopped ? `; ${stopped} managed agent(s) not running` : "";
   if (!considered.length) {
     // NOTHING MEASURED AND A TAIL LEFT OVER IS NOT "no agent to measure". Reported by a reviewer on
     // 2026-08-31: the fan-out cap took the first N candidates in insertion order and the verdict never
     // learned it had been capped, so an exhausted agent sitting at position N+1 produced a clean row.
     if (skipped) return cappedVerdict(skipped, 0);
-    return { ok: true, code: "none", detail: "no agent has a readable console to measure." };
+    // AN HONEST PASS: an exhausted agent is still running, so a fleet with no running console holds
+    // nothing this check exists to find.
+    return {
+      ok: true,
+      code: "none",
+      detail: stopped
+        ? `no managed agent has a running console to measure (${stopped} not running).`
+        : "no agent has a readable console to measure.",
+    };
   }
 
   const readable = considered.filter((row) => row && row.usage);
   if (!readable.length) {
     // NO EVIDENCE IS NOT A PASS. Every console was unreadable, so this check measured nothing --
     // and a row that reads `ok` here would be indistinguishable from a fleet that is genuinely fine.
+    const runtimes = runtimeTally(considered);
     return {
       ok: false,
       code: "unknown-all",
-      detail: `none of ${considered.length} console(s) could be read, so no agent's context was measured.`,
-      fix: "Check that the consoles are attached (`comms_console_tail`); until one is readable this "
-        + "check cannot tell a healthy runtime from an exhausted one.",
+      detail: `none of ${considered.length} running console(s) could be read`
+        + (runtimes ? ` (${runtimes})` : "")
+        + `, so no agent's context was measured${stoppedNote}.`,
+      fix: "This reads the `used/window` pair off a runtime's status line (`820.3k/900k`). A runtime "
+        + "whose screen carries no such pair cannot be measured here; otherwise check the console "
+        + "with `comms_console_tail`. Until one is readable this check cannot tell a healthy runtime "
+        + "from an exhausted one.",
     };
   }
 
@@ -155,8 +171,19 @@ export function contextWindowVerdict(rows = [], {
     ok: true,
     code: "ok",
     detail: `${readable.length} console(s) measured, worst ${pct(worst)}`
-      + (unread ? `; ${unread} could not be read` : ""),
+      + (unread ? `; ${unread} could not be read` : "")
+      + stoppedNote,
   };
+}
+
+/** `claude-code ×2, codex ×1`: which runtimes the unreadable consoles belong to. */
+function runtimeTally(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    const runtime = String(row?.runtime || "unknown runtime");
+    counts.set(runtime, (counts.get(runtime) || 0) + 1);
+  }
+  return [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([runtime, n]) => `${runtime} ×${n}`).join(", ");
 }
 
 /**
@@ -201,7 +228,7 @@ function cappedVerdict(skipped, measured, worst = "") {
  * SCOPED TO CONSOLES THAT EXIST. An agent with no console has nothing to read, and fetching one per
  * registered agent would make the doctor slower than the thing it is diagnosing.
  */
-export async function checkContextWindow({ get, add, skip, maxConsoles = 24 }) {
+export async function checkContextWindow({ get, add, skip, maxConsoles = 24, maxOpened = maxConsoles * 4 }) {
   const listing = await get("/api/v1/agents");
   const agents = listing && typeof listing.agents === "object" ? listing.agents : null;
   if (!agents) {
@@ -210,6 +237,8 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24 }) {
       "Check the `service` row above.");
   }
 
+  // `consoleAvailable` IS NOT "A TERMINAL IS RUNNING". The service sets it for every managed agent, so
+  // this list holds stopped agents too; which consoles actually run is only known by asking each one.
   const eligible = Object.entries(agents)
     .filter(([, agent]) => agent && typeof agent === "object")
     .filter(([, agent]) => agent.consoleAvailable === true && agent.sessionMode === "managed");
@@ -220,15 +249,31 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24 }) {
   // risk before it reads the console -- but it IS deterministic, so two runs on an unchanged fleet
   // measure the same agents and the truncation is reported either way.
   eligible.sort(([a], [b]) => a.localeCompare(b));
-  const candidates = eligible.slice(0, maxConsoles);
-  const unmeasured = eligible.length - candidates.length;
 
   const rows = [];
-  for (const [agentId] of candidates) {
+  let notRunning = 0;
+  let unmeasured = 0;
+  for (const [agentId, agent] of eligible) {
+    // THE CAP COUNTS RUNNING CONSOLES. Counting stopped ones against it let a sorted run of stopped
+    // agents use every slot while the running agent after them -- the only kind that can be full --
+    // went unopened.
+    // AND A SECOND BOUND ON WHAT IS OPENED AT ALL, because a stopped console costs a fetch too: without
+    // it a fleet of mostly stopped agents would be read end to end, and the doctor could stall on it.
+    if (rows.length >= maxConsoles || rows.length + notRunning >= maxOpened) {
+      unmeasured += 1;
+      continue;
+    }
     const console_ = await get(`/api/v1/agents/${encodeURIComponent(agentId)}/console?lines=6`);
-    rows.push({ agentId, usage: parseContextUsage(console_ && console_.output) });
+    // ONLY THE ROUTE'S OWN `live: false` SAYS NOTHING RUNS. Its output is then at most the recorded tail
+    // of a terminal that ended, and a footer there is history. A console that did not answer at all
+    // says nothing, so it stays a row, and stays unreadable.
+    if (console_ && console_.live === false) {
+      notRunning += 1;
+      continue;
+    }
+    rows.push({ agentId, runtime: agent.runtime, usage: parseContextUsage(console_ && console_.output) });
   }
 
-  const verdict = contextWindowVerdict(rows, { unmeasured });
+  const verdict = contextWindowVerdict(rows, { unmeasured, notRunning });
   return add("context-window", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
