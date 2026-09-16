@@ -308,6 +308,15 @@ the clock fix had introduced a worse defect than the one it fixed (aify-wrapper 
   hermes' own session record (`planPriorReap`, whose `offsetMs` the reap reads from the host); everything
   the lease writes down is on one clock. The reviewer notes their own check of the original fix only tested
   that start times stopped moving, never against a wall clock, which is exactly where it broke.
+- **Inside a running session, only the COMMAND's own intent replaces** (aify-wrapper `5695307`, merged
+  `81e076a`). The rule below was not enough, and the gap KILLED: an aify-env older than `dddcbcc` hands a
+  worker the marker AND the host's own agent id, so the environment names a different agent than the
+  command, the worker's mode is dropped with the rest, and `startIntent` read the named start as a person
+  at a terminal and REPLACED the live instance. Measured three ways on one script: marker only, exit 75;
+  marker plus a leaked id, **exit 0 with the instance stopped**; the same leak before the keep-on-named
+  rule, exit 75. So a start made under a marker takes its intent from the command line or starts, and the
+  mode cannot carry that decision there -- the mode is one of the values such a session loses. The
+  refusal names `--aify-start-intent=replace`. A restore still says `start` and is still refused.
 - **The session's values travel to its own agent only.** Keeping them for every NAMED launch meant one
   agent's shell running `claude-aify --aify-agent other` handed `other` this session's role, cwd, terminal,
   mode and model, so it would report itself running in the first agent's terminal. They are kept now only
