@@ -20,12 +20,19 @@ test("WINDOWS gets `cd /d`, which is the only form that changes drive as well as
   assert.equal(run, "aify-comms");
 });
 
-test("mac and linux get their own idioms, and an unknown OS falls back to the WSL path", () => {
-  assert.equal(lines({ os: "macos", cwdRoots: [] })[0], 'cd "$HOME"',
-    "with no roots a mac lands in the home directory");
-  assert.equal(lines({ os: "linux", cwdRoots: [] })[0], "cd /mnt/c/Docker",
-    "linux with no roots uses the WSL mount, which is where this project lives");
-  assert.equal(lines({})[0], "cd /mnt/c/Docker", "an environment with no os at all still yields a command");
+test("an environment that advertises no root is not given somebody else's directory", () => {
+  // These fallbacks used to be `C:\Docker` and `/mnt/c/Docker` -- the directories THIS project happens to
+  // live in on the machine the dashboard was written on, handed to every host that read it. A shell
+  // variable is resolved by the operator's own machine, so no layout is assumed.
+  assert.equal(lines({ os: "macos", cwdRoots: [] })[0], 'cd "$HOME"');
+  assert.equal(lines({ os: "linux", cwdRoots: [] })[0], 'cd "$HOME"');
+  assert.equal(lines({ os: "windows", cwdRoots: [] })[0], 'cd /d "%USERPROFILE%"', "cmd does not expand $HOME");
+  assert.equal(lines({})[0], 'cd "$HOME"', "an environment with no os at all still yields a command");
+  // CONTROL: a root the environment DOES advertise is still used verbatim, whatever it is.
+  assert.equal(lines({ os: "linux", cwdRoots: ["/srv/work"] })[0], "cd /srv/work");
+  for (const command of [lines({})[0], lines({ os: "windows" })[0]]) {
+    assert.ok(!/Docker|mnt\/c/i.test(command), `a host's own layout is still baked in: ${command}`);
+  }
 });
 
 test("`kind` is accepted when `os` is absent — the record has both spellings", () => {

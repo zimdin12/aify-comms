@@ -132,6 +132,26 @@ Edge-triggered turn events are necessary but not sufficient: turn state can also
 
 Safety: KEEP-CLEARED cannot false-clear a live turn (claude requires `classify(tail) === "ended"` — a live turn is never structurally *ended*; hermes requires a sustained gateway-idle read plus `!inFlight`; unknown/unreadable reads are no-ops), and `/turn-end` is idempotent and can never re-arm `working`. It does **not** rescue an agent-id-less bridge — that detector never arms at all (see the decision above).
 
+## No source decides where something is from a path typed into it
+
+The operator, 2026-09-16: "we should never have C:/ paths. we never know where user installs anything.
+everything should be dynamic in that sense. agent who installs should fill the dynamic gaps based on the
+system, mb C:/ could be as example."
+
+A location comes from the system that has it: an environment variable the OS sets (`SystemRoot`,
+`USERPROFILE`, `SystemDrive`), the root this process is running on, the file's own location, or the
+configuration an operator gave. What was found when the rule was written: an environment advertising no
+root was handed `cd /d C:\Docker` -- this project's own directory on the machine the dashboard was written
+on -- to every host that read it; codex' spawn cwd fell back to `C:\` and its Windows system root to
+`C:\Windows`; a measurement script named one checkout; and aify-wrapper built codex' hook trust key from a
+literal `C:\`, which is the wrong key on a host whose Windows is elsewhere.
+
+An example a PERSON reads is allowed and says so on its line (`example path`). Two remain, both read
+rather than used: the refusal naming the cwd form codex takes, and the hint in an empty roots box.
+`service/tests/test_no_source_bakes_in_a_host_path.py` enforces it over Python and JavaScript through the
+repo's own comment classifier, so a comment explaining a real Windows path stays legal;
+`tests/no-source-bakes-in-a-host-path.test.js` does the same for aify-wrapper.
+
 ## Live-status cache is in-memory, not SQLite — and the service MUST stay single-worker (2026-06-18)
 
 The recurring `database is locked` 503s are RESOLVED (commit `97a497a`, verified live: 0 locks, down from ~18/min steady-state and 137/min in the post-restart storm). The non-obvious choices:

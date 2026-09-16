@@ -349,7 +349,10 @@ export function defaultCodexCommand() {
     return tokenizeCommandString(override);
   }
   if (process.platform === "win32") {
-    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    // WHERE WINDOWS SAYS IT IS, never a drive letter typed here: `SystemRoot` and `windir` are what the OS
+    // sets, and the last resort is derived from the root this process is actually running on, because a host
+    // that keeps Windows off C: is a host this would otherwise send to a path that does not exist.
+    const systemRoot = process.env.SystemRoot || process.env.windir || path.join(path.parse(process.cwd()).root, "Windows");
     return { command: `${systemRoot}\\System32\\wsl.exe`, args: ["-e", "codex", "app-server"] };
   }
   // Resolve to an absolute path so spawn doesn't depend on the bridge process inheriting an interactive
@@ -404,7 +407,8 @@ export function codexSpawnCwd(launcher, cwd) {
   // the launch with AIFY_INVALID_RUNTIME_CWD. Prefer the real USERPROFILE.
   if (process.env.USERPROFILE) return process.env.USERPROFILE;
   if (process.env.HOMEDRIVE && process.env.HOMEPATH) return `${process.env.HOMEDRIVE}${process.env.HOMEPATH}`;
-  return "C:\\";
+  // With no profile at all, the root this process is on -- the one directory certain to exist here.
+  return process.env.SystemDrive ? `${process.env.SystemDrive}\\` : (path.parse(process.cwd()).root || path.sep);
 }
 
 export function hasCodexLiveAppServer(runtimeConfig = {}) {

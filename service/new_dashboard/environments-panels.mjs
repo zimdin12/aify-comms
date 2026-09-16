@@ -315,6 +315,17 @@ export function renderEnvironmentSummary() {
     metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
   ].join('');
 }
+/**
+ * The hint shown in an empty roots box: an EXAMPLE of the shape this host writes, never a place this
+ * service claims anything is installed. A Windows-only hint was the whole prompt on a Linux environment.
+ */
+export function rootsPlaceholder(env) {
+  const os = String(env?.os || env?.kind || '').toLowerCase();
+  if (os.includes('win')) return 'C:/work\nC:/projects';        // example path
+  if (os.includes('mac') || os.includes('darwin')) return '/Users/you/work\n/Users/you/projects';
+  return '/srv/work\n/home/you/projects';
+}
+
 export function openEnvironmentRootsEditor(environmentId) {
   const env = state.environments.find((e) => String(e.id) === String(environmentId)) || { id: environmentId };
   const roots = environmentRoots(env);
@@ -328,7 +339,7 @@ export function openEnvironmentRootsEditor(environmentId) {
       <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
       <div class="env-roots-state">${overrideBadge}</div>
       <label class="settings-label">Roots (one per line)
-        <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="C:/work&#10;C:/projects">${esc(roots.join('\n'))}</textarea>
+        <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="${esc(rootsPlaceholder(env))}">${esc(roots.join('\n'))}</textarea>
       </label>
       <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
       <label class="settings-label">Start command <span class="subtle">(run on the host to bring this bridge back)</span>

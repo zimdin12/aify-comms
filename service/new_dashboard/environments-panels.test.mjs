@@ -15,7 +15,22 @@ import {
   renderEnvironmentSpawnOptions,
   renderRuntime,
   renderSpawnRequests,
+  rootsPlaceholder,
 } from "./environments-panels.mjs";
+
+test("the empty-roots hint shows THIS environment's shape, and claims no install location", () => {
+  // It read `C:/work` on every host, including the Linux ones, which is a hint that teaches the wrong
+  // shape and names a drive nobody here can know exists.
+  assert.match(rootsPlaceholder({ os: "windows" }), /^[A-Za-z]:\/\w+/, "a Windows environment gets a Windows-shaped example");
+  assert.match(rootsPlaceholder({ os: "linux" }), /^\/\w+/, "a Linux environment gets a POSIX example");
+  assert.match(rootsPlaceholder({ kind: "macos" }), /^\/Users\//, "`kind` is read when `os` is absent");
+  assert.match(rootsPlaceholder({}), /^\/\w+/, "an environment naming no OS still gets a hint");
+  for (const env of [{ os: "linux" }, { kind: "macos" }, {}]) {
+    assert.ok(!/[A-Za-z]:\//.test(rootsPlaceholder(env)), `a drive letter reached ${JSON.stringify(env)}`);
+  }
+  // Two lines, because the box takes one root per line and one example would read as the only one.
+  assert.equal(rootsPlaceholder({ os: "windows" }).split("\n").length, 2);
+});
 
 /**
  * The card's text with markup removed.

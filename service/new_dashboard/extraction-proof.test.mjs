@@ -335,7 +335,29 @@ const EXTRACTIONS = [
     importLine: "import { environmentStartCommand } from './environment-start-command.mjs';",
     items: [
       { name: "environmentStartCommand", at: 3106,
-        marker: "// environmentStartCommand moved to ./environment-start-command.mjs in v0.5.4." },
+        marker: "// environmentStartCommand moved to ./environment-start-command.mjs in v0.5.4.",
+        // 2026-09-16: an environment advertising no root was handed the directories this project lives in
+        // on the machine the dashboard was written on. A shell variable is resolved by the operator's host.
+        editedSince: [
+          {
+            was: [
+              "  if (os.includes('win')) {",
+              "    const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d C:\\\\Docker';",
+            ],
+            now: [
+              "  // NO ROOT, NO GUESS. An environment that advertises none is one this service does not know the layout of,",
+              "  // and the fallbacks here named THIS operator's own directories -- `C:\\Docker` and `/mnt/c/Docker` -- to",
+              "  // every other host that read the dashboard. A shell variable is resolved by the operator's own machine, so",
+              "  // the command stays paste-able without claiming to know where anything is installed.",
+              "  if (os.includes('win')) {",
+              "    const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d \"%USERPROFILE%\"';",
+            ],
+          },
+          {
+            was: ["  const cd = firstRoot ? `cd ${quote(firstRoot)}` : (os.includes('mac') || os.includes('darwin') ? 'cd \"$HOME\"' : 'cd /mnt/c/Docker');"],
+            now: ["  const cd = firstRoot ? `cd ${quote(firstRoot)}` : 'cd \"$HOME\"';"],
+          },
+        ] },
     ],
   },
   {
@@ -1384,7 +1406,12 @@ const EXTRACTIONS = [
           ],
         }],
       },
-      { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4." },
+      { name: "openEnvironmentRootsEditor", at: 3122, marker: "// openEnvironmentRootsEditor moved to ./environments-panels.mjs in v0.5.4.",
+        // 2026-09-16: the empty-roots hint was Windows-only, and named a drive on every host that read it.
+        editedSince: [{
+          was: ["        <textarea id=\"env-edit-roots\" rows=\"6\" spellcheck=\"false\" placeholder=\"C:/work&#10;C:/projects\">${esc(roots.join('\\n'))}</textarea>"],
+          now: ["        <textarea id=\"env-edit-roots\" rows=\"6\" spellcheck=\"false\" placeholder=\"${esc(rootsPlaceholder(env))}\">${esc(roots.join('\\n'))}</textarea>"],
+        }] },
       // The four ACTIONS, added later in v0.5.4. They landed in this module rather than a new one
       // because an environment's actions and the panels that render them are one subject.
       {

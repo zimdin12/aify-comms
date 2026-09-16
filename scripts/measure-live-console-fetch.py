@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import json
 import math
+import pathlib
 import statistics
 import subprocess
 import time
 import urllib.request
 
-ROOT = "C:/Docker/aify-comms"
+#: This checkout, found from this file, so the script runs wherever the repo is cloned.
+ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 BASE = "http://localhost:8800/api/v1"
 ROUNDS = 3
 

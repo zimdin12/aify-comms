@@ -232,6 +232,7 @@ def _validate_registration_cwd(
             400,
             (
                 f'Invalid cwd "{resolved_cwd}" for codex live agent "{agent_id}" on Windows. '
+                # An example path, shown to the person reading the refusal: the drive is theirs, not ours.
                 'Use forward-slash drive-letter form like "C:/repo", not a "/mnt/..." WSL path.'
             ),
         )

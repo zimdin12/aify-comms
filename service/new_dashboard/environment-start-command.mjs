@@ -21,12 +21,16 @@ export function environmentStartCommand(env) {
   const extras = roots.slice(1);
   const os = String(env.os || env.kind || '').toLowerCase();
   const quote = (v) => /[\s"'`]/.test(v) ? JSON.stringify(v) : v;
+  // NO ROOT, NO GUESS. An environment that advertises none is one this service does not know the layout of,
+  // and the fallbacks here named THIS operator's own directories -- `C:\Docker` and `/mnt/c/Docker` -- to
+  // every other host that read the dashboard. A shell variable is resolved by the operator's own machine, so
+  // the command stays paste-able without claiming to know where anything is installed.
   if (os.includes('win')) {
-    const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d C:\\Docker';
+    const cd = firstRoot ? `cd /d ${quote(firstRoot)}` : 'cd /d "%USERPROFILE%"';
     const args = extras.map(quote).join(' ');
     return `${cd}\naify-comms${args ? ' ' + args : ''}`;
   }
-  const cd = firstRoot ? `cd ${quote(firstRoot)}` : (os.includes('mac') || os.includes('darwin') ? 'cd "$HOME"' : 'cd /mnt/c/Docker');
+  const cd = firstRoot ? `cd ${quote(firstRoot)}` : 'cd "$HOME"';
   const args = extras.map(quote).join(' ');
   return `${cd}\naify-comms${args ? ' ' + args : ''}`;
 }
