@@ -159,6 +159,33 @@ class NothingCarriesOver(PoolTestCase):
             await second.close()
         self.run_async(body)
 
+    def test_a_PRAGMA_through_the_other_execute_helpers_makes_the_connection_unpoolable(self):
+        for method in ("execute_fetchall", "execute_insert"):
+            with self.subTest(method=method):
+                async def body():
+                    first = await self.get()
+                    await getattr(first, method)("PRAGMA foreign_keys=OFF")
+                    raw = _raw(first)
+                    await first.close()
+                    second = await self.get()
+                    self.assertIsNot(_raw(second), raw, f"a PRAGMA through {method} left the connection pooled")
+                    await second.close()
+                self.run_async(body)
+
+    def test_a_bare_cursor_makes_the_connection_unpoolable(self):
+        # What runs through a cursor never passes the SQL checks, so taking one is enough.
+        async def body():
+            first = await self.get()
+            cursor = await first.cursor()
+            await cursor.execute("PRAGMA foreign_keys=OFF")
+            await cursor.close()
+            raw = _raw(first)
+            await first.close()
+            second = await self.get()
+            self.assertIsNot(_raw(second), raw)
+            await second.close()
+        self.run_async(body)
+
     def test_changing_any_other_attribute_makes_the_connection_unpoolable(self):
         async def body():
             first = await self.get()
@@ -273,6 +300,19 @@ class WhereAConnectionBelongs(PoolTestCase):
             await first.close()
             self.assertIsNone(getattr(first, "_connection", None))
             self.assertEqual(pool.idle_count(), 0)
+        self.run_async(body)
+
+    def test_closing_idle_connections_waits_until_they_are_closed_and_keeps_pooling(self):
+        async def body():
+            handle = await self.get()
+            raw = _raw(handle)
+            await handle.close()
+            self.assertEqual(await self.pool.close_idle(), 1)
+            self.assertIsNone(getattr(raw, "_connection", None), "an idle connection was still open when close_idle returned")
+            self.assertTrue(self.pool.enabled)
+            again = await self.get()
+            await again.close()
+            self.assertEqual(self.pool.idle_count(), 1, "pooling stopped after closing the idle connections")
         self.run_async(body)
 
     def test_retiring_idle_connections_closes_them(self):

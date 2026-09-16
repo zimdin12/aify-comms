@@ -348,9 +348,9 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             import time as _t
             # IDLE POOLED CONNECTIONS ARE CLOSED FIRST. They hold no transaction and no statement, so they
             # should not block a TRUNCATE -- but "should not" is exactly how the 83 MB WAL above happened,
-            # and retiring them costs a reconnect a minute. This makes it structural rather than assumed.
+            # and closing them costs a reconnect a minute. AWAITED, so they are gone before the checkpoint runs.
             from service.db import CONNECTION_POOL as _pool
-            _pool.retire_idle()
+            await _pool.close_idle()
             _ck_start = _t.monotonic()
             row = await (await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")).fetchone()
             checkpoint_result = tuple(row) if row else None

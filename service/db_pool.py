@@ -55,6 +55,8 @@ _CONNECTION_STATE_SQL = re.compile(r"\bpragma\b|\battach\b|\bdetach\b", re.IGNOR
 
 # Methods that install per-connection behaviour. Calling any of them makes the connection unpoolable.
 _STATEFUL_METHODS = frozenset({
+    # `cursor()` is here because what runs through a bare cursor never passes the SQL checks above.
+    "cursor",
     "create_function", "create_aggregate", "create_collation", "set_authorizer",
     "set_progress_handler", "set_trace_callback", "enable_load_extension", "load_extension",
 })
@@ -119,6 +121,16 @@ class PooledConnection:
         if changes_connection_state(sql):
             self._mark_dirty()
         return self._target().executemany(sql, parameters)
+
+    def execute_fetchall(self, sql, parameters=None):
+        if changes_connection_state(sql):
+            self._mark_dirty()
+        return self._target().execute_fetchall(sql, parameters)
+
+    def execute_insert(self, sql, parameters=None):
+        if changes_connection_state(sql):
+            self._mark_dirty()
+        return self._target().execute_insert(sql, parameters)
 
     def executescript(self, sql_script):
         if changes_connection_state(sql_script):
@@ -201,6 +213,17 @@ class ConnectionPool:
                 retired += 1
         self._idle.clear()
         return retired
+
+    async def close_idle(self) -> int:
+        """Close every idle connection and WAIT for each to be released. Pooling stays enabled."""
+        idle = [conn for bucket in self._idle.values() for conn in bucket]
+        self._idle.clear()
+        for conn in idle:
+            try:
+                await conn.close()
+            except Exception:  # noqa: BLE001 -- a broken connection still has to be let go
+                _retire(conn)
+        return len(idle)
 
     def idle_count(self) -> int:
         return sum(len(bucket) for bucket in self._idle.values())

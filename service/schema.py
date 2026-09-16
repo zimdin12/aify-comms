@@ -193,6 +193,23 @@ CREATE INDEX IF NOT EXISTS idx_messages_reply ON messages(in_reply_to);
 -- Index build was 27ms at that size. Anything faster for the direct anti-join is a different
 -- change, not a bigger index.
 CREATE INDEX IF NOT EXISTS idx_messages_source ON messages(source);
+-- IDLE COST, 2026-09-16. An idle host spent about 2% of a core, and the largest single burst was one
+-- hidden dashboard tab's GET /stats: 0.18 CPU-s per call, measured with the service's own /proc counter.
+-- On a copy of the live database (38,515 messages, 23,208 runs) the call went 406ms -> 112ms with the
+-- four indexes below, each measured on its own:
+--   messages(source, timestamp)      direct-in-24h count and the conversation-pair count   406 -> 262ms
+--   messages(source, type)           the by-type breakdown of direct messages              262 -> 208ms
+--   dispatch_runs(status, COALESCE(finished_at, requested_at))   completions in the last 24h   -> 146ms
+--   dispatch_runs(status) WHERE require_reply = 1                 required replies not answered -> 112ms
+-- (That last one is created in service/db.py `_migrate_dispatch_runs_table`, NOT here: `require_reply` is a
+-- migrated column, and this script runs before the migrations, so on a database from before 2026-04-23 the
+-- index would fail with `no such column` and take the whole startup with it.)
+-- The expression and partial indexes are only used by a query spelling the SAME expression and predicate;
+-- test_the_idle_paths_do_not_scan_whole_tables.py fails if a query stops matching. What remains is the
+-- unread aggregate, which by its nature walks every message lacking a receipt. read_receipts(message_id,
+-- agent_id) was tried and moved nothing (208 -> 205ms), so it is not here.
+CREATE INDEX IF NOT EXISTS idx_messages_source_ts ON messages(source, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_source_type ON messages(source, type);
 CREATE INDEX IF NOT EXISTS idx_read_receipts_agent ON read_receipts(agent_id);
 CREATE INDEX IF NOT EXISTS idx_read_receipts_msg ON read_receipts(message_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_status_requested ON dispatch_runs(status, requested_at DESC);
@@ -206,8 +223,15 @@ CREATE INDEX IF NOT EXISTS idx_dispatch_runs_from ON dispatch_runs(from_agent, r
 -- `SCAN dispatch_runs USING INDEX idx_dispatch_runs_requested`, walking in order and stopping.
 -- The filtered forms still choose `idx_dispatch_runs_status_requested`, checked in the same probe.
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_requested ON dispatch_runs(requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dispatch_runs_status_finished ON dispatch_runs(status, COALESCE(finished_at, requested_at));
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id, id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_controls_run_status ON dispatch_controls(run_id, status, requested_at);
+-- The reconcile sweep settles controls whose run ended, every 60s: `c.status IN (pending, claimed)` ordered by
+-- requested_at. With only the index above the planner walked every ENDED run and probed its controls --
+-- 51ms per pass on the live database copy, 2026-09-16. Leading with status it reads the few unsettled
+-- controls instead: 0.0ms. (An expression index for the run-history prune was measured too, 68 -> 50ms,
+-- and left out: most old runs belong to live agents and are walked regardless.)
+CREATE INDEX IF NOT EXISTS idx_dispatch_controls_status_requested ON dispatch_controls(status, requested_at);
 
 CREATE TABLE IF NOT EXISTS bridge_instances (
     id TEXT PRIMARY KEY,

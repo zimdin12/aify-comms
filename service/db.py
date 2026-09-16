@@ -204,6 +204,13 @@ async def _migrate_dispatch_runs_table(db: aiosqlite.Connection):
     for column, statement in DISPATCH_RUN_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
+    # AFTER the column migration, for the same reason `idx_messages_client_nonce` is created in its own
+    # migration: `require_reply` is added by DISPATCH_RUN_MIGRATIONS, and the schema script runs first, so a
+    # database from before 2026-04-23 would fail there with `no such column`. Measured reason for the index
+    # is in service/schema.py beside the other /stats indexes.
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_runs_reply_open ON dispatch_runs(status) WHERE require_reply = 1"
+    )
 
 
 async def _migrate_messages_table(db: aiosqlite.Connection):

@@ -231,7 +231,7 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5837 tests, 3 skipped (+11337 subtests)
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5846 tests, 3 skipped (+11350 subtests)
 cd mcp/stdio && node tests/run-all.mjs                 # 376 suites, 2 skipped tests (named in its output)
 cd service/new_dashboard && node --test *.test.mjs     # 1757 tests
 ```

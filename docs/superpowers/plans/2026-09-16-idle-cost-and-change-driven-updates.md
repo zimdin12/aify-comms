@@ -70,6 +70,36 @@ followed a rebuild while agents re-registered. The likeliest remaining source is
 every 3 s per waiter, with `BEGIN IMMEDIATE`, a settings load and an agent read each time. That is step B below,
 so it moves up in priority.
 
+## v0.6.9: what the measurement found, and what shipped
+
+Reading the service's own CPU counter (`/proc/1/stat`) rather than `docker stats` settled what the samplers
+could not:
+
+- **The claim re-poll is not the cost.** 3 s vs 25 s fallback, two 120 s windows each: 1.55% and 1.53% vs
+  1.42% and 1.55% of a core.
+- **About 70% of the service's CPU came in two bursts a minute.**
+  - One is 0.45–0.54 CPU-s, one second after a hidden dashboard tab's poll bundle.
+  - The other is 0.18–0.21 CPU-s from the reconcile sweep.
+- **The dashboard burst is `GET /stats`,** 0.18 CPU-s per call. `/agents` is 0.05, `/contracts` 0.03, and the
+  rest are near zero.
+- **Indexes fixed most of it.** On a copy of the live database (38,515 messages, 23,208 runs), `/stats` went
+  from 406 ms to 112 ms with four indexes, and the sweep's control settlement from 51 ms to 0 with one.
+  Each query is pinned to its index by `test_the_idle_paths_do_not_scan_whole_tables.py`, and removing any of
+  the five fails it.
+
+An independent review of the release found one startup defect, fixed before tagging. The partial index on
+`require_reply` was first put in the schema script, which runs before the column migrations, so a database
+from before 2026-04-23 failed to start. It is now created in `_migrate_dispatch_runs_table`, with a test
+that starts such a database.
+
+Known and left open, both low:
+
+- **A user action can finish on stale data.** If the tab is hidden between an action's POST and its awaited
+  `refresh()`, the code after that await runs on the previous state. The catch-up refresh on show re-renders,
+  but does not re-run that code.
+- **`idx_messages_source` is now a redundant prefix of `idx_messages_source_ts`.** It costs a little on every
+  message insert. Dropping an index on existing databases is its own change.
+
 ## Steps 4 and 5: are they the right solutions?
 
 Not as first written. Tracing the code changed both.
