@@ -460,7 +460,15 @@ the resident lease (150 s): measured 2026-09-16, an owner marked `stopped` or `o
 `last_seen` still parks the newcomer's id. That is the safe direction -- an agent momentarily reading
 offline must not lose its conversation to whoever registers next, which is the 2026-05-31 incident -- so the
 operator's "close the window, register it under another name" either waits out the lease or takes the
-dashboard's Confirm. The guard does NOT clear a dead owner's id when a live agent takes it over: the id is the link to a conversation, and a takeover can be the wrong party (the 2026-09-15 pane-inheritance launch), so that leftover stays for `aify-comms doctor`'s `session-handles` row and an operator's decision.
+dashboard's Confirm. **Waiting out the lease works only because the bridge offers the id again.** The first
+version of this paragraph promised it before that was true: the service answers a refusal with HTTP 200 and
+`state: "session-collision"`, and the session-id heartbeat recorded any 200 as delivered and never sent the id
+again, so a refused agent stayed without its conversation until a Confirm or a relaunch (external review,
+2026-09-16: 1 PATCH in about 15 ticks). The heartbeat now re-offers an id answered `session-collision` every
+tick (60 s), and the route takes it once the owner's heartbeat is stale. Both halves are tested:
+`mcp/stdio/tests/a-refused-session-id-is-offered-again.test.js` and
+`service/tests/test_a_refused_session_id_is_taken_once_its_owner_is_gone.py`. It reaches an agent only once
+its bridge runs the new heartbeat, so an agent still on older bridge code needs the Confirm or a relaunch. The guard does NOT clear a dead owner's id when a live agent takes it over: the id is the link to a conversation, and a takeover can be the wrong party (the 2026-09-15 pane-inheritance launch), so that leftover stays for `aify-comms doctor`'s `session-handles` row and an operator's decision.
 
 **Claude channel delivery: wrapper-child must not race the channel-sidecar.** `wrapperChildExecutionModes` excluded only hermes from claiming channel/resident; claude's `aify-comms` wrapper-child (managed PTYs set `AIFY_MANAGED_VIA_WRAPPER=1`) raced the `claude-channel.js` channel-sidecar and, when it won, routed to the removed `claude -p` path → delivery FAILED. Fix: exclude `claude-code` too — only codex wrapper children claim channel (no separate sidecar); claude + hermes have dedicated sidecars.
 
