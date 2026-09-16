@@ -7,6 +7,7 @@ import time
 import aiosqlite
 from pathlib import Path
 
+from service.db_pool import ConnectionPool
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
 # SCHEMA moved to service/schema.py in v0.5.4 — 431 lines of DDL is data, and this module opens
 # connections. Imported rather than re-exported: `init_db` below is its only reader.
@@ -447,8 +448,8 @@ async def init_db(db_path: Path = None):
         await _reconcile_terminal_controls(db)
         await db.commit()
 
-async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Connection:
-    db = await aiosqlite.connect(_db_path)
+async def _open_connection(path, busy_timeout_ms: int) -> aiosqlite.Connection:
+    db = await aiosqlite.connect(path)
     db.row_factory = aiosqlite.Row
     try:
         await _apply_connection_pragmas(db, busy_timeout_ms)
@@ -456,3 +457,13 @@ async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Con
         await db.close()
         raise
     return db
+
+
+#: Reused connections, ENABLED ONLY BY THE SERVICE'S LIFESPAN (service/main.py). Without it every
+#: `get_db()` opens a fresh connection, exactly as before -- see service/db_pool.py for why and what a
+#: pooled connection may never carry across requests.
+CONNECTION_POOL = ConnectionPool(_open_connection)
+
+
+async def get_db(busy_timeout_ms: int = SQLITE_BUSY_TIMEOUT_MS) -> aiosqlite.Connection:
+    return await CONNECTION_POOL.acquire(_db_path, busy_timeout_ms)

@@ -83,6 +83,7 @@ import { dashboardNotifier, notificationsEnabled, toggleNotifications } from './
 import { restorePersistedPreferences, wireGlobalControls, wireInspectorGestures, wireSettingsControls } from './boot-wiring.mjs';
 import { loadVersionBadge } from './version-badge.mjs';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
+import { createRefreshGate } from './refresh-visibility.mjs';
 
 // resolveApiOrigin moved to ./api-origin.mjs in v0.5.4.
 
@@ -219,6 +220,7 @@ function evaluateFlowGates() {
 
 // api moved to ./api-client.mjs in v0.5.4.
 setApiBase(apiBase, apiOrigin);
+const refreshGate = createRefreshGate({ onVisibleAgain: () => refresh() }); // a hidden tab fetches nothing and catches up once when shown (refresh-visibility.mjs)
 
 // awaitTerminalSize moved to ./xterm-lifecycle.mjs in v0.5.4.
 
@@ -249,6 +251,7 @@ function refreshSoon() {
 // asArray moved to ./record-fields.mjs in v0.5.4.
 
 async function refresh() {
+  if (!refreshGate.admit()) return;
   // Coalesce concurrent refreshes so the poll bundle can't pile up (see _refreshInFlight).
   if (_refreshInFlight) { _refreshQueued = true; return; }
   _refreshInFlight = true;

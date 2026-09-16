@@ -346,6 +346,11 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # otherwise — non-fatal). Bounds WAL growth without touching the hot path.
         try:
             import time as _t
+            # IDLE POOLED CONNECTIONS ARE CLOSED FIRST. They hold no transaction and no statement, so they
+            # should not block a TRUNCATE -- but "should not" is exactly how the 83 MB WAL above happened,
+            # and retiring them costs a reconnect a minute. This makes it structural rather than assumed.
+            from service.db import CONNECTION_POOL as _pool
+            _pool.retire_idle()
             _ck_start = _t.monotonic()
             row = await (await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")).fetchone()
             checkpoint_result = tuple(row) if row else None

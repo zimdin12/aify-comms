@@ -70,6 +70,7 @@ from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
+from service.pi_resident_flip import request_pi_flip_check
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 from service.routers.agents.shared import (
     _merge_runtime_policy_for_wrapper_reregister,
@@ -88,6 +89,12 @@ router = domain_router()
 @router.post("/agents")
 async def register_agent(req: AgentRegister, request: Request):
     validate_name(req.agentId, "agent ID")
+    # A pi agent registering as resident is marked for the flip below; the flip loop is told once this
+    # request's connection is closed, so its look sees the committed row.
+    asks_for_pi_flip = (
+        _normalize_runtime(req.runtime or "generic") == "pi"
+        and _normalize_session_mode(req.sessionMode or "resident") == "resident"
+    )
     db = await get_db()
     try:
         normalized_runtime = _normalize_runtime(req.runtime or "generic")
@@ -321,3 +328,5 @@ async def register_agent(req: AgentRegister, request: Request):
         }
     finally:
         await db.close()
+        if asks_for_pi_flip:
+            request_pi_flip_check()

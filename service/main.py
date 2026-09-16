@@ -26,7 +26,7 @@ from service.api_core.browser_origin import (
 )
 from service.routers import health, containers as containers_router
 from service.routers.api_v2 import router as api_router
-from service.db import init_db
+from service.db import CONNECTION_POOL, init_db
 from service.ws import ConnectionManager
 from service.ntfy import get_relay
 
@@ -342,6 +342,10 @@ async def lifespan(app: FastAPI):
     db_path = Path(config.data_dir) / "aify.db"
     await init_db(db_path)
     logger.info(f"Database: {db_path}")
+    # Connections are reused from here on and closed at shutdown (service/db_pool.py). Enabled HERE,
+    # not at import, so only the running service pools: a test using `get_db()` with no lifespan keeps
+    # a fresh connection per call and no file handle outlives its temporary database.
+    CONNECTION_POOL.enable()
 
     # Bounded startup reconcile: drain delivered dispatch runs that never got
     # a terminal state (reply-linked, or stale and not requiring a reply) so
@@ -432,6 +436,8 @@ async def lifespan(app: FastAPI):
             await pi_flip_task
         except asyncio.CancelledError:
             pass
+        # After every background task has stopped, so nothing checks a connection out again.
+        await CONNECTION_POOL.aclose()
 
     # --- SHUTDOWN ---
     if container_manager:

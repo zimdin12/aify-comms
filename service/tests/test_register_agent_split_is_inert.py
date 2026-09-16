@@ -144,6 +144,28 @@ EDITED_SINCE = [
         '            "sessionMode": normalized_session_mode,\n            **collision,\n        }',
         '            "sessionMode": normalized_session_mode,\n        }',
     ),
+    # DECLARED EDIT, 2026-09-16. The pi flip loop backs off to 30s when no pi agent waits, so a
+    # registration that asks for a flip wakes it -- after this request's connection is closed, so the
+    # look sees the committed row. See service/pi_resident_flip.py.
+    (
+        "from service.db import get_db\nfrom service.pi_resident_flip import request_pi_flip_check\n",
+        "from service.db import get_db\n",
+    ),
+    (
+        '    validate_name(req.agentId, "agent ID")\n'
+        "    # A pi agent registering as resident is marked for the flip below; the flip loop is told once this\n"
+        "    # request's connection is closed, so its look sees the committed row.\n"
+        "    asks_for_pi_flip = (\n"
+        '        _normalize_runtime(req.runtime or "generic") == "pi"\n'
+        '        and _normalize_session_mode(req.sessionMode or "resident") == "resident"\n'
+        "    )\n"
+        "    db = await get_db()\n",
+        '    validate_name(req.agentId, "agent ID")\n    db = await get_db()\n',
+    ),
+    (
+        "    finally:\n        await db.close()\n        if asks_for_pi_flip:\n            request_pi_flip_check()\n",
+        "    finally:\n        await db.close()\n",
+    ),
 ]
 
 SOURCE_FUNCTION = "register_agent"

@@ -47,6 +47,32 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: Newest first, for the same reason the import undo runs in reverse: each entry finds the text the
 //: entry after it left.
 const CARRIER_EDITS = [
+  {
+    // v0.6.9 idle cost: a hidden tab stops fetching the poll bundle. The gate is consulted first in refresh().
+    now: [
+      "async function refresh() {",
+      "  if (!refreshGate.admit()) return;",
+      "  // Coalesce concurrent refreshes so the poll bundle can't pile up (see _refreshInFlight).",
+    ],
+    was: [
+      "async function refresh() {",
+      "  // Coalesce concurrent refreshes so the poll bundle can't pile up (see _refreshInFlight).",
+    ],
+  },
+  {
+    now: [
+      "setApiBase(apiBase, apiOrigin);",
+      "const refreshGate = createRefreshGate({ onVisibleAgain: () => refresh() }); // a hidden tab fetches nothing and catches up once when shown (refresh-visibility.mjs)",
+    ],
+    was: ["setApiBase(apiBase, apiOrigin);"],
+  },
+  {
+    now: [
+      "import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';",
+      "import { createRefreshGate } from './refresh-visibility.mjs';",
+    ],
+    was: ["import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';"],
+  },
   { now: ["import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, markVisibleRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';"], was: ["import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';"] },
   { now: ["const chatController = createChatController({", "  state, byId, markVisibleRead,"], was: ["const chatController = createChatController({", "  state, byId,"] },
   {
