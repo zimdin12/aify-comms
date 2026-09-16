@@ -116,6 +116,34 @@ EDITED_SINCE = [
         """        if bridge_id:
             fresh_state["bridgeInstanceId"] = bridge_id""",
     ),
+    # DECLARED EDIT, 2026-09-16. A registration refuses a session id a DIFFERENT live agent holds,
+    # as `PATCH /agents/{id}/session-handle` already did: it registers without the id and parks it.
+    # Every path is covered, so the two early returns are wrapped and the main path parks before its
+    # commit. See service/api_core/registration_handle_collision.py.
+    (
+        "from service.api_core.registration_handle_collision import (\n    after_registration_path,\n    park_registration_handle_collision,\n    registration_handle_owner,\n)\nfrom service.api_core.registration_gates import (",
+        "from service.api_core.registration_gates import (",
+    ),
+    (
+        '        session_handle = _sanitize_session_handle(req.sessionHandle or "")\n        # A DIFFERENT live agent holding this id keeps it: register without it and park it, as the\n        # session-handle route does. See service/api_core/registration_handle_collision.py.\n        requested_handle = session_handle\n        handle_owner = await registration_handle_owner(db, req.agentId, session_handle)\n        if handle_owner:\n            session_handle = ""\n',
+        '        session_handle = _sanitize_session_handle(req.sessionHandle or "")\n',
+    ),
+    (
+        "            return await after_registration_path(db, req.agentId, requested_handle, handle_owner, now, await _register_via_adopted_console_terminal(\n                db, req, request, row, console_terminal, terminal_id,\n                bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,\n            ))",
+        "            return await _register_via_adopted_console_terminal(\n                db, req, request, row, console_terminal, terminal_id,\n                bridge_id, normalized_runtime, session_handle, resolved_cwd, capabilities, runtime_config, now,\n            )",
+    ),
+    (
+        "            return await after_registration_path(db, req.agentId, requested_handle, handle_owner, now, await _register_via_manual_resident_takeover(\n                bridge_id, capabilities, db, normalized_runtime, now, req,\n                request, resolved_cwd, row, runtime_config, session_handle, terminal_id,\n            ))",
+        "            return await _register_via_manual_resident_takeover(\n                bridge_id, capabilities, db, normalized_runtime, now, req,\n                request, resolved_cwd, row, runtime_config, session_handle, terminal_id,\n            )",
+    ),
+    (
+        "        collision = await park_registration_handle_collision(db, req.agentId, requested_handle, handle_owner, now) if handle_owner else {}\n        await db.commit()\n        ws = await _get_ws(request)",
+        "        await db.commit()\n        ws = await _get_ws(request)",
+    ),
+    (
+        '            "sessionMode": normalized_session_mode,\n            **collision,\n        }',
+        '            "sessionMode": normalized_session_mode,\n        }',
+    ),
 ]
 
 SOURCE_FUNCTION = "register_agent"
