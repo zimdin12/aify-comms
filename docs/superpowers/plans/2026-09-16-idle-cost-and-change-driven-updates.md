@@ -1,7 +1,7 @@
 # Idle cost, and updating on change instead of on a timer
 
-Status: steps 1–3 BUILT, not yet tested (the operator is benchmarking; suites wait for a clear CPU).
-Steps 4–5 are PROPOSED below and need an operator decision before any code.
+Status: steps 1–3 SHIPPED in `2453faec` (v0.6.8) and deployed. Steps 4–5 are PROPOSED below and need an
+operator decision before any code.
 
 ## What was measured (2026-09-16, operator's host, nothing running)
 
@@ -50,13 +50,25 @@ Behaviour changes to know about:
   writers are the thing to avoid.
 - A dashboard tab opened in the background loads nothing until it is first shown.
 
-Tests to run once the CPU is clear:
+Verified:
 
-- The three suites.
-- `node --test service/new_dashboard/refresh-visibility.test.mjs extraction-proof.test.mjs`.
-- `python -m pytest service/tests/test_db_pool.py service/tests/test_pi_flip_looks_often_only_while_an_agent_waits.py`.
-- A mutation per hazard.
-- A before/after py-spy and tcpdump against the rebuilt service.
+- Suites, run apart: python 5837, bridge 376, dashboard 1757.
+- Mutations, each watched red: 11 on the pool, 5 on the flip loop, 4 on the gate.
+
+Measured after the rebuild, and it did NOT move the idle number:
+
+| | before | after |
+|---|---|---|
+| py-spy busy samples / 90 s | 96 | 107 |
+| samples in aiosqlite's connect | part of every request | 0 |
+| `docker stats` CPU%, 30 samples at 2 s: mean | 1.19 | 1.65 |
+| `docker stats` CPU%, 30 samples at 2 s: median | ~0.5 | 0.76 |
+
+The pool removed connection setup entirely, but the idle cost is the queries themselves: 67 of 107 samples
+are aiosqlite workers executing statements. The before and after runs differ within noise, and the after run
+followed a rebuild while agents re-registered. The likeliest remaining source is the in-service claim re-poll,
+every 3 s per waiter, with `BEGIN IMMEDIATE`, a settings load and an agent read each time. That is step B below,
+so it moves up in priority.
 
 ## Steps 4 and 5: are they the right solutions?
 
