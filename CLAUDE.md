@@ -327,7 +327,7 @@ resolves. If a future change needs stronger cross-repo evidence, it has to be bu
 seam that is actually load-bearing now -- aify-env's own plugin talking to this service's HTTP API.
 
 ```bash
-cd ~/projects/aify-wrapper && npm test                      # 548 tests, 66 skipped on Windows. `npm test`
+cd ~/projects/aify-wrapper && npm test                      # 551 tests, 66 skipped on Windows (16 on Linux). `npm test`
                                                            # NOT a bare `node --test`: the script
                                                            # runs the suite under ONE temp root and
                                                            # deletes it, which is why this machine
