@@ -30,9 +30,34 @@ from pathlib import Path
 # lifetime is legitimately the whole process; atexit is where "whole process" ends.
 
 
+import socket
+import struct
+
 import pytest
 
 import service.db as _db
+
+
+# SOCKET EXHAUSTION, and the HANG it caused (2026-09-17). On Windows every asyncio event loop builds
+# its self-pipe with `socket.socketpair()`, which CPython emulates with a real loopback TCP connection;
+# closing it leaves a TIME_WAIT entry for minutes. One `-n 8` run took TIME_WAIT from ~1,200 to 12,803
+# against a 16,384-port range, and a run started on the residue of a previous one HUNG for 56 minutes
+# with four workers blocked in the emulation's `accept()`. CLAUDE.md records the failures this
+# produced at a smaller dose. An abortive close (SO_LINGER on, zero seconds) skips TIME_WAIT; a
+# self-pipe carries only wake-up bytes, so dropping unsent data at close loses nothing.
+if sys.platform == "win32":
+    _real_socketpair = socket.socketpair
+
+    def _socketpair_without_time_wait(*args, **kwargs):
+        pair = _real_socketpair(*args, **kwargs)
+        for sock in pair:
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("HH", 1, 0))
+            except OSError:
+                pass
+        return pair
+
+    socket.socketpair = _socketpair_without_time_wait
 
 
 def _build_template() -> Path:

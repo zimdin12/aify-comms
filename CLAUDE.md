@@ -261,6 +261,11 @@ of them. Sampled during one invocation, from a resting **296**: 3,290 at twelve 
 a minute forty, 8,455 at two minutes, **12,170 just after** -- against an ephemeral range of
 16,384 (`netsh int ipv4 show dynamicport tcp`). It drains on its own in about twenty-five minutes.
 
+**FIXED 2026-09-17, after it HUNG a run for 56 minutes** (four workers blocked in the emulation's
+`accept()`): `service/tests/conftest.py` closes those test-process socketpairs abortively (SO_LINGER
+0), which skips TIME_WAIT. Same suite, same sampler: peak 12,803 before, 374 after. The paragraphs
+below stay as the record of what a red looked like; re-read them if the count climbs again.
+
 **SO A RED HERE IS NOT AUTOMATICALLY A DEFECT, AND A GREEN IS NOT AUTOMATICALLY ITS ABSENCE.**
 Before believing either: READ EVERY FAILURE, then run the named files alone, then stash and
 re-run the suite. A moving failure set is consistent with this and does not identify it -- two of
