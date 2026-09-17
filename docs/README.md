@@ -26,6 +26,7 @@ Where those three disagree the file is listed as UNCLASSIFIED rather than guesse
 | [`TARGET_ARCHITECTURE.md`](TARGET_ARCHITECTURE.md) | The shape it is heading for, as the operator specified it. Anything disagreeing with this is the thing that is wrong. |
 | [`AGENT_GUIDE.md`](AGENT_GUIDE.md) · [`COMMUNICATION_GUIDE.md`](COMMUNICATION_GUIDE.md) | Using the thing as an agent. |
 | [`SESSION_MODEL.md`](SESSION_MODEL.md) | What a session, an agent and a handle actually are. Read before any lifecycle work. |
+| [`OPERATING_MODES.md`](OPERATING_MODES.md) | Managed and resident agents, delivery per runtime, compaction and runtime settings, as the operator meets them. |
 
 ## Live reference — current design, read before changing that area
 

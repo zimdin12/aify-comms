@@ -1,53 +1,68 @@
 # aify-comms
 
-Dashboard-driven communication and control plane for AI coding teams.
+A control plane for teams of AI coding agents: chat, work dispatch, consoles and a dashboard for
+Claude Code, Codex, Hermes, OpenCode and Oh My Pi agents running on Windows, WSL, Linux or remote
+machines.
 
-`aify-comms` solves the practical problem of running more than one coding agent across Windows, WSL, Linux, and remote machines without losing track of who is live, what they are doing, and how to restart or replace them. The normal workflow is: start the service, run `aify-env` on each host that will run agents, open the dashboard, spawn persistent managed identities into chosen workspaces, then coordinate through chat. (`aify-comms` itself starts nothing — since v0.6.1 it is a verifier, and any other invocation exits 2 naming aify-env.)
+You run one service, start `aify-env` on each machine that should run agents, open the dashboard,
+spawn agents into workspaces, and give them work by messaging them.
 
-The dashboard is the product surface. Messages are the work interface; runs, sessions, bridges, and handoffs are operational telemetry around those messages.
+## How it works
 
-The intended team behavior is conversational but disciplined: dashboard direct chat is human/operator chat, every message is a small contract, direct agent requests should receive threaded replies, and channel discussion should happen when an agent is named, responsible, asked a question, or has evidence to contribute. Managed turns should not end silently: final text is captured as the current reply, and future work needs a real `comms_send` wake.
+```
+                 browser: Dashboard (:8801)
+                            |
+                            v
+  +-------------------------------------------------+
+  | aify-comms service (Docker, API :8800)          |
+  | messages, channels, runs, agents, sessions,     |
+  | terminals, files; SQLite; pushes changes live   |
+  +-------------------------------------------------+
+        ^ claims spawns, streams consoles    ^ MCP tools: comms_send, comms_inbox, ...
+        |                                    |
+  +---------------------+          +---------------------------+
+  | aify-env (per host) |--runs--> | coding agents             |
+  | owns processes/PTYs |          | claude-aify, codex-aify,  |
+  +---------------------+          | hermes-aify (launchers)   |
+                                   +---------------------------+
+```
 
-## Three components, and you may only need some of them
+- **The service** stores everything and is the only source of truth. A message is the unit of work:
+  sending one to an agent creates a *run* that the agent claims, works on and closes by replying.
+- **aify-env** ([repo](https://github.com/zimdin12/aify-env)) is the host tier. It claims spawn
+  requests, starts agents in real terminals, streams their consoles to the dashboard and carries your
+  keystrokes back. One per machine.
+- **Launchers** (`claude-aify`, `codex-aify`, `hermes-aify`, from
+  [aify-wrapper](https://github.com/zimdin12/aify-wrapper)) start a runtime with its agent identity
+  and the aify-comms MCP server, so the agent can message, read its inbox and reply.
+- **Managed** agents are started and owned by aify-env and driven from the dashboard. **Resident**
+  agents are a terminal you opened yourself (`claude-aify --aify-agent <id>`) that receives messages
+  live.
 
-| component | what it is | installed by |
-|---|---|---|
-| **aify-comms** | the service: database, dashboard, the API agents talk to | `./setup.sh`, then `docker compose up -d --build` |
-| **aify-env** | the host that runs processes for a service, and claims its spawns | `./install.sh` in the [aify-env](https://github.com/zimdin12/aify-env) checkout |
-| **aify-wrapper** | the launchers a runtime is started through | `aify-wrapper-install --all --endpoint <url>` |
+## Main commands
 
-**Each repo owns its own instructions**, because each answers a different question — what a service
-needs, what a host needs, what a launcher needs — and one combined document goes stale in whichever
-part its author was not thinking about.
+| command | what it does |
+|---|---|
+| `docker compose up -d --build` | start or update the service (API `:8800`, dashboard `:8801`) |
+| `bash install.sh --client <claude\|codex\|hermes> http://<host>:8800 --with-hook` | install a client on this machine: launcher, MCP servers, notification hook, skills |
+| `aify-env` | run the host tier in the current directory (the directory is the allowed workspace root) |
+| `aify-env attach <agent>` | take over an agent's terminal; `Ctrl+]` detaches and leaves it running |
+| `claude-aify --aify-agent <id>` | open a resident agent in this terminal (same for `codex-aify`, `hermes-aify`) |
+| `aify-comms doctor` | verify what is actually running matches what you installed (`--json`, `--strict`) |
+| `./redeploy.sh` | after `git pull`: re-run `install.sh` for every client installed here |
 
-**Order matters, and only in one place.** The service can be installed on its own; a host is only
-useful once it knows which service to describe. So: service first, then `aify-env` on each machine
-that will run agents, then the launchers. Everything else is independent.
-
-**Each installer ASKS for what it cannot find, and updating is the same command.** That is not
-decoration: on 2026-09-02 a key sat in this repo's `.env`, the host running the agents held no
-credential for it, and nothing asked. Every advertisement was refused with 401, both sides reported
-healthy, and a day went to a fleet that would not spawn with no component anywhere naming a
-credential. An installer that proceeds with a missing value is how that happens, so none of them do
-now — and an unattended run says what is missing and exits non-zero rather than reporting success
-over a host that cannot work.
-
-Use the reviewed aify-env repo `install.sh` for both install and update. A bare global npm install
-bypasses its registered-service credential checks. A successful package install is not proof that
-the running host has the selected code or can authenticate.
-
-A machine may run any of these, all of them, or none, and the service can live on another host. Where
-each piece belongs and what is still in the way is
-[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md).
+`aify-comms` itself only verifies (`doctor`, `--check`, `--version`, `--help`); any other invocation
+exits 2 and points at aify-env. Inside an agent, the everyday tools are `comms_send`, `comms_inbox`,
+`comms_read`, `comms_agents`, `comms_dispatch` and `comms_console_tail`; the full list is in
+[`.claude/skills/aify-comms/SKILL.md`](.claude/skills/aify-comms/SKILL.md).
 
 ## Quick start
 
 **If you have a coding agent, point it at this repo and ask it to install aify-comms.** It will find
 `.claude/skills/aify-comms-install`, inspect host roles, clients, endpoint and versions, then show
-missing/outdated/unknown items and ask only the gaps plus whether you want optional **herdr**.
-Follow [agent-led onboarding](docs/INSTALL_ONBOARDING.md) for install/update, verify-only and plan-only
-workflows. The agent follows each owning repository: comms names aify-env's guide, and env names
-herdr's official installer. Nothing silently installs another product.
+missing/outdated/unknown items and ask only about the gaps, plus whether you want optional **herdr**.
+Follow [agent-led onboarding](docs/INSTALL_ONBOARDING.md) for the install/update, verify-only and
+plan-only workflows. Each repository owns its own installer; nothing silently installs another product.
 
 By hand:
 
@@ -56,452 +71,143 @@ git clone <this repo> && cd aify-comms
 bash scripts/install-state.sh     # what this machine already has; run it first
 
 ./setup.sh                        # service host only: generates .env + config
-docker compose up -d --build      # service :8800 (API), Dashboard Next :8801
+docker compose up -d --build      # service :8800 (API), dashboard :8801
 curl http://localhost:8800/health # {"status":"healthy"}
 
 bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
-git clone https://github.com/zimdin12/aify-env  # agent hosts only; review its README/install.sh
-# In that reviewed checkout, run its credential-aware install.sh after selecting the changes.
-# Start/restart the host tier separately, with approval; this can reap existing managed workers.
+git clone https://github.com/zimdin12/aify-env  # agent hosts only; use its own install.sh
 ```
 
-Then open `http://localhost:8801`, spawn a managed agent into a workspace, and message it. Legacy
-`:8800/api/v1/dashboard` bookmarks redirect to Dashboard Next.
+Then, on each agent host, start `aify-env` from the directory that contains your workspaces, open
+`http://localhost:8801`, click **Spawn Agent**, pick runtime, environment and workspace, and message
+the new agent.
 
-`install.sh` is the client install: it writes the launcher, registers the MCP servers, installs the
-notification hook and copies the skills out. `aify-wrapper-install` from the table above renders
-launchers only, and is for a machine that wants those without the rest.
+**Order matters once:** the service first, then aify-env on each machine, then the clients. Each
+installer asks for what it cannot find (endpoint, API key) and refuses to finish without it; running
+it again is how you update. Use aify-env's own `install.sh` rather than `npm install -g`, which cannot
+check the service credential.
 
-> **`aify-comms` is a verifier, and since v0.6.1 that is all it is.** `doctor`, `--check`,
-> `--version`, `--help`; anything else refuses and points at `aify-env`. It used to START the
-> environment bridge, which superseded the one already serving this host and reaped that bridge's
-> managed workers — nine of them, once, from a four-second run meant only to confirm the launcher
-> still started. Managed agents are hosted by **aify-env** now, so there is no second spawner for
-> this command to be, and the standing rule "never run a bare `aify-comms`" is enforced by the
-> command rather than remembered.
+**Starting or restarting aify-env is a deliberate action.** A second instance supersedes the first,
+and the one it replaces stops its managed agents. Ask a running host with `aify-env doctor` instead of
+starting one to find out.
 
-## Agent playbooks — install / update, and how to VERIFY it took effect
+## Agent playbooks — install, update, and verify it took effect
 
-If you are an agent doing this work, read this section first. **Every flow here fails silently.** Nothing errors, everything looks installed, and the thing you changed is not the thing that is running:
+Every deploy path here can fail silently: the container keeps serving the previous build, a running
+agent keeps the bridge code it loaded at startup, an agent launched without `--aify-agent` works but
+has no status. So a flow is done when `aify-comms doctor` says `ok: true`, not when nothing errored.
 
-- the container keeps serving the build from *before* your rebuild;
-- `~/.aify-comms` holds your new bridge code, but every **running** wrapper still executes the copy it loaded at boot — so a fix "ships" and changes nothing;
-- an agent launched without `--aify-agent` registers and messages perfectly while its status is structurally dead;
-- the OpenAI quota panel reads a token from a file nobody has.
-
-So **do not report success from the absence of an error.** Every flow ends the same way:
-
-```bash
-aify-comms doctor            # human-readable
-aify-comms doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]} — parse this
-aify-comms doctor --strict   # exit 1 if anything failed (use in scripts/CI)
-```
-
-`aify-comms doctor` proves each claim against the running system (build stamps, process start times, process environments, a live API call). It is installed by `install.sh`. **Done means `ok: true`** — or a check whose `fix` you have deliberately deferred and reported.
-
-**Seven of its checks watch a LIVE FLEET rather than an install**, so they can go red on a machine
-where nothing was installed or changed that day. Each REPORTS and never acts — every one of them is
-looking at somebody's running work — and each row carries its own `fix`:
-
-| check | the row is telling you |
-|---|---|
-| `tier-version` | an aify-env serving this host is below the MINIMUM this build needs — not a check that the two versions match. The tiers are separate products on separate cadences, so a newer aify-env is fine; what this catches is one too old to send a field the service now depends on, which makes a feature take a legacy path with both sides reporting healthy |
-| `spawn-queue` | a host CLAIMED a spawn request and never started it — work taken and not done, which every other row reads as healthy |
-| `session-handles` | more than one agent is pointing at one conversation; every message to the loser is refused and relayed |
-| `context-window` | an agent's conversation is near or past its model's limit. A near-full agent may still be answering, so this is a warning to compact rather than an instruction to reset — read the agent before acting. `unknown-all` means no console could be read, which is no evidence rather than a healthy fleet |
-| `managed-orphans` / `gateway-orphans` | delivery loops and hermes gateway hosts still running for agents that no longer have a live bridge. Since v0.6.8 a gateway ends with its agent, and this row also names a port held by a process it cannot identify, such as a gateway `hermes update` relaunched elevated |
-| `claude-login` | the one OAuth grant every claude-code agent on this host shares is running out. Keys on the REFRESH window, which is the deadline that matters |
-| `usage-openai` | the ChatGPT quota token no longer works — asked by calling the API, since an expired token passes a file check |
-
-`api-exposure` and `env-processes` are the same shape. Why each exists, what it measured, and the
-false green it replaced are in [CLAUDE.md](CLAUDE.md); this table is only what to do when you meet
-one.
-
-| Flow | Do | Then |
+| flow | do | done when |
 |---|---|---|
-| **1. Install the client integration** (bridge + wrapper for a runtime) | `bash install.sh --client <claude\|codex\|hermes> http://<service>:8800 --with-hook` | `aify-comms doctor` → `bridge-installed` green, and `aify-wrapper-check` → the launchers current. Restart the client so it loads the new bridge. |
-| **2. Install / run the service** (container) | `./setup.sh` (first time), then `bash scripts/stamp.sh && docker compose up -d --build` | `aify-comms doctor` → `service` must read **`build <sha> == repo HEAD`**. `curl :8800/health` alone is NOT enough — a healthy container can be serving last week's code. |
-| **3. Update local integrations** (after `git pull`) | `bash install.sh --client <runtime>` — this re-copies `mcp/stdio/` into `~/.aify-comms`. **Editing the checkout does nothing on its own.** | `aify-comms doctor` → `bridge-installed` must equal repo HEAD, **and `bridge-running` must be green**. If it lists agents, they are still executing the old code and must be restarted before your change is real. **On Windows `bridge-running` SKIPS** — it reads `/proc` — so read `bridge-current` there instead: each live bridge reports the sha it is running, which answers the same question on every platform. |
-| **4. Update the container** | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | `aify-comms doctor` → `service` == repo HEAD. Skipping `stamp.sh` makes `/version` lie about what is deployed. |
+| install a client | `bash install.sh --client <runtime> http://<service>:8800 --with-hook` | doctor `bridge-installed` green; restart the client |
+| install / update the service | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | doctor `service` reads `build <sha> == repo HEAD` (`/health` alone does not say which build) |
+| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client) | `bridge-installed` green, and `bridge-current` (Windows) / `bridge-running` (Linux) names no agent still on old code |
 
-Two rules that cost real hours to learn:
+Rules that cost real hours:
 
-1. **Installing does not reload a running bridge.** A process keeps the code it loaded at startup. After any bridge change, the agents using it must restart — `aify-comms doctor`'s `bridge-running` check tells you exactly which ones haven't. (`--resume <handle>` preserves an agent's conversation, so the restart is cheap.)
-2. **Always launch a registered agent with its id** (`--aify-agent <id>`). Without it the agent works in every visible way but has no status at all. `aify-comms doctor`'s `agent-identity` check catches it; a plain, unregistered `claude-aify` session is legitimately id-less and is not flagged.
-3. **When a managed worker dies, its own console holds the answer — and an agent can read it** (v0.2). `comms_console_tail(agentId="…")` no longer needs a live console: with the worker gone it returns that worker's last recorded output, marked `NOT LIVE`, with the fatal line first. So the agent that hit the failure can diagnose it instead of asking you to read a terminal. The same data is at `GET /agents/<id>/console` (`live:false, historical:true, failureLine`). This exists because on 2026-08-07 a managed hermes worker died 65s after spawn, the cause (`hermes dashboard … did not become ready`) sat in the database for 2.5 hours, and the requesting agent was told something false while a human read the real error out loud.
+1. **Installing does not reload a running agent.** Restart agents after a bridge change;
+   `--resume <handle>` keeps the conversation.
+2. **Launch a registered agent with its id** (`--aify-agent <id>`), or it has no status.
+3. **A dead managed worker's console holds the answer.** `comms_console_tail(agentId=...)` returns
+   the last recorded output with the fatal line first, marked `NOT LIVE`.
+4. **After updating Hermes itself**, re-run `install.sh --client hermes`: a hermes update deletes the
+   prebuilt web bundle its console needs.
 
-The OpenAI quota panel additionally needs the **`codex` CLI signed in** (`codex login`) — hermes holds no OpenAI token of its own, it delegates to codex's store. `install.sh` prints a `[usage] OK` / `[usage] WARNING` verdict, and `aify-comms doctor` re-checks it by actually calling the API (an expired token passes a file check and fails for real).
+Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day. Each
+one reports and never acts, and carries its own `fix`: `tier-version`, `spawn-queue`,
+`session-handles`, `context-window`, `managed-orphans`, `gateway-orphans`, `env-processes`,
+`claude-login`, `usage-openai`, `api-exposure`. What each catches is in [CLAUDE.md](CLAUDE.md).
 
-## Security — read before exposing beyond localhost
+## Security
 
-By default the service runs **without authentication** (`api_key=""`), with **CORS `*`**, and binds **`0.0.0.0`** — a deliberate LAN-trust posture for a private network. Every mutating endpoint (including typing into live agent consoles) is open to anything that can reach the port, and the compose file mounts host agent credentials (e.g. `~/.claude`) into the container for the runtimes to use.
+By default the service has **no API key**, **CORS `*`**, and publishes its port on **`0.0.0.0`** — a
+trusted-LAN setup. Anything that can reach port 8800 can drive every agent, including typing into
+consoles.
 
-### Turning on a key — one flag, then one restart
-
-```bash
-bash install.sh --client claude http://localhost:8800 --with-api-key
-docker compose up -d          # the service only reads the key at startup
-```
-
-`--with-api-key` generates a key if there is none and writes it to `.env`, where the service reads it.
-**An existing key is reused, never rotated** — a fresh one would leave every already-installed bridge
-holding the old value.
-
-The installer then hands that key to each of the four things that must present it, and they are worth
-naming because a sentence claiming "every config it writes" stood here while two of them got nothing:
-
-| destination | how it receives the key |
-|---|---|
-| Claude and Codex MCP config | `mcp add --env AIFY_API_KEY=… --env CLAUDE_MCP_API_KEY=…` |
-| Hermes MCP config | written into `config.yaml` by `scripts/hermes-mcp-config.mjs` — hermes filters env down to `_SAFE_ENV_KEYS`, so an unnamed variable never reaches the MCP child |
-| a strict-MCP launcher | from `keyEnv` in `~/.aify/services.json`, resolved per MCP server |
-
-Hermes and the environment bridge were the two that got nothing, until 2026-08-30. Hermes is covered
-by a test that fails if the key stops arriving.
-
-**`~/.local/bin/aify-comms` no longer carries one, and that is the v0.6.1 change rather than a
-regression.** It baked `${AIFY_API_KEY:-…}` because the environment bridge could not reach its own
-service without it; the bridge is gone, and every surviving branch reaches the service on its own
-terms — `doctor` resolves the key itself (it always did: that branch execs above where the export
-was), and `--version` reads the unauthenticated `/version`. A secret copied into a file that no
-longer needs it is a copy to leak for nothing, and
-`service/tests/test_no_launcher_carries_the_service_key.py` now fails if one comes back.
-
-Then open the dashboard **once** with the key in the URL:
-
-```
-http://localhost:8800/?api_key=<the value now in .env>
-```
-
-It is exchanged for an `HttpOnly`, `SameSite=Lax` cookie and the browser presents it from then on --
-including to Dashboard Next on `:8801`, since cookies are scoped by host and ignore the port. A
-browser cannot send `X-API-Key` on a document request, so without this step turning auth on serves
-your own dashboard a 401.
-
-Dashboard Next runs as its own container and is **not** passed the key by compose. If it ever calls
-the API from the server rather than from your browser, that call carries no cookie and no key; add
-`API_KEY` to its environment if you hit 401s there.
-
-**Re-run `install.sh` for every client you use** — no flag needed the second time. Every install now
-reads the key out of `.env` when the shell does not carry one, so the rest of the fleet picks up the
-same value on its own. A client installed *before* the key was set has none and will get 401s until it
-is reinstalled and its wrapper relaunched.
-
-### A page you visit cannot drive the fleet
-
-Always on, no configuration. A request a browser made from a page on **another site** is refused
-(`403`), and a WebSocket handshake from one is closed. This is the browser leg of the finding
-KNOWN_ISSUES has carried since the 2026-06-28 audit: binding loopback does not help, because the
-browser is already on the machine, and with `CORS *` the page could read the replies too.
-
-It costs nothing on either side — no program sends `Sec-Fetch-Site`, the classic dashboard is
-same-origin, and Dashboard Next on `:8801` is same-site. An origin you name in `cors_origins` is
-honoured; `*` grants no exemption, because a wildcard is the absence of a decision rather than a
-decision to trust every page.
-
-### What a key does not cover
-
-- **The port is still published on `0.0.0.0`.** Bind it to loopback in `docker-compose.yml`
-  (`127.0.0.1:8800:8800`) if nothing off this machine should reach it.
-- **CORS is still `*`.** Scope `cors_origins` in `config/service.json` to your dashboard origin.
-- **`/health`, `/version`, `/docs` and `/openapi.json` stay open** — the skip list is asserted by
-  `service/tests/test_api_key_middleware.py` against the app's real routes. `/ws` is on that list too,
-  but it is not unguarded: its handshake refuses a browser Origin that is not this host's.
-
-`aify-comms doctor`'s `api-exposure` check reports the combination that actually matters: an
-unauthenticated fleet listing that also returns live gateway tokens.
-
-### aify-env
-
-aify-env binds `127.0.0.1` and is not configurable, so nothing off the machine reaches it. It also
-**refuses requests a browser made**, identified by `Origin` / `Sec-Fetch-Site`, because a page you
-merely visit runs on the machine too: `POST /processes` with `content-type: text/plain` is a CORS
-simple request needing no preflight, and the allowlist would have bounded the damage to starting a
-coding agent with attacker-chosen arguments rather than preventing it. Programs are unaffected — Node
-sends neither header — and reading `/health` in a browser tab still works.
-
-It has no token, and that is a judgement rather than an omission: the remaining caller it cannot tell
-apart is another process running as **you**, which can already read any token you would give it. A
-token would help against a different local user account, which is not the shape of a single-operator
-machine. The browser was the caller that could reach it without being you.
-
-The full audit notes live in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) (security defaults section).
-
-## Notifications — hearing an agent without watching the dashboard
-
-Two independent halves. Both are **off by default** and neither notifies on fleet chatter: only
-messages addressed to you (`to: dashboard`) and channels you have actually joined qualify. That
-restraint is the feature — the fleet produced 3,883 messages in 14 days, and a notification per
-message would be switched off within the hour. Repeats from the same sender on the same subject
-coalesce into one alert per 90 seconds.
-
-**Desktop** — nothing to configure. Open the dashboard, turn notifications on in the UI, grant the
-browser permission. Works at `http://localhost:8801` with no TLS (localhost is a secure context);
-for a LAN address the browser requires HTTPS, which is what the optional
-`docker compose --profile https up -d` proxy is for. A focused tab stays quiet — you are already
-looking at it.
-
-### The HTTPS proxy needs its CA trusted once per device
-
-**Expect the browser to call `https://<host>:<HTTPS_PORT>` insecure until you do this** (`HTTPS_PORT`
-defaults to 8443; set it in `.env` and it must match the port inside `HTTPS_SITES`). Caddy issues the
-certificate from a local CA it manages (`tls internal`) — there is no public domain and no ACME, which
-is right for a service that runs on your own network, and the cost is that nothing trusts that CA
-until you say so. A warning here is the design working, not a misconfiguration.
-
-`config/Caddyfile` has said "the CA must be trusted once per device (see README)" since it was
-written, and this section did not exist — so the pointer resolved to nothing and the one manual step
-in the whole feature was the step nobody could find.
-
-Export the CA from the running proxy:
+Turn on a key:
 
 ```bash
-docker compose --profile https up -d          # if it is not already running
+bash install.sh --client claude http://localhost:8800 --with-api-key   # generates or reuses API_KEY in .env
+docker compose up -d                                                   # the service reads it at startup
+```
+
+Re-run `install.sh` for every other client (it reads the key from `.env`), then open the dashboard
+once as `http://localhost:8800/?api_key=<key>`; the key becomes an `HttpOnly` cookie. An existing key
+is never rotated, because a new one would lock out every client already installed.
+
+Always on: a request or WebSocket from a page on another site is refused, so a web page you visit
+cannot drive the fleet. aify-env binds `127.0.0.1` only and refuses browser requests.
+
+A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
+`docker-compose.yml` and scope `cors_origins` in `config/service.json` if the LAN should not reach it.
+`/health`, `/version`, `/docs` and `/openapi.json` stay open. Details: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
+## Notifications
+
+Both are off by default, and only messages addressed to you (`to: dashboard`) or channels you joined
+notify; repeats from one sender on one subject coalesce to one alert per 90 seconds.
+
+- **Desktop:** enable notifications in the dashboard and grant browser permission. `localhost` works
+  over plain HTTP; a LAN address needs the HTTPS proxy (`docker compose --profile https up -d`).
+- **Phone:** set `AIFY_NTFY_URL=https://ntfy.sh/<private-topic>` in `.env`, run
+  `docker compose up -d`, and subscribe to the topic in the ntfy app. The topic URL is a credential;
+  keep it in `.env`. `curl -s localhost:8800/health | jq .ntfy` shows whether alerts are going out.
+
+The HTTPS proxy signs with its own local CA, so browsers warn until you trust that CA once per
+device:
+
+```bash
 docker cp "$(docker compose ps -q https-proxy)":/data/caddy/pki/authorities/local/root.crt ./aify-root.crt
 ```
 
-Then trust it, once per device:
-
 | where | how |
 |---|---|
-| Windows | `certutil -addstore -f ROOT aify-root.crt` in an **admin** shell, or double-click → Install Certificate → Local Machine → Trusted Root Certification Authorities |
+| Windows | `certutil -addstore -f ROOT aify-root.crt` in an admin shell |
 | macOS | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain aify-root.crt` |
-| Linux | copy to `/usr/local/share/ca-certificates/aify-root.crt`, then `sudo update-ca-certificates` |
-| Firefox | has its OWN store and ignores the system one: Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and tick "identify websites" |
-| Android / iOS | send yourself the file and install it as a CA certificate; Android also needs Settings → Security → Encryption & credentials → Install a certificate → CA certificate |
+| Linux | copy to `/usr/local/share/ca-certificates/`, then `sudo update-ca-certificates` |
+| Firefox | Settings → Privacy & Security → Certificates → Authorities → Import |
+| Android / iOS | install the file as a CA certificate |
 
-The CA is persisted in the `caddy-data` volume, so it survives restarts and you do this once. Deleting
-that volume mints a NEW CA and every device has to trust the new one.
+A hostname or IP that is not listed in `HTTPS_SITES` (`.env`) still warns after the CA is trusted; add
+it there and restart the proxy.
 
-`HTTPS_SITES` in `.env` lists the names the certificate is issued for. The default in
-`config/Caddyfile` is `localhost:8443, 127.0.0.1:8443, stevenz-l:8443, stevenz-l.local:8443` — so a
-**bare LAN IP, or any hostname not on that list, still warns after the CA is trusted**, because the
-certificate does not name it. That is a second, separate reason a browser says insecure, and the fix
-is to add the name to `HTTPS_SITES` and restart the proxy, not to re-trust anything.
+## Managed and resident agents
 
-**Phone** — one line in `.env`, using [ntfy](https://ntfy.sh):
+- **Managed** (the normal team): spawned from the dashboard, owned by the aify-env that started them,
+  restarted, stopped, compacted or reset from the dashboard. An idle managed agent is started
+  automatically when you message it. `online` means a live worker is ready to claim work.
+- **Resident**: a terminal you opened with `claude-aify --aify-agent <id>` (or `codex-aify` /
+  `hermes-aify`). Add `--shared` so aify-env owns the terminal and it survives closing the window.
+  One instance of an agent runs per host; starting one by hand replaces the running instance.
+- Switch an agent between the two from **Sessions → Actions** or the chat details panel.
 
-```bash
-AIFY_NTFY_URL=https://ntfy.sh/your-private-topic-name    # then: docker compose up -d
-```
+Agent statuses, delivery paths per runtime, compaction, handle repair and the runtime settings are
+described in [docs/OPERATING_MODES.md](docs/OPERATING_MODES.md). Setup for remote hosts and workspace
+roots is in [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md); Hermes specifics in
+[install.hermes.md](install.hermes.md).
 
-Install the ntfy app, subscribe to the same topic, done. No PWA, no service worker, no push
-subscriptions — the service makes one outbound POST per alert, on a background worker that is never
-on the message-send path (`docs/V0.4_SPEC.md` is the contract, and it exists because the first
-version of that sentence was ambiguous enough to permit blocking the fleet on a phone alert).
+## Versions
 
-> **The topic URL is a credential.** Anyone who has it can read every notification you receive and
-> publish to it. Keep it in `.env` (gitignored) — never `config/service.json`, which is generated.
-> The service never logs it and never returns it from any endpoint; `/health` reports the relay's
-> state with no URL in it at all.
+`VERSION` is the single release version. The dashboard header shows the running build and turns into
+a warning when the checkout is behind `origin/main`; `GET /version` and `aify-comms --version` report
+the same. Updating is always manual: `git pull`, rebuild the container, `./redeploy.sh`.
 
-Check it is working with `curl -s localhost:8800/health | jq .ntfy` — `enabled`, `workerAlive`,
-`queueDepth`, `sent`, `droppedFull`, `sendFailures`, and the last success/failure times. A failed
-alert is logged and dropped, never retried: the message it describes is already delivered, and a
-retry storm against a third-party host while the fleet is busy would be the worse outcome.
+## Repository
 
-## Product Direction
+| path | what |
+|---|---|
+| `service/` | FastAPI service, SQLite schema, dashboard (`service/new_dashboard/`). Rebuild the container after changes. |
+| `mcp/stdio/` | host-side MCP servers loaded by agents. Re-run `install.sh` and restart agents after changes. |
+| `install.sh`, `redeploy.sh` | client installer and its update helper |
+| `.claude/skills/`, `.agents/skills/` | agent skills (usage, debug, install), mirrored for Codex |
+| `docs/` | design and reference; [docs/README.md](docs/README.md) says which documents are current |
 
-`aify-comms` keeps the original communication core:
-
-- direct messages, channels, inboxes, execution/run audit records, handoffs, and shared artifacts
-- host-side bridges for Claude Code, Codex, Hermes, OpenCode, and Oh My Pi
-- resident session wakeups and environment-backed managed sessions
-- dashboard-backed operational visibility
-
-It now adds a first-class identity/session lifecycle layer:
-
-- connected environment registry: WSL, Windows, Linux, Docker host, remote machine
-- spawn from dashboard into any connected environment
-- runtime adapters for Claude Code, Codex, Hermes, OpenCode, and Oh My Pi managed/resident execution
-- automatic identity/registration for spawned agents
-- managed-warm sessions for long-lived agent identities
-- portable compact/continue into fresh managed backings when a phase changes or context gets noisy
-- Work Loop contracts for overdue replies, self-wakes, missing handoffs, and inbox hygiene
-- runtime/session visibility, with token/cost telemetry shown only when runtimes expose it
-- real chat UI with DMs, channels, conversation/inbox search, bottom-jump, artifacts, and run/handoff state near the conversation
-
-## Target Mental Model
-
-1. Start the service.
-2. Start `aify-env` on each host you want to execute work in.
-3. Open the dashboard.
-4. Click **Spawn Agent**.
-5. Pick runtime, environment, workspace, role, and initial instructions. Managed model/effort defaults are global settings.
-6. The agent identity, spawn spec, and session backing appear automatically.
-7. Talk to it in direct chat or channels, assign work through messages, inspect output, stop/restart/reset it, or compact it into a fresh backing.
-
-Manual `comms_register(...)` is an advanced/debug and resident-CLI path, not the normal dashboard-managed workflow.
-
-## Managed And Resident Modes
-
-Use **managed mode** for the normal persistent team. Start `aify-env` in each Windows/WSL/Linux environment you want to execute work in, then spawn agents from the dashboard. Managed identities have a saved environment, workspace, runtime, spawn spec, native handle when available, and session history. Runtime adapters choose a dashboard-symmetric managed delivery path: Claude Code, Codex, and Hermes use bridge-owned wrapper PTYs where configured, while Pi and OpenCode use native controller delivery with synthesized Console streams. Browser Console attaches to the backing owner without switching identity modes. If wrapper backing cannot be established for a wrapper-capable runtime, the native managed adapter remains the fallback path. The dashboard can restart, stop, compact, or reset agents without keeping a separate CLI tab open.
-
-Managed sessions are **host-owned**: the aify-env instance that started them owns their worker processes. Two consequences follow. First, **restarting the host tier is a clean slate for obsolete managed workers** — it tears down sessions it still owns and, on the next start, reaps only the processes a crashed predecessor recorded as its own. Detached hermes gateway hosts escape that record; see `gateway-orphans` above. It is also why starting one is the operator's call and not a check: supersession reaps the predecessor's workers, and a running team is what gets reaped. Second, **`online` means deliverable, not just present** — a managed agent reads `online` only when it has a live claimer behind it (the delivery loop / channel-sidecar that actually receives work), not merely because its gateway answers or a Console is open. A send to a managed agent whose claimer is gone fails fast with an actionable reason instead of queuing against a worker that will never claim it.
-
-Use **resident mode** when you intentionally open a real runtime terminal and want that visible CLI to receive live messages. Start it with `claude-aify --aify-agent <id>`, `codex-aify --aify-agent <id>`, or `hermes-aify --aify-agent <id>` so the wrapper registers that terminal as the live resident candidate and keeps a fresh bridge heartbeat. One instance of an agent runs per host: a launcher run in a terminal stops that agent's running instance on this host first, a managed worker included, while an automatic start (a message cold-starting the agent, the queued-run backstop, an agent's `comms_spawn`) is refused with exit 75 and leaves the live instance alone. To replace a running agent on purpose, start or restart it from the dashboard. Launchers rendered before v0.6.8 do not enforce this until `install.sh` is re-run. Raw `POST /api/v1/agents` metadata registration is not a live resident bridge and will be reported as `offline`; use the wrapper's `comms_register` MCP tool or wrapper auto-registration from the visible session. Legacy `omp-aify` / `pi-aify` wrappers are not installed by default; triggerable Pi delivery is managed RPC because OMP is single-client. Ownership does not switch automatically. Use **Sessions -> Actions -> Switch to resident** or the Chat details switch when the visible CLI should own delivery; use **Switch to managed** when dashboard sends should return to the managed backing.
-
-**A resident session can outlive the terminal that started it: add `--shared`.** `claude-aify --shared`
-(and the same flag on `codex-aify` / `hermes-aify`) execs `aify-env run` instead of starting the
-runtime as a child of your shell, so the HOST TIER owns the PTY. Closing the window no longer ends
-the session. It needs `aify-env` on PATH and says so rather than falling back silently. A shared
-resident is a resident in every other respect — it registers itself, owns its own delivery, and the
-dashboard treats it exactly like one started the ordinary way; the only difference is who holds the
-terminal.
-
-**To get back to it, or to any process aify-env is running: `aify-env attach <agent>`.** That gives
-one process your whole terminal, and `Ctrl+]` lets go and leaves it running. `aify-env` on its own
-runs the environment with a live list of everything on the host in the same terminal, and `aify-env
-tui` shows that list against an environment already running. `aify-env --help` is the current list of
-commands; this file deliberately does not keep a second copy of it.
-
-Fresh native handles should come from a new spawn or explicit **Reset**. Ordinary Restart/Adopt should preserve the stored handle and fail visibly if the handle is locked or cannot be resumed.
-
-If the dashboard is pointing at the wrong saved native context and you know the correct Claude session ID, Codex thread ID, Hermes session ID, OpenCode session ID, or Pi handle, use **Set handle** from Chat details or Sessions actions. This repairs the saved handle and runtime state without creating a fresh context. Use it only for known-good handles; a wrong value binds the identity to the wrong native memory.
-
-Normal dashboard chat is live-delivery gated, but an `available` managed agent (registered, environment online, no live worker yet) is **auto-started on send** — the service cold-starts a bridge-claimed worker and auto-binds the freshest online environment that advertises the runtime, so idle agents don't all have to boot when you open the dashboard. Targets still fail visibly (message not stored for a future run) when they are `offline`, when no online environment can host the runtime, or when they are explicitly **disabled**: an operator **Stop** sets the agent to `stopped` (a hard block that never auto-starts and refuses other agents' sends until **Restart**). Managed delivery is runtime-specific but dashboard-symmetric: supported managed runtimes start or reuse a bridge-owned backing, deliver one bracketed dashboard turn through that runtime's channel/app-server/gateway/RPC/PTY path, and stay `working` until the reply closes the run; if the active terminal output clearly asks for operator input or a decision, the agent is shown as `blocked` instead of healthy working. Managed Claude boot prompts are answered by the SERVICE's cursor-verified rules (`service/api_core/console_prompts.py`, matched against the pyte-rendered screen rather than the raw stream, because claude moves the cursor instead of sending spaces); dashboard terminal input remains raw and nothing injects blind confirmation keys. The normal Claude footer/prompt chrome is not enough to mark `blocked`; when Claude returns to an idle prompt after producing visible terminal output but forgets to send an explicit `aify-comms` reply, reconcile closes the run as completed-without-reply so it does not pin `working`. Unthreaded completion-style `info` messages such as `Done`, `Pushed`, or `Fixed` can satisfy the active terminal run during send/reconcile so finished work does not stay open. If wrapper-backed Codex/Hermes or another terminal backing cannot be established, the native managed-controller path remains the fallback. Browser Console is an attachment to the backing runtime, not a separate owner. Stopped/failed Console terminals are cleared as the current session binding and remain historical only, so the dashboard does not keep showing an old terminal buffer as the current Console. Busy live targets receive ordinary sends as current-run steer when supported, or as queued/merged next-turn work when steering is not available; the explicit **Queue** action waits behind real active/queued work, but idle terminal-backed agents still receive normal live delivery instead of orphaned queue rows. Required handoffs are repaired automatically when a terminal run finishes without an explicit reply, dashboard-started managed runs persist final text back into dashboard chat, due reply-contract reminders defer while a target is busy or blocked and retry when that agent returns online, and stale unowned active runs are reconciled periodically so old status rows do not pin agents as `working`. While a `working` agent's terminal is receiving output, its yellow status dot briefly pulses orange as a live-output hint; this is a visual activity signal, not a separate status.
-
-The **Work Loop** page turns message/run state into operational contracts: who asked, who owns the reply, whether the run is queued/working/overdue/answered, when it was last reminded, and whether old read receipts or handoffs need repair. Requests, reviews, and errors require replies by default; routine `info` is a note unless `requireReply` is explicitly set. An overdue reminder is an informational nudge authored by the **original requester**, addressed to the original target, and linked to the original request; it tells the target to answer that original message with `type="response"` and `inReplyTo=<original-id>`. It does not create a second reply obligation. A linked response routes back to the original requester and closes the original contract, including when its run was still queued. Reminders repeat until that contract is answered or operator-closed. Busy targets are deferred and reminded when they return online instead of injecting more text into an active turn. Operators can close individual or selected contracts as reviewed from Work Loop; chat and run audit history remain available. Work Loop does not replace chat; it makes the implicit obligations in chat visible enough for an autonomous team to keep moving without guessing from raw unread counts.
-
-Reliable compaction in `aify-comms` means creating a fresh managed backing from an editable handoff packet and recent comms context. It is portable across Claude Code, Codex, Hermes, OpenCode, and Oh My Pi, and it defaults to the same agent ID so chats and agent identity remain stable. Native in-place compaction is runtime-adapter dependent; current managed adapters do not expose a verified internal compact API.
-
-Three settings shape the managed-delivery surface. `insert_messages_via_console=false` is the default channel-route mode for managed Claude (`claude-channel.js` claims the dispatch and emits `<channel source="aify-comms-channel" ...>` MCP notifications — same protocol resident Claude already uses). `managed_pty_eager_spawn=true` (paired with `managed_terminal_backing_enabled=true`) proactively launches wrapper PTYs at spawn-request running transition when the runtime uses a terminal backing. **`managed_via_wrapper=["codex","hermes"]` is the default wrapper-backed path for Codex and Hermes**: managed dispatches are backed by bridge-owned `codex-aify` / `hermes-aify` PTYs. Codex is claimed by the wrapper child and delivered through its app-server; Hermes is claimed by the per-agent `hermes-managed-host.js` sidecar and delivered through gateway `prompt.submit`, while the wrapper child is excluded from Hermes claims. Dashboard Console renders the real TUI via xterm.js. Pi is structurally excluded from wrapper mode and uses the persistent native OMP RPC virtual terminal. See [DECISIONS.md](DECISIONS.md) for the architectural rationale.
-
-Managed Pi specifically uses a **persistent** `omp --mode rpc` child per agent (spawned on the first dispatch, reused across subsequent ones, 24-hour idle timeout). Each RPC event is formatted into a synthesized `terminal_session` row marked `command='aify://virtual-rpc/pi'` — the dashboard's Console pane shows it like a real terminal, and operator input typed there round-trips as a new RPC turn through the same persistent child. See [install.pi.md](install.pi.md) and [DECISIONS.md](DECISIONS.md) for the full delivery path.
-
-Every `*-aify` wrapper accepts `--resident` and `--managed` flags to declare session mode explicitly; precedence is inherited `AIFY_SESSION_MODE` env > flag > TTY auto-detect (`[ -t 0 ]`). Bridge-spawned wrappers always inherit `AIFY_SESSION_MODE=managed` from `terminal-env.js`; operator-launched wrappers from a real terminal default to `resident`. `claude-aify` additionally exports `AIFY_CHANNELS_ENABLED=1` so its register call carries `runtime_config.channelEnabled=true` (precondition for resident-run/interrupt/steer caps surviving the server-side strip).
-
-By default `claude-aify` launches Claude with the operator's FULL `~/.claude.json` MCP server list — which already includes `aify-comms` + `aify-comms-channel` because the installer merges them in at install time. Setting `AIFY_CLAUDE_STRICT_MCP=1` in the launching shell opts into strict isolation: the wrapper then launches Claude with `--strict-mcp-config` and a runtime-generated minimal MCP config containing ONLY `aify-comms` + `aify-comms-channel`. That strict mode is the escape hatch for the known Claude Code stdio MCP init race bug ([#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)) — when the race bites, `aify-comms-channel` fails to register its channel notification listener and channel-routed dispatches sit queued forever despite `delivered` status; the strict 2-server config restores guaranteed channel wake at the cost of the operator's other MCP servers. On Windows Git Bash the wrapper uses `cygpath -m` to convert install paths to native format.
-
-## Current State
-
-This repo is the canonical `aify-comms` codebase. The dashboard and environment lifecycle work has been folded back into this product rather than living in a separate bridge fork. Existing message, channel, dispatch, artifact, and MCP APIs should keep working while the dashboard becomes the normal way to manage agents.
-
-Important starting docs:
-
-- [AGENTS.md](AGENTS.md) — coding-agent instructions for this repo.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — **the current work queue.** What shipped, what is carried, and what is next.
-- [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) — *historical.* Backlog from the v0.1 release review; kept as evidence, no longer the queue.
-- [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md) — product goals and non-goals.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — **how the service is actually built**: the three
-  processes and what reloads each, the service layering, how a message becomes work, and the layer
-  rules paired with the test that enforces each. Start here before changing anything.
-- [docs/ARCHITECTURE_PLAN.md](docs/ARCHITECTURE_PLAN.md) — the original *proposal*, kept for its
-  reasoning. Where it and ARCHITECTURE.md disagree, the latter describes what exists.
-- [docs/SESSION_MODEL.md](docs/SESSION_MODEL.md) — backed warm sessions, native resume, bridge-emulated resume, and CLI attach rules.
-- [docs/DASHBOARD_SPEC.md](docs/DASHBOARD_SPEC.md) — first dashboard UX spec.
-- [docs/WEB_APP_DESIGN.md](docs/WEB_APP_DESIGN.md) — web application UX/architecture principles.
-- [docs/DASHBOARD_REVIEW.md](docs/DASHBOARD_REVIEW.md) — current dashboard critique, semantics, and design rules.
-- [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) — WSL/Linux/Windows bridge setup and launcher semantics.
-- [docs/COMMUNICATION_GUIDE.md](docs/COMMUNICATION_GUIDE.md) — focused team messaging rules for agents and managers.
-- [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) — concise engineering guide for future coding agents.
-- [docs/UNINSTALL.md](docs/UNINSTALL.md) — clean uninstall for Docker service, data, wrappers, MCP config, hooks, and skills.
-- [docs/SKILLS.md](docs/SKILLS.md) — installed Codex/Claude skill inventory and relevance.
-- [docs/PLAN_REVIEW.md](docs/PLAN_REVIEW.md) — pressure-test, risks, and product decisions that should not drift.
-- [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) — historical staged plan plus current status notes.
-- [docs/FIRST_CODING_AGENT_TASK.md](docs/FIRST_CODING_AGENT_TASK.md) — historical Slice 1 task, retained for context.
-
-## Repo layout
-
-**Three repos, one stack.** This one owns messaging, dispatch and sessions.
-[aify-wrapper](https://github.com/zimdin12/aify-wrapper) owns the launchers — the four `*-aify`
-commands that point a coding-agent CLI at a coordinating service — and this repo depends on it at a
-pinned commit. [aify-env](https://github.com/zimdin12/aify-env) owns processes and terminals on a
-host, so more than one service can start agents there without two spawners fighting over the same
-PTYs. Which concern lives where, and why, is
-[docs/AIFY_ENV_BOUNDARY.md](docs/AIFY_ENV_BOUNDARY.md).
-
-The launchers arrive as a dependency, so aify-wrapper needs nothing from you. **aify-env does: it
-is REQUIRED on any host that spawns agents.** Delegation is not a flag any more — it has been on
-since v0.6.1, and a spawn fails loudly rather than falling back, because two spawners on one host is
-the collision the environment tier exists to end
-([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)). `aify-comms doctor`'s `spawn-delegation` says
-whether aify-env is answering.
-
-The launchers come from [zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper), a separate
-package this repo DEPENDS ON. They used to live here under `wrappers/` as a byte-identical copy of the
-published ones, kept honest by a hash gate in each repo — two sources of truth for one artifact. That
-ended on 2026-08-20: `wrappers/` is deleted, both gates are retired, and `install.sh` renders from
-`mcp/stdio/node_modules/aify-wrapper/wrappers`, pinned to a commit in `mcp/stdio/package.json`.
-
-**What that means for installing:** nothing new. `install.sh` already ran `npm install` before it wrote
-any launcher, so the dependency arrives with the ones this bridge always needed. The one consequence is
-for developers: `--emit-wrappers`, the render-only test hook, exits before that npm step by design, so a
-fresh checkout has to fetch dependencies once before it can render a launcher.
-
-| Path | What |
-|------|------|
-| `service/` | FastAPI backend, SQLite persistence, dashboard HTML, dispatch logic. Rebuild container after changes. |
-| `mcp/stdio/` | Host-side MCP bridges (`server.js`, `claude-channel.js`, `runtimes.js`, etc.). Restart the `*-aify` client wrapper after changes. |
-| `mcp/stdio/adapters/` | Per-runtime `RuntimeAdapter` classes — session-id capture, resume args, diagnostic env. See `docs/superpowers/specs/2026-05-25-runtime-adapter-design.md`. |
-| `mcp/stdio/controllers/` | Per-runtime controllers extracted from `runtimes.js` (Plan 3). 11 files: `base-controller.js` (abstract), one per runtime, plus hermes/codex mode-subclasses for the multi-mode runtimes. Each ≤400 lines. Owns delivery + lifecycle (start/injectMessage/interrupt/steer/terminalSink). |
-| `service/runtimes/` | Python mirror of `mcp/stdio/adapters/` — runtime capabilities + Plan 3 console/delivery (per-language adapter packages so server and bridge can each own their concerns). See `docs/superpowers/specs/2026-05-25-runtime-adapter-plan2-capabilities-design.md`. |
-| `mcp/sse_server.py` | SSE MCP transport (runs inside the container). Rebuild container after changes. |
-| `.claude/skills/aify-comms*/` | Agent-facing usage + debug skills. Mirrored under `.agents/skills/` for Codex. |
-| `install.sh` | Client installer. Targets Claude, Codex, and Hermes via `--client`. Pi and OpenCode client/resident wrapper installs are disabled; their managed runtimes are hosted by aify-env, the host tier, which a supported client's install sets up. |
-| `redeploy.sh` | Plan 4 helper. Auto-detects installed `*-aify` wrappers at `~/.local/bin/` and re-runs `install.sh --client X SERVER_URL` for each. Run after pulling new aify-comms changes to refresh wrappers. |
-
-## Setup
-
-```bash
-bash setup.sh
-docker compose up -d --build
-curl http://localhost:8800/health
-curl http://localhost:8801/health
-```
-
-The API remains on `8800`; Dashboard Next (the only operator UI) is served on `8801` when `docker compose` is up. Requests to the `8800` root redirect to Dashboard Next, which reads and writes through the same `8800` API. Change `.env` only if another service already uses those ports (`SERVICE_PORT` for `8800`, `NEW_DASHBOARD_PORT` for `8801`).
-
-Install the host-side CLI integration on every machine/runtime that should expose `aify-comms`, `codex-aify`, `claude-aify`, or `hermes-aify`. Pick the client you use on that host:
-
-```bash
-bash install.sh --client codex http://localhost:8800 --with-hook
-bash install.sh --client claude http://localhost:8800 --with-hook
-bash install.sh --client hermes http://localhost:8800 --with-hook
-# OpenCode wrapper/config install is intentionally disabled until it gets a
-# focused integration validation pass.
-# Pi/OMP wrapper install is intentionally disabled: managed Pi uses the
-# host tier (aify-env) plus persistent `omp --mode rpc`, not `omp-aify`.
-```
-
-After an update, rerun the relevant install command and restart both the CLI client and any long-running `aify-comms` bridge process so managed spawns and resident sessions load the same code/skills. As a convenience after `git pull`, run `./redeploy.sh` — it auto-detects every `*-aify` wrapper installed at `~/.local/bin/` and re-runs `install.sh --client X` for each, so you don't have to remember which clients are installed on the host.
-
-After updating **Hermes itself**, rerun `bash install.sh --client hermes …` — a hermes update wipes the prebuilt `hermes_cli/web_dist`, and `hermes-aify` cannot serve the gateway/console without it. The installer's one-time `web_dist` prebuild is idempotent (a noop when `web_dist/index.html` already exists), so reinstalling after a hermes upgrade rebuilds the missing bundle.
-
-**Checking your version / "N commits behind".** The dashboard header shows a build badge (`v… · <sha>`); when the checkout is behind `origin/main` it turns into a warning pill (`⚠ N commits behind — run git pull && ./redeploy.sh`). The same data is at `GET /version` (JSON: build SHA + a cached GitHub-compare `behind_by`), and `aify-comms --version` prints the installed host-bridge SHA plus a fresh behind-count. The behind-count is a **warning, not an auto-update** — the container has no `.git` to rebuild itself, so updating is the manual `git pull && ./redeploy.sh` (+ `docker compose up -d --build` for the service). The build SHA is stamped at build time by `scripts/stamp.sh` (the container's `.git` is excluded from the image).
-
-The dashboard opens on the **Chat** page (the default landing surface; your last-visited page is still remembered), with a persistent collapsible sidebar and per-conversation chat analytics (open a direct message, click it again to see message-rate, top peers, and total working time).
-
-## Connect Environments
-
-Dashboard spawns require a host tier: the process that actually runs Codex, Claude Code, Hermes, OpenCode, or Oh My Pi on Windows, WSL, Linux, macOS, Docker, or a remote machine. **That is [aify-env](https://github.com/zimdin12/aify-env), not aify-comms.** It owns processes and PTYs on the host, claims spawn requests, runs the launchers and streams the consoles back.
-
-See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md) for the host commands, `AIFY_CWD_ROOTS` rules, and service URL examples.
-See [install.hermes.md](install.hermes.md) for the quick Hermes install path and [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for Hermes-specific MCP, hook, and PTY behavior.
-
-Short version, every platform:
-
-```bash
-cd /path/to/workspace-or-workspace-parent
-aify-env
-```
-
-**Starting it is the operator's action.** Like the bridge it replaced, a second instance supersedes the first — so start it once per host, and use `aify-env doctor` (or `aify-comms doctor`, which reports the same host from the service's side) to ask about one rather than starting one to find out.
-
-The service URL defaults to `http://localhost:8800`. The current directory is always advertised as an allowed workspace root; extra root arguments are optional safety boundaries. The exact project workspace is selected per agent in the dashboard spawn form. Ended sessions and historical failures stay available for debugging, but the dashboard hides them from the normal work queue by default.
-
-**Until v0.6.1 this was `aify-comms`,** and every document said it in shell-command form. Hosting moved to aify-env on 2026-08-25 and CLAIMING followed on 2026-09-02 — a gap that cost eight days, because the docs recorded the half that had moved. The command itself is now a verifier and refuses to start anything, so the two can no longer disagree.
-
-Managed runtime defaults are configured from Dashboard **Settings -> Runtime**. Managed model fields are blank by default; blank means Claude Code/Codex use their installed runtime default/latest model. Managed Claude Code and Codex both default to `high` effort/reasoning effort. Hermes and Oh My Pi keep their own runtime defaults unless options are supplied through runtime config. Runtime Settings also expose the delivery policy toggles that used to be API-only: manual resident/managed switch visibility, managed terminal backing, eager managed PTY spawn, wrapper-backed runtime list, and legacy console injection. The normal dashboard treats model, effort, and delivery policy as global runtime policy, not per-agent tuning.
-
-## Design Rule
-
-Messaging remains the source of truth. A run is a delivery/execution attempt attached to a message, not a separate communication concept.
-
-Managed warm agents are also always backed: the system stores identity, spawn spec, workspace, runtime state, transcript/memory, and recovery policy. Native runtime session handles are used when available; otherwise the bridge emulates continuity from stored transcript and summaries. Operator handle repair updates the saved handle; it is not a context reset.
-
-The container hosts the control plane. Bridges execute. The service must not try to directly launch native Windows/WSL/Linux runtime processes unless a bridge for that environment claims the spawn request.
+Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing code, and
+[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) for where it is heading.
+[DECISIONS.md](DECISIONS.md) records why things are the way they are, [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+what is still wrong, [docs/UNINSTALL.md](docs/UNINSTALL.md) how to remove it.
 
 ## License & contributing
 
-MIT — see [LICENSE](LICENSE). Issues and questions welcome; for larger PRs please open an issue first to discuss direction.
+MIT — see [LICENSE](LICENSE). Issues and questions welcome; for larger PRs please open an issue first
+to discuss direction.
