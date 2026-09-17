@@ -146,7 +146,14 @@ _ACTIVITY_WAS = chr(10).join([
     '            await _record_host_reported_alive(db, terminal)',
     '            await db.commit()',
 ]) + chr(10)
-EDITED_SINCE = ([(_ACTIVITY_NOW, _ACTIVITY_WAS), (_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)]
+#: DECLARED EDIT, 2026-09-17. Both acks answer through `_output_ack`, which blanks the console the
+#: serialiser fills from the live tail: each ack was 121,591 bytes and an output POST cost 4.4 ms of
+#: CPU. Undone first, because `_PROMPT_EDITS` quotes the liveness ack's old line.
+_ACK_EDITS = [
+    ("            reported = _output_ack(terminal)\n", "            reported = _terminal_session_to_dict(terminal)\n"),
+    ("        terminal_payload = _output_ack(terminal)\n", "        terminal_payload = _terminal_session_to_dict(terminal)\n"),
+]
+EDITED_SINCE = (_ACK_EDITS + [(_ACTIVITY_NOW, _ACTIVITY_WAS),(_EXIT_RECORD_NOW, _EXIT_RECORD_WAS), (_END_SUMMARY_NOW, _END_SUMMARY_WAS)]
                 + _PROMPT_EDITS + _M6_EDIT)
 EXTRACTIONS = ["_settle_bridge_takeover_for_output", "_close_out_terminal_on_end_status"]
 

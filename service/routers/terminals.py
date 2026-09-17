@@ -479,6 +479,19 @@ async def _record_terminal_exit(db, terminal_id: str, exit_code, exit_signal) ->
     await db.commit()
 
 
+def _output_ack(terminal) -> dict:
+    """The terminal as an output POST answers it: every field but the console itself.
+
+    The serialiser fills `output` from the live in-memory tail even when the SELECT left the column
+    out, so the narrow SELECT above did not keep the buffer off the answer. MEASURED 2026-09-17: each
+    ack was 121,591 bytes, gzipped per request, and one POST cost 4.4 ms of CPU on a path three idle
+    hermes consoles hit 456 times a minute. The callers read `status` and `outputSeq`.
+    """
+    payload = _terminal_session_to_dict(terminal)
+    payload["output"] = ""
+    return payload
+
+
 @router.post("/terminals/{terminal_id}/output")
 async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, request: Request):
     db = await get_db()
@@ -628,7 +641,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
             await db.commit()
             if observed_agent:
                 await _broadcast_engine_status(await _get_ws(request), db, observed_agent)
-            reported = _terminal_session_to_dict(terminal)
+            reported = _output_ack(terminal)
             # NO OVERRIDE HERE ANY MORE. This used to re-read `terminal["output_seq"]` so a client
             # never took the 0 the queue would have answered for a real seq. The serialiser now
             # answers with the LIVE seq and falls back to that same row value when this process holds
@@ -657,7 +670,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         # Ingest ack only — the response intentionally carries no output buffer
         # (clients read full output via GET /terminals/{id}). The sole caller
         # is the bridge, which uses outputSeq/status and ignores the rest.
-        terminal_payload = _terminal_session_to_dict(terminal)
+        terminal_payload = _output_ack(terminal)
         terminal_payload["outputSeq"] = next_seq
         if status:
             terminal_payload["status"] = status
