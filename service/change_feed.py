@@ -36,6 +36,8 @@ import uuid
 from functools import lru_cache
 from typing import Mapping, Optional
 
+from service import longpoll
+
 logger = logging.getLogger(__name__)
 
 #: Every column of these tables is liveness. `None` means the whole table.
@@ -59,6 +61,18 @@ LIVENESS_WRITES: Mapping[str, Optional[frozenset]] = {
         "output", "output_at", "output_seq", "updated_at",
         "activity_state", "activity_rule", "activity_observed_at",
     }),
+}
+
+#: Claim long-polls to wake when a table they claim from COMMITS a change, keyed by table.
+#: MEASURED 2026-09-17: a keystroke typed into a dashboard console waited 512 ms and 954 ms for
+#: aify-env's terminal-control claim to find it, because only the dispatch route woke that claim and
+#: terminal controls are written in fifteen places. Waking from the commit covers every writer.
+CLAIM_SCOPES: Mapping[str, str] = {
+    "dispatch_runs": "dispatch",
+    "dispatch_controls": "control",
+    "terminal_controls": "terminal-control",
+    "environment_controls": "env-control",
+    "spawn_requests": "spawn",
 }
 
 #: How long changes gather before one event is sent. A burst of writes from one request, or from a
@@ -191,6 +205,10 @@ class ChangeFeed:
     # ── input ────────────────────────────────────────────────────────────────────────────────────
     def committed(self, writes) -> None:
         """A transaction committed these writes."""
+        # Claims first and immediately: a waiting claimer should not wait for a dashboard's coalescing
+        # window, and it has to be woken whether or not any dashboard is attached.
+        for scope in {CLAIM_SCOPES[w.table] for w in writes if w.table in CLAIM_SCOPES}:
+            longpoll.notify(scope)
         if self._manager is None:
             return
         for write in writes:

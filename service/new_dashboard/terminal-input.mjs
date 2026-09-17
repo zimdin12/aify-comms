@@ -1,13 +1,42 @@
+// Input reaches the PTY IN ORDER, and a burst travels as one request.
+//
+// MEASURED 2026-09-17: every keystroke was its own POST, chained behind the previous one, and every
+// POST became a separate terminal control for aify-env to claim. A wheel scroll over a full-screen TUI
+// sends up to five arrow keys per wheel event, and wheel events fire many times a second, so the chain
+// and the control queue behind it grew faster than they drained: the operator saw 3-4 s of lag and a
+// busy CPU. Bytes that arrive while a POST is in flight are now appended to ONE pending body and sent
+// when it returns. The PTY receives the same byte stream in the same order; it just arrives in fewer
+// writes. Each call's promise settles once the request carrying its bytes has.
 export const createTerminalInputPoster = ({ api, terminalId, onError = () => {} }) => {
-  let pending = Promise.resolve();
+  const post = (body) => api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
+    method: 'POST',
+    body: JSON.stringify({ body, requestedBy: 'dashboard' }),
+  }).catch(onError);
+  let inFlight = null;
+  let buffered = '';
+  let bufferedSent = null;
+  let settleBuffered = null;
+  const sendNext = () => {
+    if (!buffered) {
+      inFlight = null;
+      return;
+    }
+    const body = buffered;
+    const settle = settleBuffered;
+    buffered = '';
+    bufferedSent = null;
+    settleBuffered = null;
+    inFlight = post(body).then(() => { settle(); sendNext(); });
+  };
   return (data) => {
-    pending = pending
-      .then(() => api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
-        method: 'POST',
-        body: JSON.stringify({ body: data, requestedBy: 'dashboard' }),
-      }))
-      .catch(onError);
-    return pending;
+    if (!inFlight) {
+      const sent = post(data);
+      inFlight = sent.then(sendNext);
+      return sent;
+    }
+    buffered += data;
+    if (!bufferedSent) bufferedSent = new Promise((resolve) => { settleBuffered = resolve; });
+    return bufferedSent;
   };
 };
 

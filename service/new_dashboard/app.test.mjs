@@ -12,6 +12,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { createTerminalInputHandler, createTerminalInputPoster } from "./terminal-input.mjs";
+import { setTimeout as delay } from "node:timers/promises";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(__dirname, name), "utf8");
@@ -171,8 +172,9 @@ test("managed PTY keeps raw terminal semantics and ordered input", () => {
   const html = read("index.html");
   assert.match(source, /convertEol:\s*false/,
     "real PTY output must not rewrite LF into CRLF");
-  assert.match(terminalInput, /let pending = Promise\.resolve\(\)/,
-    "terminal input posts must be serialized so keystrokes cannot arrive out of order");
+  // Ordered input is proven by CALLING the poster -- "a burst of input while a request is in flight
+  // travels as ONE request, in order" below -- not by the shape of its source.
+  assert.ok(terminalInput.includes("createTerminalInputPoster"));
   assert.match(html, /addon-unicode11\.js/,
     "the managed console should use the same Unicode width tables as Hermes dashboard");
   assert.match(html, /addon-web-links\.js/,
@@ -245,8 +247,36 @@ test("terminal input forwards SGR mouse reports unchanged and in order", async (
 
   await Promise.all(reports.map(onData));
 
-  assert.deepEqual(calls.map(({ endpoint }) => endpoint), reports.map(() => "/terminals/term%201/input"));
-  assert.deepEqual(calls.map(({ options }) => JSON.parse(options.body).body), reports);
+  assert.ok(calls.every(({ endpoint }) => endpoint === "/terminals/term%201/input"));
+  // THE BYTE STREAM, not the request count: reports arriving while one is in flight travel together.
+  assert.equal(calls.map(({ options }) => JSON.parse(options.body).body).join(""), reports.join(""));
+});
+
+test("a burst of input while a request is in flight travels as ONE request, in order", async () => {
+  // MEASURED 2026-09-17: one POST per keystroke, chained, lagged a console 3-4 s under a wheel scroll.
+  const calls = [];
+  let release;
+  const api = (endpoint, options) => {
+    calls.push(JSON.parse(options.body).body);
+    return calls.length === 1 ? new Promise((resolve) => { release = resolve; }) : Promise.resolve();
+  };
+  const post = createTerminalInputPoster({ terminalId: "t", api });
+  const settled = [];
+  const first = post("a").then(() => settled.push("a"));
+  const rest = ["b", "c", "d"].map((key) => post(key).then(() => settled.push(key)));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["a"], "a second request started before the first returned");
+  release();
+  // A settle that never comes must FAIL here: left to hang, node's runner cancels the test instead.
+  const timedOut = await Promise.race([
+    Promise.all([first, ...rest]).then(() => false),
+    delay(1000).then(() => true),
+  ]);
+  assert.equal(timedOut, false, "a caller whose bytes were merged was never told they were sent");
+  assert.deepEqual(calls, ["a", "bcd"], "the burst was not merged into one request");
+  assert.deepEqual(settled.sort(), ["a", "b", "c", "d"], "a caller was never told its bytes were sent");
+  await post("e");
+  assert.deepEqual(calls, ["a", "bcd", "e"], "input after the burst was lost or merged into sent bytes");
 });
 
 test("Batch 2: terminal fit is guarded and ResizeObserver is rAF-coalesced", () => {

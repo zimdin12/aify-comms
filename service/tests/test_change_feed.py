@@ -255,6 +255,53 @@ class ACheckoutReportsWhatItCommitted(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT value FROM settings WHERE key = 'change-feed-test'").fetchone(), ("1",))
 
 
+class ACommitWakesTheClaimThatWaitsForIt(unittest.TestCase):
+    """MEASURED 2026-09-17: a dashboard keystroke waited 512 ms and 954 ms for aify-env's claim, because
+    only the dispatch route woke `terminal-control` and fifteen places write terminal controls."""
+
+    def test_the_scope_map_names_exactly_the_scopes_claim_routes_wait_on(self):
+        waited = set()
+        for path in (SERVICE / "routers").rglob("*.py"):
+            waited |= set(re.findall(r'scope="([a-z-]+)"', path.read_text(encoding="utf-8")))
+        self.assertGreaterEqual(len(waited), 4, "control: the route walk found almost no claim scopes")
+        self.assertEqual(set(change_feed.CLAIM_SCOPES.values()), waited)
+
+    def test_a_committed_terminal_control_wakes_its_waiter_and_a_message_does_not(self):
+        from service import longpoll
+
+        async def waiter_woken_by(table_sql):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "wake.db"
+                await init_db(path)
+                feed = ChangeFeed()
+                pool = ConnectionPool(_open_connection, on_commit=feed.committed)
+                pool.enable()
+                try:
+                    wait = asyncio.create_task(longpoll._wait_once("terminal-control", 2.0))
+                    await asyncio.sleep(0.05)
+                    started = asyncio.get_running_loop().time()
+                    db = await pool.acquire(path, SQLITE_BUSY_TIMEOUT_MS)
+                    try:
+                        # The row stands alone: no terminal exists for it to reference.
+                        await db.execute("PRAGMA foreign_keys=OFF")
+                        await db.execute(table_sql)
+                        await db.commit()
+                    finally:
+                        await db.close()
+                    await wait
+                    return asyncio.get_running_loop().time() - started
+                finally:
+                    await pool.aclose()
+
+        control = asyncio.run(waiter_woken_by(
+            "INSERT INTO terminal_controls (id, terminal_id, environment_id, action, status, requested_at) "
+            "VALUES ('wake-1', 't1', 'e1', 'input', 'pending', '2026-01-01T00:00:00Z')"))
+        message = asyncio.run(waiter_woken_by(
+            "INSERT INTO settings (key, value) VALUES ('wake-control', '1')"))
+        self.assertLess(control, 0.5, "a committed terminal control did not wake the claim")
+        self.assertGreater(message, 1.5, "an unrelated commit woke the terminal-control claim")
+
+
 class TheFeedCoalescesAndSeparatesLiveness(unittest.TestCase):
     def test_a_burst_is_one_event_with_a_rising_seq(self):
         async def body():
