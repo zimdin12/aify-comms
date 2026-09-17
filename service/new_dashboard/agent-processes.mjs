@@ -25,6 +25,7 @@
 
 import { state } from './state.mjs';
 import { esc, relTimeHtml } from './util.js';
+import { paintIfChanged } from './drawer-paint.mjs';
 
 /** Terminal statuses that mean the row is meant to be running. Mirrors the service's own set. */
 const LIVE = new Set(['starting', 'running', 'attached']);
@@ -174,9 +175,9 @@ export async function loadAgentProcesses(agentId, { api, byId } = {}) {
   try {
     // `status=all` so a stopped row holding a pid is visible -- see the header.
     const answer = await api(`/terminals?agentId=${encodeURIComponent(id)}&status=all`);
-    if (stillShowing(id)) host.innerHTML = renderAgentProcesses(answer?.terminals);
+    if (stillShowing(id)) paintIfChanged(host, renderAgentProcesses(answer?.terminals));
   } catch (err) {
-    if (stillShowing(id)) host.innerHTML = renderAgentProcesses([], { error: String(err?.message || err) });
+    if (stillShowing(id)) paintIfChanged(host, renderAgentProcesses([], { error: String(err?.message || err) }));
   }
 }
 

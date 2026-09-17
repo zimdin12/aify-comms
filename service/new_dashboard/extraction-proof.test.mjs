@@ -1026,6 +1026,27 @@ const EXTRACTIONS = [
         // one and put 1,462 characters into a fixture that never had them.
         editedSince: [
           {
+            // 2026-09-17: the drawer is painted through drawer-paint.mjs, so an unchanged re-render
+            // writes nothing and the Processes panel no longer blinks back to its placeholder.
+            was: [
+              "  byId('inspector-content').innerHTML = `",
+            ],
+            now: [
+              "  const drawerHtml = `",
+            ],
+          },
+          {
+            was: [
+              "      <div class=\"agent-drawer-actions\">${actions}</div>",
+              "    </div>`;",
+            ],
+            now: [
+              "      <div class=\"agent-drawer-actions\">${actions}</div>",
+              "    </div>`;",
+              "  paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)",
+            ],
+          },
+          {
             was: [
               "        ${row('Workspace', esc((session && (session.workspace || session.cwd)) || agent.cwd || '—'))}",
             ],

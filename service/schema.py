@@ -178,6 +178,10 @@ CREATE TABLE IF NOT EXISTS dispatch_controls (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_agent, timestamp DESC);
+-- The unread count on every roster read (`_get_unread_count_map`) needs only `to_agent` and `id`. Without
+-- this it loaded every message row to read its id: 78.9 ms against 7.8 ms with it, measured 2026-09-17 on a
+-- copy of the live database (38,522 messages), where the roster was polled every 2 s.
+CREATE INDEX IF NOT EXISTS idx_messages_to_id ON messages(to_agent, id);
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_from ON messages(from_agent, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp DESC);

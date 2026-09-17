@@ -51,6 +51,10 @@ REQUIRED_INDEXES = {
     "sweep": (
         ("FROM dispatch_controls c JOIN dispatch_runs r ON r.id = c.run_id", "idx_dispatch_controls_status_requested"),
     ),
+    # Every roster read counts unread messages per agent. 78.9 ms -> 7.8 ms on the live database's copy.
+    "unread": (
+        ("COUNT(*) AS unread_count FROM messages m LEFT JOIN read_receipts rr", "idx_messages_to_id"),
+    ),
 }
 
 
@@ -116,6 +120,15 @@ class TheIdlePathsDoNotScanWholeTables(unittest.TestCase):
                 await _close_controls_for_ended_runs(conn)
         return self._captured(run)
 
+    def _unread_statements(self):
+        from service.api_core.message_store import _get_unread_count_map
+
+        async def run():
+            async with core.connect(self.path) as conn:
+                conn.row_factory = sqlite3.Row
+                await _get_unread_count_map(conn, ["agent-a", "agent-b"])
+        return self._captured(run)
+
     def _missing_indexes(self, statements, required) -> list[str]:
         problems = []
         with closing(sqlite3.connect(self.path)) as conn:
@@ -135,6 +148,14 @@ class TheIdlePathsDoNotScanWholeTables(unittest.TestCase):
 
     def test_the_sweeps_control_settlement_uses_its_own_index(self):
         self.assertEqual(self._missing_indexes(self._sweep_statements(), REQUIRED_INDEXES["sweep"]), [])
+
+    def test_the_roster_unread_count_reads_only_the_index(self):
+        statements = self._unread_statements()
+        self.assertEqual(self._missing_indexes(statements, REQUIRED_INDEXES["unread"]), [])
+        with closing(sqlite3.connect(self.path)) as conn:
+            sql, params = statements[0]
+            plan = " | ".join(row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))
+        self.assertIn("COVERING INDEX idx_messages_to_id", plan, "the count still loads each message row")
 
     def test_GET_stats_reads_messages_and_runs_through_indexes(self):
         self.assertEqual(self._full_scans(self._stats_statements()), [])

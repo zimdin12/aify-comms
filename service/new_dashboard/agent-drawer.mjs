@@ -33,6 +33,7 @@ import { api } from './api-client.mjs';
 import { AGENT_PROCESSES_ID, loadAgentProcesses } from './agent-processes.mjs';
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
+import { paintAgentDrawer } from './drawer-paint.mjs';
 
 export function sessionForAgent(agentId) {
   return state.sessions.find((session) => sessionAgentId(session) === agentId) || null;
@@ -116,7 +117,7 @@ export function openAgentDrawer(agentId) {
           <button class="ghost" data-session-keep="${esc(id)}">Keep pinned</button>
         </div>
       </div>` : '';
-  byId('inspector-content').innerHTML = `
+  const drawerHtml = `
     <div class="agent-drawer">
       <div class="agent-drawer-head"><strong>${esc(id)}</strong>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</div>
       ${sessionChangedBanner}
@@ -141,6 +142,7 @@ export function openAgentDrawer(agentId) {
       </div>
       <div class="agent-drawer-actions">${actions}</div>
     </div>`;
+  paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)
   // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
   // (see syncInspectorToSelection) instead of leaving a stale panel open on the previous agent.
   state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
