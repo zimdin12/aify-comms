@@ -100,13 +100,6 @@ const UNTESTED_EXPORT_BACKLOG = [
   // -- so this is untested surface rather than dead surface.
   "mcp/stdio/controllers/codex-legacy-helpers.js#createCodexLegacyTimers",
   "mcp/stdio/controllers/codex-legacy-helpers.js#resolveActiveCodexThread",
-  // ORPHANED, which is a different problem from untested and is recorded rather than fixed here.
-  // Nothing imports this class. Its only reference outside its own file is a COMMENT in
-  // hermes-controller.js:23 listing it as a mode-specific implementation -- and that file imports
-  // HermesManagedController alone. No mode routes to it, and no other "single-shot controller" exists
-  // to have replaced it. Deleting product code is the operator's call, so it sits here meanwhile: a
-  // test naming it would prove a class nothing constructs still works, which is not worth writing.
-  "mcp/stdio/controllers/hermes-single-shot-controller.js#HermesSingleShotController",
 ];
 
 function moduleFiles() {

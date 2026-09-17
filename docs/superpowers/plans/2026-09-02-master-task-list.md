@@ -701,7 +701,9 @@ solved it by narrowing to one runtime. See D9.
   v0.6.2 entirely: `unowned-process-decision.mjs`, `transcript-activity.js`, `wrapper-pool.js`,
   `controllers/hermes-single-shot-controller.js`, `scripts/dump-capabilities.mjs`. Deleting
   unrelated code inside a release commit makes it harder to review and to revert. **They are the
-  next pass's work, and the measurement is done.**
+  next pass's work, and the measurement is done.** DONE 2026-09-17 (v0.6.12) for four of them plus
+  `dead-pty-reporter.js`, whose last importer left in v0.6.2; `scripts/dump-capabilities.mjs` stays,
+  because a Python test runs it.
 
   **(a) THE OWNERSHIP 409 IS RESOLVED WITHOUT REVERTING THE M6 GUARD**, at `f3236e5b`. The guard is
   right -- a contentless frame is not proof anything is being driven -- and reverting it brings back
