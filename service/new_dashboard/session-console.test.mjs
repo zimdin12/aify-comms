@@ -96,6 +96,7 @@ test("the module imports NONE of its three injected names", async () => {
   const src = await import("node:fs").then((fs) =>
     fs.readFileSync(new URL("./session-console.mjs", import.meta.url), "utf8"));
   for (const name of ["mountXtermForTerminal", "refresh", "resyncActiveConsole"]) {
-    assert.doesNotMatch(src, new RegExp(`^import .*\b${name}\b`, "m"), `${name} must be injected, not imported`);
+    // String.raw: in a plain template `\b` is a BACKSPACE, so this pattern could never match anything.
+    assert.doesNotMatch(src, new RegExp(String.raw`^import .*\b${name}\b`, "m"), `${name} must be injected, not imported`);
   }
 });

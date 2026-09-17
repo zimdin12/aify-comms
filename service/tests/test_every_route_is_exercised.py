@@ -15,7 +15,7 @@ MEASURED FIRST: 127 method+path routes, 15 with no test naming their path once t
 tightened to per-file. Five are FastAPI/static (`favicon.*`, `/docs/oauth2-redirect`). The other ten
 are all now covered:
 
-    POST /api/v1/messages/cleanup/orphan-unread          test_orphan_unread_cleanup_query
+    POST /api/v1/messages/cleanup/orphan-unread          test_orphan_unread_cleanup_endpoint
     POST /api/v1/contracts/hygiene/repair-read-receipts  test_repair_read_receipts_marks_the_right_messages
     the eight container/GPU routes                       test_container_routes
 

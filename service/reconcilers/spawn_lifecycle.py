@@ -62,7 +62,6 @@ async def _repair_spawn_requests_from_initial_dispatch_failures(db) -> int:
         # The two defaults below must track that call site: `created_by or "dashboard"` and
         # `subject or f"Spawn {agent_id}"`. If either drifts, this silently matches nothing and the
         # reconciler stops repairing rather than repairing wrongly — quieter, still broken.
-        # test_spawn_initial_dispatch_identity.py fails on that drift.
         run_cursor = await db.execute(
             """
             SELECT *

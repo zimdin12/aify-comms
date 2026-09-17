@@ -60,7 +60,7 @@ aify-wrapper|aify-wrapper-check|aify-wrapper|installed as a dependency of the tw
 vendored_package_file() {
   local pkg="$1" file
   [ -n "$pkg" ] && [ "$pkg" != "," ] || return 0
-  file="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/mcp/stdio/node_modules/$pkg/package.json"
+  file="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)/mcp/stdio/node_modules/$pkg/package.json"
   [ -r "$file" ] && printf '%s' "$file"
   return 0
 }

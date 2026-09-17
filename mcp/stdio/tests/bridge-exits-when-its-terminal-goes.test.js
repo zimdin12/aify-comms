@@ -57,7 +57,9 @@ async function runBridge({ sessionMode, end }) {
     });
     const sent = Date.now();
     end(child);
-    const result = await Promise.race([exited, new Promise((r) => setTimeout(() => r(null), 8000))]);
+    let cap;
+    const result = await Promise.race([exited, new Promise((r) => { cap = setTimeout(() => r(null), 8000); })]);
+    clearTimeout(cap); // left running, it kept the process alive for 8 s after the tests finished
     return { result, ms: Date.now() - sent, paths };
   } finally {
     child.kill("SIGKILL");

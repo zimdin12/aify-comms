@@ -77,8 +77,13 @@ def test_A_MISSING_COMPONENT_CARRIES_ITS_OWN_INSTALLER():
     done = _run(env={"PATH": ""})
     rows = _rows(done.stdout)
     assert tuple(rows) == EXPECTED, f"an empty PATH changed which components are reported: {rows}"
+    # aify-wrapper is also found VENDORED under mcp/stdio/node_modules, which needs no PATH. Until
+    # 2026-09-17 the script located that directory with `dirname`, which an empty PATH cannot run, so
+    # it read `missing` here for the wrong reason.
+    assert rows["aify-comms"][0] == "missing" and rows["aify-env"][0] == "missing", rows
     for name, (state, version, howto) in rows.items():
-        assert state == "missing", f"{name} resolved with no PATH: {state}"
+        if state != "missing":
+            continue
         assert howto.strip(), f"{name} is missing and says nothing about how to get it"
         assert version == "", f"{name} is missing but reported version {version!r}"
     assert "aify-env" in rows and "install.sh" in rows["aify-env"][2]

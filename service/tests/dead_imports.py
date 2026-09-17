@@ -170,6 +170,12 @@ def dead_bindings(path: Path) -> list[tuple[str, int]]:
     """(name, line) for every import binding in `path` that nothing anywhere reaches."""
     tree = ast.parse(_source(path))
     module = module_path_of(path)
-    reachable = _loaded(tree) | _defined(tree) | reached_from_elsewhere(module)
-    return [(name, line) for name, line in bindings(tree)
-            if name != "annotations" and name not in reachable]
+    local = _loaded(tree) | _defined(tree)
+    candidates = [(name, line) for name, line in bindings(tree)
+                  if name != "annotations" and name not in local]
+    # The tree-wide scan costs ~0.2 s per module and only matters for a binding the file itself never
+    # uses; 216 of 248 modules have none, and skipping them took the gate from ~50 s to ~7 s.
+    if not candidates:
+        return []
+    reachable = reached_from_elsewhere(module)
+    return [(name, line) for name, line in candidates if name not in reachable]

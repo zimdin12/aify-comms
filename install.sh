@@ -1635,9 +1635,9 @@ install_windows_cmd_shim() {
     printf '%s\r\n' 'endlocal'
   } > "$shim_path"
 
-  if command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '
-      param([string]$dir)
+  if [ -z "$EMIT_WRAPPERS_DIR" ] && command -v powershell.exe >/dev/null 2>&1; then
+    AIFY_SHIM_DIR="$windows_wrapper_dir" powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '
+      $dir = $env:AIFY_SHIM_DIR; if ([string]::IsNullOrWhiteSpace($dir)) { exit 1 }
       $current = [Environment]::GetEnvironmentVariable("Path", "User")
       $parts = @()
       if ($current) { $parts = $current -split ";" }
@@ -1646,7 +1646,7 @@ install_windows_cmd_shim() {
         $updated = if ([string]::IsNullOrWhiteSpace($current)) { $dir } else { $current.TrimEnd(";") + ";" + $dir }
         [Environment]::SetEnvironmentVariable("Path", $updated, "User")
       }
-    ' "$windows_wrapper_dir" >/dev/null 2>&1 || true
+    ' >/dev/null 2>&1 || true
   fi
 }
 
