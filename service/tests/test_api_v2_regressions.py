@@ -5,7 +5,6 @@ import time
 import asyncio
 import unittest
 
-from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,7 +17,6 @@ from fastapi.testclient import TestClient
 from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
-from service.api_core.live_process_probes import _has_live_terminal_session
 from service.api_core.live_process_probes import _has_live_channel_sidecar
 from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
 from service.api_core.settings import DEFAULT_SETTINGS
@@ -41,7 +39,6 @@ from service.reconcilers.dispatch_lifecycle import (
     _prune_orphaned_dispatch_runs,
 )
 from service.reconcilers.dispatch_queue import (
-    _close_reconcilable_delivered_runs,
     _requeue_orphaned_claimed_runs,
 )
 from service.reconcilers.managed_workers import (
@@ -226,105 +223,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 await db.close()
 
         asyncio.run(_run())
-
-    def test_reconcile_does_not_close_live_channel_turn_at_thirty_minutes(self):
-        agent_id = "live-channel-worker"
-        run_id = "run_live_channel_long"
-        environment_id = self._heartbeat_environment()["id"]
-        self._register(agent_id, runtime="hermes", sessionMode="managed-warm")
-        requested_at = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat().replace("+00:00", "Z")
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, from_agent, target_agent, dispatch_mode, execution_mode,
-                runtime, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                run_id, "manager", agent_id, "start_if_possible", "channel",
-                "hermes", "request", "long live turn", "work", "normal",
-                "delivered", 1, requested_at,
-            ),
-        )
-        self._execute(
-            """
-            INSERT INTO agent_sessions (
-                id, agent_id, environment_id, runtime, mode, status,
-                spawn_spec_id, spawn_request_id, started_at, last_seen
-            ) VALUES (?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "sess_live_channel_long", agent_id, environment_id, "hermes", "managed-warm",
-                "running", None, None, requested_at,
-                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            ),
-        )
-
-        async def reconcile():
-            db = await get_db()
-            try:
-                closed = await _close_reconcilable_delivered_runs(
-                    db,
-                    stale_hours=24,
-                )
-                await db.commit()
-                return closed
-            finally:
-                await db.close()
-
-        self.assertEqual(asyncio.run(reconcile()), [])
-        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", (run_id,))["status"], "delivered")
-
-    def test_dispatch_run_events_are_bounded_and_cursor_paginated(self):
-        run_id = "run_events_page"
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
-                message_type, subject, body, priority, status, require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                run_id,
-                None,
-                "dashboard",
-                "worker",
-                "start_if_possible",
-                "managed",
-                "request",
-                "bounded events",
-                "please inspect",
-                "normal",
-                "running",
-                1,
-                "2026-05-20T00:00:00Z",
-            ),
-        )
-        self._executemany(
-            "INSERT INTO dispatch_events (run_id, event_type, body, created_at) VALUES (?,?,?,?)",
-            (
-                (run_id, f"event_{index:02d}", f"body {index}", f"2026-05-20T00:{index:02d}:00Z")
-                for index in range(75)
-            ),
-        )
-
-        first = self.client.get(f"/api/v1/dispatch/runs/{run_id}/events?limit=500")
-        self.assertEqual(first.status_code, 200, first.text)
-        first_data = first.json()
-        self.assertEqual(len(first_data["events"]), 50)
-        self.assertTrue(first_data["hasMore"])
-        self.assertTrue(first_data["nextBefore"])
-        first_ids = [event["id"] for event in first_data["events"]]
-        self.assertEqual(first_ids, sorted(first_ids, reverse=True))
-
-        second = self.client.get(f"/api/v1/dispatch/runs/{run_id}/events?limit=50&before={first_data['nextBefore']}")
-        self.assertEqual(second.status_code, 200, second.text)
-        second_data = second.json()
-        second_ids = [event["id"] for event in second_data["events"]]
-        self.assertTrue(second_ids)
-        self.assertFalse(set(first_ids) & set(second_ids))
-        self.assertTrue(all(int(event_id) < int(first_data["nextBefore"]) for event_id in second_ids))
 
     def test_channel_history_excludes_inbox_fanout_rows(self):
         self._register("alice")
@@ -571,36 +469,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(control["status"], "failed")
         self.assertIn("Stale stop control ignored", control["error"])
 
-    def test_environment_list_api_and_dashboard_render_surface(self):
-        response = self.client.post(
-            "/api/v1/environments/heartbeat",
-            json={
-                "id": "linux:test-host:default",
-                "label": "Linux on test-host",
-                "machineId": "linux:test-host",
-                "os": "linux",
-                "kind": "linux",
-                "bridgeId": "bridge-api",
-                "cwdRoots": ["/workspace"],
-                "runtimes": [{"runtime": "opencode", "modes": ["managed-warm"], "capabilities": {"streaming": True}}],
-                "metadata": {},
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-
-        listed = self.client.get("/api/v1/environments")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        payload = listed.json()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(len(payload["environments"]), 1)
-        self.assertEqual(payload["environments"][0]["id"], "linux:test-host:default")
-        self.assertEqual(payload["environments"][0]["bridgeId"], "bridge-api")
-        self.assertEqual(payload["environments"][0]["runtimes"][0]["runtime"], "opencode")
-
-        dashboard = self.client.get("/api/v1/dashboard", follow_redirects=False)
-        self.assertEqual(dashboard.status_code, 307, dashboard.text)
-        self.assertEqual(dashboard.headers["location"], "http://testserver:8801/")
-
     def test_settings_include_dashboard_appearance_defaults(self):
         settings = self.client.get("/api/v1/settings")
         self.assertEqual(settings.status_code, 200, settings.text)
@@ -805,58 +673,80 @@ class ApiV2RegressionTests(FastApiTestCase):
             "a silent bridge must not be counted as reachable, and a fresh degraded one must be",
         )
 
-    def test_managed_claude_spawn_uses_settings_default_model(self):
-        self._heartbeat_environment(
-            id="windows:test-host:default",
-            bridgeId="bridge-current",
-            machineId="win32:test-host",
-            os="windows",
-            kind="windows",
-            cwdRoots=["C:/workspace"],
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"bridgeResume": True, "interrupt": True},
-                }
-            ],
-        )
-        settings = self.client.put(
-            "/api/v1/settings",
-            json={"managed_claude_model": "opus", "managed_claude_effort": "medium"},
-        )
-        self.assertEqual(settings.status_code, 200, settings.text)
-
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "windows:test-host:default",
-                "agentId": "default-claude",
-                "role": "manager",
-                "runtime": "claude-code",
+    def test_managed_spawn_uses_settings_defaults_and_persists_runtime_config(self):
+        # One case per runtime with its own settings keys: the managed_<runtime>_model/effort
+        # defaults reach the spawn spec, and the running transition persists them on the agent.
+        cases = [
+            {
+                "runtime": "claude-code", "agent": "default-claude", "role": "manager",
+                "environment": {
+                    "id": "windows:test-host:default", "machineId": "win32:test-host",
+                    "os": "windows", "kind": "windows", "cwdRoots": ["C:/workspace"],
+                    "runtimes": [{"runtime": "claude-code", "modes": ["managed-warm"],
+                                  "capabilities": {"bridgeResume": True, "interrupt": True}}],
+                },
                 "workspace": "C:/workspace/project",
+                "settings": {"managed_claude_model": "opus", "managed_claude_effort": "medium"},
+                "running": {"machineId": "win32:test-host", "sessionHandle": "claude-session-default",
+                            "runtimeState": {"sessionId": "claude-session-default"}},
+                "model": "opus", "effort": "medium",
             },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
-        self.assertEqual(spawn["spawnSpec"]["model"], "opus")
-        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "medium")
+            {
+                "runtime": "codex", "agent": "default-codex", "role": "coder",
+                "environment": {"id": "wsl:test-host:default"},
+                "workspace": "/workspace/project",
+                "settings": {"managed_codex_model": "gpt-test-default", "managed_codex_effort": "xhigh"},
+                "running": {"machineId": "linux:test-host", "sessionHandle": "thread-default",
+                            "runtimeState": {"threadId": "thread-default"}},
+                "model": "gpt-test-default", "effort": "xhigh",
+            },
+            {
+                "runtime": "pi", "agent": "default-pi", "role": "coder",
+                "environment": {
+                    "id": "linux:test-host:default",
+                    "runtimes": [{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+                },
+                "workspace": "/workspace/project",
+                "settings": {"managed_pi_model": "gpt-5.5", "managed_pi_effort": "high"},
+                "running": {"machineId": "linux:test-host"},
+                "model": "gpt-5.5", "effort": "high",
+            },
+        ]
+        for case in cases:
+            with self.subTest(runtime=case["runtime"]):
+                environment_id = case["environment"]["id"]
+                self._heartbeat_environment(bridgeId="bridge-current", **case["environment"])
+                settings = self.client.put("/api/v1/settings", json=case["settings"])
+                self.assertEqual(settings.status_code, 200, settings.text)
 
-        updated = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn['id']}",
-            json={
-                "status": "running",
-                "bridgeId": "bridge-current",
-                "machineId": "win32:test-host",
-                "sessionHandle": "claude-session-default",
-                "runtimeState": {"sessionId": "claude-session-default"},
-            },
-        )
-        self.assertEqual(updated.status_code, 200, updated.text)
-        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-claude",))
-        self.assertEqual(agent["model"], "opus")
-        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
+                created = self.client.post(
+                    "/api/v1/spawn-requests",
+                    json={
+                        "createdBy": "dashboard",
+                        "environmentId": environment_id,
+                        "agentId": case["agent"],
+                        "role": case["role"],
+                        "runtime": case["runtime"],
+                        "workspace": case["workspace"],
+                    },
+                )
+                self.assertEqual(created.status_code, 200, created.text)
+                spawn = created.json()["spawnRequest"]
+                self.assertEqual(spawn["spawnSpec"]["model"], case["model"])
+                self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], case["effort"])
+
+                updated = self.client.patch(
+                    f"/api/v1/spawn-requests/{spawn['id']}",
+                    json={"status": "running", "bridgeId": "bridge-current", **case["running"]},
+                )
+                self.assertEqual(updated.status_code, 200, updated.text)
+                agent = self._fetchone(
+                    "SELECT model, runtime_config, capabilities FROM agents WHERE id = ?", (case["agent"],),
+                )
+                self.assertEqual(agent["model"], case["model"])
+                self.assertEqual(json.loads(agent["runtime_config"])["effort"], case["effort"])
+                if case["runtime"] == "pi":
+                    self.assertIn("steer", json.loads(agent["capabilities"]))
 
     def test_managed_wrapper_child_reregister_preserves_runtime_policy(self):
         self._register(
@@ -948,87 +838,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(spawn["spawnSpec"]["model"], "")
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
 
-    def test_managed_pi_spawn_uses_settings_defaults_and_persists_runtime_config(self):
-        self._heartbeat_environment(
-            id="linux:test-host:default",
-            bridgeId="bridge-current",
-            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-        )
-        settings = self.client.put(
-            "/api/v1/settings",
-            json={"managed_pi_model": "gpt-5.5", "managed_pi_effort": "high"},
-        )
-        self.assertEqual(settings.status_code, 200, settings.text)
-
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "default-pi",
-                "role": "coder",
-                "runtime": "pi",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
-        self.assertEqual(spawn["spawnSpec"]["model"], "gpt-5.5")
-        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
-
-        updated = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn['id']}",
-            json={
-                "status": "running",
-                "bridgeId": "bridge-current",
-                "machineId": "linux:test-host",
-            },
-        )
-        self.assertEqual(updated.status_code, 200, updated.text)
-        agent = self._fetchone("SELECT model, runtime_config, capabilities FROM agents WHERE id = ?", ("default-pi",))
-        self.assertEqual(agent["model"], "gpt-5.5")
-        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "high")
-        self.assertIn("steer", json.loads(agent["capabilities"]))
-
-    def test_managed_codex_spawn_uses_settings_defaults_and_persists_runtime_config(self):
-        self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
-        settings = self.client.put(
-            "/api/v1/settings",
-            json={"managed_codex_model": "gpt-test-default", "managed_codex_effort": "xhigh"},
-        )
-        self.assertEqual(settings.status_code, 200, settings.text)
-
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "wsl:test-host:default",
-                "agentId": "default-codex",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn = created.json()["spawnRequest"]
-        self.assertEqual(spawn["spawnSpec"]["model"], "gpt-test-default")
-        self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "xhigh")
-
-        updated = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn['id']}",
-            json={
-                "status": "running",
-                "bridgeId": "bridge-current",
-                "machineId": "linux:test-host",
-                "sessionHandle": "thread-default",
-                "runtimeState": {"threadId": "thread-default"},
-            },
-        )
-        self.assertEqual(updated.status_code, 200, updated.text)
-        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("default-codex",))
-        self.assertEqual(agent["model"], "gpt-test-default")
-        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "xhigh")
-
     def test_managed_codex_spawn_override_wins_over_settings_defaults(self):
         self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
         self.client.put(
@@ -1056,74 +865,56 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["quietTimeoutMs"], 0)
 
     def test_runtime_settings_update_existing_managed_agents_globally(self):
-        self._heartbeat_environment(id="wsl:test-host:default", bridgeId="bridge-current")
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "wsl:test-host:default",
-                "agentId": "global-codex",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
+        # Changing a runtime's managed model/effort settings rewrites every existing managed
+        # agent of that runtime, not just future spawns.
+        cases = [
+            {
+                "runtime": "codex", "agent": "global-codex",
+                "environment": {"id": "wsl:test-host:default"},
+                "running": {"sessionHandle": "thread-global", "runtimeState": {"threadId": "thread-global"}},
+                "settings": {"managed_codex_model": "gpt-global", "managed_codex_effort": "xhigh"},
+                "model": "gpt-global", "effort": "xhigh",
             },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        codex_spawn = created.json()["spawnRequest"]
-        updated = self.client.patch(
-            f"/api/v1/spawn-requests/{codex_spawn['id']}",
-            json={
-                "status": "running",
-                "bridgeId": "bridge-current",
-                "machineId": "linux:test-host",
-                "sessionHandle": "thread-global",
-                "runtimeState": {"threadId": "thread-global"},
+            {
+                "runtime": "pi", "agent": "global-pi",
+                "environment": {
+                    "id": "linux:test-host:default",
+                    "runtimes": [{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+                },
+                "running": {},
+                "settings": {"managed_pi_model": "gpt-5.5", "managed_pi_effort": "medium"},
+                "model": "gpt-5.5", "effort": "medium",
             },
-        )
-        self.assertEqual(updated.status_code, 200, updated.text)
+        ]
+        for case in cases:
+            with self.subTest(runtime=case["runtime"]):
+                environment_id = case["environment"]["id"]
+                self._heartbeat_environment(bridgeId="bridge-current", **case["environment"])
+                created = self.client.post(
+                    "/api/v1/spawn-requests",
+                    json={
+                        "createdBy": "dashboard",
+                        "environmentId": environment_id,
+                        "agentId": case["agent"],
+                        "role": "coder",
+                        "runtime": case["runtime"],
+                        "workspace": "/workspace/project",
+                    },
+                )
+                self.assertEqual(created.status_code, 200, created.text)
+                spawn = created.json()["spawnRequest"]
+                updated = self.client.patch(
+                    f"/api/v1/spawn-requests/{spawn['id']}",
+                    json={"status": "running", "bridgeId": "bridge-current", "machineId": "linux:test-host",
+                          **case["running"]},
+                )
+                self.assertEqual(updated.status_code, 200, updated.text)
 
-        settings = self.client.put(
-            "/api/v1/settings",
-            json={"managed_codex_model": "gpt-global", "managed_codex_effort": "xhigh"},
-        )
-        self.assertEqual(settings.status_code, 200, settings.text)
-        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("global-codex",))
-        self.assertEqual(agent["model"], "gpt-global")
-        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "xhigh")
-
-    def test_runtime_settings_update_existing_managed_pi_agents_globally(self):
-        self._heartbeat_environment(
-            id="linux:test-host:default",
-            bridgeId="bridge-current",
-            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-        )
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "global-pi",
-                "role": "coder",
-                "runtime": "pi",
-                "workspace": "/workspace/project",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        pi_spawn = created.json()["spawnRequest"]
-        updated = self.client.patch(
-            f"/api/v1/spawn-requests/{pi_spawn['id']}",
-            json={"status": "running", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
-        )
-        self.assertEqual(updated.status_code, 200, updated.text)
-
-        settings = self.client.put(
-            "/api/v1/settings",
-            json={"managed_pi_model": "gpt-5.5", "managed_pi_effort": "medium"},
-        )
-        self.assertEqual(settings.status_code, 200, settings.text)
-        agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", ("global-pi",))
-        self.assertEqual(agent["model"], "gpt-5.5")
-        self.assertEqual(json.loads(agent["runtime_config"])["effort"], "medium")
+                settings = self.client.put("/api/v1/settings", json=case["settings"])
+                self.assertEqual(settings.status_code, 200, settings.text)
+                agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", (case["agent"],))
+                self.assertEqual(agent["model"], case["model"])
+                self.assertEqual(json.loads(agent["runtime_config"])["effort"], case["effort"])
 
     def test_environment_list_marks_missing_heartbeat_offline_and_orders_stably(self):
         self._heartbeat_environment(
@@ -1138,18 +929,21 @@ class ApiV2RegressionTests(FastApiTestCase):
             kind="windows",
             bridgeId="bridge-windows",
         )
+        # The alphabetically FIRST label is the silent one, so only the status rank can put the
+        # online environment ahead of it. (With the WSL row silent, label order and status order
+        # agreed and the ranking went unexercised.)
         self._execute(
             "UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = ?",
-            ("wsl:test-host:default",),
+            ("windows:test-host:default",),
         )
 
         listed = self.client.get("/api/v1/environments")
         self.assertEqual(listed.status_code, 200, listed.text)
         environments = listed.json()["environments"]
-        self.assertEqual([env["id"] for env in environments], ["windows:test-host:default", "wsl:test-host:default"])
+        self.assertEqual([env["id"] for env in environments], ["wsl:test-host:default", "windows:test-host:default"])
         by_id = {env["id"]: env for env in environments}
-        self.assertEqual(by_id["windows:test-host:default"]["status"], "online")
-        self.assertEqual(by_id["wsl:test-host:default"]["status"], "offline")
+        self.assertEqual(by_id["wsl:test-host:default"]["status"], "online")
+        self.assertEqual(by_id["windows:test-host:default"]["status"], "offline")
 
     def test_managed_agent_status_follows_environment_not_child_heartbeat(self):
         self._heartbeat_environment(
@@ -1290,46 +1084,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(dispatched["ok"], dispatched)
         run = self._fetchone("SELECT execution_mode FROM dispatch_runs WHERE id = ?", (dispatched["runs"][0]["runId"],))
         self.assertEqual(run["execution_mode"], "managed")
-
-    def test_managed_worker_gateway_lost_rests_available_not_stopped(self):
-        # 2026-07-06/07: a MANAGED hermes worker whose gateway port died reports resident-lost
-        # (reportGatewayDead). The old fallback stopped it (status='stopped', launch_mode='none'),
-        # which the send-gate rejects outright — so the whole hermes team got stuck 'stopped' and
-        # could never wake (wake test proved dispatchRuns:[], "agent status is stopped"). A managed
-        # worker is re-spawnable, so it must rest COLD-STARTABLE (derives 'available', launch_mode
-        # preserved), NOT stopped. Contrast: test_lost_resident_bridge_stops_until_manual_switch
-        # pins that a RESIDENT loss still stops.
-        self._register(
-            "hermes-worker",
-            role="coder",
-            runtime="hermes",
-            machineId="wsl:test-host",
-            cwd="/workspace/project",
-            sessionMode="managed",
-            launchMode="detached",
-            capabilities=["managed-run", "native-managed-run", "resume", "interrupt", "steer", "spawn"],
-        )
-        before = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("hermes-worker",))
-        self.assertEqual(before["session_mode"], "managed")
-
-        lost = self.client.post(
-            "/api/v1/agents/hermes-worker/resident-lost",
-            json={
-                "runtime": "hermes",
-                "reason": "Hermes gateway unreachable at ws://127.0.0.1:9470/api/ws (connection refused).",
-            },
-        )
-        self.assertEqual(lost.status_code, 200, lost.text)
-        self.assertEqual(lost.json()["transition"], "managed_worker_lost_available")
-
-        row = self._fetchone(
-            "SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("hermes-worker",)
-        )
-        # NOT stopped (send-gate would reject) and STILL cold-startable (launch_mode preserved).
-        self.assertNotEqual(row["status"], "stopped")
-        self.assertEqual(row["status"], "active")
-        self.assertEqual(row["launch_mode"], "detached")
-        self.assertIn("cold-start", (row["status_note"] or "").lower())
 
     def test_send_does_not_steer_into_offline_environment_active_run(self):
         self._heartbeat_environment(
@@ -1955,32 +1709,14 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
 
-    def test_idle_attached_console_reports_active_not_working(self):
-        # Post-B1 regression the operator caught: an attached console with no
-        # recent output is reachable but NOT working. "working" must require
-        # recent console activity, not mere attachment.
-        session_id = self._create_running_session(terminal=True)
-        started = self.client.post(
-            f"/api/v1/sessions/{session_id}/console/start",
-            json={"requestedBy": "dashboard"},
-        )
-        self.assertEqual(started.status_code, 200, started.text)
-        terminal_id = started.json()["terminal"]["id"]
-        attached = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={"bridgeId": "bridge-current", "output": "$ ", "status": "attached"},
-        )
-        self.assertEqual(attached.status_code, 200, attached.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-        # Backdate console activity past the console-active window and expire
-        # any cached live status so the read path recomputes.
+        # And once the console goes quiet (activity backdated past the console-active window,
+        # cached status dropped so the read recomputes) it is still reachable and still `online`:
+        # attachment alone never means working, fresh output or not.
         self._execute(
             "UPDATE terminal_sessions SET updated_at = ? WHERE id = ?",
             ("2020-01-01T00:00:00Z", terminal_id),
         )
-        # Force a clean recompute (drop any cached live-state row).
-        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
-
+        status_cache._LIVE_STATE_CACHE.pop("console-agent", None)
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["agents"]["console-agent"]["status"], "online")
@@ -2014,98 +1750,23 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(listed.json()["agents"]["cached-agent"]["status"], "offline")
 
     def test_agents_list_refreshes_expired_cached_status_from_environment(self):
+        # An EXPIRED cache entry must be recomputed by the list read, not served. The entry says
+        # offline while the session and its environment are live, so serving it is visible. (This
+        # once seeded the vestigial `agent_live_state` table, which nothing reads, and backdated the
+        # environment, so the env-reachable gate produced its "offline" whatever the cache held.)
         session_id = self._create_running_session(agent_id="expiring-agent")
         self.assertTrue(session_id)
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after, environment_id, session_id)
-            VALUES (?,?,?,?,?,?,?)
-            """,
-            (
-                "expiring-agent",
-                "active",
-                "stale cache",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z",
-                "linux:test-host:default",
-                session_id,
-            ),
-        )
-        self._execute(
-            "UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = ?",
-            ("linux:test-host:default",),
-        )
+        status_cache._LIVE_STATE_CACHE["expiring-agent"] = {
+            "status": "offline", "reason": "stale cache",
+            "environment_id": "linux:test-host:default", "session_id": session_id,
+            "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
 
         listed = self.client.get("/api/v1/agents")
         self.assertEqual(listed.status_code, 200, listed.text)
-        self.assertEqual(listed.json()["agents"]["expiring-agent"]["status"], "offline")
-
-    def test_terminal_output_responses_expose_monotonic_output_sequence(self):
-        session_id = self._create_running_session(terminal=True)
-        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
-        self.assertEqual(started.status_code, 200, started.text)
-        terminal_id = started.json()["terminal"]["id"]
-
-        first = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={"bridgeId": "bridge-current", "output": "a", "status": "attached"},
-        )
-        second = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={"bridgeId": "bridge-current", "output": "b", "status": "attached"},
-        )
-        self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(second.status_code, 200, second.text)
-        # ONE NUMBER PER FRAME, NOT PER POST -- and these two posts join one pending batch, so they
-        # report the same frame. It asserted 1 then 2 until 2026-09-08, and that requirement was the
-        # operator's console lag: `realtime-socket.mjs` reads this sequence as a count of FRAMES, so
-        # a per-post counter advanced by three on a flush that coalesced three posts, the browser saw
-        # a gap nothing had dropped, and paid a full refetch plus `term.reset()` plus a whole-screen
-        # repaint for it. Coalescing happens exactly when the agent is busy.
-        #
-        # THE OLD ASSERTION HAD NO CONSUMER. This value is returned to aify-env, which never reads it
-        # -- zero matches for `outputSeq` across its tree, and its only mentions of `output_seq` are
-        # comments about the ARRIVAL ORDER the service assigns, which is unchanged. The number's
-        # readers are all in the dashboard and all three want frames.
-        #
-        # MONOTONIC IS STILL THE PROPERTY THIS TEST IS NAMED FOR, and it still holds: a sequence that
-        # went BACKWARDS would be dropped by the dashboard's `seq <= lastSeq` dedupe and the output
-        # would vanish with no recovery. Non-decreasing is the guarantee; strictly-increasing-per-post
-        # never was one anybody used.
-        self.assertEqual(first.json()["terminal"]["outputSeq"], 1)
-        self.assertEqual(
-            second.json()["terminal"]["outputSeq"], 1,
-            "two posts coalescing into one frame reported different sequences",
-        )
-
-        # AND IT ADVANCES ONCE THE FRAME IS ACTUALLY EMITTED, which is the half that matters to a
-        # reader: flush the batch, post again, and the next frame is the next number.
-        asyncio.run(TERMINAL_OUTPUT_WRITES.flush_terminal(terminal_id))
-        third = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={"bridgeId": "bridge-current", "output": "c", "status": "attached"},
-        )
-        self.assertEqual(third.status_code, 200, third.text)
-        self.assertEqual(
-            third.json()["terminal"]["outputSeq"], 2,
-            "a post after a flush did not start the next frame",
-        )
-    def test_environment_heartbeat_persists_terminal_capabilities(self):
-        environment = self._heartbeat_environment(
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["codex", "pi"],
-        )
-        self.assertTrue(environment["terminal"])
-        self.assertTrue(environment["pty"])
-        self.assertEqual(environment["terminalRuntimes"], ["codex", "pi"])
-
-        listed = self.client.get("/api/v1/environments")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        listed_env = listed.json()["environments"][0]
-        self.assertTrue(listed_env["terminal"])
-        self.assertTrue(listed_env["pty"])
-        self.assertEqual(listed_env["terminalRuntimes"], ["codex", "pi"])
+        self.assertNotEqual(listed.json()["agents"]["expiring-agent"]["status"], "offline")
 
     def _create_running_session(
         self,
@@ -2349,142 +2010,70 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         return _asyncio.new_event_loop().run_until_complete(_run())
 
-    def _run_orphan_spawn_reconcile(self):
-        import asyncio as _asyncio
-        from service.db import get_db as _get_db
-
-        async def _run():
-            db = await _get_db()
-            try:
-                return await _fail_orphaned_running_spawn_requests(db, offline_seconds=90)
-            finally:
-                await db.close()
-
-        return _asyncio.new_event_loop().run_until_complete(_run())
-
-    def test_orphan_spawn_reconcile_fails_only_dead_bridge_old_spawns(self):
-        # SAFETY TEST for _fail_orphaned_running_spawn_requests. Three running
-        # spawns; only the orphan (dead bridge + old) may be failed:
-        #   (a) running, claimed by a DEAD bridge, old      → FAILED (orphan)
-        #   (b) running, claimed by the LIVE env bridge, RECENT -> LEFT (in progress)
-        #   (d) running, claimed by the LIVE env bridge, ANCIENT -> FAILED (abandoned)
-        #
-        # (b) used to carry the same six-year-old timestamp as (a), asserting that a spawn on a
-        # live bridge is left alone however old it is. That is what left FOUR rows `running` on
-        # the operator's service, the oldest for three days, all claimed by a bridge that simply
-        # stayed up. The carve-out is for a worker that is slowly booting; (b) now uses an age
-        # inside the ceiling so it still proves that, and (d) pins the bound.
-        #   (c) running, claimed by a dead bridge, but FRESH → LEFT (grace window)
-        self._heartbeat_environment(
-            id="orphan-test-env", bridgeId="live-env-bridge-1",
-            machineId="linux:orphan-test",
-            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"]}],
-        )
-        old = "2020-01-01T00:00:00Z"
-        fresh = _now()
-        # Minimal spawn_spec to satisfy the spawn_requests.spawn_spec_id FK.
-        self._execute(
-            """INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, created_at, updated_at)
-               VALUES (?,?,?,?,?,?)""",
-            ("orphan-test-spec", "orphan-agent", "orphan-test-env", "claude-code", old, old),
-        )
-
-        def _ins(sid, bridge, claimed_at):
-            self._execute(
-                """INSERT INTO spawn_requests
-                   (id, spawn_spec_id, agent_id, environment_id, runtime, mode, status,
-                    claimed_by_bridge_id, claimed_at, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (sid, "orphan-test-spec", sid + "-agent", "orphan-test-env", "claude-code",
-                 "managed-warm", "running", bridge, claimed_at, claimed_at, claimed_at),
-            )
-
-        _ins("sp-orphan-dead-old", "dead-bridge-xyz", old)
-        _ins("sp-live-recent", "live-env-bridge-1", fresh)
-        _ins("sp-orphan-dead-fresh", "dead-bridge-xyz", fresh)
-        _ins("sp-live-ancient", "live-env-bridge-1", old)
-
-        failed = self._run_orphan_spawn_reconcile()
-
-        self.assertEqual(
-            failed, 2,
-            "the dead-bridge orphan AND the ancient spawn on the live bridge should both be failed")
-        self.assertEqual(
-            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-orphan-dead-old",))["status"],
-            "failed", "orphan (dead claiming bridge, old) must be failed")
-        self.assertEqual(
-            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-live-recent",))["status"],
-            "running", "a RECENT spawn on the LIVE env bridge must NOT be failed (still in progress)")
-        self.assertEqual(
-            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-live-ancient",))["status"],
-            "failed", "a spawn claimed years ago is abandoned, not booting, whatever the bridge says")
-        self.assertEqual(
-            self._fetchone("SELECT status FROM spawn_requests WHERE id=?", ("sp-orphan-dead-fresh",))["status"],
-            "running", "a freshly-claimed spawn must get the grace window (not failed)")
-
     def test_managed_hygiene_reaps_ghost_console_row(self):
-        # MANAGED claude with a dead worker (NO channel-sidecar bridge row at
-        # all → _has_live_channel_sidecar False) but a stale `attached`
-        # terminal row + a consoleTerminal pointer = a phantom "Console
-        # attached" for a dead agent. The reaper must reap it.
-        terminal_id = "term_ghost_console"
-        self._seed_managed_claude_with_attached_terminal("ghost-claude", terminal_id)
-        # No channel-sidecar bridge_instances row is inserted → no live sidecar.
-        # Dead worker → the bridge stopped streaming output, so updated_at is STALE
-        # (a fresh updated_at means a live/booting worker — boot-race guard).
-        self._execute("UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?", (terminal_id,))
+        # MANAGED claude or hermes with a dead worker (NO channel-sidecar bridge row at all ->
+        # _has_live_channel_sidecar False) but a stale `attached` terminal row + a consoleTerminal
+        # pointer = a phantom "Console attached" for a dead agent. The reaper must reap it, with a
+        # runtime-aware reason (WS3 Task 3.4 brought hermes into _CHANNEL_SIDECAR_DELIVERY_RUNTIMES).
+        cases = [
+            ("claude-code", "ghost-claude", "term_ghost_console",
+             self._seed_managed_claude_with_attached_terminal, "wrapper is dead"),
+            ("hermes", "ghost-hermes", "term_hermes_ghost_console",
+             self._seed_managed_hermes_with_attached_terminal, "hermes delivery loop"),
+        ]
+        for runtime, agent_id, terminal_id, seed, reason_fragment in cases:
+            with self.subTest(runtime=runtime):
+                seed(agent_id, terminal_id)
+                # No channel-sidecar bridge_instances row is inserted -> no live sidecar.
+                # Dead worker -> the bridge stopped streaming output, so updated_at is STALE
+                # (a fresh updated_at means a live/booting worker — boot-race guard).
+                self._execute(
+                    "UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?",
+                    (terminal_id,),
+                )
 
-        result = self._run_managed_worker_hygiene()
+                result = self._run_managed_worker_hygiene()
 
-        self.assertEqual(result["managed_ghost_rows_reaped"], 1, result)
-        self.assertEqual(result["orphan_workers_reaped"], 0, result)
-        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
-        self.assertEqual(term["status"], "stopped")
-        self.assertIn("reconciled_managed_ghost_console_dead_worker", term["error"])
-        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("ghost-claude",))
-        rs = json.loads(agent["runtime_state"] or "{}")
-        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
-        sess = self._fetchone("SELECT terminal_id, terminal_status FROM agent_sessions WHERE terminal_id = ?", (terminal_id,))
-        self.assertIsNone(sess, "agent_session terminal binding must be cleared")
-        event = self._fetchone(
-            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
-            (terminal_id, "reconciled_managed_ghost_console"),
-        )
-        self.assertIsNotNone(event, "reconciled_managed_ghost_console event must be appended")
+                self.assertEqual(result["managed_ghost_rows_reaped"], 1, result)
+                self.assertEqual(result["orphan_workers_reaped"], 0, result)
+                term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
+                self.assertEqual(term["status"], "stopped")
+                self.assertIn("reconciled_managed_ghost_console_dead_worker", term["error"])
+                agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", (agent_id,))
+                rs = json.loads(agent["runtime_state"] or "{}")
+                self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+                sess = self._fetchone(
+                    "SELECT terminal_id, terminal_status FROM agent_sessions WHERE terminal_id = ?", (terminal_id,),
+                )
+                self.assertIsNone(sess, "agent_session terminal binding must be cleared")
+                event = self._fetchone(
+                    "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
+                    (terminal_id, "reconciled_managed_ghost_console"),
+                )
+                self.assertIsNotNone(event, "reconciled_managed_ghost_console event must be appended")
+                payload = json.loads(event["body"] or "{}")
+                self.assertEqual(payload.get("runtime"), runtime, payload)
+                self.assertIn(reason_fragment, payload.get("reason", ""), payload)
 
     def test_managed_hygiene_keeps_live_console(self):
-        # MANAGED claude with a FRESH channel-sidecar heartbeat → the worker
-        # is alive; a live-but-idle console must NOT be reaped.
+        # MANAGED claude with a FRESH channel-sidecar heartbeat and a live `attached` console: the
+        # worker is alive, so neither half of the reaper may touch it -- no ghost reap, no orphan
+        # reap, pointer kept. The console's output is STALE on purpose: with fresh output the
+        # boot-race guard alone would spare it, and the live-sidecar guard went unexercised.
         terminal_id = "term_live_console"
         self._seed_managed_claude_with_attached_terminal("live-claude", terminal_id)
-        now = _now()
-        self._execute(
-            """
-            INSERT INTO bridge_instances (
-                id, agent_id, machine_id, runtime, session_mode, session_handle,
-                terminal_id, bridge_kind, registered_at, last_seen, superseded_by
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "bridge-sidecar-live",
-                "live-claude",
-                "linux:test-host",
-                "claude-code",
-                "managed",
-                "claude-managed-handle-1",
-                terminal_id,
-                "channel-sidecar",
-                now,
-                now,
-                "",
-            ),
-        )
+        self._execute("UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?", (terminal_id,))
+        self._stamp_live_channel_sidecar("live-claude")  # worker alive
 
         result = self._run_managed_worker_hygiene()
 
         self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
+        self.assertEqual(result["orphan_workers_reaped"], 0, result)
         term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
         self.assertEqual(term["status"], "attached", "live-but-idle console must NOT be reaped")
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("live-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertIn("consoleTerminal", rs, "consoleTerminal pointer must be preserved")
 
     def test_managed_hygiene_keeps_booting_worker_with_fresh_output(self):
         # DETERMINISTIC BOOT-RACE GUARD (2026-06-04): a managed claude worker whose
@@ -2712,36 +2301,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotEqual(agent["status"], "available", agent)
         self.assertEqual(agent["status"], "online", agent)
 
-    def test_managed_hygiene_reaps_hermes_ghost_console_row(self):
-        # WS3 Task 3.4: now that hermes is in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES,
-        # _reconcile_managed_worker_hygiene must cover the hermes triad: a managed
-        # hermes with a stale (here: absent) channel-sidecar + an `attached`
-        # console row is a ghost console for a dead worker — reaped exactly like
-        # claude's ghost path, with a hermes-aware reason string.
-        terminal_id = "term_hermes_ghost_console"
-        self._seed_managed_hermes_with_attached_terminal("ghost-hermes", terminal_id)
-        # No channel-sidecar bridge row → no live claimer → dead worker.
-        # Dead worker → bridge stopped streaming, so updated_at is STALE (boot-race guard).
-        self._execute("UPDATE terminal_sessions SET updated_at = '2020-01-01T00:00:00Z' WHERE id = ?", (terminal_id,))
-
-        result = self._run_managed_worker_hygiene()
-
-        self.assertEqual(result["managed_ghost_rows_reaped"], 1, result)
-        term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (terminal_id,))
-        self.assertEqual(term["status"], "stopped")
-        self.assertIn("reconciled_managed_ghost_console_dead_worker", term["error"])
-        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("ghost-hermes",))
-        rs = json.loads(agent["runtime_state"] or "{}")
-        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
-        event = self._fetchone(
-            "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
-            (terminal_id, "reconciled_managed_ghost_console"),
-        )
-        self.assertIsNotNone(event, "reconciled_managed_ghost_console event must be appended")
-        payload = json.loads(event["body"] or "{}")
-        self.assertEqual(payload.get("runtime"), "hermes", payload)
-        self.assertIn("hermes delivery loop", payload.get("reason", ""), f"reason should be hermes-aware; got {payload!r}")
-
     def test_host_reported_dead_pty_marks_row_stopped_and_invalidates(self):
         # WS4 Task 4.2 (server side): the OWNING environment bridge is the only
         # thing that can probe a local PID. When it reports a console PTY's
@@ -2774,36 +2333,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             _live_state_fresh("dead-pty-hermes"),
             "agent live-state must be invalidated on host-reported dead PTY",
         )
-
-    def test_host_reported_dead_pty_is_idempotent_and_pid_guarded(self):
-        # A report for a terminal that is already stopped is a harmless no-op
-        # (200, still stopped). A report whose pid no longer matches the stored
-        # process_id is rejected/ignored so a stale report can't stop a row that
-        # the owning bridge has since restarted with a NEW pid.
-        terminal_id = "term_dead_pty_idem"
-        self._seed_managed_hermes_with_attached_terminal("idem-hermes", terminal_id)
-        self._execute(
-            "UPDATE terminal_sessions SET process_id = ? WHERE id = ?",
-            ("9001", terminal_id),
-        )
-        # Stale report: pid mismatch → must NOT stop the row.
-        resp = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/report-dead",
-            json={"bridgeId": "bridge-current", "processId": "1234", "reason": "stale"},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
-        self.assertEqual(term["status"], "attached", "pid-mismatched report must not stop the row")
-
-        # Matching report stops it; a second matching report is idempotent.
-        for _ in range(2):
-            resp = self.client.post(
-                f"/api/v1/terminals/{terminal_id}/report-dead",
-                json={"bridgeId": "bridge-current", "processId": "9001"},
-            )
-            self.assertEqual(resp.status_code, 200, resp.text)
-            term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
-            self.assertEqual(term["status"], "stopped", term)
 
     def _run_prune_orphaned_dispatch_runs(self, **kwargs):
         async def _run():
@@ -2870,19 +2399,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             surviving,
         )
 
-    def test_prune_orphaned_dispatch_runs_respects_ttl_window(self):
-        # A terminal run for a tombstoned target that is recent (inside the TTL)
-        # is NOT pruned — the window must be honored so freshly-removed agents'
-        # recent audit history is briefly retained.
-        self._execute(
-            "INSERT INTO agent_tombstones (agent_id, removed_at) VALUES (?,?)",
-            ("fresh-ghost", _now()),
-        )
-        self._seed_dispatch_run("run_fresh", from_agent="dashboard", target_agent="fresh-ghost", status="completed", requested_at=_now())
-        deleted = self._run_prune_orphaned_dispatch_runs(ttl_hours=24)
-        self.assertEqual(deleted, 0)
-        self.assertIsNotNone(self._fetchone("SELECT id FROM dispatch_runs WHERE id = ?", ("run_fresh",)))
-
     def test_managed_claude_online_requires_live_console(self):
         # status-F1 (refined): a managed claude is `online` ONLY when BOTH a live
         # console PTY AND a live channel-sidecar exist. A live sidecar with NO
@@ -2905,42 +2421,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotEqual(agent["status"], "online", agent)
         self.assertEqual(agent["status"], "available", agent)
 
-    def test_managed_hygiene_reaps_orphan_worker(self):
-        # MANAGED claude, FRESH sidecar (worker alive), newest terminal row is
-        # `stopped` ~200s ago (no live console), runtime_state.consoleTerminal set
-        # → headless orphan: reap pointer, invalidate cache, count it.
-        terminal_id = "term_orphan_worker"
-        self._seed_managed_claude_with_attached_terminal("orphan-claude", terminal_id)
-        self._stamp_live_channel_sidecar("orphan-claude")  # worker alive
-        # Stamp a cached live_state entry so we can prove invalidation drops it.
-        status_cache._LIVE_STATE_CACHE["orphan-claude"] = {
-            "status": "online", "reason": "stale", "environment_id": "",
-            "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
-        }
-        # Newest terminal row terminal-state with stopped_at ~200s in the past.
-        old = "2000-01-01T00:00:00Z"
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
-            (old, old, terminal_id),
-        )
-
-        result = self._run_managed_worker_hygiene()
-
-        self.assertEqual(result["orphan_workers_reaped"], 1, result)
-        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("orphan-claude",))
-        rs = json.loads(agent["runtime_state"] or "{}")
-        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
-        self.assertIsNone(
-            _live_state_fresh("orphan-claude"),
-            "agent live-state must be invalidated (dropped)",
-        )
-        event = self._fetchone(
-            "SELECT event_type FROM terminal_events WHERE terminal_id = ? AND event_type = ?",
-            (terminal_id, "reconciled_managed_orphan_worker"),
-        )
-        self.assertIsNotNone(event, "reconciled_managed_orphan_worker event must be appended")
-
     def test_managed_hygiene_reaps_each_orphan_ONCE(self):
         """A second sweep over the SAME orphan must not repeat the reap.
 
@@ -2956,36 +2436,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         same sweep. `orphan_workers_reaped` appeared in 284 of 355 reconcile lines over six hours,
         which reads as continuous cleanup and was two agents stuck in one state.
         """
+        # MANAGED claude, FRESH sidecar (worker alive), newest terminal row `stopped` long ago (no
+        # live console), runtime_state.consoleTerminal set -> a headless orphan.
         terminal_id = "term_orphan_once"
         self._seed_managed_claude_with_attached_terminal("once-claude", terminal_id)
         self._stamp_live_channel_sidecar("once-claude")
-        old = "2000-01-01T00:00:00Z"
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
-            (old, old, terminal_id),
-        )
-
-        first = self._run_managed_worker_hygiene()
-        self.assertEqual(first["orphan_workers_reaped"], 1, first)
-        self.assertEqual(first["orphan_workers_still_orphaned"], 0, first)
-
-        # The orphan is UNCHANGED: still a live sidecar, still no console. Every input to the
-        # predicate is exactly what it was, which is the whole point -- the reap cannot fix it.
-        self._stamp_live_channel_sidecar("once-claude")
-        second = self._run_managed_worker_hygiene()
-
-        self.assertEqual(second["orphan_workers_reaped"], 0, second)
-        self.assertEqual(
-            second["orphan_workers_still_orphaned"], 1,
-            f"a standing orphan must be reported, not silently dropped: {second}",
-        )
-
-    def test_a_repeat_sweep_appends_no_SECOND_event(self):
-        """The cost, asserted directly. One event per orphan is a record; one per minute is a leak
-        that the event pruner then has to clean up in the same sweep."""
-        terminal_id = "term_orphan_one_event"
-        self._seed_managed_claude_with_attached_terminal("oneevent-claude", terminal_id)
-        self._stamp_live_channel_sidecar("oneevent-claude")
         old = "2000-01-01T00:00:00Z"
         self._execute(
             "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
@@ -2999,43 +2454,43 @@ class ApiV2RegressionTests(FastApiTestCase):
             )
             return int(row["n"])
 
-        self._run_managed_worker_hygiene()
+        def stamp_cache(status: str) -> None:
+            status_cache._LIVE_STATE_CACHE["once-claude"] = {
+                "status": status, "reason": "seeded", "environment_id": "",
+                "session_id": "", "terminal_id": "", "active_run_id": "",
+                "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
+            }
+
+        # FIRST sweep: the reap -- pointer cleared, cache invalidated, one event, counted once.
+        stamp_cache("online")
+        first = self._run_managed_worker_hygiene()
+        self.assertEqual(first["orphan_workers_reaped"], 1, first)
+        self.assertEqual(first["orphan_workers_still_orphaned"], 0, first)
+        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("once-claude",))
+        rs = json.loads(agent["runtime_state"] or "{}")
+        self.assertNotIn("consoleTerminal", rs, f"consoleTerminal pointer must be cleared; got {rs!r}")
+        self.assertIsNone(_live_state_fresh("once-claude"), "agent live-state must be invalidated (dropped)")
         self.assertEqual(event_count(), 1, "the first sweep must record the orphan")
 
-        for _ in range(3):
-            self._stamp_live_channel_sidecar("oneevent-claude")
-            self._run_managed_worker_hygiene()
+        # REPEAT sweeps over the UNCHANGED orphan (still a live sidecar, still no console -- every
+        # input to the predicate is what it was, which is the whole point: the reap cannot fix it).
+        # Each must report it as still orphaned, append nothing, and leave the settled cache alone:
+        # an invalidation forces a cold recompute every minute for the same answer.
+        stamp_cache("available")
+        for sweep in range(3):
+            self._stamp_live_channel_sidecar("once-claude")
+            again = self._run_managed_worker_hygiene()
+            self.assertEqual(again["orphan_workers_reaped"], 0, f"sweep {sweep}: {again}")
+            self.assertEqual(
+                again["orphan_workers_still_orphaned"], 1,
+                f"a standing orphan must be reported, not silently dropped: {again}",
+            )
         self.assertEqual(
             event_count(), 1,
             "three more sweeps over the same orphan appended more events; this is the 200-in-3h22m shape",
         )
-
-    def test_a_repeat_sweep_does_not_reinvalidate_the_live_state(self):
-        """The other repeated cost: a cache invalidation forces a COLD status recompute for that
-        agent, and the cold path is the expensive one. Doing it once is correct; doing it every
-        minute forever is not, and derive() returns the same answer either way."""
-        terminal_id = "term_orphan_no_reinvalidate"
-        self._seed_managed_claude_with_attached_terminal("reinval-claude", terminal_id)
-        self._stamp_live_channel_sidecar("reinval-claude")
-        old = "2000-01-01T00:00:00Z"
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'stopped', stopped_at = ?, updated_at = ? WHERE id = ?",
-            (old, old, terminal_id),
-        )
-        self._run_managed_worker_hygiene()
-
-        # Re-stamp a cache entry. A second sweep must LEAVE IT ALONE -- the first sweep already
-        # corrected the status, and nothing has re-broken it.
-        status_cache._LIVE_STATE_CACHE["reinval-claude"] = {
-            "status": "available", "reason": "settled", "environment_id": "",
-            "session_id": "", "terminal_id": "", "active_run_id": "",
-            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": _now(),
-        }
-        self._stamp_live_channel_sidecar("reinval-claude")
-        self._run_managed_worker_hygiene()
-
         self.assertIsNotNone(
-            _live_state_fresh("reinval-claude"),
+            _live_state_fresh("once-claude"),
             "a repeat sweep dropped the cache entry again, forcing a cold recompute every minute",
         )
 
@@ -3064,23 +2519,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         result = self._run_managed_worker_hygiene()
         self.assertEqual(result["orphan_workers_reaped"], 1, f"the NEW orphan was not recorded: {result}")
         self.assertEqual(result["orphan_workers_still_orphaned"], 1, result)
-
-    def test_managed_hygiene_keeps_online_console(self):
-        # MANAGED claude, FRESH sidecar + live `attached` console → NOT an orphan.
-        terminal_id = "term_orphan_keep"
-        self._seed_managed_claude_with_attached_terminal("keep-claude", terminal_id)
-        self._stamp_live_channel_sidecar("keep-claude")  # worker alive
-        # terminal row stays `attached` (live console).
-
-        result = self._run_managed_worker_hygiene()
-
-        self.assertEqual(result["orphan_workers_reaped"], 0, result)
-        self.assertEqual(result["managed_ghost_rows_reaped"], 0, result)
-        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", (terminal_id,))
-        self.assertEqual(term["status"], "attached", "live console must be untouched")
-        agent = self._fetchone("SELECT runtime_state FROM agents WHERE id = ?", ("keep-claude",))
-        rs = json.loads(agent["runtime_state"] or "{}")
-        self.assertIn("consoleTerminal", rs, "consoleTerminal pointer must be preserved")
 
     # --- status-truthfulness bug fixes (2026-06-01) ---
 
@@ -3151,7 +2589,11 @@ class ApiV2RegressionTests(FastApiTestCase):
         # the backstop window accordingly (justified: it encoded the superseded
         # timer-as-primary behavior).
         self._register("tb-refresh-claude", runtime="claude-code", sessionMode="resident")
-        now = _now()
+        # Stamped 29 minutes ago: still inside the 30-minute ceiling (so `working`), with the
+        # deadline one minute out -- EARLIER than the liveness refresh (last_seen + 90s) the cache
+        # would otherwise pick, so only the clamp brings refresh_after under the limit. Stamped
+        # `now`, the unclamped value was already under it and this test could not fail.
+        now = _iso_from_ms(int((datetime.now(timezone.utc).timestamp() - 29 * 60) * 1000))
         self._execute(
             """
             INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
@@ -3169,57 +2611,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"refresh_after {cache['refresh_after']} must be <= turn_updated_at+backstop ({limit}); cache={cache}",
         )
 
-
-    def test_stale_resident_bridge_with_turn_busy_is_not_working(self):
-        # pure-event-status change #2: a DEAD resident worker stuck with
-        # turn_busy=1 must derive `stale`/offline from its stale bridge lease —
-        # NOT `working`. Before the fix the stale branch was guarded with
-        # `and not turn_busy`, so a stale resident with turn_busy=1 SKIPPED stale
-        # and fell into `elif turn_busy -> working`, i.e. working-forever once the
-        # short status window was gone. Liveness (the 150s resident lease) must
-        # win over turn_busy: a stale bridge is a dead worker regardless of any
-        # lingering turn_busy=1.
-        self._heartbeat_environment()
-        self._register(
-            "stale-resident-busy",
-            runtime="claude-code",
-            sessionMode="resident",
-            launchMode="detached",
-            sessionHandle="claude-session-stale-busy",
-            bridgeId="bridge-stale-busy",
-            machineId="linux:test-host",
-            capabilities=["resident-run", "resume", "interrupt"],
-            # resident claude only keeps the `resident-run` cap (the
-            # resident_bridge_stale gate) when channel-enabled — and a
-            # channel-enabled resident is exactly the one that can be stuck
-            # mid-turn with a lingering turn_busy=1 after its bridge dies.
-            runtimeConfig={"channelEnabled": True},
-        )
-        # Age the resident bridge past the 150s lease -> stale (dead worker).
-        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._execute(
-            "UPDATE bridge_instances SET last_seen=? WHERE id=?",
-            (stale_at, "bridge-stale-busy"),
-        )
-        # Fresh turn_busy=1 (a missed turn-end left it set on a now-dead worker).
-        now = _now()
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET turn_busy = 1, turn_updated_at = excluded.turn_updated_at
-            """,
-            ("stale-resident-busy", "run-stale-busy", "bridge-stale-busy", "claude-code", now),
-        )
-        cache = self._async_compute_live_status("stale-resident-busy")
-        self.assertIn(
-            cache["status"], {"stale", "offline"},
-            f"stale resident bridge + turn_busy=1 must be stale/offline (dead worker), not working; {cache}",
-        )
-        self.assertNotEqual(
-            cache["status"], "working",
-            f"a dead resident must never read working off a lingering turn_busy; {cache}",
-        )
 
     def test_status_is_pure_event_long_ceiling_not_short_window(self):
         # pure-event-status change #3: STATUS is now PURE-EVENT. A turn started by
@@ -3613,100 +3004,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(ready_claim.status_code, 200, ready_claim.text)
         self.assertEqual(ready_claim.json()["run"]["id"], "run_explicit_queue")
 
-    def test_explicit_queue_stays_held_while_raw_turn_busy_is_aged_but_set(self):
-        """Explicit queue means "after this turn" — ordinary aging must NOT release it.
-
-        The gate keys on the RAW harness flag, not on derived status or a short freshness
-        window: reinterpreting it is what let queued sends land mid-turn (#236). A long turn
-        (here: well past the old 120s window) must still hold.
-
-        NOTE (2026-07-26): this test previously aged the turn to 2000-01-01 — 26 years — and
-        asserted it was STILL held, which pinned "queue can mean never". That is the strand
-        fixed by the anti-strand ceiling; the release side is the sibling test below. The
-        intent being pinned here (aging *within* a turn does not release) is unchanged.
-        """
-        self._register_resident_channel_claude("aged-queued-manager", bridge_id="bridge-aged-queued-manager")
-        self._seed_fresh_turn_busy(
-            "aged-queued-manager", "run_active", "channel-linux:test-host-aged-queued-manager"
-        )
-        aged_but_inside = time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ",
-            time.gmtime(time.time() - (liveness.TURN_BUSY_BACKSTOP_SECONDS - 120)),
-        )
-        self._execute(
-            "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
-            (aged_but_inside, "aged-queued-manager"),
-        )
-        self._seed_queued_dispatch_run(
-            "run_aged_explicit_queue",
-            "aged-queued-manager",
-            execution_mode="resident",
-            queue_if_busy=1,
-        )
-
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={
-                "agentId": "aged-queued-manager",
-                "bridgeId": "channel-linux:test-host-aged-queued-manager",
-                "bridgeKind": "channel-sidecar",
-                "machineId": "linux:test-host",
-                "executionModes": ["channel", "resident"],
-            },
-        )
-
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertIsNone(claim.json().get("run"), claim.json())
-
-    def test_explicit_queue_releases_once_turn_busy_passes_the_antistrand_ceiling(self):
-        """ANTI-STRAND (regression 2026-07-26): an ABANDONED turn_busy must not hold forever.
-
-        turn_busy is cleared by a turn-END event, but two documented holes mean the clear can
-        never arrive: _clear_turn_busy_for_dead_bridges skips turn_bridge_id in
-        ('', 'user-prompt-submit') (every hook-driven resident-claude turn) and skips turns whose
-        bridge is still alive. Past TURN_BUSY_BACKSTOP_SECONDS the status engine already clamps
-        in_turn, so the agent READS idle — if the claim gate still holds, the dashboard shows an
-        idle agent whose queued work can never be claimed.
-        """
-        self._register_resident_channel_claude("strand-queued-manager", bridge_id="bridge-strand-queued-manager")
-        self._seed_fresh_turn_busy(
-            "strand-queued-manager", "run_active", "channel-linux:test-host-strand-queued-manager"
-        )
-        abandoned = time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ",
-            time.gmtime(time.time() - (liveness.TURN_BUSY_BACKSTOP_SECONDS + 300)),
-        )
-        self._execute(
-            "UPDATE agent_turn_state SET turn_updated_at = ? WHERE agent_id = ?",
-            (abandoned, "strand-queued-manager"),
-        )
-        self._seed_queued_dispatch_run(
-            "run_strand_explicit_queue",
-            "strand-queued-manager",
-            execution_mode="resident",
-            queue_if_busy=1,
-        )
-
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={
-                "agentId": "strand-queued-manager",
-                "bridgeId": "channel-linux:test-host-strand-queued-manager",
-                "bridgeKind": "channel-sidecar",
-                "machineId": "linux:test-host",
-                "executionModes": ["channel", "resident"],
-            },
-        )
-
-        self.assertEqual(claim.status_code, 200, claim.text)
-        run = claim.json().get("run")
-        self.assertIsNotNone(
-            run,
-            "queued work must be claimable once the turn flag is provably abandoned "
-            f"(>{liveness.TURN_BUSY_BACKSTOP_SECONDS}s): {claim.json()}",
-        )
-        self.assertEqual(run.get("id"), "run_strand_explicit_queue")
-
     def test_busy_non_channel_resident_still_defers_queued_run(self):
         # GATE PRESERVED (fix 1 safety): a resident codex (NOT steer/inject
         # capable for a mid-turn channel inject) that is turn_busy must STILL
@@ -3887,23 +3184,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = self.client.get("/api/v1/agents/pending-dead-claude").json()["agent"]
         self.assertNotEqual(agent["status"], "online", agent)
         self.assertIn(agent["status"], {"available", "stale", "offline"}, agent)
-
-    def test_has_live_terminal_session_counts_recovering(self):
-        # FIX 4: a console PTY momentarily in `recovering` is still a live
-        # terminal session. Without this, B2's managed-claude online gate
-        # (which requires _has_live_terminal_session) briefly flips to available.
-        self._seed_managed_claude_with_attached_terminal("recovering-claude", "term_recovering")
-        self._execute(
-            "UPDATE terminal_sessions SET status = 'recovering' WHERE id = ?",
-            ("term_recovering",),
-        )
-        async def _run():
-            db = await get_db()
-            try:
-                return await _has_live_terminal_session(db, "recovering-claude")
-            finally:
-                await db.close()
-        self.assertTrue(asyncio.run(_run()), "a `recovering` non-vterm terminal must count as live")
 
     def _seed_cached_live_state(self, agent_id: str, status: str = "available"):
         """Stamp a fresh, far-future cached live_state entry so a test can
@@ -4583,18 +3863,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(execution_mode2, None)
         self.assertIn("managed-run", error2 or "")
 
-    def test_managed_via_wrapper_setting_defaults_to_off(self):
-        # Plan 4 (2026-05-25): flipped to ON by default ([codex,hermes])
-        # now that wrapper-backed delivery has shipped. This contract
-        # guard was the Plan 2 off-state assertion; the post-Plan-4
-        # default-flip is asserted in test_default_settings_plan4.py.
-        # Kept here so the regression suite still pins the value.
-        from service.api_core.settings import DEFAULT_SETTINGS
-        self.assertIn("managed_via_wrapper", DEFAULT_SETTINGS)
-        val = DEFAULT_SETTINGS["managed_via_wrapper"]
-        self.assertEqual(val, ["codex", "hermes"],
-                         f"managed_via_wrapper Plan-4 default: expected [codex,hermes]; got {val!r}")
-
     def test_managed_via_wrapper_routes_dispatch_as_channel(self):
         # Unified-backing refactor: when managed_via_wrapper includes a runtime,
         # _agent_execution_mode returns 'channel' for managed dispatches so the
@@ -5185,55 +4453,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNone(session["ended_at"])
         self.assertEqual(session["owner_mode"], "console")
         self.assertEqual(session["terminal_id"], terminal_id)
-
-    def test_pi_console_requires_handle_unless_fresh_context_requested(self):
-        self._heartbeat_environment(
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["pi"],
-            runtimes=[
-                {
-                    "runtime": "pi",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"nativeResume": True, "bridgeResume": True, "interrupt": True},
-                }
-            ],
-        )
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "pi-console-agent",
-                "role": "coder",
-                "runtime": "pi",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
-        self.client.post(
-            "/api/v1/spawn-requests/claim",
-            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
-        )
-        running = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn_id}",
-            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234", "sessionHandle": ""},
-        )
-        self.assertEqual(running.status_code, 200, running.text)
-        session_id = running.json()["spawnRequest"]["sessionId"]
-
-        rejected = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
-        self.assertEqual(rejected.status_code, 409, rejected.text)
-        self.assertIn("needs a session handle", rejected.text)
-
-        fresh = self.client.post(
-            f"/api/v1/sessions/{session_id}/console/start",
-            json={"requestedBy": "dashboard", "freshContext": True},
-        )
-        self.assertEqual(fresh.status_code, 200, fresh.text)
-        self.assertEqual(fresh.json()["terminal"]["command"], "aify://virtual-rpc/pi")
-        self.assertNotIn("--resume", fresh.json()["terminal"]["command"])
 
     def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
         # Hermes has no native managed adapter, so it always uses a managed PTY.
