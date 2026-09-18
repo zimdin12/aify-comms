@@ -194,8 +194,8 @@ def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, mes
 async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_recipients, console_deliveries, resolved_in_reply_to):
         """Queue the terminal `input` control that actually delivers a dispatch to a console session.
 
-        Extracted from `send_message` in v0.5.4; `test_send_message_split_is_inert.py` inlines it back
-        and AST-compares against the pre-split fixture, so the round trip is re-proved on every run.
+        Extracted from `send_message` in v0.5.4; `test_send_message_split_is_inert.py` (retired in v0.6.13) inlined it back
+        and AST-compared against the pre-split fixture, so the round trip is re-proved on every run.
 
         Body left at its original 8-space column. The same reason as the register_agent extractions:
         re-indenting would have re-indented the contents of the multi-line literals inside it, and the
@@ -274,8 +274,8 @@ async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipi
                                              source_message_ids, resolved_in_reply_to):
         """Queue the terminal `input` control that delivers a DISPATCH to a console session.
 
-        Extracted from `create_dispatch` in v0.5.4; `test_create_dispatch_split_is_inert.py` inlines it
-        back and AST-compares against the pre-split fixture. Body at its original 8-space column so the
+        Extracted from `create_dispatch` in v0.5.4; `test_create_dispatch_split_is_inert.py` (retired in v0.6.13) inlined it
+        back and AST-compared against the pre-split fixture. Body at its original 8-space column so the
         literals inside are preserved byte-for-byte.
 
         IT IS A NEAR-TWIN OF `_queue_console_dispatch_inputs` ABOVE, and that is recorded rather than

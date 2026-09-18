@@ -79,7 +79,7 @@ class StatusVocabularyBindingTests(unittest.TestCase):
         # it into NON_LIVE (and so stopped it being counted as sendable) has to say so.
         self.assertEqual(
             [s for s in VALID_STATUSES if s not in non_live],
-            ["working", "online", "available", "blocked", "starting"],
+            ["working", "shell", "online", "available", "blocked", "starting"],
         )
 
     def test_every_agent_status_has_a_presentation_entry(self):

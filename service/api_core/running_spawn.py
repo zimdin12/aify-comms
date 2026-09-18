@@ -1,7 +1,7 @@
 """Everything that happens the moment a spawn reports RUNNING.
 
 Extracted from `update_spawn_request` in `service/routers/spawn_requests.py` in v0.5.4;
-`test_update_spawn_request_split_is_inert.py` inlines it back and AST-compares against the pre-split
+`test_update_spawn_request_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split
 fixture. The body is at its original 8-space column so the SQL literals are preserved byte-for-byte.
 
 THIS IS THE LARGEST SINGLE EXTRACTION IN THE SERIES and it is one subject, not a grab bag. A bridge

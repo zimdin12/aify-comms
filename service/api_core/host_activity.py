@@ -28,7 +28,7 @@ from service.reconcilers.status_cache import invalidate_agent_live_state
 
 #: The states a host may report. Anything else is ignored rather than refused, so a newer host with a
 #: state this service does not know still has its liveness frame recorded.
-HOST_ACTIVITY_STATES = ("working", "idle", "blocked")
+HOST_ACTIVITY_STATES = ("working", "idle", "blocked", "shell")
 
 #: How long one report stays fresh. aify-env repeats the observation on every control pass, and a pass
 #: is gated by its claim long-poll (`CLAIM_WAIT_MS`, 25 s) plus a 250 ms floor -- so one frame per

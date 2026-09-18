@@ -399,12 +399,12 @@ small, .subtle { color: var(--muted); }
   padding-right: 2px;
 }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
-/* Agent status colors:
-   available (blue, wakeable/spawnable idle) → online (green, live worker idle)
-   → working (animated pulse). `ready` is an internal signal and aliases to online. */
+/* Agent status colors: available (blue, wakeable) → online (green, idle) → shell (cyan, idle with
+   background shells) → working (animated pulse). `ready` is an internal signal aliased to online. */
 .status-dot.ok, .status-dot.active { background: var(--green); box-shadow: 0 0 0 3px rgba(84,197,139,.12); }
 .status-dot.online { background: var(--green-soft, #88c999); box-shadow: 0 0 0 3px rgba(136,201,153,.12); }
 .status-dot.available { background: var(--available-blue); box-shadow: 0 0 0 3px rgba(111,180,255,.14); }
+.status-dot.shell { background: #3fc6d6; box-shadow: 0 0 0 3px rgba(63,198,214,.16); }
 .status-dot.working {
   background: var(--amber, #dfb156);
   box-shadow: 0 0 0 3px rgba(223,177,86,.14);

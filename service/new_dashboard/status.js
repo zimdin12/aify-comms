@@ -32,7 +32,7 @@ import { runTargetAgent, sessionAgentId, sessionEnvironmentId, sessionId, sessio
 // yet. It is LIVE — a send during boot queues and is delivered when the worker arrives — so it is
 // deliberately absent from NON_LIVE_AGENT_STATUSES below. Its chip already existed here for session
 // states, so the rendering needed no new design: dot 'working', tone 'warn', input disabled.
-export const AGENT_STATUSES = ['working', 'online', 'available', 'blocked', 'offline', 'stopped', 'misconfigured', 'starting'];
+export const AGENT_STATUSES = ['working', 'shell', 'online', 'available', 'blocked', 'offline', 'stopped', 'misconfigured', 'starting'];
 
 // The subset that means "this agent can be reached right now". Derived from the list above rather
 // than retyped: `offline` and `stopped` are the only non-live states, so stating the exclusion keeps
@@ -49,6 +49,8 @@ export const STATUS_KINDS = {
   starting: { label: 'starting', dotKind: 'working', tone: 'warn', inputEnabled: false },
   recovering: { label: 'recovering', dotKind: 'working', tone: 'warn', inputEnabled: false },
   online: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
+  // An idle prompt with background shells still running (Claude Code's `· 1 shell` footer).
+  shell: { label: 'shell running', dotKind: 'shell', tone: 'ok', inputEnabled: true },
   ready: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   working: { label: 'working', dotKind: 'working', tone: 'warn', inputEnabled: false },
   blocked: { label: 'blocked', dotKind: 'blocked', tone: 'bad', inputEnabled: false },

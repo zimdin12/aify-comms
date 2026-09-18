@@ -25,7 +25,7 @@ the table was typed. Count them when you need them.
 
 `update_spawn_request` WAS 384 lines and moved WHOLE, byte-identical, in v0.5.2g. In v0.5.4 its
 299-line `status == "running"` branch left for `service/api_core/running_spawn.py`, proved by
-`test_update_spawn_request_split_is_inert.py`. The handler is now the request-status bookkeeping
+`test_update_spawn_request_split_is_inert.py` (retired in v0.6.13). The handler is now the request-status bookkeeping
 around that one transition.
 
 Built with `domain_router()`, and declares NO tags: the parent applies `tags=["api"]` on include.

@@ -9,7 +9,7 @@ brought this file under 1000 lines.
 
 That sentence is corrected rather than deleted because the reasoning behind it still holds and constrains
 what may happen next: the route is not to be reshaped, only to have verbatim blocks lifted out under the
-inline-back proof in `service/tests/test_send_message_split_is_inert.py`. Its line count is deliberately
+inline-back proof in `test_send_message_split_is_inert.py` (retired in v0.6.13). Its line count is deliberately
 not restated here — measure the file.
 
 Local helpers are used by message handlers and nothing else; anything shared with dispatch lives in

@@ -1,7 +1,7 @@
 """Reading the inbox is not a read. This is everything it writes.
 
 Extracted from `get_inbox` in `service/routers/dispatch_messages/messages.py` in v0.5.4;
-`test_get_inbox_split_is_inert.py` inlines it back and AST-compares against the pre-split fixture.
+`test_get_inbox_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split fixture.
 The body is at its original 8-space column so the SQL literals inside are preserved byte-for-byte.
 
 THREE WRITES, ONE GUARD. A non-peek inbox read stamps read receipts, completes dispatch runs that

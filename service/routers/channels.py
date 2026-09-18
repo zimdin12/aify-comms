@@ -49,7 +49,6 @@ from service.db import get_db
 # the endpoint 422s at request time. That is the v0.5.2g defect; two gates now catch it, and this
 # comment is here so the next person does not "tidy away" an import that looks unused.
 from service.models import ChannelCreate
-from service.api_core.channel_coldstart import _coldstart_cold_channel_members
 from service.api_core.operator_authz import authorize_operator, operator_key_from
 
 logger = logging.getLogger("aify_comms.routers.channels")

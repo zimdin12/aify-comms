@@ -19,7 +19,7 @@ docstring only records the day someone wrote it. The gates are listed by NAME, w
 
 The last four arrived by extract-method out of the 684-line `register_agent`, which is why they read as
 route body rather than as helpers designed here: their bodies are verbatim, and the inline-back proof in
-`service/tests/test_register_agent_split_is_inert.py` requires them to stay that way. The two tombstone
+`test_register_agent_split_is_inert.py` (retired in v0.6.13) required them to stay that way. The two tombstone
 gates are deliberately separate and run in order — the first refuses when nothing asked for a restore,
 the second decides whether a restore that DID ask is fresh enough to allow.
 

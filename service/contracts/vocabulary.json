@@ -25,6 +25,7 @@
     "$comment": "Emitted by service/status_engine.py derive(). Proof-based: no time-decay states, no `idle`, no `stale`.",
     "values": [
       "working",
+      "shell",
       "online",
       "available",
       "starting",
@@ -35,6 +36,7 @@
     ],
     "meanings": {
       "working": "Live worker, open turn.",
+      "shell": "Live worker at its prompt with background shells still running (Claude Code shows `1 shell`). Send normally.",
       "online": "Live worker, between turns.",
       "available": "Managed and cold-startable, no worker. A send auto-starts it.",
       "starting": "A claimed spawn is coming up; no worker YET. Do NOT restart or re-send - a restart kills the boot in flight. Bounded: falls back to `available` past the spawn window.",

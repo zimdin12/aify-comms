@@ -1,7 +1,7 @@
 """Recording that an operator changed an agent's session mode.
 
 Extracted from `switch_agent_session_mode` in `service/routers/agents/session_mode.py` in v0.5.4;
-`test_switch_agent_session_mode_split_is_inert.py` inlines it back and AST-compares against the
+`test_switch_agent_session_mode_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
 pre-split fixture. The body is at its original 8-space column.
 
 WHY IT WRITES A SYNTHETIC RUN, which is the part that reads as wrong until you know why. The audit

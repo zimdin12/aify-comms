@@ -91,7 +91,7 @@ async def _adopt_console_terminal_on_register(db, req, console_terminal, termina
             """Write a live console PTY into the agent and its session rows, as one act.
 
             Extracted from `register_agent` in v0.5.4;
-            `test_register_agent_split_is_inert.py` inlines it back and AST-compares against the
+            `test_register_agent_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
             pre-split fixture. Body left at its original 12-space column so the two multi-line SQL
             literals inside are preserved byte-for-byte — the gate compares ASTs and refuses a
             re-indent that rewrites a query string.
@@ -176,8 +176,8 @@ async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, no
                                        bridge_id: str, now: str) -> None:
         """Write the agent row a registration produces — INSERT, or UPDATE if it already exists.
 
-        Extracted from `register_agent` in v0.5.4; `test_register_agent_split_is_inert.py` inlines it
-        back and AST-compares against the pre-split fixture. Body left at its original 8-space column so
+        Extracted from `register_agent` in v0.5.4; `test_register_agent_split_is_inert.py` (retired in v0.6.13) inlined it
+        back and AST-compared against the pre-split fixture. Body left at its original 8-space column so
         the one large SQL literal inside is preserved byte-for-byte.
 
         THE `ON CONFLICT` HALF IS THE WHOLE POINT. Registration is idempotent by design — an agent
@@ -247,7 +247,7 @@ async def _register_via_adopted_console_terminal(
     Extracted from `register_agent` in v0.5.4, byte-identical apart from the dedent. It is an
     early-exit branch: it ends in the response the handler returns, so the caller is
     `return await ...` rather than a bare call. That shape was REFUSED by
-    `service/tests/extract_method.py` until the call-site-shape rule landed, which is why 51
+    the extraction checker (retired in v0.6.13) until the call-site-shape rule landed, which is why 51
     lines sat in the handler with no way to prove moving them was inert.
     """
     existing_mode = _normalize_session_mode((row["session_mode"] if row else "") or "managed")

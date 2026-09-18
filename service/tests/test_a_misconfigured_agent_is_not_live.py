@@ -67,7 +67,7 @@ class AMisconfiguredAgentIsNotLive(unittest.TestCase):
         """The other half of anti-vacuity: a rule that called everything non-live would pass every
         assertion above and report a fleet of zero."""
         live = [s for s in VALID_STATUSES if is_live_agent_status(s)]
-        self.assertEqual(sorted(live), ["available", "blocked", "online", "starting", "working"])
+        self.assertEqual(sorted(live), ["available", "blocked", "online", "shell", "starting", "working"])
 
     def test_a_SUFFIXED_status_is_still_matched(self):
         """The old rule used `startswith`, and a derived status can carry a suffix. An exact-equality

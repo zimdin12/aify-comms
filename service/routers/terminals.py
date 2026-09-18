@@ -549,7 +549,7 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
         #
         # `req.status` IS READ DIRECTLY rather than through the `status` local below, which is
         # deliberate: moving that line above this guard broke an unrelated declared edit in
-        # `test_append_terminal_output_split_is_inert.py`, whose own text begins with it. A split
+        # `test_append_terminal_output_split_is_inert.py` (retired in v0.6.13), whose own text begins with it. A split
         # proof that has to be re-declared for a change that did not need to move anything is a cost
         # with nothing bought.
         if req.output or str(req.status or "").strip():

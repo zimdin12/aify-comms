@@ -1,7 +1,7 @@
 """The unconditional liveness beat: what a bridge saying "I am alive" writes.
 
 Extracted from `agent_heartbeat` in `service/routers/agents/liveness.py` in v0.5.4;
-`test_agent_heartbeat_split_is_inert.py` inlines it back and AST-compares against the pre-split
+`test_agent_heartbeat_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split
 fixture. The body is at its original 8-space column so the SQL literals are preserved byte-for-byte.
 
 WHY IT UPSERTS RATHER THAN UPDATES. A long-lived bridge posts `{bridgeId, bridgeKind, liveness:true}`

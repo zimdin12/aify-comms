@@ -2,7 +2,7 @@
 
 `register_agent` moved here WHOLE in v0.5.2m, when it was 684 lines and the largest handler in
 the product. It is not that any more — v0.5.4 lifted eleven verbatim blocks out of it under the
-inline-back proof in `service/tests/test_register_agent_split_is_inert.py`. The line count is
+inline-back proof in `test_register_agent_split_is_inert.py` (retired in v0.6.13). The line count is
 deliberately not restated here; measure the file.
 
 v0.5.2m, one surface of the agents package. Built with `domain_router()`;

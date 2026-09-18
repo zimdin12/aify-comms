@@ -1,8 +1,8 @@
 """The two questions the dead-terminal spawn sweep asks, and the accessor they share.
 
 Extracted from `_finalize_spawns_with_dead_terminals` in `service/reconcilers/spawn_lifecycle.py`
-in v0.5.4; `test_finalize_spawns_with_dead_terminals_split_is_inert.py` inlines both back and
-AST-compares against the pre-split fixture. Bodies are at their original 4-space column.
+in v0.5.4; `test_finalize_spawns_with_dead_terminals_split_is_inert.py` (retired in v0.6.13) inlined both back and
+AST-compared against the pre-split fixture. Bodies are at their original 4-space column.
 
 ONE QUERY FINDS WORK; THE OTHER COUNTS WHAT THE GUARD REFUSED. A spawn is finalizable when its
 session has a DEAD terminal and NO live sibling -- the live-sibling clause is a rebind-race guard,

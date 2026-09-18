@@ -1,7 +1,7 @@
 """The two things a session-handle update does that are not the update itself.
 
 Extracted from `update_agent_session_handle` in `service/routers/agents/session_mode.py` in v0.5.4;
-`test_update_agent_session_handle_split_is_inert.py` inlines both back and AST-compares against the
+`test_update_agent_session_handle_split_is_inert.py` (retired in v0.6.13) inlined both back and AST-compared against the
 pre-split fixture. Bodies are at their original 8-space column.
 
 ONE DECIDES WHETHER TO TRUST A REPORTED ID; THE OTHER MIRRORS AN ACCEPTED ONE. They sit a hundred

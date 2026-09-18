@@ -1,7 +1,7 @@
 """Which lingering `delivered` runs are safe to close, as one query.
 
 Extracted from `_close_reconcilable_delivered_runs` in `service/reconcilers/dispatch_queue.py` in
-v0.5.4; `test_close_reconcilable_delivered_runs_split_is_inert.py` inlines it back and AST-compares
+v0.5.4; `test_close_reconcilable_delivered_runs_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared
 against the pre-split fixture. The body is at its original 4-space column so the SQL is preserved
 byte-for-byte.
 

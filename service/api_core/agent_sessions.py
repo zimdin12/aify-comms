@@ -251,7 +251,7 @@ async def _settle_agent_for_session_control(db, session_id: str, agent_id: str, 
         """Bring the AGENT row into line with a session control, and cancel spawns it invalidates.
 
         Extracted from `control_session` in v0.5.4 and re-proved on every run by
-        `test_control_session_split_is_inert.py`, which inlines it back and AST-compares against the
+        `test_control_session_split_is_inert.py` (retired in v0.6.13), which inlined it back and AST-compared against the
         pre-split fixture. Body left at its original 8-space column so the multi-line SQL literals
         inside are preserved byte-for-byte — the extract-method gate compares ASTs and refuses a
         re-indent that rewrites a query string.

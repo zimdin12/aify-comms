@@ -1,7 +1,7 @@
 """Which managed worker terminals have been idle long enough to close, as one query.
 
 Extracted from `_close_idle_virtual_rpc_workers` in `service/reconcilers/terminals.py` in v0.5.4;
-`test_close_idle_virtual_rpc_workers_split_is_inert.py` inlines it back and AST-compares against
+`test_close_idle_virtual_rpc_workers_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against
 the pre-split fixture. The body is at its original 4-space column so the SQL is preserved
 byte-for-byte.
 

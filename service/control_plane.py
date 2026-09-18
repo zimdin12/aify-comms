@@ -50,7 +50,6 @@ import time
 # _listen_events moved to service/longpoll.py in v0.5.4 with `_wake_agent` — that module already
 # owned the other waiter registry, and the identity gate names it as the sole owner.
 
-from service.api_core.status_decision import StatusFacts, _decide_effective_status
 # v0.5.4: `from service.config import get_config` removed — dead. The orphaned-import gate had been
 # counting an unrelated `"get_config"` string literal in a test as a reference to it.
 # v0.5.2a: the shared route class lives with the domain-router factory so no domain can build a

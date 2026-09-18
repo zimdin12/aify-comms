@@ -56,14 +56,17 @@ Suites after: Python 5,833 in 89 s (was 5,872 in 125 s), bridge 371 files in 65 
    plus part of `hermes-gateway-liveness.test.js`) and `terminal-env.js` + `child-env-hygiene.mjs`
    (held equal to `service/api_core/launch_env.py` by `test_the_launch_environment_has_one_owner.py`).
 
-## Needs an operator decision
+## Decided
+
+**RETIRED 2026-09-18 on the operator's word (v0.6.13).** The family below was deleted with its
+fixtures, `extract_method.py` and its gates; product comments naming a proof now say it was retired.
 
 **The `*_split_is_inert` family**: 34 files, 288 tests, about 6,600 lines, 41 frozen function copies
 under `service/tests/data`, `extract_method.py` (1,611 lines) and `test_every_extraction_claim_has_a_proof.py`.
 Each proves an extraction was byte-inert when it happened; by its own docstring it says nothing about
 whether the code is correct, and every later behaviour change to those functions must be declared in
 it (this release paid that twice). The v0.5.x refactor series it guarded closed on 2026-08-17.
-Retiring it is the largest single reduction available and is a policy change, so it is not done here.
+It was the largest single reduction available.
 
 **Prose pins** that guard wording rather than behaviour: `test_the_oversized_table_names_the_real_two.py`
 (18 tests over a CLAUDE.md table), `test_the_ranked_decision_list_counts_itself.py`,

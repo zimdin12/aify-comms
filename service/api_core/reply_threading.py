@@ -1,7 +1,7 @@
 """Threading an outgoing message back onto the run it answers.
 
 Extracted from `send_message` in `service/routers/dispatch_messages/messages.py` in v0.5.4;
-`test_send_message_reply_threading_split_is_inert.py` inlines it back and AST-compares against the
+`test_send_message_reply_threading_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
 pre-split fixture. The body is at its original 8-space column.
 
 IT WAS BLOCKED FOR TWO SLICES, and the sequence is the point. Both writers it calls lived in

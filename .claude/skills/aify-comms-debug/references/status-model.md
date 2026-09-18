@@ -14,15 +14,16 @@ state from elapsed time instead of proving it. Canonical reference:
 | Label | Meaning |
 |-------|---------|
 | `working` | Wrapper reported a turn in progress (turn-start, not yet turn-end). Liveness-gated: a dead worker / gone heartbeat can't latch `working` — it falls to `offline`/`available`. |
+| `shell` | Live worker idle at its prompt with background shells still running (claude's footer `· N shell`, seen by aify-env). Deliverable exactly like `online`; never ends a held turn. |
 | `online` | Live worker, no turn in progress (heartbeat fresh, wrapper between turns). This is the ready/idle state — operators rely on `online` as "ready for queued work". |
-| `available` | Managed agent, env reachable, but NO live worker. Auto-starts a worker on the next send. `available` ≠ `online`: no worker yet, it boots one on send. |
+| `available` | Managed agent, env reachable, but NO live worker. Auto-starts a worker on the next send. |
 | `blocked` | Wrapper reported the turn is awaiting operator input/a decision (a prompt/question, not healthy generation). Liveness-gated like `working`. |
-| `offline` | Heartbeat gone — instant on a clean wrapper disconnect, otherwise within the no-heartbeat liveness window (`agent_liveness_seconds`, default 90s = 3× the 30s beat). Covers both managed (env bridge down) and resident (bridge lease lapsed). `offline` ≠ `stopped`: offline is "we lost the signal", stopped is "operator disabled it". |
+| `offline` | Heartbeat gone — instant on a clean wrapper disconnect, otherwise within the no-heartbeat liveness window (`agent_liveness_seconds`, default 90s = 3× the 30s beat). Covers both managed (env bridge down) and resident (bridge lease lapsed). |
 | `stopped` | Operator hard-disabled the agent (wake-disabled, `launch_mode='none'`), or set by `resident-lost` on clean close of a **resident**. A deliberate down-state, not a lost signal. (A **managed** agent whose worker/gateway is lost is NOT stopped — it rests cold-startable → `available` and re-spawns on the next send.) |
 | `starting` | A spawn has been CLAIMED and its worker has not appeared yet. No live worker, but one is on its way. **Do NOT restart or re-send** — a restart at this moment kills the boot in progress. A send still queues and is delivered when the worker arrives. Bounded: past the spawn-in-flight window an agent that never produced a worker falls back to `available`, so `starting` can never hide a broken spawn indefinitely. |
-| `misconfigured` | The identity exists but can never start — the configuration itself is unusable. Not send-recoverable and not a transient: a human must fix the config. Sending will not work and re-sending will not help. |
+| `misconfigured` | The identity exists but can never start — the configuration itself is unusable. Not send-recoverable and not a transient: a human must fix the config. |
 
-Managed lifecycle: `available` → `starting` → `working` ⇄ `online` (+ `blocked` mid-turn, `offline`
+Managed lifecycle: `available` → `starting` → `working` ⇄ `shell`/`online` (+ `blocked` mid-turn, `offline`
 when the heartbeat lapses, `stopped` on hard-disable, `misconfigured` when the identity can never
 start at all). Resident lifecycle: `working` ⇄ `online`
 (+ `blocked`, `offline` when the bridge lease lapses, `stopped` on clean close). `blocked` is

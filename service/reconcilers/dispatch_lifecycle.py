@@ -28,7 +28,6 @@ import logging
 import time
 from typing import Optional
 
-from service.api_core.orphaned_runs_query import _select_orphaned_managed_runs
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
 from service.api_core.authored_failures import TURN_ENDED_WITHOUT_REPLY, turn_interrupted
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner

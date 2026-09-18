@@ -41,8 +41,8 @@ from service.api_core.runtime import _normalize_launch_mode
 async def _supersede_stale_resident_terminals(db, req, terminal_id: str, now: str, bridge_id: str) -> None:
             """A resident registration takes the agent over from whatever was running it.
 
-            Extracted from `register_agent` in v0.5.4, and `test_register_agent_split_is_inert.py` inlines it
-            back and AST-compares against the pre-split fixture to prove nothing changed.
+            Extracted from `register_agent` in v0.5.4, and `test_register_agent_split_is_inert.py` (retired in v0.6.13) inlined it
+            back and AST-compared against the pre-split fixture to prove nothing changed.
 
             THE BODY IS INDENTED 12 SPACES, WHICH LOOKS WRONG AND IS DELIBERATE. It contains three multi-line
             SQL literals, and re-indenting the block would have re-indented their CONTENTS — changing the
@@ -132,7 +132,7 @@ async def _stage_manual_resident_takeover(db, req, row, bridge_id: str, normaliz
             """A MANAGED agent tried to register as resident. Record the candidate; do not switch it.
 
             Extracted from `register_agent` in v0.5.4 and re-proved on every run by
-            `test_register_agent_split_is_inert.py`, which inlines it back and AST-compares against the
+            `test_register_agent_split_is_inert.py` (retired in v0.6.13), which inlined it back and AST-compared against the
             pre-split fixture.
 
             Body left at its original 12-space column so the multi-line SQL literal inside it is preserved

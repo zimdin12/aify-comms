@@ -1,7 +1,7 @@
 """What the dashboard's Stop and Resume buttons actually do to an agent.
 
 Extracted from `control_agent` in `service/routers/agents/session_ops.py` in v0.5.4;
-`test_control_agent_split_is_inert.py` inlines it back and AST-compares against the pre-split
+`test_control_agent_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split
 fixture. The body is at its original 8-space column so the SQL literals are preserved byte-for-byte.
 
 STOP IS FOUR THINGS, NOT ONE, and the order is what makes it safe to press. Cancel the runs queued

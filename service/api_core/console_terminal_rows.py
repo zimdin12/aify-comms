@@ -8,7 +8,7 @@ is decided by a single status test in the handler, and reading them apart is how
 answers to "what happens when a pi console starts".
 
 Extracted from `start_session_console` in `service/routers/sessions.py`;
-`test_start_session_console_split_is_inert.py` inlines them all back and AST-compares against the
+`test_start_session_console_split_is_inert.py` (retired in v0.6.13) inlined them all back and AST-compared against the
 pre-split fixture. Each body is at its ORIGINAL column so the SQL literals are preserved
 byte-for-byte -- which is why they are indented at four different depths. That looks like a mistake
 and is the opposite: re-indenting any one of them would rewrite the string contents inside it, and
@@ -124,7 +124,7 @@ async def _reuse_virtual_rpc_console_terminal(
                         """Attach a session to an ALREADY-LIVE virtual pi RPC terminal instead of starting one.
 
                         Extracted from `start_session_console` in v0.5.4. An early exit: it ends in the response the
-                        handler returns, a shape `service/tests/extract_method.py` could not judge until the
+                        handler returns, a shape the extraction checker (retired in v0.6.13) could not judge until the
                         call-site-shape rule landed in this release.
 
                         THE BODY IS AT ITS ORIGINAL COLUMN ON PURPOSE, and it looks wrong until you know why. The

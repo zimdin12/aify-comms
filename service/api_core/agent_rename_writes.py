@@ -1,7 +1,7 @@
 """Renaming an agent means rewriting every reference to the old id. This is that rewrite.
 
 Extracted from `rename_agent` in `service/routers/agents/identity.py` in v0.5.4;
-`test_rename_agent_split_is_inert.py` inlines it back and AST-compares against the pre-split fixture.
+`test_rename_agent_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split fixture.
 The body is at its original 8-space column so the SQL literals inside are preserved byte-for-byte.
 
 IT RUNS INSIDE THE CALLER'S TRANSACTION AND OWNS NONE OF IT. `BEGIN IMMEDIATE`, the commit and the

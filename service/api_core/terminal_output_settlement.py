@@ -1,7 +1,7 @@
 """What an output append has to settle before it can just append output.
 
 Extracted from `append_terminal_output` in `service/routers/terminals.py` in v0.5.4;
-`test_append_terminal_output_split_is_inert.py` inlines both helpers back and AST-compares against the
+`test_append_terminal_output_split_is_inert.py` (retired in v0.6.13) inlined both helpers back and AST-compared against the
 pre-split fixture. Bodies are at their original 8-space column so the literals inside are preserved
 byte-for-byte.
 

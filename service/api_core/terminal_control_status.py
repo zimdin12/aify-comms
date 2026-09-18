@@ -1,7 +1,7 @@
 """What a completed terminal control implies about the terminal itself.
 
 Extracted from `update_terminal_control` in `service/routers/terminals.py` in v0.5.4;
-`test_update_terminal_control_split_is_inert.py` inlines it back and AST-compares against the
+`test_update_terminal_control_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
 pre-split fixture. The body is at its original 8-space column so the SQL literals are preserved
 byte-for-byte.
 

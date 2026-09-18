@@ -19,7 +19,7 @@ necessary condition for locality, not a sufficient one, because shims are invisi
 
 `start_session_console` and `control_session` both moved WHOLE into this module. `control_session`
 still is whole; `start_session_console` is not — v0.5.4 lifted its terminal-capability refusal into
-`service/api_core/console_capability_gate.py`, proved by `test_start_session_console_split_is_inert.py`.
+`service/api_core/console_capability_gate.py`, proved by `test_start_session_console_split_is_inert.py` (retired in v0.6.13).
 
 BORROW TABLE with retirement map:
 

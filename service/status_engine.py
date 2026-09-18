@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 VALID_STATUSES = (
-    "working", "online", "available", "blocked", "offline", "stopped", "misconfigured", "starting",
+    "working", "shell", "online", "available", "blocked", "offline", "stopped", "misconfigured", "starting",
 )
 
 #: The statuses that mean this agent is NOT live. Everything else is.
@@ -92,7 +92,14 @@ class StatusInputs:
 
 #: A fresh host observation, as the live status it decides. `idle` is `online`: the vocabulary has no
 #: idle, and an alive managed worker at its prompt is exactly what `online` means.
-HOST_ACTIVITY_STATUS = {"working": "working", "blocked": "blocked", "idle": "online"}
+#:
+#: `shell` (operator-requested 2026-09-17) is an idle prompt with background shells still running --
+#: Claude Code's footer says `· 1 shell`. Between working and online: nothing is generating, but the
+#: agent is not finished with what it started. It is as deliverable as `online`, and like `idle` it
+#: never ends a turn the service still holds.
+HOST_ACTIVITY_STATUS = {"working": "working", "blocked": "blocked", "shell": "shell", "idle": "online"}
+#: The observations that only CONFIRM a finished turn rather than proving what the worker is doing.
+_AT_PROMPT = ("idle", "shell")
 
 
 def derive(i: StatusInputs) -> str:
@@ -124,7 +131,7 @@ def derive(i: StatusInputs) -> str:
     # behind its gateway host) would read idle for all of it. Working and blocked are positive
     # sightings and outrank the bookkeeping; idle only ever confirms it.
     if (i.mode == "managed" and live and i.host_activity_fresh and i.host_activity in HOST_ACTIVITY_STATUS
-            and not (i.host_activity == "idle" and i.in_turn)):
+            and not (i.host_activity in _AT_PROMPT and i.in_turn)):
         return HOST_ACTIVITY_STATUS[i.host_activity]
     if i.in_turn and live:
         return "blocked" if i.awaiting_input else "working"

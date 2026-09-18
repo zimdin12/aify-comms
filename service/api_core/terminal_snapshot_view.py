@@ -1,7 +1,7 @@
 """Choosing a width to draw a terminal at, which is not the width of the pane looking at it.
 
 Extracted from `get_terminal` in `service/routers/terminals.py` in v0.5.4;
-`test_get_terminal_split_is_inert.py` inlines it back and AST-compares against the pre-split
+`test_get_terminal_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split
 fixture. The body is at its original 8-space column.
 
 THREE SOURCES, IN PRIORITY ORDER. A LIVE screen from the running emulator is authoritative and ends

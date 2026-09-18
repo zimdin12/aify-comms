@@ -10,7 +10,7 @@ twice with one copy unreachable.
 
 THE FIRST THING THIS GATE CAUGHT WAS ITSELF. It scanned the whole test tree, including
 `service/tests/data/` — 36 verbatim pre-split COPIES of product functions — so 56 refusals read as
-exercised because the source was duplicated, not because anything asserted them. See FIXTURE_DIR.
+exercised because the source was duplicated, not because anything asserted them (deleted in v0.6.13).
 Every count below is post-fix; do not compare them to a number written before 2026-08-16.
 
 THE MEASUREMENT WAS IN A SCRATCHPAD, WHICH IS WHY THIS EXISTS. I have driven several slices off that
@@ -106,7 +106,7 @@ def _refusals() -> list[tuple[str, int, str]]:
     return sorted(found)
 
 
-#: NOT COVERAGE. `service/tests/data/` holds 36 VERBATIM PRE-SPLIT COPIES of product functions —
+#: NOT COVERAGE. `service/tests/data/` held 36 VERBATIM PRE-SPLIT COPIES of product functions —
 #: `register_agent_before_split.py` and friends, kept so the v0.5.4 splits could be proven inert. A
 #: copy of the source contains every refusal message in the source, so scanning it counted 56
 #: refusals as exercised on the strength of the code being duplicated rather than tested. The gate's
@@ -115,11 +115,8 @@ def _refusals() -> list[tuple[str, int, str]]:
 #: fixture.
 #:
 #: This is the failure this gate was written to prevent, turned on itself — a measurement that
-#: reported coverage nobody had written. `test_the_fixture_exclusion_is_checkable` below pins that
-#: every file being excluded really is such a copy, so the exclusion cannot quietly grow to swallow a
-#: directory where assertions live.
-FIXTURE_DIR = "data"
-FIXTURE_SUFFIX = "_before_split.py"
+#: reported coverage nobody had written. The copies were deleted with the split proofs in v0.6.13,
+#: so the directory exclusion that kept them out of this scan went with them.
 
 
 def _test_tree_text() -> str:
@@ -136,8 +133,6 @@ def _test_tree_text() -> str:
     parts = []
     for path in sorted((REPO / "service" / "tests").rglob("*.py")):
         if "__pycache__" in path.parts or path.name == SELF:
-            continue
-        if FIXTURE_DIR in path.parts:
             continue
         parts.append(path.read_text(encoding="utf-8", errors="replace"))
     return "\n".join(parts)
@@ -164,7 +159,7 @@ def _unexercised() -> list[str]:
 #: IT WENT UP ONCE, 15 -> 70, AND THAT IS A CORRECTION RATHER THAN A REGRESSION. Nothing lost a test:
 #: the scan was reading `service/tests/data/`, whose 36 files are verbatim copies of the product
 #: functions they were kept to prove inert, so 56 refusals counted as exercised because the code was
-#: DUPLICATED. See FIXTURE_DIR above.
+#: DUPLICATED (see the note on the deleted copies above).
 #:
 #: IT IS NOW ZERO, and that is the end state rather than a gap: every distinctive refusal in the
 #: service is exercised by a test that asserts its TEXT. Zero is also the strictest the ratchet can
@@ -214,36 +209,13 @@ class EveryRefusalIsExercisedTests(unittest.TestCase):
         )
         # THE NEEDLE MUST COME FROM A REAL ASSERTION. This one was "; auto re-registration is
         # blocked." — a phrase whose only occurrence in the whole test tree was
-        # `service/tests/data/register_agent_before_split.py`, a copy of the source. The check was
+        # `register_agent_before_split.py` (deleted in v0.6.13), a copy of the source. The check was
         # itself passing on the artefact it should have been excluding. This phrase is asserted by
         # `test_tombstone_resurrection_gate.py`, so weakening that assertion fails this test too.
         self.assertTrue(
             "; a lingering bridge cannot resurrect it." in text,
             "a refusal the suite genuinely asserts must be found — otherwise the matcher reports "
             "everything as untested and the ceiling is meaningless",
-        )
-
-    def test_the_fixture_exclusion_is_checkable(self):
-        """The exclusion above skips a whole directory, which is only safe while everything in it is
-        a copy of product code. Pinned so it cannot quietly grow into somewhere assertions live.
-
-        Also proves the masking was REAL rather than theoretical: the fixtures do contain refusal
-        messages, which is the entire reason they had to stop counting.
-        """
-        fixtures = sorted((REPO / "service" / "tests" / FIXTURE_DIR).glob("*.py"))
-        self.assertGreater(len(fixtures), 20, "the fixture directory read as almost empty")
-        for path in fixtures:
-            with self.subTest(fixture=path.name):
-                self.assertTrue(
-                    path.name.endswith(FIXTURE_SUFFIX),
-                    f"{path.name} is excluded from the coverage scan but is not a pre-split copy — "
-                    "either it is a real test file being skipped, or the exclusion needs narrowing",
-                )
-        excluded = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in fixtures)
-        self.assertTrue(
-            "; auto re-registration is blocked." in excluded,
-            "the fixtures no longer carry refusal messages — if that is true the exclusion is now "
-            "harmless, but check it before trusting this gate's number",
         )
 
     def test_the_message_parser_reads_the_shapes_the_service_uses(self):

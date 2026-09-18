@@ -29,7 +29,7 @@ import itertools
 import unittest
 from collections import Counter
 
-from service.status_engine import VALID_STATUSES, StatusInputs, derive
+from service.status_engine import HOST_ACTIVITY_STATUS, VALID_STATUSES, StatusInputs, derive
 
 #: The boolean fields, in declaration order. Read off the dataclass rather than typed, so a field
 #: added to `StatusInputs` joins the enumeration instead of being silently skipped -- which is exactly
@@ -44,7 +44,8 @@ MODES = ("managed", "resident")
 DEFECTS = ("", "no wake path")
 #: What the host sees on the screen: none, the three states it reports, and one it does not, which
 #: must read exactly like none.
-ACTIVITIES = ("", "working", "idle", "blocked", "thinking")
+#: DERIVED from the engine, so a new observation joins the sweep without an edit here.
+ACTIVITIES = ("", *HOST_ACTIVITY_STATUS, "thinking")
 
 
 def _all_inputs():

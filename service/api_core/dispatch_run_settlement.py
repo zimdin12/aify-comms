@@ -1,7 +1,7 @@
 """What a dispatch run that has just reached a terminal status has to settle.
 
 Extracted from `update_dispatch_run` in `service/routers/dispatch_messages/dispatch.py` in v0.5.4;
-`test_update_dispatch_run_split_is_inert.py` inlines the helper back and AST-compares against the
+`test_update_dispatch_run_split_is_inert.py` (retired in v0.6.13) inlined the helper back and AST-compared against the
 pre-split fixture. The body is at its original 12-space column so the literals inside are preserved
 byte-for-byte.
 

@@ -101,13 +101,13 @@ def test_the_status_table_teaches_exactly_the_canonical_statuses(relative):
 
 
 def test_the_extractor_finds_the_status_table_and_stops_at_its_end():
-    """Anti-vacuity: it must find the eight rows, and it must not run past the table.
+    """Anti-vacuity: it must find one row per status, and it must not run past the table.
 
     My first version tried to prove the scoping against a real document that turned out to contain
     only ONE such table, so it proved nothing. A synthetic file exercises it directly instead.
     """
     for relative in STATUS_DOCS:
-        assert len(_status_table(REPO / relative)) == 8, relative
+        assert len(_status_table(REPO / relative)) == len(AGENT_STATUSES), relative
 
     import tempfile
 

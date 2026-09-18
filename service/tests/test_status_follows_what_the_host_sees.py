@@ -44,9 +44,10 @@ class DeriveReadsTheHostObservation(unittest.TestCase):
         self.assertEqual(derive(_inputs(host_activity="working", host_activity_fresh=True)), "working")
         self.assertEqual(derive(_inputs(host_activity="blocked", host_activity_fresh=True)), "blocked")
         self.assertEqual(derive(_inputs(host_activity="idle", host_activity_fresh=True)), "online")
+        self.assertEqual(derive(_inputs(host_activity="shell", host_activity_fresh=True)), "shell")
 
     def test_a_STALE_observation_changes_nothing(self):
-        for state in ("working", "blocked", "idle"):
+        for state in ("working", "blocked", "idle", "shell"):
             for in_turn in (False, True):
                 with self.subTest(state=state, in_turn=in_turn):
                     stale = derive(_inputs(host_activity=state, host_activity_fresh=False, in_turn=in_turn))
@@ -72,6 +73,12 @@ class DeriveReadsTheHostObservation(unittest.TestCase):
             derive(_inputs(in_turn=True, awaiting_input=True, host_activity="working", host_activity_fresh=True)),
             "working")
         self.assertEqual(derive(_inputs(in_turn=False, host_activity="blocked", host_activity_fresh=True)), "blocked")
+
+    def test_a_background_shell_does_not_end_a_held_turn_either(self):
+        """`shell` is an idle prompt that also shows background shells, so it confirms a finished turn
+        exactly as `idle` does and never ends one the service still holds."""
+        self.assertEqual(derive(_inputs(in_turn=True, host_activity="shell", host_activity_fresh=True)), "working")
+        self.assertEqual(derive(_inputs(in_turn=False, host_activity="shell", host_activity_fresh=True)), "shell")
 
     def test_it_never_outranks_the_states_that_say_the_worker_cannot_be_doing_anything(self):
         fresh = dict(host_activity="working", host_activity_fresh=True)

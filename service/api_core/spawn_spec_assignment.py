@@ -1,7 +1,7 @@
 """The spawn spec an environment assignment writes, and the id the caller needs back.
 
 Extracted from `assign_agent_environment` in `service/routers/agents/config.py` in v0.5.4;
-`test_assign_agent_environment_split_is_inert.py` inlines it back and AST-compares against the
+`test_assign_agent_environment_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
 pre-split fixture. The body is at its original 8-space column so the SQL literals are preserved
 byte-for-byte.
 

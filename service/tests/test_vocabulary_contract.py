@@ -125,7 +125,7 @@ class VocabularyContractTests(unittest.TestCase):
     def test_the_contract_file_parses_and_is_not_truncated(self):
         data = json.loads((REPO / "service" / "contracts" / "vocabulary.json").read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(data["runtimes"]["aliases"]), 15)
-        self.assertEqual(len(data["agentStatuses"]["values"]), 8)
+        self.assertEqual(len(data["agentStatuses"]["values"]), 9)
 
     def test_every_status_has_a_meaning(self):
         """A vocabulary without meanings is how the skill table drifted in the first place."""

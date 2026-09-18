@@ -12,7 +12,7 @@ re-adopt or re-deliver gets first refusal; only what nothing can rescue reaches 
 
 THE SELECT LIVES ELSEWHERE ON PURPOSE. `_select_orphaned_managed_runs` was extracted to
 `service/api_core/orphaned_runs_query.py` earlier in this release, and
-`test_close_orphaned_managed_runs_split_is_inert.py` still inlines it back against a frozen fixture —
+`test_close_orphaned_managed_runs_split_is_inert.py` (retired in v0.6.13) inlined it back against a frozen fixture —
 that proof reads whichever files these two live in, so it was re-aimed here in the same commit.
 
 DB ACCESS: `db` is passed in and the CALLER commits — `sweep.py` wraps each step in `_commit_step`, so

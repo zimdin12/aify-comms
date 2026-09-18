@@ -23,7 +23,7 @@ async def _enforce_switch_not_blocked_by_active_run(db, req, agent_id: str, new_
         """Refuse a mode switch that would interrupt live work — unless the operator forced it.
 
         Extracted from `switch_agent_session_mode` in v0.5.4;
-        `test_switch_agent_session_mode_split_is_inert.py` inlines it back and AST-compares against the
+        `test_switch_agent_session_mode_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
         pre-split fixture. Body left at its original 8-space column so the multi-line SQL literal inside
         is preserved byte-for-byte — the gate compares ASTs and refuses a re-indent that rewrites a query.
 
@@ -73,7 +73,7 @@ async def _start_managed_backing_after_switch(db, agent_id: str, new_mode: str, 
         """Give a just-switched agent something to run on, without disturbing what is already there.
 
         Extracted from `switch_agent_session_mode` in v0.5.4;
-        `test_switch_agent_session_mode_split_is_inert.py` inlines it back and AST-compares against the
+        `test_switch_agent_session_mode_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the
         pre-split fixture. Body left at its original 8-space column so the literals inside are preserved
         byte-for-byte.
 

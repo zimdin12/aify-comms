@@ -55,7 +55,7 @@ const CEILINGS = {
   // ~1.9 KB of stale-tier prose was DELETED to pay for the corrections; these 205 characters
   // are what is left, and what they buy is a recipe that no longer sends a reader to rebuild a
   // healthy service and three warnings that a step is the operator's, not an agent's.
-  "aify-comms/references/operations.md": 11_604,
+  "aify-comms/references/operations.md": 11_598,
   "aify-comms/references/teamwork.md": 15_981,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
@@ -151,7 +151,7 @@ const CEILINGS = {
   // environment-bridge tier and now name the service modules that own those questions, and
   // instructions to `restart the environment bridge` became `restart aify-env` -- the component
   // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/status-model.md": 21_919,
+  "aify-comms-debug/references/status-model.md": 21_913,
   "aify-comms-debug/references/status-symptoms.md": 19_372,
 };
 

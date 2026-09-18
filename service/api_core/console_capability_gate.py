@@ -1,7 +1,7 @@
 """Why an environment cannot host a Console for a given runtime, said precisely.
 
 Extracted from `start_session_console` in `service/routers/sessions.py` in v0.5.4;
-`test_start_session_console_split_is_inert.py` inlines it back and AST-compares against the pre-split
+`test_start_session_console_split_is_inert.py` (retired in v0.6.13) inlined it back and AST-compared against the pre-split
 fixture. The body is at its original 8-space column so the message literals are preserved
 byte-for-byte.
 

@@ -143,15 +143,16 @@ create a resident delivery path. A resident agent has no aify-owned console.
 
 ## Status Meanings
 
-Status is proof-based and derived from live inputs. Read `comms_agent_info`; diagnose conflicts
+Read `comms_agent_info`; diagnose conflicts
 through `aify-comms-debug` rather than inventing another status.
 
 | Status | Meaning | Normal action |
 |---|---|---|
 | `working` | Live worker, open turn | wait, steer, or interrupt the proven turn |
+| `shell` | Idle at prompt, background shells running | send normally |
 | `online` | Live worker, between turns | send normally |
 | `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
-| `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send; it is already on its way |
+| `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send |
 | `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
 | `offline` | No current wake path | restore bridge/environment or switch ownership |
 | `stopped` | Operator-disabled, or a resident that closed cleanly (`resident-lost`) | restart/resume only when intended |

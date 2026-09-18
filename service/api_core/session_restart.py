@@ -30,7 +30,7 @@ async def _prepare_restart_spawn(db, req, session, session_id: str, agent_id: st
                                  coldstart_warnings, spawn_request_row, spawn_spec_row):
         """Resolve (or create) the spawn request a restart/reset will be served by.
 
-        `test_control_session_split_is_inert.py` inlines this back and AST-compares against the
+        `test_control_session_split_is_inert.py` (retired in v0.6.13) inlined this back and AST-compared against the
         pre-split fixture, so the round trip is re-proved on every run. Body left at its original
         8-space column so the multi-line SQL literals inside are preserved byte-for-byte.
 
