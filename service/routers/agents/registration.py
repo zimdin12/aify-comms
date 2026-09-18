@@ -42,6 +42,7 @@ from service.api_core.agent_registration_writes import (
     _upsert_registered_agent_row,
 )
 from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.away_briefing import brief_returning_agent
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
@@ -85,9 +86,26 @@ from service.models import AgentRegister
 router = domain_router()
 
 
-
 @router.post("/agents")
 async def register_agent(req: AgentRegister, request: Request):
+    # THE PREVIOUS `last_seen` IS READ BEFORE REGISTRATION REFRESHES IT, so a returning agent can be
+    # told what it missed (service/api_core/away_briefing.py). Sent only after registration succeeded.
+    previous_last_seen = await _previous_last_seen(req.agentId)
+    result = await _register_agent(req, request)
+    await brief_returning_agent(req.agentId, previous_last_seen)
+    return result
+
+
+async def _previous_last_seen(agent_id: str) -> str:
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT last_seen FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        return str(row[0] or "") if row else ""
+    finally:
+        await db.close()
+
+
+async def _register_agent(req: AgentRegister, request: Request):
     validate_name(req.agentId, "agent ID")
     # A pi agent registering as resident is marked for the flip below; the flip loop is told once this
     # request's connection is closed, so its look sees the committed row.

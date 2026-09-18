@@ -75,6 +75,9 @@ DEFAULT_SETTINGS = {
     # "delivered" forever (looking idle) and the sender gets a visible failure notice. 0 = off.
     "stranded_reply_fail_minutes": 45,
     "contract_stale_hours": 24,
+    # An agent registering after this many hours away is sent one message saying what arrived while
+    # it was gone (service/api_core/away_briefing.py). 0 turns it off.
+    "away_briefing_hours": 4,
     "active_run_stale_minutes": 30,
     # Tighter cleanup window for managed dispatches. Default 5 min.
     # A managed run with an empty claim_bridge_id that hasn't progressed

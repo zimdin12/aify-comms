@@ -42,6 +42,7 @@ export const SETTINGS_SCHEMA = [
     { key: 'worker_idle_close_enabled', label: 'Auto-close idle managed workers', type: 'toggle' },
     { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number', min: 0, max: 1440 },
     { key: 'auto_confirm_session_id', label: 'Auto-confirm new session IDs', type: 'toggle' },
+    { key: 'away_briefing_hours', label: 'Brief agents back after (h)', type: 'number', min: 0, max: 720, hint: 'An agent returning after this long is sent what it missed. 0 = off.' },
     { key: 'manual_session_mode', label: 'Show resident↔managed switch chips', type: 'toggle' },
   ] },
   { group: 'Reply contracts', items: [

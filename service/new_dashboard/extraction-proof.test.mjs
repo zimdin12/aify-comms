@@ -982,7 +982,14 @@ const EXTRACTIONS = [
     items: [
       { name: "EFFORT_OPTS", at: 988, marker: "// EFFORT_OPTS moved to ./settings-panel.mjs in v0.5.4." },
       { name: "PI_EFFORT_OPTS", at: 990, marker: "// PI_EFFORT_OPTS moved to ./settings-panel.mjs in v0.5.4." },
-      { name: "SETTINGS_SCHEMA", at: 991, marker: "// SETTINGS_SCHEMA moved to ./settings-panel.mjs in v0.5.4." },
+      {
+        name: "SETTINGS_SCHEMA", at: 991, marker: "// SETTINGS_SCHEMA moved to ./settings-panel.mjs in v0.5.4.",
+        // 2026-09-19: the away-briefing window (service/api_core/away_briefing.py) is operator-facing.
+        editedSince: [{
+          was: [],
+          now: ["    { key: 'away_briefing_hours', label: 'Brief agents back after (h)', type: 'number', min: 0, max: 720, hint: 'An agent returning after this long is sent what it missed. 0 = off.' },"],
+        }],
+      },
       { name: "SETTINGS_TAB_LABELS", at: 1051, marker: "// SETTINGS_TAB_LABELS moved to ./settings-panel.mjs in v0.5.4." },
       { name: "SETTINGS_TAB_DESC", at: 1055, marker: "// SETTINGS_TAB_DESC moved to ./settings-panel.mjs in v0.5.4." },
       { name: "HELP_TAB", at: 1063, marker: "// HELP_TAB moved to ./settings-panel.mjs in v0.5.4." },
