@@ -119,9 +119,9 @@ test("ONE OWNER — the divergence that made this a module is gone", () => {
   // `runtimes-exec.js`, the second being the same algorithm MINUS the stamp branch. Measured on the live
   // install (`~/.aify-comms`, stamp present, no `.git`), `diagnosticsFor()` reported `build=no-git` while
   // the banner reported the stamped sha — so the string that exists to prove which code runs could not.
-  assert.deepEqual(declaringModules("BRIDGE_BUILD_TAG"), [{ file: "bridge-build.mjs", kind: "binding" }],
-    "a second declaration is how the two answers diverged in the first place");
-  assert.deepEqual(declaringModules("computeBridgeBuildTag"), [{ file: "bridge-build.mjs", kind: "function" }]);
+  // A second declaration of BRIDGE_BUILD_TAG or computeBridgeBuildTag is gated bridge-wide by
+  // each-name-has-one-owner.test.js. The retired implementation had a DIFFERENT name, which no
+  // one-owner check can see, so it is pinned here.
   assert.deepEqual(declaringModules("readBuildTag"), [],
     "the diverged second implementation must be gone, not merely unused");
 

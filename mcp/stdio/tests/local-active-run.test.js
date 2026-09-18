@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -139,14 +139,33 @@ test("dropping a run REPORTS THE AGENT NO LONGER BUSY", () => {
   assert.equal(beat.body.turnRunId, "run-1", "…naming the run being cleared");
 });
 
-test("exactly one module declares each, and server.js still calls them", () => {
-  for (const name of ["clearLocalActiveRun", "reconcileLocalActiveRun"]) {
-    assert.deepEqual(
-      declaringModules(name), [{ file: "local-active-run.mjs", kind: "function" }],
-      `${name} must be declared exactly once, by its owner`,
-    );
-  }
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+test("clearLocalActiveRun, called directly, interrupts and forgets the run, and ignores a record with no run id", () => {
+  // The reconcile tests reach it through a 404; this calls the export itself. Local mode (no service URL)
+  // so the turn-busy report has nowhere to go and must not stop the clear.
+  const script = `
+    const state = await import(${JSON.stringify(STATE)});
+    const m = await import(${JSON.stringify(LEAF)});
+    let reason = null;
+    const active = { runId: "run-1", runtime: "codex", controller: { interrupt: (r) => { reason = r; } } };
+    state.ACTIVE_RUNS.set("agent-a", active);
+    await m.clearLocalActiveRun("agent-a", { info: { runtime: "codex" } }, active, "test");
+    const idle = { runId: "", controller: { interrupt: () => { reason = "WRONG"; } } };
+    state.ACTIVE_RUNS.set("agent-b", idle);
+    await m.clearLocalActiveRun("agent-b", {}, idle, "test");
+    process.stdout.write(JSON.stringify({
+      reason, aTracked: state.ACTIVE_RUNS.has("agent-a"), bTracked: state.ACTIVE_RUNS.has("agent-b"),
+    }));
+  `;
+  const r = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script],
+    { env: { ...sealedChildEnv(), AIFY_SERVER_URL: "", CLAUDE_MCP_SERVER_URL: "" },
+      encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }));
+  assert.equal(r.reason, "Local active run cleared (test)", "the controller is interrupted, naming the reason");
+  assert.equal(r.aTracked, false, "the cleared run leaves ACTIVE_RUNS");
+  assert.equal(r.bTracked, true, "a record with no run id is left alone");
+});
+
+test("the bridge still reconciles a local active run", () => {
+  // One declaration of each is gated bridge-wide by each-name-has-one-owner.test.js.
   // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` in v0.5.4 with the dispatch pass.
   assert.equal(isUsedInBridge("reconcileLocalActiveRun"), true,
     "the bridge must still reconcile a local active run");

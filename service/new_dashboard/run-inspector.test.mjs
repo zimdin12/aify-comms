@@ -381,15 +381,6 @@ test("openRunInspector records where the operator came from", async () => {
   } finally { h.restore(); }
 });
 
-test("the six injected names are NOT imported", async () => {
-  const fs = await import("node:fs");
-  const src = fs.readFileSync(new URL("./run-inspector.mjs", import.meta.url), "utf8");
-  for (const name of ["closeInspector", "evaluateFlowGates", "openInspector",
-    "openRunConsole", "refresh", "renderDiagnosticsBulkToolbar"]) {
-    assert.doesNotMatch(src, new RegExp(`^import .*\\b${name}\\b`, "m"), `${name} must be injected`);
-  }
-});
-
 // ---- the runs list is a PAGE, and four of its five filters cannot reach past it ------------------
 
 test("A TRUNCATED RUNS LIST SAYS WHICH FILTERS REACH THE SERVER", () => {

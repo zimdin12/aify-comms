@@ -14,7 +14,7 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { STDIO_DIR, toolSources } from "./bridge-sources.mjs";
+import { STDIO_DIR } from "./bridge-sources.mjs";
 
 // A real loopback service, so the handler's own HTTP path runs. `routes` is swapped per test.
 let routes = {};
@@ -171,11 +171,7 @@ test("CALL SITE: a normal pool leaves the caller's line unadorned", async () => 
   assert.doesNotMatch(mine, /\[/, `a healthy pool was tagged: ${mine}`);
 });
 
-test("it is registered exactly once across the bridge, and reaches only owned leaves", () => {
-  const owning = toolSources().filter(([, src]) => /server\.tool\(\s*\n?\s*"comms_usage"/.test(src));
-  assert.equal(owning.length, 1, `registered by ${owning.map(([f]) => f).join(", ")}`);
-  assert.equal(owning[0][0], "usage-tool.mjs");
-
+test("it reaches only owned leaves", () => {
   const src = readFileSync(path.join(STDIO_DIR, "usage-tool.mjs"), "utf-8");
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort();

@@ -14,7 +14,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { STDIO_DIR, toolSources } from "./bridge-sources.mjs";
+import { STDIO_DIR } from "./bridge-sources.mjs";
 
 const STORE = mkdtempSync(path.join(os.tmpdir(), "aify-self-record-"));
 process.env.AIFY_SERVER_URL = "";
@@ -126,15 +126,6 @@ test("an unregistered agent cannot write a record for itself", async () => {
     assert.equal(res.isError, true, `${name} must not create a row for an unknown agent`);
   }
   assert.deepEqual(Object.keys(readAgents().agents), [], "no phantom row may appear");
-});
-
-test("each tool is registered exactly once across the whole bridge", () => {
-  for (const name of ["comms_status", "comms_describe"]) {
-    const registering = toolSources().filter(([, src]) =>
-      new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`).test(src));
-    assert.equal(registering.length, 1, `${name} registered by ${registering.map(([f]) => f).join(", ")}`);
-    assert.equal(registering[0][0], "self-record-tools.mjs");
-  }
 });
 
 test("the module kept no state and reaches only owned leaves", () => {

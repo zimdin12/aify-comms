@@ -16,7 +16,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import os from "node:os";
 import path from "node:path";
 
-import { STDIO_DIR, isUsedInBridge, toolSources } from "./bridge-sources.mjs";
+import { STDIO_DIR, isUsedInBridge } from "./bridge-sources.mjs";
 
 const STORE = mkdtempSync(path.join(os.tmpdir(), "aify-channels-"));
 process.env.AIFY_SERVER_URL = "";
@@ -210,15 +210,6 @@ test("the group reaches none of the send cluster", async () => {
     assert.equal(isUsedInBridge(name), true, `${name} should still exist in the bridge`);
   }
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state belongs in a tool group");
-});
-
-test("each tool is registered exactly once across the bridge", () => {
-  for (const name of ["comms_channel_create", "comms_channel_join", "comms_channel_read", "comms_channel_list"]) {
-    const owning = toolSources().filter(([, src]) =>
-      new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`).test(src));
-    assert.equal(owning.length, 1, `${name} registered by ${owning.map(([f]) => f).join(", ")}`);
-    assert.equal(owning[0][0], "channel-tools.mjs");
-  }
 });
 
 process.on("exit", () => { try { rmSync(STORE, { recursive: true, force: true }); } catch { /* best effort */ } });

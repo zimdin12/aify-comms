@@ -21,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "../bridge-instance.mjs";
-import { bridgeSources, declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEAF = pathToFileURL(path.join(STDIO, "bridge-instance.mjs")).href;
@@ -100,11 +100,9 @@ test("it is not derived from anything an operator can collide", () => {
     "no host, pid or clock input — those collide exactly when it matters");
 });
 
-test("exactly one module declares it, and the bridge still reads it", () => {
-  assert.deepEqual(
-    declaringModules("BRIDGE_INSTANCE_ID"), [{ file: "bridge-instance.mjs", kind: "binding" }],
-    "a second declaration would give the bridge two identities and silently split its attribution",
-  );
+test("the bridge still reads it", () => {
+  // A second declaration (two identities, split attribution) is gated bridge-wide by
+  // each-name-has-one-owner.test.js.
   // Bridge-wide, for the same reason as the start time below: naming `server.js` asserts where a caller
   // lives, and this series moves callers on purpose. Fixed here pre-emptively — the identical form two tests
   // down had already broken once.
@@ -136,22 +134,14 @@ test("a second import does NOT re-mint either value", () => {
   });
 });
 
-test("exactly one module declares the start time too", () => {
-  assert.deepEqual(
-    declaringModules("BRIDGE_STARTED_AT"), [{ file: "bridge-instance.mjs", kind: "binding" }],
-    "a second declaration would let one bridge report two different start times",
-  );
+test("the bridge still reports the start time", () => {
+  // A second declaration is gated bridge-wide by each-name-has-one-owner.test.js.
   // THE BRIDGE reports it, not specifically `server.js`. I wrote the file-named form and it broke when the
   // last `server.js` reader — `reregisterAgentFromState` — moved to its own owner, with the invariant fully
   // intact. Which file holds a caller is the thing this series changes on purpose; that a caller EXISTS is
   // the property worth asserting, and scanning every module is strictly stronger.
   assert.ok(isUsedInBridge("BRIDGE_STARTED_AT"),
     "something must still report the start time — an unread constant is dead");
-  const redeclared = bridgeSources()
-    .filter(([file]) => file !== "bridge-instance.mjs")
-    .filter(([, text]) => /^const BRIDGE_STARTED_AT/m.test(text))
-    .map(([file]) => file);
-  assert.deepEqual(redeclared, [], `re-declared in ${redeclared.join(", ")}`);
 });
 
 test("the owner holds nothing else", () => {
