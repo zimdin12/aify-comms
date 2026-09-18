@@ -8,13 +8,11 @@
 // then:
 //   1. `bash -n` the emitted body — a syntax error in the heredoc would otherwise
 //      only surface at operator launch time. Regression guard for the heredoc.
-//   2. grep the rendered text for the bypass invariant this guard locks in, so the
-//      codex auto-approval bypass can't silently drop:
-//        - CODEX_AUTO defaults true and adds --dangerously-bypass-approvals-and-sandbox
-//          to CODEX_PERMISSION_FLAGS.
-//        - both the app-server launch AND the foreground/resume TUI launch apply
-//          ${CODEX_PERMISSION_FLAGS[@]} (so the bypass reaches every codex invocation).
-//        - --safe / --no-auto opt out by setting CODEX_AUTO=false.
+//   2. grep the rendered text for what running the wrapper cannot see: both the
+//      app-server launch AND the foreground/resume TUI launch apply
+//      ${CODEX_PERMISSION_FLAGS[@]} (the stub records only the foreground launch).
+//      The bypass being on by default and --safe removing it is proven by running
+//      the wrapper in codex-wrapper-behaviour.test.js.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -72,19 +70,6 @@ test("codex-aify wrapper: rendered heredoc body is syntactically valid (bash -n)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("codex-aify wrapper: CODEX_AUTO defaults true and adds --dangerously-bypass-approvals-and-sandbox", () => {
-  const text = sharedText();
-  assert.ok(/\bCODEX_AUTO=true\b/.test(text), "CODEX_AUTO must default to true (bypass on by default)");
-  // A true CODEX_AUTO must populate the permission-flags array with the bypass flag.
-  assert.ok(
-    /if \[ "\$CODEX_AUTO" = true \]; then\s*\n\s*CODEX_PERMISSION_FLAGS\+=\(--dangerously-bypass-approvals-and-sandbox\)/.test(text),
-    "a true CODEX_AUTO must add --dangerously-bypass-approvals-and-sandbox to CODEX_PERMISSION_FLAGS",
-  );
-  // Opt-out path present and flips the flag off.
-  assert.ok(/"--safe"/.test(text) && /"--no-auto"/.test(text), "must honor --safe / --no-auto opt-out");
-  assert.ok(/CODEX_AUTO=false/.test(text), "the opt-out branch must set CODEX_AUTO=false");
 });
 
 test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the foreground/resume TUI launch", () => {

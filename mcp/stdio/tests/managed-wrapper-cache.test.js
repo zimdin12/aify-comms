@@ -14,7 +14,7 @@
 // bridge modules whose HTTP boundary cannot be monkey-patched — ESM bindings are read-only.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 import http from "node:http";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
@@ -37,7 +37,12 @@ process.env.AIFY_API_KEY = "test-key";
 process.env.CLAUDE_MCP_API_KEY = "test-key";
 const m = await import("../managed-wrapper-cache.mjs");
 
-test.after(() => SERVER.close());
+test.after(() => { mock.timers.reset(); SERVER.close(); });
+
+// Only `Date` is mocked: the cache compares its TTL against `Date.now()`, and the fake service still needs
+// real sockets and real timers. Starting the mocked clock at the real time keeps the first read outside the
+// window (the cache starts at fetchedAt 0), exactly as it is at process start.
+mock.timers.enable({ apis: ["Date"], now: Date.now() });
 
 const serve = (body) => { HANDLER = (_req, res) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(body)); }; };
 const fail = () => { HANDLER = (_req, res) => { res.writeHead(500); res.end("boom"); }; };
@@ -45,13 +50,17 @@ const fail = () => { HANDLER = (_req, res) => { res.writeHead(500); res.end("boo
 /**
  * Wait the 5-second window out, then serve `body`.
  *
- * THE CACHE IS MODULE STATE SHARED BY EVERY TEST IN THIS FILE, and its TTL is compared against a real
- * `Date.now()` — the body is byte-identical to what left server.js, so there is no clock to inject.
- * Any test needing a genuine fetch must therefore expire the window first; two of these asserted
- * nothing until they did, because they were quietly served the previous test's value.
+ * THE CACHE IS MODULE STATE SHARED BY EVERY TEST IN THIS FILE, and its TTL is compared against
+ * `Date.now()`, which this file mocks. Any test needing a genuine fetch must expire the window first;
+ * two of these asserted nothing until they did, because they were quietly served the previous test's
+ * value. Advancing the mocked clock replaces what were five real 5.1-second waits.
  */
-async function freshlyServing(bodyToServe) {
-  await new Promise((r) => setTimeout(r, 5100));
+function expireTheWindow() {
+  mock.timers.tick(5100);
+}
+
+function freshlyServing(bodyToServe) {
+  expireTheWindow();
   serve(bodyToServe);
 }
 
@@ -76,18 +85,18 @@ test("A FAILED READ RETURNS THE STALE SET, NOT AN EMPTY ONE", async () => {
   // would have this bridge claim a wrapper child's work during any /settings blip — the double-claim
   // class this repo has been bitten by. Warmed with a NON-empty value so staleness is distinguishable
   // from the empty result a failure would otherwise produce.
-  await freshlyServing({ settings: { managed_via_wrapper: ["hermes", "codex"] } });
+  freshlyServing({ settings: { managed_via_wrapper: ["hermes", "codex"] } });
   const warmed = [...(await m.readManagedViaWrapperRuntimes())].sort();
   assert.deepEqual(warmed, ["codex", "hermes"]);
 
-  await new Promise((r) => setTimeout(r, 5100));
+  expireTheWindow();
   fail();
   assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())].sort(), warmed,
     "the stale set must survive a failed refresh");
 });
 
 test("`managed_via_wrapper: true` means EVERY wrapper-backed runtime", async () => {
-  await freshlyServing({ settings: { managed_via_wrapper: true } });
+  freshlyServing({ settings: { managed_via_wrapper: true } });
   assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())].sort(), ["codex", "hermes"]);
 });
 
@@ -95,9 +104,9 @@ test("a comma-separated STRING is NOT the contract, and fails silently — as do
   // I wrote this suite against a string first. The parser takes an ARRAY or the literal `true`; a string
   // yields an empty set, which is the "skip nothing" value — so the mistake reads as a working cache
   // serving a dangerous default, with nothing erroring. Read the callee's schema before writing the call.
-  await freshlyServing({ settings: { managed_via_wrapper: "hermes,codex" } });
+  freshlyServing({ settings: { managed_via_wrapper: "hermes,codex" } });
   assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], []);
 
-  await freshlyServing({ settings: {} });
+  freshlyServing({ settings: {} });
   assert.deepEqual([...(await m.readManagedViaWrapperRuntimes())], [], "an absent setting is also empty");
 });

@@ -65,6 +65,7 @@ test("claude-aify exports no identity at all for an anonymous session, and says 
   assert.equal(r.launched, true, r.stderr);
   assert.equal(r.env.AIFY_AGENT_ID, undefined, "no id must mean no export, not an empty export");
   assert.match(r.stderr, /NO AGENT ID/, "and the wrapper must warn");
+  assert.match(r.stderr, /--aify-agent/, "and the warning must name the flag that fixes it");
 });
 
 test("claude-aify carries the endpoint to the runtime, caller env winning over the baked value", () => {
@@ -108,9 +109,8 @@ test("claude-aify loads the channel server that resident wake depends on", () =>
 
 test("claude-aify leaves the operator's MCP servers alone unless strict mode is asked for", () => {
   // Always-strict was the old behaviour and it cost operators their own MCP servers — a
-  // wrapper-launched claude lost the full ~/.claude.json list with no indication why. Two structural
-  // guards assert the gate exists in the text; this asserts the flag's presence on the command line,
-  // which is the thing that actually decides what claude loads.
+  // wrapper-launched claude lost the full ~/.claude.json list with no indication why. This asserts the
+  // flag's presence on the command line, which is the thing that actually decides what claude loads.
   const relaxed = run({});
   assert.ok(
     !relaxed.argv.includes("--strict-mcp-config"),

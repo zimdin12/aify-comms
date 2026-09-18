@@ -64,8 +64,8 @@ const REQUIRED = {
   comms_remove_agent: ["DESTRUCTIVE"],
   comms_channel_delete: ["no undo", "ends it for everybody"],
   // PINNED ELSEWHERE, and pointed at rather than copied. `compact-mode-contract.test.js` already
-  // holds four contracts on this description (`/DESTRUCTIVE/`, `/DESTRUCTIVE TO CONTEXT/`,
-  // `/record open decisions somewhere durable FIRST/`, `/durable|write/`). Repeating them here would
+  // holds the contracts on this description (`/DESTRUCTIVE TO CONTEXT/` and
+  // `/record open decisions somewhere durable FIRST/`). Repeating them here would
   // be one meaning in two files, agreeing until somebody edits one -- the exact shape this repo keeps
   // getting caught by. What this map guarantees is that every destructive tool is ACCOUNTED FOR.
   comms_compact: { pinnedBy: "compact-mode-contract.test.js" },

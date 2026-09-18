@@ -97,8 +97,10 @@ async function deliver(stride, behind = 0) {
       applyRealtimeEvent("terminal_output",
         { terminalId: "t1", agentId: "a1", output: `f${i}`, seq: i * stride });
       // Let a recovery this frame started finish before the next arrives, so the count is
-      // recoveries STARTED rather than recoveries that happened to overlap.
-      await new Promise((r) => setTimeout(r, 2));
+      // recoveries STARTED rather than recoveries that happened to overlap. A recovery here is
+      // promise work only (the fake fetch answers at once, and a gap resync never repaints by
+      // resize), so one macrotask turn drains it; a 2 ms timer cost ~15 ms a frame on Windows.
+      await new Promise((r) => setImmediate(r));
     }
     // COUNTED APART. `painted.length` is how many times `write` was called, which is not how many
     // FRAMES reached the screen -- under stride 2 every write is a snapshot and none carries a

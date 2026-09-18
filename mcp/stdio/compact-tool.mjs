@@ -133,8 +133,8 @@ export function registerCompactTool(server, z) {
     //     parameter reads the field; saying it twice is one meaning in two places.
     //   - four fields each ended "Defaults to the source session X", so that pattern is stated ONCE
     //     here instead of four times below.
-    // What stays is what four existing contracts pin -- `/DESTRUCTIVE/`, `/DESTRUCTIVE TO CONTEXT/`,
-    // `/record open decisions somewhere durable FIRST/` and `/durable|write/` -- which is a useful
+    // What stays is what the existing contracts pin -- `/DESTRUCTIVE TO CONTEXT/` and
+    // `/record open decisions somewhere durable FIRST/` -- which is a useful
     // check on the rule: the sentences that change a caller's action are the ones reviewers already
     // insisted on.
     "DESTRUCTIVE TO CONTEXT — the target loses its live working memory and continues from a summary. " +

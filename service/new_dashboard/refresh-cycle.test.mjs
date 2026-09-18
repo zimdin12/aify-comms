@@ -198,23 +198,10 @@ test("EVERY slice failing still renders, and says reconnecting rather than lying
   assert.equal(state.loaded, false, "loaded must stay false until the roster actually arrives");
 });
 
-test("a single blip of a non-core slice does not move the chip", async () => {
-  // The property the original test was protecting, and it still holds: "agents are the core slice.
-  // Stats/settings blipping is noise." A chip that flickers amber on every transient miss is a chip
-  // the operator learns to ignore, which costs more than it saves.
-  //
-  // What changed is the RULE behind it. It used to be "green whenever /agents succeeded, whatever
-  // else failed", which also painted nine-of-ten-failed green. It is now persistence: a slice must
-  // miss on two consecutive cycles to count as stale. This test states the blip case explicitly
-  // instead of relying on whatever the previous test left behind.
-  resetRefreshHistory();
-  const { chip } = await cycle({ reject: ["/stats", "/settings"] });
-  assert.equal(chip.textContent, "live");
-  assert.equal(chip.className, "status-chip ok");
-  assert.match(chip.title, /Retrying/, "a blip should still be visible in the tooltip");
-});
-
 test("a slice that misses twice running is reported stale, and named", async () => {
+  // The blip and recovery rules are proven on the pure function in refresh-status.test.mjs. This
+  // proves the CYCLE carries the history between polls and paints what the rule decided.
+  //
   // The half that did not exist. Nine of ten slices could fail and the chip said live, while the
   // resilient poll showed each one's last-good value -- so stale data rendered identically to data
   // that simply had not changed. There was no other tell anywhere on the page.
@@ -225,14 +212,6 @@ test("a slice that misses twice running is reported stale, and named", async () 
   assert.equal(chip.className, "status-chip warn");
   assert.match(chip.title, /stats/);
   assert.match(chip.title, /settings/);
-});
-
-test("a slice that recovers stops being counted", async () => {
-  resetRefreshHistory();
-  await cycle({ reject: ["/stats"] });
-  await cycle({ reject: ["/stats"] });
-  const { chip } = await cycle();
-  assert.equal(chip.textContent, "live", "a recovered slice stayed on the stale list");
 });
 
 test("the roster failing alone turns the chip amber even though nine slices landed", async () => {

@@ -279,16 +279,11 @@ test("a burst of input while a request is in flight travels as ONE request, in o
   assert.deepEqual(calls, ["a", "bcd", "e"], "input after the burst was lost or merged into sent bytes");
 });
 
-test("Batch 2: terminal fit is guarded and ResizeObserver is rAF-coalesced", () => {
+test("Batch 2: every terminal fit goes through the guarded safeFit", () => {
+  // safeFit refusing a detached or zero-sized host, and observer bursts collapsing to one rAF, are
+  // proven by DRIVING a mount in xterm-mount-handlers.test.mjs. What only the source can show is that
+  // no second, unguarded fit() exists for those tests to miss.
   const source = read("xterm-mount.mjs");
-  // safeFit refuses a detached/zero-sized host (fit() during a 0px transition crashes WebGL).
-  assert.match(source, /const safeFit = \(\) =>/);
-  assert.match(source, /!container\.isConnected/);
-  assert.match(source, /container\.clientWidth <= 0 \|\| container\.clientHeight <= 0/);
-  // Observer bursts collapse to one rAF.
-  assert.match(source, /let roFrame = 0;/);
-  assert.match(source, /roFrame = requestAnimationFrame\(/);
-  // No raw unguarded fitAddon.fit() outside the safeFit helper / read-only proposeDimensions.
   const rawFits = (source.match(/fitAddon\.fit\(\)/g) || []).length;
   assert.equal(rawFits, 1, "only the single fitAddon.fit() inside safeFit should remain");
 });

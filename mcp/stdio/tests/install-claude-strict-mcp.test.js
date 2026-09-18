@@ -15,8 +15,9 @@
 // and a broken render cannot hide from them.
 //
 // The BEHAVIOUR — the flag genuinely reaching or not reaching claude's command line under each
-// setting — is proven by running the wrapper in claude-wrapper-behaviour.test.js. These stay as cheap
-// structural guards.
+// setting, and the managed model override — is proven by running the wrapper in
+// claude-wrapper-behaviour.test.js, so the text copies of those were removed on 2026-09-18. What is
+// left is the managed EFFORT, which nothing runs.
 import assert from "assert";
 import fs from "node:fs";
 import path from "node:path";
@@ -31,32 +32,9 @@ test("the rendered wrapper is substantial enough for these assertions to mean an
   assert.ok(SRC.split("\n").length > 100, "a plausible claude-aify is hundreds of lines");
 });
 
-test("claude-aify has the env-gate for AIFY_CLAUDE_STRICT_MCP", () => {
-  assert.ok(
-    /AIFY_CLAUDE_STRICT_MCP/.test(SRC),
-    "expected the AIFY_CLAUDE_STRICT_MCP env-gate in the installed wrapper",
-  );
-});
-
-test("claude-aify does NOT unconditionally pass --strict-mcp-config", () => {
-  // Every occurrence of the flag must sit near its gate. An ungated one is the old behaviour back.
-  const lines = SRC.split("\n");
-  const strictLines = lines
-    .map((l, i) => [l, i])
-    .filter(([l]) => l.includes("--strict-mcp-config"));
-  assert.ok(strictLines.length > 0, "the flag must still exist — the escape hatch is not removed");
-  for (const [, i] of strictLines) {
-    const window = lines.slice(Math.max(0, i - 5), i + 5).join("\n");
-    assert.ok(
-      /AIFY_CLAUDE_STRICT_MCP/.test(window),
-      `--strict-mcp-config at line ${i + 1} is not guarded by the AIFY_CLAUDE_STRICT_MCP env-gate`,
-    );
-  }
-});
-
-test("claude-aify consumes the managed model and effort env", () => {
-  assert.ok(/AIFY_MANAGED_MODEL/.test(SRC), "expected claude-aify to read AIFY_MANAGED_MODEL");
+test("claude-aify consumes the managed effort env", () => {
+  // The managed MODEL is proven by running the wrapper in claude-wrapper-behaviour.test.js; the
+  // effort has no running test, so its text guard stays.
   assert.ok(/AIFY_MANAGED_EFFORT/.test(SRC), "expected claude-aify to read AIFY_MANAGED_EFFORT");
-  assert.ok(/--model/.test(SRC), "expected --model to be passed when a managed model is set");
   assert.ok(/--effort/.test(SRC), "expected --effort to be passed when a managed effort is set");
 });

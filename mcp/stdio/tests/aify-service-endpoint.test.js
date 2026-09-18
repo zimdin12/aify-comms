@@ -81,6 +81,17 @@ test("GET is retriable; an arbitrary POST is not", () => {
   }
 });
 
+test("/messages/send is retriable ONLY with a non-empty clientNonce", () => {
+  // The server collapses a retried send by its nonce, so a nonce-less or blank-nonce send retried is a
+  // second message in someone's inbox. http-retry-policy.test.js drives the real retry loop for the
+  // nonce and no-nonce cases; the blank one is only reachable here.
+  assert.equal(isRetriableRequest("POST", "/messages/send", { clientNonce: "n-1" }), true);
+  assert.equal(isRetriableRequest("POST", "/messages/send", { clientNonce: "   " }), false);
+  assert.equal(isRetriableRequest("POST", "/messages/send", {}), false);
+  assert.equal(isRetriableRequest("POST", "/messages/send"), false);
+  assert.ok(!RETRIABLE_POST_PATHS.has("/messages/send"), "a send must never be unconditionally retriable");
+});
+
 test("a TIMEOUT is transient but an HTTP error status is not", () => {
   // The distinction drives whether the bridge retries or surfaces the failure. Conflating them would
   // either hide a real 4xx behind retries or give up on a blip.

@@ -73,8 +73,17 @@ function runDoctor() {
   return JSON.parse(stdout);
 }
 
+// One run serves every test below: each asks a different question of the SAME report, and a doctor run
+// is seconds of real I/O. None of them mutates the report. A crash throws before the cache is filled,
+// so every test still fails on its own.
+let sharedReport;
+function doctorReport() {
+  sharedReport ??= runDoctor();
+  return sharedReport;
+}
+
 test("doctor RUNS — it produces a parseable report instead of crashing", () => {
-  const report = runDoctor();
+  const report = doctorReport();
   assert.equal(typeof report, "object", "the report must be an object");
   assert.ok(Array.isArray(report.checks), "the report must carry a checks array");
   assert.ok(report.checks.length > 0, "a report with no checks proves nothing ran");
@@ -84,7 +93,7 @@ test("doctor RUNS — it produces a parseable report instead of crashing", () =>
 test("every check the file declares is actually reported", () => {
   // The property that would have caught the incident even if the crash had been swallowed: a check
   // whose body throws must not simply vanish from the report.
-  const report = runDoctor();
+  const report = doctorReport();
   const reported = [...new Set(report.checks.map((c) => c.id))].sort();
   assert.deepEqual(
     reported, declaredCheckIds(),
@@ -95,7 +104,7 @@ test("every check the file declares is actually reported", () => {
 test("each check reports the fields a caller reads", () => {
   // `aify-comms doctor --json` is documented as `{ok, checks:[{id, ok, code, detail, fix}]}` and is
   // consumed by scripted/agent checks, so the field set is a contract, not a formatting detail.
-  const report = runDoctor();
+  const report = doctorReport();
   for (const check of report.checks) {
     assert.equal(typeof check.id, "string", `id missing on ${JSON.stringify(check)}`);
     assert.ok(check.id, "a check reported an empty id");
@@ -117,7 +126,7 @@ test("a failing check carries a fix, because the report is what an operator acts
   // no longer means "failed", here or anywhere else. There is nothing to fix about a check that
   // could not run: `bridge-running` on Windows is "process inspection is Linux-only", and demanding
   // a remedy for it would be demanding a remedy for the operating system.
-  const report = runDoctor();
+  const report = doctorReport();
   for (const check of report.checks.filter((c) => c.ok === false && !c.skipped)) {
     assert.ok(
       String(check.fix || "").trim(),

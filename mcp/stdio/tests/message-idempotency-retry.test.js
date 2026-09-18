@@ -26,38 +26,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // loopback service and IS_REMOTE true at load, which is a separate slice, so the precondition is
 // recorded here rather than the work being half-done.
 const server = fs.readFileSync(path.join(__dirname, "..", "send-tools.mjs"), "utf8");
-const endpoint = fs.readFileSync(path.join(__dirname, "..", "aify-service-endpoint.mjs"), "utf8");
 
-// 1. The retry predicate takes the body and gates /messages/send on a NON-EMPTY nonce.
-assert.match(
-  endpoint,
-  /function isRetriableRequest\(method, endpoint, body = null\)/,
-  "isRetriableRequest must accept the request body to inspect the nonce",
-);
-assert.match(
-  endpoint,
-  /path === "\/messages\/send" && body && typeof body === "object" && String\(body\.clientNonce \|\| ""\)\.trim\(\)/,
-  "/messages/send must be retriable ONLY when the body carries a non-empty clientNonce",
-);
+// The retry predicate's nonce gate (sections 1-3 of this file until 2026-09-18) is proven by calling it:
+// `aify-service-endpoint.test.js` for the predicate, including a blank nonce, and
+// `http-retry-policy.test.js` for the real retry loop against a flaky service. What is left here is the
+// sender's half, which nothing runs yet.
 
-// 2. /messages/send must NOT be in the unconditional retriable set (that would retry
-//    nonce-less sends and double-send).
-const setMatch = endpoint.match(/const RETRIABLE_POST_PATHS = new Set\(\[([\s\S]*?)\]\)/);
-assert.ok(setMatch, "RETRIABLE_POST_PATHS set must exist");
-assert.doesNotMatch(
-  setMatch[1],
-  /\/messages\/send/,
-  "/messages/send must be conditionally retriable (nonce-gated), never unconditional",
-);
-
-// 3. httpCall passes the body into the retriability check.
-assert.match(
-  endpoint,
-  /const retriable = isRetriableRequest\(method, endpoint, body\)/,
-  "httpCall must pass the body to isRetriableRequest",
-);
-
-// 4. Both send paths mint a clientNonce.
+// Both send paths mint a clientNonce.
 //    a) comms_send: a fresh per-call random nonce.
 assert.match(
   server,

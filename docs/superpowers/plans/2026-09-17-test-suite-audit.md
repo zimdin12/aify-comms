@@ -30,9 +30,11 @@ Suites after: Python 5,833 in 89 s (was 5,872 in 125 s), bridge 371 files in 65 
    `test_install_hermes_leak`, `test_install_hermes_session_rediscover` (renders twice),
    `test_wrapper_marker_names_the_package_that_stamped_it`, `test_no_launcher_carries_the_service_key`
    (three identical renders). Bridge: `claude-`, `hermes-`, `pi-`, `codex-wrapper-determinism`.
-2. **Real sleeps.** `managed-wrapper-cache.test.js` waits five real 5.1 s timers (mock `Date`);
-   `session-fixes` waits a 5 s grace; `doctor-actually-runs` runs `doctor.js` four times (share one
-   report); `pi-runtime` makes 21 real `taskkill` calls (inject a killer).
+2. **Real sleeps.** DONE 2026-09-18 except `pi-runtime`: the cache test mocks `Date`, the codex
+   cancel grace mocks `setTimeout`, `doctor-actually-runs` shares one report, and the dashboard
+   resize debounce is mocked. Each was mutation-checked red. `pi-runtime` is left: its 21 `taskkill`
+   calls cost 12 s of a 15.6 s run (measured), but the sessions are built inside `launchRuntimeRun`
+   and `pi-session.js` is 993 lines, so there is no clean place to inject a killer yet.
 3. **Python duplicates, about 300 tests**, listed per area by the audit. Delete only after reading both
    sides, as the eight files above were:
    - status engine: `test_status_engine::test_managed_alive_is_online_never_idle` duplicates
@@ -47,9 +49,12 @@ Suites after: Python 5,833 in 89 s (was 5,872 in 125 s), bridge 371 files in 65 
      (pins a file deleted in v0.6.2), `test_chat_analytics::test_fleet_pulse_window_and_board`
      (asserts only inside an `if` that is never true).
    - dead product branch: `_is_operator_closed_contract` can never change a result; about 11 tests cover it.
-4. **JS duplicates, about 60 tests**: five regex tests in `claude-wrapper-determinism` that
-   `claude-wrapper-behaviour` covers by running the wrapper; the codex bypass asserted three times;
-   `destructive-tool-descriptions.test.js`; about 16 "server.js kept none / registered once" import
+4. **JS duplicates.** PARTLY DONE 2026-09-18: the claude, codex, hermes-resume, destructive-tool,
+   retry-nonce, strict-mcp, refresh-chip, status-chip and prose-pin duplicates. Judged NOT duplicates
+   after mutation runs: the xterm source checks in `app.test.mjs` other than safeFit/rAF (no other
+   dashboard test goes red when the font-await supersession guard, `ownsPty`, the remount identity
+   check or the xterm options are broken), the third `hermes-daemon-default-killtree` test, and
+   `install-node-pty-recovery`. Still left: about 16 "server.js kept none / registered once" import
    `deepEqual`s; four hand-typed "injected, not imported" lists in dashboard tests that one
    "no module imports app.js" gate would replace.
 5. **Two more dead modules**, entangled with other tests: `hermes-channel.js` (no importer; its tests
