@@ -251,7 +251,7 @@ def stored_log_is_partial(raw_output: str) -> bool:
 
 class _LiveScreen:
     __slots__ = ("cols", "rows", "screen", "stream", "alt_screen", "alt_stream", "in_alt",
-                 "_pending", "seq", "reconstructed")
+                 "_pending", "seq", "reconstructed", "_generation", "_rendered", "_rendered_generation")
 
     def __init__(self, cols: int, rows: int) -> None:
         self.cols = cols
@@ -274,6 +274,14 @@ class _LiveScreen:
         self.in_alt = False
         # Bytes held back from the previous chunk: an unterminated private CSI, and nothing else.
         self._pending = ""
+        # WHAT THE LAST RENDER WAS OF. Every feed and resize moves `_generation`; `render()` reuses its
+        # last answer while it has not moved. MEASURED 2026-09-18: the service sat at 119% CPU with 67%
+        # of samples in this render -- the prompt check, the console-working check and every status
+        # refresh each rebuilt the whole screen and its history as ANSI, per chunk and per agent, and
+        # a console keystroke waited up to 3 s behind them.
+        self._generation = 0
+        self._rendered = None
+        self._rendered_generation = -1
 
     def _enter_alt(self) -> None:
         self.alt_screen = pyte.Screen(self.cols, self.rows)
@@ -296,6 +304,7 @@ class _LiveScreen:
         # the next chunk rather than fed broken. Without this the split case would leave the underline
         # stuck for the life of that screen, which is the exact bug being fixed. Only that shape is
         # held: a partial anything-else is fed as it always was.
+        self._generation += 1
         chunk = self._pending + chunk
         self._pending = ""
         held = _UNTERMINATED_PRIVATE_CSI_RE.search(chunk)
@@ -325,6 +334,13 @@ class _LiveScreen:
                 chunk = chunk[m.end():]
 
     def render(self) -> str:
+        if self._rendered_generation == self._generation:
+            return self._rendered
+        self._rendered = self._render()
+        self._rendered_generation = self._generation
+        return self._rendered
+
+    def _render(self) -> str:
         # While a full-screen dialog is up, show IT (no history — an alt screen has none, and a
         # real terminal shows no scrollback behind one either).
         if self.in_alt and self.alt_screen is not None:
@@ -347,6 +363,7 @@ class _LiveScreen:
         screen as literal text. Reflowing is imperfect for an absolutely-positioned TUI, but the
         app's next repaint overwrites it — a briefly-imperfect screen beats an empty one."""
         self.cols, self.rows = cols, rows
+        self._generation += 1
         try:
             self.screen.resize(rows, cols)  # pyte takes (lines, columns)
             if self.alt_screen is not None:
