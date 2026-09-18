@@ -30,6 +30,11 @@ that could not gather evidence must not report a pass — applied to a compariso
 check. `_timestamp_sort_key` keeps its fallback, and now says in its docstring why it is not a trust
 boundary.
 
+WHAT THE AGENT GATE DOES WITH A REAL TIMESTAMP -- a relaunch after the removal restores, one before
+it or at the same instant in another spelling does not, an absent one does not -- is asserted against
+`_enforce_tombstone_resurrection_gate` itself in `test_tombstone_resurrection_gate.py`. This file keeps
+what only it covers: values that are not timestamps at all, and that both gates call the strict parser.
+
 BOTH SIDES IN ONE CHANGE, for the same reason as the workspace-root fix a few slices ago: when one
 guard's comment says it mirrors another, they share their defects, and fixing either alone leaves the
 boundary open while looking closed.
@@ -71,34 +76,6 @@ class TombstoneFreshnessTests(unittest.TestCase):
         anything. Pinned so the refusal is the RULE and not an accident of collation."""
         self.assertEqual(_parsed_timestamp("1755334800"), "")
         self.assertFalse(_relaunched(_parsed_timestamp("1755334800"), _timestamp_sort_key(REMOVED_AT)))
-
-    def test_a_genuine_relaunch_still_restores(self):
-        """The gate must keep letting a real fresh bridge through, or a legitimate restore breaks."""
-        removed = _parsed_timestamp(REMOVED_AT)
-        for fresh in ("2026-08-16T10:00:01Z", "2026-08-16T11:00:00Z", "2026-08-16T13:00:00+02:00"):
-            with self.subTest(bridgeStartedAt=fresh):
-                self.assertTrue(_relaunched(_parsed_timestamp(fresh), removed))
-
-    def test_a_bridge_that_predates_the_deletion_is_still_refused(self):
-        removed = _parsed_timestamp(REMOVED_AT)
-        for stale in ("2026-08-16T09:59:59Z", "2026-08-15T10:00:00Z", "2026-08-16T11:00:00+02:00"):
-            with self.subTest(bridgeStartedAt=stale):
-                self.assertFalse(_relaunched(_parsed_timestamp(stale), removed))
-
-    def test_an_absent_timestamp_was_already_refused_and_still_is(self):
-        removed = _parsed_timestamp(REMOVED_AT)
-        for empty in ("", "   ", None):
-            with self.subTest(bridgeStartedAt=empty):
-                self.assertFalse(_relaunched(_parsed_timestamp(empty), removed))
-
-    def test_the_same_instant_in_two_spellings_is_not_newer_than_itself(self):
-        """`Z` and `+00:00` are the same time. A lexical compare of the RAW forms would put
-        `+00:00` below `Z` — `+` is 0x2B, `Z` is 0x5A — so a relaunch at exactly the removal
-        second could flip on spelling alone. Normalising to UTC before comparing is what stops it."""
-        self.assertEqual(_parsed_timestamp("2026-08-16T10:00:00Z"),
-                         _parsed_timestamp("2026-08-16T12:00:00+02:00"))
-        self.assertFalse(_relaunched(_parsed_timestamp("2026-08-16T12:00:00+02:00"),
-                                     _parsed_timestamp("2026-08-16T10:00:00Z")))
 
     def test_both_gates_build_the_incoming_value_with_the_strict_parser(self):
         """The two call sites, asserted because the fix is only complete at BOTH.

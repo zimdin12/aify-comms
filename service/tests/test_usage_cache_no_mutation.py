@@ -22,7 +22,6 @@ import pytest
 
 from service import usage_cache
 from service.usage_cache import (
-    STALE_AFTER_SECONDS,
     STALE_EXPIRE_SECONDS,
     _blank_expired_pool,
     usage_get,
@@ -101,24 +100,7 @@ def test_a_pool_that_becomes_fresh_again_reports_its_numbers():
     assert fresh["stale"] is False
 
 
-# ── the three suppression tiers ──────────────────────────────────────────────────────────────
-def test_a_fresh_snapshot_is_neither_stale_nor_expired():
-    usage_set(SOURCE, snapshot(age_seconds=1))
-    out = usage_get(SOURCE)
-    assert out["stale"] is False
-    assert "expired" not in out
-    assert out["five_hour"]["used_pct"] == 12, "a fresh number is shown"
-
-
-def test_a_stale_snapshot_is_dimmed_but_keeps_its_numbers():
-    """Stale is the hiccup tier: the collector missed a beat, and last-good beats nothing."""
-    usage_set(SOURCE, snapshot(age_seconds=STALE_AFTER_SECONDS + 60))
-    out = usage_get(SOURCE)
-    assert out["stale"] is True
-    assert "expired" not in out
-    assert out["five_hour"]["used_pct"] == 12, "the number is kept, just marked stale"
-
-
+# ── the expired tier, and what survives it ───────────────────────────────────────────────────
 def test_an_expired_snapshot_is_blanked_entirely():
     """Expired is the collector-stopped tier: after ~24h the number is not evidence of anything."""
     usage_set(SOURCE, snapshot(age_seconds=STALE_EXPIRE_SECONDS + 60))
@@ -139,15 +121,6 @@ def test_an_unparseable_timestamp_is_treated_as_maximally_stale():
     assert out["stale"] is True
     assert out["expired"] is True
     assert out["weekly"]["used_pct"] is None
-
-
-def test_an_unknown_pool_is_none():
-    assert usage_get("no-such-pool") is None
-
-
-def test_the_source_id_is_stamped_on_write():
-    usage_set(SOURCE, snapshot())
-    assert usage_get(SOURCE)["source_id"] == SOURCE, "consumers key on this rather than on dict order"
 
 
 def test_usage_set_copies_its_payload():

@@ -1,14 +1,7 @@
-"""What counts as an operator closing a contract, and how often a reminder is the FULL one.
+"""How often a reply-contract reminder is the FULL one.
 
-Two rules that complete `reply_contract.py`'s coverage. `test_reply_contract_state.py` exercises the
-contract state and the reminder gate; these are the two helpers underneath that nothing named.
-
-`_is_operator_closed_contract` recognises the dashboard's Work Loop close, and it is a CONJUNCTION of
-three independent signals — status, the require_reply flag, and a summary prefix. Its answer feeds
-`_contract_reply_expected`, so a false positive silently stops chasing a reply that is genuinely owed,
-and a false negative nags an operator about work they explicitly closed. Each of the three is broken
-separately below, because the safety comes from all of them holding and a conjunction where one term
-is decorative is a conjunction that will lose it in the next edit.
+`test_reply_contract_state.py` exercises the contract state and the reminder gate; this covers the
+cadence helper underneath it.
 
 `_contract_reminder_is_full` decides FORMAT, never WHETHER: reminders do not back off, they get
 cheaper between periodic full nudges. That distinction matters because the obvious misreading — that
@@ -21,77 +14,14 @@ import pytest
 from service.api_core.reply_contract import (
     _contract_reminder_full_every,
     _contract_reminder_is_full,
-    _is_operator_closed_contract,
 )
 from service.api_core.settings import DEFAULT_SETTINGS
-
-CLOSE_PREFIX = "Closed from Work Loop by dashboard operator."
-
-
-class Row(dict):
-    def __getitem__(self, key):
-        return dict.get(self, key, "")
-
-
-def closed_row(**over):
-    base = {"status": "completed", "require_reply": 0, "summary": f"{CLOSE_PREFIX} Reason: superseded"}
-    base.update(over)
-    return Row(base)
 
 
 def settings(**over):
     merged = dict(DEFAULT_SETTINGS)
     merged.update(over)
     return merged
-
-
-# ── the operator close, and its three terms ──────────────────────────────────────────────────
-def test_the_dashboard_close_is_recognised():
-    assert _is_operator_closed_contract(closed_row()) is True
-
-
-def test_a_bare_prefix_with_no_reason_still_counts():
-    """The summary is matched by PREFIX, so the operator's free-text reason is theirs to write."""
-    assert _is_operator_closed_contract(closed_row(summary=CLOSE_PREFIX)) is True
-    assert _is_operator_closed_contract(closed_row(summary=f"  {CLOSE_PREFIX} anything at all  ")) is True
-
-
-def test_the_status_term_is_load_bearing():
-    """A run still in flight has not been closed by anyone, whatever its summary says."""
-    for status in ("queued", "claimed", "running", "failed", "cancelled", ""):
-        assert _is_operator_closed_contract(closed_row(status=status)) is False, status
-
-
-def test_the_require_reply_term_is_load_bearing():
-    """An operator close clears the reply requirement. A row that still demands one was not closed
-    this way — treating it as closed would abandon a reply somebody is waiting for."""
-    assert _is_operator_closed_contract(closed_row(require_reply=1)) is False
-
-
-def test_the_summary_term_is_load_bearing():
-    """This is the term that distinguishes an OPERATOR close from an ordinary completed run. Without
-    it, every completed run with no reply owed would read as operator-closed."""
-    for summary in ("", "Run completed.", "closed from work loop by dashboard operator.", "Done."):
-        assert _is_operator_closed_contract(closed_row(summary=summary)) is False, repr(summary)
-
-
-def test_an_ordinary_completed_run_is_not_an_operator_close():
-    """The case the summary term exists to separate — and the commonest row this ever sees."""
-    assert _is_operator_closed_contract(Row({"status": "completed", "require_reply": 0, "summary": ""})) is False
-
-
-def test_status_is_compared_case_insensitively_and_trimmed():
-    assert _is_operator_closed_contract(closed_row(status="  COMPLETED  ")) is True
-
-
-def test_no_row_is_not_a_close():
-    assert _is_operator_closed_contract(None) is False
-    assert _is_operator_closed_contract(Row({})) is False
-
-
-def test_missing_columns_read_as_absent_rather_than_raising():
-    """These rows come from several different queries; a partial one must answer, not explode."""
-    assert _is_operator_closed_contract(Row({"status": "completed"})) is False
 
 
 # ── the reminder cadence ─────────────────────────────────────────────────────────────────────

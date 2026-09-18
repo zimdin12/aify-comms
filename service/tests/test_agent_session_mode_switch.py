@@ -97,47 +97,6 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         finally:
             conn.close()
 
-    def _seed_active_run(self, agent_id: str) -> str:
-        """Insert a synthetic 'running' dispatch_runs row to simulate an in-flight run."""
-        conn = sqlite3.connect(str(self._db_path))
-        try:
-            conn.execute(
-                """
-                INSERT INTO dispatch_runs (
-                    id, target_agent, from_agent, subject, body, message_type, status,
-                    dispatch_mode, execution_mode, runtime, requested_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    "run_test_active",
-                    agent_id,
-                    "dashboard",
-                    "test-active",
-                    "in flight",
-                    "request",
-                    "running",
-                    "managed",
-                    "managed",
-                    "codex",
-                    "2026-05-26T00:00:00Z",
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-        return "run_test_active"
-
-    def _read_dispatch_events_for_agent(self, agent_id: str) -> list[sqlite3.Row]:
-        conn = sqlite3.connect(str(self._db_path))
-        conn.row_factory = sqlite3.Row
-        try:
-            return list(conn.execute(
-                "SELECT event_type, body FROM dispatch_events WHERE body LIKE ? ORDER BY id",
-                (f"%{agent_id}%",),
-            ).fetchall())
-        finally:
-            conn.close()
-
     # ─── C1 ────────────────────────────────────────────────────────────────
 
     def test_switch_resident_to_managed_without_backing_succeeds_with_warning(self):
@@ -181,56 +140,12 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(agent["launch_mode"], "managed")
         self.assertIn("managed-run", agent["capabilities"])
 
-    def test_switch_invalid_mode_returns_400(self):
-        self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-r2", runtime="codex", session_mode="resident")
-        res = self.client.patch(
-            "/api/v1/agents/codex-r2/session-mode",
-            json={"mode": "frobnicate"},
-        )
-        self.assertEqual(res.status_code, 400, res.text)
-
     def test_switch_unknown_agent_returns_404(self):
         res = self.client.patch(
             "/api/v1/agents/nonexistent/session-mode",
             json={"mode": "managed"},
         )
         self.assertEqual(res.status_code, 404, res.text)
-
-    def test_switch_to_same_mode_is_noop(self):
-        self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-r3", runtime="codex", session_mode="resident")
-        res = self.client.patch(
-            "/api/v1/agents/codex-r3/session-mode",
-            json={"mode": "resident"},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        body = res.json()
-        self.assertFalse(body.get("changed"))
-        self.assertEqual(body.get("mode"), "resident")
-
-    def test_switch_blocked_by_active_run(self):
-        self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-busy", runtime="codex", session_mode="resident")
-        self._seed_active_run("codex-busy")
-        res = self.client.patch(
-            "/api/v1/agents/codex-busy/session-mode",
-            json={"mode": "managed"},
-        )
-        self.assertEqual(res.status_code, 409, res.text)
-        self.assertIn("active", (res.json().get("detail") or "").lower())
-
-    def test_switch_force_bypasses_active_run(self):
-        self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-force", runtime="codex", session_mode="resident")
-        self._seed_active_run("codex-force")
-        res = self.client.patch(
-            "/api/v1/agents/codex-force/session-mode",
-            json={"mode": "managed", "force": True},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertEqual(self._read_agent_mode("codex-force"), "managed")
-        self.assertEqual(self._read_agent_row("codex-force")["launch_mode"], "managed")
 
     def test_switch_hermes_managed_to_resident_without_gateway_succeeds(self):
         # api_server model: resident hermes resumes its pinned session via
@@ -302,20 +217,6 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(agent["session_handle"], "resident-hermes-session")
         self.assertIn("gatewayUrl", agent["runtime_config"])
         self.assertIn("resident-run", agent["capabilities"])
-
-    def test_switch_appends_dispatch_event(self):
-        """C1 audit log: dispatch_events row referencing agent id + transition type."""
-        self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-audit", runtime="codex", session_mode="resident")
-        self._seed_managed_terminal("codex-audit", runtime="codex")
-        res = self.client.patch(
-            "/api/v1/agents/codex-audit/session-mode",
-            json={"mode": "managed"},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        events = self._read_dispatch_events_for_agent("codex-audit")
-        types = [e["event_type"] for e in events]
-        self.assertIn("mode_switch_resident_to_managed", types, f"got events: {[dict(e) for e in events]}")
 
     # ─── C2 — state-transition side effects ───────────────────────────────
 

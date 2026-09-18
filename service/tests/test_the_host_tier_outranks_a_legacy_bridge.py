@@ -14,9 +14,11 @@ THE SERVICE HAD NO SIGNAL TO IGNORE. aify-env's identity and a legacy bridge's c
 fields, so this is a two-ended fix: aify-env sends `metadata.bridgeKind = "aify-env"`, and the router
 reads it. ABSENT MEANS LEGACY, which is what every pre-0.6.2 sender is.
 
-WHAT IS ASSERTED HERE is the rule from `TARGET_ARCHITECTURE.md`, in both directions plus the two
-cases that must NOT change -- because a preference that also fires between two hosts of the same kind
-would break the arbitration this repo spent a day getting right.
+WHAT IS ASSERTED HERE is the rule from `TARGET_ARCHITECTURE.md`, in both directions plus the case
+that must NOT change between two host tiers -- because a preference that also fires between two hosts
+of the same kind would break the arbitration this repo spent a day getting right. The other unchanged
+case, two legacy bridges arbitrated on start time alone, is the refusal test in
+`test_a_refused_heartbeat_says_it_was_refused.py`: neither of its beats carries a kind.
 """
 
 from __future__ import annotations
@@ -90,17 +92,6 @@ class HostTierOutranksLegacyBridgeTests(FastApiTestCase):
             "a restarted aify-env could not take over from its own predecessor",
         )
 
-    def test_between_two_LEGACY_bridges_nothing_changes_at_all(self):
-        # A fleet that has not upgraded must behave exactly as it did. Both sides silent on
-        # `bridgeKind` means this rule says nothing and start time decides.
-        self._beat("legacy-new", LATE, None)
-        claimer = self._claimer(self._beat("legacy-old", EARLY, None))
-        self.assertIs(
-            claimer.get("accepted"), False,
-            "start-time arbitration between two legacy bridges changed. Nothing about this fix "
-            "should be visible to a fleet that has not upgraded.",
-        )
-
     def test_an_UNKNOWN_kind_is_treated_as_legacy_rather_than_trusted(self):
         # A guard that passes on an unrecognised value is decoration. Only the one name this service
         # knows may outrank a bridge; anything else is a sender it has never heard of.
@@ -124,6 +115,9 @@ class AFutureStartTimeCannotWinForEverTests(FastApiTestCase):
     CLAMPED TO NOW, NOT REFUSED. Refusing would lock a skewed host out of its own environment
     entirely; treating "I started in the future" as "I started now" leaves it able to take an idle row
     and unable to outrank a live incumbent for ever. That is the safe direction to be wrong in.
+
+    The control -- an ordinary later start time still supersedes -- is
+    `test_between_two_HOST_TIERS_the_start_time_still_decides` above, which sends the same shape.
     """
 
     DB_NAME = "aify-test-future-start.db"
@@ -180,16 +174,4 @@ class AFutureStartTimeCannotWinForEverTests(FastApiTestCase):
             first[:16], second[:16],
             f"the recorded start time moved from {first!r} to {second!r} across two beats. A ceiling "
             "that tracks the clock never expires, so the skewed bridge keeps outranking everything.",
-        )
-
-    def test_an_ORDINARY_later_start_time_still_wins_though(self):
-        # THE CONTROL. A clamp that also flattened real start times would break supersession
-        # outright -- a restarted bridge must still take over from its predecessor.
-        self._beat("older", "2026-09-04T10:00:00.000Z")
-        answer = self._beat("newer", "2026-09-04T11:00:00.000Z")
-        claimer = (answer.json() or {}).get("claimer") or {}
-        self.assertIsNot(
-            claimer.get("accepted"), False,
-            "an ordinary restart could no longer supersede its predecessor; the clamp is eating real "
-            "start times",
         )

@@ -58,17 +58,6 @@ class OutboundActivityTests(FastApiTestCase):
         return r.json()["agents"]
 
     # ── the distinction that did not exist before ────────────────────────────────────
-    def test_an_agent_that_has_only_RECEIVED_reports_no_outbound(self):
-        self._send("bob", "alice")
-        alice = self._info("alice")
-        self.assertEqual(alice["outbound"].get("lastSentAt"), None,
-                         "receiving mail is not producing anything")
-
-    def test_an_agent_that_has_SENT_reports_when(self):
-        self._send("alice", "bob")
-        alice = self._info("alice")
-        self.assertTrue(alice["outbound"].get("lastSentAt"), "a sent message is production")
-
     def test_receiving_does_not_create_outbound_activity_for_the_recipient(self):
         """THE trace: unread/last-read move for the recipient, outbound must not."""
         self._send("bob", "alice")
@@ -125,23 +114,27 @@ class OutboundActivityTests(FastApiTestCase):
                          "the expensive aggregate must stay off the poll path")
         self.assertEqual(roster["bob"]["outbound"], {})
 
-    def test_the_single_agent_view_still_gets_the_full_picture(self):
-        """Someone examining ONE agent is investigating; that is where run detail belongs."""
-        self._send("alice", "bob")
-        alice = self._info("alice")
-        self.assertTrue(alice["outbound"].get("lastSentAt"))
-        # No completed run in this fixture, but the query must have RUN — proven by the roster
-        # omitting the key entirely while the single view is free to include it.
-        self.assertIsInstance(alice["outbound"], dict)
-
     def test_the_most_recent_send_wins(self):
-        self._send("alice", "bob", subject="first")
-        self._send("alice", "bob", subject="second")
-        self.assertTrue(self._info("alice")["outbound"]["lastSentAt"])
+        """Seeded with timestamps a day apart, the NEWER inserted first, so neither insertion order
+        nor a MIN could produce the right answer. Two real sends land in the same second and render
+        the same string, which is why this test asserted only `truthy` until 2026-09-18 -- and so
+        passed against any aggregate at all."""
+        older_ms, newer_ms = 1767225600000, 1767312000000  # 2026-01-01 and 2026-01-02, 00:00:00Z
 
-    def test_agents_with_no_traffic_at_all_are_safe(self):
-        self.assertEqual(self._info("bob")["outbound"], {})
-        self.assertEqual(self._info("alice")["outbound"], {})
+        async def seed():
+            db = await get_db()
+            try:
+                for mid, ts in (("m-newer", newer_ms), ("m-older", older_ms)):
+                    await db.execute(
+                        "INSERT INTO messages (id, from_agent, to_agent, source, type, subject, body,"
+                        " priority, timestamp) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (mid, "alice", "bob", "direct", "info", "s", "b", "normal", ts))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(seed())
+        self.assertEqual(self._info("alice")["outbound"]["lastSentAt"], "2026-01-02T00:00:00Z")
 
 
 if __name__ == "__main__":

@@ -33,20 +33,21 @@ Suites after: Python 5,833 in 89 s (was 5,872 in 125 s), bridge 371 files in 65 
 2. **Real sleeps.** `managed-wrapper-cache.test.js` waits five real 5.1 s timers (mock `Date`);
    `session-fixes` waits a 5 s grace; `doctor-actually-runs` runs `doctor.js` four times (share one
    report); `pi-runtime` makes 21 real `taskkill` calls (inject a killer).
-3. **Python duplicates, about 300 tests**, listed per area by the audit. Delete only after reading both
-   sides, as the eight files above were:
-   - status engine: `test_status_engine::test_managed_alive_is_online_never_idle` duplicates
-     `::test_managed_online_when_alive_worker_present`; most of
-     `test_a_dead_agent_is_not_promoted_to_working.py` repeats `test_status_with_dispatch.py`.
-   - terminals: 4 tests in `test_terminal_status_vocabulary.py` repeat `test_terminal_status_transition.py`.
-   - browser origin: 8 tests in `test_a_page_on_another_site_cannot_drive_this_service.py` repeat
-     `test_one_policy_decides_whether_a_browser_may_drive_this_service.py`.
-   - dispatch: 10 tests in `test_dispatch_control_claim.py` repeat `test_dispatch_controls_claim_io.py`.
-   - tests that cannot fail: `test_spawn_dead_terminal_finalize::test_nothing_is_logged_when_there_is_nothing_to_report`
-     (listens on the wrong logger), `test_console_working_lease::test_lease_ttl_spans_the_keepalive_cadence`
-     (pins a file deleted in v0.6.2), `test_chat_analytics::test_fleet_pulse_window_and_board`
-     (asserts only inside an `if` that is never true).
-   - dead product branch: `_is_operator_closed_contract` can never change a result; about 11 tests cover it.
+3. **Python duplicates, about 300 tests.** The named areas were worked on 2026-09-18: 77 tests
+   removed (5,425 -> 5,348 passing, 6 skipped both times), each after reading it and the test that
+   covers it. Done:
+   - `_is_operator_closed_contract` deleted with its 10 tests: it fired only when `require_reply` was
+     already false, so `_contract_reply_expected` returned the same value without it.
+   - removed as duplicates: status engine (1), `test_a_dead_agent_is_not_promoted_to_working.py`
+     (deleted; its two derived tests moved into `test_status_with_dispatch.py`), terminal vocabulary
+     (4), browser origin (11), dispatch control claim (11; the IO test gained `failed`/`cancelled`),
+     usage cache (5), channel offline replay (3), hermes channel routing (3), contract receipt
+     repair (5), outbound activity (4), session mode switch (5), tombstone timestamp (4, they tested a
+     copy of the predicate), heartbeat arbitration (4), console lease pin (1).
+   - fixed so they can fail, each watched red under a product mutation: the dead-terminal no-logs
+     test (wrong logger), the fleet pulse board (agent was never online), the most-recent-send test
+     (asserted only truthiness).
+   The rest of the ~300 was not enumerated in this file and is still open.
 4. **JS duplicates, about 60 tests**: five regex tests in `claude-wrapper-determinism` that
    `claude-wrapper-behaviour` covers by running the wrapper; the codex bypass asserted three times;
    `destructive-tool-descriptions.test.js`; about 16 "server.js kept none / registered once" import

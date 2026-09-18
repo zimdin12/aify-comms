@@ -17,6 +17,12 @@ but the run's own target.
 IT IS ALSO IDEMPOTENT BY CONSTRUCTION (`INSERT OR IGNORE`), which matters because an operator who
 does not see an effect runs it again — and the count it reports is what tells them whether anything
 was actually wrong.
+
+THE PER-ROW DECISIONS LIVE IN `_mark_dispatch_source_messages_read` and are pinned once, against real
+sqlite, in `test_repair_read_receipts_marks_the_right_messages.py`: the receipt is the target's, a
+second pass writes and reports nothing, a vanished message earns no receipt, a merged buffer marks
+only what still exists. This file keeps what the ROUTE decides: which run statuses it selects, the
+target it passes, the limit, the original read time, and the response shape.
 """
 
 from __future__ import annotations
@@ -108,14 +114,6 @@ class ContractReceiptRepairTests(FastApiTestCase):
             sorted(f"m-{status}" for status in REPAIRABLE),
         )
 
-    def test_the_receipt_belongs_to_the_run_TARGET_and_nobody_else(self):
-        """A receipt is a claim about who has seen what. Attributing it to the sender would mark the
-        sender's own message read for them and leave the target still being re-woken."""
-        self._seed_message("m-1")
-        self._seed_run("run-1", message_id="m-1")
-        self._repair()
-        self.assertEqual(self._receipts(), [("m-1", TARGET)])
-
     # ── what it must NOT repair ──────────────────────────────────────────────────────────────
 
     def test_a_QUEUED_run_is_left_alone(self):
@@ -128,57 +126,7 @@ class ContractReceiptRepairTests(FastApiTestCase):
         self._repair()
         self.assertEqual(self._receipts(), [], "a run that had not been taken up was marked read")
 
-    def test_a_run_whose_message_is_GONE_produces_no_orphan_receipt(self):
-        """The message was expired by rotation while the run row survived. A receipt for a message
-        that no longer exists is an orphan the cleanup will have to remove, and it can resurrect as
-        a false 'already read' if that id is ever reused."""
-        self._seed_run("run-1", message_id="m-vanished")
-        response = self._repair()
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["repaired"], 0)
-        self.assertEqual(self._receipts(), [])
-
-    def test_a_MERGED_run_marks_only_the_messages_that_still_exist(self):
-        """A merged buffer carries its source ids as `MessageId:` lines, so one run can name several
-        messages — and rotation may have expired some of them.
-
-        THIS IS THE FIXTURE THAT DISCRIMINATES. With a single vanished message the function returns
-        early (`if not existing_ids`), so removing the per-message existence guard changes nothing;
-        a MIXED batch is what reaches that guard. Verified by mutation.
-        """
-        self._seed_message("m-alive")
-        self._seed_run(
-            "run-merged", message_id="m-alive",
-            body="\n".join(["MessageId: m-alive", "MessageId: m-expired", ""]),
-        )
-        response = self._repair()
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(self._receipts(), [("m-alive", TARGET)],
-                         "a receipt was written for a message that no longer exists")
-        self.assertEqual(response.json()["repaired"], 1)
-
-    def test_a_run_with_no_message_id_is_skipped_entirely(self):
-        # The SQL `COALESCE(message_id,'') != ''` filter is an optimisation, not the guard:
-        # `_dispatch_source_message_ids` finds nothing for such a row and the helper returns 0 either
-        # way. Removing the filter is an uncaught mutation, recorded here rather than papered over —
-        # what it saves is loading every historical run, which on a busy fleet is the whole table.
-        self._seed_run("run-1", message_id="")
-        self.assertEqual(self._repair().json()["repaired"], 0)
-        self.assertEqual(self._receipts(), [])
-
     # ── operator ergonomics ──────────────────────────────────────────────────────────────────
-
-    def test_running_it_twice_repairs_nothing_the_second_time(self):
-        """An operator who sees no visible effect runs it again. The COUNT is what tells them
-        whether anything was wrong, so a second run reporting the same number would read as an
-        ongoing fault."""
-        self._seed_message("m-1")
-        self._seed_run("run-1", message_id="m-1")
-        first = self._repair().json()["repaired"]
-        second = self._repair().json()["repaired"]
-        self.assertEqual(first, 1)
-        self.assertEqual(second, 0, "the repair reported work it did not do")
-        self.assertEqual(len(self._receipts()), 1, "…or wrote a duplicate receipt")
 
     def test_an_existing_receipt_keeps_its_ORIGINAL_read_time(self):
         """`INSERT OR IGNORE`: the repair must not restamp a receipt written when the agent really

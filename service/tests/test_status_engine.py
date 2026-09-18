@@ -29,9 +29,6 @@ def test_blocked_when_in_turn_and_awaiting_input():
     assert derive(_inp(in_turn=True, awaiting_input=True)) == "blocked"
 
 def test_managed_online_when_alive_worker_present():
-    assert derive(_inp()) == "online"
-
-def test_managed_alive_is_online_never_idle():
     # Proof-based (2026-06-18): 'idle' is removed — an alive managed worker, however long
     # quiet, is `online` (working comes from a turn event, not elapsed-time decay).
     assert derive(_inp()) == "online"
