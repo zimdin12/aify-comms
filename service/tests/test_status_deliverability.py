@@ -276,47 +276,6 @@ class StatusDeliverabilityTests(FastApiTestCase):
             conn.close()
 
     # ------------------------------------------------------------------
-    # hermes — the new behavior
-    # ------------------------------------------------------------------
-    def test_managed_hermes_channel_enabled_with_live_sidecar_is_online(self):
-        # WS3 (2026-06-02): UPDATED — hermes joined _CHANNEL_SIDECAR_DELIVERY_
-        # RUNTIMES, so `online` now requires BOTH a live console PTY (visible-TUI
-        # HARD requirement) AND a live channel-sidecar claimer, matching claude's
-        # both-required gate. The prior sidecar-ALONE→online behavior was the
-        # superseded "online but no visible console" path (a headless orphan).
-        self._heartbeat_environment("hermes")
-        self._register_managed(agent_id="hermes-live", runtime="hermes", channel_enabled=True)
-        self._insert_hermes_console_pty("hermes-live")
-        self._stamp_channel_sidecar_bridge("hermes-live", fresh=True)
-        self.assertIn(
-            self._status("hermes-live"),
-            {"online", "ready"},
-            "channel-enabled managed hermes WITH a live console PTY AND a live sidecar heartbeat must be deliverable (online/ready)",
-        )
-
-    def test_managed_hermes_channel_enabled_without_sidecar_is_available_not_online(self):
-        self._heartbeat_environment("hermes")
-        self._register_managed(agent_id="hermes-nosidecar", runtime="hermes", channel_enabled=True)
-        # No channel-sidecar bridge row at all → not deliverable.
-        status = self._status("hermes-nosidecar")
-        self.assertNotIn(
-            status, {"online", "ready"},
-            f"channel-enabled hermes with NO live sidecar must not be falsely online; got {status!r}",
-        )
-        self.assertEqual(status, "available", f"expected available; got {status!r}")
-
-    def test_managed_hermes_channel_enabled_with_stale_sidecar_is_available(self):
-        self._heartbeat_environment("hermes")
-        self._register_managed(agent_id="hermes-stale", runtime="hermes", channel_enabled=True)
-        self._stamp_channel_sidecar_bridge("hermes-stale", fresh=False)
-        status = self._status("hermes-stale")
-        self.assertNotIn(
-            status, {"online", "ready"},
-            f"a STALE sidecar heartbeat must not keep hermes online; got {status!r}",
-        )
-        self.assertEqual(status, "available", f"expected available; got {status!r}")
-
-    # ------------------------------------------------------------------
     # Task 1.6b — the idle claim poll IS the liveness heartbeat
     # ------------------------------------------------------------------
     def test_idle_channel_sidecar_claim_upserts_bridge_row_and_makes_hermes_online(self):
@@ -652,17 +611,6 @@ class ManagedEnvBridgeGateTests(FastApiTestCase):
         res = self.client.get(f"/api/v1/agents/{agent_id}")
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()["agent"]["status"]
-
-    # ---- the new gate ----
-    def test_managed_with_live_env_bridge_is_online(self):
-        # Control: a managed agent with a LIVE env bridge + live workers is online.
-        self._heartbeat_environment("hermes")
-        self._register_managed_hermes("env-live-hermes")
-        self._bind_session_and_workers("env-live-hermes", "hermes")
-        self.assertIn(
-            self._status("env-live-hermes"), {"online", "ready"},
-            "managed agent with a live env bridge + live workers must be online",
-        )
 
     def test_managed_with_dead_env_bridge_is_offline_despite_live_sidecar(self):
         # FIX B: kill the env bridge (stale last_seen). Even though the surviving

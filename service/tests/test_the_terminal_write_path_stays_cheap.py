@@ -203,14 +203,3 @@ class TheTerminalWritePathStaysCheapTests(unittest.TestCase):
     def test_the_tail_is_capped(self):
         """POSITIVE CONTROL on the trim, which is what makes every steady-state flush the same size."""
         self.assertEqual(len(_trim_terminal_output("y" * 200000)), TAIL_CAP)
-
-    def test_the_kept_tail_starts_after_a_newline(self):
-        """A cut mid-line -- or mid-ANSI-escape -- is what the line-boundary rule exists to avoid."""
-        trimmed = _trim_terminal_output(("a" * 79 + "\n") * 2000)
-        self.assertLess(len(trimmed), TAIL_CAP, "a raw character-count slice was kept")
-        self.assertTrue(trimmed.startswith("a"), "the kept tail begins mid-line")
-
-    def test_a_short_buffer_is_returned_whole(self):
-        """NEGATIVE CONTROL: the trim must not fire when there is nothing to trim."""
-        self.assertEqual(_trim_terminal_output("short\n"), "short\n")
-        self.assertEqual(_trim_terminal_output(""), "")

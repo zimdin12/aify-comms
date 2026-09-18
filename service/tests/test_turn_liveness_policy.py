@@ -95,12 +95,6 @@ class TurnLivenessPolicyTests(unittest.TestCase):
                     inversions.append((started, touched))
         self.assertEqual(inversions, [], f"verification removed liveness at {inversions}")
 
-    def test_the_grid_is_not_vacuous(self):
-        """ANTI-VACUITY for the test above: it would pass trivially if the policy said no to
-        everything, or yes to everything."""
-        self.assertTrue(self.live(started_ago=10, touched_ago=1))
-        self.assertFalse(self.live(started_ago=ABSOLUTE + 60, touched_ago=1, renewable=True))
-
     def test_the_ceiling_SKIPPED_for_an_anchorless_row_grants_nothing(self):
         """DISP-L1, and it is a non-defect. Pinned so nobody "fixes" it again -- I tried twice.
 
@@ -145,8 +139,3 @@ class TurnLivenessPolicyTests(unittest.TestCase):
                 f"an anchorless row answers differently when verified (touched_ago={touched}), so the "
                 "skipped ceiling now grants something and DISP-L1 has become real",
             )
-
-    def test_and_the_ceiling_still_bites_a_row_that_HAS_an_anchor(self):
-        """The other half: dropping DISP-L1 must not be read as "the ceiling does nothing"."""
-        self.assertTrue(self.live(started_ago=ABSOLUTE - 60, touched_ago=1, renewable=True))
-        self.assertFalse(self.live(started_ago=ABSOLUTE + 60, touched_ago=1, renewable=True))

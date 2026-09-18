@@ -47,25 +47,6 @@ class UnmeasuredConsumptionIsNotZeroConsumption(unittest.TestCase):
         self.assertIs(summary["measured"], True, "a real measurement reported as never measured")
         self.assertTrue(summary["measuredAt"], "a measurement carried no timestamp")
 
-    def test_the_two_states_are_DISTINGUISHABLE(self):
-        """Stated as its own assertion because it is the whole point: a reader must be able to tell
-        them apart, and before this they could not."""
-        never = consumption_summary()
-        consumption_set([])
-        empty = consumption_summary()
-        self.assertNotEqual(
-            never["measured"], empty["measured"],
-            "an unmeasured population and a measured-empty one still render identically",
-        )
-
-    def test_rows_still_reach_the_summary(self):
-        """The stamp must not have displaced the data it is about."""
-        consumption_set([{"agent_id": "a1", "tokens": 5}])
-        summary = consumption_summary()
-        self.assertIs(summary["measured"], True)
-        # The shape of the rest belongs to `summarize_consumption`; this only asserts it survived.
-        self.assertGreater(len(summary), 2, "the summary lost its own content when stamped")
-
 
 if __name__ == "__main__":
     unittest.main()

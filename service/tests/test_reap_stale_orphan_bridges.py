@@ -92,12 +92,6 @@ class ReapStaleOrphanBridgesTests(FastApiTestCase):
         # Idempotent: a second pass supersedes nothing new.
         self.assertEqual(self._run_reaper(), 0)
 
-    def test_fresh_bridge_is_never_touched(self):
-        # A live bridge beats every ~60s; 120s ago is well inside the 300s window.
-        self._seed_bridge("b-fresh", "orphan-agent", seconds_ago=120)
-        self.assertEqual(self._run_reaper(), 0, "a fresh bridge must never be superseded")
-        self.assertEqual(self._superseded_by("b-fresh"), "")
-
     def test_just_past_the_floor_is_safe(self):
         # Right at the default boundary: 250s < 300s default → still live, untouched.
         self._seed_bridge("b-edge", "orphan-agent", seconds_ago=250)

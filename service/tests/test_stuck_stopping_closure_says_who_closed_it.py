@@ -114,39 +114,28 @@ class StuckStoppingClosureTests(FastApiTestCase):
     def _terminal(self, terminal_id: str) -> dict:
         return self.client.get(f"/api/v1/terminals/{terminal_id}").json()["terminal"]
 
-    def test_the_fixture_is_actually_stuck(self) -> None:
-        """A control. If the rows were not in `stopping` past the grace window the sweep would close
-        nothing and every assertion below would hold for the wrong reason."""
+    def test_the_stuck_rows_are_closed_and_counted(self) -> None:
+        """The fixture is a control: if the rows were not in `stopping` past the grace window the
+        sweep would close nothing and every assertion below would hold for the wrong reason. The
+        behaviour must not change -- this adds a record, it does not change which rows close."""
         for terminal_id in self.TERMINALS:
             self.assertEqual(self._terminal(terminal_id)["status"], "stopping")
         self.assertEqual(self._reconcile()["stuck_stopping_terminals_closed"], len(self.TERMINALS))
-
-    def test_both_terminals_are_closed(self) -> None:
-        """The behaviour must not change — this adds a record, it does not change which rows close."""
-        self._reconcile()
         for terminal_id in self.TERMINALS:
             self.assertEqual(self._terminal(terminal_id)["status"], "stopped")
 
-    def test_each_closure_records_an_event_naming_the_reconciler(self) -> None:
-        self._reconcile()
-        for terminal_id in self.TERMINALS:
-            kinds = [event["eventType"] for event in self._events(terminal_id)]
-            self.assertIn(
-                "terminal_stuck_stopping_closed", kinds,
-                f"{terminal_id} was closed with no record of who closed it — the whole point",
-            )
-
-    def test_the_recorded_reason_explains_itself(self) -> None:
+    def test_each_closure_records_an_event_naming_the_reconciler_and_its_reason(self) -> None:
         """A bare event type sends the reader back to the source. The reason names the condition and
         the window, so the row is readable without opening the reconciler."""
         self._reconcile()
-        event = next(
-            e for e in self._events(self.TERMINALS[0])
-            if e["eventType"] == "terminal_stuck_stopping_closed"
-        )
-        reason = json.loads(event["body"])["reason"]
-        self.assertIn("stuck-stopping reconciler", reason)
-        self.assertIn("never confirmed", reason)
+        for terminal_id in self.TERMINALS:
+            events = [e for e in self._events(terminal_id)
+                      if e["eventType"] == "terminal_stuck_stopping_closed"]
+            self.assertTrue(
+                events, f"{terminal_id} was closed with no record of who closed it -- the whole point")
+            reason = json.loads(events[0]["body"])["reason"]
+            self.assertIn("stuck-stopping reconciler", reason)
+            self.assertIn("never confirmed", reason)
 
     def test_the_terminal_itself_carries_the_reason(self) -> None:
         """Not everyone reads events. The `error` column is what the terminal detail shows, and it was

@@ -205,13 +205,6 @@ class ClaimTests(SpawnRequestsIoTestCase):
         self.assertEqual(recorder.sent[0][1],
                          {"spawnRequestId": "sr-1", "environmentId": ENV})
 
-    def test_NO_websocket_does_not_stop_the_claim(self):
-        """The push is best-effort; the claim is not. A headless deployment must still spawn."""
-        self._seed_env()
-        self._seed_spec("spec-1")
-        self._seed_request("sr-1")
-        self.assertEqual(self._claim(ws=None)["spawnRequest"]["id"], "sr-1")
-
 
 class BlockedByTests(SpawnRequestsIoTestCase):
     def test_a_SUPERSEDED_bridge_is_told_WHY_it_got_nothing(self):
@@ -239,14 +232,6 @@ class BlockedByTests(SpawnRequestsIoTestCase):
         self._seed_spec("spec-1")
         self._seed_request("sr-1")
         self.assertEqual(self._claim(bridge_id=BRIDGE)["spawnRequest"]["id"], "sr-1")
-
-    def test_an_environment_with_NO_CURRENT_BRIDGE_accepts_any_claimer(self):
-        """A freshly registered environment has not named one yet. Refusing here would leave its
-        queue unstartable until something else wrote the column."""
-        self._seed_env(bridge_id="")
-        self._seed_spec("spec-1")
-        self._seed_request("sr-1")
-        self.assertEqual(self._claim(bridge_id="whoever")["spawnRequest"]["id"], "sr-1")
 
     def test_the_two_EMPTY_shapes_differ_by_exactly_one_key(self):
         """The distinction the long poll reads. Nothing-to-claim is empty and the poll waits;

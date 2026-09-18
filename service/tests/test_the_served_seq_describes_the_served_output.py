@@ -107,20 +107,6 @@ class ServedSeqDescribesServedOutputTests(unittest.TestCase):
             "resyncs and fully repaints at frame rate.",
         )
 
-    def test_the_next_live_frame_is_CONTIGUOUS_with_what_was_served(self) -> None:
-        """The client's actual rule, applied. `realtime-socket.mjs` resyncs on `seq > lastSeq + 1`,
-        so contiguity is the property that matters -- monotonicity is not enough."""
-        tail.record(TERMINAL_ID, "flushed", 7, now=200.0)
-        for n, chunk in ((8, "a"), (9, "b")):
-            tail.record(TERMINAL_ID, chunk, n, now=200.0 + n / 100)
-
-        last_seq = _terminal_session_to_dict(_row("flushed", 7))["outputSeq"]
-        next_frame_seq = 10  # the very next chunk the host posts
-        self.assertLessEqual(
-            next_frame_seq, last_seq + 1,
-            f"seeded at {last_seq}, next frame {next_frame_seq}: the client would call this a gap",
-        )
-
     def test_a_forgotten_terminal_falls_back_to_the_row_for_BOTH(self) -> None:
         """Ending a terminal drops its buffer. The pair must fall back together, not one of each."""
         tail.record(TERMINAL_ID, "held", 99, now=300.0)

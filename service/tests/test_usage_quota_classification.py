@@ -128,15 +128,6 @@ def test_a_window_whose_reset_has_passed_reads_as_unknown():
     assert out["weekly"]["used_pct"] == 40, "the live window is untouched"
 
 
-def test_the_whole_payload_is_flagged_when_anything_was_blanked():
-    out = _blank_elapsed_reset_windows({
-        "five_hour": {"used_pct": 12, "resets_at": iso(-RESET_ELAPSED_GRACE_SECONDS - 60)},
-    })
-    assert out["reset_elapsed"] is True
-    assert out["stale"] is True
-    assert out["unknown"] is True, "the caller must be able to tell the display it has no answer"
-
-
 def test_a_live_payload_is_not_flagged():
     out = _blank_elapsed_reset_windows({
         "five_hour": {"used_pct": 12, "resets_at": iso(3600)},

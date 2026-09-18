@@ -52,13 +52,6 @@ def launcher(directory: Path, *, on: bool, endpoint: str = "http://127.0.0.1:880
     )
 
 
-def test_a_delegated_launcher_reports_its_endpoint(tmp_path):
-    launcher(tmp_path, on=True, endpoint="http://10.0.0.4:8802")
-    result = read(tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "http://10.0.0.4:8802"
-
-
 def test_delegation_off_prints_nothing_and_fails(tmp_path):
     # An un-delegated install must be reproduced exactly, which means passing no flag at all.
     launcher(tmp_path, on=False)

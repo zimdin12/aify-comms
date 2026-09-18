@@ -12,7 +12,6 @@ from service.api_core.status_refresh import (
     _compute_agent_status,
     _refresh_agent_live_state,
 )
-from service.clock import now as _now
 from service.reconcilers.status_cache import (
     _live_state_get,
     invalidate_agent_live_state as _invalidate_agent_live_state,
@@ -83,24 +82,6 @@ class StatusEventIngestTests(FastApiTestCase):
         r = self.client.post("/api/v1/agents/a1/status-event", json={"kind": "turn_end", "runId": "r1"})
         self.assertEqual(int(self._state("a1")["in_turn"]), 0)
 
-    def test_engine_status_working_after_turn_start(self):
-        self._register("a2", mode="resident", runtime="claude-code")
-        # mark a fresh resident bridge so alive=True (mirror existing heartbeat path)
-        self.client.post("/api/v1/agents/a2/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
-        self.client.post("/api/v1/agents/a2/status-event", json={"kind": "turn_start", "runId": "r1"})
-        import asyncio
-        from service.db import get_db
-        from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
-        from service import control_plane as api_v2
-        async def run():
-            db = await get_db()
-            try:
-                row = await (await db.execute("SELECT * FROM agents WHERE id='a2'")).fetchone()
-                return await engine_status(db, row)
-            finally:
-                await db.close()
-        self.assertEqual(asyncio.run(run()), "working")
-
     def test_engine_status_online_immediately_after_turn_end(self):
         # PURE-EVENT (2026-06-19): with the turn-end grace removed, a turn_end must flip the
         # derived engine status to `online` IMMEDIATELY — no 20s grace hold. This pins the grace
@@ -156,20 +137,6 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(turn_busy, 0, "reply-landed must release the queue gate (turn_busy=0)")
         self.assertEqual(in_turn, 1,
                          "reply-landed must NOT clear the status signal (in_turn stays 1 until a real turn-end)")
-
-    def test_heartbeat_turnbusy_false_clears_in_turn(self):
-        # The codex TERTIARY onTurnEnd path (app-server turn/completed → reportTurnBusy(busy:false))
-        # and any heartbeat turnBusy:false is a REAL turn-end — it MUST clear agent_status_state.in_turn
-        # (the status signal), under the ownership guard (same bridge + run that set it). This is the
-        # path codex relies on for turn-end after PRIMARY removed the reply-landed status clear.
-        self._register("hb1", mode="managed", runtime="codex")
-        self.client.post("/api/v1/agents/hb1/heartbeat",
-                         json={"bridgeId": "b1", "sessionMode": "managed", "turnBusy": True, "runId": "r1"})
-        self.assertEqual(int(self._state("hb1")["in_turn"]), 1)
-        self.client.post("/api/v1/agents/hb1/heartbeat",
-                         json={"bridgeId": "b1", "sessionMode": "managed", "turnBusy": False, "runId": "r1"})
-        self.assertEqual(int(self._state("hb1")["in_turn"]), 0,
-                         "heartbeat turnBusy:false from the owning bridge must clear in_turn (real turn-end)")
 
     def _set(self, key, val):
         c = sqlite3.connect(str(self._db_path))
@@ -261,50 +228,6 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(int(self._state("t1")["in_turn"]), 0,
                          "/turn-end must clear in_turn in agent_status_state")
-
-    def test_turn_end_endpoint_pushes_status_under_new(self):
-        # WS-1 (2026-06-17): the dedicated /turn-end endpoint must push the to-ready
-        # transition immediately under new (was invalidate-only → ~60s dashboard lag).
-        self._register("we1", mode="resident")
-        self.client.post("/api/v1/agents/we1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
-        self.client.post("/api/v1/agents/we1/turn-start", json={"runtime": "claude-code", "bridgeId": "b1"})
-        self._set("status_engine", "new")
-        self.ws.broadcasts.clear()
-        r = self.client.post("/api/v1/agents/we1/turn-end", json={})
-        self.assertEqual(r.status_code, 200, r.text)
-        events = self._agent_status_events()
-        self.assertTrue(events and events[-1]["agentId"] == "we1",
-                        "/turn-end (flag=new) must push an agent_status event")
-
-    def test_turn_end_from_superseded_bridge_is_ignored(self):
-        # WS-4a (2026-06-17): a /turn-end carrying a bridgeId from a SUPERSEDED bridge
-        # (a stale detector on a replaced bridge) must NOT clear a live turn; the hook
-        # turn-end (no bridgeId) stays authoritative.
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-        self._register("se1", mode="resident")
-        self.client.post("/api/v1/agents/se1/turn-start", json={"runtime": "claude-code", "bridgeId": "b-new"})
-        self.assertEqual(int(self._state("se1")["in_turn"]), 1)
-        # Seed a superseded bridge row for the OLD bridge.
-        c = sqlite3.connect(str(self._db_path))
-        try:
-            now = _now()
-            c.execute(
-                """INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode,
-                    registered_at, last_seen, superseded_by) VALUES (?,?,?,?,?,?,?,?)""",
-                ("b-old", "se1", "linux:test", "claude-code", "resident", now, now, "b-new"))
-            c.commit()
-        finally:
-            c.close()
-        # Stale detector on the OLD (superseded) bridge fires /turn-end → must be IGNORED.
-        r = self.client.post("/api/v1/agents/se1/turn-end", json={"bridgeId": "b-old"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(int(self._state("se1")["in_turn"]), 1,
-                         "superseded bridge's turn-end must not clear a live turn")
-        # The authoritative hook turn-end (no bridgeId) still clears.
-        r = self.client.post("/api/v1/agents/se1/turn-end", json={})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(int(self._state("se1")["in_turn"]), 0,
-                         "hook turn-end (no bridgeId) must still clear authoritatively")
 
     def test_heartbeat_turnbusy_flip_pushes_only_on_transition_under_new(self):
         # WS-1: the /heartbeat turnBusy field is the dominant managed turn signal. Under

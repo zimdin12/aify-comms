@@ -35,38 +35,6 @@ def test_there_is_no_server_side_rpc_controller_registry_YET():
         assert _has_live_rpc_controller(agent_id) is False
 
 
-def test_managed_agent_no_worker_returns_available(monkeypatch):
-    """When a managed agent has no live terminal_session row and no RPC
-    child registration, status must be `available` not `online`."""
-    import asyncio
-    from unittest import mock
-
-
-    row = {
-        "id": "test-managed-no-worker",
-        "status": "online",
-        "session_mode": "managed",
-        "runtime": "codex",
-        "last_seen": "2026-05-25T00:00:00Z",
-    }
-
-    async def fake_terminal(*args, **kwargs):
-        return False
-
-    def fake_rpc(*args, **kwargs):
-        return False
-
-    # PATCH THE CALLER'S NAMESPACE. `_compute_agent_status` lives in `api_core/status_refresh.py` and
-    # imports both of these from their owners, so a patch aimed at `service.control_plane` — which
-    # merely re-exports them and, since v0.5.4, declares NO FUNCTIONS AT ALL — installs a mock nobody
-    # consults. Both patches here were inert, and the assertion below was passing against the real
-    # helpers rather than the fakes.
-    with mock.patch("service.api_core.status_refresh._has_live_terminal_session", side_effect=fake_terminal), \
-         mock.patch("service.api_core.status_refresh._has_live_rpc_controller", side_effect=fake_rpc):
-        result = asyncio.run(_compute_agent_status(row, db=None))
-        assert result == "available", f"managed-no-worker should be 'available', got {result!r}"
-
-
 def test_managed_agent_no_worker_returns_available_WITHOUT_any_mocks():
     """The same claim with nothing patched out. Both probes answer False on their own here — one
     because there is no database, the other because there is no registry — so this is the gate

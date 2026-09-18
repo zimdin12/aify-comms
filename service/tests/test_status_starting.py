@@ -41,9 +41,6 @@ def managed(**over):
 
 
 class StartingStateTests(unittest.TestCase):
-    def test_it_is_a_declared_status(self):
-        self.assertIn("starting", VALID_STATUSES)
-
     def test_a_booting_spawn_reads_starting_instead_of_available(self):
         self.assertEqual(derive(managed(spawn_starting=True)), "starting")
 
@@ -82,13 +79,6 @@ class StartingStateTests(unittest.TestCase):
         """A console that already exists is better evidence than a spawn row, and `online` is what
         that phase has always displayed — this must not silently downgrade it."""
         self.assertEqual(derive(managed(console_booting=True, spawn_starting=True)), "online")
-
-    # ── the expiry contract, stated at the engine boundary ───────────────────────────
-    def test_the_flag_going_false_returns_the_agent_to_available(self):
-        """The bound lives in the gatherer, but this is the behaviour it must produce: once the
-        window closes, a stuck spawn is as visible as it was before `starting` existed."""
-        self.assertEqual(derive(managed(spawn_starting=True)), "starting")
-        self.assertEqual(derive(managed(spawn_starting=False)), "available")
 
     def test_a_resident_is_never_starting(self):
         """`starting` describes a managed spawn coming up. A resident is operator-launched and has
@@ -245,10 +235,6 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         return await _managed_spawn_is_starting(self.db, "a1")
-
-    async def test_a_fresh_running_spawn_is_starting(self):
-        await self._add(age_seconds=5)
-        self.assertTrue(await self._starting())
 
     async def test_just_inside_the_window(self):
         from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now

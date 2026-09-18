@@ -13,8 +13,10 @@ refusals in this service that nothing had ever exercised.
 
 THEY ARE A MATCHED PAIR ONE EDIT FROM DIVERGING. Same 404, same 410-for-a-tombstone, same 409, and
 they must agree about WHEN they refuse while doing opposite things when they do not. So the shared
-shape is asserted for both in the same loop, and the divergence — which field each writes — is
-asserted per route. A test written per handler would let one drift.
+409 is asserted for both in the same loop here. The 404 and the 410 are asserted for both routes by
+`test_removed_agent_is_refused_everywhere.py` (its TOMBSTONE_410 list names them), and what each
+route WRITES is asserted by `test_session_identity_sticky.py` (confirm re-pins, keep keeps and
+surfaces a resume command) and by the twice-resolved test below.
 
 WHY THE 409 IS THE INTERESTING REFUSAL. Both routes are documented idempotent, and the docstrings say
 409 means "nothing to resolve". That makes it the answer an operator gets for clicking twice, so it
@@ -113,24 +115,6 @@ class SessionResolvePairTests(FastApiTestCase):
                 self.assertEqual(response.status_code, 409, response.text)
                 self.assertEqual(response.json()["detail"], expected[action])
 
-    def test_both_routes_404_for_an_unknown_agent(self):
-        for action in RESOLVE_ROUTES:
-            with self.subTest(action=action):
-                response = self._resolve("no-such-agent", action)
-                self.assertEqual(response.status_code, 404, response.text)
-                self.assertIn("'no-such-agent' not found", response.json()["detail"])
-
-    def test_both_routes_410_for_a_removed_agent(self):
-        """A tombstone is a different answer from "not found", and both routes check it before the
-        404 — an operator resolving a session on an agent they deleted should be told so."""
-        removed = self.client.delete("/api/v1/agents/pinned-agent")
-        self.assertEqual(removed.status_code, 200, removed.text)
-        for action in RESOLVE_ROUTES:
-            with self.subTest(action=action):
-                response = self._resolve("pinned-agent", action)
-                self.assertEqual(response.status_code, 410, response.text)
-                self.assertIn("was intentionally removed", response.json()["detail"])
-
     def test_both_routes_refuse_a_hostile_agent_id(self):
         for action in RESOLVE_ROUTES:
             for hostile in ("a b", "a;rm", ".hidden"):
@@ -140,36 +124,6 @@ class SessionResolvePairTests(FastApiTestCase):
                     self.assertIn("Invalid agent ID", response.json()["detail"])
 
     # ── the divergence: what each one actually does ──────────────────────────────────────────
-
-    def test_confirm_ADOPTS_the_pending_id(self):
-        self._park_pending("pinned-agent", "handle-two")
-        response = self._resolve("pinned-agent", "confirm")
-        self.assertEqual(response.status_code, 200, response.text)
-        agent = self._agent("pinned-agent")
-        self.assertEqual(agent["sessionHandle"], "handle-two", "the new id is now the live handle")
-        self.assertFalse(agent.get("pendingSessionId"), "and nothing is left pending")
-
-    def test_keep_RETAINS_the_pinned_id(self):
-        self._park_pending("pinned-agent", "handle-two")
-        response = self._resolve("pinned-agent", "keep")
-        self.assertEqual(response.status_code, 200, response.text)
-        agent = self._agent("pinned-agent")
-        self.assertEqual(agent["sessionHandle"], "handle-one", "the pinned id is untouched")
-        self.assertFalse(agent.get("pendingSessionId"), "…but the change is resolved")
-
-    def test_the_two_routes_leave_the_agent_in_DIFFERENT_states(self):
-        """Asserted directly, because it is the whole point of there being two routes and the only
-        thing that stops them being one. Two agents, same parked change, opposite outcomes."""
-        # Its OWN id: registering with pinned-agent's live `handle-one` is refused since 2026-09-16.
-        self._register("other-agent", session_handle="handle-other")
-        self._park_pending("pinned-agent", "handle-two")
-        self._park_pending("other-agent", "handle-two")
-
-        self.assertEqual(self._resolve("pinned-agent", "confirm").status_code, 200)
-        self.assertEqual(self._resolve("other-agent", "keep").status_code, 200)
-
-        self.assertEqual(self._agent("pinned-agent")["sessionHandle"], "handle-two")
-        self.assertEqual(self._agent("other-agent")["sessionHandle"], "handle-other")
 
     def test_resolving_twice_refuses_the_second_time_without_changing_anything(self):
         """The idempotence the docstrings claim, checked as STATE rather than as a status code: the

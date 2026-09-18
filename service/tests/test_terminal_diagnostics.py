@@ -37,22 +37,13 @@ EXPECTED_ROOT_CAUSE = (
 
 class RealIncidentTests(unittest.TestCase):
     def test_yields_the_root_cause_line_from_the_real_incident(self):
-        """THE acceptance test named in the v0.2 spec."""
+        """THE acceptance test named in the v0.2 spec.
+
+        Exact equality carries three properties at once: the FIRST fatal line wins (three consecutive
+        lines are fatal and the third says "see the error above", so the last is the symptom), the
+        line is free of the ANSI/BEL/CR bytes it arrived wrapped in, and it is not the scaffolding.
+        """
         self.assertEqual(meaningful_failure_line(REAL_DEAD_HERMES_OUTPUT), EXPECTED_ROOT_CAUSE)
-
-    def test_prefers_the_first_fatal_over_later_consequences(self):
-        # Three consecutive fatal lines; the third says "see the error above", so the
-        # LAST fatal is the symptom and the FIRST is the cause.
-        line = meaningful_failure_line(REAL_DEAD_HERMES_OUTPUT)
-        self.assertIn("did not become ready", line)
-        self.assertNotIn("see the error above", line)
-        self.assertNotIn("did not come up", line)
-
-    def test_strips_ansi_and_never_leaks_escape_bytes(self):
-        line = meaningful_failure_line(REAL_DEAD_HERMES_OUTPUT)
-        self.assertNotIn("\x1b", line)
-        self.assertNotIn("\x07", line)
-        self.assertNotIn("\r", line)
 
     def test_drops_terminal_scaffolding_lines(self):
         lines = meaningful_lines(REAL_DEAD_HERMES_OUTPUT)
@@ -169,17 +160,6 @@ class DecoratedMarkerLineIsNotAnEpitaphTests(unittest.TestCase):
     def test_a_bullet_counts_as_drawing_too(self):
         raw = "\u25cf Baked for 1m 54s - cannot continue\n"
         self.assertEqual(meaningful_failure_line(raw), "")
-
-    def test_the_founding_incident_is_UNCHANGED(self):
-        """The acceptance test for this whole module, re-asserted from this angle.
-
-        The guard is per LINE, not per recording, precisely so this keeps working: a plain-text fatal
-        line stands even when a spinner was painted elsewhere in the same capture. Measured: the
-        captured frame carries no decoration at all, so a per-recording rule would ALSO have passed
-        here -- which is why the choice between them had to be made on the losing case (a TUI that
-        dies after painting) rather than on this one.
-        """
-        self.assertEqual(meaningful_failure_line(REAL_DEAD_HERMES_OUTPUT), EXPECTED_ROOT_CAUSE)
 
     def test_a_plain_fatal_line_beside_a_drawn_one_is_unaffected(self):
         raw = (

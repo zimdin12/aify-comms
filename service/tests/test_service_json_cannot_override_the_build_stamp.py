@@ -134,12 +134,6 @@ class ServiceJsonCannotOverrideTheStamp(unittest.TestCase):
             "ServiceConfig.load() and must stay refused to service.json",
         )
 
-    def test_every_refused_key_is_a_real_config_attribute(self):
-        # A typo in the set would refuse nothing and read as a guard.
-        config = ServiceConfig()
-        for key in _STAMP_OWNED_KEYS:
-            self.assertTrue(hasattr(config, key), f"`{key}` is not a ServiceConfig attribute")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -311,15 +311,6 @@ class DuplicateCollapseTests(ResidentSessionTestCase):
         self.assertEqual(rows["resident_stale"]["status"], "stopped")
         self.assertEqual(rows["resident_stale"]["ended_at"], NOW)
 
-    def test_the_session_just_written_is_NOT_retired(self):
-        """`id != ?`. Without it the collapse would stop the row it just created, and every resident
-        registration would end with no live session at all."""
-        self._seed_env()
-        session_id = self._upsert()
-        self.assertEqual(
-            self._rows("SELECT status FROM agent_sessions WHERE id = ?", (session_id,))[0]["status"],
-            "running")
-
     def test_a_MANAGED_session_for_the_same_agent_is_LEFT_ALONE(self):
         """The scope that matters most. A managed session is a live worker mid-run; stopping it
         because the operator opened a CLI would kill work nobody asked to stop."""

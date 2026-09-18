@@ -164,7 +164,7 @@ class ReplyReminderTests(FastApiTestCase):
         self.assertGreater(cap, 0, "default reply_reminder_max_count must be a sane non-zero cap")
         self.assertLessEqual(cap, 5, "default cap should be small (sane nag limit)")
 
-    def test_unanswered_required_run_enqueues_one_reminder(self):
+    def test_unanswered_required_run_enqueues_one_reminder_teaching_comms_send(self):
         for runtime in _RUNTIMES:
             with self.subTest(runtime=runtime):
                 self.setUp()
@@ -177,24 +177,9 @@ class ReplyReminderTests(FastApiTestCase):
                     result = self._run_reminders(run_id=run_id, ignore_repeat=True)
                     reminded = [r for r in result["reminded"] if r["runId"] == run_id]
                     self.assertEqual(len(reminded), 1, f"{runtime}: expected one reminder, got {result}")
-                    events = self._reminder_events(run_id)
-                    self.assertEqual(len(events), 1, f"{runtime}: exactly one reply_reminder event")
-                finally:
-                    self.tearDown()
-
-    def test_reminder_body_reinforces_comms_send_pattern(self):
-        for runtime in _RUNTIMES:
-            with self.subTest(runtime=runtime):
-                self.setUp()
-                try:
-                    self.client.put(
-                        "/api/v1/settings",
-                        json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1},
+                    self.assertEqual(
+                        len(self._reminder_events(run_id)), 1, f"{runtime}: exactly one reply_reminder event"
                     )
-                    run_id = self._make_overdue_required_run(runtime)
-                    result = self._run_reminders(run_id=run_id, ignore_repeat=True)
-                    reminded = [r for r in result["reminded"] if r["runId"] == run_id]
-                    self.assertEqual(len(reminded), 1, result)
                     message_id = reminded[0]["messageId"]
                     row = self._fetchall(
                         "SELECT from_agent, to_agent, in_reply_to, body FROM messages WHERE id = ?",
@@ -333,10 +318,13 @@ class ReplyReminderTests(FastApiTestCase):
     _FULL_MARKER = "still needs an explicit reply"
 
     def test_light_reminders_between_full_every_nth(self):
-        """Default cadence (full_every=3): reminders 1-2 are LIGHT one-liners,
-        3 is FULL, 4-5 light again, 6 full — reminders never stop firing, they
-        just get cheaper between the periodic full nudges."""
-        expectations = {0: "light", 1: "light", 2: "full", 3: "light", 4: "light", 5: "full"}
+        """Default cadence (full_every=3): reminder 1 is a LIGHT one-liner and 3 is FULL.
+
+        Two ordinals are enough HERE: they prove the sweep hands `prior + 1` to the cadence and
+        renders what it answers, and they catch an off-by-one in that ordinal either way. The
+        repeating pattern itself (4-5 light, 6 full, 0 and 1 meaning always full) is the helper's,
+        pinned in `test_reply_contract_reminder_cadence.py`."""
+        expectations = {0: "light", 2: "full"}
         for prior, expected in expectations.items():
             with self.subTest(prior_reminders=prior, expected=expected):
                 self.setUp()
@@ -371,30 +359,6 @@ class ReplyReminderTests(FastApiTestCase):
                         self.assertNotIn("need a decision", body)  # no original body
                     else:
                         self.assertIn(self._FULL_MARKER, body)
-                finally:
-                    self.tearDown()
-
-    def test_full_every_zero_or_one_means_always_full(self):
-        """full_every=0 or 1 disables the light format entirely — reminder 1
-        (which would be light under the default cadence) is already full."""
-        for full_every in (0, 1):
-            with self.subTest(full_every=full_every):
-                self.setUp()
-                try:
-                    self.client.put(
-                        "/api/v1/settings",
-                        json={
-                            "reply_reminder_minutes": 1,
-                            "reply_reminder_repeat_minutes": 1,
-                            "reply_reminder_max_count": 0,
-                            "reply_reminder_full_every": full_every,
-                        },
-                    )
-                    run_id = self._make_overdue_required_run("hermes")
-                    result = self._run_reminders(run_id=run_id, ignore_repeat=True)
-                    body = self._sent_reminder_message(result, run_id)["body"]
-                    self.assertIn(self._FULL_MARKER, body)
-                    self.assertIn("inReplyTo", body)
                 finally:
                     self.tearDown()
 

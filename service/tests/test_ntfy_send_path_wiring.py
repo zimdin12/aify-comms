@@ -159,37 +159,8 @@ class LifespanWiringTests(unittest.TestCase):
                          "main.py must not read the credential at all")
 
 
-class HealthWiringTests(unittest.TestCase):
-    def _src(self) -> str:
-        return (Path(__file__).resolve().parents[1] / "routers" / "health.py").read_text(encoding="utf-8")
-
-    def test_health_exposes_the_relay_block(self):
-        src = self._src()
-        self.assertIn("get_relay().health()", src)
-        self.assertIn('payload["ntfy"]', src)
-
-    def test_the_relay_block_cannot_fail_the_container_healthcheck(self):
-        """/health is the docker healthcheck. An optional phone-alert feature must not be able to
-        make Docker restart a container that is serving the fleet. The behavioural proof is in
-        test_ntfy_relay.py::HealthEndpointBlastRadiusTests; this pins the shape so the guard cannot
-        be removed while tidying."""
-        # THE WINDOW WAS 600 CHARACTERS and it broke the day an unrelated field was added above the
-        # relay block -- /health gained a socket count on 2026-08-26 and pushed `get_relay` past the
-        # edge, so this failed for a reason that had nothing to do with the guard it checks. A fixed
-        # byte window is a claim about layout, not about structure. It now reads to the end of the
-        # function and asks the structural question directly: the nearest `try:` ABOVE the relay call
-        # must be nearer than the nearest `except`.
-        src = code_only(self._src())
-        at = src.index('payload = {"status": "healthy"}')
-        end = src.index("@router.get", at)
-        block = src[at:end]
-        self.assertIn("try:", block)
-        self.assertIn("except Exception", block)
-        relay_at = block.index("get_relay")
-        self.assertGreater(relay_at, block.rindex("try:", 0, relay_at),
-                           "the relay call must be INSIDE the guard, not beside it")
-        self.assertGreater(block.rindex("try:", 0, relay_at), block.rfind("except Exception", 0, relay_at),
-                           "the nearest thing above the relay call is an except, so it is outside a guard")
+# /health exposing the relay block, and the relay being unable to fail the container healthcheck,
+# are proven by calling `health()` in `test_ntfy_relay.py::HealthEndpointBlastRadiusTests`.
 
 
 if __name__ == "__main__":

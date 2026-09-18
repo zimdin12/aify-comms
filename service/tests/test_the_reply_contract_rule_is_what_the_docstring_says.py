@@ -59,19 +59,12 @@ OWED = _owed_clause(SQL)
 
 
 class TheReplyContractRuleIsWhatTheDocstringSays(unittest.TestCase):
-    def test_the_probe_found_a_real_clause(self):
-        """POSITIVE CONTROL. A regex that matched nothing would make every assertion below pass on an
-        empty string."""
-        self.assertGreater(len(OWED), 40, OWED)
-        self.assertIn("require_reply", OWED)
+    # Every assertion below is an `assertIn` or a split over OWED, so an extractor that found nothing
+    # fails them rather than passing them. The exact type set bound regardless of the flag is pinned
+    # in `test_the_reply_flag_text_matches_the_contract.py::test_the_type_clause_still_says_what_this_file_assumes`.
 
     def test_the_FLAG_binds_a_contract(self):
         self.assertIn("r.require_reply = 1", OWED)
-
-    def test_and_so_does_the_TYPE_alone(self):
-        """The half the docstring omitted. These three bind regardless of the flag, which is why
-        `requireReply=false` does not opt out of them."""
-        self.assertIn("r.message_type IN ('request','review','error')", OWED)
 
     def test_the_type_clause_is_an_OR_not_an_AND(self):
         """The distinction that makes the flag ineffective for those types. As an AND it would

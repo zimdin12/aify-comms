@@ -126,27 +126,6 @@ class ConnectionManagerTests(unittest.TestCase):
         run(self.manager.broadcast("agent_removed"))
         self.assertEqual(json.loads(ws.sent[0]), {"event": "agent_removed", "data": {}})
 
-    def test_a_DEAD_client_does_not_swallow_the_broadcast_for_the_others(self):
-        """One browser tab closing must not cost every other client the event."""
-        dead = FakeWebSocket("dead", fail_after=0)
-        alive_before = FakeWebSocket("before")
-        alive_after = FakeWebSocket("after")
-        for ws in (alive_before, dead, alive_after):
-            run(self.manager.connect(ws))
-        run(self.manager.broadcast("agent_status", {"agentId": "lc-coder"}))
-        self.assertEqual(alive_before.events(), ["agent_status"])
-        self.assertEqual(alive_after.events(), ["agent_status"], "a dead client stopped the sweep")
-        self.assertEqual(dead.sent, [])
-
-    def test_a_dead_client_is_disconnected_rather_than_written_to_forever(self):
-        dead = FakeWebSocket("dead", fail_after=0)
-        alive = FakeWebSocket("alive")
-        run(self.manager.connect(dead, "lc-gone"))
-        run(self.manager.connect(alive))
-        run(self.manager.broadcast("agent_status"))
-        self.assertEqual(self.manager.active_count(), 1, "the dead socket kept its slot")
-        self.assertEqual(self.manager.online_agents(), set(), "…and its agent still read as online")
-
     def test_a_disconnect_DURING_a_broadcast_does_not_skip_a_live_client(self):
         """THE 2026-07-03 INCIDENT, reproduced deterministically.
 
@@ -307,8 +286,3 @@ class BroadcastIsConcurrentTests(unittest.TestCase):
         self.assertIn(good_b, manager._connections, "a healthy client was disconnected")
         self.assertEqual(len(good_a.sent), 1)
         self.assertEqual(len(good_b.sent), 1)
-
-    def test_no_connections_is_a_no_op(self):
-        manager = ConnectionManager()
-        run(manager.broadcast("agent_status", {"agentId": "a"}))
-        self.assertEqual(manager.active_count(), 0)

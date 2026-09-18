@@ -162,26 +162,16 @@ class GateStatusVocabularyTests(unittest.TestCase):
         self.assertEqual(
             sorted(ENV_REACHABLE_GATE_OPENS_ON - set(VALID_STATUSES)), ["idle", "ready"],
         )
-        # Which leaves the sets that can actually fire.
+        # Which leaves the sets that can actually fire -- and records that the two gates disagree
+        # about `working`: the env gate corrects it when the ENVIRONMENT is gone, the live-worker gate
+        # does not when the WORKER is gone, so a wrapper-backed agent whose PTY exited mid-turn keeps
+        # reading `working` until `turn_busy` ages out. Pinned rather than changed: widening a
+        # hot-path status correction is a reviewer's call.
         self.assertEqual(sorted(LIVE_WORKER_GATE_OPENS_ON & set(VALID_STATUSES)), ["online"])
         self.assertEqual(
             sorted(ENV_REACHABLE_GATE_OPENS_ON & set(VALID_STATUSES)),
             ["available", "online", "working"],
         )
-
-    def test_the_two_gates_disagree_about_working_and_that_is_recorded(self):
-        """`working` is corrected when the ENVIRONMENT is gone and not when the WORKER is gone.
-
-        Both gates answer "does the thing behind this status still exist". The env gate asks it of a
-        working agent; the live-worker gate does not, so a managed wrapper-backed agent whose PTY
-        exited mid-turn keeps reading `working` until `turn_busy` ages out — the 30-minute backstop,
-        not the next poll. Pinned rather than changed: widening a hot-path status correction is a
-        reviewer's call, and this test is what makes either side moving visible.
-        """
-        live = LIVE_WORKER_GATE_OPENS_ON & set(VALID_STATUSES)
-        env = ENV_REACHABLE_GATE_OPENS_ON & set(VALID_STATUSES)
-        self.assertEqual(sorted(env - live), ["available", "working"])
-        self.assertNotIn("working", live, "the live-worker gate does NOT act on a working agent")
 
     def test_the_gate_literals_still_match_this_file(self):
         """These two sets are copied from the gates, so they must be checked against them.

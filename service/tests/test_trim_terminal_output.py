@@ -26,4 +26,5 @@ def test_no_newline_in_window_falls_back_to_raw_tail():
 def test_trim_never_returns_empty_when_input_nonempty():
     text = "A" * 30 + "\n"  # newline is the very last char
     out = _trim_terminal_output(text, max_chars=10)
-    assert out  # last char is newline => no clean boundary inside => raw tail, not empty
+    # last char is newline => no clean boundary inside => the raw tail, not an empty string
+    assert out == "A" * 9 + "\n", out

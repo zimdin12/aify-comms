@@ -284,6 +284,8 @@ class TurnEndBroadcastTests(TurnBoundaryTestCase):
         response = self._turn_end()
         self.assertEqual(response.json().get("noop"), "already-cleared")
         self.assertEqual(len(self.ws.broadcasts), before, "the no-op path pushed a broadcast")
+        self.assertEqual(self._turn_state()["turn_updated_at"], "2020-01-01T00:00:00Z",
+                         "the no-op path must not rewrite turn_updated_at")
 
 
 class TurnBoundaryRefusalTests(TurnBoundaryTestCase):

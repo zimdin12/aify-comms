@@ -1,26 +1,17 @@
-"""The route table is a snapshot, so a "pure move" cannot quietly change the API surface.
+"""The routes every bridge and dashboard depends on must exist, by name.
 
-THE SECOND v0.5 GATE, and like the import-identity one it is established BEFORE the extraction.
+The full API surface is snapshotted by `test_route_metadata_inventory.py`: every one of its rows
+carries METHOD and PATH, so a route removed or added fails there. This file used to hold a second,
+METHOD + PATH only snapshot of the same table (`data/route_inventory.txt`), which could only fail
+when the metadata snapshot also failed.
 
-Ten slices move 3,530 lines of reconcilers out of `api_v2.py`. The claim on that release is "no
-behaviour change" — but a router file being rewritten is exactly where a decorator gets dropped with
-the function it sat above, or a path changes case, or a method set narrows. None of that fails a
-unit test; the endpoint simply stops existing, and the first person to find out is whoever calls it.
-
-A count alone is not enough: dropping one route while adding another keeps the count identical. So
-the gate holds the full sorted set, and any difference prints as added/removed lines.
-
-WHEN THIS TEST FAILS AND THE CHANGE IS INTENTIONAL — adding an endpoint is normal work — update
-EXPECTED_ROUTES in the same commit as the route. That is the point: the snapshot makes an API-surface
-change a deliberate, reviewable line in a diff instead of a side effect of moving code.
+What is left is the one thing a snapshot cannot give: a handful of routes named explicitly, so that
+regenerating the snapshot wholesale cannot silently drop one the fleet cannot lose.
 """
 
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
-
-SNAPSHOT = Path(__file__).resolve().parent / "data" / "route_inventory.txt"
 
 
 def _live_routes() -> list[str]:
@@ -40,26 +31,6 @@ def _live_routes() -> list[str]:
 
 
 class RouteInventoryTests(unittest.TestCase):
-    def test_the_route_surface_matches_the_snapshot(self):
-        expected = [l for l in SNAPSHOT.read_text(encoding="utf-8").splitlines() if l.strip()]
-        actual = _live_routes()
-        missing = [r for r in expected if r not in actual]
-        added = [r for r in actual if r not in expected]
-        self.assertEqual(
-            (missing, added), ([], []),
-            "The API surface changed.\n"
-            f"  REMOVED (callers break): {missing}\n"
-            f"  ADDED: {added}\n"
-            "If this is intentional, update service/tests/data/route_inventory.txt in the same "
-            "commit as the route change. If it happened while MOVING code, it is the bug this gate "
-            "exists for — a decorator left behind with the function it sat above.",
-        )
-
-    def test_the_snapshot_is_not_empty(self):
-        """A gate over an empty snapshot passes everything."""
-        expected = [l for l in SNAPSHOT.read_text(encoding="utf-8").splitlines() if l.strip()]
-        self.assertGreater(len(expected), 100, "the snapshot looks truncated")
-
     def test_the_endpoints_the_fleet_cannot_lose(self):
         """Named explicitly, so that even a wholesale snapshot regeneration cannot silently drop the
         handful of routes every bridge and dashboard depends on."""

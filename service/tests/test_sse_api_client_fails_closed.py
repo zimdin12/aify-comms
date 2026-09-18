@@ -81,16 +81,6 @@ class TheClientFailsClosed(unittest.IsolatedAsyncioTestCase):
         self.assertIn("detail", result, "a JSON 500 was passed through as if it were a payload")
         self.assertEqual(result["status"], 500)
 
-    async def test_a_detail_from_the_API_is_PRESERVED_not_replaced(self):
-        # FastAPI's own error shape. The caller prints `detail`, so the API's message must survive —
-        # replacing it with a generic one would make every error read the same.
-        # Returned UNCHANGED: the service already explained itself in the key callers read, so there
-        # is nothing to add and no reason to reshape it. `test_sse_api_client.py` pins this exact
-        # equality for the same reason, and the fix here is additive precisely so it keeps holding.
-        result = await _call(FakeResponse(404, '{"detail":"agent not found"}',
-                                          json_value={"detail": "agent not found"}))
-        self.assertEqual(result, {"detail": "agent not found"})
-
     async def test_an_HTML_login_page_with_a_200_is_not_success(self):
         # Something that is not this API answered — a proxy, a captive portal. Non-empty and
         # unparseable is not a payload, and returning `{}` here would be another silent empty.
@@ -104,21 +94,6 @@ class TheClientFailsClosed(unittest.IsolatedAsyncioTestCase):
 
 
 class SuccessStillWorks(unittest.IsolatedAsyncioTestCase):
-    async def test_a_normal_payload_is_returned_unchanged(self):
-        # ANTI-VACUITY. Every test above would also pass if `api()` returned an error for everything,
-        # which would break all of comms.
-        payload = {"messages": [{"id": "m1"}], "total": 1, "showing": 1}
-        self.assertEqual(await _call(FakeResponse(200, "{}", json_value=payload)), payload)
-
-    async def test_an_EMPTY_204_body_is_success_with_no_content(self):
-        # DELETE endpoints answer this way. It must not become an error, or every successful
-        # deletion would report a failure to the agent that asked for it. The pre-existing
-        # `{"status", "text"}` shape is KEPT (`test_sse_api_client.py` pins it); what matters here is
-        # only that no `detail` appears, since that is what every caller reads as failure.
-        result = await _call(FakeResponse(204, "", raises=True), method="DELETE")
-        self.assertNotIn("detail", result, "a no-content success was reported as an error")
-        self.assertEqual(result["status"], 204)
-
     async def test_a_genuinely_empty_inbox_is_still_an_empty_inbox(self):
         # The case the false empty was impersonating. It has to keep working, or the fix would only
         # have moved the confusion.

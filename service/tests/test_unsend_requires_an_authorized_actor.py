@@ -85,14 +85,13 @@ class UnsendRequiresAnAuthorizedActor(FastApiTestCase):
         a parameter defeats an optional one.
         """
         message_id = self._send("alice", "carol")
-        response = self._delete(message_id, None)
-        self.assertEqual(response.status_code, 400, response.text)
-        self.assertIn("unsend requires `requestedBy`", response.text)
-
-    def test_an_EMPTY_actor_is_refused_too(self):
-        # `?requestedBy=` is what a client that "supplies" an unset variable actually sends.
-        message_id = self._send("alice", "carol")
-        self.assertEqual(self._delete(message_id, "").status_code, 400)
+        # `?requestedBy=` (the empty string) is what a client that "supplies" an unset variable
+        # actually sends, so it is refused the same way as an omitted one.
+        for actor in (None, ""):
+            with self.subTest(requestedBy=actor):
+                response = self._delete(message_id, actor)
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertIn("unsend requires `requestedBy`", response.text)
 
     def test_ANOTHER_AGENT_cannot_delete_a_message_it_did_not_write(self):
         """The reported attack, verbatim: agent B deletes an A->C message by id."""
@@ -124,25 +123,9 @@ class UnsendRequiresAnAuthorizedActor(FastApiTestCase):
         response = self._delete(message_id, "dashboard")
         self.assertEqual(response.status_code, 200, response.text)
 
-    def test_the_operator_surface_WITHOUT_the_key_is_refused(self):
-        """The regression guard, here as well as in the dedicated suite, because this is the file a
-        future reader will open when they change the sender-vs-operator rule."""
-        message_id = self._send("alice", "carol")
-        response = self._delete(message_id, "dashboard", with_key=False)
-        self.assertEqual(
-            response.status_code, 403,
-            "naming the operator surface without the operator key deleted another agent's message",
-        )
-        self.assertEqual(self._delete(message_id, "alice").status_code, 200,
-                         "the refused delete had already removed the row")
-
-    def test_a_refused_delete_leaves_the_message_INTACT(self):
-        """A 403 that still deleted would be the worst of both. Asserted through a second delete
-        attempt by the rightful sender: if the row were gone, this would 404."""
-        message_id = self._send("alice", "carol")
-        self.assertEqual(self._delete(message_id, "bob").status_code, 403)
-        self.assertEqual(self._delete(message_id, "alice").status_code, 200,
-                         "the refused delete had already removed the row")
+    # Naming the operator surface WITHOUT the key is refused, and a refused delete leaves the row in
+    # place: `test_operator_privilege_must_be_proven.py` (`test_the_reported_attack_is_REFUSED_on_every_endpoint`,
+    # `test_a_NON_OWNER_agent_is_still_refused_for_the_ordinary_reason`) asserts both on this endpoint.
 
     def test_a_CHANNEL_POST_can_only_be_unsent_by_its_author(self):
         """The fan-out path the ruling singled out: authorize on the canonical row, then delete its
