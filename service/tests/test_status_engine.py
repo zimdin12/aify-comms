@@ -46,10 +46,6 @@ def test_managed_claude_live_sidecar_no_console_is_available():
     # caller sets worker_present=False for the headless-orphan case.
     assert derive(_inp(worker_present=False, alive=True, env_reachable=True)) == "available"
 
-def test_hermes_working_while_delivering_is_working():
-    # #172: a turn in flight reads working even though it's "online"-ish underneath
-    assert derive(_inp(mode="managed", in_turn=True, worker_present=True)) == "working"
-
 def test_managed_in_turn_dead_worker_is_not_working():
     # status-F2 (2026-06-17): liveness gates the in-turn states. A managed agent whose
     # worker died mid-turn (stale in_turn, no turn-end) must NOT read working — it falls

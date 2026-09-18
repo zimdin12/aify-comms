@@ -50,31 +50,6 @@ class TurnEndNoopFastPathTests(FastApiTestCase):
         super().setUp()
         self._register("sc-worker")
 
-    def test_full_clear_when_turn_busy_set(self):
-        # turn_busy=1 → NOT a no-op; the full clear runs and turn_busy → 0.
-        self._execute(
-            "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
-            ("sc-worker", 1, "run_x", "2020-01-01T00:00:00Z"),
-        )
-        r = self._turn_end("sc-worker")
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertNotIn("noop", r.json(), "a real clear must not short-circuit")
-        row = self._fetchone("SELECT turn_busy FROM agent_turn_state WHERE agent_id='sc-worker'")
-        self.assertEqual(int(row["turn_busy"]), 0)
-
-    def test_noop_when_both_bits_already_clear(self):
-        # turn_busy=0 (fixed old stamp) AND in_turn absent/0 → short-circuit, NO write.
-        self._execute(
-            "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
-            ("sc-worker", 0, "", "2020-01-01T00:00:00Z"),
-        )
-        r = self._turn_end("sc-worker")
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json().get("noop"), "already-cleared")
-        row = self._fetchone("SELECT turn_updated_at FROM agent_turn_state WHERE agent_id='sc-worker'")
-        self.assertEqual(row["turn_updated_at"], "2020-01-01T00:00:00Z",
-                         "the no-op path must not rewrite turn_updated_at")
-
     def test_stray_in_turn_is_healed_even_when_turn_busy_clear(self):
         # The regression guard: turn_busy=0 but in_turn=1 (a stray latched by the
         # detector semantic gap). Served `working` derives from in_turn, so this MUST

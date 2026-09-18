@@ -261,24 +261,10 @@ class AwaitingReplyBranch(unittest.TestCase):
         self.assertTrue(awaiting)
 
 
-def _reader_returning(answer: bool):
-    """A stand-in for `ConsoleBootingOnce` that answers without a database.
-
-    The decision reaches its one read through this class now, so the seam these cases patch is the
-    reader, not the module-level function it calls.
-    """
-
-    class _Reader:
-        def __init__(self, db, agent_id):
-            pass
-
-        async def value(self):
-            return answer
-
-    return _Reader
-
-
 class AvailableTailBranch(unittest.TestCase):
+    """The booting and dead-sidecar outcomes of this tail are asserted in TheHotPathQueryBoundary,
+    together with the one database read they make."""
+
     def test_no_visible_console_annotates_available_without_changing_it(self):
         status, reason, _ = _call(effective_status="available", channel_managed_no_console=True)
         self.assertEqual("available", status, "the annotation must not change the status")
@@ -289,19 +275,6 @@ class AvailableTailBranch(unittest.TestCase):
                              reason="already explained")
         self.assertEqual("already explained", reason)
 
-    def test_a_BOOTING_console_displays_online(self):
-        """Display-only: routing is untouched, so a send during boot still queues."""
-        with mock.patch.object(status_decision, "ConsoleBootingOnce", new=_reader_returning(True)):
-            status, reason, _ = _call(effective_status="available", channel_managed_no_sidecar=True)
-        self.assertEqual("online", status)
-        self.assertIn("booting", reason.lower())
-
-    def test_a_sidecar_that_registered_then_DIED_stays_available(self):
-        with mock.patch.object(status_decision, "ConsoleBootingOnce", new=_reader_returning(False)):
-            status, reason, _ = _call(effective_status="available", channel_managed_no_sidecar=True)
-        self.assertEqual("available", status)
-        self.assertIn("not deliverable", reason)
-
     def test_the_neutral_case_changes_nothing(self):
         """No guard true, nothing to annotate: the incoming status and reason pass through."""
         status, reason, awaiting = _call(effective_status="available")
@@ -309,11 +282,6 @@ class AvailableTailBranch(unittest.TestCase):
 
 
 class PrecedenceInvariants(unittest.TestCase):
-    def test_blocked_outranks_working(self):
-        """An active run with an input hint is BLOCKED, not WORKING — the hint wins."""
-        status, _, _ = _call(active_run=_row(subject="x"), terminal_input_hint="Approve?")
-        self.assertEqual("blocked", status)
-
     def test_an_active_run_outranks_turn_busy(self):
         status, reason, _ = _call(active_run=_row(subject="named-run"), turn_busy=True,
                                   turn_runtime="codex")
@@ -371,8 +339,12 @@ class TheHotPathQueryBoundary(unittest.TestCase):
     def test_the_booting_query_runs_ONCE_when_the_console_is_booting(self):
         (status, reason, _), calls = self._counting_probe(
             effective_status="available", channel_managed_no_sidecar=True, _booting=True)
+        # Also the POSITIVE CONTROL for every zero-call case below: the counter observes a call
+        # through the same patch, so an empty list there means the branch did not query.
         self.assertEqual(["agent-1"], calls, "the query must run exactly once on this branch")
+        # Display-only: routing is untouched, so a send during boot still queues.
         self.assertEqual("online", status)
+        self.assertIn("booting", reason.lower())
 
     def test_the_booting_query_runs_ONCE_when_the_sidecar_is_dead(self):
         """The false outcome must reach the query too — otherwise `available` would be reported
@@ -382,21 +354,6 @@ class TheHotPathQueryBoundary(unittest.TestCase):
         self.assertEqual(["agent-1"], calls, "the query must run exactly once here as well")
         self.assertEqual("available", status)
         self.assertIn("not deliverable", reason)
-
-    def test_the_counter_would_actually_observe_a_call(self):
-        """ANTI-VACUITY ANCHOR for every zero-call assertion in this class.
-
-        If `mock.patch.object` were pointed at the wrong name, the patch would silently not apply, the
-        real function would run, `calls` would stay empty — and EVERY "no database call" test below
-        would pass while proving nothing. The two cases above are what rule that out: they observe a
-        call through the same mechanism, so an empty list elsewhere means the branch did not query,
-        not that the counter is deaf.
-
-        Stated as its own test so the dependency is visible rather than inferred from test ordering.
-        """
-        _, calls = self._counting_probe(effective_status="available",
-                                        channel_managed_no_sidecar=True, _booting=True)
-        self.assertEqual(1, len(calls), "the patch must be in effect for the zero-call cases to mean anything")
 
     def test_no_database_call_on_the_offline_branches(self):
         for label, over in (

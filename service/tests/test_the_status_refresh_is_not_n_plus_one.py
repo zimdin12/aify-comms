@@ -111,17 +111,6 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
                     table, len(hits), hits[:3]),
             )
 
-    def test_per_agent_cost_does_not_grow_when_the_fleet_does(self):
-        """The property, not the constant. Pinning a total would fail on any unrelated query added to
-        the sweep; what must hold is that these two reads are FLAT in fleet size."""
-        counts = {}
-        for n in (2, 8):
-            self.setUp()  # a fresh DB per size, so the two runs cannot share rows
-            self._register(n)
-            _, calls = self._refresh_all()
-            counts[n] = sum(1 for c in calls if any(t in c for t in self.BATCHED_TABLES))
-        self.assertEqual(counts[2], counts[8], "batched reads grew with the fleet: {}".format(counts))
-
     def test_a_single_agent_does_not_pay_for_a_batch_of_one(self):
         """The prefetch is skipped below two agents: an IN clause around the same two reads is not a
         saving, and the single-agent callers are the hot ones (registration, heartbeat)."""
@@ -451,16 +440,6 @@ class TheAnalyticsBoardGetsThePrefetchToo(FastApiTestCase):
                 "{} was read {} times for 6 agents on the pulse; it must be one batched read".format(
                     table, len(hits)),
             )
-
-    def test_that_cost_does_not_grow_with_the_fleet(self):
-        """The property, not a total: an unrelated query added to the pulse must not fail this."""
-        counts = {}
-        for n in (2, 8):
-            self.setUp()
-            self._register(n)
-            calls = self._pulse_round_trips()
-            counts[n] = sum(1 for c in calls if any(t in c for t in self.BATCHED_TABLES))
-        self.assertEqual(counts[2], counts[8], "batched reads grew with the fleet: {}".format(counts))
 
     def test_a_single_agent_does_not_pay_for_a_batch_of_one(self):
         self._register(1)

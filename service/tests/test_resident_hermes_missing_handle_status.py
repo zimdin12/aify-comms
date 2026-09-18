@@ -81,38 +81,22 @@ class ResidentHermesMissingHandleStatusTests(FastApiTestCase):
             conn.close()
 
     # ---- the bug ----
-    def test_resident_hermes_missing_handle_is_not_available(self):
-        # The operator's exact case: resident hermes, FRESH bridge (just
-        # registered), but NO usable gatewayUrl → wake-mode hermes-missing-handle.
-        # It must NOT read `available` (which would disagree with the red dot).
+    def test_resident_hermes_missing_handle_is_offline_on_label_and_dot(self):
+        # The operator's exact case: resident hermes, FRESH bridge (just registered), but NO
+        # usable gatewayUrl → wake-mode hermes-missing-handle. Proof-based (2026-06-18): an
+        # unwakeable resident is OFFLINE ('stale' was a time-decay artifact and is gone), never
+        # `available`, which would disagree with the red dot. The dot derives from statusRaw, so
+        # that must land in the same unreachable family as the label.
         self._register_resident_hermes("hermes-nohandle", runtime_config={})
         info = self._agent("hermes-nohandle")
         self.assertEqual(
             info["wakeMode"], "hermes-missing-handle",
             f"precondition: no gatewayUrl → missing-handle wake-mode; got {info['wakeMode']!r}",
         )
-        self.assertNotIn(
-            info["status"], {"available", "online", "ready", "idle"},
-            f"a resident hermes that cannot be woken (missing handle) must not read available/online; got {info['status']!r}",
-        )
-
-    def test_resident_hermes_missing_handle_is_offline(self):
-        # Proof-based (2026-06-18): an unwakeable resident (no live bridge / no handle) is
-        # OFFLINE — 'stale' was a time-decay artifact and is gone.
-        self._register_resident_hermes("hermes-nohandle2", runtime_config={})
-        info = self._agent("hermes-nohandle2")
         self.assertEqual(
             info["status"], "offline",
             f"missing-handle resident hermes should compute offline; got {info['status']!r}",
         )
-
-    def test_dot_and_label_status_agree_for_missing_handle(self):
-        # Single-source-of-truth check: the dashboard dot derives from statusRaw
-        # for the stale/offline/stopped family (it reads the SAME engine status as
-        # the label). With the fix the engine status is `stale`, which the dot
-        # renders as the muted/offline dot — consistent, no available+red split.
-        self._register_resident_hermes("hermes-nohandle3", runtime_config={})
-        info = self._agent("hermes-nohandle3")
         raw = str(info.get("statusRaw") or info.get("status") or "").lower()
         self.assertIn(
             raw, {"stale", "offline", "stopped"},

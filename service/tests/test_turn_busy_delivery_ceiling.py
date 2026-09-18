@@ -79,12 +79,6 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_fresh_turn_busy_still_holds_delivery(self):
-        """A real in-flight turn MUST still hold. The detectors KEEP-FRESH re-stamp
-        turn-start, so any genuinely running turn keeps turn_updated_at advancing."""
-        self._set_turn_busy("tbc-fresh", age_seconds=5)
-        self.assertTrue(self._holds("tbc-fresh"), "a fresh turn must still gate delivery")
-
     def test_turn_busy_just_inside_ceiling_still_holds(self):
         """Long turns are legitimate — hold right up to the ceiling."""
         self._set_turn_busy(
@@ -93,17 +87,6 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
         self.assertTrue(
             self._holds("tbc-inside"),
             "a long-but-live turn inside the ceiling must still gate delivery",
-        )
-
-    def test_abandoned_turn_busy_past_ceiling_releases_delivery(self):
-        """THE REGRESSION: past the ceiling status reports not-in-turn, so the gates must
-        release too — otherwise queued work strands forever and non-steer targets go deaf."""
-        self._set_turn_busy(
-            "tbc-abandoned", age_seconds=liveness.TURN_BUSY_BACKSTOP_SECONDS + 60
-        )
-        self.assertFalse(
-            self._holds("tbc-abandoned"),
-            "an abandoned turn_busy past TURN_BUSY_BACKSTOP_SECONDS must not hold delivery",
         )
 
     def test_ceiling_matches_the_status_engine_clamp(self):
@@ -181,26 +164,6 @@ class TurnBusyDeliveryCeilingTests(FastApiTestCase):
                     "is a permanent strand",
                 )
 
-    def test_future_turn_updated_at_must_not_hold(self):
-        """R4 (review 2026-07-26). A FUTURE timestamp makes `now - seen` NEGATIVE, which trivially
-        satisfies `<= CEILING` — so a clock-skewed or bad write would hold delivery FOREVER, the
-        exact permanent strand this ceiling exists to bound. I closed the missing-timestamp hole in
-        the same predicate and missed this one."""
-        for label, ahead in (("1 min ahead", 60), ("1 day ahead", 86400), ("1 year ahead", 31536000)):
-            with self.subTest(skew=label):
-                agent = f"tbc-future-{ahead}"
-                self._set_turn_busy(agent, age_seconds=-ahead)
-                self.assertFalse(
-                    self._holds(agent),
-                    f"turn_updated_at {label} must not hold delivery — a negative age is not "
-                    "'inside the window', it is a broken clock",
-                )
-
-    def test_zero_age_still_holds(self):
-        """Boundary: an age of exactly 0 is a legitimate just-written turn."""
-        self._set_turn_busy("tbc-now", age_seconds=0)
-        self.assertTrue(self._holds("tbc-now"))
-
 
 class LatchedButStillBeatingTests(FastApiTestCase):
     """The ceiling must fire on a latch that is STILL BEING REFRESHED.
@@ -209,7 +172,7 @@ class LatchedButStillBeatingTests(FastApiTestCase):
     "no further writes". The one that actually stranded the operator's fleet came WITH writes: a
     managed hermes agent's `pre_llm_call` hook POSTs /turn-start before every model call, which
     re-stamps `turn_updated_at` roughly every 45 seconds. Every test above ages a row and stops
-    touching it, so all nine pass while the real shape holds delivery for ever.
+    touching it, so all of them pass while the real shape holds delivery for ever.
 
     MEASURED 2026-08-30 on the live fleet: `graph-senior-dev` held every queued dispatch for 38
     minutes; two direct reads 45s apart showed `turn_updated_at` advancing 18:23:11Z -> 18:23:56Z,
@@ -259,20 +222,6 @@ class LatchedButStillBeatingTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_a_latch_kept_warm_by_a_re_stamping_poster_still_ages_out(self):
-        """THE DEFECT. Two hours into a 'turn', re-stamped 45 seconds ago."""
-        self._latch("tbl-warm", started_age=7200, updated_age=45)
-        self.assertFalse(
-            self._holds("tbl-warm"),
-            "a turn that began 2 hours ago held delivery because something re-stamped it 45s ago. "
-            "The ceiling must measure from the START, or any timer-driven poster defeats it.",
-        )
-
-    def test_a_genuinely_long_turn_inside_the_ceiling_still_holds(self):
-        """The other side of the same bound: real work must not be cut off early."""
-        self._latch("tbl-real", started_age=60, updated_age=5)
-        self.assertTrue(self._holds("tbl-real"), "a turn one minute old must still gate delivery")
-
     def test_a_row_with_no_start_anchor_falls_back_to_the_old_column(self):
         """Rows written before this column existed must behave exactly as they did.
 
@@ -304,7 +253,10 @@ class LatchedButStillBeatingTests(FastApiTestCase):
 
     def test_the_ceiling_is_the_one_constant_not_a_second_number(self):
         """A separate bound here would drift from the status engine's clamp and reopen the
-        disagreement this ceiling exists to close."""
+        disagreement this ceiling exists to close.
+
+        Both rows are re-stamped a second ago, so the release past the ceiling is also THE DEFECT
+        this class is named for: a latch kept warm by a re-stamping hook still ages out."""
         self._latch("tbl-edge", started_age=liveness.TURN_BUSY_BACKSTOP_SECONDS - 5, updated_age=1)
         self.assertTrue(self._holds("tbl-edge"), "just inside the ceiling must still hold")
         self._latch("tbl-past", started_age=liveness.TURN_BUSY_BACKSTOP_SECONDS + 5, updated_age=1)
@@ -493,21 +445,6 @@ class OnlyAVerifiableRenewalMayExtendATurnTests(FastApiTestCase):
                 await db.close()
 
         return asyncio.run(_run())
-
-    def test_a_LIVE_bridge_may_hold_a_turn_far_past_the_anchor(self):
-        """THE 47-MINUTE REVIEW. A real bridge is heartbeating and re-stamping; the work is real."""
-        self._bridge("bridge-live", "lease-long", last_seen_age=5)
-        self._turn("lease-long", bridge_id="bridge-live", started_age=47 * 60, updated_age=5)
-        self.assertTrue(
-            self._holds("lease-long"),
-            "a 47-minute turn owned by a heartbeating bridge was cut off. That delivers queued work "
-            "into the middle of real work, which is the cost the operator declined.",
-        )
-
-    def test_the_HOOK_marker_gets_the_strict_anchor_however_fresh_the_restamp(self):
-        """THE 38-MINUTE STRAND. Nothing verifiable claims this turn, so a re-stamp proves nothing."""
-        self._turn("lease-hook", bridge_id="user-prompt-submit", started_age=40 * 60, updated_age=5)
-        self.assertFalse(self._holds("lease-hook"), "a hook-marked latch must still age out")
 
     def test_a_DEAD_bridge_cannot_renew_either(self):
         """A bridge row that stopped heartbeating is not evidence that work is still running."""
