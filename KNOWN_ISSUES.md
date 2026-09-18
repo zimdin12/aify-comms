@@ -4,6 +4,28 @@ Living list of known limitations, deferred work, and things to watch. Complement
 
 > **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)** with their traces attached — including two behaviour changes awaiting an operator decision (the compaction dialog now spends usage limits by design; managed codex auto-approves all command/file approvals). This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](docs/V0.2_SPEC.md)**.
 
+## Found by the test-duplicate cleanup, not yet acted on (2026-09-19)
+
+The v0.6.15 cleanup mutated product code to prove which tests cover what. These came out of that
+work. Each was observed under a mutation or by reading; none has been seen misbehave live.
+
+- **`_row_capabilities` raises `AttributeError` on a hermes row whose `runtime_config` is JSON
+  `null`.** Whether a real row can ever hold `null` there is unchecked.
+- **A comment in `service/api_core/status_inputs.py` says a test pins `resident_bridge_stale = True`.**
+  None does: removing that line leaves every test green.
+- **A prefetch in `service/routers/analytics.py` (near line 182) is reached by no test.**
+- **The `orphan_messages.py` docstring calls `m.to_agent IS NOT NULL` load-bearing.** Dropping it
+  alone changes no result.
+- **`_managed_via_wrapper_for_runtime`'s pi branch never changes the answer**, because pi already
+  fails the delivery-mode check first.
+- **Three tests are still weak**: no mutation reddens
+  `test_status_is_pure_event_long_ceiling_not_short_window`; the orphan-reaper assertion in
+  `test_managed_hygiene_keeps_live_console` is spared by two guards at once; and
+  `test_it_binds_exactly_one_parameter` errors at setup instead of failing.
+
+The per-test record (every removal with its surviving test) is in
+[the audit plan](docs/superpowers/plans/2026-09-17-test-suite-audit.md).
+
 ## One live instance per agent: what v0.6.8 deliberately left (2026-09-15)
 
 v0.6.8 gives every launcher a per-agent lease on the host, so one agent runs once per host. The design
