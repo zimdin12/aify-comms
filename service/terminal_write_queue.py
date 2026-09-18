@@ -514,15 +514,25 @@ class TerminalOutputWriteQueue:
                 # every end status through `_close_out_terminal_on_end_status` with
                 # `_TERMINAL_END_STATUSES` -- so widening this one would duplicate that with
                 # different side effects rather than complete it.
+                #
+                # THE MIRROR IS WRITTEN ONLY WHEN IT MOVES, and `last_seen` apart from it. Every flush
+                # lands here, and a SET naming `terminal_status` is a real change to the change feed
+                # however equal the value, so each chunk from an idle console made every open
+                # dashboard refetch its agents, sessions and environments (2026-09-18: 84 of each in
+                # 25 s from one tab). `last_seen` alone is liveness and is throttled there.
                 await db.execute(
-                    """
-                    UPDATE agent_sessions
-                    SET terminal_status = ?,
-                        last_seen = ?
-                    WHERE id = ?
-                    """,
-                    (norm_status, _now(), terminal["session_id"]),
+                    "UPDATE agent_sessions SET last_seen = ? WHERE id = ?",
+                    (_now(), terminal["session_id"]),
                 )
+                mirrored = await (await db.execute(
+                    "SELECT terminal_status FROM agent_sessions WHERE id = ?",
+                    (terminal["session_id"],),
+                )).fetchone()
+                if mirrored is not None and mirrored[0] != norm_status:
+                    await db.execute(
+                        "UPDATE agent_sessions SET terminal_status = ? WHERE id = ?",
+                        (norm_status, terminal["session_id"]),
+                    )
             await _invalidate_agent_live_state(db, terminal["agent_id"])
             await db.commit()
         except BaseException:

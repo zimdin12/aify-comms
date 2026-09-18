@@ -11,7 +11,6 @@
 import { PiSession } from "./pi-session.js";
 import { piSessionPool } from "./pi-session-registry.mjs";
 import {
-  terminateProcessTree,
   defaultPiCommand,
   runtimeLaunchAvailability,
   normalizePiModelOverride,
@@ -60,25 +59,6 @@ export async function shutdownAllPiSessions(reason = "shutdown") {
   const sessions = [...piSessionPool.values()];
   piSessionPool.clear();
   await Promise.all(sessions.map((s) => s.stop(reason).catch(() => {})));
-}
-
-export function __resetPiSessionPoolForTests() {
-  for (const session of piSessionPool.values()) {
-    try {
-      if (session._proc) terminateProcessTree(session._proc);
-    } catch {
-      // swallow
-    }
-    session._proc = null;
-    session._state = "dead";
-    if (session._idleTimer) clearTimeout(session._idleTimer);
-    if (session._startupTimer) clearTimeout(session._startupTimer);
-    session._idleTimer = null;
-    session._startupTimer = null;
-    session._activeTurn = null;
-    session._pendingCommandAcks.clear();
-  }
-  piSessionPool.clear();
 }
 
 export function __piSessionPoolSize() {

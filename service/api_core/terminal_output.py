@@ -111,7 +111,8 @@ async def _append_terminal_output(
             )
         except Exception:
             logger.debug("live screen feed failed for terminal=%s", terminal["id"], exc_info=True)
-    next_status = _terminal_status_transition(terminal["status"] if "status" in terminal.keys() else "", status)
+    stored_status = terminal["status"] if "status" in terminal.keys() else ""
+    next_status = _terminal_status_transition(stored_status, status)
     # AN ENDING TERMINAL FLUSHES, whatever the cadence says: the last screen of a worker that died is
     # the one an operator reads to find out why, and it is the one the tail's whole 24-hour TTL is
     # about. `terminal_diagnostics` reads it to say which line explains the death.
@@ -159,8 +160,13 @@ async def _append_terminal_output(
             params.append(int(seq))
         mark_flushed(str(terminal["id"]))
     if next_status:
-        updates.append("status = ?")
-        params.append(next_status)
+        # ONLY A STATUS THAT MOVED IS WRITTEN. Every flush carries the terminal's status, and a SET
+        # naming `status` is a real change to the change feed however equal the value, so an idle
+        # chatty console made every open dashboard refetch its agents, sessions and environments
+        # about three times a second (measured 2026-09-18: 84 of each in 25 s from one tab).
+        if next_status != stored_status:
+            updates.append("status = ?")
+            params.append(next_status)
         if ending:
             updates.append("stopped_at = COALESCE(stopped_at, ?)")
             params.append(_now())
