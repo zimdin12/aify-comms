@@ -81,10 +81,14 @@ test("the env var is still SCRUBBED into children, and that is not an oversight"
   // The one thing this file must not cause: someone reading "the flag is retired" and deleting the
   // scrubs. Every wrapper running right now loads pre-deletion code that READS the variable, because
   // the deletion is inert until install.sh is re-run and each wrapper relaunches.
-  const terminalEnv = readFileSync(path.join(STDIO, "terminal-env.js"), "utf8");
+  // The launch environment is composed by the service since v0.6.2 (`service/api_core/launch_env.py`);
+  // `terminal-env.js`, which did this on the host, was deleted on 2026-09-18 with no caller left.
+  const launchEnv = readFileSync(
+    path.join(STDIO, "..", "..", "service", "api_core", "launch_env.py"), "utf8",
+  );
   assert.match(
-    terminalEnv, /AIFY_ENVIRONMENT_BRIDGE:\s*"0"/,
-    "terminal-env.js stopped neutralising AIFY_ENVIRONMENT_BRIDGE for the children it launches. The "
+    launchEnv, /"AIFY_ENVIRONMENT_BRIDGE":\s*"0"/,
+    "launch_env.py stopped neutralising AIFY_ENVIRONMENT_BRIDGE for the workers it launches. The "
     + "READER is retired in this checkout; the bridges actually running on this host still have it, "
     + "and inheriting a truthy value is how a test process once became the environment bridge and "
     + "reaped seven live gateway hosts.",

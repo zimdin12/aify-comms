@@ -297,7 +297,7 @@ class BridgeWriteBodyTests(unittest.TestCase):
 
     def test_the_scan_read_both_sides_and_can_answer_either_way(self):
         """A comparison that found nothing is indistinguishable from one that compared nothing."""
-        self.assertGreater(len(self.sites), 80, f"only {len(self.sites)} write call sites found")
+        self.assertGreater(len(self.sites), 70, f"only {len(self.sites)} write call sites found")
         self.assertGreater(len(self.routes), 50, f"only {len(self.routes)} write routes built")
         readable = [s for s in self.sites if s.keys is not None]
         self.assertGreater(len(readable), 70, f"only {len(readable)} bodies parsed as literals")

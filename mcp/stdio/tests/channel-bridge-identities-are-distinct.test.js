@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Three drivers compose a bridge id with IDENTICAL code and DIFFERENT prefixes. That is the design.
+// Two drivers compose a bridge id with IDENTICAL code and DIFFERENT prefixes. That is the design.
+// (There were three until 2026-09-18, when `hermes-channel.js`, a sidecar nothing launched, was deleted.)
 //
 //   claude-channel.js      channel-${MACHINE_ID}                 (claude channel sidecar)
-//   hermes-channel.js      hermes-channel-${MACHINE_ID}          (hermes channel sidecar)
 //   hermes-run-reporting   hermes-managed-host-${MACHINE_ID}     (hermes managed host)
 //
-// `channelBridgeId(agentId)` is byte-identical in all three — `prefix ? `${PREFIX}-${id}` : PREFIX`
-// — so a duplication scan flags it as a three-way fork. IT IS NOT ONE. The bodies are the same; the
+// `channelBridgeId(agentId)` is byte-identical in both — `prefix ? `${PREFIX}-${id}` : PREFIX`
+// — so a duplication scan flags it as a fork. IT IS NOT ONE. The bodies are the same; the
 // module-scope constant each body CLOSES OVER is not. Merging them into a shared helper, which is
-// exactly the tidy-up a fork census invites, would give three processes that routinely run side by
+// exactly the tidy-up a fork census invites, would give two processes that routinely run side by
 // side the SAME bridge identity.
 //
 // WHAT A COLLISION COSTS. Bridge identity is what the service uses to decide that a newer
@@ -16,12 +16,11 @@
 // reaped. This project has already lost a nine-agent fleet to one unintended supersession. Two
 // drivers sharing an id means each new registration evicts the other, forever.
 //
-// So the invariant is not "these three agree" but its opposite: for any agent, the three identities
-// must be PAIRWISE DISTINCT. Nothing asserted that — `channel-bridge-id.test.js` covers the claude
-// copy alone (agent-scoping and stability), which is true of all three and says nothing about
+// So the invariant is not "these agree" but its opposite: for any agent, the identities
+// must be DISTINCT. Nothing asserted that — `channel-bridge-id.test.js` covers the claude
+// copy alone (agent-scoping and stability), which is true of both and says nothing about
 // whether they collide.
-//
-// hermes-channel.js does not export its copy, so its half is read from source. Two are called.
+
 
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -37,7 +36,7 @@ import {
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceOf = (rel) => readFileSync(path.join(STDIO, rel), "utf-8").replace(/\r\n/g, "\n");
 
-/** The literal template each module builds its prefix from, e.g. "hermes-channel-${MACHINE_ID}". */
+/** The literal template each module builds its prefix from, e.g. "channel-${MACHINE_ID}". */
 function prefixTemplate(rel) {
   const src = sourceOf(rel);
   const match = src.match(/CHANNEL_BRIDGE_PREFIX\s*=\s*`([^`]*)`/);
@@ -57,7 +56,7 @@ function prefixTemplate(rel) {
  *
  * DERIVED FROM THE DECLARATION, not from a filename convention. A module is in scope because it
  * declares `CHANNEL_BRIDGE_PREFIX`, which is the thing whose uniqueness is being asserted -- a
- * `*-channel.js` glob would have missed `hermes-run-reporting.mjs`, which is one of the three.
+ * `*-channel.js` glob would have missed `hermes-run-reporting.mjs`, which is one of them.
  */
 function channelPrefixModules() {
   return readdirSync(STDIO)
@@ -70,16 +69,16 @@ const MODULES = channelPrefixModules();
 
 // POSITIVE CONTROL. Every assertion below is satisfied by an empty set -- no two prefixes collide
 // when there are none -- so a scan that stopped finding modules would make this file pass loudest
-// exactly when it had broken. Three are known to declare one today.
+// exactly when it had broken. Two are known to declare one today.
 assert.ok(
-  MODULES.length >= 3,
+  MODULES.length >= 2,
   `only ${MODULES.length} module(s) declare CHANNEL_BRIDGE_PREFIX (${MODULES.join(", ")}); the scan `
     + "is not reaching them, and every collision assertion below is vacuous",
 );
 
 const TEMPLATES = Object.fromEntries(MODULES.map((name) => [name, prefixTemplate(name)]));
 
-// ── the three namespaces are distinct ────────────────────────────────────────────────────────
+// ── the namespaces are distinct ──────────────────────────────────────────────────────────────
 {
   const values = Object.values(TEMPLATES);
   assert.equal(
@@ -111,7 +110,7 @@ const TEMPLATES = Object.fromEntries(MODULES.map((name) => [name, prefixTemplate
   assert.equal(hermesHostBridgeId(""), HERMES_HOST_PREFIX, "an id-less caller falls back to the prefix");
 }
 
-// ── each is still agent-scoped and stable (true of all three, and not what makes them safe) ──
+// ── each is still agent-scoped and stable (true of both, and not what makes them safe) ────────
 {
   for (const make of [claudeChannelBridgeId, hermesHostBridgeId]) {
     assert.notEqual(make("lc-coder"), make("lc-tester"), "bridge ids must be per-agent");
@@ -125,7 +124,7 @@ const TEMPLATES = Object.fromEntries(MODULES.map((name) => [name, prefixTemplate
   // The distinctness assertions would pass against templates that shared no structure at all, and
   // the scoping ones against any function that echoed its argument. Both must hold together: same
   // SHAPE, different NAMESPACE.
-  assert.equal(new Set(Object.values(TEMPLATES)).size, 3);
+  assert.equal(new Set(Object.values(TEMPLATES)).size, 2);
   for (const template of Object.values(TEMPLATES)) assert.match(template, /-\$\{MACHINE_ID\}$/);
   assert.ok(claudeChannelBridgeId("x").endsWith("-x"), "the agent id is the suffix");
 }

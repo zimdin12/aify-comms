@@ -53,23 +53,19 @@ function renderCodexWrapper() {
 // matches over one artifact. The render is the FIXTURE here, not the subject: rendering it once per
 // case proves the same thing N-1 extra times.
 //
-// The tests that inspect or DELETE the directory keep their own private render, because they mutate
-// it. Sharing a directory would let one of them remove another's fixture, which is the same class of
-// fault the bridge harness hit the first time it shared one.
+// The bash -n case reads the same render: it only reads the file, so sharing cannot let one case
+// see another's work. tmpDir removes the directory at exit. (It rendered privately until
+// 2026-09-18, a second full install.sh run for the same artifact.)
 let sharedRender = null;
-function sharedText() {
+function shared() {
   if (!sharedRender) sharedRender = renderCodexWrapper();
-  return sharedRender.text;
+  return sharedRender;
 }
+const sharedText = () => shared().text;
 
 test("codex-aify wrapper: rendered heredoc body is syntactically valid (bash -n)", () => {
-  const { wrapperPath, dir } = renderCodexWrapper();
-  try {
-    const res = spawnSync("bash", ["-n", wrapperPath], { encoding: "utf8" });
-    assert.equal(res.status, 0, `bash -n failed:\n${res.stderr || res.stdout}`);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const res = spawnSync("bash", ["-n", shared().wrapperPath], { encoding: "utf8" });
+  assert.equal(res.status, 0, `bash -n failed:\n${res.stderr || res.stdout}`);
 });
 
 test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the foreground/resume TUI launch", () => {

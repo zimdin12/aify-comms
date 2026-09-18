@@ -48,8 +48,9 @@ export const NOWHERE_URL = "http://127.0.0.2:1";
 // because an earlier case prepared state -- and it took one run to appear. Each run now gets its
 // own workspace, so the rendered directory is read-only input to every caller.
 //
-// The render itself is proven deterministic by `claude-wrapper-determinism.test.js`, which renders
-// twice and compares bytes. It has its own renderer and is untouched by this cache.
+// The `*-wrapper-determinism` files keep their own renderer, once per file, because they are what
+// exercises install.sh's per-client `--emit-<client>-wrappers` aliases; this helper uses the generic
+// `--emit-wrappers`. (This note used to say one of them rendered twice and compared bytes. None does.)
 //
 // Per PROCESS, not per suite: run-all.mjs spawns one node per file, so the cache dies with the file
 // and no test can see a directory another file prepared.

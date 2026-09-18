@@ -277,7 +277,7 @@ async def _resume_policy_for_agent(db, agent_id: str) -> str:
     no column for. Nothing raised -- the read was guarded on the column being present -- so it
     answered "" for every terminal for ever, and the guard that was supposed to make it safe is
     exactly what made the mistake invisible. `session_restart.py` writes `resumePolicy` here, and
-    `mcp/stdio/terminal-env.js` reads it from the same place.
+    `launch_env.py` reads it from the same place.
     """
     if not agent_id:
         return ""

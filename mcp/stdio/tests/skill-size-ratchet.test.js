@@ -116,7 +116,7 @@ const CEILINGS = {
   // shrank while gaining the note about which bridge builds still show the split.
   // 26_579 -> 26_604 on 2026-09-12. RAISED: same restart correction, partly paid back by replacing an
   // `api_v2.py` reference for code that has moved out of that file.
-  "aify-comms-debug/references/dispatch-delivery.md": 26_604,
+  "aify-comms-debug/references/dispatch-delivery.md": 26_599,
   // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
   //
   // Managed spawns are delegated to aify-env from that date, and it is REQUIRED: the bridge refuses
@@ -140,7 +140,7 @@ const CEILINGS = {
   // 27_285 -> 27_280 on 2026-09-12. LOWERED: the same restart correction, and this file paid for
   // itself -- a pointer to a section that does not exist was replaced by the fact it was pointing at.
   "aify-comms-debug/references/hermes-session.md": 27_280,
-  "aify-comms-debug/references/hermes-turns.md": 15_996,
+  "aify-comms-debug/references/hermes-turns.md": 15_884,
   // 6_704 -> 6_698 on 2026-09-12. LOWERED: the section heading named restarting a command that
   // starts nothing, and step 1 told the reader to verify a tier deleted in v0.6.2. Both now name
   // aify-env, and saying the true thing took fewer bytes than saying the false one.

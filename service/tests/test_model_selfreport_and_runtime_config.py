@@ -15,7 +15,7 @@ the error handling differs — so a future tidy-up that "unifies" them would loo
 and would silently make bad-model registrations fatal. This file is what fails in that case.
 
 `runtimeConfig` is the fifth door, found by an external review after four were called a boundary:
-`mcp/stdio/terminal-env.js` reads `runtimeConfig.model` as the fallback for `AIFY_MANAGED_MODEL`, so
+the launch composer reads `runtimeConfig.model` as the fallback for `AIFY_MANAGED_MODEL`, so
 `runtimeConfig={"model": "opus; rm -rf /"}` reached a runtime CLI having passed none of the four
 validated doors. A free-form dict beside a validated scalar is a hole by construction.
 """

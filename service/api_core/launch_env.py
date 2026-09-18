@@ -1,7 +1,7 @@
 """The environment a managed worker is launched with — composed HERE, by the tier that knows it.
 
-WHY THIS MOVED, 2026-09-03. Every value below was composed on the HOST, in
-`mcp/stdio/terminal-env.js`, by the aify-comms environment bridge. That bridge is being removed:
+WHY THIS MOVED, 2026-09-03. Every value below was composed on the HOST, in `terminal-env.js`
+(deleted 2026-09-18), by the aify-comms environment bridge. That bridge is being removed:
 aify-env becomes the process host, and the operator's reasoning for it is exactly right — the
 container cannot hold the agents, or they would be in the container's environment rather than the
 host's.
@@ -72,14 +72,20 @@ ALWAYS_SET = (
 #: `AIFY_AGENT_ROLE || AIFY_COMMS_AGENT_ROLE || "coder"`, and "" is falsy, so an inherited alias won.
 #:
 #: THE REGRESSION THIS CLOSES, reported 2026-09-14 by graph-tech-lead and confirmed by reading both
-#: tiers: the strip lived in `mcp/stdio/terminal-env.js`, whose only production caller was the
+#: tiers: the strip lived in the bridge's `terminal-env.js`, whose only production caller was the
 #: environment bridge v0.6.2 deleted. aify-env merges `{...process.env, ...launch.env}` and named
 #: neither variable, so from then on a host started inside a Claude Code session launched every
 #: managed claude with its transcript off.
 NEVER_INHERITED = (
+    # Marks the process a child session, which turns transcript saving off; a lost transcript cannot
+    # be recovered afterwards.
     "CLAUDE_CODE_CHILD_SESSION",
+    # The host's identity, by both names: stripping one and not the other leaves a worker holding two
+    # answers to who it is, and able to report as the process that started it.
     "AIFY_AGENT_ID",
     "AIFY_COMMS_AGENT_ID",
+    # The host's role, by both names. Re-register is a full state refresh, so an inherited role
+    # overwrites the spawn's; the alias is the one this list first missed.
     "AIFY_AGENT_ROLE",
     "AIFY_COMMS_AGENT_ROLE",
     # The lease of whichever agent's launcher started the host (aify-wrapper's agent lease). Inherited, a

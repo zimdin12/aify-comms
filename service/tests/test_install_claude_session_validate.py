@@ -21,44 +21,12 @@ rendered output.
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import tempfile
-from functools import lru_cache
-from pathlib import Path
-
-import pytest
-
-REPO = Path(__file__).resolve().parents[2]
-INSTALL_SH = REPO / "install.sh"
-
-# A literal, never the operator's configured endpoint: the rendered text must be identical on every
-# machine, and nothing here may reach a live service.
-RENDER_URL = "http://127.0.0.1:8899"
+from service.tests._launchers import launcher
 
 
-@lru_cache(maxsize=1)
 def _rendered_wrapper() -> str:
-    """Render claude-aify into a throwaway dir and return its text.
-
-    `--emit-wrappers` writes the wrapper and EXITS before npm, MCP registration, hook install or any
-    env mutation, so this cannot touch ~/.local/bin on a machine with a live fleet.
-    """
-    # `shutil.which` and not the bare name: on Windows a plain "bash" resolves to
-    # C:\Windows\System32\bash.exe (WSL), which cannot read a C:\ path and exits 127. The other
-    # install tests here already resolve it this way.
-    bash = shutil.which("bash")
-    if not bash:
-        pytest.skip("bash not on PATH — claude wrapper render skipped")
-    with tempfile.TemporaryDirectory(prefix="aify-claude-render-") as tmp:
-        subprocess.run(
-            [bash, str(INSTALL_SH), "--client", "claude", RENDER_URL, "--emit-wrappers", tmp],
-            check=True,
-            capture_output=True,
-        )
-        wrapper = Path(tmp) / "claude-aify"
-        assert wrapper.exists(), "--emit-wrappers must produce claude-aify"
-        return wrapper.read_text(encoding="utf-8")
+    """The RENDERED claude-aify wrapper, the artifact an operator installs."""
+    return launcher("claude")
 
 
 def test_rendered_wrapper_is_not_empty():

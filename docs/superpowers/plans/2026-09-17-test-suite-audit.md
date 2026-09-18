@@ -19,9 +19,24 @@ tests. This file records what was done and what is left, so the rest can be work
 
 Suites after: Python 5,833 in 89 s (was 5,872 in 125 s), bridge 371 files in 65 s, dashboard 1,784.
 
+## Done 2026-09-18 (items 1 and 5 below)
+
+| change | effect |
+|---|---|
+| seven Python files read `_launchers.render()` instead of rendering privately; the service-key file renders once, not three times | Python `--emit-wrappers` runs 45 -> 41 in a full run, 12 -> 8 in those seven files (counted with a subprocess hook; the per-process cache means the exact figure depends on which worker a file lands on) |
+| the four `*-wrapper-determinism` files render once each | bridge renders in those files 10 -> 4 |
+| `hermes-channel.js`, `terminal-env.js`, `child-env-hygiene.mjs` deleted with their tests | no importer in `mcp/stdio`, `install.sh`, the launcher templates or aify-env; the derived "every identity name is written or stripped" check moved onto `launch_env.py` |
+
+Not done: rendering once per session on the xdist controller. A cross-worker cache was built and
+measured: it took `_launchers` renders from 10 to 6, but under `--dist loadfile` the other workers
+WAIT for the render instead of doing it, so wall time did not move (subset 53 s vs 52 s; full-suite
+wall on this host swung 138-232 s for the same code). Most remaining renders (29 of 41) are in files
+that need a real directory: `a_reinstall_leaves...` (8), `install_keeps_the_delegation...` (7),
+`both_endpoint_readers_agree` (5), `installed_launchers_carry_a_real_fingerprint` (4).
+
 ## Left, in order of value
 
-1. **Share launcher renders.** About 44 `install.sh --emit-wrappers` renders run across the Python
+1. **DONE 2026-09-18 (see above).** **Share launcher renders.** About 44 `install.sh --emit-wrappers` renders run across the Python
    suite and at least 13 more across the bridge suite; only 5 are distinct (claude, codex, hermes, pi,
    claude with `--mcp-transport sse`). Render once per session (`pytest_sessionstart` on the
    controller; once in `run-all.mjs`) and hand the text or directory to the tests. Python files to
@@ -58,7 +73,7 @@ Suites after: Python 5,833 in 89 s (was 5,872 in 125 s), bridge 371 files in 65 
    `install-node-pty-recovery`. Still left: about 16 "server.js kept none / registered once" import
    `deepEqual`s; four hand-typed "injected, not imported" lists in dashboard tests that one
    "no module imports app.js" gate would replace.
-5. **Two more dead modules**, entangled with other tests: `hermes-channel.js` (no importer; its tests
+5. **DONE 2026-09-18 (see above).** **Two more dead modules**, entangled with other tests: `hermes-channel.js` (no importer; its tests
    plus part of `hermes-gateway-liveness.test.js`) and `terminal-env.js` + `child-env-hygiene.mjs`
    (held equal to `service/api_core/launch_env.py` by `test_the_launch_environment_has_one_owner.py`).
 
