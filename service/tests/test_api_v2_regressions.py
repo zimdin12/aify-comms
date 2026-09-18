@@ -4454,84 +4454,97 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(session["owner_mode"], "console")
         self.assertEqual(session["terminal_id"], terminal_id)
 
-    def test_managed_dispatch_to_active_console_terminal_forwards_to_pty(self):
-        # Hermes has no native managed adapter, so it always uses a managed PTY.
-        # Native runtimes are covered below: default terminal-backed delivery,
-        # plus an explicit legacy-native fallback when the setting is disabled.
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="hermes",
-            terminal_runtimes=["hermes"],
-            session_handle="hermes-session-1",
-        )
-        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
-        self.assertEqual(started.status_code, 200, started.text)
-        terminal_id = started.json()["terminal"]["id"]
+    def test_an_open_console_receives_the_message_as_typed_input(self):
+        """With a console already open, dispatch and send type the message into THAT terminal and
+        record a reply contract, rather than queueing a run; the reply closes the contract.
 
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="work",
-            body="do it",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        self.assertEqual(dispatched["runs"], [])
-        self.assertEqual(dispatched["notStarted"], [])
-        self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], "console-agent")
-        self.assertEqual(dispatched["consoleDeliveries"][0]["terminalId"], terminal_id)
-        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
-        self.assertEqual(contract["status"], "running")
-        self.assertEqual(contract["dispatch_mode"], "terminal")
-        self.assertEqual(contract["require_reply"], 1)
-        self.assertEqual(dispatched["consoleDeliveries"][0]["contractRunId"], contract["id"])
-        control = self._fetchone("SELECT * FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,))
-        self.assertIsNotNone(control)
-        self.assertIn("AIFY dashboard message", control["body"])
-        self.assertIn("dashboard", control["body"])
-        self.assertIn("do it", control["body"])
-        self.assertTrue(control["body"].endswith("\r"))
-
-    def test_managed_dispatch_native_runtime_uses_terminal_backing_by_default(self):
-        for runtime, handle in (("codex", "codex-thread-1"),):
-            with self.subTest(runtime=runtime):
-                agent_id = f"{runtime}-terminal-agent"
-                self._create_running_session(
+        Merged from three tests (dispatch to hermes, send to hermes, send to claude). The fourth
+        pair is added because the two entry points queue input through separate twins in
+        `console_input_queue.py`.
+        """
+        cases = [
+            ("dispatch", "hermes", "hermes-session-1"),
+            ("send", "hermes", "hermes-session-1"),
+            ("dispatch", "claude-code", "claude-session-1"),
+            ("send", "claude-code", "claude-session-1"),
+        ]
+        for entry, runtime, handle in cases:
+            with self.subTest(entry=entry, runtime=runtime):
+                agent_id = f"{entry}-{runtime}-open"
+                session_id = self._create_running_session(
                     agent_id=agent_id,
                     terminal=True,
                     runtime=runtime,
                     terminal_runtimes=[runtime],
                     session_handle=handle,
                 )
+                started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+                self.assertEqual(started.status_code, 200, started.text)
+                terminal_id = started.json()["terminal"]["id"]
 
-                dispatched = self._dispatch(
-                    from_agent="dashboard",
-                    to=agent_id,
-                    type="request",
-                    subject="work",
-                    body=f"terminal-backed dispatch for {runtime}",
-                    mode="start_if_possible",
-                    createMessage=True,
-                )
-                self.assertEqual(dispatched["notStarted"], [])
-                self.assertEqual(dispatched["runs"], [])
-                self.assertEqual(len(dispatched.get("consoleDeliveries", [])), 1)
-                contract = self._fetchone(
-                    "SELECT status, dispatch_mode, runtime FROM dispatch_runs WHERE target_agent = ?",
-                    (agent_id,),
-                )
-                self.assertIsNotNone(contract)
-                self.assertEqual(contract["status"], "running")
-                self.assertEqual(contract["dispatch_mode"], "terminal")
-                self.assertEqual(_normalize_runtime(contract["runtime"]), runtime)
-                terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-                injected = self._fetchone(
-                    "SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'",
+                body = f"typed through {entry} into {runtime}"
+                if entry == "dispatch":
+                    payload = self._dispatch(
+                        from_agent="dashboard", to=agent_id, type="request", subject="console chat",
+                        body=body, mode="start_if_possible", createMessage=True,
+                    )
+                    self.assertEqual(payload["runs"], [])
+                else:
+                    payload = self._send_message(
+                        from_agent="dashboard", to=agent_id, type="request", subject="console chat",
+                        body=body, trigger=True,
+                    )
+                    self.assertTrue(payload["ok"], payload)
+                    self.assertEqual(payload["dispatchRuns"], [])
+                    message = self._fetchone("SELECT dispatch_requested FROM messages WHERE id = ?", (payload["messageId"],))
+                    self.assertEqual(message["dispatch_requested"], 1)
+                self.assertEqual(payload["notStarted"], [])
+                self.assertEqual(len(payload["consoleDeliveries"]), 1)
+                delivery = payload["consoleDeliveries"][0]
+                self.assertEqual(delivery["targetAgentId"], agent_id)
+                self.assertEqual(delivery["terminalId"], terminal_id)
+
+                controls = self._fetchall(
+                    "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
                     (terminal_id,),
                 )
-                self.assertIsNotNone(injected)
-                self.assertIn(f"terminal-backed dispatch for {runtime}", injected["body"])
+                self.assertEqual([row["action"] for row in controls], ["start", "input"])
+                typed = controls[1]["body"]
+                self.assertIn("AIFY dashboard message", typed)
+                self.assertIn("From: dashboard", typed)
+                self.assertIn(body, typed)
+                self.assertIn("\x1b[200~", typed)
+                self.assertIn("\x1b[201~", typed)
+                self.assertTrue(typed.endswith("\r"))
+
+                contract = self._fetchone(
+                    "SELECT id, status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE target_agent = ?",
+                    (agent_id,),
+                )
+                self.assertEqual(delivery["contractRunId"], contract["id"])
+                self.assertEqual(contract["status"], "running")
+                self.assertEqual(contract["dispatch_mode"], "terminal")
+                self.assertEqual(contract["execution_mode"], "managed")
+                self.assertEqual(contract["require_reply"], 1)
+                receipt = self._fetchone(
+                    "SELECT message_id FROM read_receipts WHERE message_id = ? AND agent_id = ?",
+                    (payload["messageId"], agent_id),
+                )
+                self.assertIsNotNone(receipt)
+
+                reply = self._send_message(
+                    from_agent=agent_id, to="dashboard", type="response", subject="Re: console chat",
+                    body="answered from console", inReplyTo=payload["messageId"], trigger=False,
+                )
+                self.assertTrue(reply["ok"], reply)
+                closed = self._fetchone(
+                    "SELECT status, result_message_id, finished_at FROM dispatch_runs WHERE id = ?",
+                    (contract["id"],),
+                )
+                self.assertEqual(closed["status"], "completed")
+                self.assertEqual(closed["result_message_id"], reply["messageId"])
+                self.assertTrue(closed["finished_at"])
+
 
     def test_managed_dispatch_native_runtime_can_fall_back_to_native_when_terminal_backing_disabled(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
@@ -4572,81 +4585,84 @@ class ApiV2RegressionTests(FastApiTestCase):
                     (terminal_id,),
                 )
                 self.assertIsNone(injected)
-    def test_managed_claude_dispatch_uses_claude_aify_terminal_turn(self):
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
+    def test_a_closed_console_is_cold_started_and_the_message_typed_into_it(self):
+        """Dispatch and send both cold-start a managed PTY when no console is open.
 
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="work",
-            body="do it without console open",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        self.assertEqual(len(dispatched["consoleDeliveries"]), 1)
-        self.assertEqual(dispatched["notStarted"], [])
-        self.assertEqual(dispatched["runs"], [])
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        contract = self._fetchone(
-            "SELECT id, status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
-            (run_id,),
-        )
-        self.assertEqual(contract["status"], "running")
-        self.assertEqual(contract["dispatch_mode"], "terminal")
-        self.assertEqual(contract["execution_mode"], "managed")
-        self.assertEqual(contract["require_reply"], 1)
-        listed_working = self.client.get("/api/v1/agents")
-        self.assertEqual(listed_working.status_code, 200, listed_working.text)
-        self.assertEqual(listed_working.json()["agents"]["console-agent"]["status"], "working")
-        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(session["owner_mode"], "managed")
-        self.assertTrue(session["terminal_id"])
-        self.assertEqual(session["terminal_status"], "starting")
-        controls = self._fetchall(
-            "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
-            (session["terminal_id"],),
-        )
-        self.assertEqual([row["action"] for row in controls], ["start", "input"])
-        self.assertIn("claude-aify --aify-agent console-agent --auto", controls[0]["body"])
-        self.assertIn("--resume claude-session-1", controls[0]["body"])
-        self.assertNotIn("claude --channels", controls[0]["body"])
-        self.assertIn("do it without console open", controls[1]["body"])
-        self.assertIn("\x1b[200~", controls[1]["body"])
-        self.assertIn("\x1b[201~", controls[1]["body"])
-        self.assertTrue(controls[1]["body"].endswith("\r"))
+        Merged from five tests that each drove one (entry point, runtime) pair through the same
+        assertions. The pairs are not interchangeable: the two entry points queue their console input
+        through separate twins in `console_input_queue.py`, and each runtime builds its own launch
+        command. Codex is here because a native runtime is terminal-backed by default
+        (`managed_terminal_backing_enabled`); its opt-out has its own test above.
+        """
+        cases = [
+            ("dispatch", "claude-code", "claude-aify --aify-agent {agent} --auto", "--resume claude-session-1", "claude-session-1"),
+            ("send", "claude-code", "claude-aify --aify-agent {agent} --auto", "--resume claude-session-1", "claude-session-1"),
+            ("dispatch", "hermes", "hermes-aify --aify-agent {agent}", "--resume hermes-session-1", "hermes-session-1"),
+            ("send", "hermes", "hermes-aify --aify-agent {agent}", "--resume hermes-session-1", "hermes-session-1"),
+            ("dispatch", "codex", "codex-aify --aify-agent {agent}", "resume codex-thread-1", "codex-thread-1"),
+        ]
+        for entry, runtime, command, resume, handle in cases:
+            with self.subTest(entry=entry, runtime=runtime):
+                agent_id = f"{entry}-{runtime}-cold"
+                session_id = self._create_running_session(
+                    agent_id=agent_id,
+                    terminal=True,
+                    runtime=runtime,
+                    terminal_runtimes=[runtime],
+                    session_handle=handle,
+                )
+                body = f"cold start through {entry} for {runtime}"
+                if entry == "dispatch":
+                    payload = self._dispatch(
+                        from_agent="dashboard", to=agent_id, type="request", subject="work",
+                        body=body, mode="start_if_possible", createMessage=True,
+                    )
+                    self.assertEqual(payload["runs"], [])
+                else:
+                    payload = self._send_message(
+                        from_agent="dashboard", to=agent_id, type="request", subject="work",
+                        body=body, trigger=True,
+                    )
+                    self.assertTrue(payload["ok"], payload)
+                    self.assertEqual(payload["dispatchRuns"], [])
+                self.assertEqual(payload["notStarted"], [])
+                self.assertEqual(len(payload["consoleDeliveries"]), 1)
+                delivery = payload["consoleDeliveries"][0]
+                self.assertEqual(delivery["targetAgentId"], agent_id)
 
-    def test_service_does_not_blindly_inject_claude_startup_enter(self):
-        self.client.put("/api/v1/settings", json={"console_auto_confirm_claude_dev_channels": True})
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
+                contract = self._fetchone(
+                    "SELECT status, dispatch_mode, execution_mode, require_reply, runtime FROM dispatch_runs WHERE id = ?",
+                    (delivery["contractRunId"],),
+                )
+                self.assertEqual(_normalize_runtime(contract["runtime"]), runtime)
+                self.assertEqual(contract["status"], "running")
+                self.assertEqual(contract["dispatch_mode"], "terminal")
+                self.assertEqual(contract["execution_mode"], "managed")
+                self.assertEqual(contract["require_reply"], 1)
+                listed = self.client.get("/api/v1/agents")
+                self.assertEqual(listed.status_code, 200, listed.text)
+                self.assertEqual(listed.json()["agents"][agent_id]["status"], "working")
 
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="work",
-            body="do it without console open",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        self.assertEqual(len(dispatched["consoleDeliveries"]), 1)
-        session = self._fetchone("SELECT terminal_id FROM agent_sessions WHERE id = ?", (session_id,))
-        controls = self._fetchall(
-            "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
-            (session["terminal_id"],),
-        )
-        self.assertEqual([row["action"] for row in controls], ["start", "input"])
-        self.assertIn("do it without console open", controls[1]["body"])
+                session = self._fetchone(
+                    "SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?",
+                    (session_id,),
+                )
+                self.assertEqual(session["owner_mode"], "managed")
+                self.assertEqual(session["terminal_id"], delivery["terminalId"])
+                self.assertEqual(session["terminal_status"], "starting")
+                controls = self._fetchall(
+                    "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
+                    (delivery["terminalId"],),
+                )
+                self.assertEqual([row["action"] for row in controls], ["start", "input"])
+                self.assertTrue(controls[0]["body"].startswith(command.format(agent=agent_id)), controls[0]["body"])
+                self.assertIn(resume, controls[0]["body"])
+                self.assertNotIn("claude --channels", controls[0]["body"])
+                self.assertIn(body, controls[1]["body"])
+                self.assertIn("\x1b[200~", controls[1]["body"])
+                self.assertIn("\x1b[201~", controls[1]["body"])
+                self.assertTrue(controls[1]["body"].endswith("\r"))
+
 
     def test_managed_claude_dispatch_does_not_create_channel_only_run(self):
         self._create_running_session(
@@ -4717,281 +4733,26 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertIsNone(orphan_channel)
 
-    def test_managed_dispatch_starts_headless_pty_for_terminal_runtimes(self):
-        # Hermes has no native managed adapter, so dispatch starts/reuses a
-        # managed PTY directly. Native runtimes use the same terminal-backed
-        # contract by default and have separate fallback coverage.
-        cases = [
-            ("hermes", "hermes-aify --aify-agent {agent_id}", "--resume hermes-session-1", "hermes-session-1"),
-        ]
-        for runtime, command_prefix, command_contains, handle in cases:
-            with self.subTest(runtime=runtime):
-                agent_id = f"{runtime}-pty-agent"
-                session_id = self._create_running_session(
-                    agent_id=agent_id,
-                    terminal=True,
-                    runtime=runtime,
-                    terminal_runtimes=[runtime],
-                    session_handle=handle,
-                )
+    def test_a_finished_claude_screen_that_asks_nothing_is_not_awaiting_input(self):
+        """The bottom-of-screen footer and a bare "your call" are not questions.
 
-                dispatched = self._dispatch(
-                    from_agent="dashboard",
-                    to=agent_id,
-                    type="request",
-                    subject="work",
-                    body=f"run through pty for {runtime}",
-                    mode="start_if_possible",
-                    createMessage=True,
-                )
-                self.assertEqual(dispatched["runs"], [])
-                self.assertEqual(dispatched["notStarted"], [])
-                self.assertEqual(dispatched["consoleDeliveries"][0]["targetAgentId"], agent_id)
-                terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-                session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
-                self.assertEqual(session["owner_mode"], "managed")
-                self.assertEqual(session["terminal_id"], terminal_id)
-                self.assertEqual(session["terminal_status"], "starting")
-                controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (terminal_id,))
-                self.assertEqual([row["action"] for row in controls], ["start", "input"])
-                self.assertTrue(controls[0]["body"].startswith(command_prefix.format(agent_id=agent_id)), controls[0]["body"])
-                if command_contains:
-                    self.assertIn(command_contains, controls[0]["body"])
-                self.assertIn(f"run through pty for {runtime}", controls[1]["body"])
-                contract = self._fetchone("SELECT status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", (agent_id,))
-                self.assertEqual(contract["status"], "running")
-                self.assertEqual(contract["dispatch_mode"], "terminal")
-                self.assertEqual(contract["require_reply"], 1)
+        Merged from two route-level tests that could not fail for this reason: the status path
+        pre-gates on prompt markers and neither screen carries one, so a detector that began reading
+        these screens as questions left both green. Their other assertion, that the agent still read
+        `working`, only held because the idle-close quiet window kept the run open, which the
+        idle-close test in this class owns. Asserted on the detector, where a regression shows.
+        """
+        from service.api_core.terminal_text import _terminal_awaiting_input_hint
 
-    def test_message_send_delivers_to_active_console_pty_without_queuing_run(self):
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="hermes",
-            terminal_runtimes=["hermes"],
-            session_handle="hermes-session-1",
-        )
-        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
-        self.assertEqual(started.status_code, 200, started.text)
-        terminal_id = started.json()["terminal"]["id"]
+        footer = "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"
+        screens = {
+            "footer alone": f"Done. Pushed branch.\n✻ Worked for 56s\n{footer}",
+            "done narration saying your call": f"Done. Your call was right; verified and pushed.\n{footer}",
+        }
+        for label, screen in screens.items():
+            with self.subTest(screen=label):
+                self.assertEqual(_terminal_awaiting_input_hint(screen), "")
 
-        sent = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "dashboard",
-                "to": "console-agent",
-                "type": "request",
-                "subject": "console chat",
-                "body": "answer through the pty",
-                "trigger": True,
-            },
-        )
-        self.assertEqual(sent.status_code, 200, sent.text)
-        payload = sent.json()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(payload["dispatchRuns"], [])
-        self.assertEqual(payload["notStarted"], [])
-        self.assertEqual(payload["consoleDeliveries"][0]["terminalId"], terminal_id)
-
-        controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (terminal_id,))
-        self.assertEqual([row["action"] for row in controls], ["start", "input"])
-        self.assertIn("answer through the pty", controls[1]["body"])
-        message = self._fetchone("SELECT dispatch_requested FROM messages WHERE id = ?", (payload["messageId"],))
-        self.assertEqual(message["dispatch_requested"], 1)
-        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("console-agent",))
-        self.assertEqual(contract["status"], "running")
-        self.assertEqual(contract["dispatch_mode"], "terminal")
-        self.assertEqual(contract["require_reply"], 1)
-        self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
-        receipt = self._fetchone("SELECT message_id FROM read_receipts WHERE message_id = ? AND agent_id = ?", (payload["messageId"], "console-agent"))
-        self.assertEqual(receipt["message_id"], payload["messageId"])
-
-        reply = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "console-agent",
-                "to": "dashboard",
-                "type": "response",
-                "subject": "Re: console chat",
-                "body": "answered from console",
-                "inReplyTo": payload["messageId"],
-                "trigger": False,
-            },
-        )
-        self.assertEqual(reply.status_code, 200, reply.text)
-        closed_contract = self._fetchone("SELECT status, result_message_id, finished_at FROM dispatch_runs WHERE id = ?", (contract["id"],))
-        self.assertEqual(closed_contract["status"], "completed")
-        self.assertTrue(closed_contract["result_message_id"])
-        self.assertTrue(closed_contract["finished_at"])
-
-    def test_message_send_starts_managed_pty_for_hermes_when_console_is_closed(self):
-        session_id = self._create_running_session(
-            agent_id="hermes-pty-agent",
-            terminal=True,
-            runtime="hermes",
-            terminal_runtimes=["hermes"],
-            session_handle="hermes-session-1",
-        )
-
-        sent = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "dashboard",
-                "to": "hermes-pty-agent",
-                "type": "request",
-                "subject": "hermes chat",
-                "body": "run hermes through managed pty",
-                "trigger": True,
-            },
-        )
-        self.assertEqual(sent.status_code, 200, sent.text)
-        payload = sent.json()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(payload["dispatchRuns"], [])
-        self.assertEqual(payload["notStarted"], [])
-        terminal_id = payload["consoleDeliveries"][0]["terminalId"]
-
-        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(session["owner_mode"], "managed")
-        self.assertEqual(session["terminal_id"], terminal_id)
-        self.assertEqual(session["terminal_status"], "starting")
-        controls = self._fetchall("SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC", (terminal_id,))
-        self.assertEqual([row["action"] for row in controls], ["start", "input"])
-        self.assertTrue(controls[0]["body"].startswith("hermes-aify --aify-agent hermes-pty-agent"), controls[0]["body"])
-        self.assertIn("--resume hermes-session-1", controls[0]["body"])
-        self.assertIn("run hermes through managed pty", controls[1]["body"])
-        contract = self._fetchone("SELECT id, status, dispatch_mode, require_reply FROM dispatch_runs WHERE target_agent = ?", ("hermes-pty-agent",))
-        self.assertEqual(contract["status"], "running")
-        self.assertEqual(contract["dispatch_mode"], "terminal")
-        self.assertEqual(contract["require_reply"], 1)
-        self.assertEqual(payload["consoleDeliveries"][0]["contractRunId"], contract["id"])
-
-    def test_message_send_to_managed_claude_uses_console_turn_when_console_open(self):
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
-        self.assertEqual(started.status_code, 200, started.text)
-        terminal_id = started.json()["terminal"]["id"]
-
-        sent = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "dashboard",
-                "to": "console-agent",
-                "type": "request",
-                "subject": "claude chat",
-                "body": "answer through channel",
-                "trigger": True,
-            },
-        )
-        self.assertEqual(sent.status_code, 200, sent.text)
-        payload = sent.json()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(len(payload["consoleDeliveries"]), 1)
-        self.assertEqual(payload["dispatchRuns"], [])
-        run_id = payload["consoleDeliveries"][0]["contractRunId"]
-        contract = self._fetchone(
-            "SELECT status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
-            (run_id,),
-        )
-        self.assertEqual(contract["status"], "running")
-        self.assertEqual(contract["dispatch_mode"], "terminal")
-        self.assertEqual(contract["execution_mode"], "managed")
-        self.assertEqual(contract["require_reply"], 1)
-        injected = self._fetchone("SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,))
-        self.assertIsNotNone(injected)
-        self.assertIn("answer through channel", injected["body"])
-        self.assertIn("\x1b[200~", injected["body"])
-        self.assertIn("\x1b[201~", injected["body"])
-        self.assertTrue(injected["body"].endswith("\r"))
-        submit = self._fetchall("SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input' ORDER BY requested_at ASC, id ASC", (terminal_id,))
-        self.assertEqual(len(submit), 1)
-
-    def test_message_send_to_managed_claude_starts_claude_aify_and_inputs_dashboard_message(self):
-        session_id = self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        sent = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "dashboard",
-                "to": "console-agent",
-                "type": "request",
-                "subject": "claude chat",
-                "body": "answer through channel",
-                "trigger": True,
-            },
-        )
-        self.assertEqual(sent.status_code, 200, sent.text)
-        payload = sent.json()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(len(payload["consoleDeliveries"]), 1)
-        self.assertEqual(payload["dispatchRuns"], [])
-        run_id = payload["consoleDeliveries"][0]["contractRunId"]
-        contract = self._fetchone(
-            "SELECT status, dispatch_mode, execution_mode, require_reply FROM dispatch_runs WHERE id = ?",
-            (run_id,),
-        )
-        self.assertEqual(contract["status"], "running")
-        self.assertEqual(contract["dispatch_mode"], "terminal")
-        self.assertEqual(contract["execution_mode"], "managed")
-        session = self._fetchone("SELECT owner_mode, terminal_id, terminal_status FROM agent_sessions WHERE id = ?", (session_id,))
-        self.assertEqual(session["owner_mode"], "managed")
-        self.assertTrue(session["terminal_id"])
-        self.assertEqual(session["terminal_status"], "starting")
-        controls = self._fetchall(
-            "SELECT action, body FROM terminal_controls WHERE terminal_id = ? ORDER BY requested_at ASC, id ASC",
-            (session["terminal_id"],),
-        )
-        self.assertEqual([row["action"] for row in controls], ["start", "input"])
-        self.assertIn("claude-aify --aify-agent console-agent --auto", controls[0]["body"])
-        self.assertIn("--resume claude-session-1", controls[0]["body"])
-        self.assertNotIn("claude --channels", controls[0]["body"])
-        self.assertIn("answer through channel", controls[1]["body"])
-        self.assertIn("\x1b[200~", controls[1]["body"])
-        self.assertIn("\x1b[201~", controls[1]["body"])
-        self.assertTrue(controls[1]["body"].endswith("\r"))
-
-    def test_claude_prompt_footer_alone_does_not_report_blocked(self):
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="push",
-            body="push current commits up",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": "Done. Pushed branch.\n✻ Worked for 56s\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "working")
-        self.assertNotIn("Awaiting console input", agent["statusNote"])
 
     def _seed_idle_claude_terminal_run(self):
         """A managed claude terminal-mode run whose console has returned to an idle prompt.
@@ -5095,221 +4856,86 @@ class ApiV2RegressionTests(FastApiTestCase):
             "a contentless liveness frame reset the idle-close clock, so the run stayed open even though the terminal had produced nothing for twenty seconds",
         )
 
-    def test_busy_claude_terminal_output_does_not_close_running_turn(self):
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
+    def test_a_claude_terminal_turn_stays_open_until_its_screen_is_idle_and_quiet(self):
+        """Each case holds exactly one idle-close gate shut and opens the others.
 
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="state",
-            body="what is the current state",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": "● Calling aify-comms\n✻ Cogitating…",
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
+        Merged from four tests, three of which could not fail for the reason their names gave: they
+        aged `updated_at`, but since R9-M3 the closer reads the tail's own clock, `output_at`, which
+        the output post had just stamped. The quiet window therefore held every run open whatever the
+        screen said. Each case now sets `output_at` itself, so the gate it names is the only thing
+        keeping the run open.
+        """
+        now = time.time()
+        old_run = _iso_from_ms(int((now - 120) * 1000))
+        quiet_tail = _iso_from_ms(int((now - 30) * 1000))
+        settling_tail = _iso_from_ms(int((now - 9) * 1000))
+        cases = [
+            # (label, screen, output_at, run start or None to leave the run as dispatched)
+            ("busy screen with no prompt", "● Calling aify-comms\n✻ Cogitating…", quiet_tail, old_run),
+            (
+                "spinner after the prompt",
+                "Previous answer\n"
+                "❯ dashboard when appropriate, using the available aify-comms tools.\n"
+                "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt\n"
+                "✢ Undulating…",
+                quiet_tail,
+                old_run,
+            ),
+            (
+                "idle prompt inside the settling window",
+                "Previous answer\n"
+                "✻ Crunched for 4m 29s\n"
+                "❯ dashboard when appropriate, using the available aify-comms tools.\n"
+                "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+                settling_tail,
+                old_run,
+            ),
+            (
+                "idle prompt older than the turn",
+                "Previous prompt\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+                "2000-01-01T00:00:00Z",
+                None,
+            ),
+        ]
+        for index, (label, screen, output_at, run_started) in enumerate(cases):
+            with self.subTest(case=label):
+                agent_id = f"claude-idle-{index}"
+                self._create_running_session(
+                    agent_id=agent_id,
+                    terminal=True,
+                    runtime="claude-code",
+                    terminal_runtimes=["claude-code"],
+                    session_handle="claude-session-1",
+                )
+                dispatched = self._dispatch(
+                    from_agent="dashboard", to=agent_id, type="request", subject="state",
+                    body="what is the current state", mode="start_if_possible", createMessage=True,
+                )
+                run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
+                terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
+                output = self.client.post(
+                    f"/api/v1/terminals/{terminal_id}/output",
+                    json={"bridgeId": "bridge-current", "status": "attached", "output": screen},
+                )
+                self.assertEqual(output.status_code, 200, output.text)
+                asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
+                self._execute(
+                    "UPDATE terminal_sessions SET updated_at = ?, output_at = ? WHERE id = ?",
+                    (output_at, output_at, terminal_id),
+                )
+                if run_started:
+                    self._execute(
+                        "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
+                        (run_started, run_started, run_started, run_id),
+                    )
 
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
+                listed = self.client.get("/api/v1/agents")
+                self.assertEqual(listed.status_code, 200, listed.text)
+                run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
+                self.assertEqual(run["status"], "running")
+                self.assertFalse(run["finished_at"])
+                self.assertEqual(listed.json()["agents"][agent_id]["status"], "working")
 
-        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(run["status"], "running")
-        self.assertFalse(run["finished_at"])
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "working")
-
-
-    def test_claude_spinner_after_prompt_does_not_close_running_turn(self):
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="state",
-            body="what is the current state",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": (
-                    "Previous answer\n"
-                    "❯ dashboard when appropriate, using the available aify-comms tools.\n"
-                    "⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt\n"
-                    "✢ Undulating…"
-                ),
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-        stale_run_at = _iso_from_ms(int((time.time() - 120) * 1000))
-        quiet_terminal_at = _iso_from_ms(int((time.time() - 20) * 1000))
-        self._execute(
-            "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
-            (stale_run_at, stale_run_at, stale_run_at, run_id),
-        )
-        self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", (quiet_terminal_at, terminal_id))
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-
-        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(run["status"], "running")
-        self.assertFalse(run["finished_at"])
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "working")
-
-    def test_recent_claude_idle_prompt_does_not_close_before_settling_window(self):
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="state",
-            body="what is the current state",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": (
-                    "Previous answer\n"
-                    "✻ Crunched for 4m 29s\n"
-                    "❯ dashboard when appropriate, using the available aify-comms tools.\n"
-                    "⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"
-                ),
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-        stale_run_at = _iso_from_ms(int((time.time() - 120) * 1000))
-        recent_terminal_at = _iso_from_ms(int((time.time() - 9) * 1000))
-        self._execute(
-            "UPDATE dispatch_runs SET requested_at = ?, claimed_at = ?, started_at = ? WHERE id = ?",
-            (stale_run_at, stale_run_at, stale_run_at, run_id),
-        )
-        self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", (recent_terminal_at, terminal_id))
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-
-        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(run["status"], "running")
-        self.assertFalse(run["finished_at"])
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "working")
-    def test_old_idle_claude_prompt_does_not_close_new_terminal_turn(self):
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="state",
-            body="what is the current state",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = dispatched["consoleDeliveries"][0]["contractRunId"]
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": "Previous prompt\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-        self._execute("UPDATE terminal_sessions SET updated_at = ? WHERE id = ?", ("2000-01-01T00:00:00Z", terminal_id))
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-
-        run = self._fetchone("SELECT status, finished_at FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertEqual(run["status"], "running")
-        self.assertFalse(run["finished_at"])
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "working")
-
-    def test_claude_done_narration_with_your_call_does_not_report_blocked(self):
-        self._create_running_session(
-            terminal=True,
-            runtime="claude-code",
-            terminal_runtimes=["claude-code"],
-            session_handle="claude-session-1",
-        )
-
-        dispatched = self._dispatch(
-            from_agent="dashboard",
-            to="console-agent",
-            type="request",
-            subject="check",
-            body="check this",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        terminal_id = dispatched["consoleDeliveries"][0]["terminalId"]
-        output = self.client.post(
-            f"/api/v1/terminals/{terminal_id}/output",
-            json={
-                "bridgeId": "bridge-current",
-                "status": "attached",
-                "output": "Done. Your call was right; verified and pushed.\n⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
-            },
-        )
-        self.assertEqual(output.status_code, 200, output.text)
-        asyncio.run(terminal_write_queue.flush_terminal_output_writes_for_tests())
-
-        listed = self.client.get("/api/v1/agents")
-        self.assertEqual(listed.status_code, 200, listed.text)
-        agent = listed.json()["agents"]["console-agent"]
-        self.assertEqual(agent["status"], "working")
-        self.assertNotIn("Awaiting console input", agent["statusNote"])
 
     def test_terminal_end_closes_active_claude_terminal_run(self):
         self._create_running_session(
@@ -6336,23 +5962,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(spawn["status"], "failed")
         self.assertIn("Initial brief failed", spawn["error"])
 
-    def test_spawn_request_rejects_non_live_modes(self):
-        self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "worker-run-once",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/project",
-                "mode": "run-once",
-            },
-        )
-        self.assertEqual(created.status_code, 400, created.text)
-        self.assertIn("Unsupported spawn mode", created.text)
-
     def test_spawn_request_running_auto_registers_agent_session_and_initial_dispatch(self):
         self._heartbeat_environment()
         created = self.client.post(
@@ -6761,53 +6370,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(old_session["ended_at"])
         self.assertEqual(new_session["status"], "running")
         self.assertIsNone(new_session["ended_at"])
-
-    def test_session_recover_rejects_duplicate_pending_spawn(self):
-        self._heartbeat_environment()
-        created = self.client.post(
-            "/api/v1/spawn-requests",
-            json={
-                "createdBy": "dashboard",
-                "environmentId": "linux:test-host:default",
-                "agentId": "single-recover-coder",
-                "role": "coder",
-                "runtime": "codex",
-                "workspace": "/workspace/repo",
-            },
-        )
-        self.assertEqual(created.status_code, 200, created.text)
-        spawn_id = created.json()["spawnRequest"]["id"]
-        claim = self.client.post(
-            "/api/v1/spawn-requests/claim",
-            json={"environmentId": "linux:test-host:default", "bridgeId": "bridge-current", "machineId": "linux:test-host"},
-        )
-        self.assertEqual(claim.status_code, 200, claim.text)
-        running = self.client.patch(
-            f"/api/v1/spawn-requests/{spawn_id}",
-            json={"status": "running", "bridgeId": "bridge-current", "processId": "1234"},
-        )
-        self.assertEqual(running.status_code, 200, running.text)
-        session_id = running.json()["spawnRequest"]["sessionId"]
-
-        # Lifecycle cleanup (2026-06-03): `recover` alias dropped -> use `restart`.
-        first_recover = self.client.post(
-            f"/api/v1/sessions/{session_id}/control",
-            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker"},
-        )
-        self.assertEqual(first_recover.status_code, 200, first_recover.text)
-        pending_spawn_id = first_recover.json()["spawnRequest"]["id"]
-
-        duplicate_recover = self.client.post(
-            f"/api/v1/sessions/{session_id}/control",
-            json={"action": "restart", "from_agent": "dashboard", "subject": "restart worker again"},
-        )
-        self.assertEqual(duplicate_recover.status_code, 409, duplicate_recover.text)
-        self.assertIn(pending_spawn_id, duplicate_recover.json()["detail"])
-        pending_spawns = self._fetchall(
-            "SELECT id FROM spawn_requests WHERE agent_id = ? AND status IN ('queued','claimed','starting')",
-            ("single-recover-coder",),
-        )
-        self.assertEqual([row["id"] for row in pending_spawns], [pending_spawn_id])
 
     def test_runtime_state_update_refreshes_current_managed_session(self):
         self._heartbeat_environment()
@@ -7287,58 +6849,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             "bridge-fresh-resident",
             f"stale same-handle resident bridge must be superseded by fresh re-register; got {dict(prior)}",
         )
-
-    def test_resident_reregister_with_new_handle_upserts_one_session_row(self):
-        # FIX 1 (2026-06-03): the resident agent_sessions id must be STABLE across
-        # relaunches so a relaunch UPSERTs the SAME row instead of minting a new
-        # resident_* every launch. Pre-fix the id keyed on session_handle (which
-        # rotates per launch), so two registers with DIFFERENT handles produced TWO
-        # rows. Key on (agent_id, runtime, machine) → exactly one row survives.
-        self._heartbeat_environment()
-        self._register_live_codex_resident(
-            "resident-upsert",
-            session_handle="codex-handle-1",
-            bridge_id="bridge-resident-1",
-            port=45111,
-        )
-        rows_after_first = self._fetchall(
-            "SELECT id FROM agent_sessions WHERE agent_id = ? AND mode = 'resident'",
-            ("resident-upsert",),
-        )
-        self.assertEqual(
-            len(rows_after_first), 1,
-            f"first resident register must create exactly one session row; got {[dict(r) for r in rows_after_first]}",
-        )
-        first_id = rows_after_first[0]["id"]
-
-        # Relaunch: SAME agent + runtime + machine, but a DIFFERENT session_handle.
-        # force=true so the re-register takes over the still-live prior bridge
-        # (a real relaunch supersedes the previous instance).
-        self._register(
-            "resident-upsert",
-            runtime="codex",
-            sessionMode="resident",
-            sessionHandle="codex-handle-2-different",
-            machineId="linux:test-host",
-            bridgeId="bridge-resident-2",
-            capabilities=["resident-run", "resume", "interrupt", "steer"],
-            runtimeConfig={"appServerUrl": "ws://127.0.0.1:45222"},
-            force=True,
-        )
-        rows_after_second = self._fetchall(
-            "SELECT id, session_handle, status FROM agent_sessions WHERE agent_id = ? AND mode = 'resident'",
-            ("resident-upsert",),
-        )
-        live_rows = [r for r in rows_after_second if str(r["status"]) not in ("stopped", "failed", "exited")]
-        # Exactly ONE row total (the relaunch UPSERTed the same id, not a new row),
-        # and the live one carries the refreshed handle.
-        self.assertEqual(
-            len(rows_after_second), 1,
-            f"relaunch with a new handle must UPSERT one row, not mint a second; got {[dict(r) for r in rows_after_second]}",
-        )
-        self.assertEqual(rows_after_second[0]["id"], first_id, "the upserted row must keep the stable id")
-        self.assertEqual(rows_after_second[0]["session_handle"], "codex-handle-2-different")
-        self.assertEqual(len(live_rows), 1)
 
     def test_tombstone_blocks_autoregister_under_different_casing(self):
         # FIX 4 (2026-06-03): tombstone lookup is case-insensitive, so deleting
@@ -7845,61 +7355,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(stored["claim_bridge_id"], "")
 
 
-    def test_claim_ignores_missing_message_ids_in_buffered_body(self):
-        # Plan 2 (2026-05-25): pi no longer supports a true resident
-        # session — registering pi+resident now marks the row pending-flip
-        # and dispatch returns 409 until the drain helper migrates the
-        # agent. This test exercises generic resident-mode buffered-claim
-        # plumbing, so use codex (which still supports resident) instead.
-        self._register(
-            "receipt-agent",
-            runtime="codex",
-            sessionMode="resident",
-            sessionHandle="codex-session-visible",
-            machineId="linux:test-host",
-            bridgeId="resident-bridge",
-            capabilities=["resident-run", "resume", "interrupt", "steer"],
-        )
-        created = self._dispatch(
-            from_agent="dashboard",
-            to="receipt-agent",
-            type="request",
-            subject="buffered receipt",
-            body="claim should mark existing source read",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = created["runs"][0]["runId"]
-        run = self._fetchone("SELECT message_id, body FROM dispatch_runs WHERE id = ?", (run_id,))
-        self.assertTrue(run["message_id"])
-        self._execute(
-            "UPDATE dispatch_runs SET body = ? WHERE id = ?",
-            (f"{run['body']}\n\n--- Buffered item ---\nMessageId: missing-message-id\nBody: stale reference", run_id),
-        )
-
-        claimed = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={
-                "agentId": "receipt-agent",
-                "bridgeId": "resident-bridge",
-                "machineId": "linux:test-host",
-                "executionModes": ["resident"],
-            },
-        )
-
-        self.assertEqual(claimed.status_code, 200, claimed.text)
-        self.assertEqual(claimed.json()["run"]["id"], run_id)
-        valid_receipt = self._fetchone(
-            "SELECT read_at FROM read_receipts WHERE message_id = ? AND agent_id = ?",
-            (run["message_id"], "receipt-agent"),
-        )
-        self.assertIsNotNone(valid_receipt)
-        missing_receipt = self._fetchone(
-            "SELECT read_at FROM read_receipts WHERE message_id = ? AND agent_id = ?",
-            ("missing-message-id", "receipt-agent"),
-        )
-        self.assertIsNone(missing_receipt)
-
     def test_resident_register_does_not_auto_takeover_managed_agent(self):
         self._heartbeat_environment()
         self._register("defer-owner", runtime="codex", sessionMode="managed", launchMode="managed", capabilities=["managed-run", "resume", "interrupt", "steer"])
@@ -8048,25 +7503,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         stopped = self.client.post(f"/api/v1/sessions/{session_id}/control", json={"action": "stop", "from_agent": "dashboard"})
         self.assertEqual(stopped.status_code, 200, stopped.text)
         agent = self._fetchone("SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("stop-resident",))
-        self.assertEqual(agent["status"], "stopped")
-        self.assertEqual(agent["launch_mode"], "none")
-        self.assertIn("terminate", agent["status_note"])
-
-    def test_agent_stop_marks_resident_owner_for_bridge_termination(self):
-        self._register(
-            "agent-stop-resident",
-            runtime="codex",
-            sessionMode="resident",
-            sessionHandle="resident-thread",
-            machineId="linux:test-host",
-            bridgeId="resident-bridge",
-            capabilities=["resident-run", "resume", "interrupt", "steer"],
-            runtimeConfig={"appServerUrl": "ws://127.0.0.1:1234"},
-        )
-
-        stopped = self.client.post("/api/v1/agents/agent-stop-resident/control", json={"action": "stop", "from_agent": "dashboard"})
-        self.assertEqual(stopped.status_code, 200, stopped.text)
-        agent = self._fetchone("SELECT status, launch_mode, status_note FROM agents WHERE id = ?", ("agent-stop-resident",))
         self.assertEqual(agent["status"], "stopped")
         self.assertEqual(agent["launch_mode"], "none")
         self.assertIn("terminate", agent["status_note"])
@@ -9013,29 +8449,32 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(final.json()["run"]["replyState"], "sent")
         self.assertFalse(final.json()["run"]["replyPending"])
 
-    def test_triggered_response_send_does_not_require_another_reply(self):
+    def test_a_triggered_send_owes_a_reply_by_its_type_unless_told_otherwise(self):
+        """request, review and error owe a reply; response and info do not; an explicit flag wins.
+
+        Merged from four tests that each sent one type and read `requireReply` back. Every case goes
+        to its own target so no send lands in another case's queue and merges into it.
+        """
         self._register("lead", runtime="codex", sessionMode="managed")
-        self._register("coder", runtime="codex", sessionMode="managed")
+        cases = [
+            ("request", None, True),
+            ("review", None, True),
+            ("error", None, True),
+            ("response", None, False),
+            ("info", None, False),
+            ("info", True, True),
+        ]
+        for index, (message_type, explicit, owed) in enumerate(cases):
+            with self.subTest(type=message_type, requireReply=explicit):
+                target = f"reply-target-{index}"
+                self._register(target, runtime="codex", sessionMode="managed")
+                extra = {} if explicit is None else {"requireReply": explicit}
+                sent = self._send_message(
+                    from_agent="lead", to=target, type=message_type, subject=f"{message_type} handoff",
+                    body="please handle", trigger=True, **extra,
+                )
+                self.assertEqual(sent["dispatchRuns"][0]["requireReply"], owed)
 
-        request_send = self._send_message(
-            from_agent="lead",
-            to="coder",
-            type="request",
-            subject="work",
-            body="please do it",
-            trigger=True,
-        )
-        self.assertTrue(request_send["dispatchRuns"][0]["requireReply"])
-
-        response_send = self._send_message(
-            from_agent="coder",
-            to="lead",
-            type="response",
-            subject="done",
-            body="finished",
-            trigger=True,
-        )
-        self.assertFalse(response_send["dispatchRuns"][0]["requireReply"])
 
     def test_threaded_non_answer_message_does_not_close_reply_contract(self):
         self._register("lead", runtime="codex", sessionMode="managed")
@@ -9077,51 +8516,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertTrue(answer["ok"])
         closed = self._fetchone("SELECT result_message_id FROM dispatch_runs WHERE id = ?", (run_id,))
         self.assertEqual(closed["result_message_id"], answer["messageId"])
-
-    def test_triggered_info_send_does_not_require_reply_by_default(self):
-        self._register("lead", runtime="codex", sessionMode="managed")
-        self._register("coder", runtime="codex", sessionMode="managed")
-
-        sent = self._send_message(
-            from_agent="lead",
-            to="coder",
-            type="info",
-            subject="heads up",
-            body="ack this",
-            trigger=True,
-        )
-        self.assertFalse(sent["dispatchRuns"][0]["requireReply"])
-
-    def test_triggered_info_send_can_explicitly_require_reply(self):
-        self._register("lead", runtime="codex", sessionMode="managed")
-        self._register("coder", runtime="codex", sessionMode="managed")
-
-        sent = self._send_message(
-            from_agent="lead",
-            to="coder",
-            type="info",
-            subject="please confirm",
-            body="ack this one",
-            trigger=True,
-            requireReply=True,
-        )
-        self.assertTrue(sent["dispatchRuns"][0]["requireReply"])
-
-    def test_triggered_review_and_error_sends_expect_reply_by_default(self):
-        self._register("lead", runtime="codex", sessionMode="managed")
-        self._register("reviewer", runtime="codex", sessionMode="managed")
-        self._register("debugger", runtime="codex", sessionMode="managed")
-
-        for message_type, target in (("review", "reviewer"), ("error", "debugger")):
-            sent = self._send_message(
-                from_agent="lead",
-                to=target,
-                type=message_type,
-                subject=f"{message_type} handoff",
-                body="please respond when handled",
-                trigger=True,
-            )
-            self.assertTrue(sent["dispatchRuns"][0]["requireReply"])
 
     def test_triggered_send_to_offline_agent_is_not_written(self):
         self._register("lead", runtime="codex", sessionMode="managed")
@@ -9660,49 +9054,62 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIsNotNone(mirror_receipt)
         self.assertTrue(mirror_receipt["read_at"])
 
-    def test_multi_recipient_send_tracks_per_recipient_message_ids(self):
-        self._register("lead", role="manager", runtime="codex", sessionMode="managed")
-        self._register("alice", runtime="codex", sessionMode="managed")
-        self._register("bob", runtime="codex", sessionMode="managed")
+    def test_a_multi_recipient_send_or_dispatch_tracks_per_recipient_message_ids(self):
+        """A fan-out gives each recipient its own message id, and a reply closes only its own run.
 
-        sent = self._send_message(
-            from_agent="lead",
-            toRole="coder",
-            type="request",
-            subject="work",
-            body="do it",
-            trigger=True,
-        )
-        alice_message = self._fetchone(
-            "SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp DESC LIMIT 1",
-            ("alice",),
-        )["id"]
-        bob_message = self._fetchone(
-            "SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp DESC LIMIT 1",
-            ("bob",),
-        )["id"]
+        Merged from one test per entry point. The two routes mint the per-recipient ids on separate
+        lines (`messages.py` and `dispatch.py`), so both stay cases. Each case addresses its own role
+        so the second fan-out cannot reach the first case's agents.
+        """
+        for entry in ("send", "dispatch"):
+            with self.subTest(entry=entry):
+                role = f"fanout-{entry}"
+                lead, alice, bob = f"lead-{entry}", f"alice-{entry}", f"bob-{entry}"
+                self._register(lead, role="manager", runtime="codex", sessionMode="managed")
+                self._register(alice, role=role, runtime="codex", sessionMode="managed")
+                self._register(bob, role=role, runtime="codex", sessionMode="managed")
 
-        reply = self._send_message(
-            from_agent="alice",
-            to="lead",
-            type="response",
-            subject="done",
-            body="ship it",
-            inReplyTo=alice_message,
-            trigger=False,
-        )
+                if entry == "send":
+                    sent = self._send_message(
+                        from_agent=lead, toRole=role, type="request", subject="work", body="do it", trigger=True,
+                    )
+                    runs = sent["dispatchRuns"]
+                else:
+                    sent = self._dispatch(
+                        from_agent=lead, toRole=role, type="request", subject="work", body="do it",
+                        mode="start_if_possible", createMessage=True,
+                    )
+                    runs = sent["runs"]
+                alice_message = self._fetchone(
+                    "SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp DESC LIMIT 1", (alice,),
+                )["id"]
+                bob_message = self._fetchone(
+                    "SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp DESC LIMIT 1", (bob,),
+                )["id"]
 
-        runs_by_target = {}
-        for run in sent["dispatchRuns"]:
-            payload = self.client.get(f"/api/v1/dispatch/runs/{run['runId']}")
-            self.assertEqual(payload.status_code, 200, payload.text)
-            runs_by_target[run["targetAgentId"]] = payload.json()["run"]
+                if entry == "send":
+                    reply = self._send_message(
+                        from_agent=alice, to=lead, type="response", subject="done", body="ship it",
+                        inReplyTo=alice_message, trigger=False,
+                    )
+                else:
+                    reply = self._dispatch(
+                        from_agent=alice, to=lead, type="response", subject="done", body="ship it",
+                        inReplyTo=alice_message, mode="start_if_possible", createMessage=True, requireReply=False,
+                    )
 
-        self.assertEqual(runs_by_target["alice"]["messageId"], alice_message)
-        self.assertEqual(runs_by_target["alice"]["resultMessageId"], reply["messageId"])
-        self.assertEqual(runs_by_target["alice"]["replyState"], "sent")
-        self.assertEqual(runs_by_target["bob"]["messageId"], bob_message)
-        self.assertEqual(runs_by_target["bob"]["replyState"], "awaiting")
+                runs_by_target = {}
+                for run in runs:
+                    payload = self.client.get(f"/api/v1/dispatch/runs/{run['runId']}")
+                    self.assertEqual(payload.status_code, 200, payload.text)
+                    runs_by_target[run["targetAgentId"]] = payload.json()["run"]
+
+                self.assertEqual(runs_by_target[alice]["messageId"], alice_message)
+                self.assertEqual(runs_by_target[alice]["resultMessageId"], reply["messageId"])
+                self.assertEqual(runs_by_target[alice]["replyState"], "sent")
+                self.assertEqual(runs_by_target[bob]["messageId"], bob_message)
+                self.assertEqual(runs_by_target[bob]["replyState"], "awaiting")
+
 
     def test_triggered_send_merges_existing_future_queue(self):
         self._register("lead", role="manager", runtime="codex", sessionMode="managed")
@@ -9823,53 +9230,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(claim.status_code, 200, claim.text)
         self.assertEqual(claim.json()["run"]["id"], run_id)
 
-    def test_multi_recipient_dispatch_tracks_per_recipient_message_ids(self):
-        self._register("lead", role="manager", runtime="codex", sessionMode="managed")
-        self._register("alice", runtime="codex", sessionMode="managed")
-        self._register("bob", runtime="codex", sessionMode="managed")
-
-        created = self._dispatch(
-            from_agent="lead",
-            toRole="coder",
-            type="request",
-            subject="work",
-            body="do it",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        alice_message = self._fetchone(
-            "SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp DESC LIMIT 1",
-            ("alice",),
-        )["id"]
-        bob_message = self._fetchone(
-            "SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp DESC LIMIT 1",
-            ("bob",),
-        )["id"]
-
-        reply = self._dispatch(
-            from_agent="alice",
-            to="lead",
-            type="response",
-            subject="done",
-            body="ship it",
-            inReplyTo=alice_message,
-            mode="start_if_possible",
-            createMessage=True,
-            requireReply=False,
-        )
-
-        runs_by_target = {}
-        for run in created["runs"]:
-            payload = self.client.get(f"/api/v1/dispatch/runs/{run['runId']}")
-            self.assertEqual(payload.status_code, 200, payload.text)
-            runs_by_target[run["targetAgentId"]] = payload.json()["run"]
-
-        self.assertEqual(runs_by_target["alice"]["messageId"], alice_message)
-        self.assertEqual(runs_by_target["alice"]["resultMessageId"], reply["messageId"])
-        self.assertEqual(runs_by_target["alice"]["replyState"], "sent")
-        self.assertEqual(runs_by_target["bob"]["messageId"], bob_message)
-        self.assertEqual(runs_by_target["bob"]["replyState"], "awaiting")
-
     def test_unregister_agent_cancels_nonterminal_runs_before_recreate(self):
         self._register("lead", runtime="codex", sessionMode="managed")
         self._register("worker", runtime="codex", sessionMode="managed", restoreDeleted=True)
@@ -9899,35 +9259,25 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(claim.status_code, 200, claim.text)
         self.assertIsNone(claim.json()["run"])
 
-    def test_dispatch_claim_signals_stopped_for_disabled_agent(self):
-        # Phase H1 (status v2): a managed agent the operator DISABLED
-        # (agents.status == "stopped") must get a terminal `stopped` signal on
-        # claim so its worker + polling bridge self-exit (orphan reap) instead
-        # of polling forever. stopped is reversible — the claim must NOT clear
-        # the agent's session binding.
-        self._register("worker", runtime="claude", sessionMode="managed")
-        self._execute("UPDATE agents SET status = ? WHERE id = ?", ("stopped", "worker"))
+    def test_dispatch_claim_signals_stopped_only_for_a_disabled_agent(self):
+        """Phase H1 (status v2): a managed agent the operator DISABLED (agents.status == "stopped")
+        gets a terminal `stopped` signal on claim so its worker and polling bridge self-exit instead
+        of polling forever; any other agent must not, or live workers would exit. Merged from the
+        positive test and its guard, which differed only in that one column."""
+        for status, signalled in (("stopped", True), ("", False)):
+            with self.subTest(status=status):
+                agent_id = f"worker-{status or 'active'}"
+                self._register(agent_id, runtime="claude", sessionMode="managed")
+                if status:
+                    self._execute("UPDATE agents SET status = ? WHERE id = ?", (status, agent_id))
+                claim = self.client.post(
+                    "/api/v1/dispatch/claim",
+                    json={"agentId": agent_id, "bridgeId": "bridge-1", "executionModes": ["managed"]},
+                )
+                self.assertEqual(claim.status_code, 200, claim.text)
+                self.assertEqual(bool(claim.json().get("stopped")), signalled)
+                self.assertIsNone(claim.json()["run"])
 
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={"agentId": "worker", "bridgeId": "bridge-1", "executionModes": ["managed"]},
-        )
-        self.assertEqual(claim.status_code, 200, claim.text)
-        body = claim.json()
-        self.assertTrue(body.get("stopped"))
-        self.assertIsNone(body["run"])
-
-    def test_dispatch_claim_does_not_signal_stopped_for_active_agent(self):
-        # Guard: a non-stopped managed agent's claim response must NOT carry the
-        # terminal stopped signal (otherwise live workers would self-exit).
-        self._register("worker", runtime="claude", sessionMode="managed")
-
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={"agentId": "worker", "bridgeId": "bridge-1", "executionModes": ["managed"]},
-        )
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertFalse(claim.json().get("stopped"))
 
     def test_inbox_headers_mode_and_message_id_lookup(self):
         self._register("alice")
@@ -9956,26 +9306,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(body_payload["total"], 1)
         self.assertEqual(body_payload["messages"][0]["id"], message_id)
         self.assertEqual(body_payload["messages"][0]["body"], "body line 1\nbody line 2\nbody line 3")
-
-    def test_dispatch_rejects_message_only_mode(self):
-        self._register("alice", runtime="codex", sessionMode="managed")
-        self._register("bob", runtime="codex", sessionMode="managed")
-
-        response = self.client.post(
-            "/api/v1/dispatch",
-            json={
-                "from_agent": "alice",
-                "to": "bob",
-                "type": "request",
-                "subject": "hello",
-                "body": "world",
-                "mode": "message_only",
-                "createMessage": True,
-            },
-        )
-        self.assertEqual(response.status_code, 400, response.text)
-        self.assertIn("mode='message_only'", response.text)
-        self.assertIn("comms_send", response.text)
 
     def test_dispatch_claim_ignores_stale_embedded_message_ids_when_marking_read(self):
         self._register("dashboard")
