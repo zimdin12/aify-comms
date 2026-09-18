@@ -27,9 +27,12 @@
 // second arm renders the SHIPPED DEFAULTS -- handed in as JSON by the caller, because only Python
 // knows them -- and reports what each field DISPLAYS and what bounds it EMITS.
 //
-// Run: node service/tests/settings_schema_probe.mjs '{"retention_days": 90, ...}'
+// Run: node service/tests/settings_schema_probe.mjs '<defaults json>' '<GET /settings/schema json>'
+//
+// THE PANEL IS DRAWN FROM THE SERVICE'S DECLARATIONS since 2026-09-19, so the caller hands in the
+// schema the service serves and the probe adopts it exactly as the dashboard does on load.
 
-import { SETTINGS_SCHEMA, EFFORT_OPTS, PI_EFFORT_OPTS, renderSettings } from
+import { SETTINGS_SCHEMA, adoptSettingsSchema, renderSettings } from
   "../new_dashboard/settings-panel.mjs";
 import { state } from "../new_dashboard/state.mjs";
 import { THEMES, paletteFromSettings } from "../new_dashboard/theme.js";
@@ -37,6 +40,8 @@ import { THEMES, paletteFromSettings } from "../new_dashboard/theme.js";
 //: REAL THEME NAMES. Two invented ones select no tile, so the panel renders identically for both and
 //: a difference test reports a false "not bound" -- which it did, for `dashboard_theme` alone.
 const THEME_NAMES = Object.keys(THEMES);
+
+if (process.argv[3]) adoptSettingsSchema(JSON.parse(process.argv[3]));
 
 /** Every control the schema declares, in order, with duplicates preserved so they can be counted. */
 const controls = SETTINGS_SCHEMA.flatMap((group) => group.items.map((item) => ({
@@ -107,7 +112,6 @@ const themeKey = process.argv[2] ? (JSON.parse(process.argv[2]).dashboard_theme 
 
 process.stdout.write(JSON.stringify({
   controls,
-  optionDomains: { EFFORT_OPTS, PI_EFFORT_OPTS },
   supplied,
   arms,
   inheritedPalette: paletteFromSettings({}, themeKey),

@@ -199,6 +199,17 @@ async def _migrate_agents_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+async def _migrate_settings_rows(db: aiosqlite.Connection):
+    # `worker_idle_close_enabled` merged into `worker_idle_close_minutes` (0 = off) on 2026-09-19. A
+    # host that had minutes set but the toggle off must stay off, not start closing workers. The old
+    # row is removed once folded in, or every restart would zero a value the operator set later.
+    await db.execute(
+        "UPDATE settings SET value = '0' WHERE key = 'worker_idle_close_minutes'"
+        " AND EXISTS (SELECT 1 FROM settings WHERE key = 'worker_idle_close_enabled' AND value = 'false')"
+    )
+    await db.execute("DELETE FROM settings WHERE key = 'worker_idle_close_enabled'")
+
+
 async def _migrate_dispatch_runs_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(dispatch_runs)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -452,6 +463,7 @@ async def init_db(db_path: Path = None):
         await _migrate_console_signal_table(db)
         await _migrate_agent_turn_state_table(db)
         await _migrate_agent_status_state_table(db)
+        await _migrate_settings_rows(db)
         await _backfill_native_managed_capability(db)
         await _reconcile_terminal_controls(db)
         await db.commit()

@@ -476,8 +476,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(settings.json()["dashboard_theme"], "default")
         self.assertEqual(settings.json()["dashboard_primary_color"], "")
         self.assertEqual(settings.json()["dashboard_secondary_color"], "")
-        self.assertTrue(settings.json()["console_auto_confirm_claude_dev_channels"])
-        self.assertTrue(settings.json()["console_auto_confirm_claude_compaction"])
         self.assertEqual(settings.json()["reply_reminder_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_repeat_minutes"], 10)
         self.assertEqual(settings.json()["reply_reminder_full_every"], 3)
@@ -488,12 +486,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertFalse(settings.json()["managed_via_wrapper"])
         self.assertFalse(DEFAULT_SETTINGS["insert_messages_via_console"])
         self.assertTrue(settings.json()["insert_messages_via_console"])
-        self.assertTrue(settings.json()["manual_session_mode"])
         self.assertEqual(settings.json()["environment_offline_seconds"], 90)
         self.assertEqual(settings.json()["active_run_stale_minutes"], 30)
         self.assertEqual(settings.json()["active_managed_run_stale_minutes"], 5)
         self.assertEqual(settings.json()["resident_lease_seconds"], 150)
-        self.assertFalse(settings.json()["worker_idle_close_enabled"])
         self.assertEqual(settings.json()["worker_idle_close_minutes"], 0)
         self.assertEqual(settings.json()["dashboard_tertiary_color"], "")
 
@@ -505,7 +501,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "dashboard_primary_color": "#f2b76e",
                 "dashboard_secondary_color": "#8ebaf1",
                 "dashboard_tertiary_color": "#e78776",
-                "manual_session_mode": False,
                 "managed_terminal_backing_enabled": False,
                 "managed_pty_eager_spawn": False,
                 "managed_via_wrapper": ["hermes"],
@@ -522,7 +517,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(updated.json()["dashboard_primary_color"], "#f2b76e")
         self.assertEqual(updated.json()["dashboard_secondary_color"], "#8ebaf1")
         self.assertEqual(updated.json()["dashboard_tertiary_color"], "#e78776")
-        self.assertFalse(updated.json()["manual_session_mode"])
         self.assertFalse(updated.json()["managed_terminal_backing_enabled"])
         self.assertFalse(updated.json()["managed_pty_eager_spawn"])
         self.assertEqual(updated.json()["managed_via_wrapper"], ["hermes"])
@@ -562,30 +556,53 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["managed_claude_model"], "")
 
+    def test_settings_schema_serves_the_shown_declarations_and_retired_keys_are_ignored(self):
+        # The dashboard draws its settings panel from this route, so what it serves IS the panel.
+        from service.api_core.settings_spec import GROUPS, RETIRED, SETTINGS
+        served = self.client.get("/api/v1/settings/schema")
+        self.assertEqual(served.status_code, 200, served.text)
+        body = served.json()
+        self.assertEqual(body["groups"], list(GROUPS))
+        self.assertEqual([d["key"] for d in body["settings"]], [s.key for s in SETTINGS if s.shown])
+        self.assertNotIn("managed_pty_eager_spawn", [d["key"] for d in body["settings"]])
+        retired = sorted(RETIRED)[0]
+        r = self.client.put("/api/v1/settings", json={retired: True, "reply_contracts_enabled": False})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(retired, r.json(), "a retired key must be neither stored nor served")
+        self.assertFalse(r.json()["reply_contracts_enabled"], "a retired key must not block the rest of the save")
+        # A row an older version stored stays in the table (this install held `idle_minutes` and
+        # `status_engine` rows nothing had read for months); reading must not serve it back.
+        from service.api_core.settings import _invalidate_settings_cache
+        self._execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (retired, "true"))
+        _invalidate_settings_cache()
+        self.assertNotIn(retired, self.client.get("/api/v1/settings").json())
+
     def test_settings_reject_bad_coercions(self):
         # bughunt 2026-07-03: a bool setting must NOT accept the STRING "false" as True
         # (bool("false") is truthy), and a numeric setting must reject a non-finite float.
+        # Since 2026-09-19 a value the setting cannot hold is REFUSED with its reason (400) rather than
+        # dropped behind a 200 that the dashboard reported as "Saved".
         base = self.client.get("/api/v1/settings").json()
-        # String "false" for a bool → coerced to False, never left True.
         r = self.client.put("/api/v1/settings", json={"insert_messages_via_console": "false"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertFalse(r.json()["insert_messages_via_console"], "string 'false' must not set a bool True")
         r = self.client.put("/api/v1/settings", json={"insert_messages_via_console": "true"})
         self.assertTrue(r.json()["insert_messages_via_console"])
-        # A garbage string for a bool is rejected (setting unchanged), not coerced True.
-        r = self.client.put("/api/v1/settings", json={"manual_session_mode": "yes-please"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["manual_session_mode"], base["manual_session_mode"])
-        # A JSON infinity literal must NOT 500 (int(inf) OverflowError); it's rejected.
-        # Send the RAW body — Python's json can't serialize inf, but a real client sends
-        # the literal text "1e999" which the server's parser turns into float('inf').
+        r = self.client.put("/api/v1/settings", json={"reply_contracts_enabled": "yes-please"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("reply_contracts_enabled", r.json()["detail"])
+        self.assertEqual(self.client.get("/api/v1/settings").json()["reply_contracts_enabled"],
+                         base["reply_contracts_enabled"], "a refused value must leave the setting unchanged")
+        # A JSON infinity literal must NOT 500 (int(inf) OverflowError). Sent RAW: Python's json cannot
+        # serialize inf, but a real client sends "1e999", which the server's parser turns into inf.
         r = self.client.put(
             "/api/v1/settings",
             content=b'{"dashboard_refresh_seconds": 1e999}',
             headers={"Content-Type": "application/json"},
         )
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(isinstance(r.json()["dashboard_refresh_seconds"], int))
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(self.client.get("/api/v1/settings").json()["dashboard_refresh_seconds"],
+                         base["dashboard_refresh_seconds"])
 
     def test_analytics_range_filters_run_mix_and_all_time_series(self):
         self._register("lead")
@@ -864,9 +881,10 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["effort"], "high")
         self.assertEqual(spawn["spawnSpec"]["metadata"]["runtimeConfig"]["quietTimeoutMs"], 0)
 
-    def test_runtime_settings_update_existing_managed_agents_globally(self):
-        # Changing a runtime's managed model/effort settings rewrites every existing managed
-        # agent of that runtime, not just future spawns.
+    def test_runtime_defaults_reach_existing_agents_only_when_applied(self):
+        # Saving a runtime's managed model/effort default changes NEW workers only. Until 2026-09-19 every
+        # save of the settings page -- whatever field changed -- rewrote the model and effort of every
+        # existing managed agent. Existing agents now change only through the explicit apply route.
         cases = [
             {
                 "runtime": "codex", "agent": "global-codex",
@@ -910,8 +928,16 @@ class ApiV2RegressionTests(FastApiTestCase):
                 )
                 self.assertEqual(updated.status_code, 200, updated.text)
 
+                before = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", (case["agent"],))
                 settings = self.client.put("/api/v1/settings", json=case["settings"])
                 self.assertEqual(settings.status_code, 200, settings.text)
+                saved = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", (case["agent"],))
+                self.assertEqual((saved["model"], saved["runtime_config"]), (before["model"], before["runtime_config"]),
+                                 "saving a default must not rewrite an existing agent")
+                self.assertNotEqual(saved["model"], case["model"], "the fixture must start from a different model")
+
+                applied = self.client.post("/api/v1/settings/apply-managed-defaults")
+                self.assertEqual(applied.status_code, 200, applied.text)
                 agent = self._fetchone("SELECT model, runtime_config FROM agents WHERE id = ?", (case["agent"],))
                 self.assertEqual(agent["model"], case["model"])
                 self.assertEqual(json.loads(agent["runtime_config"])["effort"], case["effort"])
@@ -11483,7 +11509,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # Operator-driven feature: managed worker terminal_sessions whose
         # updated_at is older than worker_idle_close_minutes AND have no
         # in-flight dispatch runs get auto-closed by the periodic reconciler.
-        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_close",
             bridgeId="bridge-idle-close",
@@ -11540,7 +11566,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -11556,7 +11582,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotIn("virtualTerminalId", rs)
 
     def test_idle_managed_wrapper_worker_auto_close_enqueues_stop_control(self):
-        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_wrapper",
             bridgeId="bridge-idle-wrapper",
@@ -11605,7 +11631,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -11627,7 +11653,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertNotIn("terminalId", json.loads(agent_row["runtime_state"] or "{}"))
 
     def test_idle_managed_wrapper_without_bridge_owner_marks_stopped(self):
-        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
+        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 5})
         self._heartbeat_environment(
             id="env_idle_orphan",
             bridgeId="bridge-idle-orphan",
@@ -11672,7 +11698,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_minutes=1, limit=10)
             finally:
                 await db.commit()
                 await db.close()
@@ -11686,8 +11712,9 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(control["count"], 0)
 
-    def test_idle_worker_auto_close_can_be_disabled_even_with_minutes_set(self):
-        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": False, "worker_idle_close_minutes": 5})
+    def test_idle_worker_auto_close_is_off_at_zero_minutes(self):
+        # One setting since 2026-09-19: `worker_idle_close_minutes`, 0 = off.
+        self.client.put("/api/v1/settings", json={"worker_idle_close_minutes": 0})
         self._heartbeat_environment(
             id="env_idle_disabled",
             bridgeId="bridge-idle-disabled",
@@ -11732,7 +11759,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             from service.db import get_db as _get_db
             db = await _get_db()
             try:
-                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=False, idle_close_minutes=1, limit=10)
+                return await _close_idle_virtual_rpc_workers(db, idle_close_minutes=0, limit=10)
             finally:
                 await db.commit()
                 await db.close()

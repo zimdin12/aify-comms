@@ -200,7 +200,6 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # window (default 0 = disabled). Returns the closed terminals
         # so the periodic-reconcile log shows them.
         closed_idle_workers = await _commit_step(await _close_idle_virtual_rpc_workers(db, limit=200,
-            idle_close_enabled=bool(_reconcile_settings.get("worker_idle_close_enabled", False)),
             idle_close_minutes=int(_reconcile_settings.get("worker_idle_close_minutes", 0) or 0)))
         # Tight-window cleanup for managed-mode runs whose bridge
         # didn't report failure (bridge crashed or failure PATCH was

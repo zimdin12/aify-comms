@@ -160,9 +160,9 @@ async def brief_returning_agent(agent_id: str, previous_last_seen: str) -> Optio
         db = await get_db()
         try:
             settings = await _load_settings(db)
-            hours = float(settings.get("away_briefing_hours", DEFAULT_SETTINGS["away_briefing_hours"]) or 0)
+            briefing_hours = float(settings.get("away_briefing_hours", DEFAULT_SETTINGS["away_briefing_hours"]) or 0)
             away = away_seconds(previous_last_seen, time.time())
-            if not briefing_due(away, hours):
+            if not briefing_due(away, briefing_hours):
                 return None
             briefing = await gather(db, agent_id, previous_last_seen, away)
             if not briefing.has_news:

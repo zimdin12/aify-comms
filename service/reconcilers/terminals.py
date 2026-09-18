@@ -143,13 +143,12 @@ async def _reconcile_resurrected_managed_consoles(db) -> int:
     return healed
 
 
-async def _close_idle_virtual_rpc_workers(db, *, idle_close_enabled: bool, idle_close_minutes: int, limit: int = 200) -> list[dict[str, str]]:
+async def _close_idle_virtual_rpc_workers(db, *, idle_close_minutes: int, limit: int = 200) -> list[dict[str, str]]:
     """Auto-close managed worker terminals idle longer than configured."""
-    # SEAM NORMALIZATION, v0.5 slice 5 (declared). Two keys, supplied by the caller from its pass
-    # settings as required scalars — same keys, same defaults, same use. Narrow scalars rather than
-    # the whole dict, which is the shape the reviewer preferred in slice 1a.
+    # One setting since 2026-09-19: `worker_idle_close_minutes`, 0 = off. It was a toggle plus a
+    # window, which is two keys for one knob.
     minutes = int(idle_close_minutes or 0)
-    if minutes <= 0 or not bool(idle_close_enabled):
+    if minutes <= 0:
         return []
     rows = await _select_idle_virtual_rpc_workers(db, minutes, limit)
     now = _now()

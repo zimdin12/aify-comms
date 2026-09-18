@@ -408,6 +408,18 @@ export function wireSettingsControls({ saveSettings }) {
   byId('settings-save')?.addEventListener('click', () => {
     saveSettings().catch((err) => toast(`Save failed: ${err?.message || err}`, 'error'));
   });
+  // Saving a model or effort default changes only NEW workers (service/routers/settings.py). Existing
+  // ones change only when the operator asks, here. Delegated: the button is redrawn with the panel.
+  byId('settings-form')?.addEventListener('click', async (event) => {
+    if (!event.target.closest('#settings-apply-defaults')) return;
+    if (!await uiConfirm('Give every existing managed worker the saved model and effort? Each takes it at its next start.')) return;
+    try {
+      await api('/settings/apply-managed-defaults', { method: 'POST' });
+      toast('Applied to existing workers', 'ok');
+    } catch (err) {
+      toast(`Apply failed: ${err?.message || err}`, 'error');
+    }
+  });
   byId('settings-reset')?.addEventListener('click', () => {
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // clear the edit-guard
     applyTheme(state.settings); // undo any live appearance preview

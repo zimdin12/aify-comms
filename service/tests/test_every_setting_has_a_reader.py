@@ -29,18 +29,15 @@ PRUNE = {"node_modules", ".git", "__pycache__", ".venv", "venv", "tests", "fixtu
 SUFFIXES = {".py", ".js", ".mjs", ".html", ".sh"}
 DECLARATION = "service/api_core/settings.py"
 
-#: Settings that are declared and read by NOTHING, on purpose, each with the reason stated at its
-#: declaration in `settings.py`. Both are "retained for settings-response compatibility only": the
-#: behaviour moved into the bridge, which decides from its own environment at process start and never
-#: polls the service. Neither is exposed by the dashboard -- the compaction one's comment says so
-#: explicitly -- so no operator can toggle a no-op.
-#:
-#: ADDING A NAME HERE IS A DECISION, not a repair. A new setting with no reader is the defect this
-#: file exists to catch, and the fix is to wire it or delete it.
-DELIBERATELY_UNREAD = {
-    "console_auto_confirm_claude_dev_channels",
-    "console_auto_confirm_claude_compaction",
-}
+#: Where every key is DECLARED (service/api_core/settings_spec.py). It holds declarations and their
+#: validation and reads no setting, so it is left out of the reader corpus; counting it would make every
+#: setting look consulted.
+SPEC = "service/api_core/settings_spec.py"
+
+#: Settings declared and read by nothing, on purpose. EMPTY since 2026-09-19, when the two that sat here
+#: (the retired console auto-confirm switches) were deleted. ADDING A NAME HERE IS A DECISION, not a
+#: repair: a setting with no reader is the defect this file exists to catch.
+DELIBERATELY_UNREAD: set = set()
 
 
 def _sources() -> dict[str, str]:
@@ -49,27 +46,13 @@ def _sources() -> dict[str, str]:
         if not path.is_file() or path.suffix not in SUFFIXES:
             continue
         rel = path.relative_to(REPO)
-        if PRUNE & set(rel.parts):
+        if PRUNE & set(rel.parts) or ".test." in rel.name or rel.as_posix() == SPEC:
             continue
         try:
             out[rel.as_posix()] = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
     return out
-
-
-def _declaration_free_settings_module(text: str) -> str:
-    """`settings.py` with the DEFAULT_SETTINGS literal removed.
-
-    The literal is where every key is DECLARED, so counting it as a reader would make every setting
-    look consulted. The rest of the file is legitimate reader code -- `managed_terminal_backing_enabled`
-    and three others are read by helpers a few lines below the dict.
-    """
-    start = text.find("DEFAULT_SETTINGS = {")
-    if start == -1:
-        return text
-    end = text.find("\n}", start)
-    return text[:start] + (text[end:] if end != -1 else "")
 
 
 class EverySettingHasAReaderTests(unittest.TestCase):
@@ -79,7 +62,6 @@ class EverySettingHasAReaderTests(unittest.TestCase):
 
         cls.declared = dict(DEFAULT_SETTINGS)
         cls.sources = _sources()
-        cls.sources[DECLARATION] = _declaration_free_settings_module(cls.sources[DECLARATION])
 
     def _readers(self, key: str) -> list[str]:
         """Files that consult this setting, by the spellings this repo actually uses."""
@@ -112,14 +94,9 @@ class EverySettingHasAReaderTests(unittest.TestCase):
         """Both controls, in the same run as the zero they defend."""
         self.assertTrue(self._readers("agent_liveness_seconds"), "a setting known to be read was missed")
         self.assertEqual(self._readers("zz_no_such_setting_zz"), [])
-        # AND THE DECLARATION MUST NOT COUNT AS ITS OWN READER, or this whole file is vacuous. Asked
-        # of a key that appears ONLY inside the dict: checking for the identifier `DEFAULT_SETTINGS`
-        # does not work, because the stripped module still references it legitimately when merging
-        # defaults and inside a reader helper.
-        self.assertNotIn(
-            "console_auto_confirm_claude_dev_channels", self.sources[DECLARATION],
-            "the settings literal is still in the reader corpus; every key would look consulted",
-        )
+        # AND THE DECLARATION MUST NOT COUNT AS ITS OWN READER, or this whole file is vacuous.
+        self.assertNotIn(SPEC, self.sources, "the declarations are in the reader corpus; every key would look consulted")
+        self.assertFalse(any(".test." in name for name in self.sources), "a test file counted as a reader")
 
     def test_every_declared_setting_is_read_by_something(self):
         unread = sorted(

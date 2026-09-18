@@ -2,6 +2,27 @@
 
 Short rationale log for non-obvious choices, plus the current runtime limits. If you're wondering *why* the service behaves a certain way, this file beats guessing from the code.
 
+## Settings are declared once, in the service, and saving one changes only that one (2026-09-19)
+
+Every setting is declared in `service/api_core/settings_spec.py`: kind, bounds, label, help, group.
+`GET /settings/schema` serves the declarations and the dashboard draws its panel from them. Until
+then the dashboard hand-listed every field, and it disagreed with the service about bounds.
+
+A PUT is checked against the declarations. A value the setting cannot hold is refused with a 400 that
+names it, where before it was dropped behind a 200 that the dashboard reported as "Saved". The
+dashboard now sends only the fields that changed.
+
+Saving a managed model or effort default no longer rewrites existing agents. It used to run on every
+save carrying any `managed_` key, and the dashboard sent every field on every save, so changing the
+theme reset the model of every managed agent, including those spawned with a model of their own.
+Existing agents change only through `POST /settings/apply-managed-defaults`, which is the button
+under Workers.
+
+Retired keys (listed in `RETIRED`) are ignored on PUT, and old rows are left out on read. They are
+the auto-confirm switches, `manual_session_mode`, `idle_minutes`, `offline_minutes`,
+`stale_agent_hours`, `status_engine` and `worker_idle_close_enabled`. The last one is folded into
+`worker_idle_close_minutes`, where 0 means off, by a one-time migration in `service/db.py`.
+
 ## Pi is deprecated: support kept, tests disabled by default (2026-09-18)
 
 The operator no longer uses Oh My Pi but may again, so its code stays and nothing is removed. Its

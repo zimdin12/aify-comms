@@ -104,30 +104,14 @@ def _name_unit(name: str) -> str:
 
 
 def schema_rows() -> list[dict]:
-    """key and label for every drawn setting, read out of the RUNNING module.
+    """key and label for every drawn setting, as the panel labels it.
 
-    Imported rather than regexed, for the reason its sibling gate states: a shape change becomes an
-    error here instead of a silent empty set.
+    From the declarations since 2026-09-19 (service/api_core/settings_spec.py): the panel is drawn from
+    them and appends the declared unit to the label, so this is the label the operator reads.
     """
-    result = subprocess.run(
-        ["node", "-e",
-         "import('./settings-panel.mjs').then(m => {"
-         "  const rows = [];"
-         "  for (const group of (m.SETTINGS_SCHEMA || [])) {"
-         "    for (const item of (group.items || [])) "
-         "      rows.push({key: (item && item.key) || '', label: (item && item.label) || ''});"
-         "  }"
-         "  console.log(JSON.stringify(rows));"
-         "});"],
-        cwd=DASHBOARD, capture_output=True, text=True, shell=True,
-    )
-    payload = [line for line in result.stdout.splitlines() if line.startswith("[")]
-    if not payload:
-        raise AssertionError(
-            "could not read SETTINGS_SCHEMA out of settings-panel.mjs, so this gate judged nothing: "
-            f"{result.stdout[-300:]}{result.stderr[-300:]}"
-        )
-    return json.loads(payload[-1])
+    from service.api_core.settings_spec import SETTINGS
+
+    return [{"key": s.key, "label": f"{s.label} ({s.unit})" if s.unit else s.label} for s in SETTINGS if s.shown]
 
 
 def python_readers(key: str) -> list[Path]:

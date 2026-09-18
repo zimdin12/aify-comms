@@ -106,28 +106,48 @@ test("refreshActiveTerminalTheme is a no-op when no console is open", () => {
 // and "SETTINGS_SCHEMA.map". Every one of those broke when the code moved here, though nothing about the
 // behaviour changed — and none of them could ever have failed on a schema that rendered wrongly.
 
-import { HELP_TAB, SETTINGS_SCHEMA, SETTINGS_TAB_LABELS, renderSettings } from "./settings-panel.mjs";
+import { HELP_TAB, SETTINGS_SCHEMA, adoptSettingsSchema, renderSettings, settingsItemFromDeclaration } from "./settings-panel.mjs";
 import { esc } from "./util.js";
 
+// THE SHAPE `GET /settings/schema` SERVES (service/api_core/settings_spec.py `describe()`), one of each
+// kind. The real declarations are checked end to end by the Python gates, which feed the served schema
+// through this module; these tests pin the MAPPING from a declaration to a control.
+const SERVED = {
+  groups: ["Replies & messages", "Agent liveness", "Appearance", "Advanced", "Empty group"],
+  settings: [
+    { key: "reply_contracts_enabled", default: true, kind: "bool", group: "Replies & messages", label: "Remind agents", help: "", unit: "", min: null, max: null, choices: [], applies: "now" },
+    { key: "agent_liveness_seconds", default: 90, kind: "int", group: "Agent liveness", label: "Offline after", help: "Three missed beats.", unit: "s", min: 30, max: 600, choices: [], applies: "now" },
+    { key: "dashboard_theme", default: "default", kind: "choice", group: "Appearance", label: "Colour scheme", help: "", unit: "", min: null, max: null, choices: ["default", "ember"], applies: "now" },
+    { key: "managed_claude_effort", default: "high", kind: "choice", group: "Advanced", label: "Effort", help: "", unit: "", min: null, max: null, choices: ["low", "high"], applies: "next worker start" },
+    { key: "managed_via_wrapper", default: ["codex"], kind: "runtimes", group: "Advanced", label: "Wrapped", help: "", unit: "", min: null, max: null, choices: ["codex", "hermes"], applies: "next worker start" },
+  ],
+};
 const allItems = () => SETTINGS_SCHEMA.flatMap((g) => g.items);
+const item = (key) => allItems().find((i) => i.key === key);
 
-test("the schema still exposes manual_session_mode", () => {
-  // It is the resident<->managed switch chip toggle. It was the ONLY setting once, and is now one knob
-  // among many; losing it silently would remove the operator's only control over those chips.
-  const item = allItems().find((i) => i.key === "manual_session_mode");
-  assert.ok(item, "manual_session_mode must be present in the schema");
-  assert.equal(item.type, "toggle");
+test("a declaration becomes the control its kind promises, with its unit, bounds and help", () => {
+  adoptSettingsSchema(SERVED);
+  assert.equal(item("reply_contracts_enabled").type, "toggle");
+  assert.deepEqual(
+    [item("agent_liveness_seconds").type, item("agent_liveness_seconds").label, item("agent_liveness_seconds").min, item("agent_liveness_seconds").max],
+    ["number", "Offline after (s)", 30, 600],
+  );
+  assert.equal(item("agent_liveness_seconds").hint, "Three missed beats.");
+  assert.equal(item("dashboard_theme").type, "theme", "the theme keeps its preview tiles");
+  assert.deepEqual([item("managed_claude_effort").type, item("managed_claude_effort").options], ["select", ["low", "high"]]);
+  assert.match(item("managed_claude_effort").hint, /next starts/, "a setting that waits for a restart must say so");
+  assert.equal(item("managed_via_wrapper").type, "csv");
 });
 
-test("every schema group has a tab label and every item has a key and type", () => {
-  for (const group of SETTINGS_SCHEMA) {
-    assert.ok(SETTINGS_TAB_LABELS[group.group], `group "${group.group}" has no tab label`);
-    assert.ok(Array.isArray(group.items) && group.items.length, `group "${group.group}" has no items`);
-    for (const item of group.items) {
-      assert.match(item.key, /^\w+$/, `item in "${group.group}" has a bad key: ${item.key}`);
-      assert.ok(item.type, `item ${item.key} has no type`);
-    }
-  }
+test("groups keep the served order, and a group with nothing shown is not a tab", () => {
+  adoptSettingsSchema(SERVED);
+  assert.deepEqual(SETTINGS_SCHEMA.map((g) => g.group), ["Replies & messages", "Agent liveness", "Appearance", "Advanced"]);
+  assert.equal(SETTINGS_SCHEMA.find((g) => g.group === "Appearance").appearance, true);
+});
+
+test("adopting a schema replaces the previous one rather than appending to it", () => {
+  adoptSettingsSchema(SERVED);
+  adoptSettingsSchema(SERVED);
   const keys = allItems().map((i) => i.key);
   assert.equal(new Set(keys).size, keys.length, "setting keys must be unique across groups");
 });
@@ -147,7 +167,17 @@ function withSettingsDom({ activeElement = null, host = {} } = {}, run) {
   }
 }
 
+test("renderSettings says it is loading until the schema has arrived", () => {
+  adoptSettingsSchema({ groups: [], settings: [] });
+  state.settings = {};
+  withSettingsDom({}, (els) => {
+    renderSettings();
+    assert.match(els["settings-form"].innerHTML, /Loading settings/);
+  });
+});
+
 test("renderSettings builds one tab per schema group, plus Help, and marks the active one", () => {
+  adoptSettingsSchema(SERVED);
   state.settings = {};
   state.settingsTab = SETTINGS_SCHEMA[0].group;
   withSettingsDom({}, (els) => {
@@ -337,4 +367,18 @@ test("A REFUSING STORAGE STILL SWITCHES THE TAB", () => {
     assert.doesNotThrow(() => selectSettingsTab({ dataset: { settingsTab: "general" } }));
     assert.equal(state.settingsTab, "general", "the switch survives the storage failure");
   });
+});
+
+test("settingsItemFromDeclaration maps each declared kind to the control that can edit it", () => {
+  const item = (d) => settingsItemFromDeclaration({ help: "", applies: "", ...d });
+  assert.equal(item({ key: "a", kind: "bool", label: "A" }).type, "toggle");
+  assert.equal(item({ key: "dashboard_theme", kind: "choice", label: "T", choices: ["default"] }).type, "theme");
+  const effort = item({ key: "e", kind: "choice", label: "E", choices: ["", "high"] });
+  assert.deepEqual([effort.type, effort.options, effort.optionLabels], ["select", ["", "high"], { "": "default" }]);
+  const minutes = item({ key: "m", kind: "int", label: "Idle", unit: "minutes", min: 0, max: 60 });
+  assert.deepEqual([minutes.type, minutes.label, minutes.min, minutes.max], ["number", "Idle (minutes)", 0, 60]);
+  assert.equal(item({ key: "r", kind: "runtimes", label: "R" }).type, "csv");
+  assert.equal(item({ key: "c", kind: "color", label: "C" }).type, "color");
+  assert.equal(item({ key: "w", kind: "int", label: "W", applies: "next worker start" }).hint,
+    "Takes effect when a worker next starts.");
 });

@@ -428,8 +428,7 @@ async function saveSettings() {
     else if (type === 'number') {
       let n = Number(el.value);
       if (el.value !== '' && Number.isFinite(n)) {
-        // Clamp to the rendered min/max — the PUT /settings endpoint does no bounds validation,
-        // so an out-of-range value would otherwise persist verbatim.
+        // Clamp to the rendered min/max, which are the service's own (GET /settings/schema).
         const min = el.min !== '' ? Number(el.min) : null;
         const max = el.max !== '' ? Number(el.max) : null;
         if (min != null && Number.isFinite(min)) n = Math.max(min, n);
@@ -440,6 +439,7 @@ async function saveSettings() {
     else if (type === 'csv') payload[key] = el.value.split(',').map((s) => s.trim()).filter(Boolean);
     else payload[key] = el.value; // text, select, theme, color
   });
+  for (const key of Object.keys(payload)) if (JSON.stringify(payload[key]) === JSON.stringify(state.settings?.[key])) delete payload[key]; // send only what changed
   if (statusEl) statusEl.textContent = 'Saving…';
   try {
     const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });

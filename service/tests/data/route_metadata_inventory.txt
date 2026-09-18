@@ -50,6 +50,7 @@ JsonApiRoute GET /api/v1/messages/recent name=recent_messages status=- response_
 JsonApiRoute GET /api/v1/messages/search name=search_messages status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/sessions name=list_sessions status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/settings name=get_settings status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/settings/schema name=get_settings_schema status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/shared name=list_shared status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/shared/{name} name=read_shared status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/spawn-requests name=list_spawn_requests status=- response_model=- tags=api deps=0 in_schema=True
@@ -113,6 +114,7 @@ JsonApiRoute POST /api/v1/messages/{message_id}/read name=set_message_read_state
 JsonApiRoute POST /api/v1/rotate name=rotate status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/sessions/{session_id}/console/start name=start_session_console status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/sessions/{session_id}/control name=control_session status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/settings/apply-managed-defaults name=apply_managed_defaults status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/shared name=share_artifact status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/spawn-requests name=create_spawn_request status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/spawn-requests/claim name=claim_spawn_request status=- response_model=- tags=api deps=0 in_schema=True

@@ -449,9 +449,13 @@ class NewDashboardAppTest(unittest.TestCase):
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
         # Theme engine
-        self.assertIn("appearance: true", script, "Appearance settings group must exist")
-        self.assertIn("type: 'theme'", script, "theme picker control type must exist")
-        self.assertIn("type: 'color'", script, "color picker control type must exist")
+        # The Appearance group, its theme picker and its colour controls are DECLARED by the service since
+        # 2026-09-19 (settings_spec.py) and rendered from GET /settings/schema; settings-panel.test.mjs
+        # renders them from a served schema, so only the declaration is read here.
+        from service.api_core.settings_spec import BY_KEY, EFFORTS
+        self.assertEqual(BY_KEY["dashboard_theme"].group, "Appearance", "Appearance settings group must exist")
+        self.assertEqual(BY_KEY["dashboard_theme"].kind, "choice", "theme picker must be a choice")
+        self.assertEqual(BY_KEY["dashboard_primary_color"].kind, "color", "color picker control type must exist")
         self.assertIn("data-theme-choice", script, "theme preview tiles must be clickable")
         self.assertIn("applyCachedTheme()", script, "cached theme must paint at startup")
         # Settings is tabbed with aligned field rows + real toggle switches (not tiny checkboxes).
@@ -468,8 +472,8 @@ class NewDashboardAppTest(unittest.TestCase):
             "managed_via_wrapper", "contract_stale_hours", "agent_liveness_seconds",
             "active_run_stale_minutes", "active_managed_run_stale_minutes",
         ):
-            self.assertIn(f"key: '{key}'", script, f"settings schema must expose {key}")
-        self.assertIn("'xhigh'", script, "effort options must include xhigh")
+            self.assertTrue(BY_KEY[key].shown, f"settings schema must expose {key}")
+        self.assertIn("xhigh", EFFORTS, "effort options must include xhigh")
 
     def test_help_reference_lives_on_settings_page_as_links_not_essay(self):
         # Slice 7 "Help" half: canonical-doc links + compact quick-start + endpoint

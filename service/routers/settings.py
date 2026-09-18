@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
-import time
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -21,10 +19,10 @@ from fastapi import HTTPException, Request
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
+from service.api_core.settings_spec import GROUPS, SETTINGS, SettingError, validate_update
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
-from service.models import validate_model_shape
 
 logger = logging.getLogger("aify_comms.routers.settings")
 
@@ -32,6 +30,13 @@ router = domain_router()
 
 
 async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
+    """Rewrite every existing managed agent's model and effort to the current defaults.
+
+    ONLY ON REQUEST since 2026-09-19. It ran on every save that carried any `managed_` key, and the
+    dashboard sent every field on every save, so changing the colour scheme reset the model of every
+    managed agent -- including ones spawned with a model of their own -- and the next restart
+    relaunched them on the default. Saving a default now changes only what NEW workers get.
+    """
     defaults = [
         ("claude-code", settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"]), settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
         ("codex", settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"]), settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
@@ -78,102 +83,55 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
             )
 
 
-# Per-key server-side floors for settings consumed server-side that would break behavior at
-# zero/negative (audit 2026-06-28 — PUT /settings previously accepted ANY value for a known
-# key; the min/max in the dashboards were advisory only, so a raw API/MCP caller could set e.g.
-# max_shared_size_mb=0 and zero out all uploads). Keys not listed are merely floored at 0.
-_SETTINGS_MIN = {
-    "max_shared_size_mb": 1,
-    "dashboard_refresh_seconds": 5,
-    "agent_liveness_seconds": 10,
-    "environment_offline_seconds": 10,
-    "resident_lease_seconds": 10,
-    "max_messages_per_agent": 1,
-    "retention_days": 1,
-    # 0 is meaningful (= every reminder full); listed for documentation only —
-    # unlisted numeric keys are floored at 0 anyway.
-    "reply_reminder_full_every": 0,
-}
-
-
+# Every value is checked against its declaration in settings_spec.py, and a PUT carrying one the
+# setting cannot hold is refused with the reason (400). Until 2026-09-19 an invalid value was dropped
+# behind a 200, which the dashboard reported as "Saved".
 @router.get("/settings")
 async def get_settings(request: Request):
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT key, value FROM settings")
-        saved = {}
-        for row in await cursor.fetchall():
-            try:
-                saved[row["key"]] = json.loads(row["value"])
-            except Exception:
-                saved[row["key"]] = row["value"]
-        return {**DEFAULT_SETTINGS, **saved}
+        return await _load_settings(db)
     finally:
         await db.close()
+
+
+@router.get("/settings/schema")
+async def get_settings_schema(request: Request):
+    """The declarations the dashboard draws its settings panel from, in panel order."""
+    return {"groups": list(GROUPS), "settings": [s.describe() for s in SETTINGS if s.shown]}
 
 
 @router.put("/settings")
 async def update_settings(request: Request):
     body = await request.json()
+    try:
+        clean = validate_update(body if isinstance(body, dict) else {})
+    except SettingError as exc:
+        raise HTTPException(400, str(exc)) from exc
     db = await get_db()
     try:
-        for key, value in body.items():
-            if key not in DEFAULT_SETTINGS:
-                continue
-            default = DEFAULT_SETTINGS[key]
-            # Validate/clamp numeric settings (bool first — bool is a subclass of int).
-            if isinstance(default, bool):
-                # Bughunt 2026-07-03: a raw API/MCP caller sending the STRING "false"
-                # got bool("false")==True (any non-empty string is truthy) — silently
-                # flipping a boolean setting on. Only accept an actual JSON bool; also
-                # accept the case-insensitive "true"/"false" strings a form might send.
-                if isinstance(value, bool):
-                    pass
-                elif isinstance(value, str) and value.strip().lower() in ("true", "false"):
-                    value = value.strip().lower() == "true"
-                else:
-                    continue  # reject anything ambiguous for a bool setting
-            elif isinstance(default, (int, float)) and not isinstance(value, bool):
-                try:
-                    num = float(value)
-                except (TypeError, ValueError):
-                    continue  # reject non-numeric for a numeric setting
-                # Reject NaN AND ±inf (bughunt 2026-07-03: a JSON `1e999` literal parses
-                # to float('inf'); the old `num != num` NaN guard missed it, and int(inf)
-                # then raised OverflowError → HTTP 500).
-                if not math.isfinite(num):
-                    continue
-                num = max(num, float(_SETTINGS_MIN.get(key, 0)))
-                value = int(num) if isinstance(default, int) else num
-            elif key.endswith("_model"):
-                # THE THIRD MODEL INGRESS, and the one with the longest fuse. `managed_*_model`
-                # settings are substituted into a spawn AFTER Pydantic has validated the request
-                # (see create_spawn_request), and `_apply_managed_runtime_defaults` writes them onto
-                # agents and spawn_specs — so a malformed value set here reaches a runtime CLI for
-                # every future managed spawn of that runtime, with no request to trace it back to.
-                #
-                # Same shape rule as the request models, so there is one definition of "that is not
-                # a model name" rather than three that can drift.
-                #
-                # Raises rather than the `continue` the numeric branches use: a silently ignored
-                # numeric clamps to something sane, but silently ignoring this would leave the
-                # operator believing they had changed the fleet's model. Reporting success for work
-                # not done is the failure this repo keeps paying for.
-                try:
-                    value = validate_model_shape(value) or ""
-                except ValueError as exc:
-                    raise HTTPException(400, f'Setting "{key}": {exc}') from exc
-            await db.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)",
-                (key, json.dumps(value))
-            )
+        for key, value in clean.items():
+            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (key, json.dumps(value)))
         _invalidate_settings_cache()
-        settings = await _load_settings(db)
-        if any(str(key).startswith("managed_") for key in body.keys()):
-            await _apply_managed_runtime_defaults(db, settings)
         await db.commit()
         ws = await _get_ws(request)
-        if ws: await ws.broadcast("settings_updated")
-        return await get_settings(request)
+        if ws:
+            await ws.broadcast("settings_updated")
+        return await _load_settings(db)
+    finally:
+        await db.close()
+
+
+@router.post("/settings/apply-managed-defaults")
+async def apply_managed_defaults(request: Request):
+    """Give every existing managed agent the current model and effort defaults. The operator asks."""
+    db = await get_db()
+    try:
+        await _apply_managed_runtime_defaults(db, await _load_settings(db))
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("settings_updated")
+        return {"ok": True}
     finally:
         await db.close()

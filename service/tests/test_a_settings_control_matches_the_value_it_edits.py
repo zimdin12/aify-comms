@@ -1,6 +1,6 @@
 """A dashboard control must agree with the value it edits.
 
-WHAT THIS ASKS THAT ITS SIBLING DOES NOT. `test_every_dashboard_setting_has_a_reader.py` answers
+WHAT THIS ASKS THAT ITS SIBLING DOES NOT. `test_every_setting_has_a_reader.py` answers
 "is this setting still read" -- the stale-setting question. This answers the other half of the B7
 audit: does the CONTROL the operator is given match the VALUE the reader consumes, and is it wired to
 that value at all.
@@ -35,7 +35,6 @@ They are pinned by NAME, in both directions, so hiding a NEW one is a decision s
 
 from __future__ import annotations
 
-import ast
 import json
 import re
 from html.parser import HTMLParser
@@ -45,7 +44,6 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SETTINGS_PY = REPO / "service" / "api_core" / "settings.py"
 PROBE = REPO / "service" / "tests" / "settings_schema_probe.mjs"
 
 #: Which Python types each control can legitimately edit. A control type absent here fails, because
@@ -73,32 +71,17 @@ WIDGET_FOR_TYPE = {
     "csv": "text",
 }
 
-#: Declared but deliberately NOT on the panel. Each is an internal tunable whose value is a judgement
-#: about the service's own behaviour rather than an operator preference.
-NOT_OPERATOR_FACING = {
-    "agent_offline_revalidate_seconds",
-    "stranded_reply_fail_minutes",
-    "active_managed_run_wall_ceiling_minutes",
-    "queued_run_backstop_seconds",
-    "orphaned_dispatch_run_retention_hours",
-    "console_auto_confirm_claude_dev_channels",
-    "console_auto_confirm_claude_compaction",
-    "managed_reply_capture_fallback",
-}
+#: Declared but deliberately NOT on the panel: the declarations marked `shown=False`. Derived, so a
+#: setting cannot be hidden without saying so at its declaration.
+from service.api_core.settings_spec import GROUPS, SETTINGS, defaults as _spec_defaults  # noqa: E402
+
+NOT_OPERATOR_FACING = {s.key for s in SETTINGS if not s.shown}
+SERVED_SCHEMA = {"groups": list(GROUPS), "settings": [s.describe() for s in SETTINGS if s.shown]}
 
 
 def declared_settings() -> dict:
-    """`DEFAULT_SETTINGS`, by AST rather than by regex."""
-    tree = ast.parse(SETTINGS_PY.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and any(
-            getattr(target, "id", "") == "DEFAULT_SETTINGS" for target in node.targets
-        ):
-            return {
-                key.value: ast.literal_eval(value)
-                for key, value in zip(node.value.keys, node.value.values)
-            }
-    raise AssertionError("DEFAULT_SETTINGS is not an assignment in settings.py any more")
+    """Every declared setting and its default, from the declarations themselves."""
+    return _spec_defaults()
 
 
 def disagreements(defaults: dict, controls: list[dict]) -> list[str]:
@@ -278,7 +261,7 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         # THE DEFAULTS GO IN, so the probe can render the values the service actually ships with.
         # Only Python declares them, and only JavaScript can say what the panel does with them.
         done = subprocess.run(
-            [node, str(PROBE), json.dumps(cls.defaults)],
+            [node, str(PROBE), json.dumps(cls.defaults), json.dumps(SERVED_SCHEMA)],
             cwd=str(REPO), capture_output=True, text=True,
         )
         if done.returncode != 0:

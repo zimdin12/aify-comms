@@ -17,7 +17,7 @@ import { chatLoadChannels, chatLoadConversation } from './message-transport.mjs'
 import { loadFiles } from './shared-files.mjs';
 import { shouldLoadFiles, shouldLoadForPage } from './files-page.mjs';
 import { loadContractsForState } from './work-loop-actions.mjs';
-import { refreshActiveTerminalTheme } from './settings-panel.mjs';
+import { SETTINGS_SCHEMA, adoptSettingsSchema, refreshActiveTerminalTheme } from './settings-panel.mjs';
 import { runQueryPath } from './run-helpers.mjs';
 import { applyTheme } from './theme.js';
 import { byId } from './ui.js';
@@ -78,6 +78,8 @@ export const SLICE_LOADERS = Object.freeze({
     state.stats = (await api('/stats')) || {};
   },
   async settings() {
+    // The panel is drawn from the service's declarations; they change only with a deploy.
+    if (!SETTINGS_SCHEMA.length) adoptSettingsSchema(await api('/settings/schema'));
     const res = await api('/settings');
     if (!res || typeof res !== 'object') throw new Error('settings returned no object');
     state.settings = res;

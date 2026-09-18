@@ -13,8 +13,9 @@
 // The constants come along because nothing outside the closure reads them: the ownership test used
 // throughout the series is a count of DIRECT readers, not a guess at where a name belongs.
 //
-// Every declaration is byte-identical to the one that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof strips before comparing. Leading comments stayed behind in
+// Every declaration was byte-identical to the one that stood in app.js, with `export ` added. Since
+// 2026-09-19 the schema, tab labels and effort lists differ, declared as edits in
+// extraction-proof.test.mjs: the settings come from the service now (see adoptSettingsSchema below). Leading comments stayed behind in
 // app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its comments
 // could not round-trip through the proof.
 
@@ -25,74 +26,25 @@ import { THEMES, normalizedHexColor, previewTheme } from './theme.js';
 import { byId } from './ui.js';
 import { esc } from './util.js';
 
-export const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh'];
-export const PI_EFFORT_OPTS = ['', 'low', 'medium', 'high', 'xhigh'];
-export const SETTINGS_SCHEMA = [
-  { group: 'Appearance', appearance: true, items: [
-    { key: 'dashboard_theme', label: 'Color scheme', type: 'theme' },
-    { key: 'dashboard_primary_color', label: 'Primary color', type: 'color', hint: 'Actions, brand, focus.' },
-    { key: 'dashboard_secondary_color', label: 'Secondary color', type: 'color', hint: 'Selection, links.' },
-    { key: 'dashboard_tertiary_color', label: 'Tertiary color', type: 'color', hint: 'Depth, charts.' },
-    { key: 'dashboard_title', label: 'Dashboard title', type: 'text' },
-  ] },
-  { group: 'Status & lifecycle', items: [
-    { key: 'resident_lease_seconds', label: 'Resident bridge lease (s)', type: 'number', min: 30, max: 3600 },
-    { key: 'environment_offline_seconds', label: 'Environment offline after (s)', type: 'number', min: 30, max: 3600 },
-    { key: 'agent_liveness_seconds', label: 'Agent offline after no heartbeat (s)', type: 'number', min: 30, max: 600 },
-    { key: 'worker_idle_close_enabled', label: 'Auto-close idle managed workers', type: 'toggle' },
-    { key: 'worker_idle_close_minutes', label: 'Idle close after (min)', type: 'number', min: 0, max: 1440 },
-    { key: 'auto_confirm_session_id', label: 'Auto-confirm new session IDs', type: 'toggle' },
-    { key: 'away_briefing_hours', label: 'Brief agents back after (h)', type: 'number', min: 0, max: 720, hint: 'An agent returning after this long is sent what it missed. 0 = off.' },
-    { key: 'manual_session_mode', label: 'Show resident↔managed switch chips', type: 'toggle' },
-  ] },
-  { group: 'Reply contracts', items: [
-    { key: 'reply_contracts_enabled', label: 'Reply contracts enabled', type: 'toggle' },
-    { key: 'reply_reminder_minutes', label: 'First reminder after (min)', type: 'number', min: 1, max: 240 },
-    { key: 'reply_reminder_repeat_minutes', label: 'Reminder repeat (min)', type: 'number', min: 1, max: 1440 },
-    { key: 'reply_reminder_max_count', label: 'Max reminders (0 = unlimited)', type: 'number', min: 0, max: 20 },
-    { key: 'reply_reminder_full_every', label: 'Full reminder every Nth (0 = always full)', type: 'number', min: 0, max: 20 },
-    { key: 'contract_stale_hours', label: 'Contract history window (h)', type: 'number', min: 1, max: 720 },
-  ] },
-  { group: 'Managed runtimes', items: [
-    { key: 'managed_terminal_backing_enabled', label: 'Terminal-backed managed sessions', type: 'toggle' },
-    { key: 'insert_messages_via_console', label: 'Legacy PTY-input delivery', type: 'toggle', hint: 'Default off — scrambles concurrent typing. Channel delivery is preferred.' },
-    { key: 'managed_pty_eager_spawn', label: 'Eager-spawn managed PTY', type: 'toggle' },
-    { key: 'managed_via_wrapper', label: 'Wrapper-backed managed runtimes', type: 'csv', hint: 'Comma-separated, e.g. codex, hermes.' },
-    { key: 'managed_claude_model', label: 'Managed claude model', type: 'text' },
-    { key: 'managed_claude_effort', label: 'Managed claude effort', type: 'select', options: EFFORT_OPTS },
-    { key: 'managed_codex_model', label: 'Managed codex model', type: 'text' },
-    { key: 'managed_codex_effort', label: 'Managed codex effort', type: 'select', options: EFFORT_OPTS },
-    { key: 'managed_pi_model', label: 'Managed pi model', type: 'text' },
-    { key: 'managed_pi_effort', label: 'Managed pi effort', type: 'select', options: PI_EFFORT_OPTS, optionLabels: { '': 'OMP default' } },
-  ] },
-  { group: 'Retention & rotation', items: [
-    { key: 'rotation_enabled', label: 'Rotation enabled', type: 'toggle' },
-    { key: 'retention_days', label: 'Retention (days)', type: 'number', min: 1, max: 3650 },
-    { key: 'max_messages_per_agent', label: 'Max messages / agent', type: 'number', min: 10, max: 100000 },
-    { key: 'max_shared_size_mb', label: 'Max shared file size (MB)', type: 'number', min: 10, max: 100000 },
-    { key: 'active_run_stale_minutes', label: 'Terminal run stale cleanup (min)', type: 'number', min: 5, max: 240 },
-    { key: 'active_managed_run_stale_minutes', label: 'Managed run stale cleanup (min)', type: 'number', min: 1, max: 120 },
-  ] },
-  { group: 'Dashboard', items: [
-    { key: 'dashboard_refresh_seconds', label: 'Poll fallback (s)', type: 'number', min: 5, max: 300, hint: 'A safety net only — live updates arrive over WebSocket.' },
-  ] },
-];
+export const EFFORT_OPTS = Object.freeze([]); // empty: choices come from GET /settings/schema; kept for the proof
+export const PI_EFFORT_OPTS = Object.freeze([]); // empty: choices come from GET /settings/schema; kept for the proof
+export const SETTINGS_SCHEMA = []; // filled from GET /settings/schema by adoptSettingsSchema()
 export const SETTINGS_TAB_LABELS = {
-  'Appearance': 'Appearance', 'Status & lifecycle': 'Status', 'Reply contracts': 'Contracts',
-  'Managed runtimes': 'Runtimes', 'Retention & rotation': 'Retention', 'Dashboard': 'Dashboard',
+  'Replies & messages': 'Replies', 'Agent liveness': 'Liveness', 'Managed workers': 'Workers',
+  'Files & retention': 'Files', 'Appearance': 'Appearance', 'Advanced': 'Advanced',
 };
 export const SETTINGS_TAB_DESC = {
-  'Appearance': 'Theme, accent colors, and the dashboard title.',
-  'Status & lifecycle': 'How liveness is derived and when agents are marked idle/offline.',
-  'Reply contracts': 'Reply-reminder cadence and how long contracts stay tracked.',
-  'Managed runtimes': 'Defaults applied to dashboard-spawned managed agents.',
-  'Retention & rotation': 'Message/file retention and stale-record cleanup windows.',
-  'Dashboard': 'Dashboard-only preferences.',
+  'Replies & messages': 'When agents are reminded to reply, and what happens when they do not.',
+  'Agent liveness': 'How much silence before an agent or a machine reads offline.',
+  'Managed workers': 'What new dashboard-spawned workers start with. Saving changes only new workers; use the button to update existing ones.',
+  'Files & retention': "Shared file size, and how long a removed agent's run history is kept.",
+  'Appearance': 'Theme, accent colours, and the dashboard title.',
+  'Advanced': 'Internal timings and legacy switches. The defaults suit almost every setup.',
 };
 export const HELP_TAB = 'Help';
 export function activeSettingsTab() {
   const tabs = [...SETTINGS_SCHEMA.map((g) => g.group), HELP_TAB];
-  return tabs.includes(state.settingsTab) ? state.settingsTab : SETTINGS_SCHEMA[0].group;
+  return tabs.includes(state.settingsTab) ? state.settingsTab : (SETTINGS_SCHEMA[0]?.group || HELP_TAB);
 }
 export function renderSettings() {
   const host = byId('settings-form');
@@ -103,6 +55,7 @@ export function renderSettings() {
   // tab switches (a real click focuses the tab → early return → panel never switched). 2026-06-29 fix.
   const _ae = document.activeElement;
   if (_ae && host.contains(_ae) && _ae.matches && _ae.matches('input, select, textarea')) return;
+  if (!SETTINGS_SCHEMA.length) { host.innerHTML = '<p class="settings-panel-desc">Loading settings…</p>'; return; }
   const s = state.settings || {};
   const active = activeSettingsTab();
   const tabBar = `<div class="settings-tabs" role="group" aria-label="Settings sections">`
@@ -113,6 +66,7 @@ export function renderSettings() {
     <section class="settings-panel${grp.group === active ? ' active' : ''}${grp.appearance ? ' settings-appearance' : ''}" data-settings-panel="${esc(grp.group)}">
       ${SETTINGS_TAB_DESC[grp.group] ? `<p class="settings-panel-desc">${esc(SETTINGS_TAB_DESC[grp.group])}</p>` : ''}
       ${grp.items.map((item) => settingsFieldHtml(item, s[item.key], s)).join('')}
+      ${grp.group === 'Managed workers' ? '<button type="button" class="btn" id="settings-apply-defaults">Apply model and effort to existing workers</button>' : ''}
     </section>`).join('');
   host.innerHTML = tabBar + panels;
   // Help tab shows the static help-band; schema tabs hide it. Save/Classic buttons hide on Help.
@@ -205,4 +159,35 @@ export function selectSettingsTab(settingsTab) {
   state.settingsTab = settingsTab.dataset.settingsTab;
   try { localStorage.setItem('aifySettingsTab', state.settingsTab); } catch { /* ignore */ }
   renderSettings();
+}
+
+// THE PANEL IS DRAWN FROM THE SERVICE'S DECLARATIONS (service/api_core/settings_spec.py), served by
+// GET /settings/schema, so a setting's type, bounds, label and help exist in one place. Until
+// 2026-09-19 this module hand-listed them, and the list and the service disagreed about bounds.
+const WIDGET = { bool: 'toggle', int: 'number', model: 'text', text: 'text', color: 'color', runtimes: 'csv' };
+const APPLIES_NOTE = { 'next worker start': 'Takes effect when a worker next starts.', 'next rotation': '' };
+
+export function settingsItemFromDeclaration(d) {
+  const type = d.kind === 'choice' ? (d.key === 'dashboard_theme' ? 'theme' : 'select') : (WIDGET[d.kind] || 'text');
+  const hint = [d.help, APPLIES_NOTE[d.applies] || ''].filter(Boolean).join(' ');
+  const item = { key: d.key, label: d.unit ? `${d.label} (${d.unit})` : d.label, type };
+  if (hint) item.hint = hint;
+  if (d.min != null) item.min = d.min;
+  if (d.max != null) item.max = d.max;
+  if (type === 'select') {
+    item.options = d.choices;
+    item.optionLabels = { '': 'default' };
+  }
+  return item;
+}
+
+export function adoptSettingsSchema(served) {
+  const declarations = Array.isArray(served?.settings) ? served.settings : [];
+  const groups = (Array.isArray(served?.groups) ? served.groups : []).map((group) => ({
+    group,
+    appearance: group === 'Appearance',
+    items: declarations.filter((d) => d.group === group).map(settingsItemFromDeclaration),
+  })).filter((g) => g.items.length);
+  SETTINGS_SCHEMA.splice(0, SETTINGS_SCHEMA.length, ...groups);
+  return SETTINGS_SCHEMA;
 }
