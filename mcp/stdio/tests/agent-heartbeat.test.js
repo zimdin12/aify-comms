@@ -153,12 +153,12 @@ test("BOTH turn-busy functions in this bridge are DIFFERENT functions with the s
   // `reportTurnBusy(httpCall, agentId, {...})`; this module exports
   // `reportTurnBusy(agentId, state, {...})`. Importing the wrong one type-checks nowhere and fails at
   // runtime with a confusing shape, so the arities are pinned.
-  // FOUR modules define this name, not two — I assumed two and the scan corrected me. `claude-channel.js`
-  // and `hermes-channel.js` have their own as well. That makes the collision worse than the header said, and
-  // worth pinning as an inventory: a fifth appearing should be a decision, not a surprise.
+  // THREE modules define this name, not two — I assumed two and the scan corrected me. `claude-channel.js`
+  // has its own as well (`hermes-channel.js` had a fourth until it was deleted on 2026-09-18). Pinned as an
+  // inventory: another appearing should be a decision, not a surprise.
   const owners = declaringModules("reportTurnBusy").map((o) => o.file).sort();
   assert.deepEqual(owners,
-    ["agent-heartbeat.mjs", "claude-channel.js", "hermes-channel.js", "hermes-run-reporting.mjs"],
+    ["agent-heartbeat.mjs", "claude-channel.js", "hermes-run-reporting.mjs"],
     "the reportTurnBusy inventory changed — check the collision note in agent-heartbeat.mjs");
   assert.equal(reportTurnBusy.length, 1, "this one takes (agentId, state = {}, opts = {}) → arity 1");
   const hermesSrc = readFileSync(path.join(STDIO, "hermes-run-reporting.mjs"), "utf-8");

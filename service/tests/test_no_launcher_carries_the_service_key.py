@@ -37,7 +37,10 @@ import os
 import shutil
 import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
+from typing import Mapping
 
 import pytest
 
@@ -94,10 +97,20 @@ def _render(directory: Path, key: str | None) -> dict[str, str]:
     return rendered
 
 
+@lru_cache(maxsize=1)
+def _rendered_with_key() -> Mapping[str, str]:
+    """Every launcher rendered with FIXTURE_KEY configured, once for this file.
+
+    Three cases below read the same render; each used to pay for its own. Handed back as immutable
+    text, so no case can see state another one left behind.
+    """
+    with tempfile.TemporaryDirectory(prefix="aify-key-") as tmp:
+        return MappingProxyType(_render(Path(tmp), FIXTURE_KEY))
+
+
 def test_A_CONFIGURED_KEY_REACHES_NO_LAUNCHER():
     """THE PROPERTY. With a key configured, no rendered file may contain it."""
-    with tempfile.TemporaryDirectory(prefix="aify-key-") as tmp:
-        rendered = _render(Path(tmp), FIXTURE_KEY)
+    rendered = _rendered_with_key()
     carrying = sorted(name for name, text in rendered.items() if FIXTURE_KEY in text)
     assert carrying == [], f"the service key was baked into: {carrying}"
 
@@ -109,8 +122,7 @@ def test_the_render_under_test_actually_saw_the_key():
     produce "the key is nowhere" -- the same answer as success. So this pins that the run rendered
     real launchers carrying the OTHER settings it was given.
     """
-    with tempfile.TemporaryDirectory(prefix="aify-key-") as tmp:
-        rendered = _render(Path(tmp), FIXTURE_KEY)
+    rendered = _rendered_with_key()
     assert URL in rendered["aify-comms"], "the render did not carry the server URL it was given"
     assert len(rendered) >= 2, f"implausibly few files rendered: {sorted(rendered)}"
 
@@ -118,8 +130,7 @@ def test_the_render_under_test_actually_saw_the_key():
 def test_no_launcher_declares_a_key_variable_at_all():
     """Not merely "the value is absent": an `export AIFY_API_KEY=` line with any content is a
     destination, and a destination is where a value comes back."""
-    with tempfile.TemporaryDirectory(prefix="aify-key-") as tmp:
-        rendered = _render(Path(tmp), FIXTURE_KEY)
+    rendered = _rendered_with_key()
     offenders = [
         f"{name}: {line.strip()}"
         for name, text in rendered.items()

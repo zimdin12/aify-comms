@@ -11,11 +11,11 @@ Separate release lines are the entire point of the three-repo split. This is not
 import os
 import shutil
 import subprocess
-import tempfile
-from functools import lru_cache
 from pathlib import Path
 
 import pytest
+
+from service.tests._launchers import launcher
 
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
@@ -28,22 +28,11 @@ def _read_version(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-@lru_cache(maxsize=1)
 def _rendered() -> str:
-    """Render claude-aify. `--emit-wrappers` exits before npm, MCP registration or any env mutation,
-    so this cannot touch a machine with a live fleet."""
-    bash = shutil.which("bash")
-    if not bash:
-        pytest.skip("bash not on PATH")
+    """The claude-aify every other launcher test reads, rendered once for the session."""
     if not (WRAPPER_PACKAGE / "VERSION").exists():
         pytest.skip("aify-wrapper package not installed — run 'npm install' in mcp/stdio")
-    with tempfile.TemporaryDirectory(prefix="aify-marker-") as tmp:
-        subprocess.run(
-            [bash, str(INSTALL_SH), "--client", "claude", RENDER_URL, "--emit-wrappers", tmp],
-            check=True,
-            capture_output=True,
-        )
-        return (Path(tmp) / "claude-aify").read_text(encoding="utf-8")
+    return launcher("claude")
 
 
 def _marker_value(text: str) -> str:

@@ -15,15 +15,10 @@ shape; the failure path is non-fatal and exercised live by the operator.
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import tempfile
-from functools import lru_cache
-
-import pytest
-
 import re
 from pathlib import Path
+
+from service.tests._launchers import launcher
 
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
@@ -52,40 +47,15 @@ def _read_install_sh() -> str:
 # INSTALLER (the .ps1 shim, plugin patches, config rewrites) keep reading install.sh, because that is
 # still where those live. A location pin breaks on a move and stays green on a defect — asking the
 # artifact an operator installs is immune to both.
-@lru_cache(maxsize=1)
 def _read_hermes_wrapper() -> str:
-    bash = shutil.which("bash")
-    if not bash:
-        pytest.skip("bash not on PATH — hermes wrapper render skipped")
-    with tempfile.TemporaryDirectory(prefix="aify-hermes-render-") as tmp:
-        subprocess.run(
-            [bash, str(INSTALL_SH), "--client", "hermes", "http://127.0.0.1:8899",
-             "--emit-wrappers", tmp],
-            check=True,
-            capture_output=True,
-        )
-        wrapper = Path(tmp) / "hermes-aify"
-        assert wrapper.exists(), "--emit-wrappers must produce hermes-aify"
-        return wrapper.read_text(encoding="utf-8")
+    return launcher("hermes")
 
 
 # The rendered PowerShell TUI shim. Hermes is the only runtime needing a `.ps1` at all — it carries
-# the visible-TUI requirement on Windows — and `--emit-wrappers` writes it beside the bash wrapper.
-@lru_cache(maxsize=1)
+# the visible-TUI requirement on Windows — and `--emit-wrappers` writes it beside the bash wrapper,
+# so it comes out of the same render.
 def _read_hermes_ps1() -> str:
-    bash = shutil.which("bash")
-    if not bash:
-        pytest.skip("bash not on PATH — hermes shim render skipped")
-    with tempfile.TemporaryDirectory(prefix="aify-hermes-ps1-") as tmp:
-        subprocess.run(
-            [bash, str(INSTALL_SH), "--client", "hermes", "http://127.0.0.1:8899",
-             "--emit-wrappers", tmp],
-            check=True,
-            capture_output=True,
-        )
-        shim = Path(tmp) / "hermes-aify.ps1"
-        assert shim.exists(), "--emit-wrappers must produce hermes-aify.ps1"
-        return shim.read_text(encoding="utf-8")
+    return launcher("hermes", name="hermes-aify.ps1")
 
 
 def _defines(text: str, name: str) -> bool:

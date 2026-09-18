@@ -1,7 +1,8 @@
 """The environment a managed worker launches with, composed once by the tier that knows it.
 
-WHY IT MOVED. Every value here was composed on the HOST, in `mcp/stdio/terminal-env.js`, by the
-aify-comms environment bridge. That bridge is being removed and aify-env becomes the process host.
+WHY IT MOVED. Every value here was composed on the HOST, in the bridge's `terminal-env.js`, by the
+aify-comms environment bridge. v0.6.2 removed that bridge and aify-env became the process host;
+`terminal-env.js` and its `child-env-hygiene.mjs` had no caller left and were deleted on 2026-09-18.
 Porting those 90 lines into aify-env would put a second copy of a file where every line has a defect
 behind it into a second repo -- the wrapper-template mistake, which this project already paid for
 and closed by consuming a package instead of copying.
@@ -39,7 +40,8 @@ from service.api_core.launch_env import (
 )
 
 REPO = Path(__file__).resolve().parents[2]
-JS_SOURCE = REPO / "mcp" / "stdio" / "terminal-env.js"
+#: The module a worker resolves its own identity and role from, at startup.
+LAUNCH_IDENTITY = REPO / "mcp" / "stdio" / "launch-identity.mjs"
 
 
 def _terminal(**overrides):
@@ -128,44 +130,35 @@ class TheLaunchEnvironmentHasOneOwnerTests(unittest.TestCase):
         self.assertEqual(on["AIFY_MANAGED_VIA_WRAPPER"], "1")
         self.assertEqual(off["AIFY_MANAGED_VIA_WRAPPER"], "0")
 
-    def test_IT_AGREES_WITH_THE_HOST_IMPLEMENTATION_IT_REPLACES(self):
-        """THE AGREEMENT TEST, while both exist. `terminal-env.js` still runs in the bridge until
-        that bridge is deleted, so a name written by one and not the other is a worker launched
-        differently depending on which tier started it -- the hardest class of difference to notice,
-        because both paths work.
+    def test_EVERY_IDENTITY_NAME_A_WORKER_READS_IS_WRITTEN_OR_STRIPPED(self):
+        """DERIVED FROM launch-identity.mjs, not listed. A hand-written list is what failed:
+        NEVER_INHERITED once stripped AIFY_AGENT_ROLE and not AIFY_COMMS_AGENT_ROLE, and
+        launch-identity reads `AIFY_AGENT_ROLE || AIFY_COMMS_AGENT_ROLE || "coder"`, so a host holding
+        the alias gave every worker its role. A name added to launch-identity.mjs fails here until the
+        launch answer either writes it (ALWAYS_SET) or strips it (NEVER_INHERITED).
 
-        It compares NAMES, not values: the values differ legitimately, since the host adds its base
-        environment and CODEX_HOME. A name in the JS and not here is the drift that matters.
+        Moved here from the bridge's `every-identity-source-is-neutralised.test.js` when the host-side
+        composer it exercised was deleted; this is the composer that runs now.
         """
-        source = JS_SOURCE.read_text(encoding="utf-8")
-        js_names = set(re.findall(r"^\s{4}(AIFY_[A-Z_]+):", source, re.M))
-        # CONTROL: a regex that matched nothing would make the assertion below vacuous, which is this
-        # repo's most repeated failure -- a zero that agrees with what you expected raises no
-        # collision, so nothing prompts you to check the instrument.
-        self.assertGreater(
-            len(js_names), 8, f"the scanner read {js_names} -- it is not seeing the file",
-        )
-
-        ours = set(managed_launch_env(
-            terminal=_terminal(), agent={"model": "m", "runtimeConfig": {"effort": "e"}},
-        ))
-        missing = sorted(name for name in js_names if name not in ours)
-        self.assertEqual(missing, [], "the host writes these and this composer does not")
-
-
-    def test_THE_NEVER_INHERITED_LIST_AGREES_WITH_THE_ONE_IT_REPLACES(self):
-        """`child-env-hygiene.mjs` held this list, with the reason beside each name, for a bridge that
-        no longer runs. While both files exist a name dropped from either is a worker that inherits
-        it depending on which copy somebody reads, so they are held equal here."""
         from service.api_core.launch_env import NEVER_INHERITED
 
-        source = (REPO / "mcp" / "stdio" / "child-env-hygiene.mjs").read_text(encoding="utf-8")
-        block = source[source.index("export const NEVER_INHERITED"):]
-        block = block[:block.index("});")]
-        js_names = set(re.findall(r"^\s{2}([A-Z][A-Z0-9_]+):", block, re.M))
-        self.assertIn("CLAUDE_CODE_CHILD_SESSION", js_names, f"the scanner read {js_names}")
-        self.assertEqual(set(NEVER_INHERITED), js_names)
-        self.assertEqual(len(NEVER_INHERITED), len(set(NEVER_INHERITED)), "a name is listed twice")
+        source = LAUNCH_IDENTITY.read_text(encoding="utf-8")
+        names = set(re.findall(r"process\.env\.(AIFY_[A-Z0-9_]+)", source))
+        # CONTROL both ways: a scanner that found nothing would pass vacuously, and one that invents
+        # names would fail for nothing.
+        self.assertGreaterEqual(len(names), 4, f"the scanner read {names} -- it is not seeing the file")
+        self.assertIn("AIFY_COMMS_AGENT_ROLE", names, "the scan missed the alias that caused this test")
+        self.assertNotIn("AIFY_ZZZ_NOT_REAL", names)
+
+        covered = set(ALWAYS_SET) | set(NEVER_INHERITED)
+        self.assertEqual(sorted(names - covered), [], "a worker can inherit these from its host")
+
+    def test_an_inherited_role_alias_does_not_decide_the_workers_role(self):
+        """The ANSWER, not the ingredients: blanking a name the consumer reads as absent is not
+        neutralising it. With the role unknown, the worker must fall back to its own default."""
+        env = managed_launch_env(terminal=_terminal(), agent={})
+        role = env["AIFY_AGENT_ROLE"] or env["AIFY_COMMS_AGENT_ROLE"] or "coder"
+        self.assertEqual(role, "coder")
 
     def test_CLAUDE_CODE_ALWAYS_LAUNCHES_VIA_ITS_WRAPPER(self):
         """THE DEFECT THIS CLOSES, measured 2026-09-03 on a live fleet. Seven managed workers

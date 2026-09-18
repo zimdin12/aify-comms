@@ -186,8 +186,8 @@ class FifthDoorTests(unittest.TestCase):
     """`runtimeConfig.model` — the door I did not enumerate when I called four of them a boundary.
 
     Found by an external review of the release ladder, 2026-08-11, and it is my own thesis turned
-    back on me: `mcp/stdio/terminal-env.js` reads `runtimeConfig.model` as the FALLBACK for
-    `AIFY_MANAGED_MODEL` and for the managed CODEX_HOME it prepares, so a free-form dict beside a
+    back on me: the bridge's `terminal-env.js` (deleted since; `launch_env.py` does it now) read
+    `runtimeConfig.model` as the FALLBACK for `AIFY_MANAGED_MODEL`, so a free-form dict beside a
     validated scalar carried the exact payload the scalar refuses.
 
     Reproduced before the fix:

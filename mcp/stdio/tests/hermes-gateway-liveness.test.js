@@ -10,10 +10,6 @@ import {
   gatewayIndexUrlFromWs,
   makeGatewayReachabilityProbe,
 } from "../hermes-gateway.mjs";
-import {
-  makeApiServerLivenessProbe,
-  startApiServerGatewayProbe,
-} from "../hermes-channel.js";
 
 // --- pure decision: gatewayProbeShouldDeclareDead -------------------------
 
@@ -291,70 +287,4 @@ test("makeGatewayReachabilityProbe reports not-alive when fetch throws (ECONNREF
 test("makeGatewayReachabilityProbe reports not-alive when no index url", async () => {
   const probe = makeGatewayReachabilityProbe({ indexUrl: "", fetchImpl: async () => ({ ok: true }) });
   assert.deepEqual(await probe(), { alive: false });
-});
-
-// --- makeApiServerLivenessProbe (resident/api_server: /health) ------------
-
-test("makeApiServerLivenessProbe maps probeApiServer.available → alive", async () => {
-  const aliveProbe = makeApiServerLivenessProbe({
-    baseUrl: "http://127.0.0.1:8642",
-    key: "k",
-    probe: async () => ({ available: true, version: "1.2.3" }),
-  });
-  assert.deepEqual(await aliveProbe(), { alive: true });
-
-  const deadProbe = makeApiServerLivenessProbe({
-    baseUrl: "http://127.0.0.1:8642",
-    key: "k",
-    probe: async () => ({ available: false, reason: "daemon not running" }),
-  });
-  assert.deepEqual(await deadProbe(), { alive: false });
-});
-
-// --- startApiServerGatewayProbe (resident wiring → reportGatewayDead) ------
-
-test("startApiServerGatewayProbe reports dead once after N api_server failures (resident-lost, no bridgeId)", async () => {
-  const reportCalls = [];
-  const stop = startApiServerGatewayProbe({
-    agentId: "agent-x",
-    baseUrl: "http://127.0.0.1:8642",
-    key: "k",
-    httpCall: async () => ({}),
-    serverUrl: "http://127.0.0.1:8800",
-    intervalMs: 5,
-    threshold: 3,
-    probe: async () => ({ available: false, reason: "daemon not running" }),
-    reportDeadImpl: async (info) => {
-      reportCalls.push(info);
-    },
-  });
-  const fired = await waitFor(() => reportCalls.length >= 1);
-  assert.ok(fired, "reportDead should fire after 3 api_server probe failures");
-  await new Promise((r) => setTimeout(r, 40));
-  stop();
-  assert.equal(reportCalls.length, 1, "reportGatewayDead must fire exactly once");
-  // The reused reportGatewayDead path is fed agentId + gatewayUrl, NEVER a
-  // bridgeId (resident bridge id differs from this sidecar; bridgeId would be
-  // rejected by the server's bridge_not_current guard).
-  assert.equal(reportCalls[0].agentId, "agent-x");
-  assert.equal(reportCalls[0].gatewayUrl, "http://127.0.0.1:8642");
-  assert.equal(reportCalls[0].bridgeId, undefined, "must not send a bridgeId");
-});
-
-test("startApiServerGatewayProbe stays alive for a healthy api_server", async () => {
-  const reportCalls = [];
-  const stop = startApiServerGatewayProbe({
-    agentId: "agent-y",
-    baseUrl: "http://127.0.0.1:8642",
-    key: "k",
-    httpCall: async () => ({}),
-    serverUrl: "http://127.0.0.1:8800",
-    intervalMs: 5,
-    threshold: 3,
-    probe: async () => ({ available: true }),
-    reportDeadImpl: async (info) => reportCalls.push(info),
-  });
-  await new Promise((r) => setTimeout(r, 50));
-  stop();
-  assert.equal(reportCalls.length, 0, "a healthy api_server must never report dead");
 });

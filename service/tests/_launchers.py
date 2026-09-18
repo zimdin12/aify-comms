@@ -75,7 +75,7 @@ def render(client: str, *extra: str, url: str = NOWHERE_URL) -> Mapping[str, str
             path.name: path.read_text(encoding="utf-8")
             for path in sorted(Path(out).iterdir()) if path.is_file()
         }
-    assert f"{client}-aify" in files, (
+    assert result.returncode == 0 and f"{client}-aify" in files, (
         f"{client}: nothing rendered (exit {result.returncode})\n{result.stdout}{result.stderr}"
     )
     frozen = MappingProxyType(files)

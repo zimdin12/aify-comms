@@ -55,9 +55,9 @@ _MODEL_FORBIDDEN = set(' \t\r\n"\'`;|&$<>(){}[]*?!\\')
 def validate_runtime_config_model(value):
     """THE FIFTH DOOR, found by an external review after I called four of them a boundary.
 
-    `runtimeConfig` is a free-form dict, and `mcp/stdio/terminal-env.js` reads
-    `runtimeConfig.model` as the FALLBACK for `AIFY_MANAGED_MODEL` (and for the managed CODEX_HOME
-    it prepares). So `runtimeConfig={"model": "opus; rm -rf /"}` reached a runtime CLI having passed
+    `runtimeConfig` is a free-form dict, and the launch composer (`service/api_core/launch_env.py`,
+    the bridge's `terminal-env.js` when this was found) reads `runtimeConfig.model` as the FALLBACK for
+    `AIFY_MANAGED_MODEL`. So `runtimeConfig={"model": "opus; rm -rf /"}` reached a runtime CLI having passed
     none of the four validated doors — reproduced verbatim before this fix.
 
     That is exactly the thesis of the commit that closed the other four ("a validator on one of four

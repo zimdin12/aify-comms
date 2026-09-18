@@ -44,7 +44,7 @@ function renderClaudeWrapper() {
     );
     const wrapperPath = path.join(dir, "claude-aify");
     assert.ok(fs.existsSync(wrapperPath), "install.sh --emit-claude-wrappers must emit claude-aify");
-    return { text: fs.readFileSync(wrapperPath, "utf8"), wrapperPath, dir };
+    return { text: fs.readFileSync(wrapperPath, "utf8"), wrapperPath, dir, files: fs.readdirSync(dir) };
   } catch (err) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
     throw err;
@@ -58,22 +58,20 @@ function renderClaudeWrapper() {
 // render is the fixture here, not the subject -- these cases each name a different property of one
 // artifact, so rendering it nine times proves the same thing eight extra times.
 //
-// The two tests that inspect or delete the DIRECTORY keep their own private render, because they
-// mutate it. A shared directory would make one of them delete the other's fixture.
+// The bash -n and directory-listing cases read the same render. Neither writes to the directory, and
+// the listing is taken when the render finishes, so no case can see anything another one did. The
+// directory is removed at exit by tmpDir. (They each rendered privately until 2026-09-18, three
+// renders per run for one artifact.)
 let sharedRender = null;
-function sharedText() {
+function shared() {
   if (!sharedRender) sharedRender = renderClaudeWrapper();
-  return sharedRender.text;
+  return sharedRender;
 }
+const sharedText = () => shared().text;
 
 test("claude-aify wrapper: rendered heredoc body is syntactically valid (bash -n)", () => {
-  const { wrapperPath, dir } = renderClaudeWrapper();
-  try {
-    const res = spawnSync("bash", ["-n", wrapperPath], { encoding: "utf8" });
-    assert.equal(res.status, 0, `bash -n failed:\n${res.stderr || res.stdout}`);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const res = spawnSync("bash", ["-n", shared().wrapperPath], { encoding: "utf8" });
+  assert.equal(res.status, 0, `bash -n failed:\n${res.stderr || res.stdout}`);
 });
 
 test("claude-aify wrapper: emitting touches nothing but the target dir", () => {
@@ -89,16 +87,11 @@ test("claude-aify wrapper: emitting touches nothing but the target dir", () => {
   // it exits before anything mutates the environment, and a fall-through would write MCP config,
   // hooks and a native copy — all of which this exact-set comparison still catches. A launcher is
   // what emit mode is for; adding the one that was missing makes it more complete, not less safe.
-  const { dir } = renderClaudeWrapper();
-  try {
-    assert.deepEqual(
-      fs.readdirSync(dir).sort().filter((f) => !f.endsWith(".cmd")),
-      ["aify-comms", "claude-aify"],
-      "emit mode must produce the two launchers and nothing else",
-    );
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  assert.deepEqual(
+    [...shared().files].sort().filter((f) => !f.endsWith(".cmd")),
+    ["aify-comms", "claude-aify"],
+    "emit mode must produce the two launchers and nothing else",
+  );
 });
 
 test("claude-aify wrapper: exports the runtime identity the bridge registers under", () => {

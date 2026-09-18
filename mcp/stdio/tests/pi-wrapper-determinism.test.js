@@ -37,25 +37,26 @@ function renderPiWrappers() {
   }
 }
 
+// ONE RENDER FOR THE WHOLE FILE. The listing is taken when the render finishes, `bash -n` only reads,
+// and `runWrapper` keeps its stub and sealed HOME in a workspace of its own, so the rendered
+// directory is read-only input to every case. tmpDir removes it at exit.
+let sharedPi = null;
+const sharedPiRender = () => {
+  if (!sharedPi) sharedPi = renderPiWrappers();
+  return sharedPi;
+};
+
 test("pi wrappers render despite pi INSTALLS being disabled", () => {
-  const { dir, files } = renderPiWrappers();
-  try {
-    assert.ok(files.includes("pi-aify"), `expected pi-aify, got ${JSON.stringify(files)}`);
-    assert.ok(files.includes("omp-aify"), "the omp-aify alias must render alongside it");
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  const { files } = sharedPiRender();
+  assert.ok(files.includes("pi-aify"), `expected pi-aify, got ${JSON.stringify(files)}`);
+  assert.ok(files.includes("omp-aify"), "the omp-aify alias must render alongside it");
 });
 
 test("pi wrappers: rendered bodies are syntactically valid (bash -n)", () => {
-  const { dir } = renderPiWrappers();
-  try {
-    for (const name of ["pi-aify", "omp-aify"]) {
-      const res = spawnSync("bash", ["-n", path.join(dir, name)], { encoding: "utf8" });
-      assert.equal(res.status, 0, `bash -n ${name} failed:\n${res.stderr || res.stdout}`);
-    }
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+  const { dir } = sharedPiRender();
+  for (const name of ["pi-aify", "omp-aify"]) {
+    const res = spawnSync("bash", ["-n", path.join(dir, name)], { encoding: "utf8" });
+    assert.equal(res.status, 0, `bash -n ${name} failed:\n${res.stderr || res.stdout}`);
   }
 });
 
@@ -65,16 +66,10 @@ test("pi wrappers: rendered bodies are syntactically valid (bash -n)", () => {
 // running it here the ONLY evidence it works at all — a template nobody renders and nobody runs is
 // indistinguishable from a broken one.
 
-// RENDERED ONCE FOR THE RUN CASES. Each render is a full install.sh run, and this file called one per
-// test: measured 2026-08-29 it was 89.9s, the slowest file in a 551s bridge suite, for six sub-second
-// wrapper runs. The two tests above keep their own private render because they read the DIRECTORY and
-// delete it; these read a launcher and run it, and `runWrapper` keeps its stub and its sealed HOME in
-// a workspace of its own, so the rendered directory is read-only input to every one of them.
-let sharedPi = null;
-const piWrapper = () => {
-  if (!sharedPi) sharedPi = renderPiWrappers();
-  return path.join(sharedPi.dir, "pi-aify");
-};
+// The run cases use the file's one render too. Each render is a full install.sh run, and this file
+// called one per test: measured 2026-08-29 it was 89.9s, the slowest file in a 551s bridge suite, for
+// six sub-second wrapper runs.
+const piWrapper = () => path.join(sharedPiRender().dir, "pi-aify");
 const run = (opts = {}) => runWrapper(piWrapper(), { runtimeName: "omp", ...opts });
 
 test("pi-aify launches its runtime and forwards argv", () => {

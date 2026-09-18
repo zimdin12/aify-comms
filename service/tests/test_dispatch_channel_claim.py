@@ -337,7 +337,7 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
 
     def test_standalone_hermes_channel_sidecar_claims_channel(self):
         """Task 1.5b: the NEW standalone per-agent hermes sidecar
-        (mcp/stdio/hermes-channel.js) is NOT a managed-wrapper-child and owns
+        (`hermes-channel.js`, deleted 2026-09-18) is NOT a managed-wrapper-child and owns
         no PTY terminal — it drives the agent's pinned api_server daemon
         session directly. It declares bridgeKind='channel-sidecar' on its claim
         and must be accepted on the SAME basis claude's standalone channel

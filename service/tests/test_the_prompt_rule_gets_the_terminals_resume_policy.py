@@ -2,7 +2,7 @@
 
 THE DEFECT THIS WAS WRITTEN AFTER FINDING. The first version of `_answer_console_prompt` read
 `terminal["runtime_state"]`. `terminal_sessions` has no such column — `resumePolicy` lives on the
-AGENT row, written by `session_restart.py` and read from there by `mcp/stdio/terminal-env.js`. The
+AGENT row, written by `session_restart.py` and read from there by `service/api_core/launch_env.py`. The
 read was guarded on the column being present, so nothing raised, nothing logged, and every screen
 would have been judged under the default policy for ever. The guard that was meant to make it safe
 is what made the mistake invisible.

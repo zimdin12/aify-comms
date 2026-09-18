@@ -19,43 +19,18 @@ about anything at all.
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import tempfile
-from functools import lru_cache
-from pathlib import Path
-
-import pytest
-
-REPO = Path(__file__).resolve().parents[2]
-INSTALL_SH = REPO / "install.sh"
-
-# A literal, never the operator's configured endpoint.
-RENDER_URL = "http://127.0.0.1:8899"
+from service.tests._launchers import launcher
 
 
-@lru_cache(maxsize=1)
-def _read_install_sh() -> str:
-    """The RENDERED pi-aify wrapper. `--emit-wrappers` writes it and exits before any install step,
-    and pi INSTALLS stay disabled — rendering and installing are different acts."""
-    bash = shutil.which("bash")
-    if not bash:
-        pytest.skip("bash not on PATH — pi wrapper render skipped")
-    with tempfile.TemporaryDirectory(prefix="aify-pi-render-") as tmp:
-        subprocess.run(
-            [bash, str(INSTALL_SH), "--client", "pi", RENDER_URL, "--emit-wrappers", tmp],
-            check=True,
-            capture_output=True,
-        )
-        wrapper = Path(tmp) / "pi-aify"
-        assert wrapper.exists(), "--emit-wrappers must produce pi-aify"
-        return wrapper.read_text(encoding="utf-8")
+def _rendered_wrapper() -> str:
+    """The RENDERED pi-aify wrapper, the artifact an operator installs."""
+    return launcher("pi")
 
 
 def test_pi_wrapper_parses_session_id_from_watchdog():
     """The wrapper must parse `"sessionId":"<id>"` out of the watchdog body
     rather than making a second HTTP call."""
-    text = _read_install_sh()
+    text = _rendered_wrapper()
     # The pi-aify watchdog block already captures the response into
     # AIFY_WATCHDOG_BODY. Plan 6 B3 reuses that capture.
     assert "AIFY_WATCHDOG_BODY" in text, (
@@ -70,7 +45,7 @@ def test_pi_wrapper_parses_session_id_from_watchdog():
 def test_pi_wrapper_overwrites_session_env_after_rediscover():
     """After parsing a sessionId, the wrapper must export PI_SESSION_ID
     and AIFY_SESSION_HANDLE from that value."""
-    text = _read_install_sh()
+    text = _rendered_wrapper()
     # Find the watchdog-body extraction site (after the body capture).
     body_idx = text.find('AIFY_WATCHDOG_BODY="$(curl')
     assert body_idx > 0
@@ -94,7 +69,7 @@ def test_pi_wrapper_overwrites_session_env_after_rediscover():
 def test_pi_wrapper_rediscover_is_non_fatal():
     """Empty rediscover (no sessionId field, or pi not running) must NOT
     abort — the bridge's discover-first heartbeat (A1) corrects drift."""
-    text = _read_install_sh()
+    text = _rendered_wrapper()
     idx = text.find("PI_REDISCOVERED_SESSION_ID")
     assert idx > 0
     window = text[idx : idx + 600]
@@ -106,7 +81,7 @@ def test_pi_wrapper_rediscover_is_non_fatal():
 
 def test_pi_wrapper_does_not_make_second_http_call():
     """The rediscover step must REUSE the watchdog body — no second curl."""
-    text = _read_install_sh()
+    text = _rendered_wrapper()
     # Count curls inside the pi-aify wrapper heredoc — should be 1
     # (the existing watchdog) for the pi block. We approximate by
     # checking the watchdog block's vicinity doesn't sprout a new curl.

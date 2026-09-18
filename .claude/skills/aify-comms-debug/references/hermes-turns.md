@@ -91,9 +91,7 @@ never shows `working` — it stays `online`/`online · awaiting reply`.
 
 **Cause.** `hermes-managed-host.js` delivers via `prompt.submit` while idle or `session.steer` while busy; both resolve on accept, not turn completion. The old code pulsed
 `turn_busy=true` then cleared it in a `finally` immediately after submit — so
-working flipped 1→0 while the turn was only just starting. (The blocking
-`hermes-channel.js` path is fine — its `chatStream` runs the turn to completion
-before clearing.)
+working flipped 1→0 while the turn was only just starting.
 
 **Fix (2026-05-31, refined 2026-06-02 `2216c44`).** On a successful submit the loop
 leaves `turn_busy` set rather than clearing it in a `finally`, so `working` reflects the

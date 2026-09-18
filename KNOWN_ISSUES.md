@@ -18,8 +18,6 @@ These were left on purpose:
   stopped by neither agent's reap. The next launch moves one agent to a new port, and
   `gateway-orphans` reports the gateway. Deciding which agent owns it needs evidence the markers do
   not carry.
-- **The hermes sidecar's own teardown still clears the gateway markers** (`hermes-channel.js`,
-  `reapPrior: false`) without checking whether the port is still held, as before this release.
 - **A clock stepped backwards can defeat `seenAliveAtMs`.** It is compared with no tolerance, so after
   a VM resume or a large time sync a pid reused after the step could read as the recorded one.
 - **claude's managed reap (`reap-managed-claude.js`) does its own process matching** after a
@@ -218,9 +216,10 @@ overlay goes on top. The overlay also always writes `AIFY_COMMS_AGENT_ROLE`, so 
 ignores `unsetEnv` still cannot hand a worker an inherited role. The seam is tested end to end in
 `test_the_env_plugin_can_run_what_the_launch_answers.py`, with a marked host environment.
 
-**Still open:** it is a denylist, so an as-yet-unknown harmful variable still gets through; and
-`terminal-env.js` / `child-env-hygiene.mjs` are dead code kept only until their tests are retired,
-held equal to the service's list by an agreement test meanwhile.
+**Still open:** it is a denylist, so an as-yet-unknown harmful variable still gets through.
+`terminal-env.js` / `child-env-hygiene.mjs` were deleted on 2026-09-18; the property their tests
+held (every identity name `launch-identity.mjs` reads is written or stripped) is now derived
+against the service's list in `test_the_launch_environment_has_one_owner.py`.
 
 ## Registration records `bridgeDir` as given, so its form depends on the shell (2026-08-21)
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 import subprocess
 
-from _launchers import INSTALL_SH as INSTALL, REPO as ROOT, bash as _bash, emittable_clients, render
+from service.tests._launchers import INSTALL_SH as INSTALL, REPO as ROOT, bash as _bash, emittable_clients, render
 
 # Every client install.sh can render is DERIVED in `_launchers`, not listed here, so a new one
 # cannot arrive ungoverned the way hermes and pi did. The render is cached for the session there
