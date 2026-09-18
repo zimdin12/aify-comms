@@ -182,25 +182,17 @@ class ControlWritesComparableStatusTests(FastApiTestCase):
         self.assertEqual(rows["owner_mode"], "managed")
 
     def test_a_mixed_case_stop_is_stored_as_the_readers_expect(self) -> None:
+        """All the consequences of one missing `.lower()`, each bound separately in the SQL: the
+        stored status, the `stopped_at` CASE, and the `owner_mode` CASE that returns the session to
+        'managed' -- without which it stays owned by a console that has gone."""
         self.assertEqual(self._report("Stopped").status_code, 200)
+        rows = self._rows()
         self.assertEqual(
-            self._rows()["terminal_status"], "stopped",
+            rows["terminal_status"], "stopped",
             "a mixed-case terminal status was stored verbatim, so every reaper's `status IN (...)` "
             "misses this row",
         )
-
-    def test_a_mixed_case_stop_still_stamps_stopped_at(self) -> None:
-        """The second consequence: the CASE compares the same parameter against lowercase literals,
-        so a verbatim value leaves the row with no stop time to age it by."""
-        self.assertEqual(self._report("Stopped").status_code, 200)
-        self.assertTrue(self._rows()["stopped_at"], "stopped_at was never stamped")
-
-    def test_a_mixed_case_stop_still_returns_the_session_to_managed(self) -> None:
-        """The fourth consequence, and the one with a live cost: owner_mode only returns to 'managed'
-        when that CASE matches, so a mixed-case stop leaves the session owned by a console that has
-        gone."""
-        self.assertEqual(self._report("Stopped").status_code, 200)
-        rows = self._rows()
+        self.assertTrue(rows["stopped_at"], "stopped_at was never stamped")
         self.assertEqual(rows["session_terminal_status"], "stopped")
         self.assertEqual(rows["owner_mode"], "managed", "the session stayed owned by a dead console")
 

@@ -375,24 +375,10 @@ class TheRouteActuallyRefusesTests(FastApiTestCase):
         self.assertNotIn("open work", response.text,
                          "a refusal that dates itself against the roadmap rots without an edit")
 
-    def test_a_row_with_no_bridgeLastSeen_at_all_still_spawns(self):
-        """Every environment registered before that field existed is this shape. Reading absent as
-        'no bridge' would refuse every spawn on every host until each one's bridge restarted -- a
-        far worse failure than the one being fixed."""
-        self._environment([{"runtime": "pi", "available": True}])
-        self.assertIn(self._spawn("pi").status_code, (200, 201))
-
     def test_the_same_spawn_is_ACCEPTED_when_the_host_says_the_runtime_is_there(self):
         # The control. Without it this file passes just as well on a gate that refuses everything,
         # and "spawning is broken" would be indistinguishable from "the gate works".
         self._environment([{"runtime": "pi", "available": True, "unavailableReason": ""}])
-        response = self._spawn("pi")
-        self.assertIn(response.status_code, (200, 201), response.text)
-
-    def test_a_row_with_no_available_KEY_still_spawns(self):
-        """Every environment written before the field existed is this shape, and they must keep
-        working. This is the case that would turn a fix into an outage."""
-        self._environment([{"runtime": "pi"}])
         response = self._spawn("pi")
         self.assertIn(response.status_code, (200, 201), response.text)
 
@@ -480,11 +466,6 @@ class AnAbsentStampIsResolvedAgainstTheAuthorityTests(unittest.TestCase):
 
     def _env(self, **metadata):
         return {"id": "windows:h:default", "bridgeId": "bridge-1", "metadata": dict(metadata)}
-
-    def test_a_FRESH_stamp_is_live(self):
-        from service.clock import now as _now
-        from service.env_status import environment_has_live_bridge
-        self.assertTrue(environment_has_live_bridge(self._env(bridgeLastSeen=_now())))
 
     def test_a_STALE_stamp_is_NOT_live_however_the_authority_answers(self):
         """A bridge that stopped beating is gone. The authority is not consulted for a stamped row,

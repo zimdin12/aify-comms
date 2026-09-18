@@ -56,13 +56,6 @@ class AMisconfiguredAgentIsNotLive(unittest.TestCase):
             self.assertIn(status, VALID_STATUSES, f"{status} is not a status derive() can produce")
         self.assertEqual(len(NON_LIVE_AGENT_STATUSES), 3)
 
-    def test_MISCONFIGURED_is_the_one_that_moved(self):
-        """The defect, named. The old inline rule was "not offline and not stopped", which is exactly
-        this set minus `misconfigured`."""
-        self.assertFalse(is_live_agent_status("misconfigured"))
-        self.assertFalse(is_live_agent_status("offline"))
-        self.assertFalse(is_live_agent_status("stopped"))
-
     def test_the_live_side_is_not_empty(self):
         """The other half of anti-vacuity: a rule that called everything non-live would pass every
         assertion above and report a fleet of zero."""

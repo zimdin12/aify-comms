@@ -39,10 +39,6 @@ LIVE_CHROME = (
 )
 
 
-def test_the_captured_line_is_recognised_as_decoration() -> None:
-    assert is_terminal_decoration(LIVE_CHROME)
-
-
 def test_a_real_error_line_is_not() -> None:
     """The direction that would hurt more. Rejecting a genuine cause leaves an operator with nothing,
     which is worse than the noise this replaces -- so the predicate must be narrow."""

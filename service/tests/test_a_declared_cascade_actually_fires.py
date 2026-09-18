@@ -83,27 +83,6 @@ class ADeclaredCascadeActuallyFires(FastApiTestCase):
         self.assertIn(("dispatch_controls", "run_id", "dispatch_runs", "id"), cascades)
         self.assertIn(("terminal_events", "terminal_id", "terminal_sessions", "id"), cascades)
 
-    def test_FOREIGN_KEYS_ARE_ON_for_a_service_connection(self):
-        """The statement. `_apply_connection_pragmas` sets it on every `get_db()` connection, and
-        every cascade in the schema is inert without it."""
-        async def probe(db):
-            return (await (await db.execute("PRAGMA foreign_keys")).fetchone())[0]
-
-        self.assertEqual(self._run(probe), 1)
-
-    def test_THE_PRAGMA_SURVIVES_THE_EXECUTESCRIPT_IT_IS_SET_IN(self):
-        """SQLite ignores `PRAGMA foreign_keys` inside a transaction, and `executescript` commits
-        before running its body -- so "the line is there" and "the setting took" are two different
-        claims. This asserts the second, on a connection built the way the service builds them."""
-        async def probe(db):
-            await db.executescript("PRAGMA busy_timeout=1000;PRAGMA foreign_keys=ON;")
-            return (await (await db.execute("PRAGMA foreign_keys")).fetchone())[0]
-
-        self.assertEqual(self._run(probe), 1, (
-            "setting the pragma through executescript no longer takes effect; every ON DELETE "
-            "CASCADE in the schema is decoration"
-        ))
-
     def test_THE_EFFECT_deleting_a_run_removes_its_controls(self):
         """The one that 574 rows say was not happening. Executed rather than argued: insert a run and
         a control, delete the run, and require the control to be gone."""

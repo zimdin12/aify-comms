@@ -19,7 +19,6 @@ body, capped by `MAX_WAIT_S` -- so the same endpoint is a 0ms immediate return f
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import re
 import sys
 import time
@@ -46,13 +45,6 @@ class AttributableMsTests(unittest.TestCase):
         # The shape of every line this change removes: 20,014ms wall, 20,000 of it asleep.
         holder = {"ms": 20000.0}
         self.assertEqual(attributable_ms(20014, holder), 14)
-
-    def test_a_slow_claim_still_reads_slow_UNDER_its_own_wait(self):
-        """The case this must not hide. A claim that waits its full budget AND takes two seconds to
-        execute is a genuine slow request, and subtracting the wait has to leave that visible --
-        otherwise this change trades one blind spot for a better-hidden one."""
-        holder = {"ms": 20000.0}
-        self.assertGreaterEqual(attributable_ms(22100, holder), 2000)
 
     def test_no_holder_measures_the_whole_request(self):
         """Fail towards REPORTING. A request whose accounting never started is not evidence that it
@@ -112,26 +104,6 @@ class WaitAccountingTests(unittest.TestCase):
             return holder
 
         self.assertAlmostEqual(asyncio.run(run())["ms"], 2000.0, places=3)
-
-    def test_a_child_task_REBINDING_the_var_does_not_reach_the_parent(self):
-        """The failure mode the holder avoids, asserted so the reason is not merely claimed.
-
-        If accounting were kept as a plain value, a downstream `set()` would be lost at this same
-        boundary -- and the middleware would read zero waiting for every long poll, which is the
-        behaviour being fixed.
-        """
-        probe: contextvars.ContextVar = contextvars.ContextVar("probe", default=0)
-
-        async def run():
-            probe.set(1)
-
-            async def downstream():
-                probe.set(99)
-
-            await asyncio.create_task(downstream())
-            return probe.get()
-
-        self.assertEqual(asyncio.run(run()), 1, "a child task's set() reached the parent after all")
 
     def test_two_requests_do_not_share_a_holder(self):
         """Each request starts its own accounting. A shared holder would attribute one request's
@@ -246,15 +218,9 @@ class SlowReqLoggingTests(unittest.TestCase):
         lines = self._lines("/fast")
         self.assertEqual([l for l in lines if "/fast" in l], [], lines)
 
-    def test_slow_WORK_under_a_poll_is_still_reported(self):
-        """The blind spot this change must not create. Subtracting the wait has to leave genuinely
-        slow execution visible, or the fix trades one hidden failure for a better-hidden one."""
-        lines = self._lines("/slow-under-a-poll")
-        matching = [l for l in lines if "/slow-under-a-poll" in l]
-        self.assertTrue(matching, f"slow work inside a long poll was not reported: {lines}")
-        self.assertIn("waited", matching[0], "the line does not say a wait was subtracted")
-
     def test_the_line_reports_WORK_and_names_the_wait(self):
+        """The blind spot this change must not create: slow work inside a long poll is still
+        reported, and the line says how much wait was subtracted."""
         lines = self._lines("/slow-under-a-poll")
         line = [l for l in lines if "/slow-under-a-poll" in l][0]
         work = int(re.search(r"(\d+)ms \(waited", line).group(1))

@@ -51,28 +51,10 @@ class AReportedCountCountsTheRowsItNamesTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return {c["name"]: c for c in response.json()["channels"]}
 
-    def test_member_count_is_the_length_of_the_member_list(self):
-        self._channel("crowded", ["reader", "sender"])
-        listed = self._channels()
-        self.assertIn("crowded", listed)
-        for name, channel in listed.items():
-            self.assertEqual(
-                channel["memberCount"], len(channel["members"]),
-                f"#{name} reports a member count that disagrees with the members it lists",
-            )
-
-    def test_the_smallest_channel_the_api_can_make_still_agrees(self):
-        """`POST /channels` joins the creator in the same transaction, so a member-less channel is
-        not reachable through the API and the floor is one. Asserting zero here failed, and the
-        product is right: a channel its creator cannot read would be the defect."""
-        self._channel("quiet", [])
-        channel = self._channels()["quiet"]
-        self.assertEqual(channel["members"], ["sender"])
-        self.assertEqual(channel["memberCount"], 1)
-
     def test_the_member_count_moves_when_somebody_joins(self):
-        """A count wired to a constant would pass every assertion above. Drive the join and watch
-        both fields move together."""
+        """A count wired to a constant would pass a single reading. Drive the join and watch both
+        fields move together. The floor is one, not zero: `POST /channels` joins the creator in the
+        same transaction, and a channel its creator cannot read would be the defect."""
         self._channel("growing", [])
         self.assertEqual(self._channels()["growing"]["memberCount"], 1)
         joined = self.client.post("/api/v1/channels/growing/join", json={"agentId": "reader"})

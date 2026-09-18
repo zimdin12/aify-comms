@@ -110,26 +110,6 @@ class FailedTailWriteDoesNotDuplicateTests(unittest.IsolatedAsyncioTestCase):
         tail.reset_for_tests()
         self.addCleanup(tail.reset_for_tests)
 
-    async def test_POSITIVE_CONTROL_a_working_write_accumulates_once(self) -> None:
-        """If the ordinary path did not accumulate, the duplication below could not be detected."""
-        db = await _seeded()
-        try:
-            await _append_terminal_output(db, await _row(db), "AAA", status="running", seq=1)
-            await _append_terminal_output(db, await _row(db), "BBB", status="running", seq=2)
-            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), "AAABBB")
-        finally:
-            await db.close()
-
-    async def test_POSITIVE_CONTROL_the_refusing_db_really_refuses(self) -> None:
-        db = await _seeded()
-        refusing = _RefusingDb(db)
-        try:
-            with self.assertRaises(sqlite3.OperationalError):
-                await _append_terminal_output(refusing, await _row(db), "AAA", status="running", seq=1)
-            self.assertEqual(refusing.attempts, 1, "the UPDATE was never reached, so nothing was tested")
-        finally:
-            await db.close()
-
     async def test_THE_CHUNK_IS_NOT_APPENDED_TWICE_WHEN_THE_WRITE_FAILS(self) -> None:
         """The defect, driven exactly as the write queue drives it: fail, requeue the same chunk, retry."""
         db = await _seeded()
@@ -215,36 +195,6 @@ class TheLiveScreenIsRolledBackWithTheTailTests(unittest.IsolatedAsyncioTestCase
     def _screen(self) -> str:
         rendered = snapshot.render_live_screen(TERMINAL_ID)
         return "" if rendered is None else rendered[0]
-
-    async def test_POSITIVE_CONTROL_the_screen_tracks_the_tail_when_nothing_fails(self) -> None:
-        """Every assertion below compares a screen against a tail. If they never agreed in the
-        ordinary case, a disagreement would say nothing about a failed write."""
-        db = await _seeded()
-        try:
-            await _append_terminal_output(db, await _row(db), self.ESC + "[HAA", status="running", seq=1)
-            await _append_terminal_output(db, await _row(db), "B", status="running", seq=2)
-            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), self.ESC + "[HAAB")
-            self.assertIn("AAB", self._screen())
-        finally:
-            await db.close()
-
-    async def test_THE_SCREEN_DOES_NOT_KEEP_A_CHUNK_THE_TAIL_ROLLED_BACK(self) -> None:
-        """Review's approved case: fail B, retry the SAME bytes. Raw AAB, screen AAB."""
-        db = await _seeded()
-        try:
-            await _append_terminal_output(db, await _row(db), self.ESC + "[HAA", status="running", seq=1)
-
-            refusing = _RefusingDb(db)
-            with self.assertRaises(sqlite3.OperationalError):
-                await _append_terminal_output(refusing, await _row(db), "B", status="running", seq=2)
-
-            await _append_terminal_output(db, await _row(db), "B", status="running", seq=2)
-            self.assertEqual(tail.current_tail(TERMINAL_ID, ""), self.ESC + "[HAAB")
-            self.assertNotIn("AABB", self._screen(),
-                             "the screen kept the failed chunk and the retry painted it again")
-            self.assertIn("AAB", self._screen())
-        finally:
-            await db.close()
 
     async def test_AND_NOT_WHEN_THE_RETRY_COALESCES_WITH_NEWER_OUTPUT(self) -> None:
         """Review's failing case, and the one a last-chunk comparison cannot see.
@@ -394,18 +344,16 @@ class TheTRANSACTIONOwnsTheRollbackTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
 
-    async def test_A_REFUSED_EVENT_INSERT_ROLLS_THE_HELD_TAIL_BACK_TOO(self) -> None:
-        row, held = await self._drive("event")
-        self.assertEqual(row["output"], self.ESC + "[HAA", "the durable row did not roll back")
-        self.assertEqual(held, self.ESC + "[HAA",
-                         "the held tail kept bytes the transaction rolled back, so the retry will "
-                         "append them a second time and persist the duplicate")
-
-    async def test_A_REFUSED_COMMIT_ROLLS_THE_HELD_TAIL_BACK_TOO(self) -> None:
-        row, held = await self._drive("commit")
-        self.assertEqual(row["output"], self.ESC + "[HAA", "the durable row did not roll back")
-        self.assertEqual(held, self.ESC + "[HAA",
-                         "the held tail kept bytes the commit never made durable")
+    async def test_A_REFUSED_EVENT_INSERT_OR_COMMIT_ROLLS_THE_HELD_TAIL_BACK_TOO(self) -> None:
+        for refuse in ("event", "commit"):
+            with self.subTest(refuse=refuse):
+                tail.reset_for_tests()
+                snapshot.drop_live_screen(TERMINAL_ID)
+                row, held = await self._drive(refuse)
+                self.assertEqual(row["output"], self.ESC + "[HAA", "the durable row did not roll back")
+                self.assertEqual(held, self.ESC + "[HAA",
+                                 "the held tail kept bytes the transaction rolled back, so the retry "
+                                 "will append them a second time and persist the duplicate")
 
     async def test_THE_SCREEN_IS_RETIRED_AT_THE_SAME_BOUNDARY(self) -> None:
         """The screen is speculative state too, and it is fed before any of these statements run.

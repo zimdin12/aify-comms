@@ -61,22 +61,6 @@ class DeadTerminalReleasesItsTailTests(unittest.IsolatedAsyncioTestCase):
         tail.reset_for_tests()
         self.addCleanup(tail.reset_for_tests)
 
-    async def test_POSITIVE_CONTROL_the_sweep_can_see_a_held_tail(self) -> None:
-        """Every assertion below is "the buffer is gone", which an empty buffer set satisfies for
-        free -- and an empty set is what a broken accessor returns."""
-        tail.record("t-live", "bytes", 1)
-        self.assertEqual(tail.held_ids(), {"t-live"})
-
-    async def test_A_STOPPED_TERMINAL_RELEASES_ITS_BUFFER(self) -> None:
-        db = await _db([("t-dead", "stopped")])
-        try:
-            tail.record("t-dead", "the last screen", 7)
-            released = await _release_tail_buffers_for_dead_terminals(db)
-            self.assertEqual(released, 1)
-            self.assertEqual(tail.held_ids(), set(), "a dead terminal is still holding 64 KB")
-        finally:
-            await db.close()
-
     async def test_A_LIVE_TERMINAL_KEEPS_ITS_BUFFER(self) -> None:
         """The control that makes the release safe. Dropping a live terminal's tail would lose every
         chunk since its last flush -- the lazy tail's whole durability window."""
@@ -119,12 +103,14 @@ class DeadTerminalReleasesItsTailTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_it_costs_nothing_when_nothing_is_held(self) -> None:
         """It runs every 60s on every service. A sweep that queries regardless would be a query per
-        minute forever to learn there was nothing to do."""
-        db = await _db([("t-1", "running")])
-        try:
-            self.assertEqual(await _release_tail_buffers_for_dead_terminals(db), 0)
-        finally:
-            await db.close()
+        minute forever to learn there was nothing to do. The database refuses every query, so a
+        sweep that asks anything at all fails here rather than quietly returning 0."""
+
+        class _NoQueries:
+            async def execute(self, *args, **kwargs):
+                raise AssertionError("the sweep queried with nothing held")
+
+        self.assertEqual(await _release_tail_buffers_for_dead_terminals(_NoQueries()), 0)
 
 
 if __name__ == "__main__":

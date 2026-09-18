@@ -153,23 +153,16 @@ class TheLiveScreenHandlesASplitSequenceTests(unittest.TestCase):
             "put the underline back on",
         )
         self.assertIn("hello", live.render(), "the text after the sequence was swallowed")
+        self.assertNotIn(
+            "2m", live.render(),
+            "held-back bytes were dropped instead of released, so the rest of the sequence printed as text",
+        )
 
     def test_a_real_underline_split_across_chunks_still_underlines(self):
         live = _LiveScreen(80, 6)
         for char in f"{ESC}[4mhi":
             live.feed(char)
         self.assertGreater(_underline_runs(live.render()), 0, "a real underline was lost")
-
-    def test_a_chunk_ending_in_a_partial_private_csi_does_not_swallow_later_text(self):
-        """The held-back bytes must be released, not dropped. Holding forever would be a new way to
-        lose output, which is worse than an underline."""
-        live = _LiveScreen(80, 6)
-        live.feed(f"before{ESC}[>4")
-        live.feed(";2mafter")
-        rendered = live.render()
-        self.assertIn("before", rendered)
-        self.assertIn("after", rendered)
-        self.assertEqual(_underline_runs(rendered), 0)
 
 
 @unittest.skipUnless(_HAVE_PYTE, "pyte is not installed")

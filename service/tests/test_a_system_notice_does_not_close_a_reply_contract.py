@@ -98,13 +98,17 @@ class SystemNoticeDoesNotCloseAContract(FastApiTestCase):
         self._register("sc-architect")
 
     def test_a_FAILED_run_is_mirrored_but_its_contract_stays_OPEN(self):
-        self._seed("run-failed-1")
-        self.assertEqual(self._sweep(), 1, "the sender was not told the run failed")
-        row = self._row("run-failed-1")
-        self.assertEqual(str(row["result_message_id"] or ""), "",
-                         "a system notice closed a contract the target never answered")
-        self.assertNotEqual(str(row["handoff_message_id"] or ""), "",
-                            "the sender was told, but nothing recorded it — the sweep will repeat")
+        # A CANCELLED run behaves the same.
+        for status in ("failed", "cancelled"):
+            with self.subTest(status=status):
+                run_id = f"run-{status}-1"
+                self._seed(run_id, status=status)
+                self.assertEqual(self._sweep(), 1, "the sender was not told the run failed")
+                row = self._row(run_id)
+                self.assertEqual(str(row["result_message_id"] or ""), "",
+                                 "a system notice closed a contract the target never answered")
+                self.assertNotEqual(str(row["handoff_message_id"] or ""), "",
+                                    "the sender was told, but nothing recorded it — the sweep will repeat")
 
     def test_the_sweep_is_IDEMPOTENT_on_the_new_marker(self):
         # The reason this needed a column instead of just dropping the write. Without a marker the
@@ -113,13 +117,6 @@ class SystemNoticeDoesNotCloseAContract(FastApiTestCase):
         self.assertEqual(self._sweep(), 1)
         self.assertEqual(self._sweep(), 0, "the run was mirrored twice; the sender gets a notice storm")
         self.assertEqual(self._sweep(), 0)
-
-    def test_a_CANCELLED_run_behaves_the_same(self):
-        self._seed("run-cancelled-1", status="cancelled")
-        self.assertEqual(self._sweep(), 1)
-        row = self._row("run-cancelled-1")
-        self.assertEqual(str(row["result_message_id"] or ""), "")
-        self.assertNotEqual(str(row["handoff_message_id"] or ""), "")
 
     def test_a_run_with_a_REAL_reply_is_never_mirrored(self):
         # ANTI-VACUITY in the other direction: the sweep must still ignore a satisfied contract.

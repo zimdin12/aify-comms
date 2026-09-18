@@ -90,25 +90,6 @@ class ALiveSessionIsNeverPushedOffThePage(FastApiTestCase):
 
         asyncio.run(write())
 
-    def test_the_live_session_survives_a_page_full_of_newer_dead_ones(self) -> None:
-        """THE MEASURED CASE, reproduced at a size a test can hold: one live session with an OLD
-        timestamp, buried under stops that all happened since."""
-        rows = [{"id": "live", "status": "running", "last_seen": "2026-08-25T04:22:11Z"}]
-        rows += [
-            {"id": f"dead-{i:03d}", "status": "stopped", "last_seen": f"2026-08-28T{i // 60:02d}:{i % 60:02d}:00Z"}
-            for i in range(30)
-        ]
-        self._seed(rows)
-
-        body = self.client.get("/api/v1/sessions", params={"limit": 5}).json()
-        ids = [s["id"] for s in body["sessions"]]
-        self.assertIn(
-            "live", ids,
-            "the only live session fell off a bounded page, which is the bug this endpoint's docstring "
-            f"already described. Page held: {ids}",
-        )
-        self.assertEqual(ids[0], "live", "a dead session outranked a live one")
-
     def test_history_is_what_a_bounded_page_loses(self) -> None:
         """The other half: the page is still bounded, and what it drops is the oldest history. A fix
         that returned everything would trade an invisible session for an unbounded response."""

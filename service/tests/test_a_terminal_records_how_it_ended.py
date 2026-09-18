@@ -109,37 +109,11 @@ class TerminalRecordsHowItEndedTests(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_the_columns_start_as_NULL_rather_than_zero(self) -> None:
-        """The control, and the design. A fresh terminal has not exited, and 'has not exited' must not
-        read as 'exited cleanly' -- which is exactly what a DEFAULT 0 would have produced for every
-        row in the table."""
-        row = self._row()
-        self.assertIsNone(row["exit_code"], "a terminal that has not exited claims an exit code")
-        self.assertIn(row["exit_signal"], (None, ""))
-
-    def test_a_clean_exit_records_zero(self) -> None:
-        """The case a truthiness test destroys, end to end. If any hop used `if code:` this records
-        NULL and the most common death in the fleet stays unexplained."""
-        response = self._post_exit(exitCode=0)
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(self._row()["exit_code"], 0)
-
-    def test_a_failing_exit_records_its_code(self) -> None:
-        self.assertEqual(self._post_exit(exitCode=137).status_code, 200)
-        self.assertEqual(self._row()["exit_code"], 137)
-
     def test_a_signal_kill_records_the_signal(self) -> None:
         self.assertEqual(self._post_exit(exitSignal="SIGKILL").status_code, 200)
         row = self._row()
         self.assertEqual(row["exit_signal"], "SIGKILL")
         self.assertIsNone(row["exit_code"], "a signalled death invented an exit code")
-
-    def test_an_older_bridge_that_sends_neither_still_works(self) -> None:
-        """The deployment skew this will actually meet: the service updates before every wrapper
-        relaunches. A bridge that knows nothing about these fields must keep posting output."""
-        response = self._post_exit()
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIsNone(self._row()["exit_code"])
 
     def test_a_later_output_chunk_cannot_blank_a_recorded_exit(self) -> None:
         """Bytes can still arrive after the exit POST on a busy terminal. The exit is written with

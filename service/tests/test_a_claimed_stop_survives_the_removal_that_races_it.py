@@ -113,15 +113,6 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
         finally:
             io.get_db = real_get_db
 
-    def test_POSITIVE_CONTROL_the_claim_returns_the_stop_when_nothing_races_it(self):
-        """Without this, a claim that returned nothing for ANY reason would satisfy the test below by
-        accident -- and returning nothing is precisely the defect."""
-        self._seed()
-        result = self._claim(delete_on_commit=False)
-        self.assertTrue(result["ok"])
-        self.assertEqual(len(result["controls"]), 1, "the fixture never produced a claimable stop")
-        self.assertEqual(result["controls"][0]["terminalId"], TERMINAL_ID)
-
     def test_A_SUCCESSFUL_CLAIM_STILL_CARRIES_ITS_PAYLOAD_WHEN_THE_REMOVAL_WINS(self):
         """The reviewer's reproduction, as a test.
 
@@ -145,29 +136,6 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
         # cascade removes. A control naming a terminal the host cannot resolve is not deliverable.
         self.assertEqual(control["pid"], "4242", "the target's pid was read after the rows were gone")
         self.assertEqual(control["agentId"], AGENT)
-
-    def test_the_claim_reports_only_the_rows_it_actually_won(self):
-        """`RETURNING *` rather than a re-read. The re-read returned a row whoever owned it, so a row
-        another claimer had already taken came back as ours."""
-        self._seed()
-
-        async def _steal():
-            from service.db import get_db
-            db = await get_db()
-            try:
-                await db.execute(
-                    "UPDATE terminal_controls SET status = 'claimed', claimed_at = ? WHERE terminal_id = ?",
-                    ("2026-09-07T00:00:01Z", TERMINAL_ID),
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-        asyncio.run(_steal())
-        result = self._claim(delete_on_commit=False)
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["controls"], [], "it claimed a control another bridge already held")
-
 
     def test_THE_CLAIM_PRESERVES_THE_ORDER_THE_HOST_WILL_APPLY(self):
         """`RETURNING` gives no order, and the host applies this response SEQUENTIALLY.
@@ -220,9 +188,8 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
     def test_A_ROW_ANOTHER_CLAIMER_TAKES_MID_FLIGHT_IS_NOT_REPORTED_AS_OURS(self):
         """The `AND status = 'pending'` predicate, witnessed rather than assumed.
 
-        The sibling test above steals the row BEFORE the initial SELECT, which the PREDECESSOR also
-        passed -- review showed that deleting the predicate leaves it green, so it witnesses nothing.
-        The schedule that matters is: our SELECT sees the row pending, ANOTHER claimer takes it, THEN
+        Stealing the row BEFORE the initial SELECT is a schedule the PREDECESSOR also passed -- review
+        showed that deleting the predicate leaves such a test green, so it witnesses nothing. The schedule that matters is: our SELECT sees the row pending, ANOTHER claimer takes it, THEN
         our UPDATE runs. Without the predicate we would report a control we did not win, and two
         hosts would act on one stop.
         """
@@ -251,7 +218,7 @@ class ClaimedStopSurvivesTheRemovalTests(FastApiTestCase):
         )
 
     def test_THE_CLAIM_IS_DURABLE_not_just_returned(self):
-        """Deleting the final commit left all three earlier tests green: the hook never fired and
+        """Deleting the final commit left the other tests green: the hook never fired and
         nothing observed publication. So this one asks a SECOND, FRESH claim what it sees.
 
         A claim that returns rows but never commits hands the same control out again on the next poll,

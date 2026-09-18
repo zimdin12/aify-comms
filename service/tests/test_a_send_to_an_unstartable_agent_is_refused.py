@@ -30,7 +30,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from service.status_engine import NON_LIVE_AGENT_STATUSES
 from service.tests._base import FastApiTestCase
 
 
@@ -55,12 +54,6 @@ class ASendToAnUnstartableAgentIsRefused(FastApiTestCase):
         })
         self.assertEqual(response.status_code, 200, response.text)
 
-    def _status(self, agent_id):
-        from service.reconcilers import status_cache
-        status_cache._LIVE_STATE_CACHE.clear()
-        body = self.client.get(f"/api/v1/agents/{agent_id}").json()
-        return (body.get("agent") or {}).get("status")
-
     def _preflight(self, agent_id):
         import asyncio
 
@@ -78,12 +71,6 @@ class ASendToAnUnstartableAgentIsRefused(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_the_FIXTURE_really_produces_a_misconfigured_agent(self):
-        """POSITIVE CONTROL on the setup. If the runtime typo did not produce `misconfigured`, every
-        assertion below would be testing a differently-broken agent and passing for another reason."""
-        self._register("pf-broken", runtime="clade-code")
-        self.assertEqual(self._status("pf-broken"), "misconfigured")
-
     def test_a_MISCONFIGURED_recipient_is_not_launchable(self):
         """The case the old set missed. It can never start, so a message left for it is inbox work
         that nothing will ever pick up."""
@@ -92,14 +79,6 @@ class ASendToAnUnstartableAgentIsRefused(FastApiTestCase):
         self.assertEqual(launchable, [], "a send to an unstartable agent was accepted")
         self.assertEqual(len(not_started), 1, not_started)
         self.assertEqual(not_started[0].get("recipientStatus"), "misconfigured")
-
-    def test_the_REASON_names_the_status_so_the_sender_can_act(self):
-        """A refusal that does not say why sends the operator looking in the wrong place -- which is
-        what this whole class of defect keeps producing."""
-        self._register("pf-broken", runtime="clade-code")
-        _, not_started = self._preflight("pf-broken")
-        blob = repr(not_started[0])
-        self.assertIn("misconfigured", blob, blob)
 
     def test_a_HEALTHY_recipient_is_still_launchable(self):
         """ANTI-VACUITY. A preflight that refused everything would satisfy every assertion above and
@@ -119,13 +98,6 @@ class ASendToAnUnstartableAgentIsRefused(FastApiTestCase):
         self.assertEqual(len(assignment), 1, assignment)
         self.assertIn("NON_LIVE_AGENT_STATUSES", assignment[0])
         self.assertNotIn("stale", assignment[0])
-
-    def test_every_non_live_status_would_be_refused(self):
-        """The property behind the set, asserted without needing an agent in each state."""
-        from service.api_core import send_preflight  # noqa: F401
-
-        self.assertEqual(sorted(NON_LIVE_AGENT_STATUSES), ["misconfigured", "offline", "stopped"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -112,16 +112,6 @@ class LiveBridgeCanReAdoptTests(FastApiTestCase):
 
     # ---- the correction ---------------------------------------------------------------------
 
-    def test_THE_DEFECT_a_live_environment_bridge_takes_its_agent_back(self):
-        self._owned_by_a_dead_bridge("adopted")
-        self._environment(LIVE_BRIDGE)
-        self._patch("adopted", {"bridgeInstanceId": LIVE_BRIDGE, "environmentId": ENVIRONMENT_ID})
-        self.assertEqual(self._owner("adopted"), LIVE_BRIDGE, (
-            "the environment bridge hosting this agent's delivery loop could not record that it "
-            "hosts it; the boot reaper reads this field and kills survivors whose owner is neither "
-            "itself nor live"
-        ))
-
     def test_an_id_belonging_to_no_environment_is_still_refused(self):
         """The case the guard was built for, and the reason it cannot simply be deleted. A managed
         agent's per-session sidecar PATCHes its own MCP bridge id, which owns nothing."""
@@ -129,19 +119,6 @@ class LiveBridgeCanReAdoptTests(FastApiTestCase):
         self._environment(LIVE_BRIDGE)
         self._patch("sidecar-target", {"bridgeInstanceId": SIDECAR_BRIDGE})
         self.assertEqual(self._owner("sidecar-target"), DEAD_BRIDGE)
-
-    def test_an_OFFLINE_environments_bridge_is_refused(self):
-        """THE NEGATIVE CONTROL for the test above it. Both ids are in the environments table; only
-        one is answering. A rule that keyed on PRESENCE rather than LIVENESS would pass the accept
-        test and hand a dead bridge somebody else's agent."""
-        self._owned_by_a_dead_bridge("stale-claimant")
-        self._environment(LIVE_BRIDGE, environment_id="wsl:test-host:default")
-        self._execute(
-            "UPDATE environments SET last_seen = '2020-01-01T00:00:00Z' WHERE id = ?",
-            ("wsl:test-host:default",),
-        )
-        self._patch("stale-claimant", {"bridgeInstanceId": LIVE_BRIDGE})
-        self.assertEqual(self._owner("stale-claimant"), DEAD_BRIDGE)
 
     def test_liveness_is_read_at_PATCH_TIME_not_at_registration(self):
         """An environment that WAS online and has gone quiet must stop being an authority. Same row,

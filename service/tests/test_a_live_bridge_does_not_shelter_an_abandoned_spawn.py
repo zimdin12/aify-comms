@@ -129,14 +129,6 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_a_recent_spawn_on_a_live_bridge_is_left_alone(self) -> None:
-        """The control, and the behaviour that must NOT change. A worker genuinely booting on the
-        live bridge is why the carve-out exists; a reaper that failed it would be far worse than one
-        that leaves four stale rows."""
-        self._seed("fresh-live", bridge=LIVE_BRIDGE, claimed_minutes_ago=2)
-        self._reap()
-        self.assertEqual(self._row("fresh-live")["status"], "running")
-
     def test_an_ancient_spawn_on_a_live_bridge_is_failed(self) -> None:
         """The defect. Three days on the operator's service, and the row would have survived
         indefinitely because the bridge stayed up."""
@@ -189,16 +181,6 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
         self.assertEqual(self._row("stuck-claim")["status"], "failed",
                          "a claimed spawn that never started still blocks every send to its agent")
 
-    def test_A_LIVE_BRIDGE_DOES_NOT_SHELTER_A_STUCK_CLAIM(self) -> None:
-        """THE HALF THAT DECIDES WHETHER THE FIX HELPS. sc-coder's row was claimed by the live
-        bridge; with the carve-out applied it would have been sheltered for thirty minutes, which is
-        the whole outage plus fifteen."""
-        self._seed("stuck-claim-live", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="claimed")
-        self._reap()
-        self.assertEqual(self._row("stuck-claim-live")["status"], "failed",
-                         "a stuck claim on a live bridge was sheltered by a carve-out written for "
-                         "slow BOOTS, which a claim is not")
-
     def test_a_FRESH_claim_is_left_alone_on_either_bridge(self) -> None:
         """THE DIRECTION THAT WOULD BE CATASTROPHIC. Every real spawn passes through `claimed`, so a
         reaper that failed a fresh one would break every spawn on the fleet rather than unblock one.
@@ -212,9 +194,16 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
     def test_the_error_names_the_rule_that_fired(self) -> None:
         """Three rules can now fail a row and they have different remedies. An error that
         misattributes its own cause sends the next reader somewhere else entirely -- which is the
-        bug the `running` half of this file already fixed once."""
+        bug the `running` half of this file already fixed once.
+
+        The claim is on the LIVE bridge, which is the half that decides whether the fix helps:
+        sc-coder's row was claimed by the live bridge, and with the carve-out applied it would have
+        been sheltered for thirty minutes -- the carve-out was written for slow BOOTS, which a claim
+        is not."""
         self._seed("stuck-claim-text", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="claimed")
         self._reap()
+        self.assertEqual(self._row("stuck-claim-text")["status"], "failed",
+                         "a stuck claim on a live bridge was sheltered by the boot carve-out")
         error = str(self._row("stuck-claim-text")["error"] or "")
         self.assertIn("never started", error)
         self.assertIn("already in flight", error.lower())

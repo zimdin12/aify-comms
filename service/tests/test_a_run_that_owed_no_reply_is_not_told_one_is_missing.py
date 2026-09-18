@@ -132,37 +132,25 @@ class ARunThatOwedNoReplyIsNotToldOneIsMissing(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_the_fixture_starts_with_both_runs_OPEN(self) -> None:
-        """POSITIVE CONTROL. If the seed did not land, both runs would be absent and every assertion
-        below would pass against an empty dict."""
-        runs = self._runs()
-        self.assertEqual(set(runs), {self.OWED, self.NOT_OWED}, runs)
-        self.assertEqual(runs[self.OWED]["status"], "running")
-        self.assertEqual(runs[self.NOT_OWED]["status"], "running")
-
     def test_BOTH_runs_are_closed_when_the_terminal_ends(self) -> None:
-        """The behaviour that must NOT change. A run whose sender wanted no reply is still a run that
-        did not finish, and leaving it open would strand it."""
+        """The behaviour that must NOT change: a run whose sender wanted no reply is still a run that
+        did not finish, and leaving it open would strand it.
+
+        And the defect: same terminal, same instant, same closer -- a different sentence, because the
+        two runs were owed different things. The owed run is told its reply is missing; the other is
+        told none was owed, never the owed run's sentence."""
         self.assertEqual(self._end_the_terminal().status_code, 200)
         runs = self._runs()
         self.assertNotEqual(runs[self.OWED]["status"], "running", "the owed run was left open")
         self.assertNotEqual(runs[self.NOT_OWED]["status"], "running", "the un-owed run was left open")
-
-    def test_a_run_that_OWED_a_reply_is_told_the_reply_is_missing(self) -> None:
-        self.assertEqual(self._end_the_terminal().status_code, 200)
-        said = self._runs()[self.OWED]["summary"]
-        self.assertIn("before an explicit reply was recorded", said, said)
-
-    def test_a_run_that_owed_NO_reply_is_not(self) -> None:
-        """The defect. Same terminal, same instant, same closer -- a different sentence, because the
-        two runs were owed different things."""
-        self.assertEqual(self._end_the_terminal().status_code, 200)
-        said = self._runs()[self.NOT_OWED]["summary"]
+        owed = runs[self.OWED]["summary"]
+        self.assertIn("before an explicit reply was recorded", owed, owed)
+        not_owed = runs[self.NOT_OWED]["summary"]
         self.assertNotIn(
-            "before an explicit reply was recorded", said,
+            "before an explicit reply was recorded", not_owed,
             "a run with require_reply=0 is still told a reply was missing",
         )
-        self.assertIn("No reply was owed", said, said)
+        self.assertIn("No reply was owed", not_owed, not_owed)
 
     def test_a_REQUEST_whose_sender_opted_OUT_is_honoured(self) -> None:
         """THE CASE I GOT BACKWARDS, now pinned the right way round.
@@ -203,14 +191,6 @@ class ARunThatOwedNoReplyIsNotToldOneIsMissing(FastApiTestCase):
             "No reply was owed", said,
             "a sender's explicit requireReply=false was overridden by the message type",
         )
-
-    def test_the_two_runs_do_not_get_the_SAME_sentence(self) -> None:
-        """ANTI-VACUITY. Both assertions above could be satisfied by a rewrite that changed the
-        sentence for every run, which would swap one wrong claim for another."""
-        self.assertEqual(self._end_the_terminal().status_code, 200)
-        runs = self._runs()
-        self.assertNotEqual(runs[self.OWED]["summary"], runs[self.NOT_OWED]["summary"])
-
 
 if __name__ == "__main__":
     import unittest

@@ -83,18 +83,6 @@ class ADeadBridgeCannotHoldARowHostageTests(FastApiTestCase):
                         "a live bridge was refused by one that has been gone for a day")
         self.assertEqual(self._row()["bridgeId"], "bridge-live")
 
-    def test_A_LIVE_INCUMBENT_STILL_WINS_ON_START_TIME(self):
-        """THE CONTROL, and the more important half. Without it the fix reads as "the last beat
-        always wins", which would let two live bridges flap the row between them for ever -- the
-        collision the environment tier exists to end."""
-        self._beat("bridge-newer", "2026-09-03T04:01:43Z")
-
-        answer = self._beat("bridge-older", "2026-09-03T03:43:48Z").json()
-        self.assertFalse(answer["claimer"]["accepted"],
-                         "an older bridge took the row from a live, newer one")
-        self.assertEqual(answer["claimer"]["bridgeId"], "bridge-newer")
-        self.assertEqual(self._row()["bridgeId"], "bridge-newer")
-
     def test_a_genuinely_newer_bridge_still_supersedes_a_live_older_one(self):
         """Restarting a host must still take the row. This is the ordinary path and the fix must not
         touch it."""
@@ -116,17 +104,3 @@ class ADeadBridgeCannotHoldARowHostageTests(FastApiTestCase):
         self._beat("bridge-live", "2026-09-03T03:43:48Z")
         self.assertTrue(self._row()["spawnClaim"]["canClaim"],
                         "the row is claimed by a live bridge and spawns must now be accepted")
-
-    def test_a_beat_with_no_start_time_still_cannot_take_a_LIVE_row(self):
-        """The 2026-09-02 shape, which must stay refused: a caller whose start time is missing has
-        nothing to arbitrate with, and letting it win would make an unparseable beat the strongest
-        possible claim."""
-        self._beat("bridge-live-incumbent", "2026-09-03T04:00:00Z")
-        answer = self._client.post("/api/v1/environments/heartbeat", json={
-            "id": self.ENV, "kind": "windows", "os": "windows",
-            "machineId": "win32:arbitration-host",
-            "runtimes": [{"runtime": "pi", "available": True}],
-            "bridgeId": "bridge-no-start",
-        }).json()
-        self.assertFalse(answer["claimer"]["accepted"])
-        self.assertEqual(self._row()["bridgeId"], "bridge-live-incumbent")

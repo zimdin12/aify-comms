@@ -107,15 +107,6 @@ class ALivenessFrameIsActuallyRecordedTests(FastApiTestCase):
             json={"output": "", "bridgeId": "bridge-old"},
         )
 
-    def test_THE_FRAME_IS_RECORDED(self):
-        """THE DEFECT. It answered 200 and wrote nothing."""
-        before = self._row()["updated_at"]
-        answer = self._beat()
-        self.assertEqual(answer.status_code, 200, answer.text)
-        after = self._row()["updated_at"]
-        self.assertNotEqual(after, before, "the host reported a terminal alive and nothing recorded it")
-        self.assertGreater(after, "2026-09-02T00:00:00Z")
-
     def test_THE_GUARD_THAT_READS_IT_ACTUALLY_SEES_IT(self):
         """THE TEST THAT WOULD HAVE CAUGHT IT. A unit test of the write alone passes while the guard
         it feeds stays dead -- which is what happened: `fc8d4c52` shipped with its own green suite

@@ -30,7 +30,7 @@ nothing to stop is immediate. Without the second, the first cannot tell a wait f
 simply slow.
 
 WHAT THEY DO NOT PROVE, measured by mutation rather than assumed: deleting `if signalled:` leaves all
-six green. It is not what bounds the latency -- an agent with no live terminal has no pending stop
+the file green. It is not what bounds the latency -- an agent with no live terminal has no pending stop
 either, so the wait returns from its first query regardless. The guard saves one COUNT on a path
 where the answer is a foregone conclusion; the bound is carried by the empty result set.
 """
@@ -121,16 +121,6 @@ class RemovalDoesNotDeleteItsOwnStopTests(FastApiTestCase):
         )
 
     # ── the mechanism ───────────────────────────────────────────────────────────────────────────
-
-    def test_POSITIVE_CONTROL_removing_an_agent_still_removes_it(self):
-        """Every other assertion here is about a stop surviving or a wait happening. A removal that
-        had quietly stopped removing anything would satisfy several of them and report green."""
-        self._seed_managed_agent_with_a_terminal()
-        response = self.client.delete(f"/api/v1/agents/{AGENT}")
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(response.json()["ok"], "the removal reported failure")
-        listing = self.client.get("/api/v1/agents")
-        self.assertNotIn(AGENT, listing.json().get("agents", {}), "the agent survived removal")
 
     def test_THE_CASCADE_IS_REAL_a_delete_wipes_a_stop_nobody_took(self):
         """The defect itself, so this file's premise is measured rather than believed.

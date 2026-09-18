@@ -57,19 +57,6 @@ class SidecarDoesNotTakeOwnershipTests(FastApiTestCase):
         body = self.client.get(f"/api/v1/agents/{agent_id}").json()
         return str((body["agent"].get("runtimeState") or {}).get("bridgeInstanceId") or "")
 
-    def test_THE_DEFECT_a_managed_wrapper_child_does_not_take_ownership(self):
-        """The reviewer's exact reproduction."""
-        self._register("owned-agent", bridgeId=ENVIRONMENT_BRIDGE)
-        self._own("owned-agent", ENVIRONMENT_BRIDGE)
-        self.assertEqual(self._owner("owned-agent"), ENVIRONMENT_BRIDGE, "the seed did not take")
-
-        self._register("owned-agent", bridgeId=SIDECAR_BRIDGE, managedWrapperChild=True)
-        self.assertEqual(self._owner("owned-agent"), ENVIRONMENT_BRIDGE, (
-            "the agent's own sidecar overwrote the environment bridge that hosts its delivery loop; "
-            "doctor reads this field to decide whether a running loop is an orphan, and its remedy "
-            "for an orphan is to relaunch the bridge, which reaps the fleet"
-        ))
-
     def test_a_managed_registration_without_the_flag_is_refused_too(self):
         """The declared MODE is enough on its own. `managedWrapperChild` is the belt; the mode is the
         braces, and a launcher that stopped setting the flag must not reopen this."""
@@ -87,13 +74,6 @@ class SidecarDoesNotTakeOwnershipTests(FastApiTestCase):
             "defect: nothing would name the owner at all"
         ))
 
-    def test_a_brand_new_managed_agent_records_no_owner_rather_than_a_wrong_one(self):
-        """There is no prior owner to keep and no authority in the request. Empty is the honest
-        answer, and the guards that read this field fail closed on empty -- while a WRONG owner sends
-        work to a process that hosts nothing."""
-        self._register("fresh-managed", bridgeId=SIDECAR_BRIDGE, managedWrapperChild=True)
-        self.assertEqual(self._owner("fresh-managed"), "")
-
     def test_the_environment_bridge_can_still_claim_it_afterwards(self):
         """The path that must keep working: the environment bridge adopts or spawns the agent and
         PATCHes the field. If registration blocked that too, a managed agent would never have an owner
@@ -104,9 +84,11 @@ class SidecarDoesNotTakeOwnershipTests(FastApiTestCase):
         self.assertEqual(self._owner("adoptable"), ENVIRONMENT_BRIDGE)
 
     def test_the_rest_of_runtime_state_is_untouched_by_the_guard(self):
-        """Scope. The guard decides ONE key; a registration that also reset `environmentId` would
-        break adoption in a way no test here would notice, since every assertion above reads one
-        field."""
+        """The reviewer's exact reproduction, and its scope. The agent's own sidecar must not
+        overwrite the environment bridge that hosts its delivery loop: doctor reads this field to
+        decide whether a running loop is an orphan, and its remedy for an orphan is to relaunch the
+        bridge, which reaps the fleet. And the guard decides ONE key; a registration that also reset
+        `environmentId` would break adoption."""
         self._register("keeps-env", bridgeId=ENVIRONMENT_BRIDGE)
         self._own("keeps-env", ENVIRONMENT_BRIDGE)
         self._register("keeps-env", bridgeId=SIDECAR_BRIDGE, managedWrapperChild=True)

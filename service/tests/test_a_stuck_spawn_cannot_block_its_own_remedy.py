@@ -51,16 +51,11 @@ class AnAbandonedSpawnIsSuperseded(unittest.TestCase):
         self.assertTrue(_spawn_request_is_abandoned(
             _row(created_at=LONG_AGO, updated_at=LONG_AGO), now=NOW))
 
-    def test_a_spawn_that_updated_RECENTLY_is_not(self):
-        """The healthy slow case. Superseding it would create the double-spawn the guard exists to
-        prevent, which is the failure this fix must not trade for the one it removes."""
-        self.assertFalse(_spawn_request_is_abandoned(
-            _row(created_at=LONG_AGO, updated_at=RECENT), now=NOW))
-
     def test_PROGRESS_is_the_latest_of_the_three_stamps_not_creation(self):
         """Keying on `created_at` would supersede a spawn actively working through a slow start —
         exactly the healthy case — and make stuck and slow indistinguishable. Every real step a spawn
-        takes writes one of these."""
+        takes writes one of these. Superseding the healthy slow case would create the double-spawn
+        the guard exists to prevent."""
         for field in ("updated_at", "claimed_at", "started_at"):
             with self.subTest(field=field):
                 self.assertFalse(

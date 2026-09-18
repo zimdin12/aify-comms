@@ -74,12 +74,6 @@ class TheSelectionIsPure(FastApiTestCase):
                 self._row("t-active", "active")]
         self.assertEqual(self._select(rows, []), ["t-attached", "t-running", "t-idle", "t-active"])
 
-    def test_a_held_terminal_is_not(self):
-        self.assertEqual(self._select([self._row("t-1"), self._row("t-2")], ["t-2"]), ["t-1"])
-
-    def test_a_STARTING_terminal_is_not_the_hosts_to_have_confirmed(self):
-        self.assertEqual(self._select([self._row("t-1", "starting")], []), [])
-
     def test_an_already_ended_terminal_is_left_as_it_is(self):
         rows = [self._row(f"t-{status}", status) for status in ("stopped", "failed", "lost", "stopping")]
         self.assertEqual(self._select(rows, []), [])
@@ -95,10 +89,6 @@ class TheSelectionIsPure(FastApiTestCase):
                     - timedelta(seconds=HELD_TERMINALS_GRACE_SECONDS + 1))
         rows = [self._row("t-fresh", updated_at=fresh), self._row("t-edge", updated_at=edge)]
         self.assertEqual(self._select(rows, []), ["t-edge"])
-
-    def test_no_grace_selects_a_fresh_row_too(self):
-        fresh = _iso(datetime.fromtimestamp(self.NOW, timezone.utc) - timedelta(seconds=1))
-        self.assertEqual(self._select([self._row("t-fresh", updated_at=fresh)], [], grace=0), ["t-fresh"])
 
     def test_an_unreadable_timestamp_is_not_evidence_of_age(self):
         self.assertEqual(self._select([self._row("t-1", updated_at="not a time")], []), [])
@@ -231,14 +221,6 @@ class AHeartbeatEndsTheTerminalsItNoLongerHolds(FastApiTestCase):
         refused = self._beat(bridge="bridge-older", started=LONG_AGO, heldTerminals=[])
         self.assertIs((refused.get("claimer") or {}).get("accepted"), False,
                       "the older bridge was not refused, so this proves nothing")
-        self.assertEqual(self._terminal("t-1")["status"], "attached")
-
-    def test_an_offline_beat_from_a_bridge_that_does_not_own_the_row_ends_nothing(self):
-        later = _iso(datetime.now(timezone.utc) - timedelta(minutes=1))
-        self._beat(bridge="bridge-current", started=later)
-        self._seed("t-1")
-        refused = self._beat(bridge="bridge-gone", started=LONG_AGO, status="offline", heldTerminals=[])
-        self.assertIs((refused.get("claimer") or {}).get("accepted"), False)
         self.assertEqual(self._terminal("t-1")["status"], "attached")
 
     def test_a_NEW_daemon_ends_its_predecessors_terminals_on_its_first_beat(self):

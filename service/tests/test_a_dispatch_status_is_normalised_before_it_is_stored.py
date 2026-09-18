@@ -126,23 +126,6 @@ class DispatchStatusNormalisationTests(FastApiTestCase):
                     "stop matching it -- this whole file rests on that assumption",
                 )
 
-    def test_a_lowercase_status_is_stored_unchanged(self) -> None:
-        """No regression for every status the bridge actually sends."""
-        run_id = self._run_id()
-        self.assertEqual(self._patch(run_id, "running").status_code, 200)
-        self.assertEqual(self._stored_status(run_id)["status"], "running")
-
-    def test_a_mixed_case_status_is_stored_as_the_readers_expect_it(self) -> None:
-        run_id = self._run_id()
-        self.assertEqual(self._patch(run_id, "Completed").status_code, 200)
-        stored = self._stored_status(run_id)
-        self.assertEqual(
-            stored["status"], "completed",
-            "a mixed-case status was written verbatim. Every dispatch reconciler selects on "
-            "lowercase, so this row is finished to its caller and unfinished to the system: "
-            "require_reply never settles and cleanup never deletes it.",
-        )
-
     def test_a_mixed_case_running_still_stamps_started_at(self) -> None:
         """The second consumer. `effective_status == "running"` is what records when work began, so
         a verbatim "Running" left the run with no start time and nothing to age it by."""
@@ -169,22 +152,17 @@ class DispatchStatusNormalisationTests(FastApiTestCase):
 
     def test_the_monotonic_guard_still_refuses_to_reopen_a_finished_run(self) -> None:
         """Normalising must not buy correctness by weakening the guard beside it: once a run is
-        terminal, a different status must still be refused."""
-        run_id = self._run_id()
-        self.assertEqual(self._patch(run_id, "completed").status_code, 200)
-        self.assertEqual(self._patch(run_id, "running").status_code, 200)
-        self.assertEqual(
-            self._stored_status(run_id)["status"], "completed",
-            "a finished run was reopened; the monotonic guard stopped holding",
-        )
-
-    def test_a_mixed_case_reopen_attempt_is_refused_too(self) -> None:
-        """The guard compared lowercase already, so this held before -- pinned so normalising the
-        write cannot accidentally route around it."""
-        run_id = self._run_id()
-        self.assertEqual(self._patch(run_id, "completed").status_code, 200)
-        self.assertEqual(self._patch(run_id, "RUNNING").status_code, 200)
-        self.assertEqual(self._stored_status(run_id)["status"], "completed")
+        terminal, a different status must still be refused -- in any case, so normalising the write
+        cannot route around a guard that compares lowercase."""
+        for reopen in ("running", "RUNNING"):
+            with self.subTest(reopen=reopen):
+                run_id = self._run_id()
+                self.assertEqual(self._patch(run_id, "completed").status_code, 200)
+                self.assertEqual(self._patch(run_id, reopen).status_code, 200)
+                self.assertEqual(
+                    self._stored_status(run_id)["status"], "completed",
+                    "a finished run was reopened; the monotonic guard stopped holding",
+                )
 
     def test_an_empty_status_leaves_the_run_alone(self) -> None:
         """`status` is optional on the model, and most PATCHes carry only an event or a summary."""

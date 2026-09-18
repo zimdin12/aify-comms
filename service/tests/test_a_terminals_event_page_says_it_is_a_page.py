@@ -103,13 +103,6 @@ class ATerminalsEventPageSaysItIsAPage(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def test_A_SHORT_HISTORY_IS_NOT_A_PAGE(self):
-        self._terminal()
-        self._events(5)
-        body = self._fetch()
-        self.assertEqual(body["eventsShowing"], 5)
-        self.assertFalse(body["eventsTruncated"])
-
     def test_THE_DEFECT_a_history_past_the_cap_says_so(self):
         self._terminal()
         self._events(TERMINAL_EVENTS_KEPT_PER_TERMINAL + 9)

@@ -95,33 +95,12 @@ class AReportingHostOwnsItsTerminalTests(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_a_matching_bridge_id_keeps_the_terminal(self):
-        """CONTROL. The ordinary case must still work, or every assertion below is about a function
-        that never returns anything."""
-        self.assertIsNotNone(self._resolve(), "the ordinary case stopped resolving")
-
-    def test_A_MISMATCHED_ID_KEEPS_THE_TERMINAL_WHEN_THE_HOST_IS_REPORTING_IT(self):
-        """THE DEFECT. aify-env mints a fresh bridge id on every plugin start, so after a restart
-        every terminal mismatched -- and a release cold-starts a replacement over a live worker."""
-        self._seed(env_bridge="bridge-new", terminal_bridge="bridge-old")
-        self.assertIsNotNone(
-            self._resolve(),
-            "a terminal its host is actively reporting was released over a bridge id, so the next "
-            "delivery will cold-start a replacement on top of a live worker",
-        )
-
-    def test_a_mismatched_id_DOES_release_when_nothing_has_reported_it(self):
-        """THE OTHER DIRECTION, and the reason the check exists at all: a terminal belonging to a
-        bridge that is genuinely gone must be released, or a dead console blocks every dispatch."""
-        self._seed(
-            env_bridge="bridge-new", terminal_bridge="bridge-old",
-            terminal_updated="2026-09-02T00:00:00Z",
-        )
-        self.assertIsNone(self._resolve(), "a terminal nobody has reported for a day was kept")
-
     def test_THE_TWO_CASES_ARE_DISTINGUISHABLE(self):
-        """CONTROL for the pair. If freshness were ignored, both would answer the same and this fix
-        would be doing nothing -- which is exactly the shape of the bug it replaces, where an id
+        """Both directions on one mismatched id. aify-env mints a fresh bridge id on every plugin
+        start, so after a restart every terminal mismatches: one its host is actively reporting must
+        be KEPT, or the next delivery cold-starts a replacement over a live worker; one nobody has
+        reported for a day must be RELEASED, or a dead console blocks every dispatch. If freshness
+        were ignored both would answer the same -- the shape of the bug this replaces, where an id
         stood in for a fact it could not observe."""
         self._seed(env_bridge="bridge-new", terminal_bridge="bridge-old")
         fresh = self._resolve()

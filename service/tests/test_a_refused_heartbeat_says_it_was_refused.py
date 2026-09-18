@@ -57,6 +57,12 @@ class ARefusedHeartbeatSaysSoTests(FastApiTestCase):
         self.assertEqual(claimer["bridgeId"], "bridge-incumbent",
                          "and it must name who DOES hold the row, or the caller cannot act on it")
         self.assertTrue(claimer["reason"], "a refusal with no reason sends the reader nowhere")
+        # And the row still names the incumbent: a refusal that also mutated the row would be a far
+        # worse bug than the silence. This is also the control that keeps a live incumbent from
+        # losing to "the last beat always wins".
+        listed = self._client.get("/api/v1/environments").json()["environments"]
+        row = [item for item in listed if item["id"] == self.ENV][0]
+        self.assertEqual(row["bridgeId"], "bridge-incumbent")
 
     def test_THE_2026_09_02_BEAT_verbatim_is_refused_and_says_why(self):
         """The exact shape that cost the day: a bridgeId with no `metadata.bridgeStartedAt`, because
@@ -77,12 +83,3 @@ class ARefusedHeartbeatSaysSoTests(FastApiTestCase):
         self.assertFalse(claimer["accepted"])
         self.assertEqual(claimer["bridgeId"], "")
         self.assertIn("does not claim", claimer["reason"])
-
-    def test_the_row_still_reflects_the_ACCEPTED_bridge_after_a_refusal(self):
-        """The behaviour is unchanged -- only the reporting is new. A refusal that also mutated the
-        row would be a far worse bug than the silence."""
-        self._beat(bridgeId="bridge-incumbent", metadata={"bridgeStartedAt": "2026-09-03T00:10:00Z"})
-        self._beat(bridgeId="bridge-late", metadata={"bridgeStartedAt": "2026-09-03T00:05:00Z"})
-        listed = self._client.get("/api/v1/environments").json()["environments"]
-        row = [item for item in listed if item["id"] == self.ENV][0]
-        self.assertEqual(row["bridgeId"], "bridge-incumbent")

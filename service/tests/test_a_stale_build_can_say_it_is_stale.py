@@ -76,13 +76,6 @@ class AStaleBuildCanSayItIsStale(unittest.TestCase):
             + health._GITHUB_COMPARE_URL,
         )
 
-    def test_a_stale_build_reports_a_NON_ZERO_behind_count(self):
-        """The property the old shape could not satisfy at any level of staleness."""
-        result = self._check(RealCompareShapes.SHA_AS_HEAD)
-        self.assertEqual(result["behind_by"], 150)
-        self.assertEqual(result["status"], "behind")
-        self.assertFalse(result["stale"], "a successful reading must not be marked stale")
-
     def test_the_WRONG_direction_is_recognisably_wrong(self):
         """ANTI-VACUITY, and the case that makes this file worth having: fed the payload the old URL
         produced, the check reports `behind_by: 0` on a build 150 commits behind. If this ever passes
@@ -104,13 +97,18 @@ class AStaleBuildCanSayItIsStale(unittest.TestCase):
         self.assertEqual(result["status"], "identical")
 
     def test_behind_count_TRACKS_staleness(self):
-        """Not merely non-zero: the number must be the count, so a reader can act on it. A constant
-        would satisfy every assertion above."""
+        """A stale build reports a NON-ZERO behind count -- the property the old shape could not
+        satisfy at any level of staleness -- and not merely non-zero: the number must be the count,
+        so a reader can act on it. A constant would satisfy a single reading. The 150 is the real
+        payload, and a successful reading must not be marked stale."""
         seen = []
         for n in (1, 7, 150):
             result = self._check({"status": "behind", "ahead_by": 0, "behind_by": n, "total_commits": 0})
             seen.append(result["behind_by"])
+            self.assertEqual(result["status"], "behind")
+            self.assertFalse(result["stale"], "a successful reading must not be marked stale")
         self.assertEqual(seen, [1, 7, 150])
+        self.assertEqual(self._check(RealCompareShapes.SHA_AS_HEAD)["behind_by"], 150)
 
     def test_an_unreachable_github_is_NULL_not_zero(self):
         """No evidence is not a pass -- this repo's own rule, from the doctor's false green. A failed

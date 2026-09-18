@@ -65,39 +65,13 @@ class AChannelMessageIsNeverInvisibleToBothReadersTests(FastApiTestCase):
 
         asyncio.run(go())
 
-    def _transcript_ids(self) -> set[str]:
-        response = self.client.get(f"/api/v1/channels/{CHANNEL}")
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        messages = body.get("messages") or body.get("history") or []
-        return {str(m.get("id")) for m in messages}
-
-    def test_a_null_recipient_row_is_in_the_transcript(self) -> None:
-        """The control. This is how every canonical row is written today, so a failure here means the
-        fixture or the endpoint moved, not that the shape below is special."""
-        self._seed_canonical("canonical-null", recipient=None)
-        self.assertIn("canonical-null", self._transcript_ids())
-
-    def test_an_empty_string_recipient_row_is_ALSO_in_the_transcript(self) -> None:
-        """The shape that used to vanish. `to_agent IS NULL` is false for `''`, and every inbox query
-        matches `to_agent = ?`, so this row was visible to nobody at all."""
-        self._seed_canonical("canonical-empty", recipient="")
-        self.assertIn(
-            "canonical-empty", self._transcript_ids(),
-            "a channel message written with an empty recipient is invisible to the transcript, and "
-            "inboxes cannot see it either -- it is visible to nobody",
-        )
-
-    def test_a_fan_out_copy_is_NOT_in_the_transcript(self) -> None:
-        """The negative control, and the reason this is not simply `channel = ?`. The per-member
-        copies are inbox rows; showing them in the transcript would repeat every message once per
-        member, and a predicate loose enough to pass the case above must still exclude them."""
-        self._seed_canonical("fanout-copy", recipient="some-agent")
-        self.assertNotIn("fanout-copy", self._transcript_ids())
-
     def test_the_transcript_count_agrees_with_the_rows_it_returns(self) -> None:
         """The count and the list are built from the same predicate, and a filter whose count is
-        computed by a different rule than its list is the defect `/contracts` had."""
+        computed by a different rule than its list is the defect `/contracts` had.
+
+        The three rows are the three shapes: NULL (how every canonical row is written today), `''`
+        (the shape that used to vanish from every reader) and a fan-out copy (an inbox row, which a
+        predicate loose enough to admit `''` must still exclude)."""
         self._seed_canonical("count-a", recipient=None)
         self._seed_canonical("count-b", recipient="")
         self._seed_canonical("count-c", recipient="a-member")

@@ -65,24 +65,6 @@ class StaleSpawnRequestTests(unittest.IsolatedAsyncioTestCase):
         )
         await self.db.commit()
 
-    async def test_a_fresh_request_still_backs_a_dispatch(self):
-        """POSITIVE CONTROL, and the case that must not regress: this is the ordinary cold start.
-
-        A bound that answered no to everything would 'fix' the strand by refusing every dispatch to
-        every agent whose worker is still booting.
-        """
-        await self._add("r1", "sc-coder", "queued", age=5)
-        self.assertTrue(await _has_claimable_spawn_request(self.db, "sc-coder"))
-
-    async def test_a_stale_request_is_not_evidence_that_anybody_is_coming(self):
-        """THE DEFECT. Nothing has touched this in an hour; it promises nothing."""
-        await self._add("r1", "sc-coder", "queued", age=3600)
-        self.assertFalse(
-            await _has_claimable_spawn_request(self.db, "sc-coder"),
-            "an hour-old queued request still reads as a worker on its way, so every dispatch to this "
-            "agent queues behind a promise nothing is keeping",
-        )
-
     async def test_claimed_is_bounded_too_not_only_queued(self):
         """`claimed` means a bridge took it -- and a bridge that then died leaves it claimed for ever.
 
@@ -94,7 +76,12 @@ class StaleSpawnRequestTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await _has_claimable_spawn_request(self.db, "sc-other"))
 
     async def test_the_boundary_is_where_it_says_it_is(self):
-        """Either side of the window, so the bound is the stated one and not approximately it."""
+        """Either side of the window, so the bound is the stated one and not approximately it.
+
+        Inside is the ordinary cold start and must keep backing a dispatch -- a bound that answered
+        no to everything would refuse every agent whose worker is still booting. Outside is the
+        defect: a request nothing has touched promises nothing, and every dispatch would queue
+        behind it."""
         await self._add("inside", "a", "queued", age=SPAWN_CLAIM_WINDOW_SECONDS - 30)
         self.assertTrue(await _has_claimable_spawn_request(self.db, "a"))
         await self._add("outside", "b", "queued", age=SPAWN_CLAIM_WINDOW_SECONDS + 30)

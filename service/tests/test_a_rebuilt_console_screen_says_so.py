@@ -30,14 +30,13 @@ class ARebuiltConsoleScreenSaysSo(unittest.TestCase):
         self.assertIs(live_screen_reconstructed(self.tid), True)
 
     def test_a_full_clear_on_the_main_screen_makes_it_whole_again(self):
-        feed_live_screen(self.tid, "\x1b[1;1Hnew", cols=80, rows=24, seed=TAIL)
-        feed_live_screen(self.tid, "\x1b[2J\x1b[Hfresh frame", cols=80, rows=24)
-        self.assertIs(live_screen_reconstructed(self.tid), False)
-
-    def test_a_terminal_reset_counts_as_a_full_clear(self):
-        feed_live_screen(self.tid, "\x1b[1;1Hnew", cols=80, rows=24, seed=TAIL)
-        feed_live_screen(self.tid, "\x1bcfresh", cols=80, rows=24)
-        self.assertIs(live_screen_reconstructed(self.tid), False)
+        # A terminal reset (ESC c) counts as a full clear too.
+        for clear in ("\x1b[2J\x1b[Hfresh frame", "\x1bcfresh"):
+            with self.subTest(clear=repr(clear)):
+                drop_live_screen(self.tid)
+                feed_live_screen(self.tid, "\x1b[1;1Hnew", cols=80, rows=24, seed=TAIL)
+                feed_live_screen(self.tid, clear, cols=80, rows=24)
+                self.assertIs(live_screen_reconstructed(self.tid), False)
 
     def test_a_clear_inside_a_dialog_on_the_alt_screen_does_not(self):
         # The main screen underneath is untouched by it, so it is still the rebuilt one.

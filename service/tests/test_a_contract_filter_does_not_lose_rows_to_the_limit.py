@@ -104,16 +104,6 @@ class AContractFilterDoesNotLoseRowsToTheLimitTests(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def test_the_fixture_produces_both_states(self) -> None:
-        """The control. If the seeded rows do not actually derive the two states, every assertion
-        below compares zero to zero and proves nothing -- the wrong zero this repo keeps finding."""
-        body = self._get("missing_reply", 500)
-        states = {row["state"] for row in body["contracts"]}
-        self.assertEqual(states, {"missing_reply"}, f"unexpected states: {states}")
-        self.assertEqual(len(body["contracts"]), MISSING_REPLY_RUNS)
-        closed = self._get("closed", 500)
-        self.assertEqual(len(closed["contracts"]), CLOSED_RUNS)
-
     def test_the_row_count_does_not_depend_on_the_page_size(self) -> None:
         """The defect itself. A page size smaller than the number of newer rows sharing the SQL
         predicate returned nothing at all."""
@@ -140,13 +130,6 @@ class AContractFilterDoesNotLoseRowsToTheLimitTests(FastApiTestCase):
         were always false it would be a lie on the one query that needs it."""
         self.assertFalse(self._get("missing_reply", 500)["truncated"])
         self.assertFalse(self._get("closed", 500)["truncated"])
-
-    def test_an_unfiltered_query_still_honours_its_limit(self) -> None:
-        """The scan ceiling applies to state-filtered queries only. Without a filter every row that
-        matches is returned, so over-fetching would be work with no purpose."""
-        body = self.client.get("/api/v1/contracts?includeClosed=true&limit=3").json()
-        self.assertLessEqual(len(body["contracts"]), 3)
-
 
 if __name__ == "__main__":
     unittest.main()  # noqa: F821

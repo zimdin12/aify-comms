@@ -22,8 +22,6 @@ WHAT THESE PIN:
 
 from __future__ import annotations
 
-import json
-
 from service.tests._base import FastApiTestCase
 
 
@@ -107,20 +105,32 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
         self.assertEqual(launch["cwd"], "/work")
 
     def test_the_launch_carries_the_aify_variables_the_worker_needs(self):
-        self._register(role="tester")
+        """Asserted at the ENDPOINT, because the composer's own unit tests can only prove it passes
+        through whatever it is handed; this proves the route hands it the right things.
+
+        THE ROLE: a worker with no AIFY_AGENT_ROLE read its own default, self-registered as `coder`,
+        and re-register is a full state refresh -- so asking for a tester produced a coder.
+
+        THE SESSION HANDLE comes from the AGENT ROW (`terminal_sessions` has no such column), and must
+        reach the runtime's OWN variable: `CLAUDE_SESSION_ID` is what claude reads, and a resume that
+        silently starts fresh loses the whole conversation while every status reads healthy.
+
+        AIFY_MANAGED_VIA_WRAPPER must be "1" for claude-code. MEASURED 2026-09-03: seven managed
+        workers read `online` while every channel dispatch sat `queued`, because it reached them as
+        "0" and the child bridge then advertises no channel or resident claim modes.
+        `_managed_via_wrapper_for_runtime` asks about dispatch ROUTING and says False for claude-code,
+        for the very reason this must say True."""
+        self._register(role="tester", sessionHandle="sess-abc")
         launch = self._launch(self._terminal())
         env = launch["env"]
         self.assertEqual(env["AIFY_AGENT_ID"], "sc-lead")
         self.assertEqual(env["AIFY_SESSION_MODE"], "managed")
         self.assertEqual(env["AIFY_ENVIRONMENT_BRIDGE"], "0")
         self.assertEqual(env["AIFY_TERMINAL_ID"], launch["terminalId"])
-
-    def test_THE_SPAWNS_ROLE_REACHES_THE_WORKER(self):
-        """The bug this closes was silent and expensive: a worker with no AIFY_AGENT_ROLE read its
-        own default, self-registered as `coder`, and re-register is a full state refresh -- so
-        asking for a tester produced a coder with nothing reporting a problem."""
-        self._register(role="tester")
-        self.assertEqual(self._launch(self._terminal())["env"]["AIFY_AGENT_ROLE"], "tester")
+        self.assertEqual(env["AIFY_AGENT_ROLE"], "tester")
+        self.assertEqual(env["AIFY_SESSION_HANDLE"], "sess-abc")
+        self.assertEqual(env["CLAUDE_SESSION_ID"], "sess-abc")
+        self.assertEqual(env["AIFY_MANAGED_VIA_WRAPPER"], "1")
 
     def test_NO_BASE_ENVIRONMENT_TRAVELS(self):
         """A process environment on the wire carries whatever the sender happened to hold. This is
@@ -158,38 +168,3 @@ class AProcessHostCanAskWhatToRunTests(FastApiTestCase):
         schema change made the state reachable again."""
         with self.assertRaises(Exception):
             self._terminal(agent_id="ghost-agent", terminal_id="term-ghost")
-
-    def test_the_session_handle_reaches_the_runtimes_OWN_variable(self):
-        """`AIFY_SESSION_HANDLE` is ours; `CLAUDE_SESSION_ID` is what the runtime actually reads.
-        Sending only the first resumes nothing, and a resume that silently starts fresh is how an
-        agent loses its whole conversation while every status reads healthy.
-
-        IT COMES FROM THE AGENT ROW. `terminal_sessions` has no session-handle column -- checked
-        against the schema, not assumed -- so a composer reading only the terminal would send an
-        empty handle for every managed agent and nothing would report a problem."""
-        self._register(sessionHandle="sess-abc")
-        env = self._launch(self._terminal())["env"]
-        self.assertEqual(env["AIFY_SESSION_HANDLE"], "sess-abc")
-        self.assertEqual(env["CLAUDE_SESSION_ID"], "sess-abc")
-
-    def test_A_CLAUDE_WORKER_IS_TOLD_IT_IS_WRAPPER_BACKED(self):
-        """MEASURED ON A LIVE FLEET, 2026-09-03. Seven managed workers started, registered and read
-        `online`, and every channel dispatch to them sat `queued` for ever, because this flag reached
-        them as "0". The child bridge reads it to decide whether to advertise channel and resident
-        claim modes; told "0", a claude-code worker comes up healthy and claims nothing, which looks
-        exactly like a delivery bug somewhere else entirely.
-
-        The cause was two functions with nearly the same name answering different questions --
-        `_managed_via_wrapper_for_runtime` asks about dispatch ROUTING and says False for claude-code,
-        for the very reason this must say True. Asserted at the ENDPOINT because the unit test can
-        only prove the composer passes through whatever it is handed; this proves the right thing is
-        handed to it."""
-        self._register()
-        env = self._launch(self._terminal())["env"]
-        self.assertEqual(env["AIFY_MANAGED_VIA_WRAPPER"], "1")
-
-    def test_the_response_is_JSON_SERIALISABLE_end_to_end(self):
-        """CONTROL. Every assertion above reads a parsed body, so a value the encoder cannot handle
-        would fail as a 500 here rather than as a confusing shape there."""
-        self._register()
-        json.dumps(self._launch(self._terminal()))
