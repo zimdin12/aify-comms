@@ -85,9 +85,14 @@ class MalformedColumnTests(unittest.TestCase):
 
     def test_a_null_runtime_config_does_not_stop_the_runtime_branches(self):
         """`None` config is not the same as an absent column, and hermes reads it for the gateway
-        url. A resident hermes with no config at all is a hermes with no gateway."""
-        caps = _row_capabilities(row(runtime="hermes", session_mode="resident",
-                                     caps=ALL_CAPS, runtime_config=None))
+        url. A resident hermes with no config at all is a hermes with no gateway.
+
+        The column holds the JSON text `null`, which decodes to None. `row(runtime_config=None)`
+        would NOT reach this: the helper writes `{}` for a falsy config, which is the no-gateway
+        case below, so this test passed with the dict guard in the gateway check removed."""
+        stored = {**row(runtime="hermes", session_mode="resident", caps=ALL_CAPS),
+                  "runtime_config": "null"}
+        caps = _row_capabilities(stored)
         self.assertNotIn("resident-run", caps)
 
 

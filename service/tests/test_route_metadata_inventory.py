@@ -4,7 +4,9 @@ THE v0.5.x ROUTE GATE, established BEFORE any route handler moves — same disci
 `test_route_inventory.py` and `test_process_global_identity.py`, both of which were written before
 the v0.5 extraction rather than after it.
 
-`test_route_inventory.py` pins METHOD + PATH. That is necessary and too weak. A route handler carries
+METHOD + PATH alone is necessary and too weak (each row below carries both, so this snapshot is also
+the route-surface gate; `test_route_inventory.py` now only names the routes the fleet cannot lose).
+A route handler carries
 a second contract that lives entirely OUTSIDE its function body:
 
     @router.post("/x", response_model=Thing, status_code=201, tags=["api"], dependencies=[...])

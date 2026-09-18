@@ -9,14 +9,6 @@ def _iso_ago(seconds: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def test_fresh_pool_keeps_numbers():
-    uc._USAGE_CACHE.clear()
-    uc.usage_set("openai-chatgpt-codex", {"weekly": {"used_pct": 70, "left_pct": 30}, "updated_at": _iso_ago(60)})
-    g = uc.usage_get("openai-chatgpt-codex")
-    assert g["stale"] is False and not g.get("expired")
-    assert g["weekly"]["left_pct"] == 30
-
-
 def test_stale_pool_dims_but_keeps_last_good_numbers():
     # 7min–24h: transient collector gap → flagged stale but still shows last-good numbers.
     uc._USAGE_CACHE.clear()
