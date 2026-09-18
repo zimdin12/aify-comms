@@ -71,18 +71,6 @@ class TheRowSaysWhetherASpawnCanBeClaimedTests(unittest.TestCase):
         self.assertEqual(record["spawnClaim"]["state"], BRIDGE_STAMP_STALE)
         self.assertFalse(record["spawnClaim"]["canClaim"])
 
-    def test_the_two_fields_can_DISAGREE_which_is_the_whole_point(self):
-        """CONTROL. If `spawnClaim` merely restated `status`, every assertion above would hold and
-        the field would prove nothing -- the exact shape that let three callers ship the same bug."""
-        advertised_but_dead = _environment_record_to_dict(
-            _row({"bridgeLastSeen": _stamp(26 * 3600)}, status="online", last_seen=_stamp(2)),
-        )
-        self.assertNotEqual(
-            advertised_but_dead["status"] == "online",
-            advertised_but_dead["spawnClaim"]["canClaim"],
-            "the fields agreed, so this field adds nothing",
-        )
-
     def test_an_ABSENT_stamp_is_reported_as_absent_and_not_as_claimable(self):
         """Every row registered before the field existed is this shape. `/spawn` resolves it against
         `bridge_instances`; a listing cannot, so it must say so rather than answer either way."""

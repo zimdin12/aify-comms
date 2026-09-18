@@ -328,6 +328,9 @@ class HistoricalConsoleReadTests(_SpawnSeedMixin, FastApiTestCase):
         return response.json()
 
     def test_serves_the_dead_workers_recorded_output(self):
+        """One dead worker, one read, four properties of the answer: it serves the recording, leads
+        with the one-line cause, says it is not live (so it cannot be read as a running session), and
+        never leaks ANSI or the terminal scaffolding."""
         self._seed("dead-hermes", output=self.HERMES_FATAL)
         body = self._console("dead-hermes")
         self.assertFalse(body["live"])
@@ -336,24 +339,15 @@ class HistoricalConsoleReadTests(_SpawnSeedMixin, FastApiTestCase):
         self.assertEqual(body["status"], "stopped")
         self.assertIn("did not become ready", body["output"])
 
-    def test_leads_with_the_one_line_cause(self):
-        self._seed("dead-hermes-2", output=self.HERMES_FATAL)
-        body = self._console("dead-hermes-2")
         self.assertEqual(
             body["failureLine"],
             "[hermes-managed-host] fatal: hermes dashboard at http://127.0.0.1:9147/"
             " did not become ready within 60000ms: fetch failed",
         )
 
-    def test_says_it_is_not_live_so_it_cannot_be_read_as_a_running_session(self):
-        self._seed("dead-hermes-3", output=self.HERMES_FATAL)
-        body = self._console("dead-hermes-3")
         self.assertIn("NO live console", body["message"])
         self.assertIn("not a running session", body["message"])
 
-    def test_never_leaks_ansi_or_scaffolding(self):
-        self._seed("dead-hermes-4", output=self.HERMES_FATAL)
-        body = self._console("dead-hermes-4")
         self.assertNotIn("\x1b", body["output"])
         self.assertNotIn("[terminal exited", body["output"])
         self.assertNotIn("[terminal attached", body["output"])

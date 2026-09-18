@@ -55,29 +55,24 @@ class TerminalResizeClampTests(FastApiTestCase):
         return self.client.post(f"/api/v1/terminals/{terminal_id}/resize",
                                 json={"cols": cols, "rows": rows, "requestedBy": "test"})
 
-    def test_absurd_winsize_is_clamped(self):
-        self._seed_terminal()
-        r = self._resize("term-1", 131072, 1)
-        self.assertEqual(r.status_code, 200, r.text)
-        # Read the SHARED ceiling rather than hardcoding a number (C1, 2026-07-26). This test
-        # pinned 2000 while the renderer clamped to 500, which is exactly how the two drifted
-        # apart and let a >500-column console be rendered at the wrong width. The renderer owns
-        # the max; this asserts the endpoint agrees with it.
-        from service.terminal_snapshot import TERMINAL_MAX_COLS
-        self.assertEqual(self._control_dims("term-1"), (TERMINAL_MAX_COLS, 1),
-                         "cols capped at the shared renderer max, rows floored kept (1 > 0 passes through)")
+    def test_an_absurd_winsize_is_clamped_to_the_renderer_grid(self):
+        """The endpoint and the live-screen renderer share ONE ceiling, read here rather than typed.
 
-    def test_resize_clamp_matches_the_renderer_grid(self):
-        """The endpoint and the live-screen renderer must share ONE ceiling. If they diverge, a
-        console wider than the renderer's grid gets a snapshot at the wrong width — the garbling
-        the server-rendered snapshot exists to prevent."""
-        from service.terminal_snapshot import (
-            TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, _clamp_grid,
-        )
+        This test pinned 2000 while the renderer clamped to 500 (C1, 2026-07-26), which is exactly
+        how the two drifted apart and a console wider than the renderer's grid got a snapshot at the
+        wrong width. A row count of 1 is not absurd and passes through (only 0 means "no size")."""
+        from service.terminal_snapshot import TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, _clamp_grid
+
         self.assertEqual(_clamp_grid(99999, 99999), (TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS))
         self._seed_terminal()
-        self._resize("term-1", 99999, 99999)
-        self.assertEqual(self._control_dims("term-1"), (TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS))
+        for (cols, rows), expected in (
+            ((131072, 1), (TERMINAL_MAX_COLS, 1)),
+            ((99999, 99999), (TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS)),
+        ):
+            with self.subTest(cols=cols, rows=rows):
+                r = self._resize("term-1", cols, rows)
+                self.assertEqual(r.status_code, 200, r.text)
+                self.assertEqual(self._control_dims("term-1"), expected)
 
     def test_sane_winsize_passes_through(self):
         self._seed_terminal()

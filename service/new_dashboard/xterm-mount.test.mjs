@@ -51,14 +51,12 @@ test("a mount with no TERMINAL id is refused", async () => {
   });
 });
 
-test("THE INJECTED resyncActiveConsole IS THE SEAM, and the module never imports it", async () => {
-  // It reaches `refresh`, the render orchestrator app.js still owns. Importing it here would drag the
-  // whole render web across — which is the reason this function could not move for the entire series.
-  // Asserted structurally because the import's ABSENCE is the property.
+test("THE INJECTED resyncActiveConsole IS THE SEAM", async () => {
+  // It reaches `refresh`, the render orchestrator app.js still owns, so it arrives as a parameter.
+  // That no module imports app.js is gated once, for every module, by no-module-imports-app.test.mjs.
   const src = await import("node:fs").then((fs) =>
     fs.readFileSync(new URL("./xterm-mount.mjs", import.meta.url), "utf8"));
-  assert.doesNotMatch(src, /^import .*resyncActiveConsole/m, "it must be injected, never imported");
-  assert.match(src, /\{ resyncActiveConsole \}\)/, "…and it arrives as a parameter");
+  assert.match(src, /\{ resyncActiveConsole \}\)/, "it arrives as a parameter");
 });
 
 test("the two counters it owns moved WITH it and are declared exactly once", async () => {

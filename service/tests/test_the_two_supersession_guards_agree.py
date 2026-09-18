@@ -41,18 +41,8 @@ def _blocks() -> list[str]:
 
 
 class SupersessionGuardsAgreeTests(unittest.TestCase):
-    def test_the_scanner_finds_both_guards(self) -> None:
-        """Positive control. The assertion below compares a list to itself, and an empty list is
-        equal to an empty list -- so a broken pattern would report agreement having read nothing."""
-        blocks = _blocks()
-        self.assertEqual(
-            len(blocks), 2,
-            f"expected the guard in both turn-start and turn-end, found {len(blocks)}. If one was "
-            "deliberately removed, this test is the record that says the pair existed.",
-        )
-
     def test_the_scanner_can_say_no(self) -> None:
-        """Negative control. A pattern that matched anything would satisfy the count above."""
+        """Negative control. A pattern that matched anything would satisfy the count below."""
         self.assertEqual(
             GUARD.findall("def unrelated():\n    return {'ok': True}\n"), [],
             "the guard pattern matched source that contains no guard",
@@ -60,8 +50,9 @@ class SupersessionGuardsAgreeTests(unittest.TestCase):
 
     def test_both_guards_are_the_same_guard(self) -> None:
         blocks = _blocks()
-        # Checked here as well as in the control, because unpacking a one-element list raises a
-        # ValueError and the reader gets a stack trace where a sentence would do.
+        # POSITIVE CONTROL as well as a precondition: two empty lists compare equal, so a broken
+        # pattern would report agreement having read nothing -- and unpacking a one-element list
+        # raises a ValueError where a sentence would do.
         self.assertEqual(
             len(blocks), 2,
             f"found {len(blocks)} supersession guard(s), not 2 -- one of turn-start or turn-end no "

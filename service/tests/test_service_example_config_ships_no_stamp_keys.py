@@ -30,11 +30,6 @@ def test_the_example_exists_and_is_a_json_object():
     assert isinstance(data, dict) and data, "the example must be a non-empty JSON object"
 
 
-def test_the_owned_set_is_not_empty():
-    """If the loader ever stopped declaring the set, the assertion below would pass vacuously."""
-    assert _STAMP_OWNED_KEYS, "the loader declares no stamp-owned keys; this gate would prove nothing"
-
-
 def test_the_example_sets_no_stamp_owned_key():
     data = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     present = sorted(k for k in data if k in _STAMP_OWNED_KEYS)

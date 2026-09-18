@@ -44,13 +44,9 @@ VIRTUAL_PREFIX = "vterm_"
 REAL_PREFIX = "term_"
 CLASSIFIER = "vterm_%"
 
-#: Files that create VIRTUAL (RPC-backed) terminal rows. Everything else minting a terminal id is
-#: creating a real PTY. Frozen: a new virtual-console path must be added here deliberately.
-VIRTUAL_OWNERS = {
-    "service/routers/agents/virtual_terminal.py",
-    "service/api_core/console_terminal_rows.py",
-}
-#: Every site that mints a terminal id today, and which prefix it must use.
+#: Every site that mints a terminal id today, and which prefix it must use. The virtual (RPC-backed)
+#: owners mint `vterm_`; everything else is a real PTY. Frozen and compared EXACTLY, so a new mint, a
+#: virtual owner minting `term_`, or a real PTY minting `vterm_` each fail the one test below.
 EXPECTED_MINTS = {
     "service/routers/agents/virtual_terminal.py": VIRTUAL_PREFIX,
     "service/api_core/console_terminal_rows.py": VIRTUAL_PREFIX,
@@ -125,27 +121,6 @@ class VirtualTerminalIdConventionTests(unittest.TestCase):
             "one mint — is read as a REAL terminal by every query below and counts as a live "
             "worker.",
         )
-
-    def test_the_virtual_owners_mint_the_virtual_prefix(self):
-        mints = _mints()
-        for owner in VIRTUAL_OWNERS:
-            with self.subTest(owner=owner):
-                self.assertEqual(
-                    mints.get(owner), {VIRTUAL_PREFIX},
-                    f"{owner} creates virtual RPC consoles and must mint {VIRTUAL_PREFIX!r}",
-                )
-
-    def test_no_real_pty_mint_uses_the_virtual_prefix(self):
-        mints = _mints()
-        for rel, prefixes in mints.items():
-            if rel in VIRTUAL_OWNERS:
-                continue
-            with self.subTest(rel=rel):
-                self.assertNotIn(
-                    VIRTUAL_PREFIX, prefixes,
-                    f"{rel} mints a real PTY as {VIRTUAL_PREFIX!r}, so liveness and worker-presence "
-                    "will skip it and the agent will read as having no worker",
-                )
 
     # ── the population that depends on it ────────────────────────────────────────────────────
 

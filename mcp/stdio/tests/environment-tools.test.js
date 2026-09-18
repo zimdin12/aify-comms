@@ -108,18 +108,12 @@ test("the shared renderer is PRIVATE, and is the only environment renderer in th
   );
 });
 
-test("server.js kept neither tool nor the helper — exactly one owner", () => {
+test("server.js kept no copy of the private helper", () => {
+  // Tool registrations are gated bridge-wide by each-name-has-one-owner.test.js. `summarizeEnvironment`
+  // is not exported, so that gate cannot see a second copy of it.
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of ["comms_envs", "comms_spawn"]) {
-    assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
-  }
   assert.doesNotMatch(src, /^(?:export\s+)?function\s+summarizeEnvironment\b/m, "the helper must not be redeclared");
   assert.doesNotMatch(src, /(?<![\w.])summarizeEnvironment(?![\w])/, "server.js has no remaining reference to it");
-  // Moved with the registration list to `register-tools.mjs` in v0.5.4. Still a wiring check —
-  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now
-  // names the file that holds the call.
-  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
-  assert.match(reg, /registerEnvironmentTools\(server, z\);/, "the registrar must still CALL the wrapper");
 });
 
 test("the module kept no state and imports only owned leaves", () => {

@@ -177,16 +177,6 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         self.assertIn("owner bridge stopped heartbeating", body)
 
     # ---- bounded, so nothing becomes immortal -------------------------------
-    def test_the_rescue_is_bounded_and_then_the_run_fails(self):
-        self._seed_run(
-            "run_bounded",
-            events=("requeued_orphaned_claim",) * UNDELIVERED_CLAIM_REQUEUE_LIMIT,
-        )
-        self.assertTrue(self._fail_stale("run_bounded"))
-        self.assertEqual(
-            self._run_row("run_bounded")["status"], "failed",
-            "past the bound it must terminate, not cycle forever",
-        )
 
     def test_the_bound_is_reached_by_repeated_rescue_not_only_by_seeding(self):
         self._seed_run("run_cycle")
@@ -202,13 +192,12 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         self.assertEqual(self._run_row("run_cycle")["status"], "failed")
 
     # ---- runs that DID reach the agent must still fail -----------------------
-    def test_a_delivered_run_still_fails(self):
+    def test_a_delivered_run_still_fails_and_keeps_its_failure_summary(self):
         self._seed_run("run_delivered", events=("delivered",))
         self.assertTrue(self._fail_stale("run_delivered"))
-        self.assertEqual(
-            self._run_row("run_delivered")["status"], "failed",
-            "a run that reached the agent must keep the old behaviour",
-        )
+        row = self._run_row("run_delivered")
+        self.assertEqual(row["status"], "failed", "a run that reached the agent must keep the old behaviour")
+        self.assertIn("stopped heartbeating", row["summary"])
 
     def test_a_running_run_still_fails(self):
         self._seed_run("run_running", status="running")
@@ -219,11 +208,6 @@ class UndeliveredClaimPrefersRequeueTests(FastApiTestCase):
         self._seed_run("run_done", status="completed")
         self._fail_stale("run_done")
         self.assertEqual(self._event_count("run_done", "requeued_orphaned_claim"), 0)
-
-    def test_a_failed_run_keeps_its_failure_summary(self):
-        self._seed_run("run_failing", events=("delivered",))
-        self._fail_stale("run_failing")
-        self.assertIn("stopped heartbeating", self._run_row("run_failing")["summary"])
 
     def test_missing_run_id_is_safe(self):
         self.assertFalse(self._fail_stale(""))

@@ -61,6 +61,9 @@ class TheOriginIsReadFirstAndIsConclusiveTests(unittest.TestCase):
         self.assertTrue(allowed(origin="https://named.example", sec_fetch_site="cross-site"))
         self.assertTrue(allowed(origin="https://named.example/", sec_fetch_site="cross-site"),
                         "a trailing slash must not decide an operator's configuration")
+        self.assertTrue(browser_request_is_allowed(
+            origin="https://named.example", host=HOST, allowed_origins=["https://Named.Example/"]),
+            "nor may the case or a trailing slash the operator typed into cors_origins")
 
     def test_a_wildcard_in_cors_origins_grants_NOTHING(self):
         """A wildcard is the absence of a decision about who may drive this from a browser, not a
@@ -70,7 +73,7 @@ class TheOriginIsReadFirstAndIsConclusiveTests(unittest.TestCase):
             origin="https://evil.example", host=HOST, allowed_origins=["*"]))
 
     def test_an_unparseable_origin_is_refused_rather_than_treated_as_ours(self):
-        for junk in ("://", "not a url", "null"):
+        for junk in ("://", "not a url", "null", "not-a-url", "http://", "javascript:alert(1)"):
             with self.subTest(origin=junk):
                 self.assertFalse(allowed(origin=junk, sec_fetch_site="same-origin"))
 
@@ -86,6 +89,13 @@ class TheOriginIsReadFirstAndIsConclusiveTests(unittest.TestCase):
         same-origin request would be refused. `urlsplit` knows the brackets."""
         self.assertTrue(browser_request_is_allowed(
             origin="http://[::1]:8801", host="[::1]:8800", allowed_origins=[]))
+        # NO PORT AT ALL is the case that caught the real bug: `[::1]` has no port to strip, and the
+        # last-colon split yielded `":"`.
+        self.assertTrue(browser_request_is_allowed(
+            origin="http://[::1]", host="[::1]", allowed_origins=[]))
+        self.assertFalse(browser_request_is_allowed(
+            origin="http://[::2]", host="[::1]", allowed_origins=[]),
+            "another IPv6 address is another host")
 
 
 class WithNoOriginFetchMetadataIsAllThereIsTests(unittest.TestCase):
@@ -131,6 +141,10 @@ class WithNoOriginFetchMetadataIsAllThereIsTests(unittest.TestCase):
         residual: a browser predating Fetch Metadata omits both too. They pass because they reach
         the service on a Host it trusts, which is checked here whatever the headers say."""
         self.assertTrue(allowed(method="POST"))
+        # An Origin that is absent in another spelling is still absent.
+        for origin in (None, "   "):
+            with self.subTest(origin=origin):
+                self.assertTrue(allowed(method="POST", origin=origin))
 
 
 class BothDoorsAskTheSamePolicyTests(unittest.TestCase):

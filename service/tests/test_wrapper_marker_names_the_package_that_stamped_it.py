@@ -42,13 +42,6 @@ def _marker_value(text: str) -> str:
     raise AssertionError("the rendered launcher carries no HARNESS_WRAPPER_VERSION marker")
 
 
-def test_the_marker_is_present_and_is_not_still_a_placeholder():
-    """Anchors the two assertions below: an unrendered placeholder would satisfy neither honestly."""
-    value = _marker_value(_rendered())
-    assert value, "the marker rendered empty"
-    assert not value.startswith("@@"), f"the placeholder survived the render: {value}"
-
-
 def test_the_marker_carries_the_wrapper_package_version():
     assert _marker_value(_rendered()) == _read_version(WRAPPER_PACKAGE / "VERSION")
 

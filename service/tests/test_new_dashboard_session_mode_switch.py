@@ -40,26 +40,11 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
     # fail on wrong VALUES, which this could not: `settings: {}` appearing inside a comment would have
     # satisfied it.
 
-    def test_the_settings_slice_of_the_poll_is_covered_by_a_test_that_RUNS_it(self):
-        """RETIRED as a grep, kept as a pointer — the poll cycle left app.js in v0.5.4.
-
-        This used to assert `api('/settings')` and `state.settings = val(9)` appeared somewhere in
-        app.js. Both are location pins: they proved two lines had been written in a file thousands of
-        lines long, they would have been satisfied by the same text inside a comment, and they broke
-        the moment `_refreshImpl` moved to `refresh-cycle.mjs` even though every byte of the body was
-        unchanged.
-
-        `refresh-cycle.test.mjs` replaces them with assertions that CALL the cycle against a stubbed
-        fetch: that /settings is requested, that a rejected /settings does not re-arm the refresh
-        timer, and — the property neither grep could express — that one rejected slice does not stop
-        the cycle. That last one is checked by reintroducing the `Promise.all` defect, which takes the
-        file from 11 passing to 10 failing.
-        """
-        js = ROOT / "service" / "new_dashboard" / "refresh-cycle.test.mjs"
-        self.assertTrue(js.exists(), "the poll cycle's behavioural test must exist")
-        source = js.read_text(encoding="utf-8")
-        self.assertIn("/settings", source, "the replacement must still cover the settings slice")
-        self.assertIn("armRefreshTimer", source, "…and what the settings slice is read FOR")
+    # RETIRED 2026-09-18: two pointer tests that asserted a JS test file EXISTED and contained a word.
+    # The poll cycle's /settings slice is proven by `refresh-cycle.test.mjs` and the mode switch's PATCH
+    # by `agent-session-actions.test.mjs`, both of which CALL the code. Renaming the /settings request
+    # or the session-mode endpoint turned those JS tests red while the pointers stayed green, so the
+    # pointers could not fail on anything in the product.
 
     # RETIRED: test_render_mode_switch_chip_helper_exists_without_settings_gate, and
     # test_chip_emits_data_attributes_for_click_handler.
@@ -118,27 +103,6 @@ class NewDashboardSessionModeSwitchTests(unittest.TestCase):
             self.script,
             "…and app.js must still REGISTER the dispatcher, or none of it is reachable",
         )
-
-    def test_the_mode_switch_is_covered_by_a_test_that_PERFORMS_it(self):
-        """RETIRED as a grep — `switchAgentSessionMode` left app.js in v0.5.4.
-
-        This asserted five strings appeared somewhere in app.js: the function's signature, the
-        endpoint template, `method: 'PATCH'`, `Object.assign(existingAgent, body.agent)` and
-        `renderSessionWorkspace()`. Every one of them is satisfied by the same text inside a comment,
-        and none can fail on the behaviour it names — `Object.assign` present but assigning the wrong
-        object still passes.
-
-        `agent-session-actions.test.mjs` replaces them by CALLING the function against a stubbed
-        fetch: the PATCH reaches `/agents/{id}/session-mode` with the requested mode; a success
-        applies the returned agent to the roster and to every session of that agent and repaints
-        WITHOUT waiting for the ~15s poll; and the server's answer wins over the requested mode, which
-        no string match could express at all.
-        """
-        js = ROOT / "service" / "new_dashboard" / "agent-session-actions.test.mjs"
-        self.assertTrue(js.exists(), "the mode switch's behavioural test must exist")
-        source = js.read_text(encoding="utf-8")
-        self.assertIn("switchAgentSessionMode", source)
-        self.assertIn("session-mode", source, "…and must still cover the endpoint this pinned")
 
     def test_chip_is_rendered_on_BOTH_surfaces_wherever_those_now_live(self):
         """Two call sites, and they no longer live in the same file.

@@ -96,13 +96,6 @@ class OrphanUnreadCleanupTests(FastApiTestCase):
 
     # ── what it deletes ──────────────────────────────────────────────────────────────────────
 
-    def test_an_unread_message_to_a_REMOVED_agent_is_deleted(self):
-        self._seed_message("m-orphan", to_agent=GONE)
-        response = self._cleanup()
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {"ok": True, "deleted": 1})
-        self.assertEqual(self._message_ids(), [])
-
     def test_the_reported_count_matches_what_was_actually_deleted(self):
         """A manual hygiene action's only feedback. A count that does not match is work reported
         that was never done — the same defect the contract-repair endpoint had."""
@@ -123,29 +116,9 @@ class OrphanUnreadCleanupTests(FastApiTestCase):
         self.assertEqual(response.json(), {"ok": True, "deleted": 0})
 
     # ── what must survive ────────────────────────────────────────────────────────────────────
-
-    def test_a_message_to_a_LIVE_agent_is_never_touched(self):
-        """This is not retention. An unread message to an agent that still exists is work waiting to
-        be picked up, however long it has been sitting there."""
-        self._seed_message("m-live", to_agent=LIVE)
-        self.assertEqual(self._cleanup().json()["deleted"], 0)
-        self.assertEqual(self._message_ids(), ["m-live"])
-
-    def test_a_message_the_removed_agent_had_READ_is_kept(self):
-        """It is history — the conversation happened, and the record of it is what an operator reads
-        afterwards to understand what the agent did."""
-        self._seed_message("m-read", to_agent=GONE)
-        self._mark_read("m-read", GONE)
-        self.assertEqual(self._cleanup().json()["deleted"], 0)
-        self.assertEqual(self._message_ids(), ["m-read"])
-
-    def test_a_CHANNEL_BROADCAST_row_is_kept(self):
-        """THE CONDITION THAT LOOKS REDUNDANT AND IS NOT. A broadcast row has no `to_agent` at all,
-        so the "agent is gone" test is trivially true for it — without `to_agent IS NOT NULL` this
-        endpoint deletes every unread broadcast in the database."""
-        self._seed_message("m-broadcast", to_agent=None, channel="general", source="channel")
-        self.assertEqual(self._cleanup().json()["deleted"], 0)
-        self.assertEqual(self._message_ids(), ["m-broadcast"])
+    # A message to a LIVE agent (this is not retention), one the removed agent had READ (it is
+    # history), and a CHANNEL BROADCAST row (no `to_agent`, so an absence-based "agent is gone" test
+    # is trivially true for it) are each kept in `test_a_mixed_table_loses_ONLY_the_orphans`.
 
     def test_a_channel_FAN_OUT_row_for_a_removed_agent_IS_deleted(self):
         """The other half of the same shape: the per-member copy DOES carry a recipient, so a
@@ -164,8 +137,8 @@ class OrphanUnreadCleanupTests(FastApiTestCase):
         self.assertEqual(self._message_ids(), [])
 
     def test_a_mixed_table_loses_ONLY_the_orphans(self):
-        """The whole contract in one pass, because each condition was tested in isolation above and
-        a cleanup runs against all of them at once."""
+        """The whole contract in one pass: exactly the unread message to a removed agent goes, and
+        the live agent's message, the read one and the broadcast row all stay."""
         self._seed_message("m-orphan", to_agent=GONE)
         self._seed_message("m-live", to_agent=LIVE)
         self._seed_message("m-read", to_agent=GONE)

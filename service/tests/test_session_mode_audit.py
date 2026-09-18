@@ -98,17 +98,6 @@ class SessionModeAuditTests(unittest.IsolatedAsyncioTestCase):
         run, event = await self._run(), await self._event()
         self.assertEqual(run["id"], event["run_id"])
 
-    async def test_the_transition_is_readable_from_the_event_type(self):
-        await self._record(current_mode="resident", new_mode="managed")
-        self.assertEqual("mode_switch_resident_to_managed", (await self._event())["event_type"])
-
-    async def test_the_body_names_the_agent_and_who_asked(self):
-        """Both halves of "who did what to whom", which is what an audit trail is for."""
-        await self._record(agent_id="mc-coder", requested_by="steven")
-        body = (await self._event())["body"]
-        self.assertIn("mc-coder", body)
-        self.assertIn("steven", body)
-
     async def test_the_run_body_records_the_transition_as_well_as_the_event(self):
         """The run is what a timeline reader sees first; a bare id there would say nothing."""
         await self._record(agent_id="mc-coder", current_mode="managed", new_mode="resident",

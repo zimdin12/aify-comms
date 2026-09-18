@@ -122,15 +122,6 @@ class TheConsoleFallbackIsLoadBearingTests(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_THE_FALLBACK_ANSWERS_WHEN_THE_POINTER_IS_NULL(self):
-        """THE STATE OF THE WHOLE FLEET, measured 4 of 4. If this stops working, every managed
-        console goes dark at once and no pointer exists to fall back TO."""
-        self._terminal("term-live")
-        self._point_at(None)
-        found = self._resolve()
-        self.assertIsNotNone(found, "an agent with a live terminal and no pointer resolved nothing")
-        self.assertEqual(found["id"], "term-live")
-
     def test_a_live_pointer_wins_over_the_fallback(self):
         """CONTROL. Without it the fallback could be answering everything, and a deliberate binding
         to an older-but-chosen terminal would be silently ignored."""
@@ -168,7 +159,10 @@ class TheConsoleFallbackIsLoadBearingTests(FastApiTestCase):
         self.assertIsNone(self._resolve(), "a dead terminal was served as a live console")
 
     def test_the_newest_live_terminal_wins_when_several_are_live(self):
-        """A restart can leave two live rows for a moment. The fallback orders by `updated_at DESC`,
+        """THE STATE OF THE WHOLE FLEET, measured 4 of 4: the pointer is NULL and the fallback answers.
+        If this stops working, every managed console goes dark at once.
+
+        A restart can leave two live rows for a moment. The fallback orders by `updated_at DESC`,
         which is the liveness clock the host refreshes -- so "newest" means "most recently reported
         by its host", not "created last"."""
         self._terminal("term-stale", updated="2026-09-01T00:00:00Z")

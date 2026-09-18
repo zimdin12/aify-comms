@@ -79,7 +79,7 @@ class TwoTiersDescribeOneEnvironmentTests(FastApiTestCase):
         self.assertEqual(self._runtimes(after), sorted(after["terminalRuntimes"]),
                          "the two runtime lists on one row disagree about the same host")
 
-    def test_aify_env_beating_after_the_bridge_keeps_the_bridge_identity(self):
+    def test_aify_env_beating_after_the_bridge_keeps_the_bridge_identity_label_and_roots(self):
         """The other order, and the other direction. Supersession is arbitrated on `bridgeId` and
         `bridgeStartedAt`; aify-env has neither, and erasing them disarms it silently."""
         self._beat(BRIDGE_BEAT_STOOD_DOWN)
@@ -88,12 +88,9 @@ class TwoTiersDescribeOneEnvironmentTests(FastApiTestCase):
         self.assertEqual("0.6.0", after["bridgeVersion"])
         self.assertEqual("0.6.0", after["launcherVersion"])
         self.assertEqual("2026-08-30T10:00:00Z", after.get("metadata", {}).get("bridgeStartedAt"))
-
-    def test_the_operators_label_and_roots_survive_the_advertisement(self):
-        """aify-env sends neither, precisely so these survive. If it ever starts sending them, this
-        goes red rather than the operator noticing their machine renamed itself."""
-        self._beat(BRIDGE_BEAT_STOOD_DOWN)
-        after = self._beat(ENVIRONMENT_BEAT)
+        # The operator's label and roots survive the same advertisement. aify-env sends neither,
+        # precisely so these survive; if it ever starts sending them, this goes red rather than the
+        # operator noticing their machine renamed itself.
         self.assertEqual("Windows on two-tiers", after["label"],
                          "the advertisement renamed the environment")
         self.assertEqual(["C:/Docker"], after["cwdRoots"],
@@ -127,11 +124,6 @@ class TwoTiersDescribeOneEnvironmentTests(FastApiTestCase):
         self.assertFalse(after["pty"])
         self.assertEqual([], after["terminalRuntimes"],
                          "an explicit empty runtime list was overridden by the stored one")
-
-    def test_a_changed_terminal_runtime_list_replaces_rather_than_merges(self):
-        self._beat(ENVIRONMENT_BEAT)
-        after = self._beat({**ENVIRONMENT_BEAT, "terminalRuntimes": ["codex"]})
-        self.assertEqual(["codex"], after["terminalRuntimes"])
 
     def test_an_advertisement_keeps_every_bridge_metadata_key(self):
         """THE REGRESSION THIS CUTOVER CAUSED, and the reason it was findable at all.

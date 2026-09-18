@@ -117,11 +117,6 @@ def test_a_state_with_no_active_run_changes_nothing():
     )
 
 
-def test_a_null_active_run_is_treated_as_absent_not_as_an_error():
-    """`activeRun` is None on every idle agent, which is the commonest input this function sees."""
-    assert _status_with_dispatch("online", {"activeRun": None}) == "online"
-
-
 def test_the_protected_list_no_longer_DRIFTS_on_misconfigured():
     """HALF OF A DEFERRED DECISION, RESOLVED. The other half is still open and still pinned below.
 

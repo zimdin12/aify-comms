@@ -35,14 +35,8 @@ from service.api_core.terminal_status import (
 def test_a_finished_terminal_is_never_resurrected(dead, alive):
     """The full cross product, derived from the module's own sets rather than listed here — a status
     added to either set joins this matrix automatically."""
+    # `== ""` and not merely falsy: callers test the string, and None would be a different sentinel.
     assert _terminal_status_transition(dead, alive) == "", f"{dead} -> {alive} must be refused"
-
-
-def test_rejection_is_an_empty_string_because_callers_read_it_as_write_nothing():
-    assert _terminal_status_transition("stopped", "running") == ""
-    assert _terminal_status_transition("stopped", "running") is not None, (
-        "None would be a different sentinel; the callers test the string"
-    )
 
 
 # ── the transitions that must NOT be blocked ─────────────────────────────────────────────────

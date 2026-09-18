@@ -125,16 +125,11 @@ class TwoBridgesCannotClaimOneControl(FastApiTestCase):
             "two bridges honouring one stop means the survivor is stopped too.",
         )
         self.assertEqual(winners[0]["id"], "ctl-1")
-
-    def test_the_loser_is_told_there_is_nothing_to_claim(self):
-        """Not an error — it lost a race, and the long-poll's contract is that an empty answer means
-        come back later. An error here would make a normal race look like a fault."""
-        self._pending_control()
-        self._claim("bridge-a")
-        loser = self._claim("bridge-b")
-        self.assertEqual(loser.status_code, 200, loser.text)
-        self.assertTrue(loser.json().get("ok"))
-        self.assertIsNone(loser.json().get("control"))
+        # The loser is told there is nothing to claim -- not an error. It lost a race, and the
+        # long-poll's contract is that an empty answer means come back later; an error here would
+        # make a normal race look like a fault.
+        self.assertTrue(second.json().get("ok"))
+        self.assertIsNone(second.json().get("control"))
 
     def test_a_claim_with_NOTHING_pending_is_still_an_empty_success(self):
         """ANTI-VACUITY: if the endpoint simply always returned no control, every assertion above

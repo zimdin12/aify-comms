@@ -265,15 +265,6 @@ test("the open conversation closes when its agent disappears from the roster", a
   assert.equal(closed, 1, "a dm: selection naming no live agent must close");
 });
 
-test("the six injected names are NOT imported — that is what keeps app.js out of this module", async () => {
-  const fs = await import("node:fs");
-  const src = fs.readFileSync(new URL("./refresh-cycle.mjs", import.meta.url), "utf8");
-  for (const name of ["armRefreshTimer", "chatController", "evaluateFlowGates",
-    "loadContractsForState", "refreshOpenInspector", "renderAll"]) {
-    assert.doesNotMatch(src, new RegExp(`^import .*\\b${name}\\b`, "m"), `${name} must be injected`);
-  }
-});
-
 test("the closed Files page is not polled", async () => {
   // THE CALL SITE, not the predicate. shouldLoadFiles has its own tests and every one of them would
   // still pass with this guard deleted -- what has to hold is that the cycle actually asks it. /shared

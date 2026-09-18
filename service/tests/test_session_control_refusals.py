@@ -21,8 +21,10 @@ leaves behind, rather than by reading the two literals.
 
 THE "no stored spawn spec" REFUSAL CARRIES A REASON IT USED TO INVENT. It once asserted "no online
 environment can host managed X" — true for the environment-resolution causes and false for a runtime
-that cannot be cold-started at all. It now appends whatever cold-start actually recorded, which is
-why the test asserts the prefix AND that the specific cause survives into the message.
+that cannot be cold-started at all. It now appends whatever cold-start actually recorded; that the
+specific cause survives into the message is asserted in
+`test_session_restart_refusal_names_the_real_cause.py`, whose assertions also fail when the reason
+is dropped for the generic fallback (the check that lived here passed on that fallback).
 """
 
 from __future__ import annotations
@@ -505,23 +507,6 @@ class SessionControlRefusalTests(FastApiTestCase):
         self.assertEqual(self._control("stop").status_code, 200)
 
     # ── restart: what the session's spawn spec points at ─────────────────────────────────────
-
-    def test_a_session_with_no_spawn_spec_reports_the_REAL_cold_start_reason(self):
-        """A resident-origin session has no spawn spec, so restart tries a cold start first. When
-        that cannot be done the refusal must carry the cause cold-start recorded — this raise used
-        to discard it and assert "no online environment", which is true for some causes and false
-        for others. Here the environment advertises no codex, so the reason is about the runtime."""
-        self._heartbeat(runtimes=())
-        self._seed_session(spawn_spec_id="")
-        response = self._control("restart")
-        self.assertEqual(response.status_code, 409, response.text)
-        detail = response.json()["detail"]
-        self.assertIn(f'Session "{SESSION_ID}" has no stored spawn spec.', detail)
-        self.assertIn("Cannot start managed codex for this agent", detail)
-        self.assertNotEqual(
-            detail.strip(), f'Session "{SESSION_ID}" has no stored spawn spec.',
-            "the refusal must carry a reason, not just the fact",
-        )
 
     def test_a_session_pointing_at_a_deleted_spawn_spec_names_the_missing_id(self):
         self._seed_session(spawn_spec_id="spec-gone")

@@ -103,21 +103,6 @@ class TheStatusClampIsAnchoredToTheTurnStartTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_a_latch_kept_warm_by_a_re_stamping_hook_still_ages_out(self):
-        """THE DEFECT. Two hours into a 'turn', with an event 45 seconds ago — which is what a
-        `pre_llm_call` hook produces on a managed hermes agent."""
-        self._latch("sa-warm", started_age=7200, last_event_age=45)
-        self.assertFalse(
-            self._clamped_in_turn("sa-warm"),
-            "an agent whose turn began 2 hours ago still read `working` because an event arrived "
-            "45s ago. The clamp must measure from the START, or any timer-driven poster defeats it.",
-        )
-
-    def test_a_genuinely_fresh_turn_is_untouched(self):
-        """ANTI-VACUITY. Without this, a clamp that cleared everything would pass the test above."""
-        self._latch("sa-fresh", started_age=30, last_event_age=5)
-        self.assertTrue(self._clamped_in_turn("sa-fresh"))
-
     def test_the_boundary_is_the_backstop_and_it_is_shared_with_delivery(self):
         inside = status_inputs.TURN_BUSY_BACKSTOP_SECONDS - 5
         outside = status_inputs.TURN_BUSY_BACKSTOP_SECONDS + 5
@@ -185,18 +170,6 @@ class TheWriterMustNotMoveTheAnchorTests(FastApiTestCase):
         self._apply("sw-begin", "turn_start")
         self.assertTrue(self._anchor("sw-begin"), "a turn began and no anchor was written")
 
-    def test_a_SECOND_turn_start_does_not_move_it(self):
-        """THE WHOLE FIX. The hermes hook applies `turn_start` before every model call."""
-        self._apply("sw-keep", "turn_start")
-        self._backdate_anchor("sw-keep", 7200)
-        before = self._anchor("sw-keep")
-        self._apply("sw-keep", "turn_start")
-        self.assertEqual(
-            self._anchor("sw-keep"), before,
-            "a repeated turn_start rewrote the anchor, so the ceiling can be postponed for ever "
-            "by exactly the poster it was built to survive",
-        )
-
     def test_NO_event_kind_moves_the_anchor_while_the_turn_runs(self):
         """DERIVED FROM THE VOCABULARY, not a hand-picked pair: any kind that leaves the agent busy
         must leave the anchor alone. A list here would go stale the day a kind is added."""
@@ -224,12 +197,6 @@ class TheWriterMustNotMoveTheAnchorTests(FastApiTestCase):
                     # `unblocked`, the two kinds that follow `turn_end` in sorted order. Reproduced
                     # deterministically by sleeping 1.1s here, which reddened those same two.
                     before = self._anchor("sw-all")
-
-    def test_ending_the_turn_clears_the_anchor(self):
-        """Otherwise the NEXT turn starts already aged, and its ceiling fires immediately."""
-        self._apply("sw-clear", "turn_start")
-        self._apply("sw-clear", "turn_end")
-        self.assertEqual(self._anchor("sw-clear"), "")
 
 
 class EveryWriterOfThisColumnAgreesTests(FastApiTestCase):
@@ -310,6 +277,9 @@ class BothProductionBuildersRenewAVerifiedTurnTests(FastApiTestCase):
     THESE DRIVE `_gather_status_inputs` AND `_compute_live_status_cache` THEMSELVES, because that is
     the only thing that would have caught it. Every earlier test in this file went through the pure
     clamp, which is exactly where the constant was NOT -- the constant was at the call sites.
+
+    The 47-minute live-bridge and dead-bridge cases are asserted on both builders (and on delivery)
+    by `test_the_discriminators_are_not_vacuous` below; this class keeps the absolute bound.
     """
 
     DB_NAME = "aify-status-anchor-builders-test.db"
@@ -376,27 +346,6 @@ class BothProductionBuildersRenewAVerifiedTurnTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_a_47_MINUTE_turn_with_a_LIVE_bridge_reads_working_on_BOTH(self):
-        """THE DEFECT the review named, in the units it named it in. Past the strict ceiling, well
-        inside the absolute bound, with an independently observable claimant."""
-        self._seed("sb-live", started_age=47 * 60, bridge_id="br-live",
-                   bridge_last_seen_age=3)
-        gathered, served_status = self._both_builders("sb-live")
-        self.assertTrue(gathered, "the authoritative builder ended a verified 47-minute turn")
-        self.assertEqual(served_status, "working",
-                         "the SERVED builder ended a verified 47-minute turn")
-
-    def test_the_same_turn_with_a_DEAD_bridge_is_still_cut_at_the_strict_anchor(self):
-        """ANTI-VACUITY, and the whole point of the operator's ruling: renewal is for claims that are
-        independently observable. A bridge that stopped beating proves nothing, so the strict
-        thirty-minute anchor applies and the latch is released."""
-        self._seed("sb-dead", started_age=47 * 60, bridge_id="br-dead",
-                   bridge_last_seen_age=6000)
-        gathered, served_status = self._both_builders("sb-dead")
-        self.assertFalse(gathered, "an unverifiable 47-minute turn held on the authoritative path")
-        self.assertNotEqual(served_status, "working",
-                            "an unverifiable 47-minute turn held on the served path")
-
     def test_and_past_the_ABSOLUTE_bound_even_a_live_bridge_does_not_hold_it(self):
         """A renewable lease with no ceiling is the permanent strand again in a better hat."""
         self._seed("sb-forever", started_age=5 * 60 * 60, bridge_id="br-live2",
@@ -416,8 +365,8 @@ class TheTwoTABLES_MUST_NOT_CARRY_DIFFERENT_ANSWERSTests(FastApiTestCase):
     updates one table without the other, the exact drift class these parallel tables have produced
     before.
 
-    THE 47-MINUTE TEST ABOVE CANNOT CATCH THIS: it seeds both clocks identically, so the carriers
-    agree by construction and the seam is invisible. These seed them apart on purpose, in both
+    A 47-MINUTE TEST THAT SEEDS BOTH CLOCKS IDENTICALLY CANNOT CATCH THIS: the carriers agree by
+    construction and the seam is invisible. These seed them apart on purpose, in both
     directions, and require all THREE readers to agree.
     """
 

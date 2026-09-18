@@ -112,28 +112,21 @@ class RenameRepointsTerminals(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
 
-    def test_a_terminal_follows_the_rename(self):
+    def test_a_terminal_follows_the_rename_with_its_status_and_leaves_nothing_behind(self):
         self._seed_terminal("old-name", "term-1", status="running")
         self._rename()
+        moved = self._terminals("new-name")
         self.assertEqual(
-            [r["id"] for r in self._terminals("new-name")], ["term-1"],
+            [r["id"] for r in moved], ["term-1"],
             "the terminal's own session was repointed; its agent_id must move with it",
         )
-
-    def test_nothing_is_left_naming_the_tombstoned_id(self):
-        self._seed_terminal("old-name", "term-1", status="running")
-        self._rename()
         self.assertEqual(
             self._terminals("old-name"), [],
             "a row naming an id the same transaction tombstoned is the defect being fixed",
         )
-
-    def test_the_terminal_status_is_carried_across_untouched(self):
         # Repoint, not restart. The reconcilers own whether a terminal is alive; a rename has no
         # opinion about it and must not invent one.
-        self._seed_terminal("old-name", "term-1", status="running")
-        self._rename()
-        self.assertEqual([r["status"] for r in self._terminals("new-name")], ["running"])
+        self.assertEqual([r["status"] for r in moved], ["running"])
 
     def test_terminals_belonging_to_other_agents_are_untouched(self):
         # Anti-vacuity: an unfiltered UPDATE would move every terminal in the table.

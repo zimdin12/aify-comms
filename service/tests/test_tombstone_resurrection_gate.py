@@ -93,9 +93,14 @@ class TombstoneResurrectionGateTests(unittest.TestCase):
         self.assertIn(REMOVED_AT, str(exc.detail), "the operator needs the removal time")
         self.assertEqual(db.executed, [], "the tombstone must be left untouched on refusal")
 
-    def test_a_bridge_with_no_start_time_cannot_restore(self):
-        """Fail SAFE: absent freshness evidence keeps the agent deleted."""
-        for started in (None, "", "   "):
+    def test_a_bridge_with_no_real_start_time_cannot_restore(self):
+        """Fail SAFE: absent freshness evidence keeps the agent deleted.
+
+        A value that is not a timestamp is no evidence either. Letters sort above digits, so before
+        the gate used the strict parser each word here compared GREATER than any real `removed_at`
+        and cleared the tombstone."""
+        hostile = ("now", "garbage", "tomorrow", "Sat Aug 16 2026", "zzz", "latest")
+        for started in (None, "", "   ", *hostile):
             with self.subTest(bridgeStartedAt=started):
                 db, exc = _run(_Req(started=started), _tombstone())
                 self.assertIsNotNone(exc)

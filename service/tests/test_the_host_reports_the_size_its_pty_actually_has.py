@@ -127,12 +127,10 @@ class TheHostReportsItsPtySizeTests(FastApiTestCase):
 
         return asyncio.run(go())
 
-    def test_the_fixture_starts_with_no_recorded_size(self) -> None:
-        """POSITIVE CONTROL. Every assertion below is about a size ARRIVING, and a fixture that
-        already carried one would satisfy them whatever the code did."""
-        self.assertEqual(self._size(), (0, 0))
-
     def test_a_completed_start_control_records_the_size_the_host_reports(self) -> None:
+        # POSITIVE CONTROL first: every assertion in this file is about a size ARRIVING, and a
+        # fixture that already carried one would satisfy them whatever the code did.
+        self.assertEqual(self._size(), (0, 0))
         # The defect this closes. The control asked for nothing -- cols 0, as every real start
         # control does -- and the pty was nonetheless opened at a real width.
         control_id = self._control("start", cols=0, rows=0)

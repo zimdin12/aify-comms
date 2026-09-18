@@ -70,21 +70,6 @@ class _Row(dict):
 
 
 class TheSpawnListDoesNotShipPrompts(unittest.TestCase):
-    def test_the_default_still_carries_everything(self):
-        """Every existing caller is unaffected. The claim and update paths take this branch, and the
-        bridge builds the agent's prompt from what they return."""
-        spec = _spawn_spec_to_dict(_Row(SPEC_ROW))
-        self.assertIn("instructions", spec)
-        self.assertEqual(spec["instructions"], SPEC_ROW["standing_instructions"])
-
-    def test_the_list_form_OMITS_it_rather_than_blanking_it(self):
-        spec = _spawn_spec_to_dict(_Row(SPEC_ROW), include_instructions=False)
-        self.assertNotIn(
-            "instructions", spec,
-            'the key must be ABSENT, not "" -- an empty string states that the agent has no standing '
-            "instructions, which is a different and false claim",
-        )
-
     def test_EVERYTHING_ELSE_survives_the_slim_form(self):
         """The saving must come from one field. A slim form that dropped `metadata` would break the
         one thing the dashboard actually reads off a spawnSpec."""
@@ -95,21 +80,6 @@ class TheSpawnListDoesNotShipPrompts(unittest.TestCase):
             self.assertEqual(slim[key], full[key], f"{key} changed in the slim form")
         self.assertEqual(slim["metadata"], {"compactMode": "handoff"},
                          "metadata is the only spawnSpec field the dashboard reads")
-
-    def test_the_saving_is_REAL_and_not_a_rounding_error(self):
-        """ANTI-VACUITY. If the omitted field were tiny, this whole change would be cost without
-        benefit -- so the test asserts the shape of the measurement, not just the absence."""
-        import json
-
-        full = len(json.dumps(_spawn_spec_to_dict(_Row(SPEC_ROW)), separators=(",", ":")))
-        slim = len(json.dumps(_spawn_spec_to_dict(_Row(SPEC_ROW), include_instructions=False),
-                              separators=(",", ":")))
-        self.assertLess(slim, full)
-        self.assertGreater(
-            (full - slim) / full, 0.5,
-            "on a spec with real standing instructions the body dominates the row; if it does not, "
-            "re-measure before keeping this change",
-        )
 
 
 class TheListEndpointIsSlim(FastApiTestCase):

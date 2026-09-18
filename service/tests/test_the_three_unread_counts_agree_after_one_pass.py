@@ -14,11 +14,13 @@ NOT A WALL-CLOCK CLAIM. This host cannot measure one: the operator's live fleet 
 same code has timed 44-47ms and then 22-25ms minutes apart. Round-trips and join probes are
 deterministic and attributable, so they are what the commit claims.
 
-WHAT THIS FILE PROVES, which the count above does not: that the collapse is FAITHFUL. The three
-original queries are kept here verbatim as the ORACLE and run beside the endpoint over a fixture
-built to separate them -- a read direct message, an unread one, an unread channel message, an unread
-message to an agent that no longer exists, and one addressed to nobody. A rewrite that quietly folded
-`orphan` into `direct` would pass any test that only asserted "three numbers came back".
+WHAT THIS FILE PROVES, which the count above does not: that the collapse is FAITHFUL. One fixture
+separates every case -- a read direct message, an unread one, unread channel messages, unread
+messages to a REMOVED agent (it has a tombstone; `dashboard`, never an agent, does not), and one
+addressed to nobody -- and the endpoint must answer exactly 1, 2 and 5. A rewrite that quietly
+folded `orphan` into `direct`, counted a read row, or counted the broadcast row changes one of them.
+(The three original queries used to run beside it as an oracle; over this fixture they only ever
+restated 1, 2 and 5, so they were removed on 2026-09-18.)
 """
 from __future__ import annotations
 
@@ -28,48 +30,8 @@ import time
 from service.db import get_db
 from service.tests._base import FastApiTestCase
 
-# The three queries as they stood before 2026-08-29. Kept verbatim, as the oracle.
-BEFORE_DIRECT = """
-    SELECT COUNT(*)
-    FROM messages m
-    JOIN agents a ON a.id = m.to_agent
-    LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-    WHERE m.to_agent IS NOT NULL AND m.source = 'direct' AND r.message_id IS NULL
-"""
-BEFORE_CHANNEL = BEFORE_DIRECT.replace("'direct'", "'channel'")
-#: THE ORACLE FOR THE THIRD COUNTER CHANGED ON 2026-08-29, with the meaning it verifies.
-#:
-#: It used to ask `a.id IS NULL` -- no row in `agents` -- which is also true of every message
-#: addressed to `dashboard`, the UI's own identity, which held 1,792 unread and had sent 3,401. The
-#: counter now asks whether the recipient has an `agent_tombstones` row, which is what a REMOVAL
-#: leaves behind, and it shares that predicate with `POST /messages/cleanup/orphan-unread` so the
-#: number and the deletion cannot disagree.
-#:
-#: Keeping the old text here would make this file assert the defect. It is replaced rather than
-#: deleted, because the point of the oracle is unchanged: an independent statement of what the
-#: counter means, run beside the endpoint.
-BEFORE_ORPHAN = """
-    SELECT COUNT(*)
-    FROM messages m
-    LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = m.to_agent
-    WHERE m.to_agent IS NOT NULL
-      AND EXISTS (SELECT 1 FROM agent_tombstones t WHERE t.agent_id = m.to_agent)
-      AND r.message_id IS NULL
-"""
-
 
 class ThreeUnreadCountsAgreeAfterOnePass(FastApiTestCase):
-    def _sql(self, query: str, params: tuple = ()):
-        async def run():
-            db = await get_db()
-            try:
-                cursor = await db.execute(query, params)
-                return await cursor.fetchall()
-            finally:
-                await db.close()
-
-        return asyncio.run(run())
-
     def _write(self, query: str, params: tuple = ()) -> None:
         async def run():
             db = await get_db()
@@ -138,27 +100,10 @@ class ThreeUnreadCountsAgreeAfterOnePass(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def test_THE_ENDPOINT_AGREES_WITH_THE_THREE_QUERIES_IT_REPLACED(self):
-        self._fixture()
-        oracle = (
-            self._sql(BEFORE_DIRECT)[0][0],
-            self._sql(BEFORE_CHANNEL)[0][0],
-            self._sql(BEFORE_ORPHAN)[0][0],
-        )
-        stats = self._stats()
-        served = (
-            stats["unread_messages"],
-            stats["channel_unread_messages"],
-            stats["orphan_unread_messages"],
-        )
-        self.assertEqual(served, oracle, (
-            "the single-pass form disagrees with the three queries it replaced; the fixture separates "
-            "read from unread, direct from channel, and registered from orphaned recipients"
-        ))
-
-    def test_the_fixture_actually_separates_the_three(self):
-        """POSITIVE CONTROL. Three zeroes agree with three zeroes, and an agreement between empty
-        answers is not evidence of anything. Every counter must be non-zero and they must differ."""
+    def test_the_fixture_separates_the_three_and_the_endpoint_counts_each(self):
+        """Every counter non-zero and different, and each exactly right. The fixture carries a read
+        row for each recipient and a row addressed to nobody, so counting a read message or the
+        broadcast row moves one of the three numbers."""
         self._fixture()
         stats = self._stats()
         for key in ("unread_messages", "channel_unread_messages", "orphan_unread_messages"):
@@ -169,25 +114,6 @@ class ThreeUnreadCountsAgreeAfterOnePass(FastApiTestCase):
         self.assertEqual(len({stats["unread_messages"], stats["channel_unread_messages"],
                               stats["orphan_unread_messages"]}), 3,
                          "two counters are equal, so a fold of one into the other would go unnoticed")
-
-    def test_a_read_message_is_counted_by_none_of_them(self):
-        """The `r.message_id IS NULL` half. Without it all three counters would be totals, and the
-        fixture above would still pass every equality if the oracle had lost the same clause."""
-        self._agent("registered")
-        self._message("only-read", "registered", "direct", read=True)
-        stats = self._stats()
-        self.assertEqual(stats["unread_messages"], 0)
-        self.assertEqual(stats["channel_unread_messages"], 0)
-        self.assertEqual(stats["orphan_unread_messages"], 0)
-
-    def test_a_message_addressed_to_nobody_is_counted_by_none_of_them(self):
-        """`to_agent IS NULL` is the channel fanout row. It has no reader, so it cannot be unread by
-        one -- and it is the row an `a.id IS NULL` test would wrongly claim as an orphan."""
-        self._message("broadcast-only", None, "channel")
-        stats = self._stats()
-        self.assertEqual(stats["orphan_unread_messages"], 0)
-        self.assertEqual(stats["unread_messages"], 0)
-        self.assertEqual(stats["channel_unread_messages"], 0)
 
     def test_an_empty_database_answers_zero_rather_than_null(self):
         """SUM over no rows is NULL where COUNT(*) is 0. Left unguarded, a fresh install would put

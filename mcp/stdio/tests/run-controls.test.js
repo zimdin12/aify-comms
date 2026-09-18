@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -218,17 +218,13 @@ test("steers and non-steers in one claim are both handled", () => {
   assert.ok(r.patches.every((p) => p.status === "completed"));
 });
 
-test("exactly one module declares it, and the bridge still calls it", () => {
-  assert.deepEqual(declaringModules("processRunControls"),
-    [{ file: "run-controls.mjs", kind: "function" }],
-    "a second declaration would let two code paths answer the same control differently");
+test("the bridge still calls it", () => {
+  // A second declaration is gated bridge-wide by each-name-has-one-owner.test.js.
   // BRIDGE-WIDE, not server.js. The dispatch pass moved to `dispatch-loop.mjs` in v0.5.4 and this went
   // red on a pure relocation — the intent was always "the bridge still calls it", and naming the file
   // it happened to live in is what made that intent break on a move.
   assert.equal(isUsedInBridge("processRunControls"), true,
     "the dispatch pass must still apply controls somewhere in the bridge");
-  // The no-re-declaration half is already covered, and better, by `declaringModules` above: it scans
-  // the WHOLE bridge and requires exactly one declaration, where this only ever looked at server.js.
 });
 
 test("the owner holds no state and reaches only owned leaves", () => {

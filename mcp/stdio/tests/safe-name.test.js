@@ -7,14 +7,9 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { SAFE_NAME_RE, validateName } from "../safe-name.mjs";
-import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
-
-const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+import { isUsedInBridge } from "./bridge-sources.mjs";
 
 test("ordinary names this project actually uses are accepted", () => {
   // The failure opposite to the interesting one: a validator so strict it rejects real agent ids. Every
@@ -92,14 +87,9 @@ test("the regex is anchored at both ends", () => {
   assert.ok(!SAFE_NAME_RE.global, "a global regex carries lastIndex between calls and would alternate results");
 });
 
-test("server.js no longer declares either — exactly one owner", () => {
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.doesNotMatch(src, /^(?:const|let|var)\s+SAFE_NAME_RE\b/m, "SAFE_NAME_RE must not be redeclared");
-  assert.doesNotMatch(src, /^(?:export\s+)?function\s+validateName\b/m, "validateName must be imported");
-  // CONVERTED: this line pinned a CALLER in server.js as anti-vacuity, and went red when validateName's
-  // last server.js caller left with the send tools — a slice that broke nothing. Scanned across the
-  // bridge instead, so it survives the name moving between callers.
+test("the bridge still calls the guard", () => {
+  // A second declaration of SAFE_NAME_RE or validateName is gated bridge-wide by
+  // each-name-has-one-owner.test.js. Scanned across the bridge, not server.js, so it survives the
+  // guard's callers moving between modules.
   assert.ok(isUsedInBridge("validateName"), "a guard nothing calls is dead code");
-  assert.deepEqual(declaringModules("validateName").map((o) => o.file), ["safe-name.mjs"],
-    "exactly one owner, wherever it lives");
 });

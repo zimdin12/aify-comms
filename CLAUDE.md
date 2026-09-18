@@ -413,191 +413,39 @@ true.
 
 ### The 1000-line gate fails your change — read this before "fixing" it
 
-**Re-measured 2026-09-05 after the message-history slice (523 files), closest to the limit first**, by the walk described below — the gates' own
-`SKIP_DIRS`, extensions and counting convention, so this is the population they actually judge:
-
-| lines | file | headroom |
-|---|---|---|
-| 996 | `service/new_dashboard/app.js` | 4 |
-| 993 | `mcp/stdio/pi-session.js` | 7 |
-| 901 | `service/control_plane.py` | 99 |
-| 885 | `mcp/stdio/doctor-predicates.js` | 115 |
-| 803 | `mcp/stdio/codex-session.js` | 197 |
-| 794 | `mcp/stdio/doctor.js` | 206 |
-| 780 | `service/routers/environments.py` | 220 |
-| 755 | `service/api_core/status_inputs.py` | 245 |
-| 728 | `mcp/stdio/hermes-managed-host.js` | 272 |
-| 719 | `service/routers/terminals.py` | 281 |
-
-None is at or over the limit. TWO are within 20 lines of it, and they are the two rows the
-gate below names as a claim it enforces.
-
-**RE-VERIFIED ROW BY ROW 2026-09-08 AND AGAIN 2026-09-09 by importing the gate's own walk**, after
-this table had been wrong four times: every row matches its measured line count exactly and the
-membership matches the measured ranking, so nothing here needed correcting on either date. The
-census went 531 -> 533 (2026-09-08, two measurement scripts under `scripts/`) -> 537 -> 538 -> 539
--> 540 -> 541 -> 542 -> 543 -> 546 -> 547 -> **548 on 2026-09-09** -- 268 Python and 280 JS -- as `service/new_dashboard/console-cursor.mjs`,
-`scripts/measure-ws-hop-browser.py`, `scripts/measure-console-projection.py`,
-`scripts/check-deployed-console-transport.py`, `scripts/measure-live-frame-gaps.mjs` and
-`scripts/measure-live-console-fetch.py`, `scripts/measure-coalescing-severity.py` and
-`scripts/acceptance-ledger.py`, `scripts/deleted-import-census.py` and
-`scripts/comment_spans.py` arrived
-with the console, transport and acceptance work, and
-`scripts/render-a-real-console-through-the-emulator.mjs` with the question of whether the
-renderer works on a console this service really stored.
-
-**AND THE WRITTEN FIGURE WAS TWO LOW BEFORE THAT LAST STEP, which is the fifth time this table
-has been wrong and the first time in a direction nobody would notice.** 543 was recorded while the
-walk saw 545; the census-script arrival then took it to 546. It was found by re-running the walk
-rather than by adding one to the written number, which is the only way a small staleness ever
-surfaces -- an increment applied to a wrong base reproduces the wrong base forever. TWO walks were
-run in the same invocation and agreed: the gate's own `_source_files` and an independent rglob
-using the same skip set, extensions and `test_` exclusion.
-
-**AND THE `.monitor/` TRAP CAUGHT SOMEBODY A SECOND TIME, WHICH WAS ME.** The paragraph below
-already warns that the gates walk the FILESYSTEM, so a gitignored directory is invisible to
-`git status` and fully visible to them. The deploy check wrote two working copies of a module
-into `.monitor/` and the walk read 265 Python against a real 261 -- four high, in a directory
-no `git status` would ever mention. The check now uses `tempfile.mkdtemp`, because a scratch
-file is not evidence and has no business in the tree. Measure BOTH numbers when they disagree:
-the filesystem walk is what the gates judge, the committed one is what another person can
-reproduce, and a gap between them is litter rather than growth.
-
-**THIS FILE CARRIED TWO CENSUS FIGURES AT ONCE UNTIL 2026-09-09**, 535 in a standalone sentence
-and 533 in the running total three lines below it, written the same day. That is the dashboard-count
-failure this file documents at length, sitting in the section that documents it -- so the standalone
-copy is deleted rather than corrected, which is the advice the dashboard paragraph already gives.
-
-**AND THE TABLE'S OWN `first file OUTSIDE` POINTER HAD ROTTED, which is the smaller version of the
-same thing.** It named `service/routers/terminals.py` at 712 lines; that file is 719 now and is
-IN the table, tenth. The first file outside is `mcp/stdio/hermes-delivery-loop.mjs` at 696, with
-304 lines of headroom -- named here so the next reader knows what is just off the bottom, and
-with the standing warning that a pointer like this is exactly what goes stale first.
-
-**THE COMMITTED CENSUS, NOT A WORKTREE ONE**, and the difference is a real trap review caught:
-the gates walk the FILESYSTEM, so an untracked file in the right place is governed and counted.
-This walk read 533 / 258 / 275 on the day it was written because two untracked files under `.monitor/` were sitting
-in the tree. Both numbers are true of something; only the committed one is reproducible by
-anyone else, so that is the one written down.
-
-**RE-MEASURED 2026-09-08 BY IMPORTING THE GATE'S OWN WALK**, which is the difference between this
-reading and the ones that rotted: `_source_files` and `_line_count` come from
-`test_no_new_oversized_source_file.py` itself, and the JS half replicates its sibling's skip set and
-`\.m?js$` / `\.test\.m?js$` filters exactly. The population is the one the gates judge rather than
-a similar one.
-
-**AND THE TABLE WAS WRONG AGAIN, IN BOTH ITS FAVOURITE WAYS.** `control_plane.py` read 893 and is
-901 -- the regrowth this file warns about, still going. And **`mcp/stdio/doctor.js` at 794 was
-absent while ranking SIXTH**: the list omitted its own middle for the second time, which is the
-failure the paragraph below already describes and which reads as complete to anyone who meets it
-cold. Four wrong readings now, so the instruction has been given a mechanism rather than repeated:
-`test_the_oversized_table_names_the_real_two.py` fails when the two files this table names as
-closest to the limit are not the closest two. That claim is the one that changes behaviour -- "the
-next edit to `app.js` goes red" -- and it is stable, because those two move rarely.
-
-**`terminal-runtime.js` HAS LEFT THIS TABLE BY BEING DELETED**, and it was third at 981 with 19
-lines of headroom -- so until 2026-09-05 this table told the next person to watch a file no
-production path could reach. It was part of the environment-bridge tier v0.6.2 retired, and its
-presence here is the clearest example of why a stale row is worse than no row: somebody budgeting
-a refactor against it would have been budgeting for dead code.
-
-**`server.js` HAS LEFT THIS TABLE, and that is the largest movement it has ever recorded**: it was
-SECOND at 990 with ten lines of headroom, and v0.6.2's deletion of the environment-bridge cluster
-took it to 701. A file at the limit was relieved by deleting the thing it should not have been
-doing, which is the cheapest relief available and the only one that also removes risk.
-
-`doctor-predicates.js` went the other way, 853 -> 885, and is the one to watch now that it is fifth
-with 115 lines: it has grown 32 lines since the spawn-claim predicates left it, so the relief bought
-on 2026-09-03 is a third spent already. Three files below it appear here for the first time
-(`codex-session.js`, `environments.py`, `status_inputs.py`) — not because they grew suddenly, but
-because the previous table stopped at six and called that the population. Eight rows now.
-
-Note what that table would have said if it had been believed rather than re-run: it recorded
-`doctor-predicates.js` at 844 on 2026-08-29, and the file was at 914 before this measurement — a row
-70 lines wrong, in the direction that matters. The next person should re-run the walk rather than
-amend a row.
-
-`doctor-predicates.js` WAS the one to watch, and the watch paid twice. It went 868 (sixth,
-2026-08-26) -> 991 -> **998, two lines of headroom and FIRST, the same day** -- a row already wrong
-when it was read, stale by a commit made after it was written. Splitting `usage-openai` out into
-`openai-usage-check.mjs` took 153 lines off it; the spawn-claim predicates leaving for
-`spawn-claimer.mjs` on 2026-09-03 took another 61, and it now sits sixth at 853. Nothing re-exports
-the moved names in either case, so a stale import fails loudly rather than resolving, and
-`tests/doctor-sources.mjs` walks the doctor's imports transitively so a new module joins "the doctor"
-with no edit anywhere. Both moves followed the same rule: take out a SUBJECT somebody else also
-needs, not whichever block is longest.
-
-**`app.js` TOOK THE WATCH BACK on 2026-09-05, at FOUR lines, and it is the first file here to have
-actually gone over.** Wiring the message-history slice took it to 1001 and the JS gate went red. The
-room came from moving that feature's URL construction into `message-history.mjs` -- the module that
-owns paging, and the only place that should know how a page of history is addressed -- and from
-building the store where it is handed to the controller rather than binding it a line earlier for a
-single use. Neither was a concession to the gate: both are where the code belonged. **The allowlist
-was not touched, and must not be** -- appending `app.js` to it is the move this gate exists to stop,
-and the file came off that list by earning its way off in v0.5.4.
-
-Four lines is not headroom, it is a warning. The next edit to `app.js` should expect to slice
-something out FIRST; what remains in it is the render orchestrator, and CLAUDE.md's own rule applies
--- take out a SUBJECT somebody else also needs, not whichever block is longest.
-
-`pi-session.js` is second at 7 lines. It has no equivalent fix waiting: it is one session
-class, not a file of independent checks, so relieving it means finding a real seam rather than
-lifting a block out.
-
-Nothing is broken — the gate is a red test, not a silent failure — but the next small edit to
-`app.js` or `pi-session.js` goes red for a reason unrelated to that edit, and its author should hear
-it from this paragraph rather than from the suite. That is no longer hypothetical for `app.js`: it
-happened, on the change that wrote this paragraph.
-
-**This list was wrong in exactly the way it warns about, twice over.** Until 2026-08-25 it named only
-`app.js` and `control_plane.py`, and pi-session.js at 993 was on nobody's list. The correction that
-added pi-session.js then claimed to be the whole population and still SKIPPED `server.js` (961) and
-`terminal-runtime.js` (896) — ranks three and four, both tighter than the `control_plane.py` it did
-name. A ranked list that omits its own middle is worse than no list, because it reads as complete. The
-table above came from one walk using the GATES' OWN parameters -- their `SKIP_DIRS`
-(`node_modules`, `tests`, `fixtures`, `__pycache__`, `.git`, `.pytest_cache`, `.venv`, `venv`), their
-extensions, and their `wc -l` counting convention -- so it is the population the gates actually judge,
-not a similar one. That walk saw 528 files on 2026-08-29 and 542 on 2026-09-03, none at or over the limit — and the six are not the same six each time, so re-run it rather than trusting the names. A walk that FORGETS to exclude
-`.test.` by NAME reports `service/new_dashboard/extraction-proof.test.mjs` at 2,925 as the worst offender: the
-gates prune a `tests` DIRECTORY, and that file does not live in one. The next person to edit
-this should re-run that walk rather than amend a row.
-
 No product source file may reach 1000 lines. Two tests enforce it:
 `service/tests/test_no_new_oversized_source_file.py` (Python) and
 `mcp/stdio/tests/no-new-oversized-source-file.test.js` (JS). Both read ONE policy file,
-`oversized-allowlist.json` at the repo root.
+`oversized-allowlist.json` at the repo root, and walk the repo from its root, pruning `node_modules`,
+`tests`, `fixtures`, `__pycache__` and `.git`.
 
-**The allowlist is EMPTY, and that is the end state, not a gap.** It held five files with an open decision
-packet or a standing ruling; each earned its way off during v0.5.4, the last being `app.js` on 2026-08-14.
-Both gates treat an empty list as exempting nothing — the input a predicate written as "no rule means
-allow" gets backwards — and both fail if a listed file is deleted or drops below the limit, so the list
-shrinks honestly instead of rotting into unchecked names. **Adding your file to it is a REVIEWER DECISION,
-not a fix**: appending an entry to make a red test green is the exact move the gate exists to stop.
+**What is closest to the limit right now** -- ask the tree rather than a table, because a hand-kept
+ranking of this was wrong four times and needed its own 19-test gate before it was retired
+(2026-09-18):
 
-**Scope: non-test `.py` and `.js`/`.mjs`, repo-wide.** Both scans walk from the repo root and prune
-`node_modules`, `tests`, `fixtures`, `__pycache__` and `.git` at the directory level. The Python half read
-`service/**` only until 2026-08-15, which left fifteen files ungoverned — including `mcp/sse_server.py`,
-which ships in the container — and the JS half's two hand-listed roots covered everything only by
-coincidence. Neither hole was visible from the result: an unguarded population reports green exactly like a
-guarded one. **Shell and CSS are deliberately OUT of scope** and each gate says so in a test, because
-`install.sh` (**2,975** lines, down from 4,371 once all four wrapper bodies became template files;
-the key resolver that grew it moved out to `scripts/api-key.sh`) and
-`service/new_dashboard/styles.css` (**1,850**) are non-test source over the limit, and bringing them
-in is an open reviewer question rather than a widening to do quietly.
+```bash
+git ls-files '*.py' '*.js' '*.mjs' | grep -vE '(^|/)(tests|fixtures|node_modules)/|\.test\.m?js$' \
+  | xargs wc -l | sort -rn | sed -n '2,11p'
+```
 
-**BOTH FIGURES CAME FROM THE RATCHET THAT OWNS THEM**, `mcp/stdio/tests/no-unwatched-oversized-file.test.js`,
-rather than from a fresh count beside it -- this file's own rule, and the reason the corrected numbers
-can be trusted. **EACH FILE SITS EXACTLY AT ITS CEILING**, so neither has a single line of slack: any
-addition to either goes red and has to be paid for elsewhere, which is what a ratchet is for. The
-figures written here until 2026-09-08 were 3,074 and 1,843 -- the first 99 lines high, in the
-direction that would let somebody believe there was room.
+On 2026-09-18 that read `app.js` 996 and `pi-session.js` 993 at the top, so the next edit to either
+goes red for a reason unrelated to that edit: slice something out first, taking out a SUBJECT
+somebody else also needs, not whichever block is longest. `app.js` actually went over once (1001 on
+2026-09-05) and the room came from moving code to the module that owned it. The walk the gates use is
+the FILESYSTEM, so untracked files (a `.monitor/` scratch copy, an agent worktree under
+`.claude/worktrees`) are counted by them and not by the command above; a gap between the two is
+litter, not growth.
 
-The failure this gate was built from: a v0.5.4 relocation moved a 6-line helper into `service/db.py` — the
-correct subject owner — taking it 995 → 1006. `control_plane.py` shrank and a NEW file went over. The
-undefined-name sweep, the stale-owner census, `create_app()` and all three suites were green, because none
-of them measures the DESTINATION of a move. **When relocating, measure the destination's line count, not
-just its dependency direction and transaction ownership.**
+**The allowlist is EMPTY, and that is the end state.** Every entry earned its way off during v0.5.4.
+Both gates treat an empty list as exempting nothing, key it by PATH (not basename), and fail if a
+listed file is deleted or drops below the limit. **Adding your file to it is a REVIEWER DECISION, not a
+fix**: appending an entry to make a red test green is the exact move the gate exists to stop.
 
-The allowlist is keyed by PATH, not basename — an earlier version keyed by basename and would have exempted
-any file named `app.js` anywhere. A pure predicate in each gate pins that, and both fail if a listed file is
-deleted or drops below the limit, so the list shrinks honestly instead of rotting into unchecked names.
+**Scope: non-test `.py` and `.js`/`.mjs`, repo-wide.** Shell and CSS are deliberately out, and each gate
+says so in a test: `install.sh` and `service/new_dashboard/styles.css` are over the limit and are held
+by the ratchet in `mcp/stdio/tests/no-unwatched-oversized-file.test.js` instead, each exactly at its
+ceiling, so any addition to either has to be paid for elsewhere.
+
+**When relocating, measure the DESTINATION's line count**, not just its dependency direction. The gate
+exists because a v0.5.4 move put a 6-line helper into `service/db.py` (995 -> 1006): the source shrank,
+a new file went over, and every other check was green because none of them measures where code lands.

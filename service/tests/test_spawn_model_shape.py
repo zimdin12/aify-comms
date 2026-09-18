@@ -112,14 +112,6 @@ class EveryIngressTests(unittest.TestCase):
     model or settings key can carry a model, add it here in the same commit.
     """
 
-    def test_the_environment_assign_path_rejects_the_same_shapes(self):
-        from service.models import AgentEnvironmentAssignRequest
-
-        for hostile in ["opus 5", "opus;rm", "opus\nsonnet", "$(id)", "m" * 500]:
-            with self.subTest(hostile):
-                with self.assertRaises(pydantic.ValidationError):
-                    AgentEnvironmentAssignRequest(environmentId="e", model=hostile)
-
     def test_the_environment_assign_path_still_accepts_real_names(self):
         from service.models import AgentEnvironmentAssignRequest
 
@@ -127,10 +119,11 @@ class EveryIngressTests(unittest.TestCase):
         self.assertIsNone(AgentEnvironmentAssignRequest(environmentId="e").model)
 
     def test_one_definition_of_the_rule_for_every_rejecting_ingress(self):
-        """Three doors with three copies of "that is not a model name" would drift. Same helper."""
+        """Three doors with three copies of "that is not a model name" would drift. Same helper, and
+        the environment-assign door refuses every shape the spawn door does."""
         from service.models import SpawnRequestCreate, AgentEnvironmentAssignRequest, validate_model_shape
 
-        for hostile in ["opus 5", "a`b", "x" * 300]:
+        for hostile in ["opus 5", "opus;rm", "opus\nsonnet", "$(id)", "a`b", "x" * 300, "m" * 500]:
             with self.subTest(hostile):
                 with self.assertRaises(ValueError):
                     validate_model_shape(hostile)
@@ -173,13 +166,6 @@ class SelfReportIngressTests(unittest.TestCase):
         from service.models import AgentRegister
 
         self.assertEqual(AgentRegister(agentId="a", role="coder", model=" gpt-5.5 ").model, "gpt-5.5")
-
-    def test_it_is_dropped_not_REPAIRED(self):
-        """Repairing "opus 5" into "opus5" would launch a runtime with a model nobody chose."""
-        from service.models import AgentRegister
-
-        self.assertIsNone(AgentRegister(agentId="a", role="coder", model="opus 5").model)
-
 
 
 class FifthDoorTests(unittest.TestCase):

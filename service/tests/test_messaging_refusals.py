@@ -30,6 +30,8 @@ exists, they are simply not the party entitled to act.
 
 from __future__ import annotations
 
+import sqlite3
+
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
 
@@ -139,6 +141,17 @@ class MessagingRefusalTests(FastApiTestCase):
                     json={"from_agent": SENDER, "channel": "general", "body": body},
                 )
                 self.assertEqual(response.status_code, 422, response.text)
+        # REFUSED MEANS NOT STORED. A guard that ran after the insert would still answer 422 while
+        # leaving the cut-short body in the table for the recipient to read.
+        db = sqlite3.connect(self._db_path)
+        try:
+            stored = db.execute(
+                f"SELECT COUNT(*) FROM messages WHERE body IN ({','.join('?' * len(TRUNCATED_BODIES))})",
+                TRUNCATED_BODIES,
+            ).fetchone()[0]
+        finally:
+            db.close()
+        self.assertEqual(stored, 0, "a refused truncated body was persisted anyway")
 
     def test_a_body_that_merely_mentions_truncation_is_delivered(self):
         """The guard keys on a marker at the END, not on a word. Refusing a message that discusses

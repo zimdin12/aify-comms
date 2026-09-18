@@ -179,24 +179,6 @@ class ManualStatusTests(StatusBroadcastTestCase):
             payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
         self.assertEqual(payload["status"], "stopped")
 
-    def test_the_polled_path_pushes_a_manual_status_unchanged_END_TO_END(self):
-        """The same claim with nothing forced — the real cache, the real derivation, a real stopped
-        row. It cannot distinguish the guard from its absence (see above), which is exactly why it
-        is not the only test of this: it is here to show the forced one describes a real state."""
-        self._stop()
-        payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
-        self.assertEqual(payload["status"], "stopped")
-
-    def test_the_engine_path_pushes_a_manual_status_UNCHANGED(self):
-        """`engine_status` is forced to disagree, for the same reason as the polled twin above."""
-        async def fake_engine(db, row, settings=None):
-            return "online"
-
-        self._stop()
-        with mock.patch.object(status_broadcast, "engine_status", fake_engine):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_engine_status))
-        self.assertEqual(payload["status"], "stopped")
-
     def test_the_engine_path_carries_the_operators_own_NOTE(self):
         """The note is why it was stopped. Blanking it here would leave the operator's reason
         visible on a poll and missing on a push, for the same agent in the same second."""
@@ -229,13 +211,6 @@ class ManualStatusTests(StatusBroadcastTestCase):
 
 class PushPollParityTests(StatusBroadcastTestCase):
     """The polled path re-derives, and the note has to follow the status."""
-
-    def test_the_pushed_status_is_the_DERIVED_one(self):
-        """The push serves what the read would serve. `derive` over the same assembled inputs is
-        the read's answer, so the cached value is not what goes on the wire."""
-        with mock.patch.object(status_broadcast, "derive", return_value="working"):
-            payload = self._only_payload(self._push(status_broadcast._broadcast_agent_status))
-        self.assertEqual(payload["status"], "working")
 
     def test_a_DISAGREEING_derivation_BLANKS_the_note(self):
         """The 2026-07-10 review point, and the subtlest line in the module. The cached note

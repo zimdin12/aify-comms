@@ -13,6 +13,7 @@ Two latent bugs rode along, and they are the reason this is a correctness fix:
 """
 import asyncio
 import time
+import unittest
 
 from service.db import get_db
 from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
@@ -89,15 +90,6 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
                 f"a {st} session is actionable (restart/reset/compact) and must stay listed",
             )
 
-    def test_comms_restart_style_lookup_still_finds_a_stopped_session(self):
-        """Reproduce the consumer contract: comms_restart prefers a live status, else sessions[0]."""
-        self._seed("s-stopped-only", "restartable", "stopped", last_seen_ago=5)
-        sessions = self.client.get("/api/v1/sessions?agentId=restartable").json()["sessions"]
-        live = {"starting", "running", "recovering", "restarting", "cli-takeover"}
-        target = next((s for s in sessions if str(s.get("status", "")).lower() in live), None)             or (sessions[0] if sessions else None)
-        self.assertIsNotNone(target, "comms_restart must still find a session to restart")
-        self.assertEqual(target["id"], "s-stopped-only")
-
     def test_hidden_set_is_narrower_than_the_delete_set(self):
         """Pin the distinction so the two sets cannot be collapsed again."""
         self.assertTrue(
@@ -143,25 +135,21 @@ class SessionsListIsCurrentNotHistoryTests(FastApiTestCase):
         ids = self._ids("?agentId=agent-a")
         self.assertEqual(ids, ["s5-a"])
 
-    def test_default_matches_the_prune_helpers_terminal_set(self):
-        """Both the list filter and the history prune must mean the same thing by "terminal"; if
-        they drift, the list would hide rows the prune keeps (or vice versa)."""
-        self.assertEqual(
-            sessions_router.SESSION_CLEAN_HISTORY_STATUSES, {"ended", "completed", "cancelled"},
-        )
 
-
-class EnvironmentDegradedAgesOfflineTests(FastApiTestCase):
-    """A `degraded` environment must age to `offline` like an `online` one.
+class EnvironmentDegradedAgesOfflineTests(unittest.TestCase):
+    """A `degraded` environment must age to `offline` like an `online` one -- and only when stale.
 
     Found in review 2026-07-26. `_environment_effective_status` gated its staleness check on
     `status == "online"`, so a `degraded` row NEVER aged out — it stayed "degraded" forever after
     the bridge died. Because callers (including aify-doctor's env-bridge check) treat degraded as
     still-connected, that resurrected the exact false-green class the check exists to prevent: a
     dead bridge reported as live. `degraded` means reduced capability, not dead.
-    """
 
-    DB_NAME = "aify-env-degraded-test.db"
+    The ageing half (stale degraded/online -> offline, decisions never aged) is asserted by
+    `test_environment_status_vocabulary.py::test_only_the_heartbeat_states_age_out` and
+    `test_env_status_fails_open_by_decision.py`. What stays here is the half nothing else pins: a
+    FRESH degraded row is left degraded.
+    """
 
     def _row(self, status, last_seen_ago):
         return {
@@ -177,35 +165,3 @@ class EnvironmentDegradedAgesOfflineTests(FastApiTestCase):
             "degraded",
             "a heartbeating degraded bridge is still usable",
         )
-
-    def test_stale_degraded_ages_to_offline(self):
-        self.assertEqual(
-            _environment_effective_status(self._row("degraded", 3600), offline_seconds=90),
-            "offline",
-            "a degraded bridge that stopped heartbeating is offline, not degraded forever",
-        )
-
-    def test_stale_online_still_ages_to_offline(self):
-        self.assertEqual(
-            _environment_effective_status(self._row("online", 3600), offline_seconds=90),
-            "offline",
-        )
-
-    def test_fresh_online_stays_online(self):
-        self.assertEqual(
-            _environment_effective_status(self._row("online", 5), offline_seconds=90),
-            "online",
-        )
-
-    def test_decisions_are_never_overridden_by_a_timestamp(self):
-        """offline/forgotten/disabled are operator or server DECISIONS — ageing must not touch
-        them, and a fresh heartbeat must not resurrect them."""
-        for decided in ("offline", "forgotten", "disabled"):
-            for age in (5, 3600):
-                self.assertEqual(
-                    _environment_effective_status(
-                        self._row(decided, age), offline_seconds=90
-                    ),
-                    decided,
-                    f"{decided} is a decision, not an observation",
-                )

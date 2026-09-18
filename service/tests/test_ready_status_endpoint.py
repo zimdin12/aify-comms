@@ -73,7 +73,17 @@ class ReadyStatusEndpointTests(FastApiTestCase):
             json={"ready": False},
         )
         self.assertEqual(second.status_code, 200, second.text)
-        self.assertEqual(second.json().get("ready"), False)
+        # The response only echoes the request, so the clear is read from the row itself.
+        import sqlite3
+        conn = sqlite3.connect(self._db_path)
+        try:
+            row = conn.execute(
+                "SELECT ready FROM agent_turn_state WHERE agent_id = ?", ("ready-clear",),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, "agent_turn_state row missing after PATCH")
+        self.assertEqual(int(row[0] or 0), 0, "ready=False did not clear the stored bit")
 
     def test_patch_ready_persists_to_agent_turn_state(self):
         """End-to-end: PATCH writes a row with ready=1 that survives reads."""

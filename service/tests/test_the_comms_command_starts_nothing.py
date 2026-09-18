@@ -70,21 +70,18 @@ def test_THE_BRIDGE_EXEC_IS_GONE():
     assert "exit 2" in code and "doctor.js" in code
 
 
-def test_a_bare_run_refuses_and_says_where_the_host_tier_is(tmp_path):
-    """THE INCIDENT, closed. Exit is non-zero so a script cannot mistake the refusal for a start."""
-    done = _run(launcher("claude", name=COMMS), tmp_path)
-    assert done.returncode == 2, f"a bare run exited {done.returncode}: {done.stdout}{done.stderr}"
-    said = done.stdout + done.stderr
-    assert "aify-env" in said, "the refusal does not say where managed agents are hosted now"
-    assert "starts nothing" in said
+def test_a_bare_run_and_an_unknown_option_both_refuse_and_say_where_the_host_tier_is(tmp_path):
+    """THE INCIDENT, closed. Exit is non-zero so a script cannot mistake the refusal for a start.
 
-
-def test_an_unknown_option_refuses_the_same_way(tmp_path):
-    """It used to be a separate branch that exited 2 before the bridge started. With no bridge left
-    the two cases are one, and this pins that the merge did not make a stray flag START something."""
-    done = _run(launcher("claude", name=COMMS), tmp_path, "--nonsense")
-    assert done.returncode == 2
-    assert "aify-env" in done.stdout + done.stderr
+    An unknown option used to be a separate branch that exited 2 before the bridge started. With no
+    bridge left the two cases are one, and the second argv pins that the merge did not make a stray
+    flag START something."""
+    for args in ((), ("--nonsense",)):
+        done = _run(launcher("claude", name=COMMS), tmp_path, *args)
+        assert done.returncode == 2, f"{args} exited {done.returncode}: {done.stdout}{done.stderr}"
+        said = done.stdout + done.stderr
+        assert "aify-env" in said, f"{args}: the refusal does not say where managed agents are hosted now"
+        assert "starts nothing" in said, args
 
 
 def test_the_doctor_subcommand_still_execs_the_doctor():
@@ -111,26 +108,11 @@ def test_check_and_help_still_answer(tmp_path):
     )
 
 
-def test_no_api_key_is_baked_into_a_command_that_starts_nothing():
-    """The key was there because the BRIDGE could not reach its own service without one. Every
-    surviving branch reaches the service on its own terms -- `doctor` resolves the key itself, and
-    `--version` curls the unauthenticated `/version`. A secret copied into a file that no longer
-    needs it is a copy to leak for nothing."""
-    text = launcher("claude", name=COMMS)
-    assert "AIFY_API_KEY" not in text, "an API key is still baked into the verifier"
-
-
-def test_THE_INSTALL_RECORD_IS_STILL_READABLE():
-    """`scripts/installed-delegation.sh` greps these two lines out of THIS file so a redeploy carries
-    the host's own choice forward. Its own regex is the assertion, not a paraphrase of it."""
-    text = launcher("claude", "--delegate-spawns", name=COMMS)
-    assert 'export AIFY_COMMS_DELEGATE_SPAWNS="1"' in text, "the delegation record was lost"
-    assert 'export AIFY_ENV_ENDPOINT="' in text, "the aify-env endpoint record was lost"
-
-
 def test_the_reader_actually_recovers_the_endpoint(tmp_path):
-    """END TO END, through the real script rather than through its shape. A record that matches a
-    regex in a test and not the one in the reader is a record nothing reads."""
+    """END TO END, through the real script rather than through its shape: `scripts/installed-delegation.sh`
+    greps the two install-record lines out of THIS file so a redeploy carries the host's own choice
+    forward. A record that matches a regex in a test and not the one in the reader is a record nothing
+    reads."""
     (tmp_path / COMMS).write_text(
         launcher("claude", "--delegate-spawns", name=COMMS), encoding="utf-8", newline="\n",
     )

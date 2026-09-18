@@ -53,16 +53,9 @@ class RuntimeRegistryTests(unittest.TestCase):
 
 
 class ResumeCommandContractTests(unittest.TestCase):
-    def test_EVERY_adapter_carries_the_agent_id_when_it_knows_it(self):
-        """THE INCIDENT, as a census. An adapter that forgets `--aify-agent` hands the operator a
-        session whose status latches forever — registering, messaging and heartbeating normally the
-        whole time, which is why it took a live investigation to find."""
-        for runtime in ALL_RUNTIMES:
-            with self.subTest(runtime=runtime):
-                command = adapter_for(runtime).resume_command("sess-123", "lc-coder")
-                self.assertIn("--aify-agent lc-coder", command)
-                self.assertIn("sess-123", command)
-
+    # The incident census itself -- every adapter carries `--aify-agent <id>` and the handle when it
+    # knows the id -- is `test_resume_command_carries_agent_id.py`, through `_resume_command_for`,
+    # the function the dashboard and the 409 actually call.
     def test_every_adapter_still_produces_a_command_with_no_agent_id(self):
         """The id is not always known — a session-changed row may have none. The command must still
         be copyable rather than empty or malformed."""
@@ -115,8 +108,11 @@ class SharedNormalisationTests(unittest.TestCase):
         for runtime in ALL_RUNTIMES:
             with self.subTest(runtime=runtime):
                 adapter = adapter_for(runtime)
-                self.assertTrue(adapter.display_name)
                 self.assertIsInstance(adapter.display_name, str)
+                self.assertTrue(adapter.display_name.strip())
+                self.assertNotEqual(
+                    adapter.display_name, runtime,
+                    f"{runtime} shows its canonical name: it declares no display_name of its own")
 
     def test_a_placeholder_handle_is_NOT_a_session(self):
         """`--resume unknown` starts a NEW session while claiming to continue one, and the operator
@@ -213,14 +209,6 @@ class SessionEnvTests(unittest.TestCase):
         with self._sealed(BARE_SESSION_ID="  sess-1  "):
             self.adapter.get_current_session_id()
             self.assertEqual(os.environ["BARE_SESSION_ID"], "  sess-1  ")
-
-    def test_the_seal_leaves_the_environment_as_it_found_it(self):
-        """The rule this suite exists under: a test that sets a session variable and walks away
-        decides the behaviour of every later test in the run."""
-        before = os.environ.get("BARE_SESSION_ID")
-        with self._sealed(BARE_SESSION_ID="sess-1"):
-            pass
-        self.assertEqual(os.environ.get("BARE_SESSION_ID"), before)
 
 
 class ResidentReadinessTests(unittest.TestCase):

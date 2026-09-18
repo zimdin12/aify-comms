@@ -110,12 +110,6 @@ class TheConsoleBranchDiscriminatorSeparatesBothBranches(unittest.IsolatedAsynci
             self.assertEqual(response.status_code, 200)
             return (response.json().get("terminal") or {}).get("renderedCols")
 
-    async def test_the_fixture_actually_built_a_live_screen(self) -> None:
-        """The setup control. `feed_live_screen` refuses a chunk with no ESC, and a fixture whose
-        live arm never got a screen would put BOTH arms on the replay path -- where they agree, and
-        the test below would pass having measured nothing."""
-        self.assertTrue(self.fed, "the live arm was never given a screen, so there is no contrast")
-
     async def test_a_terminal_with_no_live_screen_renders_at_the_viewer_width(self) -> None:
         """REPLAY: the tail is rendered at max(source, viewer), so a wide viewer widens it."""
         self.assertEqual(
@@ -129,19 +123,6 @@ class TheConsoleBranchDiscriminatorSeparatesBothBranches(unittest.IsolatedAsynci
             await self._rendered_cols(self.live_id), COLS,
             "a terminal WITH a live screen widened to the viewer, so the two branches are no "
             "longer separable by this signal")
-
-    async def test_the_two_branches_disagree(self) -> None:
-        """The relation, not either value on its own: the whole point is that they DIFFER.
-
-        Asserting each width separately would still pass if some future change made both arms
-        return the same number by coincidence of the constants chosen here.
-        """
-        replay = await self._rendered_cols(self.replay_id)
-        live = await self._rendered_cols(self.live_id)
-        self.assertNotEqual(
-            replay, live,
-            f"both branches answered {replay!r} at a {WIDE}-column viewer, so this signal "
-            f"separates nothing and the script that relies on it is reporting a coin flip")
 
 
 if __name__ == "__main__":

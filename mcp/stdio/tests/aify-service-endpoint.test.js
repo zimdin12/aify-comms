@@ -136,16 +136,11 @@ test("the latch is declared exactly once and written in exactly one place", () =
   assert.match(src, /ACTIVE_SERVER_URL = baseUrl;/, "the advance records the URL that just succeeded");
 });
 
-test("server.js no longer declares any of the moved names", () => {
+test("server.js does not declare its own copy of the latch", () => {
+  // The EXPORTED moved names (SERVER_URLS, API_KEY, HTTP_TIMEOUT_MS, httpCall, IS_REMOTE) are gated
+  // bridge-wide by each-name-has-one-owner.test.js. The latch is not exported, so that gate cannot see it.
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of ["ACTIVE_SERVER_URL", "SERVER_URLS", "API_KEY", "HTTP_TIMEOUT_MS"]) {
-    assert.equal(
-      (src.match(new RegExp(`^(?:export )?(?:const|let) ${name}\\b`, "gm")) || []).length, 0,
-      `${name} still declared in server.js — two owners`,
-    );
-  }
-  assert.ok(!/^(?:export )?(?:async )?function httpCall\s*\(/m.test(src),
-    "httpCall still defined in server.js");
+  assert.doesNotMatch(src, /^(?:export )?(?:const|let) ACTIVE_SERVER_URL\b/m, "ACTIVE_SERVER_URL still declared in server.js");
 });
 
 test("no API key VALUE is embedded in the module", () => {
@@ -220,14 +215,6 @@ test("IS_REMOTE is decided by the environment at load, in both directions", () =
   assert.equal(read({ AIFY_SERVER_URL: "http://127.0.0.1:8800" }), "true", "a configured URL means remote");
   assert.equal(read({}), "false", "no configured URL means local-filesystem mode");
   assert.equal(read({ CLAUDE_MCP_SERVER_URL: "http://127.0.0.1:8800" }), "true", "the legacy env var also counts");
-});
-
-test("server.js no longer declares IS_REMOTE — exactly one owner", () => {
-  // The failure this catches is not a syntax error: a leftover `const IS_REMOTE` in server.js would
-  // shadow the import and keep working, right up until the two definitions disagreed.
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.doesNotMatch(src, /^(?:const|let|var)\s+IS_REMOTE\b/m, "IS_REMOTE must be imported, not redeclared");
-  assert.match(src, /(?<![\w.])IS_REMOTE(?![\w])/, "server.js is still expected to READ it");
 });
 
 // ── how a failed call is REPORTED ────────────────────────────────────────────

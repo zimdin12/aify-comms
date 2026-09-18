@@ -31,9 +31,10 @@ check. `_timestamp_sort_key` keeps its fallback, and now says in its docstring w
 boundary.
 
 WHAT THE AGENT GATE DOES WITH A REAL TIMESTAMP -- a relaunch after the removal restores, one before
-it or at the same instant in another spelling does not, an absent one does not -- is asserted against
-`_enforce_tombstone_resurrection_gate` itself in `test_tombstone_resurrection_gate.py`. This file keeps
-what only it covers: values that are not timestamps at all, and that both gates call the strict parser.
+it or at the same instant in another spelling does not, an absent one or a word that is not a time
+does not -- is asserted against `_enforce_tombstone_resurrection_gate` itself in
+`test_tombstone_resurrection_gate.py`. This file keeps what only it covers: the parser's own answers,
+and that both gates call the strict parser.
 
 BOTH SIDES IN ONE CHANGE, for the same reason as the workspace-root fix a few slices ago: when one
 guard's comment says it mirrors another, they share their defects, and fixing either alone leaves the
@@ -46,36 +47,18 @@ import unittest
 
 from service.api_core.serialization import _parsed_timestamp, _timestamp_sort_key
 
-#: The predicate both gates evaluate, written once here so the test is about the DECISION rather
-#: than about either copy of it. Kept verbatim in shape; only the builder differs.
-def _relaunched(incoming: str, removed_at: str) -> bool:
-    return bool(incoming) and (not removed_at or incoming > removed_at)
-
-
 REMOVED_AT = "2026-08-16T10:00:00Z"
 
 
 class TombstoneFreshnessTests(unittest.TestCase):
-    def test_a_non_timestamp_no_longer_reads_as_a_fresh_relaunch(self):
-        """THE ONE THAT MATTERS. Each of these resurrected a removed agent before the fix."""
-        removed = _timestamp_sort_key(REMOVED_AT)
-        for hostile in ("now", "garbage", "tomorrow", "Sat Aug 16 2026", "zzz", "latest"):
-            with self.subTest(bridgeStartedAt=hostile):
-                self.assertTrue(
-                    _relaunched(_timestamp_sort_key(hostile), removed),
-                    "…the old builder accepted it, which is what made this a defect",
-                )
-                self.assertFalse(
-                    _relaunched(_parsed_timestamp(hostile), removed),
-                    f"{hostile!r} is not a timestamp, so it is no evidence of a relaunch",
-                )
+    # Words that are not timestamps ("now", "garbage", ...) are refused through the real gate in
+    # `test_tombstone_resurrection_gate.py::test_a_bridge_with_no_real_start_time_cannot_restore`.
 
     def test_a_numeric_epoch_string_is_refused_too(self):
         """Digits, so it never beat an ISO string — but it is still not a parseable timestamp, and
         accepting it would depend on `1` sorting below `2` rather than on the value meaning
         anything. Pinned so the refusal is the RULE and not an accident of collation."""
         self.assertEqual(_parsed_timestamp("1755334800"), "")
-        self.assertFalse(_relaunched(_parsed_timestamp("1755334800"), _timestamp_sort_key(REMOVED_AT)))
 
     def test_both_gates_build_the_incoming_value_with_the_strict_parser(self):
         """The two call sites, asserted because the fix is only complete at BOTH.

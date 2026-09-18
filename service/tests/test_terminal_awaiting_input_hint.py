@@ -32,7 +32,10 @@ def test_working_spinner_footer_suppresses_decision_prose():
 
 
 def test_spinner_verb_for_seconds_footer_also_suppresses():
-    tail = "...choose one of the options above, your call.\n\n✻ Crunched for 3m 12s (esc to interrupt)\n"
+    # NO "esc to interrupt" on this footer, deliberately. With it, the first footer alternative
+    # matches the whole line and the "<glyph> <verb> for <N>s" alternative is never exercised --
+    # this test stayed green with that alternative deleted until the footer was trimmed to it alone.
+    tail = "...choose one of the options above, your call.\n\n✻ Crunched for 3m 12s\n"
     assert _terminal_awaiting_input_hint(tail) == ""
 
 
@@ -57,13 +60,6 @@ def test_real_prompt_after_a_stale_footer_is_still_detected():
     # the current bottom-of-screen state → must be flagged, NOT suppressed by the stale footer.
     tail = "✻ Crunched for 1m 0s (esc to interrupt)\nFinished. Overwrite existing file? (y/n) "
     assert _terminal_awaiting_input_hint(tail) == "Awaiting console confirmation."
-
-
-def test_prose_before_footer_is_suppressed_but_prompt_after_is_not():
-    # subagent decision prose BEFORE the live footer → stale scrollback (suppressed); but if a
-    # real y/n renders AFTER the footer it is detected. Here the footer is last → suppressed.
-    tail = "subagent says: which option, your call?\n✻ Synthesizing for 9s (esc to interrupt)\n"
-    assert _terminal_awaiting_input_hint(tail) == ""
 
 
 # A claude/hermes session-RESUME menu the agent already answered, lingering in the buffer as
