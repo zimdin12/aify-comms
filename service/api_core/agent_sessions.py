@@ -162,50 +162,53 @@ async def _current_agent_session_row(db, agent_id: str):
 
 
 async def _touch_current_agent_session(db, agent_id: str, runtime_state: dict[str, Any] | None, now: str) -> None:
-    """Keep the dashboard backing record fresh when a managed runtime is used."""
+    """Keep the dashboard backing record fresh when a managed runtime is used.
+
+    `last_seen` IS WRITTEN ON ITS OWN, and status and handle only when one of them MOVES. GET /sessions
+    runs this for every managed agent, and one UPDATE naming `status` and `session_handle` -- even
+    through a CASE that keeps them -- is a real change to the change feed. So every dashboard read
+    published a change that made the dashboard read again (measured 2026-09-18: 36 of 37 events
+    from one open tab, and 3 in 20 s with no tab open).
+    """
     state = runtime_state or {}
     spawn_request_id = str(state.get("spawnRequestId") or "").strip()
     environment_id = str(state.get("environmentId") or "").strip()
     runtime_handle = str(state.get("sessionId") or state.get("threadId") or state.get("sessionFile") or "").strip()
     if spawn_request_id:
-        await db.execute(
+        rows = await (await db.execute(
             f"""
-            UPDATE agent_sessions
-            SET last_seen = ?,
-                session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                status = CASE
-                    WHEN status IN ('starting', 'recovering', 'restarting') THEN 'running'
-                    ELSE status
-                END
+            SELECT id, status, session_handle
+            FROM agent_sessions
             WHERE agent_id = ?
               AND spawn_request_id = ?
               AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}
             """,
-            (now, runtime_handle, runtime_handle, agent_id, spawn_request_id),
-        )
-        return
-    if environment_id:
-        await db.execute(
+            (agent_id, spawn_request_id),
+        )).fetchall()
+    elif environment_id:
+        rows = await (await db.execute(
             f"""
-            UPDATE agent_sessions
-            SET last_seen = ?,
-                session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
-                status = CASE
-                    WHEN status IN ('starting', 'recovering', 'restarting') THEN 'running'
-                    ELSE status
-                END
-            WHERE id = (
-                SELECT id
-                FROM agent_sessions
-                WHERE agent_id = ?
-                  AND environment_id = ?
-                  AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}
-                ORDER BY last_seen DESC
-                LIMIT 1
-            )
+            SELECT id, status, session_handle
+            FROM agent_sessions
+            WHERE agent_id = ?
+              AND environment_id = ?
+              AND status NOT IN {ENDED_AGENT_SESSION_STATUS_SQL}
+            ORDER BY last_seen DESC
+            LIMIT 1
             """,
-            (now, runtime_handle, runtime_handle, agent_id, environment_id),
-        )
+            (agent_id, environment_id),
+        )).fetchall()
+    else:
+        return
+    for row in rows:
+        await db.execute("UPDATE agent_sessions SET last_seen = ? WHERE id = ?", (now, row["id"]))
+        status = "running" if row["status"] in ("starting", "recovering", "restarting") else row["status"]
+        handle = runtime_handle or row["session_handle"]
+        if (status, handle) != (row["status"], row["session_handle"]):
+            await db.execute(
+                "UPDATE agent_sessions SET status = ?, session_handle = ? WHERE id = ? AND status = ?",
+                (status, handle, row["id"], row["status"]),
+            )
 
 
 # v0.5.4: `_adopt_live_resident_driver` arrived from the control plane. Adopting the live resident driver

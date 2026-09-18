@@ -112,6 +112,37 @@ class AnIdleConsoleIsNotADataChange(FastApiTestCase):
         self.assertTrue(WATCHED <= changed,
                         f"a moved status was not published: only {sorted(changed)}")
 
+    # THE DASHBOARD'S OWN READ, which closed the loop: one open tab refetched /sessions on every event,
+    # and every GET /sessions touched each managed agent's session with a SET naming `status` and
+    # `session_handle`, so the read itself published the change that made the tab read again.
+    def _read_sessions(self, session_status: str) -> set[str]:
+        from service.db import get_db
+
+        async def arrange():
+            db = await get_db()
+            try:
+                await db.execute("UPDATE agents SET session_mode = 'managed', runtime_state = ? WHERE id = ?",
+                                 (f'{{"environmentId": "{ENVIRONMENT}"}}', AGENT))
+                await db.execute("UPDATE agent_sessions SET status = ? WHERE id = ?",
+                                 (session_status, f"sess-{AGENT}"))
+                await db.commit()
+            finally:
+                await db.close()
+
+        asyncio.run(arrange())
+        self.reported.clear()
+        self.assertEqual(self.client.get("/api/v1/sessions").status_code, 200)
+        self.assertTrue(self.reported, "the read committed nothing, so this test would judge nothing")
+        return {write.table for write in self.reported if not write.liveness}
+
+    def test_reading_sessions_does_not_publish_a_session_change(self) -> None:
+        changed = self._read_sessions("running")
+        self.assertNotIn("agent_sessions", changed,
+                         "GET /sessions published a change to agent_sessions, so every read re-triggers the dashboard")
+
+    def test_CONTROL_a_session_the_read_repairs_is_still_a_change(self) -> None:
+        self.assertIn("agent_sessions", self._read_sessions("starting"))
+
 
 if __name__ == "__main__":
     unittest.main()
