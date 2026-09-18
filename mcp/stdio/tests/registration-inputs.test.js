@@ -29,7 +29,7 @@ import {
   resolvedRuntimeConfigForRegistration,
   resolvedRuntimeMarker,
 } from "../registration-inputs.mjs";
-import { bridgeSources, declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { bridgeSources, isUsedInBridge } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -261,17 +261,10 @@ test("claimCapturedClaudeSession refuses a blank agent id and never throws", () 
   assert.equal(claimCapturedClaudeSession("agent-that-has-no-captured-session"), false);
 });
 
-test("exactly one module declares each, and server.js still uses them", () => {
-  for (const name of ["normalizeRegistrationCwd", "resolvedRuntimeMarker",
-    "resolvedRuntimeConfigForRegistration", "claimCapturedClaudeSession"]) {
-    assert.deepEqual(declaringModules(name), [{ file: "registration-inputs.mjs", kind: "function" }],
-      `${name} must be declared exactly once, by its owner`);
-  }
-  // `binding`, not `const` — read off `declaringModules` after asserting the word I expected. The scanner
-  // does not distinguish const/let/var, which is right: what matters is that ONE module declares the name.
-  assert.deepEqual(declaringModules("DEFAULT_CWD"), [{ file: "registration-inputs.mjs", kind: "binding" }],
-    "DEFAULT_CWD moved here rather than being captured twice — see the header note");
-
+test("the bridge still uses them, and resolvedRuntimeMarker stays internal", () => {
+  // A second declaration of any of the five (DEFAULT_CWD included) is gated bridge-wide by
+  // each-name-has-one-owner.test.js.
+  //
   // THE BRIDGE, not `server.js`. I wrote the file-named form three commits ago and it broke one slice later
   // when `autoRegisterConfiguredAgent` — the last server.js caller of `normalizeRegistrationCwd` — moved to
   // its own owner, with nothing about this module changed. An owner's contract is that SOMETHING still calls

@@ -120,20 +120,9 @@ test("neither comms_register nor runDispatchLoop came along", () => {
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state belongs in a tool group");
 });
 
-test("server.js kept none of it — exactly one owner", () => {
+test("server.js does not redeclare the module's private helper", () => {
+  // Tool registrations and EXPORTED names are gated bridge-wide by each-name-has-one-owner.test.js.
+  // `summarizeContract` is not exported, so that gate cannot see a second copy of it.
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of EXPECTED) {
-    assert.doesNotMatch(
-      src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`),
-      `${name} is still registered in server.js as well — two registrations, one name`,
-    );
-  }
-  for (const helper of ["commsInterruptHandler", "summarizeContract"]) {
-    assert.doesNotMatch(src, new RegExp(`function\\s+${helper}\\b`), `${helper} must not be redeclared`);
-  }
-  // Moved with the registration list to `register-tools.mjs` in v0.5.4. Still a wiring check —
-  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now
-  // names the file that holds the call.
-  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
-  assert.match(reg, /registerDispatchTools\(server, z\);/, "the registrar must still CALL the wrapper");
+  assert.doesNotMatch(src, /function\s+summarizeContract\b/, "summarizeContract must not be redeclared");
 });

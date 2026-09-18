@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { dedupePreserveOrder } from "../dedupe.mjs";
-import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -68,9 +68,8 @@ test("identity is by value for strings, so equal paths collapse", () => {
     "this dedupes strings, it does not normalise paths");
 });
 
-test("exactly one module declares it, and the bridge still uses it", () => {
-  assert.deepEqual(declaringModules("dedupePreserveOrder"), [{ file: "dedupe.mjs", kind: "function" }],
-    "two copies would let the two callers disagree about what an empty entry means");
+test("the bridge still uses it", () => {
+  // A second copy is gated bridge-wide by each-name-has-one-owner.test.js.
   assert.ok(isUsedInBridge("dedupePreserveOrder"), "an unused utility is dead code, not a leaf");
 });
 

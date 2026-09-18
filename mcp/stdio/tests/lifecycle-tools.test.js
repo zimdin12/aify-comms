@@ -124,14 +124,3 @@ test("comms_compact is NOT part of this group — subject, not adjacency", () =>
   assert.ok(!tools.has("comms_compact"), "the lifecycle wrapper must not register it");
 });
 
-test("server.js kept none of the four — exactly one owner", () => {
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of EXPECTED) {
-    assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
-  }
-  // The registration list moved to `register-tools.mjs` in v0.5.4. This is still a location check —
-  // "the wrapper is called with exactly (server, z)" is about wiring, not behaviour — but it now names
-  // the file that actually holds the call instead of the one it used to sit in.
-  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
-  assert.match(reg, /registerLifecycleTools\(server, z\);/, "the registrar must still CALL the wrapper");
-});

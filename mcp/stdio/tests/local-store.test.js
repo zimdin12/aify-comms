@@ -91,14 +91,9 @@ test("CLAUDE_MCP_MESSAGES_DIR relocates the whole store, sub-paths included", ()
   assert.equal(read({}).MESSAGES_DIR, path.resolve(STDIO, ".messages"));
 });
 
-test("server.js declares none of the four — exactly one owner", () => {
-  // A leftover `const MESSAGES_DIR` would shadow the import and keep working, until the two derivations
-  // disagreed and half the bridge wrote to a different directory than the other half.
+test("the directory bootstrap stayed in server.js", () => {
+  // A second declaration of the four directory names is gated bridge-wide by each-name-has-one-owner.test.js.
   const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of ["MESSAGES_DIR", "AGENTS_FILE", "INBOX_DIR", "SHARED_DIR"]) {
-    assert.doesNotMatch(src, new RegExp(`^(?:const|let|var)\\s+${name}\\b`, "m"), `${name} must be imported`);
-  }
-  assert.match(src, /(?<![\w.])MESSAGES_DIR(?![\w])/, "server.js is still expected to READ them");
   // The bootstrap that creates the directories deliberately stayed behind: a module that writes to disk
   // on import cannot be imported by a test.
   assert.match(src, /mkdirSync/, "the directory bootstrap belongs to startup, not to this leaf");

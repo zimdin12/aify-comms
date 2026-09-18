@@ -23,7 +23,7 @@ import {
   makeResidentGatewayStatusReader,
   shouldArmResidentHermesTurnDetector,
 } from "../resident-gateway-status.mjs";
-import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
+import { isUsedInBridge } from "./bridge-sources.mjs";
 import { tmpDir } from "./_tmpdir.js";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -192,15 +192,11 @@ test("THE ARM GATE refuses anything that is not hermes with a real ws:// gateway
   assert.equal(shouldArmResidentHermesTurnDetector(), false, "no argument at all is a no-op, not a throw");
 });
 
-test("exactly one module declares each, and the bridge still uses them", () => {
+test("the bridge still uses both", () => {
+  // A second declaration of either is gated bridge-wide by each-name-has-one-owner.test.js.
   for (const name of ["makeResidentGatewayStatusReader", "shouldArmResidentHermesTurnDetector"]) {
-    assert.deepEqual(declaringModules(name), [{ file: "resident-gateway-status.mjs", kind: "function" }],
-      `${name} must be declared exactly once, by its owner`);
     assert.ok(isUsedInBridge(name), `${name} must still be called by something`);
   }
-  const server = fs.readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.doesNotMatch(server, /^export function (makeResidentGatewayStatusReader|shouldArmResidentHermesTurnDetector)/m,
-    "server.js must no longer export them — the test that used to import them from there now uses the owner");
 });
 
 // ── the DEFAULT session-id reader ───────────────────────────────────────────

@@ -21,7 +21,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { declaringModules } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -237,12 +236,9 @@ test("THE MODULE ASKS FOR THE LOOP AND DOES NOT OWN IT", () => {
   assert.doesNotMatch(src, /^server\.tool\(/m, "nothing may register at module scope");
 });
 
-test("server.js owns the loop, passes it in, and no longer registers the tool itself", () => {
-  assert.deepEqual(
-    declaringModules("registerRegistrationTool"),
-    [{ file: "registration-tool.mjs", kind: "function" }],
-    "exactly one module declares the wrapper",
-  );
+test("server.js owns the loop and passes it in", () => {
+  // One declaration of the wrapper and one registration of comms_register are gated bridge-wide by
+  // each-name-has-one-owner.test.js.
   const server = fs.readFileSync(path.join(STDIO, "server.js"), "utf-8");
   assert.match(server, /^function ensureDispatchLoop\(/m,
     "server.js keeps the implementation — this is the borrow, not a move");
@@ -253,8 +249,6 @@ test("server.js owns the loop, passes it in, and no longer registers the tool it
   const reg = fs.readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
   assert.match(reg, /registerRegistrationTool\(server, z, \{ ensureDispatchLoop \}\);/,
     "…and it is handed the borrow rather than importing it");
-  assert.doesNotMatch(server, /"comms_register"/,
-    "server.js must not still declare the tool it delegated");
 });
 
 test("the module reaches only owned leaves", () => {

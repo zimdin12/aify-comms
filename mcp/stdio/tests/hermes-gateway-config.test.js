@@ -159,12 +159,3 @@ test("no gateway at all resolves to empty strings, not undefined", () => {
   assert.equal(r.tokenEnvName, "");
 });
 
-test("server.js declares neither — exactly one owner", async () => {
-  const { declaringModules } = await import("./bridge-sources.mjs");
-  for (const name of ["AIFY_HERMES_GATEWAY_URL", "AIFY_HERMES_GATEWAY_TOKEN_ENV_FROM_MARKER"]) {
-    assert.deepEqual(
-      declaringModules(name), [{ file: "hermes-gateway-config.mjs", kind: "binding" }],
-      `${name} must be declared exactly once, by its owner`,
-    );
-  }
-});

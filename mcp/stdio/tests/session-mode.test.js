@@ -61,9 +61,8 @@ test("the result is always one of exactly two strings", () => {
   assert.deepEqual([...outputs].sort(), ["managed", "resident"]);
 });
 
-test("server.js no longer declares it, and the BRIDGE still calls it", () => {
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.doesNotMatch(src, /^(?:export\s+)?function\s+normalizeSessionMode\b/m, "must be imported");
+test("the BRIDGE still calls it", () => {
+  // A second declaration is gated bridge-wide by each-name-has-one-owner.test.js.
   // BRIDGE-WIDE. The last caller in server.js moved to `managed-environment-sync.mjs` in v0.5.4;
   // the intent was always "the bridge still calls it", and naming server.js is what broke it on a
   // pure relocation. The no-redeclaration check above stays pinned to server.js on purpose.

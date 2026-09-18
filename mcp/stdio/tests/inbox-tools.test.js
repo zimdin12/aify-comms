@@ -129,16 +129,6 @@ test("the module exports only its owner surface, and kept no state", () => {
   assert.doesNotMatch(src, /^(?:export\s+)?const SAFETY_HEADER\b/m, "the banner has one owner");
 });
 
-test("server.js kept none of the three — exactly one owner", () => {
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of ["comms_inbox", "comms_listen", "comms_unsend"]) {
-    assert.doesNotMatch(src, new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`), `${name} still in server.js`);
-  }
-  // Moved with the registration list to `register-tools.mjs` in v0.5.4.
-  const reg = readFileSync(path.join(STDIO, "register-tools.mjs"), "utf-8");
-  assert.match(reg, /registerInboxTools\(server, z\);/, "the registrar must still CALL the wrapper");
-});
-
 test("comms_search is NOT part of this group — the subject boundary, not a location", () => {
   // `comms_search` sits between two of these tools in server.js and was deliberately excluded: an inbox
   // is the caller's own mailbox, while search covers the whole corpus including artifacts.

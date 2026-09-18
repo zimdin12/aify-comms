@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 
-import { STDIO_DIR, toolSources } from "./bridge-sources.mjs";
+import { STDIO_DIR } from "./bridge-sources.mjs";
 
 const STORE = mkdtempSync(path.join(os.tmpdir(), "aify-dashboard-"));
 process.env.AIFY_SERVER_URL = "";
@@ -117,13 +117,6 @@ test("open:false really does not launch anything", () => {
   for (const line of claims) {
     assert.match(line, /open !== false/, "…and only when they actually did");
   }
-});
-
-test("it is registered exactly once across the whole bridge", () => {
-  const registering = toolSources().filter(([, src]) =>
-    /server\.tool\(\s*\n?\s*"comms_dashboard"/.test(src));
-  assert.equal(registering.length, 1, `registered by ${registering.map(([f]) => f).join(", ")}`);
-  assert.equal(registering[0][0], "dashboard-tool.mjs");
 });
 
 test("the module kept no state and reaches only owned leaves plus node builtins", () => {

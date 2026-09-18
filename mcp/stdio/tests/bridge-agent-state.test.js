@@ -133,18 +133,11 @@ test("LOCAL_RUNTIME_STATE stayed in server.js, and is not part of this invariant
   assert.notEqual(owners[0].file, "bridge-agent-state.mjs", "and that owner is not this module");
 });
 
-test("server.js declares none of the four names — exactly one owner", () => {
-  // A leftover declaration would SHADOW the import and keep working, until the bridge held two Maps under
-  // one name and half its readers used each. That is silent, not a crash.
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of ["REMOTE_AGENT_STATE", "ACTIVE_RUNS", "CONSECUTIVE_FAILURES"]) {
-    assert.doesNotMatch(src, new RegExp(`^(?:const|let|var)\\s+${name}\\b`, "m"), `${name} must be imported`);
-    // BRIDGE-WIDE. Two of the three moved their only readers to `dispatch-loop.mjs` in v0.5.4; the
-    // no-redeclaration check above is the half that must stay pinned to server.js.
+test("the bridge still uses all four names", () => {
+  // A second declaration of any of them is gated bridge-wide by each-name-has-one-owner.test.js.
+  for (const name of ["REMOTE_AGENT_STATE", "ACTIVE_RUNS", "CONSECUTIVE_FAILURES", "forgetRemoteAgent"]) {
     assert.equal(isUsedInBridge(name), true, `${name} must still be used somewhere in the bridge`);
   }
-  assert.doesNotMatch(src, /^(?:export\s+)?function\s+forgetRemoteAgent\b/m, "forgetRemoteAgent must be imported");
-  assert.equal(isUsedInBridge("forgetRemoteAgent"), true, "the bridge must still call it");
 });
 
 test("the owner is a state owner, not a service layer", () => {

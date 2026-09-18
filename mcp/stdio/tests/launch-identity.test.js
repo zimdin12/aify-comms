@@ -17,7 +17,6 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { AIFY_AGENT_ID, AIFY_AGENT_ROLE, cleanEnvPlaceholder } from "../launch-identity.mjs";
-import { bridgeSources, declaringModules } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -105,17 +104,6 @@ test("role falls back to coder, and — unlike the id — is NOT placeholder-san
     readIdentity({ AIFY_AGENT_ROLE: "${AIFY_AGENT_ROLE}" }).role, "${AIFY_AGENT_ROLE}",
     "current behaviour: the role is NOT sanitised — change this assertion only on purpose",
   );
-});
-
-test("server.js no longer declares any of the three — exactly one owner", () => {
-  // A leftover declaration would shadow the import and keep working, right up until the two
-  // definitions disagreed. That is a silent divergence, not a crash.
-  const src = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  for (const name of ["AIFY_AGENT_ID", "AIFY_AGENT_ROLE"]) {
-    assert.doesNotMatch(src, new RegExp(`^(?:const|let|var)\\s+${name}\\b`, "m"), `${name} must be imported`);
-  }
-  assert.doesNotMatch(src, /^(?:export\s+)?function\s+cleanEnvPlaceholder\b/m, "cleanEnvPlaceholder must be imported");
-  assert.match(src, /(?<![\w.])AIFY_AGENT_ID(?![\w])/, "server.js is still expected to READ the identity");
 });
 
 test("the leaf imports nothing — it is reachable from any module without a cycle", () => {

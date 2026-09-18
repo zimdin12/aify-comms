@@ -21,7 +21,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { declaringModules } from "./bridge-sources.mjs";
 import { sealedChildEnv } from "./_child-env.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -112,13 +111,6 @@ test("the resolved adapter carries the capability the detectors gate on", () => 
   // adapter lacked it they would silently not arm, which reads as an agent that simply never reports turns.
   assert.equal(resolveAdapter("claude-code").hasTranscriptTail, true);
   assert.equal(resolveAdapter("codex").hasTranscriptTail, true);
-});
-
-test("exactly one module declares it, and the bridge still reads it", () => {
-  assert.deepEqual(
-    declaringModules("__runtimeAdapter"), [{ file: "runtime-adapter.mjs", kind: "binding" }],
-    "__runtimeAdapter must be declared exactly once, by its owner",
-  );
 });
 
 test("the owner reaches only the adapter registry, and holds nothing else", () => {

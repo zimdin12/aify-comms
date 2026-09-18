@@ -70,9 +70,7 @@ that need a real directory: `a_reinstall_leaves...` (8), `install_keeps_the_dele
    after mutation runs: the xterm source checks in `app.test.mjs` other than safeFit/rAF (no other
    dashboard test goes red when the font-await supersession guard, `ownsPty`, the remount identity
    check or the xterm options are broken), the third `hermes-daemon-default-killtree` test, and
-   `install-node-pty-recovery`. Still left: about 16 "server.js kept none / registered once" import
-   `deepEqual`s; four hand-typed "injected, not imported" lists in dashboard tests that one
-   "no module imports app.js" gate would replace.
+   `install-node-pty-recovery`. The two remaining jobs are DONE 2026-09-18; see "Item 4, finished" below.
 5. **DONE 2026-09-18 (see above).** **Two more dead modules**, entangled with other tests: `hermes-channel.js` (no importer; its tests
    plus part of `hermes-gateway-liveness.test.js`) and `terminal-env.js` + `child-env-hygiene.mjs`
    (held equal to `service/api_core/launch_env.py` by `test_the_launch_environment_has_one_owner.py`).
@@ -93,3 +91,51 @@ It was the largest single reduction available.
 (18 tests over a CLAUDE.md table), `test_the_ranked_decision_list_counts_itself.py`,
 `test_the_ledgers_receipts_name_trees_that_contain_them.py`, `test_comments_name_the_constant_the_code_uses.py`.
 Link, removed-command and skill-name gates are worth keeping; they have caught real defects.
+
+## Item 4, finished (2026-09-18)
+
+**Bridge: one derived gate replaces the per-slice ownership census.**
+`mcp/stdio/tests/each-name-has-one-owner.test.js` asks two questions over every bridge module
+(`bridgeSources()`), not over a typed list of names:
+
+- every `server.tool("<name>"` is registered by exactly one module, every call names its tool, and the
+  set found in source equals the set `registerAllTools` registers at runtime (so a registrar that stops
+  calling a group's wrapper goes red);
+- no exported name is declared at top level by a second module. 27 such forks already exist (mostly
+  `claude-channel.js`, a standalone process, and `MACHINE_ID` in nine places); they are recorded exactly
+  and may only shrink.
+
+`declaredNames(source)` was added to `tests/bridge-sources.mjs`, sharing its patterns with
+`declaringModules`; the export parser is `exportedNames` from `tests/missing-imports.mjs`. Negative and
+positive controls are in the file.
+
+Removed or trimmed, all now covered by that gate: the "server.js kept none / registered exactly once"
+checks in `agent-reporting-tools`, `artifact-tools`, `channel-tools`, `dashboard-tool`,
+`dispatch-tools`, `environment-tools`, `inbox-tools`, `lifecycle-tools`, `search-tool`,
+`self-record-tools`, `usage-tool` and `registration-tool`; the `declaringModules` deepEquals and
+server.js redeclaration checks in `aify-service-endpoint`, `bridge-agent-state`, `bridge-build`,
+`bridge-instance`, `dedupe`, `hermes-gateway-config`, `launch-identity`, `local-active-run`,
+`local-store`, `agent-heartbeat`, `agent-summary`, `resident-gateway-status`, `runtime-adapter`,
+`registration-inputs`, `run-controls`, `safe-name` and `session-mode`. Kept: every `isUsedInBridge`
+assertion, and the checks for names the gate cannot see because they are not exported
+(`ACTIVE_SERVER_URL`, `summarizeContract`, `summarizeEnvironment`, the three
+`claude-turn-detector-state` bindings) or because they name a retired implementation (`readBuildTag`).
+`pi-terminal-frame.test.js` is deprecated and untouched.
+
+Removing the `local-active-run` census left `clearLocalActiveRun` named by no test, which
+`every-export-is-named-by-a-test` caught; it now has a direct behaviour test.
+
+Mutation evidence: a `function clearLocalActiveRun() {}` plus a leftover
+`server.tool("comms_dashboard", …)` appended to `server.js` turned the fork and duplicate-tool tests red;
+deleting `registerSelfRecordTools(server, z);` from `register-tools.mjs` turned the source-equals-runtime
+test red (naming `comms_status` and `comms_describe`); deleting `ACTIVE_RUNS.delete` from
+`local-active-run.mjs` turned the new direct test red. Each file was restored with `cp` from a backup.
+
+**Dashboard: `service/new_dashboard/no-module-imports-app.test.mjs`** derives the module population
+(every non-test `.js`/`.mjs` beside `app.js`) and fails if any imports `app.js` by static, bare,
+dynamic or re-export form. It replaced the four hand-typed "injected, not imported" lists in
+`refresh-cycle`, `run-inspector`, `session-console` and `xterm-mount` (the last keeps its
+"arrives as a parameter" check). Coverage change, stated: importing one of those names from a SIBLING
+that does not import `app.js` was forbidden by the lists and is allowed now, since it drags no `app.js`
+code in. Mutation: `import { renderAll } from "./app.js";` at the top of `refresh-cycle.mjs` turned the
+gate red naming that file; restored with `cp`.

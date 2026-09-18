@@ -16,7 +16,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { STDIO_DIR, declaringModules, toolSources } from "./bridge-sources.mjs";
+import { STDIO_DIR } from "./bridge-sources.mjs";
 
 const STORE = mkdtempSync(path.join(os.tmpdir(), "aify-agent-reporting-"));
 process.env.AIFY_SERVER_URL = "";
@@ -128,34 +128,8 @@ test("an empty fleet says so rather than rendering nothing", async () => {
   assert.equal(Object.keys(readAgents().agents).length, 0, "…and the store really was empty");
 });
 
-test("the four shared renderers have exactly one owner each, wherever their callers live", () => {
-  // The group's founding property. Asserted through `bridge-sources.mjs` rather than against a filename:
-  // seven assertions in this lane broke by naming server.js, and two of them were younger than the commit
-  // that broke them.
-  const owners = {
-    runtimeSummary: "agent-summary.mjs",
-    wakeModeSummary: "agent-summary.mjs",
-    formatDispatchState: "tool-response-format.mjs",
-    formatOutboundActivity: "tool-response-format.mjs",
-  };
-  for (const [name, file] of Object.entries(owners)) {
-    assert.deepEqual(
-      declaringModules(name), [{ file, kind: "function" }],
-      `${name} must be declared exactly once, by ${file}`,
-    );
-  }
-});
-
-test("the two tools are registered exactly once across the whole bridge", () => {
-  // The failure a per-file check cannot see: a tool left behind in server.js AND added to a group module
-  // registers twice, and which handler wins depends on registration order.
-  for (const name of ["comms_agents", "comms_agent_info"]) {
-    const registering = toolSources().filter(([, src]) =>
-      new RegExp(`server\\.tool\\(\\s*\\n?\\s*"${name}"`).test(src));
-    assert.equal(registering.length, 1, `${name} is registered by ${registering.map(([f]) => f).join(", ")}`);
-    assert.equal(registering[0][0], "agent-reporting-tools.mjs");
-  }
-});
+// One owner per shared renderer and one registration per tool are gated for the whole bridge by
+// each-name-has-one-owner.test.js.
 
 test("the module kept no state and reaches only owned leaves", () => {
   const src = readFileSync(path.join(STDIO_DIR, "agent-reporting-tools.mjs"), "utf-8");

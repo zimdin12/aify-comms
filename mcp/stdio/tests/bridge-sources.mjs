@@ -74,18 +74,30 @@ export function toolSources() {
   return bridgeSources().filter(([, src]) => /server\.tool\(/.test(src));
 }
 
+// What counts as a top-level DECLARATION, by kind: the prefix that precedes the declared name.
+// `class` was missing until 2026-08-16, the same omission the shared `declarationSpan` parser had.
+// Five bridge modules declare a class, and none of them could be checked for a single owner — which
+// is how `DelegatedManagedController` came to exist twice, byte-identical, in `codex-controller.js`
+// and `hermes-controller.js` with neither importing the other.
+const DECLARATION_PREFIXES = [
+  ["function", String.raw`^(?:export\s+)?(?:async\s+)?function\s+`],
+  ["binding", String.raw`^(?:export\s+)?(?:const|let|var)\s+`],
+  ["class", String.raw`^(?:export\s+)?(?:default\s+)?class\s+`],
+];
+
+// Every name one source declares at top level, by the same rule `declaringModules` applies to one name.
+export function declaredNames(source) {
+  const names = new Set();
+  for (const [, prefix] of DECLARATION_PREFIXES) {
+    for (const m of source.matchAll(new RegExp(String.raw`${prefix}([A-Za-z_$][\w$]*)`, "gm"))) names.add(m[1]);
+  }
+  return names;
+}
+
 // Which module DECLARES a name, as a `{file, kind}` or null. Use this instead of asserting a declaration
 // lives in a particular file: it answers "exactly one owner" without caring which module that is.
 export function declaringModules(name) {
-  // `class` was missing until 2026-08-16, the same omission the shared `declarationSpan` parser had.
-  // Five bridge modules declare a class, and none of them could be checked for a single owner — which
-  // is how `DelegatedManagedController` came to exist twice, byte-identical, in `codex-controller.js`
-  // and `hermes-controller.js` with neither importing the other.
-  const patterns = [
-    ["function", new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\b`, "m")],
-    ["binding", new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+${name}\\b`, "m")],
-    ["class", new RegExp(`^(?:export\\s+)?(?:default\\s+)?class\\s+${name}\\b`, "m")],
-  ];
+  const patterns = DECLARATION_PREFIXES.map(([kind, prefix]) => [kind, new RegExp(`${prefix}${name}\\b`, "m")]);
   return bridgeSources().flatMap(([file, src]) =>
     patterns.filter(([, re]) => re.test(src)).map(([kind]) => ({ file, kind })),
   );

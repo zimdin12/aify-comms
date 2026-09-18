@@ -165,19 +165,9 @@ test("BOTH turn-busy functions in this bridge are DIFFERENT functions with the s
   assert.match(hermesSrc, /reportTurnBusy\(httpCall, agentId/, "the hermes one takes httpCall FIRST");
 });
 
-test("exactly one module declares each of the three, and the bridge still calls them", () => {
-  for (const name of ["baseAgentHeartbeatFields", "currentTurnHeartbeatFields"]) {
-    assert.deepEqual(
-      declaringModules(name), [{ file: "agent-heartbeat.mjs", kind: "function" }],
-      `${name} must be declared exactly once, by its owner`,
-    );
-  }
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
-  assert.doesNotMatch(server, /^(?:async\s+)?function\s+(baseAgentHeartbeatFields|currentTurnHeartbeatFields|reportTurnBusy)\b/m,
-    "none may be redeclared in server.js");
-  // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` with the dispatch pass in v0.5.4. The
-  // no-redeclaration check above still names server.js, which is right — that one is about server.js
-  // specifically not holding a second copy.
+test("the bridge still reports turn-busy", () => {
+  // A second declaration of the three is gated bridge-wide by each-name-has-one-owner.test.js.
+  // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` with the dispatch pass in v0.5.4.
   assert.equal(isUsedInBridge("reportTurnBusy"), true, "the bridge must still report turn-busy");
 });
 
@@ -243,11 +233,8 @@ test("an idle beat and a mid-turn beat are different payloads on the wire", () =
   assert.notDeepEqual(idle.body, busy.body, "an idle beat must not look like a mid-turn one");
 });
 
-test("exactly one module declares reportAgentHeartbeat, and the bridge still beats", () => {
-  assert.deepEqual(declaringModules("reportAgentHeartbeat"),
-    [{ file: "agent-heartbeat.mjs", kind: "function" }]);
-  const server = readFileSync(path.join(STDIO, "server.js"), "utf-8");
+test("the bridge still beats", () => {
+  // A second declaration of reportAgentHeartbeat is gated bridge-wide by each-name-has-one-owner.test.js.
   // BRIDGE-WIDE: the caller moved to `dispatch-loop.mjs` with the dispatch pass in v0.5.4.
   assert.equal(isUsedInBridge("reportAgentHeartbeat"), true, "the bridge must still beat");
-  assert.doesNotMatch(server, /^async function reportAgentHeartbeat/m, "…and must not re-declare it");
 });
