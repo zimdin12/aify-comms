@@ -133,6 +133,12 @@ reports `passed / failed / unanswered` and a silent registered service reads `un
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
 
 **Phase 8 — aify-comms. UNBLOCKED, and stopped where it was told to stop. See docs/PHASE8_STATUS.md.**
+
+> **Historical below, noted 2026-09-18.** `TerminalProcessManager`, `startDelegated()` and `isEnabled()`
+> were deleted with the environment-bridge tier in v0.6.2. Delegation is not a switch any more: since
+> v0.6.1 aify-env hosts every spawn and aify-comms starts nothing. The paragraph is kept as the record
+> of how the seam was proven.
+
 The stream aify-env was missing now exists, so delegation can carry a console as well as a spawn.
 **This paragraph said the seam was "deliberately unwired". That is out of date and was left standing
 after the work it describes was finished** -- exactly the failure `docs inherit intention, not outcome`
