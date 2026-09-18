@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { mock } from "node:test";
 import {
   HermesSession,
   getOrCreateHermesSession,
@@ -71,14 +72,30 @@ async function test_C2_codex_cancel_force_settles_when_app_server_ignores_interr
     const turnPromise = sess.runTurn({ promptText: "go", run: { id: "r" }, callbacks: {} });
     // Wait for turn/start to have completed (activeTurnId set).
     await new Promise((r) => setTimeout(r, 300));
-    await sess.cancelActiveTurn();
-    // The grace timer is 5s; await the promise with a 6.5s safety bound.
-    const result = await Promise.race([
-      turnPromise,
-      new Promise((_, rej) => setTimeout(() => rej(new Error("runTurn never resolved after cancel; C2 fix not working")), 6500)),
-    ]);
+    // The grace timer is 5 s of setTimeout. Mock setTimeout ONLY while cancelActiveTurn schedules it and
+    // advance the clock past it, instead of waiting it out. The turn's poll is a real setInterval created
+    // before this point, so it still notices the settle; the mock is reset before it does, so the poll's
+    // clearTimeout reaches the real turn timer.
+    mock.timers.enable({ apis: ["setTimeout"] });
+    let result;
+    let safety;
+    try {
+      await sess.cancelActiveTurn();
+      mock.timers.tick(5000);
+    } finally {
+      mock.timers.reset();
+    }
+    try {
+      result = await Promise.race([
+        turnPromise,
+        new Promise((_, rej) => { safety = setTimeout(() => rej(new Error("runTurn never resolved after cancel; C2 fix not working")), 2000); }),
+      ]);
+    } finally {
+      clearTimeout(safety);
+    }
     assert.equal(result.status, "cancelled");
   } finally {
+    mock.timers.reset();
     delete process.env.FAKE_CODEX_SCRIPT;
     await sess.stop();
   }

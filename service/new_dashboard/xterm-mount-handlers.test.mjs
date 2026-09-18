@@ -407,50 +407,61 @@ test("a REJECTED input post is reported inside the terminal, with escape sequenc
 
 // ── resize: debounce, dedupe, clamp ─────────────────────────────────────────
 
-test("a grid change is posted once, after the debounce, at the clamped size", async () => {
+// The resize debounce is a 120 ms setTimeout. Each test below mocks setTimeout AFTER the mount (whose
+// settle loop needs real timers) and advances the clock past the debounce instead of waiting 160 ms.
+function passTheDebounce(t) {
+  t.mock.timers.tick(120);
+  return new Promise((r) => setImmediate(r));
+}
+
+test("a grid change is posted once, after the debounce, at the clamped size", async (t) => {
   const { terminalId, term } = await mount();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   requests.length = 0;
   term.onResizeHandler({ cols: 100, rows: 30 });
   assert.deepEqual(requestsTo(`/terminals/${terminalId}/resize`), [],
     "the resize was posted synchronously — a fit burst would spam the PTY");
-  await new Promise((r) => setTimeout(r, 160));
+  await passTheDebounce(t);
   const posts = requestsTo(`/terminals/${terminalId}/resize`);
   assert.equal(posts.length, 1);
   assert.deepEqual(JSON.parse(posts[0].body), { cols: 100, rows: 30, requestedBy: "dashboard" });
 });
 
-test("an UNCHANGED grid is not posted at all", async () => {
+test("an UNCHANGED grid is not posted at all", async (t) => {
   // xterm fires onResize on every fit, including fits that changed nothing. Without the dedupe every
   // layout settle would SIGWINCH the PTY for no reason.
   const { terminalId, term } = await mount();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   requests.length = 0;
   term.onResizeHandler({ cols: 100, rows: 30 });
-  await new Promise((r) => setTimeout(r, 160));
+  await passTheDebounce(t);
   term.onResizeHandler({ cols: 100, rows: 30 });
-  await new Promise((r) => setTimeout(r, 160));
+  await passTheDebounce(t);
   assert.equal(requestsTo(`/terminals/${terminalId}/resize`).length, 1,
     "a no-op resize was posted to the PTY");
 });
 
-test("a burst of DIFFERENT sizes posts only the last one", async () => {
+test("a burst of DIFFERENT sizes posts only the last one", async (t) => {
   const { terminalId, term } = await mount();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   requests.length = 0;
   term.onResizeHandler({ cols: 100, rows: 30 });
   term.onResizeHandler({ cols: 95, rows: 29 });
   term.onResizeHandler({ cols: 90, rows: 28 });
-  await new Promise((r) => setTimeout(r, 160));
+  await passTheDebounce(t);
   const posts = requestsTo(`/terminals/${terminalId}/resize`);
   assert.equal(posts.length, 1, "each intermediate size reached the PTY");
   assert.deepEqual(JSON.parse(posts[0].body), { cols: 90, rows: 28, requestedBy: "dashboard" });
 });
 
-test("a collapsing pane is clamped to a usable grid, never to its real 2x1", async () => {
+test("a collapsing pane is clamped to a usable grid, never to its real 2x1", async (t) => {
   // A mid-transition pane can fit to a couple of columns. Sending that to the PTY re-wraps every line
   // in the app's screen; the clamp is what keeps the shell's idea of its size usable.
   const { terminalId, term } = await mount();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   requests.length = 0;
   term.onResizeHandler({ cols: 2, rows: 1 });
-  await new Promise((r) => setTimeout(r, 160));
+  await passTheDebounce(t);
   const posts = requestsTo(`/terminals/${terminalId}/resize`);
   assert.equal(posts.length, 1);
   assert.deepEqual(JSON.parse(posts[0].body), { cols: 20, rows: 5, requestedBy: "dashboard" });
@@ -468,7 +479,7 @@ test("a HOVER-scroll over an unfocused console injects nothing", async () => {
   requests.length = 0;
   let prevented = 0;
   fire(container, "wheel", { deltaY: 120, preventDefault: () => { prevented += 1; } });
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setImmediate(r));
   assert.deepEqual(requestsTo(`/terminals/${terminalId}/input`), [],
     "a hover-scroll injected keystrokes into a live PTY");
   assert.equal(prevented, 0, "the page was stopped from scrolling even though nothing was injected");
@@ -484,7 +495,7 @@ test("a wheel over a FOCUSED full-screen TUI scrolls it through the same seriali
   requests.length = 0;
   let prevented = 0;
   fire(container, "wheel", { deltaY: 120, preventDefault: () => { prevented += 1; } });
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setImmediate(r));
   const posts = requestsTo(`/terminals/${terminalId}/input`);
   assert.equal(posts.length, 1, "a focused wheel gesture did not reach the PTY");
   assert.deepEqual(JSON.parse(posts[0].body), { body: "\x1b[B\x1b[B\x1b[B", requestedBy: "dashboard" });
@@ -500,7 +511,7 @@ test("a wheel over the NORMAL buffer leaves the page — and the PTY — alone",
   requests.length = 0;
   let prevented = 0;
   fire(container, "wheel", { deltaY: 120, preventDefault: () => { prevented += 1; } });
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setImmediate(r));
   assert.deepEqual(requestsTo(`/terminals/${terminalId}/input`), []);
   assert.equal(prevented, 0, "native scrollback was suppressed");
 });
@@ -511,7 +522,7 @@ test("a DEAD console's wheel is inert even when focused", async () => {
   document.activeElement = term.textarea;
   requests.length = 0;
   fire(container, "wheel", { deltaY: 120, preventDefault: () => {} });
-  await new Promise((r) => setTimeout(r, 5));
+  await new Promise((r) => setImmediate(r));
   assert.deepEqual(requestsTo(`/terminals/${terminalId}/input`), [],
     "a console that refuses typing accepted wheel-synthesised keystrokes");
 });

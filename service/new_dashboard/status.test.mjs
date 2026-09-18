@@ -182,14 +182,8 @@ test("the chip escapes a label exactly once", () => {
   const html = renderStatusChip("queued", { label: "a & b", why: "x" });
   assert.match(html, /a &amp; b/, "the label is not escaped at all, or not the way this asserts");
   assert.doesNotMatch(html, /&amp;amp;/, "the label was escaped twice");
-});
-
-test("the chip escapes the parts a caller does not control either", () => {
-  // Anti-vacuity for the case above: if `esc` were a no-op the first assertion would still pass on a
-  // label that happened to contain the literal text `&amp;`.
-  const html = renderStatusChip("queued", { label: "x", why: '"><script>' });
-  assert.doesNotMatch(html, /"><script>/, "a hostile `why` reached the attribute unescaped");
-  assert.match(html, /&quot;|&gt;|&lt;/, "nothing in the chip was escaped, so this test proves nothing");
+  // Anti-vacuity (a no-op `esc` would pass on a label that happened to contain `&amp;`) is the XSS
+  // guard above: a hostile `why` must come out escaped.
 });
 
 test("no call site pre-escapes a label into the chip", () => {

@@ -34,18 +34,8 @@ assert.doesNotMatch(
   "codex-aify must not background the visible Codex TUI; bash detaches stdin for async jobs",
 );
 
-assert.match(
-  installScript,
-  /CODEX_AUTO=true/,
-  "codex-aify should default to unattended Codex permission mode",
-);
-
-assert.match(
-  installScript,
-  /CODEX_PERMISSION_FLAGS\+=\(--dangerously-bypass-approvals-and-sandbox\)/,
-  "codex-aify should use Codex's supported unattended bypass flag",
-);
-
+// The bypass being ON by default, and --safe removing it, is proven by running the wrapper in
+// codex-wrapper-behaviour.test.js. What only the text can show is the full list of opt-out spellings.
 assert.match(
   installScript,
   /--safe\|--no-auto\|--no-dangerous-permissions/,

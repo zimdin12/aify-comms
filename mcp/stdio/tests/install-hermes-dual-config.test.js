@@ -18,11 +18,6 @@ test("install.sh patches ~/.hermes/config.yaml in addition to hermes config path
     /\.hermes[\\/]config\.yaml/.test(src) || /HOME.*\.hermes/.test(src),
     "expected install.sh to reference ~/.hermes/config.yaml as a fallback hermes config target"
   );
-  // Must explain the dual-write rationale near the new code
-  assert.ok(
-    /both|dual|secondary|fallback/i.test(src.split(/install_hermes_config/i)[1] || ""),
-    "expected install_hermes_config block to document the dual-write rationale"
-  );
 });
 
 test("install.sh distinguishes installer paths from Windows Hermes runtime paths", () => {

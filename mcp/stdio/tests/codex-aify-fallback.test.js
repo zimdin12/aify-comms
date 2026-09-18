@@ -1,8 +1,12 @@
-// Smoke test: ensure the codex-aify wrapper installed by install.sh
-// includes the resume-fallback shell guard introduced in Plan 1, and
-// the multi-layout session probe introduced in Plan 4 Task 14.
-// Pinning a textual marker keeps the regression cheap (we don't actually
-// spawn codex; we verify the installed script reflects the intended shape).
+// Smoke test: ensure the codex-aify wrapper installed by install.sh probes the
+// multi-layout session storage introduced in Plan 4 Task 14. Pinning a textual
+// marker keeps the regression cheap (we don't actually spawn codex; we verify the
+// installed script reflects the intended shape).
+//
+// Two tests left on 2026-09-18: one pinned a COMMENT ("Plan 1: try-resume ..."),
+// and both pinned that CODEX_RESUME_HANDLE is parsed, which
+// service/tests/test_install_codex_session_rediscover.py asserts on the same
+// rendered wrapper together with what the handle is exported as.
 import assert from "assert";
 import test from "node:test";
 import fs from "fs";
@@ -17,22 +21,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // RENDERED wrapper — the artifact an operator installs — which a move cannot break and a broken
 // render cannot hide from.
 const INSTALL_SH = path.join(renderWrapper("codex"), "codex-aify");
-
-test("install.sh codex-aify wrapper contains stale-handle fallback marker", () => {
-  const src = fs.readFileSync(INSTALL_SH, "utf8");
-  // The wrapper-generation block must include the comment + guard so a
-  // future refactor can't silently remove the safety net.
-  assert.ok(
-    src.includes("Plan 1: try-resume, fall back to fresh codex if the saved session")
-      || src.includes("Plan 4")
-      || src.includes("try-resume"),
-    "expected the resume fallback comment in install.sh"
-  );
-  assert.ok(
-    src.includes("CODEX_RESUME_HANDLE"),
-    "expected a CODEX_RESUME_HANDLE variable to be parsed in the wrapper"
-  );
-});
 
 // Pin that install.sh's codex-aify wrapper checks multiple session-storage
 // layouts (flat / date-sharded / dir-per-session) — Plan 4 Task 14.
@@ -51,9 +39,4 @@ test("install.sh codex-aify wrapper checks date-sharded codex session layout", (
     hasFind || hasMultiPath,
     "expected install.sh codex-aify wrapper to probe multiple codex session storage layouts (find / multi-path / rollout pattern)"
   );
-});
-
-test("install.sh codex-aify wrapper still has CODEX_RESUME_HANDLE parsing", () => {
-  const src = fs.readFileSync(INSTALL_SH, "utf8");
-  assert.ok(/CODEX_RESUME_HANDLE/.test(src), "must preserve --resume handle parsing");
 });

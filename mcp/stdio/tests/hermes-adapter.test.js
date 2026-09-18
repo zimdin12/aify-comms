@@ -227,16 +227,3 @@ test("capabilities: managed + interrupt on", () => {
   assert.equal(adapter.supportsInterrupt, true);
   assert.equal(adapter.supportsManaged, true);
 });
-
-test("sessionIdSource is 'captured' (the real visible session id)", () => {
-  const adapter = new HermesAdapter();
-  assert.equal(adapter.sessionIdSource, "captured");
-});
-
-test("resumeCommand returns the operator TUI takeover command", () => {
-  const adapter = new HermesAdapter();
-  assert.equal(
-    adapter.resumeCommand("20260603_real_id"),
-    "hermes --tui --resume 20260603_real_id",
-  );
-});

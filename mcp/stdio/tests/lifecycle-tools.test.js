@@ -8,7 +8,7 @@
 // `comms_delete_session` drops one inactive record, `comms_remove_agent` tombstones one identity, and
 // `comms_clear` with target="all" wipes every message, artifact and identity on the server — other teams
 // included, with no undo and no confirmation prompt. For that last one the description IS the safety
-// mechanism, which is why it is asserted here and not only in the shared descriptions test.
+// mechanism, which is why it is asserted here and in a-destructive-tool-keeps-its-warning.test.js.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -50,6 +50,11 @@ test("every one of them announces the destruction, and names the narrower altern
     assert.match(d, /delet|destruct|remove|stop|restart|wipe|irreversible/i, `${name} must say what it destroys`);
     assert.ok(d.length > 60, `${name}'s description is too short to convey a blast radius`);
   }
+  // The common intent behind reaching for these is almost never the destructive one.
+  assert.match(tools.get("comms_clear").description, /comms_remove_agent/,
+    "comms_clear must point at the one-identity alternative");
+  assert.match(tools.get("comms_remove_agent").description, /comms_restart/,
+    "comms_remove_agent must point at restarting instead of forgetting");
 });
 
 test("comms_clear states the blast radius, the absence of undo, and that it crosses teams", () => {
