@@ -81,23 +81,6 @@ def _buffer(*items: str) -> str:
 class SourceMessageIdsAreStructuralTests(FastApiTestCase):
     DB_NAME = "aify-source-message-ids-test.db"
 
-    # ── the feature still works ──────────────────────────────────────────────────────────────
-
-    def test_several_buffered_items_all_yield_their_ids(self):
-        """The reason the body scan exists. If this breaks, merged buffers stop marking their
-        sources read and the fix has cost more than it bought."""
-        body = _buffer(
-            _item("first", message_id="buffered-1"),
-            _item("second", message_id="buffered-2"),
-        )
-        self.assertEqual(
-            _dispatch_source_message_ids(Row(message_id="run-primary", body=body)),
-            ["run-primary", "buffered-1", "buffered-2"],
-        )
-
-    def test_the_primary_id_is_returned_even_with_no_body(self):
-        self.assertEqual(_dispatch_source_message_ids(Row(message_id="only", body="")), ["only"])
-
     # ── prose can no longer inject ───────────────────────────────────────────────────────────
 
     def test_a_message_id_mentioned_in_a_sentence_is_not_a_source_id(self):

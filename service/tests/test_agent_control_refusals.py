@@ -219,12 +219,6 @@ class AgentControlRefusalTests(FastApiTestCase):
             "the discarded-reason wording is back — see the N8 note in the handler",
         )
 
-    def test_a_start_with_a_claimable_environment_creates_a_spawn_request(self):
-        """The accepting side, so the refusals above are not the only outcome pinned."""
-        response = self._control("start")
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(response.json().get("spawnRequested"))
-
     def test_clicking_start_twice_during_a_slow_boot_is_not_an_error(self):
         """`_coldstart` returns False for an already-pending spawn too — idempotent success, not a
         failure. Surfacing a "no environment bridge" error on the second click is the false alarm

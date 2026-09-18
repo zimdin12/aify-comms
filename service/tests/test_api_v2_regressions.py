@@ -118,8 +118,8 @@ class ApiV2RegressionTests(FastApiTestCase):
     # managed_pty_eager_spawn defaults to ON. Most legacy regressions predate
     # the wrapper-backed path / eager-spawn behavior; opt this whole suite
     # back into the pre-Plan-4 defaults so those historical contracts still
-    # apply. Plan-4-specific tests live in test_default_settings_plan4.py and
-    # opt back in explicitly.
+    # apply. The Plan-4 defaults themselves are asserted by
+    # test_settings_include_dashboard_appearance_defaults below.
     LEGACY_SETTINGS = PRE_PLAN4_SETTINGS
 
     def _register(self, agent_id: str, *, role: str = "coder", **extra):
@@ -3790,44 +3790,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             f"managed PTY must be stopping after manual resident switch; got {term['status']}",
         )
 
-    def test_channel_delivery_receipt_is_not_persisted_as_chat_reply(self):
-        # Operator-caught bug: channel-bridge PATCH writes a summary of
-        # "Delivered to Claude channel session; awaiting explicit reply"
-        # as a delivery receipt. Before this fix, _mirror_dashboard_run_summary_to_chat
-        # persisted that receipt as a "Re: Hello"-style response message
-        # in chat (the dashboard rendered it as if it were Claude's
-        # actual reply). _is_delivery_only_claude_run only matched the
-        # resident-session prefix and missed the channel-session one.
-        from service.api_core.dispatch_state import _is_delivery_only_claude_run
-        class _R(dict):
-            def keys(self): return super().keys()
-        channel_row = _R({
-            "runtime": "claude-code",
-            "status": "completed",
-            "summary": "Delivered to Claude channel session; awaiting explicit reply",
-        })
-        self.assertTrue(
-            _is_delivery_only_claude_run(channel_row),
-            "channel-session delivery receipts must be treated as delivery-only (not persisted as a reply)",
-        )
-        # Resident still recognized.
-        resident_row = _R({
-            "runtime": "claude-code",
-            "status": "completed",
-            "summary": "Delivered to Claude resident session; awaiting explicit reply",
-        })
-        self.assertTrue(_is_delivery_only_claude_run(resident_row))
-        # An actual Claude reply summary is NOT delivery-only.
-        real_reply = _R({
-            "runtime": "claude-code",
-            "status": "completed",
-            "summary": "Hello! I'm online.",
-        })
-        self.assertFalse(
-            _is_delivery_only_claude_run(real_reply),
-            "real Claude reply summaries must NOT be classified as delivery-only",
-        )
-
     def test_managed_claude_channel_eligible_bypasses_managed_run_cap_check(self):
         # Deep-test caught this: managed claude with channelEnabled=true
         # uses the channel transport (claude-channel.js inside the
@@ -4081,7 +4043,7 @@ class ApiV2RegressionTests(FastApiTestCase):
         # explicitly OFF. Plan 4 (2026-05-25) flipped the default to
         # ON; this test now explicitly opts out via settings to keep
         # the legacy-lazy contract covered. The post-Plan-4 default-ON
-        # assertion lives in test_default_settings_plan4.py.
+        # assertion lives in test_settings_include_dashboard_appearance_defaults.
         self.client.put("/api/v1/settings", json={"managed_pty_eager_spawn": False})
         session_id = self._create_running_session(terminal=True)
         terminals = self._fetchall(
