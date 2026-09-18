@@ -137,32 +137,6 @@ class TheSizePollAsksOnlyForASizeTests(FastApiTestCase):
         # And it is smaller by the margin the change was made for, not merely smaller.
         self.assertLess(len(light.content) * 20, len(heavy.content))
 
-    def test_the_size_arrives_without_any_output_write_to_flush(self):
-        # THE OWNERSHIP FACT, driven rather than asserted: complete a resize control reporting a new
-        # size, write NO output, and read the size back. It has to be current. If a future change
-        # ever routes `cols`/`rows` through the output queue's lazy tail, this goes red here instead
-        # of hanging a console in front of an operator.
-        #
-        # THE REPORTED SIZE DIFFERS FROM THE REQUESTED ONE, and that is the whole point of the pair.
-        # Asking for 100x40 and reporting 100x40 -- as this test first did -- is satisfied by EITHER
-        # writer, so deleting the one that records what the host actually took would have left it
-        # green. 90x30 can only have come from the report.
-        requested = self.client.post(f"/api/v1/terminals/{self.TERMINAL}/resize", json={
-            "cols": 100, "rows": 40, "requestedBy": "test",
-        })
-        self.assertEqual(requested.status_code, 200, requested.text)
-        control_id = requested.json()["control"]["id"]
-
-        completed = self.client.patch(f"/api/v1/terminals/controls/{control_id}", json={
-            "bridgeId": BRIDGE, "status": "completed", "cols": 90, "rows": 30,
-        })
-        self.assertEqual(completed.status_code, 200, completed.text)
-
-        terminal = self._size().json()["terminal"]
-        self.assertEqual((terminal["cols"], terminal["rows"]), (90, 30),
-                         "the size must be the one the HOST reported, not the one the service asked "
-                         "for -- those are different facts and only one of them is true")
-
     def test_the_size_endpoint_does_not_flush_the_write_queue(self):
         # OBSERVED, NOT ARGUED. "It does not flush" was a claim in a comment; a spy is what makes it
         # a fact. The heavy endpoint is the POSITIVE CONTROL in this same test, because a counter

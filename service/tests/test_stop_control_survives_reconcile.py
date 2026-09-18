@@ -87,23 +87,22 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
 
     # --- the regression -------------------------------------------------------------------
 
-    def test_stop_control_on_a_STOPPING_terminal_is_not_failed(self):
-        """THE REGRESSION. stop_agent_worker's own control was being cancelled before the bridge
-        could poll it, so the wrapper PTY survived a "successful" Stop worker."""
-        self._seed("term_stopping", terminal_status="stopping", action="stop")
-        row = self._reconcile_then_status("term_stopping", "stop")
-        self.assertEqual(
-            row["status"], "pending",
-            f"the stop must stay actionable for the bridge; got {row}",
-        )
+    def test_a_stop_control_on_a_stopping_or_stopped_terminal_is_not_failed(self):
+        """THE REGRESSION, and the pre-existing path with the same exposure.
 
-    def test_stop_control_on_an_already_STOPPED_row_is_not_failed_either(self):
-        """The pre-existing virtual-terminal path marks 'stopped' and queues the stop in the SAME
-        transaction, so it had the same exposure. Killing a process is idempotent and still wanted
-        on a dead-looking row — server.js keeps an orphan-pid fallback for exactly this."""
-        self._seed("term_stopped", terminal_status="stopped", action="stop")
-        row = self._reconcile_then_status("term_stopped", "stop")
-        self.assertEqual(row["status"], "pending", f"a stop must not be cancelled; got {row}")
+        `stopping`: stop_agent_worker's own control was being cancelled before the bridge could poll
+        it, so the wrapper PTY survived a "successful" Stop worker.
+
+        `stopped`: the virtual-terminal path marks 'stopped' and queues the stop in the SAME
+        transaction. Killing a process is idempotent and still wanted on a dead-looking row --
+        server.js keeps an orphan-pid fallback for exactly this."""
+        for status in ("stopping", "stopped"):
+            with self.subTest(terminal_status=status):
+                tid = f"term_{status}"
+                self._seed(tid, terminal_status=status, action="stop")
+                row = self._reconcile_then_status(tid, "stop")
+                self.assertEqual(row["status"], "pending",
+                                 f"the stop must stay actionable for the bridge; got {row}")
 
     def test_a_claimed_stop_is_also_preserved(self):
         self._seed("term_claimed", terminal_status="stopping", action="stop",
@@ -199,103 +198,6 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
 
         asyncio.run(_run())
 
-    def _run_db_reconcile_and_read(self, control_id):
-        from service.reconcilers import terminal_controls as sweep
-
-        async def _run():
-            db = await get_db()
-            try:
-                await sweep._reconcile_terminal_controls(db)
-                await db.commit()
-                row = await (await db.execute(
-                    "SELECT status, bridge_id, error FROM terminal_controls WHERE id = ?",
-                    (control_id,),
-                )).fetchone()
-                return dict(row)
-            finally:
-                await db.close()
-
-        return asyncio.run(_run())
-
-    def test_a_stop_is_RETARGETED_when_the_owning_bridge_restarted(self):
-        """THE COMPOSED DEFECT the reviewer identified, and its root cause.
-
-        `server.js` carries an orphan-pid fallback for precisely "the owning bridge restarted/died
-        and orphaned a still-live console" — it kills the persisted PTY root by pid when the stop
-        arrives at a bridge that never owned the terminal in memory. That fallback could NEVER RUN,
-        because the env-currency sweep fails the control the moment `bridge_id` stops matching a
-        current online environment. So the machinery built for bridge restart was unreachable in the
-        exact scenario it names, the PTY survived, and — since stop_agent_worker writes the session
-        `'ended'` — Start was then free to spawn a SECOND worker for the same agent.
-
-        Re-target instead of cancel: a live bridge on that environment is machine-local and CAN reap
-        the orphan. This is also why the fix is not a Start gate — a gate would only hide the
-        duplicate, and a too-strict Start gate is what made the whole ef- team unstartable."""
-        self._seed("term_restart", terminal_status="stopping", action="stop")
-        self._seed_env("env-1", "bridge-NEW", status="online")
-        row = self._run_db_reconcile_and_read("ctl-term_restart-stop")
-        self.assertEqual(row["status"], "pending", f"the stop must stay actionable; got {row}")
-        self.assertEqual(
-            row["bridge_id"], "bridge-NEW",
-            "the stop must be re-pointed at the environment's CURRENT bridge so the orphan-pid "
-            f"fallback can reach it; got {row}",
-        )
-
-    def test_a_CLAIMED_stop_is_released_back_to_pending_when_its_bridge_restarted(self):
-        """REVIEW FIND on `530ee71` — a real defect in my own re-target fix.
-
-        The re-target rewrote `bridge_id` for `status IN ('pending','claimed')`, but a bridge only
-        ever claims PENDING work: `api_v2.py:12675` is
-        `SET status='claimed' ... WHERE id = ? AND status = 'pending'`. So a stop the OLD bridge had
-        already claimed kept `status='claimed'`, was re-pointed at the new bridge, and the new bridge
-        never touched it — stranded forever. Re-targeting without releasing the claim is a no-op for
-        exactly the controls most likely to exist when a bridge dies mid-stop.
-
-        A claim held by a bridge that no longer exists is not a claim. Release it."""
-        self._seed("term_claimed_restart", terminal_status="stopping", action="stop",
-                   control_status="claimed")
-
-        async def _stamp_claimed_at():
-            db = await get_db()
-            try:
-                await db.execute(
-                    "UPDATE terminal_controls SET claimed_at = ? WHERE id = ?",
-                    (_now(), "ctl-term_claimed_restart-stop"),
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-        asyncio.run(_stamp_claimed_at())
-        self._seed_env("env-1", "bridge-NEW", status="online")
-
-        from service.reconcilers import terminal_controls as sweep
-
-        async def _run():
-            db = await get_db()
-            try:
-                await sweep._reconcile_terminal_controls(db)
-                await db.commit()
-                row = await (await db.execute(
-                    "SELECT status, bridge_id, claimed_at FROM terminal_controls WHERE id = ?",
-                    ("ctl-term_claimed_restart-stop",),
-                )).fetchone()
-                return dict(row)
-            finally:
-                await db.close()
-
-        row = asyncio.run(_run())
-        self.assertEqual(row["bridge_id"], "bridge-NEW", f"must be re-pointed; got {row}")
-        self.assertEqual(
-            row["status"], "pending",
-            "a claim held by a bridge that no longer exists must be RELEASED, or the replacement "
-            f"bridge (which claims only 'pending') can never pick the stop up; got {row}",
-        )
-        self.assertFalse(
-            str(row["claimed_at"] or "").strip(),
-            f"the stale claim timestamp must be cleared with the claim; got {row}",
-        )
-
     def test_a_CLAIMED_non_stop_control_is_NOT_released(self):
         """Releasing is stop-only, same reasoning as re-targeting: re-running a keystroke that a
         previous bridge may already have delivered would double-type it."""
@@ -320,23 +222,6 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
 
         self.assertNotEqual(asyncio.run(_run())["status"], "pending",
                             "a claimed input must never be silently re-queued for replay")
-
-    def test_a_stop_IS_failed_when_the_environment_has_no_live_bridge(self):
-        """The bound on accumulation. If nothing can act on it, cancelling is correct — otherwise a
-        control for a dead environment would sit pending forever."""
-        self._seed("term_noenv", terminal_status="stopping", action="stop")
-        self._seed_env("env-1", "bridge-OLD", status="offline")
-        row = self._run_db_reconcile_and_read("ctl-term_noenv-stop")
-        self.assertEqual(row["status"], "failed",
-                         f"an unreachable stop must not accumulate; got {row}")
-
-    def test_a_non_stop_control_is_still_failed_on_bridge_mismatch(self):
-        """Re-targeting is stop-only. Replaying a keystroke at a different bridge would inject it
-        into whatever that bridge now owns — the exemption must not widen."""
-        self._seed("term_mismatch_input", terminal_status="attached", action="input")
-        self._seed_env("env-1", "bridge-NEW", status="online")
-        row = self._run_db_reconcile_and_read("ctl-term_mismatch_input-input")
-        self.assertEqual(row["status"], "failed", f"got {row}")
 
     def test_start_never_ADOPTS_a_stopping_terminal(self):
         """The invariant the Start-before-ack concern rests on. `_active_terminal_for_agent`'s query
@@ -381,21 +266,18 @@ class StopControlSurvivesReconcileTests(FastApiTestCase):
 
     # --- what must KEEP working -----------------------------------------------------------
 
-    def test_input_on_a_dead_terminal_is_still_failed(self):
+    def test_input_on_a_dead_or_stopping_terminal_is_still_failed(self):
         """The reconcile exists so a caller is not left waiting on a control nobody will run.
-        Keystrokes into a dead PTY are genuinely undeliverable and must still fail fast — this is
-        the behaviour that produced the 158 real 'terminal is not active' rows."""
-        self._seed("term_dead_input", terminal_status="stopped", action="input")
-        row = self._reconcile_then_status("term_dead_input", "input")
-        self.assertEqual(row["status"], "failed", f"input to a dead terminal must fail; got {row}")
-        self.assertIn("not active", str(row["error"] or ""))
-
-    def test_input_on_a_STOPPING_terminal_is_still_failed(self):
-        """'stopping' is transitional but the console is going away — typing into it cannot be
-        honoured, so the caller should learn that immediately rather than hang."""
-        self._seed("term_stopping_input", terminal_status="stopping", action="input")
-        row = self._reconcile_then_status("term_stopping_input", "input")
-        self.assertEqual(row["status"], "failed", f"got {row}")
+        Keystrokes into a dead PTY are genuinely undeliverable and must still fail fast -- this is
+        the behaviour that produced the 158 real 'terminal is not active' rows. 'stopping' is
+        transitional but the console is going away, so typing into it cannot be honoured either."""
+        for status in ("stopped", "stopping"):
+            with self.subTest(terminal_status=status):
+                tid = f"term_{status}_input"
+                self._seed(tid, terminal_status=status, action="input")
+                row = self._reconcile_then_status(tid, "input")
+                self.assertEqual(row["status"], "failed", f"input to a {status} terminal must fail; got {row}")
+                self.assertIn("not active", str(row["error"] or ""))
 
     def test_a_stop_survives_even_when_the_SAME_terminal_also_has_a_doomed_input(self):
         """The case the exclude_actions parameter exists for. The outer WHERE stops selecting a

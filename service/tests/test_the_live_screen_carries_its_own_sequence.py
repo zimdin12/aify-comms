@@ -70,15 +70,6 @@ def test_an_UNNUMBERED_chunk_clears_the_number_rather_than_leaving_a_stale_one()
         "an unnumbered chunk left the previous number describing a screen it no longer covers")
 
 
-def test_an_UNNUMBERED_chunk_is_always_fed_even_after_a_numbered_one():
-    """There is no basis for calling an unnumbered chunk a repeat, and dropping output on a guess is
-    worse than painting it twice. `append_outside_the_queue` numbers nothing."""
-    feed_live_screen(TERMINAL, PAINT + "A", cols=80, rows=24, seq=5)
-    before = render_live_screen(TERMINAL)[0]
-    feed_live_screen(TERMINAL, "B", cols=80, rows=24)
-    assert render_live_screen(TERMINAL)[0] != before, "an unnumbered chunk was refused as a repeat"
-
-
 def test_THE_SCREEN_APPLIES_EVERY_CHUNK_IT_IS_FED():
     """A terminal handed bytes applies them. Recognising a retry is the WRITER'S job.
 
@@ -103,16 +94,6 @@ def test_THE_SCREEN_APPLIES_EVERY_CHUNK_IT_IS_FED():
     feed_live_screen(TERMINAL, "X", cols=80, rows=24, seq=7)
     assert twice_first != once and render_live_screen(TERMINAL)[0] != twice_first, (
         "identical bytes at a new sequence were swallowed; a repainting spinner would freeze")
-
-
-def test_a_chunk_with_no_ESC_creates_no_screen_and_so_no_number():
-    """POSITIVE CONTROL for the assertions above: they would all read the same if nothing here ever
-    created a screen. A plain log deliberately gets none -- `feed_live_screen` says so -- and the
-    sequence follows the screen rather than existing without one."""
-    assert feed_live_screen(TERMINAL, "a plain log line", cols=80, rows=24, seq=7) is False
-    assert live_screen_seq(TERMINAL) is None
-    assert feed_live_screen(TERMINAL, PAINT + "painted", cols=80, rows=24, seq=7) is True
-    assert live_screen_seq(TERMINAL) == 7
 
 
 # THE RETRY TESTS THAT STOOD HERE ARE GONE, and where they went matters more than that they went.

@@ -50,6 +50,11 @@ PTY_TWIN = "_insert_pty_console_terminal"
 #: Compared stripped, so indentation between the two branches does not register as divergence.
 SUBSTITUTIONS = [
     ("virtual_command,", "command,"),
+    # THE REASON THEY ARE NOT MERGED. A virtual RPC console is born `running` because the RPC session
+    # it fronts already exists; a real PTY is born `starting` because a bridge still has to spawn the
+    # process, and a terminal claiming `running` first would make the agent look alive to every
+    # status consumer. `test_every_declared_substitution_is_STILL_USED` fails if these ever agree --
+    # at which point the merge becomes a decision worth making.
     ('"running",', '"starting",'),
     # v0.6 Phase 8. Both branches write `argv`; only the PTY one can have a value. A virtual-rpc
     # command is a sentinel nothing executes, so it has no launch to describe structurally.
@@ -186,20 +191,6 @@ class TerminalSessionInsertsAgreeTests(unittest.TestCase):
                 pair, actual,
                 f"declared substitution {pair} no longer occurs; delete it or fix the comparison",
             )
-
-    def test_the_status_difference_is_the_REASON_they_are_not_merged(self):
-        """Asserted so the distinction is defended rather than assumed.
-
-        A virtual RPC console is born `running` because the RPC session it fronts already exists.
-        A real PTY is born `starting` because a bridge still has to spawn the process, and a terminal
-        that claimed `running` before its process existed would make the agent look alive to every
-        status consumer. If these two ever agree, the merge becomes a decision worth making — and
-        this test should be deleted along with one of the copies.
-        """
-        virtual, real = _console_insert_bodies()
-        self.assertIn('"running",', virtual)
-        self.assertIn('"starting",', real)
-        self.assertNotEqual(virtual, real, "the two inserts are now identical — merge them and delete this")
 
 
 if __name__ == "__main__":

@@ -156,14 +156,6 @@ class TheSnapshotAndItsSequenceAreOneGenerationTests(FastApiTestCase):
 
         return patch.object(terminals_router, "_attach_terminal_snapshot", wrapper), state
 
-    def test_the_live_branch_is_the_one_under_test(self):
-        """POSITIVE CONTROL. The fix is on the LIVE-screen path; a fixture that never reaches it
-        would pass every assertion below while measuring the replay path instead."""
-        self._write(PAINT + "a first line of output")
-        self.assertIsNotNone(render_live_screen(self.TERMINAL),
-                             "no live screen exists for this terminal, so the branch this file "
-                             "tests is never taken and its other assertions are vacuous")
-
     def test_output_arriving_at_the_await_is_in_BOTH_the_screen_and_the_sequence(self):
         self._write(PAINT + "a first line of output")
         before = self._get()
@@ -174,7 +166,9 @@ class TheSnapshotAndItsSequenceAreOneGenerationTests(FastApiTestCase):
         self.assertTrue(state["injected"], "the producer never ran, so nothing was interleaved")
 
         # THE INJECTION REACHED THE SCREEN. Without this the test could pass by the snapshot simply
-        # not containing the new bytes, which is a different (and also wrong) response.
+        # not containing the new bytes, which is a different (and also wrong) response. It is also
+        # the LIVE-BRANCH control: the replay branch renders a tail read before the await, so these
+        # bytes can only be in the snapshot if the live screen rendered it.
         self.assertIn(INJECTED, torn["snapshot"],
                       "the injected output is not in the rendered screen, so this response is not "
                       "the torn pair the test is about")

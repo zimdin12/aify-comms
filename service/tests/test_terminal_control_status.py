@@ -101,6 +101,8 @@ class TerminalControlStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("lost", await self._apply(terminal_status="lost", status="failed"))
 
     async def test_a_FAILED_control_implies_failed(self):
+        """The control failing is about the control -- but a bridge that cannot resize is a bridge
+        whose terminal is in trouble, and that inference predates this split."""
         self.assertEqual("failed", await self._apply(status="failed", action="resize"))
 
     async def test_a_completed_STOP_implies_stopped(self):
@@ -113,11 +115,6 @@ class TerminalControlStatusTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("", await self._apply(action=action, status="completed"))
                 self.assertEqual("running", (await self._terminal())["status"],
                                  "the terminal row must be untouched")
-
-    async def test_a_failed_RESIZE_still_implies_failed(self):
-        """The control failing is about the control — but a bridge that cannot resize is a bridge
-        whose terminal is in trouble, and that inference predates this split."""
-        self.assertEqual("failed", await self._apply(action="resize", status="failed"))
 
     # ---- the five writes an end status owes --------------------------------
 

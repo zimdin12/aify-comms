@@ -45,7 +45,7 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
     STALE_LAST_SEEN = "2020-01-01T00:00:00Z"
 
     def _seed(self, terminal_id, *, env_id, control_bridge, terminal_status="stopping",
-              action="stop", control_status="pending"):
+              action="stop", control_status="pending", claimed_at=None):
         """Seed a terminal + one control. The terminal is `stopping`, as stop_agent_worker leaves it."""
         async def _run():
             db = await get_db()
@@ -65,11 +65,11 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
                     """
                     INSERT INTO terminal_controls
                         (id, terminal_id, environment_id, bridge_id, action, body, status,
-                         requested_by, requested_at)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                         requested_by, requested_at, claimed_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
                     """,
                     ("ctl-" + terminal_id, terminal_id, env_id, control_bridge, action, "",
-                     control_status, "dashboard", _now()),
+                     control_status, "dashboard", _now(), claimed_at),
                 )
                 await db.commit()
             finally:
@@ -103,7 +103,7 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
                 await sweep._reconcile_terminal_controls(db)
                 await db.commit()
                 row = await (await db.execute(
-                    "SELECT status, bridge_id, error FROM terminal_controls WHERE id = ?",
+                    "SELECT status, bridge_id, error, claimed_at FROM terminal_controls WHERE id = ?",
                     (control_id,),
                 )).fetchone()
                 return dict(row)
@@ -120,18 +120,15 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
     # `ENV_KNOWN_STATES` (mcp/stdio/doctor-predicates.js) is the vocabulary:
     #     online | degraded | offline | forgotten | disabled
 
-    def test_a_fresh_stop_survives_in_online_AND_degraded_environments(self):
-        for status in ("online", "degraded"):
-            with self.subTest(env_status=status):
-                tid = "term_ok_" + status
-                ctl = self._seed(tid, env_id="env-" + status, control_bridge="bridge-1")
-                self._seed_env("env-" + status, "bridge-1", status)
-                row = self._sweep(ctl)
-                self.assertEqual(
-                    row["status"], "pending",
-                    "a bridge on a fresh '" + status + "' env CAN act — api_v2's bridge_can_claim "
-                    "accepts both — so its stop must stay actionable; got " + repr(row),
-                )
+    def test_a_fresh_stop_survives_in_a_DEGRADED_environment(self):
+        """A bridge on a fresh 'degraded' env CAN act -- api_v2's bridge_can_claim accepts it -- so
+        its stop must stay actionable. The 'online' case of the same sweep is
+        test_stop_control_survives_reconcile.py::test_the_OTHER_sweep_also_spares_a_stop."""
+        ctl = self._seed("term_ok_degraded", env_id="env-degraded", control_bridge="bridge-1")
+        self._seed_env("env-degraded", "bridge-1", "degraded")
+        row = self._sweep(ctl)
+        self.assertEqual(row["status"], "pending",
+                         "a fresh degraded env's stop must stay actionable; got " + repr(row))
 
     def test_a_stop_is_still_failed_in_offline_forgotten_and_disabled_environments(self):
         for status in ("offline", "forgotten", "disabled"):
@@ -146,17 +143,31 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
                     "the accumulation bound must still fail the stop; got " + repr(row),
                 )
 
-    def test_a_stop_in_a_DEGRADED_env_is_RETARGETED_when_the_bridge_restarted(self):
-        """The re-target must reach degraded too. Otherwise server.js's orphan-pid fallback stays
-        unreachable for exactly the environments that are already struggling."""
-        ctl = self._seed("term_degraded_restart", env_id="env-dg", control_bridge="bridge-OLD")
-        self._seed_env("env-dg", "bridge-NEW", "degraded")
-        row = self._sweep(ctl)
-        self.assertEqual(row["status"], "pending", "must stay actionable; got " + repr(row))
-        self.assertEqual(
-            row["bridge_id"], "bridge-NEW",
-            "must be re-pointed at the degraded env's CURRENT bridge; got " + repr(row),
-        )
+    def test_a_stop_is_RETARGETED_when_the_owning_bridge_restarted(self):
+        """THE COMPOSED DEFECT a reviewer identified, and its root cause.
+
+        `server.js` carries an orphan-pid fallback for precisely "the owning bridge restarted/died
+        and orphaned a still-live console" -- it kills the persisted PTY root by pid when the stop
+        arrives at a bridge that never owned the terminal in memory. That fallback could NEVER RUN,
+        because the env-currency sweep failed the control the moment `bridge_id` stopped matching a
+        current environment. So the PTY survived, and -- since stop_agent_worker writes the session
+        `'ended'` -- Start was then free to spawn a SECOND worker for the same agent.
+
+        Re-target instead of cancel: a live bridge on that environment is machine-local and CAN reap
+        the orphan. BOTH heartbeat statuses, because a re-target that skipped `degraded` would leave
+        the fallback unreachable for exactly the environments that are already struggling."""
+        for status in ("online", "degraded"):
+            with self.subTest(env_status=status):
+                ctl = self._seed("term_restart_" + status, env_id="env-rt-" + status,
+                                 control_bridge="bridge-OLD")
+                self._seed_env("env-rt-" + status, "bridge-NEW", status)
+                row = self._sweep(ctl)
+                self.assertEqual(row["status"], "pending", "must stay actionable; got " + repr(row))
+                self.assertEqual(
+                    row["bridge_id"], "bridge-NEW",
+                    "must be re-pointed at the environment's CURRENT bridge so the orphan-pid "
+                    "fallback can reach it; got " + repr(row),
+                )
 
     # --- staleness: the accumulation bound must survive the widening ------------------------
 
@@ -201,22 +212,42 @@ class StopControlInDegradedEnvironmentTests(FastApiTestCase):
 
     # --- the widening must not leak past `stop` --------------------------------------------
 
-    def test_a_NON_STOP_control_is_still_failed_on_bridge_mismatch_in_a_degraded_env(self):
+    def test_a_non_stop_control_is_still_failed_on_bridge_mismatch(self):
         """Re-targeting stays stop-only. Replaying a queued keystroke at a different bridge would
-        inject it into whatever that bridge now owns."""
-        ctl = self._seed("term_dg_input", env_id="env-dg2", control_bridge="bridge-OLD",
-                         action="input")
-        self._seed_env("env-dg2", "bridge-NEW", "degraded")
-        row = self._sweep(ctl)
-        self.assertEqual(row["status"], "failed",
-                         "a non-stop control must still fail on bridge mismatch; got " + repr(row))
+        inject it into whatever that bridge now owns.
 
-    def test_a_CLAIMED_stop_in_a_degraded_env_is_released_to_pending(self):
-        """A claim held by a bridge that no longer exists is not a claim — and that must hold for
-        degraded environments too, since it is the state most likely to exist mid-stop."""
-        ctl = self._seed("term_dg_claimed", env_id="env-dg3", control_bridge="bridge-OLD",
-                         control_status="claimed")
-        self._seed_env("env-dg3", "bridge-NEW", "degraded")
-        row = self._sweep(ctl)
-        self.assertEqual(row["status"], "pending", "the claim must be released; got " + repr(row))
-        self.assertEqual(row["bridge_id"], "bridge-NEW", "and re-pointed; got " + repr(row))
+        THE TERMINAL IS LIVE (`attached`) ON PURPOSE. The degraded-only version of this test seeded
+        the default `stopping` terminal, where the liveness sweep fails an input before the bridge
+        comparison is ever reached -- it stayed green with re-targeting widened to every action."""
+        for status in ("online", "degraded"):
+            with self.subTest(env_status=status):
+                ctl = self._seed("term_input_" + status, env_id="env-in-" + status,
+                                 control_bridge="bridge-OLD", terminal_status="attached",
+                                 action="input")
+                self._seed_env("env-in-" + status, "bridge-NEW", status)
+                row = self._sweep(ctl)
+                self.assertEqual(row["status"], "failed",
+                                 "a non-stop control must still fail on bridge mismatch; got " + repr(row))
+
+    def test_a_CLAIMED_stop_is_released_back_to_pending_when_its_bridge_restarted(self):
+        """A claim held by a bridge that no longer exists is not a claim.
+
+        A bridge only ever claims PENDING work (`SET status='claimed' ... WHERE id = ? AND status =
+        'pending'`), so a stop the dying bridge had already claimed, re-pointed but left `claimed`,
+        would never be picked up by its replacement -- stranded forever, in exactly the state most
+        likely to exist when a bridge dies mid-stop. So the claim and its timestamp are released."""
+        for status in ("online", "degraded"):
+            with self.subTest(env_status=status):
+                ctl = self._seed("term_claimed_" + status, env_id="env-cl-" + status,
+                                 control_bridge="bridge-OLD", control_status="claimed",
+                                 claimed_at=_now())
+                self._seed_env("env-cl-" + status, "bridge-NEW", status)
+                row = self._sweep(ctl)
+                self.assertEqual(row["bridge_id"], "bridge-NEW", "must be re-pointed; got " + repr(row))
+                self.assertEqual(
+                    row["status"], "pending",
+                    "the replacement bridge claims only 'pending', so the claim must be released; "
+                    "got " + repr(row),
+                )
+                self.assertFalse(str(row["claimed_at"] or "").strip(),
+                                 "the stale claim timestamp must be cleared with the claim; got " + repr(row))

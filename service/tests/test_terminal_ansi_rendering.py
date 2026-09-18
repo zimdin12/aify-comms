@@ -145,21 +145,20 @@ def test_a_gap_in_the_row_is_painted_as_a_plain_space():
     assert "a b" in out
 
 
-def test_a_wide_char_continuation_cell_does_not_shift_the_row():
+def test_wide_char_continuation_cells_do_not_shift_the_row():
     """THE 2026-07-03 BUG. pyte stores a wide glyph as the character plus an EMPTY-STRING cell; the
-    old code emitted a space for that continuation and pushed every later column one to the right."""
-    out = _line_to_ansi(line(Char("A"), Char("漢"), Char(""), Char("B")), 4)
-    painted = out.replace("\x1b[0;39;49m", "").replace("\x1b[0m", "")
-    assert painted == "A漢B", (
-        f"the continuation cell must contribute nothing; a space here is the one-column shift "
-        f"this test exists to catch. got {painted!r}"
-    )
-
-
-def test_several_wide_chars_do_not_accumulate_a_shift():
-    out = _line_to_ansi(line(Char("漢"), Char(""), Char("字"), Char(""), Char("X")), 5)
-    painted = out.replace("\x1b[0;39;49m", "").replace("\x1b[0m", "")
-    assert painted == "漢字X", f"got {painted!r}"
+    old code emitted a space for that continuation and pushed every later column one to the right --
+    one column per wide char, so several of them accumulate."""
+    for chars, expected in (
+        ((Char("A"), Char("漢"), Char(""), Char("B")), "A漢B"),
+        ((Char("漢"), Char(""), Char("字"), Char(""), Char("X")), "漢字X"),
+    ):
+        out = _line_to_ansi(line(*chars), len(chars))
+        painted = out.replace("\x1b[0;39;49m", "").replace("\x1b[0m", "")
+        assert painted == expected, (
+            f"the continuation cell must contribute nothing; a space here is the one-column shift "
+            f"this test exists to catch. got {painted!r}"
+        )
 
 
 # ── _screen_to_ansi ──────────────────────────────────────────────────────────────────────────

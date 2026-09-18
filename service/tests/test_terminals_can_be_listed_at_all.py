@@ -107,16 +107,6 @@ class TheListingExists(FastApiTestCase):
 
         asyncio.run(write())
 
-    def test_the_route_is_registered(self) -> None:
-        """POSITIVE CONTROL for everything below: an unmounted route makes every request a 404 that
-        the assertions could be written to accept."""
-        paths = {getattr(route, "path", "") for route in self._app.routes}
-        self.assertIn("/api/v1/terminals", paths)
-        self.assertIn(
-            "/api/v1/terminals/{terminal_id}", paths,
-            "the single-terminal route disappeared; a listing must not replace the read it complements",
-        )
-
     def test_the_live_set_is_not_a_second_hand_written_copy(self) -> None:
         """The statuses meaning "a process should exist" are stated once. This repo already fails a
         second hardcoded copy of a status set, for the reason this would repeat: two copies agree

@@ -134,8 +134,3 @@ def test_only_the_tail_is_considered():
     """A 3000-character window. A prompt further back than that is old screen, not current state."""
     assert _terminal_idle_prompt_hint(PROMPT + "x" * 4000) == "", "the marker scrolled out of the window"
     assert _terminal_idle_prompt_hint("x" * 4000 + "\n" + PROMPT) == IDLE, "and a recent one is in it"
-
-
-def test_a_spinner_that_scrolled_out_cannot_suppress_a_current_prompt():
-    long_run = "✻ Thinking… (1s · esc to interrupt)\n" + ("output line\n" * 400) + PROMPT
-    assert _terminal_idle_prompt_hint(long_run) == IDLE

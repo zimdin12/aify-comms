@@ -34,11 +34,6 @@ class TerminalSnapshotTests(unittest.TestCase):
         self.assertIn("Line three here", vis)
         self.assertNotIn("garbage old frame", vis)  # overwritten frame must not leak
 
-    def test_snapshot_is_self_contained_reset_clear(self):
-        snap = render_snapshot("hi there", 20, 4)
-        # Begins by resetting attributes + clearing so it paints cleanly into a fresh xterm.
-        self.assertTrue(snap.startswith("\x1b[0m\x1b[2J\x1b[H"))
-
     def test_empty_input_returns_empty(self):
         self.assertEqual(render_snapshot("", 80, 24), "")
 

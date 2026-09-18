@@ -84,23 +84,6 @@ class StopWorkerStopsRealTerminalsTests(FastApiTestCase):
             json={"requestedBy": "dashboard"},
         )
 
-    def test_real_terminal_gets_a_bridge_side_stop_control(self):
-        """THE REGRESSION. DB state alone cannot stop a process on the owning host."""
-        self._register("sw-real")
-        self._seed_terminal("term_real_1", "sw-real", status="attached")
-        r = self._stop("sw-real")
-        self.assertEqual(r.status_code, 200, r.text)
-
-        controls = self._rows(
-            "SELECT terminal_id, action, status FROM terminal_controls WHERE terminal_id = ?",
-            ("term_real_1",),
-        )
-        self.assertTrue(
-            any(c["action"] == "stop" for c in controls),
-            "a stop control must be queued for the REAL terminal so the host kills the process; "
-            f"got {controls}",
-        )
-
     def test_real_terminal_row_is_marked_STOPPING_not_stopped(self):
         """TRANSITIONAL, not terminal (review 2026-07-26). The stop is only QUEUED here — the host
         has not acknowledged it — so writing 'stopped' asserts a process death that has not
@@ -117,11 +100,14 @@ class StopWorkerStopsRealTerminalsTests(FastApiTestCase):
         )
 
     def test_every_live_terminal_for_the_agent_is_stopped(self):
-        """A leaked second PTY must not survive the stop — that is how orphans accumulate."""
+        """THE REGRESSION: DB state alone cannot stop a process on the owning host, so each live
+        terminal needs a bridge-side stop control -- and a leaked second PTY must not survive the
+        stop either, because that is how orphans accumulate."""
         self._register("sw-many")
         for i, st in enumerate(("attached", "running", "idle")):
             self._seed_terminal(f"term_many_{i}", "sw-many", status=st)
-        self._stop("sw-many")
+        r = self._stop("sw-many")
+        self.assertEqual(r.status_code, 200, r.text)
         for i in range(3):
             controls = self._rows(
                 "SELECT action FROM terminal_controls WHERE terminal_id = ?", (f"term_many_{i}",)
