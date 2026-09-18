@@ -224,23 +224,17 @@ class ChannelClaimWrapperBackedTests(FastApiTestCase):
         self.assertIsNone(body.get("run"), f"stale wrapper-child must not claim {runtime}; got: {body}")
         self.assertEqual((body.get("blockedBy") or {}).get("reason"), reason, body)
 
-    def test_codex_managed_wrapper_backed_claims_channel(self):
-        self._heartbeat_environment("codex")
-        self._register_managed_agent(agent_id="codex-managed", runtime="codex")
-        run_id = self._dispatch_to("codex-managed")
-        self._assert_environment_claim_blocked(agent_id="codex-managed", runtime="codex")
-        self._assert_wrapper_child_channel_claim_succeeds(
-            agent_id="codex-managed", run_id=run_id, runtime="codex"
-        )
-
-    def test_hermes_managed_wrapper_backed_claims_channel(self):
-        self._heartbeat_environment("hermes")
-        self._register_managed_agent(agent_id="hermes-managed", runtime="hermes")
-        run_id = self._dispatch_to("hermes-managed")
-        self._assert_environment_claim_blocked(agent_id="hermes-managed", runtime="hermes")
-        self._assert_wrapper_child_channel_claim_succeeds(
-            agent_id="hermes-managed", run_id=run_id, runtime="hermes"
-        )
+    def test_codex_and_hermes_managed_wrapper_backed_claims_channel(self):
+        for runtime in ("codex", "hermes"):
+            with self.subTest(runtime=runtime):
+                agent_id = f"{runtime}-managed"
+                self._heartbeat_environment(runtime)
+                self._register_managed_agent(agent_id=agent_id, runtime=runtime)
+                run_id = self._dispatch_to(agent_id)
+                self._assert_environment_claim_blocked(agent_id=agent_id, runtime=runtime)
+                self._assert_wrapper_child_channel_claim_succeeds(
+                    agent_id=agent_id, run_id=run_id, runtime=runtime
+                )
 
     def test_hermes_wrapper_child_cannot_claim_while_console_is_still_resuming(self):
         self._heartbeat_environment("hermes")

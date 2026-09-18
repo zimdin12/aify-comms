@@ -158,37 +158,25 @@ class DispatchControlRefusalTests(FastApiTestCase):
                 self.assertEqual(response.status_code, 400, response.text)
                 self.assertEqual(response.json()["detail"], "Unsupported control status")
 
-    def test_a_recognised_status_gets_past_the_allowlist_in_ANY_casing(self):
+    def test_a_recognised_status_is_accepted_and_STORED_normalised_in_ANY_casing(self):
         """The fix this slice made. `action` was normalised and `status` was not, while the sibling
-        endpoint for ENVIRONMENT controls normalises — so `"Completed"` was accepted by one and
+        endpoint for ENVIRONMENT controls normalises -- so `"Completed"` was accepted by one and
         refused by the other. The writer is the bridge, and a refused update leaves the control
-        pending forever."""
-        for status in ("completed", "failed", "COMPLETED", "Failed", "  completed  "):
-            with self.subTest(status=status):
-                response = self._update("no-such-control", {"status": status})
-                self.assertEqual(
-                    response.status_code, 404,
-                    "past the allowlist and stopped by the missing control, not by its"
-                    f" spelling — got {response.text}",
-                )
+        pending forever.
 
-    def test_a_completed_control_reports_and_STORES_the_normalised_status(self):
-        """The stored value, not just the reply. Normalising at the gate and then writing the
-        caller's spelling to the column is the split `test_no_column_is_read_two_ways.py` exists to
-        prevent — and the reply would still read `completed`, so asserting only the payload cannot
-        see it. Every reader of `dispatch_controls.status` compares raw lowercase literals."""
+        The STORED value, not just the reply. Normalising at the gate and then writing the caller's
+        spelling to the column is the split `test_no_column_is_read_two_ways.py` exists to prevent --
+        and the reply would still read `completed`, so asserting only the payload cannot see it.
+        Every reader of `dispatch_controls.status` compares raw lowercase literals."""
         self._seed_run("run-active", "running")
-        created = self._control("run-active", {"action": "interrupt", "from_agent": "op"})
-        control_id = created.json()["controlId"]
-        response = self._update(control_id, {"status": "COMPLETED", "response": "done"})
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["status"], "completed")
-        self.assertEqual(self._stored_status(control_id), "completed")
-
-    def test_a_failed_control_stores_the_normalised_status_too(self):
-        self._seed_run("run-active", "running")
-        control_id = self._control(
-            "run-active", {"action": "steer", "from_agent": "op"},
-        ).json()["controlId"]
-        self.assertEqual(self._update(control_id, {"status": "  Failed "}).status_code, 200)
-        self.assertEqual(self._stored_status(control_id), "failed")
+        cases = (("completed", "completed"), ("failed", "failed"), ("COMPLETED", "completed"),
+                 ("Failed", "failed"), ("  completed  ", "completed"), ("  Failed ", "failed"))
+        for spelling, stored in cases:
+            with self.subTest(status=spelling):
+                control_id = self._control(
+                    "run-active", {"action": "interrupt", "from_agent": "op"},
+                ).json()["controlId"]
+                response = self._update(control_id, {"status": spelling, "response": "done"})
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["status"], stored)
+                self.assertEqual(self._stored_status(control_id), stored)

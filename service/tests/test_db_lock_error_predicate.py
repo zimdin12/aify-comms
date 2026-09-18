@@ -35,95 +35,82 @@ import unittest
 from service.db_errors import _is_lock_error
 
 
+class _Odd(BaseException):
+    def __str__(self):
+        return "database is locked"
+
+
 class RealContentionTests(unittest.TestCase):
     """Everything that must keep being recognised. Narrowing this brings the 503s back."""
 
-    def test_the_message_python_sqlite3_actually_raises(self):
-        self.assertTrue(_is_lock_error(sqlite3.OperationalError("database is locked")))
+    def test_every_real_contention_form_is_recognised(self):
+        """Each case is a form a caller really sees:
 
-    def test_the_table_level_variant(self):
-        self.assertTrue(_is_lock_error(sqlite3.OperationalError("database table is locked")))
-
-    def test_a_busy_variant(self):
-        self.assertTrue(_is_lock_error(sqlite3.OperationalError("database is busy")))
-
-    def test_the_SQLITE_BUSY_result_code_spelling(self):
-        """Wrappers and drivers surface the result code rather than the sentence. The underscore is
-        why the left-hand guard added in 2026-08-17 is a lookbehind on LETTERS and not `\\b` — a word
-        boundary would not fire after `_`, and this form would have stopped matching."""
-        self.assertTrue(_is_lock_error(Exception("SQLITE_BUSY: database is locked")))
-        self.assertTrue(_is_lock_error(Exception("sqlite_busy")))
-
-    def test_the_check_is_CASE_INSENSITIVE(self):
-        self.assertTrue(_is_lock_error(Exception("DATABASE IS LOCKED")))
-
-    def test_a_wrapped_message_still_matches(self):
-        """aiosqlite re-raises through its own executor, and the callers see whatever text arrives —
-        so the match is on the text, not on the exception CLASS."""
-        self.assertTrue(_is_lock_error(RuntimeError("Error executing query: database is locked")))
-
-    def test_the_exception_TYPE_is_not_consulted(self):
-        """Deliberate: this module imports nothing, not even sqlite3, which is what lets it sit
-        below every other module. A type check would couple it to whichever driver is in use."""
-        class Odd(BaseException):
-            def __str__(self):
-                return "database is locked"
-
-        self.assertTrue(_is_lock_error(Odd()))
+          * the sentence python's sqlite3 raises, its table-level and busy variants;
+          * the SQLITE_BUSY result code, which wrappers and drivers surface rather than the
+            sentence. The underscore is why the left-hand guard is a lookbehind on LETTERS and not
+            `\\b` -- a word boundary would not fire after `_`, and this form would stop matching;
+          * any CASE;
+          * a WRAPPED message: aiosqlite re-raises through its own executor, and the callers see
+            whatever text arrives -- so the match is on the text, not on the exception CLASS;
+          * an exception of an ODD TYPE: deliberately not consulted, because this module imports
+            nothing, not even sqlite3, which is what lets it sit below every other module;
+          * a word that merely STARTS with busy: the guard is on the LEFT side only, and
+            deliberately -- erring broad on the right keeps `busy_timeout`-style texts matching."""
+        cases = (
+            sqlite3.OperationalError("database is locked"),
+            sqlite3.OperationalError("database table is locked"),
+            sqlite3.OperationalError("database is busy"),
+            Exception("SQLITE_BUSY: database is locked"),
+            Exception("sqlite_busy"),
+            Exception("DATABASE IS LOCKED"),
+            RuntimeError("Error executing query: database is locked"),
+            _Odd(),
+            RuntimeError("busy_timeout exceeded"),
+        )
+        for exc in cases:
+            with self.subTest(exc=f"{type(exc).__name__}: {exc}"):
+                self.assertTrue(_is_lock_error(exc))
 
 
 class NotContentionTests(unittest.TestCase):
     """Everything that must be re-raised. Broadening this swallows real failures silently."""
 
-    def test_an_ordinary_error_is_not_contention(self):
-        self.assertFalse(_is_lock_error(RuntimeError("no such column: agents.favourite")))
-
-    def test_a_readonly_database_is_NOT_contention(self):
-        """A real SQLite error and a real outage — the data directory is mounted read-only, or the
-        file lost its permissions. Retrying will never fix it, and classifying it as contention
-        turns a broken deployment into an endpoint that quietly serves cached data."""
-        self.assertFalse(_is_lock_error(sqlite3.OperationalError(
-            "attempt to write a readonly database")))
-
-    def test_a_missing_table_is_NOT_contention(self):
-        self.assertFalse(_is_lock_error(sqlite3.OperationalError("no such table: agents")))
-
-    def test_an_INTEGRITY_error_is_not_contention(self):
-        self.assertFalse(_is_lock_error(sqlite3.IntegrityError("UNIQUE constraint failed")))
-
-    def test_an_exception_with_no_message_is_not_contention(self):
-        self.assertFalse(_is_lock_error(RuntimeError()))
-
-    def test_None_is_not_contention(self):
-        """The callers pass whatever `except Exception as exc` bound. Answering True for nothing at
-        all would swallow on a path that never had an error to classify."""
-        self.assertFalse(_is_lock_error(None))
+    def test_nothing_else_is_contention(self):
+        """A READONLY database is a real outage -- the data directory is mounted read-only, or the
+        file lost its permissions; retrying will never fix it, and classifying it as contention turns
+        a broken deployment into an endpoint that quietly serves cached data. And `None`: the callers
+        pass whatever `except Exception as exc` bound, and answering True for nothing at all would
+        swallow on a path that never had an error to classify."""
+        cases = (
+            RuntimeError("no such column: agents.favourite"),
+            sqlite3.OperationalError("attempt to write a readonly database"),
+            sqlite3.OperationalError("no such table: agents"),
+            sqlite3.IntegrityError("UNIQUE constraint failed"),
+            RuntimeError(),
+            None,
+        )
+        for exc in cases:
+            with self.subTest(exc=repr(exc)):
+                self.assertFalse(_is_lock_error(exc))
 
 
 class NearMissTests(unittest.TestCase):
     """Words that CONTAIN the markers. This is where the predicate was over-broad."""
 
-    def test_BLOCKED_is_not_LOCKED(self):
+    def test_BLOCKED_and_UNLOCKED_are_not_LOCKED(self):
         """`"blocked"[1:]` is `"locked"`. Until 2026-08-17 every one of these was classified as
-        SQLite contention and swallowed — including, on the claim path, a refusal in a service whose
+        SQLite contention and swallowed -- including, on the claim path, a refusal in a service whose
         dispatch layer answers with `blockedBy`."""
         for message in (
             "recipient is blocked",
             "blocked by an active run",
             "PermissionError: access blocked by policy",
             "blockedBy: other-agent",
+            "the keyring is unlocked",
         ):
             with self.subTest(message=message):
                 self.assertFalse(_is_lock_error(RuntimeError(message)))
-
-    def test_UNLOCKED_is_not_LOCKED(self):
-        self.assertFalse(_is_lock_error(RuntimeError("the keyring is unlocked")))
-
-    def test_a_word_that_merely_STARTS_with_busy_still_matches(self):
-        """The guard is on the LEFT side only, and deliberately: the false positive that actually
-        exists is a marker with a prefix, and every real form ends the word there or continues into
-        punctuation. Erring broad on the right keeps `busy_timeout`-style texts matching."""
-        self.assertTrue(_is_lock_error(RuntimeError("busy_timeout exceeded")))
 
 
 class CallerContractTests(unittest.TestCase):

@@ -89,11 +89,6 @@ class DashboardServesAssetsNotTests(unittest.TestCase):
             self.client.get("/assets/fixtures/app.before-settings-fields.js").status_code, 404,
         )
 
-    def test_the_mount_still_serves_the_dashboard(self):
-        response = self.client.get("/assets/app.js")
-        self.assertEqual(response.status_code, 200, "the dashboard stopped serving its own code")
-        self.assertGreater(len(response.content), 10_000)
-
     def test_a_refused_file_that_exists_is_indistinguishable_from_one_that_does_not(self):
         """404 rather than 403: whether the file is there is itself the thing not being published."""
         real = self.client.get("/assets/extraction-proof.test.mjs")

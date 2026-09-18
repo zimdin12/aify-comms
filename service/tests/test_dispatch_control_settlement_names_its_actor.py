@@ -114,57 +114,37 @@ class DispatchControlSettlementNamesItsActor(FastApiTestCase):
 
     # ── the actor is mandatory ───────────────────────────────────────────────────────────────
 
-    def test_a_settlement_with_NO_actor_is_refused(self):
-        self._make_control("c-noactor")
-        response = self._settle("c-noactor", status="completed", response="interrupt accepted")
-        self.assertEqual(
-            response.status_code, 400,
-            "a control settlement with no acting agent was accepted. comms-senior-dev's 2026-08-18 "
-            "ruling: the actor must be mandatory and service-enforced, and actor-absent callers fail "
-            "closed. An unattributed settlement lets an interrupt be marked completed by something "
-            "that never interrupted anything.",
-        )
-        self.assertEqual(
-            self._row("c-noactor")["status"], "claimed",
-            "the control was mutated despite the refusal",
-        )
+    def test_a_settlement_with_NO_actor_is_refused_and_NAMES_the_cause_and_the_fix(self):
+        """Absent, empty and whitespace actors all fail closed. Whitespace is the shape a caller
+        reaches for when a field is mandatory and it has nothing to put in it; accepting it would make
+        the requirement decorative.
 
-    def test_an_EMPTY_actor_is_refused_like_a_missing_one(self):
-        """Whitespace is the shape a caller reaches for when a field is mandatory and it has nothing
-        to put in it. Accepting it would make the requirement decorative."""
-        for blank in ("", "   "):
-            with self.subTest(handledBy=repr(blank)):
-                control = self._make_control(f"c-blank-{len(blank)}")
-                response = self._settle(control, status="completed", handledBy=blank,
-                                        machineId=MACHINE)
-                self.assertEqual(response.status_code, 400,
-                                 f"an actor of {blank!r} was accepted as an identity")
-
-    def test_the_refusal_NAMES_the_cause_and_the_fix(self):
-        """A 400 that says only 'bad request' turns a stale bridge into a silently stranded run. This
+        A 400 that says only 'bad request' turns a stale bridge into a silently stranded run. This
         endpoint's own comment records that a refused control stays pending forever, so the error text
         is the difference between a deploy step and an outage nobody can explain."""
-        self._make_control("c-diag")
-        raw = str(self._settle("c-diag", status="completed").json().get("detail", ""))
-        # VERBATIM, because `test_every_refusal_is_exercised.py` requires the message's longest static
-        # fragment to appear in a test — a refusal nobody quotes is a refusal nobody has read. Asserted
-        # against the real response rather than merely written down, so it proves the text as well as
-        # satisfying the gate.
-        self.assertEqual(
-            raw,
-            "Control settlement requires an actor: send handledBy=<your agent id> (and machineId). "
-            "A bridge running pre-actor code is the likeliest cause — re-run install.sh and RELAUNCH "
-            "the wrapper, then retry. Until then this control stays pending and its run will strand.",
-            "the actor-refusal message changed; check it still names the cause and the fix",
-        )
-        detail = raw.lower()
-        for expected in ("actor", "relaunch"):
-            with self.subTest(expected=expected):
-                self.assertIn(
-                    expected, detail,
-                    f"the refusal message does not mention {expected!r}: {detail!r}. A bridge running "
-                    "pre-actor code is the likeliest cause of this 400, and the message is the only "
-                    "place the operator will see why their run stranded.",
+        for label, extra in (("absent", {}), ("empty", {"handledBy": "", "machineId": MACHINE}),
+                             ("blank", {"handledBy": "   ", "machineId": MACHINE})):
+            with self.subTest(handledBy=label):
+                control = self._make_control(f"c-noactor-{label}")
+                response = self._settle(control, status="completed",
+                                        response="interrupt accepted", **extra)
+                self.assertEqual(
+                    response.status_code, 400,
+                    "a control settlement with no acting agent was accepted. comms-senior-dev's "
+                    "2026-08-18 ruling: the actor must be mandatory and service-enforced, and "
+                    "actor-absent callers fail closed.",
+                )
+                self.assertEqual(self._row(control)["status"], "claimed",
+                                 "the control was mutated despite the refusal")
+                # VERBATIM, because `test_every_refusal_is_exercised.py` requires the message's
+                # longest static fragment to appear in a test -- asserted against the real response
+                # so it proves the text as well as satisfying the gate.
+                self.assertEqual(
+                    str(response.json().get("detail", "")),
+                    "Control settlement requires an actor: send handledBy=<your agent id> (and machineId). "
+                    "A bridge running pre-actor code is the likeliest cause — re-run install.sh and RELAUNCH "
+                    "the wrapper, then retry. Until then this control stays pending and its run will strand.",
+                    "the actor-refusal message changed; check it still names the cause and the fix",
                 )
 
     # ── only the claimer may settle it ───────────────────────────────────────────────────────
@@ -189,15 +169,24 @@ class DispatchControlSettlementNamesItsActor(FastApiTestCase):
             "a bare 409 cannot tell a stale bridge from a bug.",
         )
 
-    def test_the_claiming_machine_CAN_settle_it(self):
+    def test_the_claiming_machine_CAN_settle_it_and_its_actor_is_STORED_and_AUDITED(self):
         """ANTI-VACUITY: every refusal above would also pass if the endpoint refused everything, which
-        would strand every run in the fleet."""
+        would strand every run in the fleet.
+
+        The actor reaches the control row (otherwise the accountability the ruling asked for exists
+        only for the duration of the request) AND the run's event list, which is where a stranded or
+        wrongly-closed run is investigated."""
         self._make_control("c-owner")
         response = self._settle("c-owner", status="completed", handledBy=AGENT, machineId=MACHINE,
                                 response="interrupt accepted")
         self.assertEqual(response.status_code, 200, response.text)
         row = self._row("c-owner")
         self.assertEqual(row["status"], "completed")
+        self.assertEqual(row["handled_by"], AGENT,
+                         "the settling actor was accepted but not recorded")
+        joined = " ".join(self._events())
+        self.assertIn(AGENT, joined,
+                      f"the dispatch event for this settlement does not name who settled it: {joined!r}")
 
     def test_an_UNCLAIMED_control_may_be_settled_by_a_named_actor(self):
         """The owner check compares against a claim that exists. A control with no recorded claimer has
@@ -207,28 +196,6 @@ class DispatchControlSettlementNamesItsActor(FastApiTestCase):
         response = self._settle("c-unclaimed", status="failed", handledBy=AGENT, machineId=MACHINE,
                                 response="no controller")
         self.assertEqual(response.status_code, 200, response.text)
-
-    # ── the actor reaches the record and the audit trail ─────────────────────────────────────
-
-    def test_the_actor_is_STORED_on_the_control(self):
-        self._make_control("c-stored")
-        self._settle("c-stored", status="completed", handledBy=AGENT, machineId=MACHINE)
-        row = self._row("c-stored")
-        self.assertEqual(
-            (row["handled_by"] if "handled_by" in row.keys() else None), AGENT,
-            "the settling actor was accepted but not recorded, so the accountability the ruling asked "
-            "for exists only for the duration of the request.",
-        )
-
-    def test_the_actor_appears_in_the_run_audit_trail(self):
-        self._make_control("c-event")
-        self._settle("c-event", status="completed", handledBy=AGENT, machineId=MACHINE)
-        joined = " ".join(self._events())
-        self.assertIn(
-            AGENT, joined,
-            "the dispatch event for this settlement does not name who settled it. The run audit trail "
-            f"is where a stranded or wrongly-closed run is investigated. Events: {joined!r}",
-        )
 
 
 if __name__ == "__main__":

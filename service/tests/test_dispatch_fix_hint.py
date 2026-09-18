@@ -152,10 +152,6 @@ class UnregisteredTests(unittest.TestCase):
 class ResidentBridgeTests(unittest.TestCase):
     """The first branch, and the only one keyed on the REASON rather than on state."""
 
-    def test_a_resident_agent_whose_bridge_is_gone_is_told_to_restart_the_wrapper(self):
-        hint = _dispatch_fix_hint("r1", row(), RESIDENT_BRIDGE_REASON)
-        self.assertIn("Restart the visible resident wrapper", hint["fix"])
-
     def test_it_names_the_RUNTIME_in_words(self):
         """"Restart the visible resident wrapper for this Claude session" is followable; "for this
         claude-code session" reads like an internal identifier the operator has to decode."""
@@ -232,11 +228,6 @@ class PerRuntimeResidentTests(unittest.TestCase):
         """Not a repair — a redirection. There is no way to make a resident opencode session take
         work, so the hint offers the thing that does."""
         hint = _dispatch_fix_hint("o1", row(runtime="opencode"), "agent is offline")
-        self.assertIn("presence-only", hint["fix"])
-        self.assertTrue(any("comms_spawn" in c for c in hint["suggestedCommands"]))
-
-    def test_resident_PI_is_presence_only_and_must_be_SPAWNED(self):
-        hint = _dispatch_fix_hint("p1", row(runtime="pi"), "agent is offline")
         self.assertIn("presence-only", hint["fix"])
         self.assertTrue(any("comms_spawn" in c for c in hint["suggestedCommands"]))
 

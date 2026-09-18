@@ -83,45 +83,30 @@ class DispatchClaudeColdstartTests(FastApiTestCase):
         finally:
             conn.close()
 
-    def test_send_to_dead_managed_claude_coldstarts_spawn_request(self):
+    def test_send_to_dead_managed_claude_coldstarts_ONE_spawn_request(self):
+        """The first send cold-starts a claimable spawn_request for the right runtime and
+        environment; a second send reuses it rather than piling up another."""
         self._heartbeat_environment()
         self._register_dead_managed_claude("claude-cold")
-        response = self.client.post(
-            "/api/v1/messages/send",
-            json={
-                "from_agent": "dashboard",
-                "trigger": True,
-                "to": "claude-cold",
-                "type": "request",
-                "subject": "coldstart-test",
-                "body": "wake up",
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        spawns = self._spawn_requests_for("claude-cold")
-        self.assertTrue(
-            any(str(s["status"]) in ("queued", "claimed") for s in spawns),
-            f"a claimable spawn_request must be cold-started for a dead managed claude; got {[dict(s) for s in spawns]}",
-        )
-        spawn = next(s for s in spawns if str(s["status"]) in ("queued", "claimed"))
-        self.assertEqual(str(spawn["runtime"]), "claude-code")
-        self.assertEqual(str(spawn["environment_id"]), "linux:test-host:default")
-
-    def test_send_is_idempotent_on_existing_claimable_spawn(self):
-        self._heartbeat_environment()
-        self._register_dead_managed_claude("claude-cold2")
         for _ in range(2):
             response = self.client.post(
                 "/api/v1/messages/send",
                 json={
                     "from_agent": "dashboard",
                     "trigger": True,
-                    "to": "claude-cold2",
+                    "to": "claude-cold",
                     "type": "request",
-                    "subject": "coldstart-twice",
-                    "body": "wake up again",
+                    "subject": "coldstart-test",
+                    "body": "wake up",
                 },
             )
             self.assertEqual(response.status_code, 200, response.text)
-        claimable = [s for s in self._spawn_requests_for("claude-cold2") if str(s["status"]) in ("queued", "claimed")]
-        self.assertEqual(len(claimable), 1, "duplicate sends must not pile up coldstart spawn_requests")
+        spawns = self._spawn_requests_for("claude-cold")
+        claimable = [s for s in spawns if str(s["status"]) in ("queued", "claimed")]
+        self.assertEqual(
+            len(claimable), 1,
+            "a dead managed claude must get exactly one claimable coldstart spawn_request; "
+            f"got {[dict(s) for s in spawns]}",
+        )
+        self.assertEqual(str(claimable[0]["runtime"]), "claude-code")
+        self.assertEqual(str(claimable[0]["environment_id"]), "linux:test-host:default")

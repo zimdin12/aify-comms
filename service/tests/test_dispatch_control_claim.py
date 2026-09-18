@@ -24,7 +24,8 @@ delivers regardless of run state.
 THIS FILE DRIVES THE HTTP ROUTE. The claim itself -- target, machine guard, run filter, ordering,
 marking, payload -- is pinned once, against `_claim_dispatch_controls_once`, in
 `test_dispatch_controls_claim_io.py`. What stays here is what only the route adds or what that file
-does not reach: one happy path through the wire, the long-poll wrapper, a non-pending control that
+does not reach: the long-poll wrapper (whose waiting poll is also the one happy path through the
+wire), a non-pending control that
 is not `claimed`, and the linux/WSL spelling of one machine.
 """
 
@@ -81,20 +82,6 @@ class DispatchControlClaimTests(FastApiTestCase):
         payload = {"agentId": TARGET}
         payload.update(body)
         return self.client.post("/api/v1/dispatch/controls/claim", json=payload)
-
-    # ── the happy path ───────────────────────────────────────────────────────────────────────
-
-    def test_a_pending_control_is_handed_to_the_runs_TARGET(self):
-        self._seed_run("run-1")
-        self._seed_control("ctl-1", run_id="run-1")
-        response = self._claim()
-        self.assertEqual(response.status_code, 200, response.text)
-        controls = response.json()["controls"]
-        self.assertEqual([c["id"] for c in controls], ["ctl-1"])
-        self.assertEqual(controls[0]["runId"], "run-1")
-        self.assertEqual(controls[0]["action"], "interrupt")
-        self.assertEqual(controls[0]["body"], "stop please",
-                         "a steer's body IS the instruction — dropping it delivers an empty steer")
 
     # ── who does NOT get it ──────────────────────────────────────────────────────────────────
 

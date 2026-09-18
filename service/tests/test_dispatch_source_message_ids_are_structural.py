@@ -83,13 +83,9 @@ class SourceMessageIdsAreStructuralTests(FastApiTestCase):
 
     # ── the feature still works ──────────────────────────────────────────────────────────────
 
-    def test_a_real_buffer_item_still_yields_its_source_id(self):
+    def test_several_buffered_items_all_yield_their_ids(self):
         """The reason the body scan exists. If this breaks, merged buffers stop marking their
         sources read and the fix has cost more than it bought."""
-        row = Row(message_id="run-primary", body=_buffer(_item("body text", message_id="buffered-1")))
-        self.assertEqual(_dispatch_source_message_ids(row), ["run-primary", "buffered-1"])
-
-    def test_several_buffered_items_all_yield_their_ids(self):
         body = _buffer(
             _item("first", message_id="buffered-1"),
             _item("second", message_id="buffered-2"),

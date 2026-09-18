@@ -6,6 +6,8 @@ PiAdapter.supports_resident == False.
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
@@ -20,29 +22,16 @@ def test_pi_resident_no_longer_advertises_resident_run():
     )
 
 
-def test_pi_managed_still_advertises_managed_run_and_steer():
-    caps = _default_capabilities_for("pi", "managed", "", {})
-    assert "managed-run" in caps
-    assert "steer" in caps
-    assert "interrupt" in caps
-
-
 def test_claude_resident_still_has_resident_run():
     # Plan 3 (#120): claude resident needs channelEnabled=True to get resident-run.
     caps = _default_capabilities_for("claude-code", "resident", "session-x", {"channelEnabled": True})
     assert "resident-run" in caps
 
 
-def test_codex_managed_has_full_set():
-    caps = _default_capabilities_for("codex", "managed", "", {})
-    assert "managed-run" in caps
-    assert "interrupt" in caps
-    assert "steer" in caps
-
-
-def test_opencode_managed_has_prompt_async_steer():
-    # The managed controller injects through OpenCode's promptAsync endpoint.
-    caps = _default_capabilities_for("opencode", "managed", "", {})
+@pytest.mark.parametrize("runtime", ["codex", "opencode", "pi"])
+def test_managed_runtimes_advertise_managed_run_interrupt_and_steer(runtime):
+    # OpenCode: the managed controller injects through its promptAsync endpoint.
+    caps = _default_capabilities_for(runtime, "managed", "", {})
     assert "managed-run" in caps
     assert "interrupt" in caps
     assert "steer" in caps

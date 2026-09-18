@@ -173,14 +173,8 @@ def test_the_table_scan_finds_a_table():
     assert len(documented_check_ids()) >= 5, documented_check_ids()
 
 
-def test_every_check_the_doctor_runs_is_in_the_table():
-    undocumented = live_check_ids() - documented_check_ids()
-    assert not undocumented, (
-        f"aify-comms doctor runs checks CLAUDE.md's table does not list: {sorted(undocumented)}"
-    )
-
-
 def test_the_table_lists_no_check_the_doctor_does_not_run():
-    """The reverse, which is how the four moved checks lingered in that table."""
+    """How the four moved checks lingered in that table. The other direction -- every emitted check
+    is in the table -- is `test_the_doctor_table_lists_the_real_checks.py`."""
     phantom = documented_check_ids() - live_check_ids()
     assert not phantom, f"CLAUDE.md's table lists checks that do not exist: {sorted(phantom)}"

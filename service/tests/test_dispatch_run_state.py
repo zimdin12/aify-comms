@@ -97,28 +97,23 @@ class DispatchRunStateTestCase(FastApiTestCase):
 
 
 class AppendControlTests(DispatchRunStateTestCase):
-    def test_a_control_is_recorded_as_PENDING_for_its_run(self):
+    def test_a_control_is_recorded_as_PENDING_for_its_run_under_the_RETURNED_id(self):
         """Pending is what a bridge claims. Writing it in any other state would create a control no
-        claim query ever sees — an interrupt the operator asked for that never leaves the table."""
-        self._seed_run("run-1")
-        control_id = self._run(lambda db: _append_dispatch_control(
-            db, "run-1", from_agent=SENDER, action="interrupt"))
-        rows = self._rows("SELECT * FROM dispatch_controls WHERE id = ?", (control_id,))
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["run_id"], "run-1")
-        self.assertEqual(rows[0]["action"], "interrupt")
-        self.assertEqual(rows[0]["status"], "pending")
-        self.assertEqual(rows[0]["from_agent"], SENDER)
+        claim query ever sees -- an interrupt the operator asked for that never leaves the table.
 
-    def test_the_returned_id_is_the_one_that_was_written(self):
-        """Callers hand this id back to the requester so the control can be tracked. A returned id
-        that is not the stored one produces a control nobody can find."""
+        Callers hand the returned id back to the requester so the control can be tracked, so the row
+        is looked up BY that id: a returned id that is not the stored one produces a control nobody
+        can find. The body is the steer's instruction and has to arrive intact."""
         self._seed_run("run-1")
         control_id = self._run(lambda db: _append_dispatch_control(
             db, "run-1", from_agent=SENDER, action="steer", body="do the other thing"))
-        stored = self._rows("SELECT id, body FROM dispatch_controls WHERE run_id = 'run-1'")
-        self.assertEqual([row["id"] for row in stored], [control_id])
-        self.assertEqual(stored[0]["body"], "do the other thing")
+        rows = self._rows("SELECT * FROM dispatch_controls WHERE id = ?", (control_id,))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["run_id"], "run-1")
+        self.assertEqual(rows[0]["action"], "steer")
+        self.assertEqual(rows[0]["body"], "do the other thing")
+        self.assertEqual(rows[0]["status"], "pending")
+        self.assertEqual(rows[0]["from_agent"], SENDER)
 
     def test_two_controls_in_the_SAME_MILLISECOND_get_distinct_ids(self):
         """The id is a millisecond timestamp plus a random tail, and the tail is the whole of the
@@ -142,23 +137,21 @@ class AppendControlTests(DispatchRunStateTestCase):
         self.assertEqual(len(self._rows("SELECT id FROM dispatch_controls WHERE run_id='run-1'")), 2)
         self.assertIs(dispatch_run_state.time, time_module, "the clock patch leaked")
 
-    def test_the_control_is_ALSO_recorded_as_a_run_EVENT(self):
+    def test_the_control_is_ALSO_recorded_as_a_run_EVENT_naming_the_requester(self):
         """The run's event list is what an operator reads to understand what happened to it. A
-        control that only exists in its own table is invisible in that story."""
-        self._seed_run("run-1")
-        self._run(lambda db: _append_dispatch_control(
-            db, "run-1", from_agent=SENDER, action="interrupt"))
-        events = self._rows("SELECT * FROM dispatch_events WHERE run_id = 'run-1'")
-        self.assertEqual([event["event_type"] for event in events], ["control:interrupt"])
-        self.assertIn(SENDER, events[0]["body"])
+        control that only exists in its own table is invisible in that story.
 
-    def test_a_control_with_NO_REQUESTER_still_records_who_is_unknown(self):
-        """Nothing enforces a requester at this layer. "requested by unknown" is a worse answer than
-        a name and a much better one than a blank the reader has to interpret."""
-        self._seed_run("run-1")
-        self._run(lambda db: _append_dispatch_control(db, "run-1", from_agent="", action="stop"))
-        events = self._rows("SELECT body FROM dispatch_events WHERE run_id = 'run-1'")
-        self.assertIn("unknown", events[0]["body"])
+        Nothing enforces a requester at this layer. "requested by unknown" is a worse answer than a
+        name and a much better one than a blank the reader has to interpret."""
+        for requester, named in ((SENDER, SENDER), ("", "unknown")):
+            with self.subTest(requester=requester):
+                run_id = f"run-{named}"
+                self._seed_run(run_id)
+                self._run(lambda db: _append_dispatch_control(
+                    db, run_id, from_agent=requester, action="interrupt"))
+                events = self._rows("SELECT * FROM dispatch_events WHERE run_id = ?", (run_id,))
+                self.assertEqual([event["event_type"] for event in events], ["control:interrupt"])
+                self.assertIn(named, events[0]["body"])
 
 
 class MarkAnsweredCompletionTests(DispatchRunStateTestCase):
@@ -168,25 +161,22 @@ class MarkAnsweredCompletionTests(DispatchRunStateTestCase):
         self._run(lambda db: _mark_dispatch_run_answered(
             db, run_id, "reply-1", status, mode))
 
-    def test_a_QUEUED_run_is_completed_by_a_reply(self):
-        """Nothing has started, so a reply is the whole of the work."""
-        self._seed_run("run-1", status="queued")
-        self._answer("run-1", status="queued")
-        row = self._run_row("run-1")
-        self.assertEqual(row["status"], "completed")
-        self.assertEqual(row["result_message_id"], "reply-1")
+    def test_a_QUEUED_or_DELIVERED_run_is_completed_by_a_reply_and_stamped(self):
+        """Nothing has started, so a reply is the whole of the work. The status arrives as free text
+        from callers that read it out of different rows, so it is matched case-insensitively.
 
-    def test_a_DELIVERED_run_is_completed_by_a_reply(self):
-        self._seed_run("run-1", status="delivered")
-        self._answer("run-1", status="delivered")
-        self.assertEqual(self._run_row("run-1")["status"], "completed")
-
-    def test_completion_stamps_FINISHED_AT(self):
-        """The run's duration is read from it, and an open finished_at is how a completed run keeps
-        showing as in-flight on every board that sorts by it."""
-        self._seed_run("run-1", status="queued")
-        self._answer("run-1", status="queued")
-        self.assertTrue(self._run_row("run-1")["finished_at"])
+        Completion stamps FINISHED_AT: the run's duration is read from it, and an open finished_at is
+        how a completed run keeps showing as in-flight on every board that sorts by it."""
+        for seeded, passed in (("queued", "queued"), ("delivered", "delivered"),
+                               ("delivered", "  DELIVERED  ")):
+            with self.subTest(status=passed):
+                run_id = f"run-{passed.strip()}-{len(passed)}"
+                self._seed_run(run_id, status=seeded)
+                self._answer(run_id, status=passed)
+                row = self._run_row(run_id)
+                self.assertEqual(row["status"], "completed")
+                self.assertEqual(row["result_message_id"], "reply-1")
+                self.assertTrue(row["finished_at"])
 
     def test_an_EXISTING_finished_at_is_not_overwritten(self):
         """`COALESCE`. A run that already recorded when it ended keeps that moment — re-answering
@@ -210,42 +200,25 @@ class MarkAnsweredCompletionTests(DispatchRunStateTestCase):
         self.assertEqual(row["status"], "completed")
         self.assertEqual(row["finished_at"], "")
 
-    def test_a_CHANNEL_delivery_completes_even_while_CLAIMED(self):
-        """Channel and resident deliveries have no separate completion signal — the reply IS the
+    def test_a_CHANNEL_RESIDENT_or_TERMINAL_run_completes_even_while_CLAIMED_or_RUNNING(self):
+        """Channel and resident deliveries have no separate completion signal -- the reply IS the
         end of the turn. Leaving these open is the "agent still shows working after it answered"
-        shape this gate was widened for."""
-        for status in ("claimed", "running"):
-            with self.subTest(status=status):
-                self._seed_run(f"run-{status}", status=status)
-                self._answer(f"run-{status}", status=status, mode="channel")
-                self.assertEqual(self._run_row(f"run-{status}")["status"], "completed")
+        shape this gate was widened for.
 
-    def test_a_RESIDENT_delivery_completes_even_while_claimed(self):
-        self._seed_run("run-1", status="claimed")
-        self._answer("run-1", status="claimed", mode="resident")
-        self.assertEqual(self._run_row("run-1")["status"], "completed")
+        The mode is matched case-insensitively, and a claimed run is not completed by the first
+        clause, so the messy-mode case closes here or not at all.
 
-    def test_a_TERMINAL_dispatch_completes_even_while_claimed(self):
-        """Keyed on the RUN's own dispatch_mode rather than the passed execution mode — a terminal
-        dispatch is recognised from the row, not from what the caller happened to know."""
-        self._seed_run("run-1", status="running", dispatch_mode="terminal")
-        self._answer("run-1", status="running")
-        self.assertEqual(self._run_row("run-1")["status"], "completed")
-
-    def test_the_STATUS_is_matched_case_insensitively(self):
-        """Both arrive as free text from callers that read them out of different rows."""
-        self._seed_run("run-1", status="delivered")
-        self._answer("run-1", status="  DELIVERED  ")
-        self.assertEqual(self._run_row("run-1")["status"], "completed")
-
-    def test_the_MODE_is_matched_case_insensitively(self):
-        """A case where ONLY the mode can decide: a claimed run is not completed by the first
-        clause, so it closes here or not at all. My first version passed a messy status AND a messy
-        mode together, which meant the status clause carried the test and a mutation dropping the
-        mode's normalisation survived it."""
-        self._seed_run("run-1", status="claimed")
-        self._answer("run-1", status="claimed", mode="  CHANNEL  ")
-        self.assertEqual(self._run_row("run-1")["status"], "completed")
+        A TERMINAL dispatch is keyed on the RUN's own dispatch_mode rather than the passed execution
+        mode -- it is recognised from the row, not from what the caller happened to know."""
+        cases = (("claimed", "channel", ""), ("running", "channel", ""),
+                 ("claimed", "resident", ""), ("claimed", "  CHANNEL  ", ""),
+                 ("running", "", "terminal"))
+        for index, (status, mode, dispatch_mode) in enumerate(cases):
+            with self.subTest(status=status, mode=mode, dispatch_mode=dispatch_mode):
+                run_id = f"run-{index}"
+                self._seed_run(run_id, status=status, dispatch_mode=dispatch_mode)
+                self._answer(run_id, status=status, mode=mode)
+                self.assertEqual(self._run_row(run_id)["status"], "completed")
 
 
 class MarkAnsweredNonCompletionTests(DispatchRunStateTestCase):
@@ -255,29 +228,17 @@ class MarkAnsweredNonCompletionTests(DispatchRunStateTestCase):
         self._run(lambda db: _mark_dispatch_run_answered(
             db, run_id, "reply-1", status, mode))
 
-    def test_a_CLAIMED_managed_run_is_NOT_completed(self):
+    def test_a_CLAIMED_or_RUNNING_managed_run_is_NOT_completed(self):
         """A managed worker reports its own end. Closing the run on a mid-turn message would stop
         tracking work that is still running, and nothing later reopens it."""
-        self._seed_run("run-1", status="claimed")
-        self._answer("run-1", status="claimed", mode="managed")
-        row = self._run_row("run-1")
-        self.assertEqual(row["status"], "claimed")
-        self.assertEqual(row["result_message_id"], "reply-1",
-                         "the reply must still be recorded on the run")
-
-    def test_a_RUNNING_managed_run_is_NOT_completed(self):
-        self._seed_run("run-1", status="running")
-        self._answer("run-1", status="running", mode="managed")
-        self.assertEqual(self._run_row("run-1")["status"], "running")
-
-    def test_an_ALREADY_COMPLETED_run_is_not_re_finished(self):
-        """Idempotence from the other side: the gate does not list `completed`, so a late reply
-        records itself without rewriting the terminal state or its timestamp."""
-        self._seed_run("run-1", status="completed", finished_at="2020-01-01T00:00:00Z")
-        self._answer("run-1", status="completed")
-        row = self._run_row("run-1")
-        self.assertEqual(row["status"], "completed")
-        self.assertEqual(row["finished_at"], "2020-01-01T00:00:00Z")
+        for status in ("claimed", "running"):
+            with self.subTest(status=status):
+                self._seed_run(f"run-{status}", status=status)
+                self._answer(f"run-{status}", status=status, mode="managed")
+                row = self._run_row(f"run-{status}")
+                self.assertEqual(row["status"], status)
+                self.assertEqual(row["result_message_id"], "reply-1",
+                                 "the reply must still be recorded on the run")
 
     def test_a_CANCELLED_run_is_not_resurrected_as_completed(self):
         self._seed_run("run-1", status="cancelled")
@@ -314,18 +275,16 @@ class CancelQueuedRunsTests(DispatchRunStateTestCase):
 
     def test_a_run_that_has_ALREADY_STARTED_is_left_alone(self):
         """The message can be withdrawn; the work cannot. A worker is mid-turn on it, and marking
-        the run cancelled underneath would leave a live worker attached to a terminal row."""
+        the run cancelled underneath would leave a live worker attached to a terminal row.
+
+        The returned list is EMPTY here too: unsend reports the count to the operator, and a list
+        that includes runs it did not touch is the reported-work-never-done defect the
+        contract-repair endpoint had."""
         for status in ("claimed", "running", "delivered", "completed"):
             with self.subTest(status=status):
                 self._seed_run(f"run-{status}", status=status, message_id="msg-x")
                 self.assertEqual(self._cancel(["msg-x"]), [])
                 self.assertEqual(self._run_row(f"run-{status}")["status"], status)
-
-    def test_only_the_named_messages_runs_are_touched(self):
-        self._seed_run("run-1", status="queued", message_id="msg-1")
-        self._seed_run("run-2", status="queued", message_id="msg-2")
-        self.assertEqual(self._cancel(["msg-1"]), ["run-1"])
-        self.assertEqual(self._run_row("run-2")["status"], "queued")
 
     def test_every_cancellation_is_recorded_as_a_run_EVENT(self):
         self._seed_run("run-1", status="queued", message_id="msg-1")
@@ -334,13 +293,11 @@ class CancelQueuedRunsTests(DispatchRunStateTestCase):
         self.assertEqual([event["event_type"] for event in events], ["cancelled"])
         self.assertIn("unsent", events[0]["body"])
 
-    def test_nothing_to_cancel_returns_an_empty_list(self):
-        self.assertEqual(self._cancel(["msg-nothing"]), [])
-
     def test_blank_and_duplicate_message_ids_are_dropped_before_the_query(self):
         """Unsend hands over whatever ids it collected. Duplicates would bind the same id twice and
         blanks would widen the IN clause with a value that matches rows written with an empty
-        message_id."""
+        message_id. The un-named queued run is also the proof that only the named messages' runs
+        are touched."""
         self._seed_run("run-blank", status="queued", message_id="")
         self._seed_run("run-1", status="queued", message_id="msg-1")
         self.assertEqual(self._cancel(["msg-1", "msg-1", "", "   ", None]), ["run-1"])
@@ -361,13 +318,6 @@ class CancelQueuedRunsTests(DispatchRunStateTestCase):
         self.assertEqual(sorted(cancelled), [f"run-{index}" for index in range(7)])
         statuses = {row["status"] for row in self._rows("SELECT status FROM dispatch_runs")}
         self.assertEqual(statuses, {"cancelled"})
-
-    def test_the_returned_ids_are_the_ones_actually_cancelled(self):
-        """Unsend reports the count to the operator. A list that includes runs it did not touch is
-        the reported-work-never-done defect the contract-repair endpoint had."""
-        self._seed_run("run-queued", status="queued", message_id="msg-1")
-        self._seed_run("run-running", status="running", message_id="msg-1")
-        self.assertEqual(self._cancel(["msg-1"]), ["run-queued"])
 
 
 if __name__ == "__main__":

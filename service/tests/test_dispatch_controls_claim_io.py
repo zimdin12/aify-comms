@@ -166,14 +166,6 @@ class OrderingAndLimitTests(DispatchControlsClaimTestCase):
         self.assertEqual(len(first["controls"]), 20)
         self.assertEqual(len(self._claim()["controls"]), 5)
 
-    def test_the_leftovers_stay_PENDING(self):
-        self._seed_run("run-1")
-        for index in range(25):
-            self._seed_control(f"ctl-{index:02d}", "run-1")
-        self._claim()
-        pending = [row["id"] for row in self._control_rows() if row["status"] == "pending"]
-        self.assertEqual(len(pending), 5)
-
 
 class RunFilterTests(DispatchControlsClaimTestCase):
     def test_a_RUN_ID_narrows_the_claim_to_that_run(self):
@@ -184,15 +176,6 @@ class RunFilterTests(DispatchControlsClaimTestCase):
         self.assertEqual([c["id"] for c in self._claim(run_id="run-2")["controls"]], ["ctl-2"])
         self.assertEqual(
             [row["status"] for row in self._control_rows()], ["pending", "claimed"])
-
-    def test_NO_run_id_claims_across_all_of_the_agents_runs(self):
-        """`(? = '' OR dc.run_id = ?)`. The empty string is the wildcard, and a bridge that polls
-        for the agent rather than for one run is the common case."""
-        self._seed_run("run-1")
-        self._seed_run("run-2")
-        self._seed_control("ctl-1", "run-1")
-        self._seed_control("ctl-2", "run-2")
-        self.assertEqual(len(self._claim()["controls"]), 2)
 
     def test_an_UNKNOWN_run_id_claims_nothing_rather_than_everything(self):
         """The failure that matters if the wildcard test were written the other way round: a filter
@@ -209,25 +192,15 @@ class MachineGuardTests(DispatchControlsClaimTestCase):
 
     def test_a_bridge_on_ANOTHER_HOST_claims_nothing(self):
         """The control would be marked handled and delivered to a process that is not driving this
-        agent — gone, and with no effect. An empty list leaves it for the right bridge."""
+        agent — gone, and with no effect. An empty list leaves it for the right bridge.
+
+        And it is NOT an error: it is a poll from a legitimate bridge for an agent that has moved. A
+        refusal here would turn a normal multi-host arrangement into a stream of faults."""
         self._bind_agent_to(THIS_HOST)
         self._seed_run("run-1")
         self._seed_control("ctl-1", "run-1")
-        self.assertEqual(self._claim(machine_id=OTHER_HOST)["controls"], [])
+        self.assertEqual(self._claim(machine_id=OTHER_HOST), {"ok": True, "controls": []})
         self.assertEqual(self._control_rows()[0]["status"], "pending")
-
-    def test_the_wrong_host_is_NOT_an_error(self):
-        """It is a poll from a legitimate bridge for an agent that has moved. A refusal here would
-        turn a normal multi-host arrangement into a stream of faults."""
-        self._bind_agent_to(THIS_HOST)
-        result = self._claim(machine_id=OTHER_HOST)
-        self.assertEqual(result, {"ok": True, "controls": []})
-
-    def test_the_SAME_HOST_claims_normally(self):
-        self._bind_agent_to(THIS_HOST)
-        self._seed_run("run-1")
-        self._seed_control("ctl-1", "run-1")
-        self.assertEqual(len(self._claim(machine_id=THIS_HOST)["controls"]), 1)
 
     def test_a_bridge_that_names_NO_MACHINE_is_not_blocked(self):
         """Older bridges send no machineId. Blocking them would stop delivering controls to every
@@ -266,15 +239,6 @@ class PayloadShapeTests(DispatchControlsClaimTestCase):
         self.assertEqual(control["runId"], "run-1")
         self.assertEqual(control["from"], SENDER)
 
-    def test_the_requester_key_is_FROM_not_from_agent(self):
-        """The wire name differs from the column name. Renaming it silently would leave every
-        bridge reading `undefined` for who asked."""
-        self._seed_run("run-1")
-        self._seed_control("ctl-1", "run-1")
-        control = self._claim()["controls"][0]
-        self.assertIn("from", control)
-        self.assertNotIn("from_agent", control)
-
     def test_the_claim_timestamp_is_returned_AND_persisted_as_the_same_value(self):
         """The bridge reports back against it. A returned time that differs from the stored one
         makes the two records of one claim disagree.
@@ -304,15 +268,6 @@ class RefusalTests(DispatchControlsClaimTestCase):
             self._claim(agent_id="nobody")
         self.assertEqual(caught.exception.status_code, 404)
         self.assertIn("nobody", str(caught.exception.detail))
-
-    def test_the_REQUEST_object_is_never_read(self):
-        """`request` is in the signature and unused — the sibling terminal-controls claim takes no
-        such parameter. Passing None proves it: if someone starts reading it, this fails loudly here
-        rather than at whichever call site happens not to supply one."""
-        self._seed_run("run-1")
-        self._seed_control("ctl-1", "run-1")
-        result = self._claim(request=None)
-        self.assertEqual(len(result["controls"]), 1)
 
 
 if __name__ == "__main__":

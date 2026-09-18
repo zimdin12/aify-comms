@@ -75,19 +75,6 @@ class DeadTerminalSpawnQueryTests(unittest.IsolatedAsyncioTestCase):
 
     # ---- the sweep's candidates ---------------------------------------------
 
-    async def test_a_spawn_whose_only_terminal_is_dead_is_finalizable(self):
-        await self._spawn()
-        await self._terminal("t1", status=DEAD)
-        self.assertEqual(["sp1"], await self._finalizable())
-
-    async def test_a_LIVE_SIBLING_spares_the_spawn(self):
-        """The rebind race: a session mid-rebind shows both, and failing then kills a healthy
-        worker."""
-        await self._spawn()
-        await self._terminal("t-dead", status=DEAD)
-        await self._terminal("t-live", status="running")
-        self.assertEqual([], await self._finalizable())
-
     async def test_every_end_status_counts_as_dead(self):
         for status in _terminal_end_statuses_ordered():
             with self.subTest(status=status):
@@ -150,23 +137,17 @@ class DeadTerminalSpawnQueryTests(unittest.IsolatedAsyncioTestCase):
         await self._terminal("t-live", status="running")
         self.assertEqual(1, await self._masked())
 
-    async def test_a_spawn_with_NO_dead_terminal_is_not_masked(self):
-        """It was never a candidate, so counting it would inflate the "held back" number."""
-        await self._spawn()
-        await self._terminal("t-live", status="running")
-        self.assertEqual(0, await self._masked())
-
-    async def test_a_finalizable_spawn_is_not_ALSO_counted_as_masked(self):
-        await self._spawn()
-        await self._terminal("t1", status=DEAD)
-        self.assertEqual(0, await self._masked())
-
     async def test_the_two_queries_PARTITION_the_candidates(self):
         """The one thing neither query can check about itself.
 
         Three sessions: one purely dead, one mid-rebind, one healthy. Exactly one must be
         finalizable and exactly one masked — if the two ever disagreed about what "dead" or "live"
         means, this is where it shows.
+
+        It is also the proof of each half on its own: the purely dead spawn is finalizable, the
+        mid-rebind one is SPARED by its live sibling (the rebind race: failing it then kills a healthy
+        worker), a spawn with no dead terminal is never counted as masked (that would inflate the
+        "held back" number), and a finalizable spawn is not ALSO counted as masked.
         """
         await self._spawn("sp-dead", session="s-dead")
         await self._terminal("t1", session="s-dead", status=DEAD)

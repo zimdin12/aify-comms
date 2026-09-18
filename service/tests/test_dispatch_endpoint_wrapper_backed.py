@@ -219,19 +219,15 @@ class DispatchEndpointWrapperBackedTests(FastApiTestCase):
         self.assertEqual(row["execution_mode"], "managed", dict(row))
         self.assertNotEqual(row["dispatch_mode"], "terminal", dict(row))
 
-    def test_dispatch_endpoint_routes_codex_wrapper_backed_to_channel(self):
-        self._heartbeat_environment("codex")
-        self._register_managed_agent(agent_id="codex-managed", runtime="codex")
-        self._assert_dispatch_endpoint_creates_channel_run(
-            runtime="codex", agent_id="codex-managed"
-        )
-
-    def test_dispatch_endpoint_routes_hermes_wrapper_backed_to_channel(self):
-        self._heartbeat_environment("hermes")
-        self._register_managed_agent(agent_id="hermes-managed", runtime="hermes")
-        self._assert_dispatch_endpoint_creates_channel_run(
-            runtime="hermes", agent_id="hermes-managed"
-        )
+    def test_dispatch_endpoint_routes_codex_and_hermes_wrapper_backed_to_channel(self):
+        for runtime in ("codex", "hermes"):
+            with self.subTest(runtime=runtime):
+                agent_id = f"{runtime}-managed"
+                self._heartbeat_environment(runtime)
+                self._register_managed_agent(agent_id=agent_id, runtime=runtime)
+                self._assert_dispatch_endpoint_creates_channel_run(
+                    runtime=runtime, agent_id=agent_id
+                )
 
     def test_dispatch_endpoint_keeps_pi_and_opencode_on_native_managed_default(self):
         for runtime in ("pi", "opencode"):

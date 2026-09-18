@@ -61,11 +61,13 @@ class DeletingSharedThingsRequiresAnOwner(FastApiTestCase):
         self.assertEqual(r.status_code, 400, r.text)
         self.assertIn("requires `requestedBy`", r.text)
 
-    def test_a_stranger_cannot_delete_someone_elses_artifact(self):
+    def test_a_stranger_cannot_delete_someone_elses_artifact_and_it_stays(self):
         self._share("a.txt")
         r = self.client.delete("/api/v1/shared/a.txt?requestedBy=stranger")
         self.assertEqual(r.status_code, 403, r.text)
         self.assertIn("Only the sharer or an operator surface may remove it", r.text)
+        self.assertEqual(self.client.get("/api/v1/shared/a.txt").status_code, 200,
+                         "the refused delete removed it anyway")
 
     def test_the_sharer_can_delete_their_own(self):
         # ANTI-VACUITY: refusing everyone is not a fix.
@@ -91,12 +93,6 @@ class DeletingSharedThingsRequiresAnOwner(FastApiTestCase):
         self.assertEqual(self.client.get("/api/v1/shared/a.txt").status_code, 200,
                          "the refused delete removed it anyway")
 
-    def test_a_refused_artifact_delete_leaves_it_in_place(self):
-        self._share("a.txt")
-        self.assertEqual(self.client.delete("/api/v1/shared/a.txt?requestedBy=stranger").status_code, 403)
-        self.assertEqual(self.client.get("/api/v1/shared/a.txt").status_code, 200,
-                         "the refused delete removed it anyway")
-
     def test_deleting_a_MISSING_artifact_is_still_idempotent(self):
         """Unchanged on purpose. A caller retrying a delete should not have to distinguish "I removed
         it" from "it was already gone", and there is no owner to check on a row that does not
@@ -112,29 +108,25 @@ class DeletingSharedThingsRequiresAnOwner(FastApiTestCase):
         self.assertEqual(r.status_code, 400, r.text)
         self.assertIn("requires `requestedBy`", r.text)
 
-    def test_a_MEMBER_cannot_delete_a_channel_they_did_not_create(self):
+    def test_a_MEMBER_cannot_delete_a_channel_they_did_not_create_and_its_history_stays(self):
         """The distinction that matters: joining a channel does not entitle you to end it for
         everyone. Leaving is the member's tool."""
         self._make_channel("ops")
+        sent = self.client.post("/api/v1/channels/ops/send", json={
+            "from_agent": "owner", "channel": "ops", "body": "keep me", "trigger": False})
+        self.assertEqual(sent.status_code, 200, sent.text)
         joined = self.client.post("/api/v1/channels/ops/join", json={"agentId": "stranger"})
         self.assertEqual(joined.status_code, 200, joined.text)
         r = self.client.delete("/api/v1/channels/ops?requestedBy=stranger")
         self.assertEqual(r.status_code, 403, r.text)
         self.assertIn("leave it instead", r.text)
+        read = self.client.get("/api/v1/channels/ops")
+        self.assertEqual(read.status_code, 200, read.text)
+        self.assertIn("keep me", read.text, "a refused delete destroyed the channel's history")
 
     def test_the_creator_can_delete_their_channel(self):
         self._make_channel("ops")
         self.assertEqual(self.client.delete("/api/v1/channels/ops?requestedBy=owner").status_code, 200)
-
-    def test_a_refused_channel_delete_keeps_the_channel_and_its_messages(self):
-        self._make_channel("ops")
-        sent = self.client.post("/api/v1/channels/ops/send", json={
-            "from_agent": "owner", "channel": "ops", "body": "keep me", "trigger": False})
-        self.assertEqual(sent.status_code, 200, sent.text)
-        self.assertEqual(self.client.delete("/api/v1/channels/ops?requestedBy=stranger").status_code, 403)
-        read = self.client.get("/api/v1/channels/ops")
-        self.assertEqual(read.status_code, 200, read.text)
-        self.assertIn("keep me", read.text, "a refused delete destroyed the channel's history")
 
 
 if __name__ == "__main__":

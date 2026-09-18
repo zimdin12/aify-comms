@@ -75,7 +75,7 @@ class DashboardReportTestCase(FastApiTestCase):
                   started_at: str = "2020-01-01T00:00:00Z") -> None:
         # A date FIRMLY IN THE PAST, not the current one. The suppression windows these tests
         # exercise open at `started_at`, so a fixture dated today makes every window depend on the
-        # wall clock — which is how the separation test above passed at 08:00Z and failed at 10:00Z.
+        # wall clock — which is how a since-retired separation test passed at 08:00Z and failed at 10:00Z.
         self._write(
             "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, dispatch_mode,"
             " runtime, subject, body, status, summary, require_reply, result_message_id,"
@@ -126,7 +126,9 @@ class DashboardReportTestCase(FastApiTestCase):
 
 
 class ManagerReportTests(DashboardReportTestCase):
-    def test_a_completed_managers_summary_becomes_a_dashboard_message(self):
+    def test_a_completed_managers_summary_becomes_an_INFO_dashboard_message(self):
+        """It is a report nobody asked for. Typing it as a response would thread it onto a
+        conversation the operator never started."""
         self._seed_run()
         message_id = self._report()
         self.assertTrue(message_id)
@@ -134,51 +136,35 @@ class ManagerReportTests(DashboardReportTestCase):
         self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0]["from_agent"], MANAGER)
         self.assertEqual(messages[0]["body"], "all done")
+        self.assertEqual(messages[0]["type"], "info")
 
-    def test_the_report_is_an_INFO_message_not_a_response(self):
-        """It is a report nobody asked for. Typing it as a response would thread it onto a
-        conversation the operator never started."""
-        self._seed_run()
-        self._report()
-        self.assertEqual(self._dashboard_messages()[0]["type"], "info")
-
-    def test_the_subject_is_PREFIXED_so_it_reads_as_an_update(self):
-        self._seed_run(subject="check the build")
-        self._report()
-        self.assertEqual(self._dashboard_messages()[0]["subject"], "Update: check the build")
-
-    def test_an_already_prefixed_subject_is_NOT_prefixed_twice(self):
+    def test_the_subject_is_PREFIXED_once_so_it_reads_as_an_update(self):
         """`Update: Update: ...` and `Update: Re: ...` are both what an unguarded prefix produces
-        on a threaded run."""
-        for subject in ("Update: check the build", "Re: check the build",
-                        "update: check the build", "RE: check the build"):
+        on a threaded run, and a run with no subject still gets a usable one."""
+        cases = (("check the build", "Update: check the build"),
+                 ("Update: check the build", "Update: check the build"),
+                 ("Re: check the build", "Re: check the build"),
+                 ("update: check the build", "update: check the build"),
+                 ("RE: check the build", "RE: check the build"),
+                 ("", "Update from managed run"))
+        for subject, expected in cases:
             with self.subTest(subject=subject):
                 self._write("DELETE FROM messages", ())
                 self._write("DELETE FROM dispatch_runs", ())
                 self._write("DELETE FROM dispatch_events", ())
                 self._seed_run(subject=subject)
                 self._report()
-                self.assertEqual(self._dashboard_messages()[0]["subject"], subject)
+                self.assertEqual(self._dashboard_messages()[0]["subject"], expected)
 
-    def test_a_run_with_NO_SUBJECT_gets_a_usable_one(self):
-        self._seed_run(subject="")
-        self._report()
-        self.assertEqual(self._dashboard_messages()[0]["subject"], "Update from managed run")
-
-    def test_the_report_is_written_ONCE(self):
+    def test_the_report_is_written_ONCE_and_RECORDED_on_the_run(self):
         """Idempotence via its own event. The reconciler that calls this runs on a sweep, so a
-        second pass over the same completed run must not paste the summary again."""
+        second pass over the same completed run must not paste the summary again. The event is
+        both the idempotence key and the trace."""
         self._seed_run()
         self.assertTrue(self._report())
+        self.assertIn("dashboard_report", self._events())
         self.assertIsNone(self._report())
         self.assertEqual(len(self._dashboard_messages()), 1)
-
-    def test_the_report_is_RECORDED_on_the_run(self):
-        """The event is both the idempotence key and the trace. Writing the message without it
-        would make the next sweep write another."""
-        self._seed_run()
-        self._report()
-        self.assertIn("dashboard_report", self._events())
 
 
 class ManagerReportGateTests(DashboardReportTestCase):
@@ -217,8 +203,8 @@ class ManagerReportGateTests(DashboardReportTestCase):
         self._seed_run(target=CODER)
         self.assertIsNone(self._report())
 
-    def test_every_coordinator_role_is_accepted(self):
-        for role in ("manager", "operator", "lead", "coordinator"):
+    def test_every_coordinator_role_is_accepted_in_any_case(self):
+        for role in ("manager", "operator", "lead", "coordinator", "Manager"):
             with self.subTest(role=role):
                 self._write("DELETE FROM messages", ())
                 self._write("DELETE FROM dispatch_runs", ())
@@ -227,25 +213,14 @@ class ManagerReportGateTests(DashboardReportTestCase):
                 self._seed_run()
                 self.assertTrue(self._report(), role)
 
-    def test_the_role_is_matched_case_insensitively(self):
-        self._write("UPDATE agents SET role = 'Manager' WHERE id = ?", (MANAGER,))
-        self._seed_run()
-        self.assertTrue(self._report())
-
-    def test_an_EXPLICIT_report_from_the_agent_suppresses_the_machine_one(self):
+    def test_an_EXPLICIT_report_from_the_agent_suppresses_the_machine_one_and_is_RECORDED(self):
         """The agent did call `comms_send(to="dashboard")`. Writing ours underneath would show the
-        operator the same result twice, in two voices."""
+        operator the same result twice, in two voices. A skipped mirror and a mirror that never ran
+        look identical from the outside; the event is the only thing that distinguishes them."""
         self._seed_run(started_at="2026-08-17T09:00:00Z")
         self._seed_message("m-explicit", sender=MANAGER, timestamp=1_800_000_000_000)
         self.assertIsNone(self._report())
         self.assertEqual(len(self._dashboard_messages()), 1)
-
-    def test_the_suppression_is_RECORDED_rather_than_silent(self):
-        """A skipped mirror and a mirror that never ran look identical from the outside. The event
-        is the only thing that distinguishes them."""
-        self._seed_run()
-        self._seed_message("m-explicit", sender=MANAGER, timestamp=1_800_000_000_000)
-        self._report()
         self.assertIn("dashboard_report_skipped", self._events())
 
     def test_a_message_from_BEFORE_the_run_does_not_suppress_it(self):
@@ -262,28 +237,21 @@ class ManagerReportGateTests(DashboardReportTestCase):
 
 
 class MirrorTests(DashboardReportTestCase):
-    def test_a_dashboard_started_runs_summary_becomes_a_RESPONSE(self):
+    def test_a_dashboard_started_runs_summary_becomes_a_LINKED_RESPONSE(self):
         """The operator asked; this is the answer. Typing it as info would leave the ask looking
-        unanswered in a chat that shows responses against their question."""
-        self._seed_run(sender="dashboard")
+        unanswered in a chat that shows responses against their question. `result_message_id` is
+        what closes the loop -- without it the next sweep mirrors again -- and the subject is the
+        shared handoff subject."""
+        self._seed_run(sender="dashboard", subject="check the build")
         message_id = self._mirror()
         self.assertTrue(message_id)
         message = self._dashboard_messages()[0]
         self.assertEqual(message["type"], "response")
         self.assertEqual(message["body"], "all done")
-
-    def test_the_mirrored_reply_is_LINKED_to_the_run(self):
-        """`result_message_id` is what closes the loop — without it the next sweep mirrors again."""
-        self._seed_run(sender="dashboard")
-        message_id = self._mirror()
+        self.assertEqual(message["subject"], "Re: check the build")
         self.assertEqual(self._run_row()["result_message_id"], message_id)
 
-    def test_the_subject_is_the_shared_handoff_subject(self):
-        self._seed_run(sender="dashboard", subject="check the build")
-        self._mirror()
-        self.assertEqual(self._dashboard_messages()[0]["subject"], "Re: check the build")
-
-    def test_an_EXISTING_dashboard_reply_is_LINKED_rather_than_duplicated(self):
+    def test_an_EXISTING_dashboard_reply_is_LINKED_rather_than_duplicated_as_a_HANDOFF(self):
         """The agent already answered in chat. The run still needs a result, so the existing
         message becomes it — one answer, recorded once."""
         self._seed_run(sender="dashboard")
@@ -292,6 +260,7 @@ class MirrorTests(DashboardReportTestCase):
         self.assertEqual(message_id, "m-explicit")
         self.assertEqual(len(self._dashboard_messages()), 1)
         self.assertEqual(self._run_row()["result_message_id"], "m-explicit")
+        self.assertIn("handoff", self._events())
 
     def test_the_EARLIEST_explicit_reply_is_the_one_linked(self):
         """Ascending, with an id tiebreaker. The first thing the agent said after the ask is the
@@ -301,15 +270,14 @@ class MirrorTests(DashboardReportTestCase):
         self._seed_message("m-first", sender=MANAGER, timestamp=1_800_000_001_000)
         self.assertEqual(self._mirror(), "m-first")
 
-    def test_linking_is_recorded_as_a_HANDOFF_event(self):
-        self._seed_run(sender="dashboard")
-        self._seed_message("m-explicit", sender=MANAGER, timestamp=1_800_000_000_000)
-        self._mirror()
-        self.assertIn("handoff", self._events())
 
 
 class MirrorGateTests(DashboardReportTestCase):
     def test_a_run_NOT_started_by_the_dashboard_is_not_mirrored(self):
+        """The two functions split on the sender, so every run is exactly one of the two cases.
+        If both could fire, a completed run would produce two dashboard messages saying the same
+        thing in different voices; the report side's refusal of a dashboard-started run is
+        `test_a_DASHBOARD_STARTED_run_is_not_this_functions_job`."""
         self._seed_run(sender="manager-bot")
         self.assertIsNone(self._mirror())
 
@@ -376,32 +344,6 @@ class MirrorGateTests(DashboardReportTestCase):
     def test_a_run_with_no_summary_or_no_target_is_not_mirrored(self):
         self._seed_run("run-nosummary", sender="dashboard", summary="")
         self.assertIsNone(self._mirror("run-nosummary"))
-
-
-class SeparationTests(DashboardReportTestCase):
-    def test_the_two_functions_never_both_fire_for_one_run(self):
-        """They split on the sender and nothing else, so every run is exactly one of the two cases.
-        If both could fire, a completed run would produce two dashboard messages saying the same
-        thing in different voices.
-
-        THE TWO RUNS TARGET DIFFERENT AGENTS, and my first version did not — which made this test
-        TIME-DEPENDENT and it began failing hours after it was committed. Both runs targeted the
-        manager, so the message the MIRROR wrote for the first run landed inside the second run's
-        suppression window and the report was correctly skipped. The window opens at the run's
-        `started_at`, which these fixtures seed at 09:00Z on the current date, so the test passed
-        only while the wall clock was still before that time. Different targets remove the
-        interaction entirely, and are the truer statement of separation: each function fires for its
-        own run."""
-        self._seed_run("run-dash", sender="dashboard", target=CODER)
-        self._seed_run("run-manager", sender="manager-bot", target=MANAGER)
-
-        self.assertIsNone(self._report("run-dash"))
-        self.assertTrue(self._mirror("run-dash"))
-
-        self.assertIsNone(self._mirror("run-manager"))
-        self.assertTrue(self._report("run-manager"))
-
-        self.assertEqual(len(self._dashboard_messages()), 2)
 
 
 if __name__ == "__main__":

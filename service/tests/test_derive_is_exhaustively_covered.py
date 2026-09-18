@@ -76,6 +76,8 @@ class DeriveIsExhaustivelyCoveredTests(unittest.TestCase):
         ))
 
     def test_no_input_produces_a_status_outside_the_vocabulary(self):
+        """Also the totality check: no input raises (the enumeration runs in setUpClass), and an empty
+        or non-string status is not in the vocabulary either."""
         stray = sorted({status for _, status in self.results if status not in VALID_STATUSES})
         self.assertEqual(stray, [], (
             f"derive() returned {stray}, which VALID_STATUSES does not declare. The vocabulary is what "
@@ -127,13 +129,6 @@ class DeriveIsExhaustivelyCoveredTests(unittest.TestCase):
         for inputs, status in self.results:
             if inputs.host_activity == "thinking":
                 self.assertEqual(status, derive(StatusInputs(**{**inputs.__dict__, "host_activity": ""})))
-
-    def test_derive_is_total(self):
-        """No input raises, and none returns empty. A status the caller has to special-case for
-        emptiness is a fourth thing to render, and nothing downstream expects one."""
-        for inputs, status in self.results:
-            self.assertIsInstance(status, str)
-            self.assertTrue(status.strip(), f"empty status from {inputs}")
 
     def test_disabled_wins_over_everything(self):
         """The short-circuit, pinned because it is the strongest rule in the engine: an operator who

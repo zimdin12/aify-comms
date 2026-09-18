@@ -40,12 +40,24 @@ class DashboardAssetsAreCompressed(unittest.TestCase):
     def setUpClass(cls):
         cls.client = dashboard_client()
 
-    def test_a_module_comes_back_gzipped(self):
+    def test_a_module_comes_back_gzipped_intact_and_still_revalidated(self):
+        """The module is compressed, arrives undamaged (a broken app.js is a blank page rather than
+        an error anyone would attribute to this), and keeps this app's revalidation header: the
+        other middleware forces revalidation so an ES module cannot be served stale from cache, and
+        losing it would serve yesterday's modules on every reload -- a far worse bug than
+        uncompressed bytes."""
         response = self.client.get("/assets/app.js", headers={"Accept-Encoding": "gzip"})
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, "the dashboard stopped serving its own code")
         self.assertEqual(
             response.headers.get("content-encoding"), "gzip",
             "the dashboard's own assets are still uncompressed; the API was the smaller half",
+        )
+        body = response.text
+        self.assertIn("import", body, "app.js did not survive decompression intact")
+        self.assertGreater(len(body), 10_000, "app.js came back truncated")
+        self.assertIn(
+            "no-cache", (response.headers.get("cache-control") or "").lower(),
+            "the revalidation header was lost when compression was added",
         )
 
     def test_the_shell_document_comes_back_gzipped(self):
@@ -54,30 +66,12 @@ class DashboardAssetsAreCompressed(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("content-encoding"), "gzip")
 
-    def test_the_module_still_parses_after_the_round_trip(self):
-        """Compression is worthless if the module arrives damaged, and a broken app.js is a blank page
-        rather than an error anyone would attribute to this."""
-        response = self.client.get("/assets/app.js", headers={"Accept-Encoding": "gzip"})
-        body = response.text
-        self.assertIn("import", body, "app.js did not survive decompression intact")
-        self.assertGreater(len(body), 10_000, "app.js came back truncated")
-
     def test_a_client_that_does_not_ask_is_not_given_gzip(self):
         """Negative control. Without it these tests cannot tell negotiation from a blanket rewrite, and
         a blanket rewrite breaks every client that did not opt in."""
         response = self.client.get("/assets/app.js", headers={"Accept-Encoding": "identity"})
         self.assertEqual(response.status_code, 200)
         self.assertNotEqual(response.headers.get("content-encoding"), "gzip")
-
-    def test_the_revalidation_headers_still_ride_along(self):
-        """This app's other middleware forces revalidation so an ES module cannot be served stale from
-        cache. Compression sits in front of it; if the cache-control header were lost, every reload
-        would serve yesterday's modules — a far worse bug than uncompressed bytes."""
-        response = self.client.get("/assets/app.js", headers={"Accept-Encoding": "gzip"})
-        self.assertIn(
-            "no-cache", (response.headers.get("cache-control") or "").lower(),
-            "the revalidation header was lost when compression was added",
-        )
 
 
 if __name__ == "__main__":

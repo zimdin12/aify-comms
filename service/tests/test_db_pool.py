@@ -57,16 +57,6 @@ class PoolTestCase(unittest.TestCase):
 
 
 class CleanReuse(PoolTestCase):
-    def test_CONTROL_a_returned_connection_is_reused(self):
-        async def body():
-            first = await self.get()
-            raw = _raw(first)
-            await first.close()
-            second = await self.get()
-            self.assertIs(_raw(second), raw, "a clean connection was not reused -- the pool does nothing")
-            await second.close()
-        self.run_async(body)
-
     def test_two_checkouts_at_once_never_share_a_connection(self):
         async def body():
             a = await self.get()
@@ -96,6 +86,8 @@ class CleanReuse(PoolTestCase):
             raw = _raw(first)
             await first.close()
             second = await self.get()
+            # The CONTROL for the whole file: a clean connection IS reused, so a pool that quietly
+            # stopped pooling -- which passes every hazard test -- fails here.
             self.assertIs(_raw(second), raw, "control: changing row_factory alone must not stop reuse")
             self.assertIs(second.row_factory, aiosqlite.Row)
             await second.close()
@@ -146,29 +138,22 @@ class NothingCarriesOver(PoolTestCase):
                 other.close()
         self.run_async(body)
 
-    def test_a_PRAGMA_makes_the_connection_unpoolable(self):
-        async def body():
-            first = await self.get()
-            await first.execute("PRAGMA foreign_keys=OFF")
-            raw = _raw(first)
-            await first.close()
-            second = await self.get()
-            self.assertIsNot(_raw(second), raw, "a connection with changed PRAGMAs was handed to another request")
-            fk = (await (await second.execute("PRAGMA foreign_keys")).fetchone())[0]
-            self.assertEqual(fk, 1)
-            await second.close()
-        self.run_async(body)
-
-    def test_a_PRAGMA_through_the_other_execute_helpers_makes_the_connection_unpoolable(self):
-        for method in ("execute_fetchall", "execute_insert"):
+    def test_a_PRAGMA_through_any_execute_helper_makes_the_connection_unpoolable(self):
+        for method in ("execute", "execute_fetchall", "execute_insert"):
             with self.subTest(method=method):
                 async def body():
+                    # RE-ENABLED per case: `run_async` ends with `aclose()`, which disables the pool,
+                    # and a disabled pool never reuses anything -- so every case after the first
+                    # passed vacuously until this line was added.
+                    self.pool.enable()
                     first = await self.get()
                     await getattr(first, method)("PRAGMA foreign_keys=OFF")
                     raw = _raw(first)
                     await first.close()
                     second = await self.get()
                     self.assertIsNot(_raw(second), raw, f"a PRAGMA through {method} left the connection pooled")
+                    fk = (await (await second.execute("PRAGMA foreign_keys")).fetchone())[0]
+                    self.assertEqual(fk, 1)
                     await second.close()
                 self.run_async(body)
 

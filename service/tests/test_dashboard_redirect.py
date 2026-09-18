@@ -120,22 +120,14 @@ class DashboardUrlTestCase(unittest.TestCase):
 class ConfiguredUrlTests(DashboardUrlTestCase):
     """`AIFY_DASHBOARD_URL` — the reverse-proxy case, where the request tells you nothing."""
 
-    def test_the_configured_url_wins_over_the_request(self):
-        self.setenv("AIFY_DASHBOARD_URL", "https://comms.example.test/")
-        self.assertEqual(
-            dashboard_url(request_from("10.0.0.5:8800")), "https://comms.example.test/",
-        )
-
-    def test_a_configured_url_without_a_trailing_slash_gets_exactly_one(self):
-        """Browsers cope, but the value is also pasted into docs and compared in tests. One shape."""
-        self.setenv("AIFY_DASHBOARD_URL", "https://comms.example.test")
-        self.assertEqual(dashboard_url(request_from("h:8800")), "https://comms.example.test/")
-
-    def test_a_configured_url_with_SEVERAL_trailing_slashes_gets_exactly_one(self):
-        """`rstrip("/")` removes all of them, not just the last — worth pinning, because the
-        obvious alternative (`removesuffix`) would leave `https://host//`."""
-        self.setenv("AIFY_DASHBOARD_URL", "https://comms.example.test///")
-        self.assertEqual(dashboard_url(request_from("h:8800")), "https://comms.example.test/")
+    def test_a_configured_url_ends_in_exactly_ONE_trailing_slash(self):
+        """Browsers cope, but the value is also pasted into docs and compared in tests. One shape.
+        `rstrip("/")` removes all of them, not just the last -- worth pinning, because the obvious
+        alternative (`removesuffix`) would leave `https://host//`."""
+        for configured in ("https://comms.example.test", "https://comms.example.test///"):
+            with self.subTest(configured=configured):
+                self.setenv("AIFY_DASHBOARD_URL", configured)
+                self.assertEqual(dashboard_url(request_from("h:8800")), "https://comms.example.test/")
 
     def test_a_configured_path_prefix_is_preserved(self):
         """A proxy that mounts the dashboard under a sub-path. Dropping it would redirect to the
@@ -145,28 +137,21 @@ class ConfiguredUrlTests(DashboardUrlTestCase):
             dashboard_url(request_from("h:8800")), "https://ops.example.test/aify/dashboard/",
         )
 
-    def test_surrounding_whitespace_does_not_make_it_configured(self):
-        """A `.env` line with a trailing space is the ordinary way this ends up whitespace-only."""
-        self.setenv("AIFY_DASHBOARD_URL", "   ")
-        self.assertEqual(dashboard_url(request_from("box.local:8800")), "http://box.local:8801/")
-
-    def test_an_EMPTY_value_falls_back_to_deriving(self):
+    def test_an_EMPTY_or_WHITESPACE_value_falls_back_to_deriving(self):
         """Unset and set-to-empty must behave the same. A deployment that clears the variable to
-        turn the override OFF would otherwise redirect to `/`."""
-        self.setenv("AIFY_DASHBOARD_URL", "")
-        self.assertEqual(dashboard_url(request_from("box.local:8800")), "http://box.local:8801/")
+        turn the override OFF would otherwise redirect to `/`. A `.env` line with a trailing space
+        is the ordinary way this ends up whitespace-only."""
+        for configured in ("", "   "):
+            with self.subTest(configured=repr(configured)):
+                self.setenv("AIFY_DASHBOARD_URL", configured)
+                self.assertEqual(
+                    dashboard_url(request_from("box.local:8800")), "http://box.local:8801/")
 
 
 class DerivedUrlTests(DashboardUrlTestCase):
-    """No override: same scheme, same host, dashboard port."""
-
-    def test_the_hostname_comes_from_the_REQUEST_not_from_localhost(self):
-        """The reason this is derived at all. An operator on the LAN reaching the service at
-        `192.168.1.20:8800` must be sent to `192.168.1.20:8801` — a hardcoded localhost sends them
-        to their own machine, where nothing is listening, and it reads as the service being down."""
-        self.assertEqual(
-            dashboard_url(request_from("192.168.1.20:8800")), "http://192.168.1.20:8801/",
-        )
+    """No override: same scheme, same host, dashboard port. The hostname coming from the REQUEST
+    (not localhost), an ordinary hostname staying unbracketed and the path being the dashboard ROOT
+    are pinned end to end by `test_redirect_defaults_to_request_host_on_new_dashboard_port`."""
 
     def test_the_SCHEME_is_preserved(self):
         """An https page redirecting to http is a mixed-content block in every current browser —
@@ -189,10 +174,6 @@ class DerivedUrlTests(DashboardUrlTestCase):
         self.setenv("AIFY_DASHBOARD_PORT", "   ")
         self.assertEqual(dashboard_url(request_from("box.local:8800")), "http://box.local:8801/")
 
-    def test_the_path_is_always_the_ROOT_of_the_dashboard(self):
-        """The redirect targets a different app. Carrying `/dashboard/dispatches` across would ask
-        Dashboard Next for a path only the old service had."""
-        self.assertTrue(dashboard_url(request_from("box.local:8800")).endswith(":8801/"))
 
 
 class IPv6Tests(DashboardUrlTestCase):
@@ -200,30 +181,17 @@ class IPv6Tests(DashboardUrlTestCase):
 
     def test_an_IPv6_host_is_RE_BRACKETED(self):
         """Starlette hands back `::1` for a request to `[::1]:8800`. Reassembled without brackets
-        the result is `http://::1:8801/`, which is not a URL a browser will follow — the port is
-        unparseable against the address."""
-        self.assertEqual(dashboard_url(request_from("[::1]:8800")), "http://[::1]:8801/")
+        the result is `http://::1:8801/`, which is not a URL a browser will follow -- the port is
+        unparseable against the address. The exact comparison also rules out DOUBLE brackets.
 
-    def test_a_full_IPv6_address_is_bracketed(self):
-        self.assertEqual(
-            dashboard_url(request_from("[2001:db8::42]:8800")), "http://[2001:db8::42]:8801/",
-        )
-
-    def test_the_output_never_carries_DOUBLE_brackets(self):
-        """NOT a test of the `not host.startswith("[")` guard, which this cannot reach.
-        `request.url.hostname` strips brackets before the function ever sees the host, so from the
-        only caller that condition is always true and removing it changes nothing — a mutation that
-        deletes it survives, and that is the accurate result rather than a gap to paper over.
-
-        The guard is kept and documented in the source as defensive: it is one condition standing
-        between a changed Starlette contract and a URL no browser will follow."""
-        url = dashboard_url(request_from("[::1]:8800"))
-        self.assertNotIn("[[", url)
-
-    def test_an_ordinary_hostname_is_NOT_bracketed(self):
-        """The test is "contains a colon", so this only fires for addresses — but a hostname that
-        somehow carried one must not be wrapped as though it were an address."""
-        self.assertEqual(dashboard_url(request_from("box.local:8800")), "http://box.local:8801/")
+        The `not host.startswith("[")` guard is NOT reachable from here: `request.url.hostname`
+        strips brackets before the function ever sees the host, so a mutation that deletes that
+        condition survives, and that is the accurate result rather than a gap to paper over. The
+        guard is kept and documented in the source as defensive."""
+        for authority, expected in (("[::1]:8800", "http://[::1]:8801/"),
+                                    ("[2001:db8::42]:8800", "http://[2001:db8::42]:8801/")):
+            with self.subTest(authority=authority):
+                self.assertEqual(dashboard_url(request_from(authority)), expected)
 
 
 if __name__ == "__main__":

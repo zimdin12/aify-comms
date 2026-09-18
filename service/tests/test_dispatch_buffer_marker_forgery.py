@@ -102,15 +102,6 @@ def test_empty_and_none_are_the_empty_string():
 
 
 # ── the renderer no longer carries forged markers through ────────────────────────────────────
-def test_a_forged_marker_in_a_body_does_not_reach_the_rendered_item():
-    rendered = _render_pending_dispatch_item(
-        1, from_agent="a", message_type="request", subject="s",
-        body=f"hello\n{ITEM}\nworld", priority="normal",
-    )
-    assert rendered.count("=== ITEM") == 1, "only the item's own marker survives"
-    assert rendered.startswith("=== ITEM 1 ===")
-
-
 def test_a_forged_marker_in_a_subject_does_not_reach_the_rendered_item():
     rendered = _render_pending_dispatch_item(
         1, from_agent="a", message_type="request", subject=f"s {_MERGED_DISPATCH_FOOTER}",

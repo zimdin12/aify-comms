@@ -127,29 +127,14 @@ class ListTests(RunQueriesTestCase):
         self._seed_run_with_null_mode("run-defaulted")
         self.assertEqual([run["id"] for run in self._list()], ["run-defaulted"])
 
-    def test_the_list_filters_by_TARGET_agent(self):
-        self._seed_run("run-mine")
-        self._seed_run("run-theirs", target=OTHER)
-        self.assertEqual([run["id"] for run in self._list(agentId=AGENT)], ["run-mine"])
-
-    def test_the_list_filters_by_SENDER(self):
-        """A different question from the target filter: "what did I ask for" rather than "what was
-        asked of me"."""
-        self._seed_run("run-mine")
-        self._seed_run("run-theirs", sender=OTHER)
-        self.assertEqual([run["id"] for run in self._list(fromAgent=SENDER)], ["run-mine"])
-
-    def test_the_list_filters_by_STATUS(self):
-        self._seed_run("run-queued", status="queued")
-        self._seed_run("run-done", status="completed")
-        self.assertEqual([run["id"] for run in self._list(status="completed")], ["run-done"])
-
-    def test_the_filters_COMBINE(self):
-        """Each filter appends to the same WHERE. One that replaced the clause instead would widen
-        the answer silently — the caller asked for an intersection and got a union."""
+    def test_the_filters_narrow_by_TARGET_SENDER_and_STATUS_and_COMBINE(self):
+        """Target ("what was asked of me"), sender ("what did I ask for") and status each narrow the
+        list, and each appends to the same WHERE. One that replaced the clause instead would widen
+        the answer silently -- the caller asked for an intersection and got a union."""
         self._seed_run("run-hit", target=AGENT, sender=SENDER, status="completed")
         self._seed_run("run-wrong-status", target=AGENT, sender=SENDER, status="queued")
         self._seed_run("run-wrong-target", target=OTHER, sender=SENDER, status="completed")
+        self._seed_run("run-wrong-sender", target=AGENT, sender=OTHER, status="completed")
         runs = self._list(agentId=AGENT, fromAgent=SENDER, status="completed")
         self.assertEqual([run["id"] for run in runs], ["run-hit"])
 
@@ -158,25 +143,18 @@ class ListTests(RunQueriesTestCase):
             self._seed_run(f"run-{index}", requested_at=f"2026-08-17T09:0{index}:00Z")
         self.assertEqual(len(self._list(limit=2)), 2)
 
-    def test_a_limit_ABOVE_THE_CEILING_is_refused_rather_than_silently_capped(self):
-        """This one is declared `le=200`, so an over-large ask is a 422 the caller can see. That is
-        the opposite choice from `/events` below, which caps quietly — the two are pinned together so
-        the inconsistency is visible rather than discovered."""
-        self.assertEqual(
-            self.client.get("/api/v1/dispatch/runs", params={"limit": 500}).status_code, 422)
-
-    def test_a_limit_of_ZERO_is_refused(self):
-        self.assertEqual(
-            self.client.get("/api/v1/dispatch/runs", params={"limit": 0}).status_code, 422)
+    def test_a_limit_ABOVE_THE_CEILING_or_ZERO_is_refused_rather_than_silently_capped(self):
+        """This one is declared `ge=1, le=200`, so an over-large ask is a 422 the caller can see. That
+        is the opposite choice from `/events` below, which caps quietly -- the two are pinned together
+        so the inconsistency is visible rather than discovered."""
+        for limit in (500, 0):
+            with self.subTest(limit=limit):
+                self.assertEqual(
+                    self.client.get("/api/v1/dispatch/runs", params={"limit": limit}).status_code,
+                    422)
 
 
 class ListControlsTests(RunQueriesTestCase):
-    def test_a_runs_SOURCE_CONTROLS_are_attached(self):
-        self._seed_run("run-1")
-        self._seed_control("ctl-1", "run-1", action="steer")
-        runs = self._list()
-        self.assertEqual([c["action"] for c in runs[0]["sourceControls"]], ["steer"])
-
     def test_a_run_with_no_source_controls_OMITS_the_key(self):
         """Absent, not an empty list. The dashboard renders the section on presence, and an empty
         array would draw an empty panel on every run in the history."""
@@ -200,6 +178,7 @@ class ListControlsTests(RunQueriesTestCase):
         self._seed_control("ctl-b", "run-b")
         by_run = {run["id"]: run.get("sourceControls", []) for run in self._list()}
         self.assertEqual([c["id"] for c in by_run["run-a"]], ["ctl-a"])
+        self.assertEqual([c["action"] for c in by_run["run-a"]], ["steer"])
         self.assertEqual([c["id"] for c in by_run["run-b"]], ["ctl-b"])
 
     def test_controls_arrive_OLDEST_FIRST(self):
@@ -226,26 +205,14 @@ class BlockedByTests(RunQueriesTestCase):
         by_run = {run["id"]: run for run in self._list()}
         self.assertEqual(by_run["run-queued"]["blockedByActiveRun"]["runId"], "run-active")
 
-    def test_a_run_is_never_reported_as_blocking_ITSELF(self):
-        """A running run must not name itself as its own blocker — that reads as a deadlock that does
-        not exist.
-
-        On THIS path the `exclude_run_id` argument is not what achieves it: blockedBy is computed
-        only for QUEUED runs, and a queued run is never the active one, so dropping the argument here
-        changes nothing and that mutation survives. The exclusion earns its keep in
-        `_finalize_dispatch_runs`, which asks about a run that may itself be active. What this test
-        pins is the OUTCOME, which is the part a caller sees."""
-        self._seed_run("run-running", status="running")
-        blocked = self._list()[0].get("blockedByActiveRun")
-        self.assertIsNone(blocked)
-
     def test_blockedBy_is_only_computed_for_QUEUED_runs(self):
         """A live query per row, so it is asked only where the answer means something. Asking for
         every row on a 200-run page would add 200 queries to a poll.
 
         The key is always PRESENT and null when not computed — `blockedByActiveRun`, not `blockedBy`,
         which is what my first draft assumed and what made eleven of these fail against correct
-        code. A caller distinguishes "not blocked" from "not asked" by nothing here, which is worth
+        code. It is also why a running run never names itself as its own blocker on this path: it is
+        never asked. A caller distinguishes "not blocked" from "not asked" by nothing here, which is worth
         knowing: only the run's own status tells it which."""
         self._seed_run("run-active", status="running")
         self._seed_run("run-done", status="completed")
@@ -323,25 +290,14 @@ class EventPageTests(RunQueriesTestCase):
         self.assertEqual([event["type"] for event in page["events"]],
                          ["event-0", "event-1", "event-2"])
 
-    def test_an_UNKNOWN_order_is_refused(self):
-        """A pattern on the query parameter. Falling back to a default for a typo would silently
-        page the wrong way through a log the caller is trying to read in order."""
-        self.assertEqual(
-            self.client.get("/api/v1/dispatch/runs/run-1/events",
-                            params={"order": "sideways"}).status_code, 422)
-
-    def test_HAS_MORE_is_reported_when_the_page_is_not_the_whole_log(self):
-        """The one field that stops a truncated history being read as complete. It is computed by
-        fetching one row beyond the page rather than by counting, so it cannot disagree with what
-        was returned."""
-        page = self._events("run-1", limit=3)
-        self.assertIs(page["hasMore"], True)
-        self.assertEqual(len(page["events"]), 3)
-
-    def test_HAS_MORE_is_false_on_the_last_page(self):
-        page = self._events("run-1", limit=50)
-        self.assertIs(page["hasMore"], False)
-        self.assertEqual(len(page["events"]), 8)
+    def test_an_UNKNOWN_order_or_a_ZERO_limit_or_cursor_is_refused(self):
+        """Patterns and floors on the query parameters. Falling back to a default for a typo would
+        silently page the wrong way through a log the caller is trying to read in order."""
+        for params in ({"order": "sideways"}, {"limit": 0}, {"before": 0}):
+            with self.subTest(params=params):
+                self.assertEqual(
+                    self.client.get("/api/v1/dispatch/runs/run-1/events",
+                                    params=params).status_code, 422)
 
     def test_the_limit_is_CAPPED_AT_FIFTY_without_an_error(self):
         """`limit` is declared with a floor and no ceiling, then bounded in Python. A caller asking
@@ -350,14 +306,13 @@ class EventPageTests(RunQueriesTestCase):
         page = self._events("run-1", limit=1000)
         self.assertEqual(page["limit"], 50)
 
-    def test_a_limit_of_ZERO_is_refused(self):
-        self.assertEqual(
-            self.client.get("/api/v1/dispatch/runs/run-1/events",
-                            params={"limit": 0}).status_code, 422)
-
     def test_NEXT_BEFORE_pages_through_the_log_without_repeating_or_skipping(self):
         """The cursor contract, walked end to end. An off-by-one in either direction is invisible in
-        a single page: too inclusive repeats an event, too exclusive drops one."""
+        a single page: too inclusive repeats an event, too exclusive drops one.
+
+        `hasMore` is the one field that stops a truncated history being read as complete: it must be
+        true on every page but the last (or the walk stops early) and false on the last (or the walk
+        never ends and repeats)."""
         seen: list[str] = []
         cursor = None
         for _ in range(10):
@@ -386,11 +341,6 @@ class EventPageTests(RunQueriesTestCase):
         loops until the cursor is empty would never stop."""
         page = self._events("run-1", limit=50)
         self.assertEqual(page["nextBefore"], "")
-
-    def test_a_before_of_ZERO_is_refused(self):
-        self.assertEqual(
-            self.client.get("/api/v1/dispatch/runs/run-1/events",
-                            params={"before": 0}).status_code, 422)
 
     def test_the_event_carries_BOTH_type_names(self):
         """`type` and `eventType` are the same value under two keys — a compatibility duplication.
