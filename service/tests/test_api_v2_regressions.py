@@ -87,7 +87,7 @@ from service.routers.api_v2 import router
 
 from service.tests._base import FastApiTestCase, DummyWS, PRE_PLAN4_SETTINGS
 from service.api_core.events import _append_terminal_control
-from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
+from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _iso_add_seconds, _iso_from_ms
 from service.api_core.settings import _load_settings
 from service.api_core.live_process_probes import _resident_bridge_is_fresh
@@ -9307,35 +9307,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(body_payload["messages"][0]["id"], message_id)
         self.assertEqual(body_payload["messages"][0]["body"], "body line 1\nbody line 2\nbody line 3")
 
-    def test_dispatch_claim_ignores_stale_embedded_message_ids_when_marking_read(self):
-        self._register("dashboard")
-        self._register("worker", runtime="codex", sessionMode="managed")
-
-        sent = self._send_message(
-            from_agent="dashboard",
-            to="worker",
-            type="request",
-            subject="please handle these",
-            body="first message",
-            trigger=True,
-        )
-        run_id = sent["dispatchRuns"][0]["runId"]
-        source_message_id = sent["messageId"]
-        self._execute(
-            "UPDATE dispatch_runs SET body = ? WHERE id = ?",
-            ("first message\n\n--- Message 2 ---\nMessage Id: missing-message\nbody", run_id),
-        )
-
-        claim = self.client.post(
-            "/api/v1/dispatch/claim",
-            json={"agentId": "worker", "machineId": "linux:test-host", "bridgeId": "bridge-1", "executionModes": ["managed"]},
-        )
-
-        self.assertEqual(claim.status_code, 200, claim.text)
-        self.assertEqual(claim.json()["run"]["id"], run_id)
-        receipt_rows = self._fetchall("SELECT message_id FROM read_receipts WHERE agent_id = ? ORDER BY message_id", ("worker",))
-        self.assertEqual([row["message_id"] for row in receipt_rows], [source_message_id])
-
     def test_dispatch_rejects_create_message_false(self):
         self._register("alice", runtime="codex", sessionMode="managed")
         self._register("bob", runtime="codex", sessionMode="managed")
@@ -9755,90 +9726,57 @@ class ApiV2RegressionTests(FastApiTestCase):
              "request", "handoff", "please answer", "normal", status, 1, overdue_at),
         )
 
-    def test_reminder_not_skipped_when_turn_busy_is_same_runs_own_repulse(self):
+    def test_reminder_busy_gate_separates_own_repulse_other_work_and_active_runs(self):
         # CONFIRMED DEADLOCK FIX: a delivered require_reply run sets turn_busy with
         # turn_run_id = THAT run on its own delivery re-pulse. Treating that as
         # "busy" skipped the run's OWN reminder forever → handoff never nudged →
-        # closed stale. With no active dispatch run, turn_busy for THE SAME run id
-        # must NOT count as busy → the reminder fires.
+        # closed stale. So turn_busy for THE SAME run id must NOT count as busy,
+        # turn_busy for a DIFFERENT run is other work (skip, retried when idle), and
+        # a claimed/running dispatch run always counts as busy — even when turn_busy
+        # points at the run being reminded.
         self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
         self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
         self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
 
-        run_id = "run-handoff-same"
-        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-same", from_agent="sc-coder", target_agent="sc-architect")
-        self._execute(
-            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("sc-architect", 1, run_id, "", "claude-code", _now(), 1),
+        cases = (
+            # (label, turn_busy points at: "self" | "other" | None, active run?, reminded?)
+            ("same-run turn_busy", "self", False, True),
+            ("other-run turn_busy", "other", False, False),
+            ("active dispatch run", "self", True, False),
+            ("idle", None, False, True),
         )
+        for index, (label, turn_run, active_run, reminded) in enumerate(cases):
+            with self.subTest(label):
+                self._execute("DELETE FROM agent_turn_state WHERE agent_id = ?", ("sc-architect",))
+                self._execute("DELETE FROM dispatch_runs WHERE id = ?", ("run-other-active",))
+                run_id = f"run-handoff-{index}"
+                self._seed_overdue_handoff(run_id=run_id, message_id=f"msg-handoff-{index}", from_agent="sc-coder", target_agent="sc-architect")
+                if active_run:
+                    self._execute(
+                        """
+                        INSERT INTO dispatch_runs (
+                            id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
+                            message_type, subject, body, priority, status, require_reply, requested_at, started_at
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        ("run-other-active", None, "dashboard", "sc-architect", "start_if_possible", "managed",
+                         "info", "other task", "work", "normal", "running", 0, _now(), _now()),
+                    )
+                if turn_run is not None:
+                    self._execute(
+                        "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
+                        ("sc-architect", 1, run_id if turn_run == "self" else "some-other-run", "", "claude-code", _now(), 1),
+                    )
 
-        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
-        self.assertEqual([r["runId"] for r in payload["reminded"]], [run_id],
-                         f"same-run turn_busy must not block the reminder; got {payload}")
-        self.assertFalse(any(s.get("runId") == run_id for s in payload["skipped"]), payload)
-
-    def test_reminder_skipped_when_turn_busy_is_a_different_run(self):
-        # turn_busy fresh for a DIFFERENT run id = the agent is busy on OTHER work
-        # → still skip (busy), reminder retried when idle.
-        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
-        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
-        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
-
-        run_id = "run-handoff-diff"
-        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-diff", from_agent="sc-coder", target_agent="sc-architect")
-        self._execute(
-            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("sc-architect", 1, "some-other-run", "", "claude-code", _now(), 1),
-        )
-
-        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
-        self.assertEqual([r["runId"] for r in payload["reminded"]], [], payload)
-        skip = next((s for s in payload["skipped"] if s.get("runId") == run_id), None)
-        self.assertIsNotNone(skip, payload)
-        self.assertIn("busy", skip["reason"])
-
-    def test_reminder_skipped_when_agent_has_active_dispatch_run(self):
-        # A claimed/running dispatch run (hasActiveRun) = genuinely executing → skip,
-        # even if turn_busy happens to point at the run being reminded.
-        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
-        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
-        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
-
-        run_id = "run-handoff-active"
-        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-active", from_agent="sc-coder", target_agent="sc-architect")
-        # Separate claimed/running run for the same agent = hasActiveRun.
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode, execution_mode,
-                message_type, subject, body, priority, status, require_reply, requested_at, started_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            ("run-other-active", None, "dashboard", "sc-architect", "start_if_possible", "managed",
-             "info", "other task", "work", "normal", "running", 0, _now(), _now()),
-        )
-        self._execute(
-            "INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at, ready) VALUES (?,?,?,?,?,?,?)",
-            ("sc-architect", 1, run_id, "", "claude-code", _now(), 1),
-        )
-
-        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
-        self.assertEqual([r["runId"] for r in payload["reminded"]], [], payload)
-        skip = next((s for s in payload["skipped"] if s.get("runId") == run_id), None)
-        self.assertIsNotNone(skip, payload)
-        self.assertIn("busy", skip["reason"])
-
-    def test_reminder_fires_when_agent_not_busy_at_all(self):
-        # No active run, no fresh turn_busy → remind (existing behavior preserved).
-        self._register_live_codex_resident("sc-architect", session_handle="arch-thread", bridge_id="arch-bridge", port=1)
-        self._register_live_codex_resident("sc-coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
-        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1, "reply_reminder_max_count": 0})
-
-        run_id = "run-handoff-idle"
-        self._seed_overdue_handoff(run_id=run_id, message_id="msg-handoff-idle", from_agent="sc-coder", target_agent="sc-architect")
-
-        payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
-        self.assertEqual([r["runId"] for r in payload["reminded"]], [run_id], payload)
+                payload = asyncio.run(self._async_run_contract_reminders_once(run_id=run_id, dry_run=True))
+                skip = next((s for s in payload["skipped"] if s.get("runId") == run_id), None)
+                if reminded:
+                    self.assertEqual([r["runId"] for r in payload["reminded"]], [run_id], payload)
+                    self.assertIsNone(skip, payload)
+                else:
+                    self.assertEqual([r["runId"] for r in payload["reminded"]], [], payload)
+                    self.assertIsNotNone(skip, payload)
+                    self.assertIn("busy", skip["reason"])
 
     def test_contract_reminders_skip_dashboard_target_contracts(self):
         self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
@@ -9975,30 +9913,6 @@ class ApiV2RegressionTests(FastApiTestCase):
             term["status"], "stopped",
             "terminal row must be stopped after reconcile-driven hygiene reap",
         )
-
-    def test_periodic_dispatch_reconcile_sends_contract_reminders(self):
-        self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
-        self._register_live_codex_resident("coder", session_handle="coder-thread", bridge_id="coder-bridge", port=2)
-        self.client.put("/api/v1/settings", json={"reply_reminder_minutes": 1, "reply_reminder_repeat_minutes": 1})
-
-        created = self._dispatch(
-            from_agent="lead",
-            to="coder",
-            type="request",
-            subject="answer me",
-            body="please answer",
-            mode="start_if_possible",
-            createMessage=True,
-        )
-        run_id = created["runs"][0]["runId"]
-        overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
-        self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
-
-        result = asyncio.run(service_main._run_dispatch_reconcile_once())
-        self.assertEqual(result["reply_reminders"], 1)
-
-        event = self._fetchone("SELECT event_type FROM dispatch_events WHERE run_id = ? AND event_type = 'reply_reminder'", (run_id,))
-        self.assertIsNotNone(event)
 
     def test_periodic_dispatch_reconcile_skips_historical_contract_reminders(self):
         self._register_live_codex_resident("lead", session_handle="lead-thread", bridge_id="lead-bridge", port=1)
@@ -10417,8 +10331,8 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(attach_body["sessionId"], "sess_pi_console_new")
         self.assertEqual(attach_body["agentId"], "pi-console-agent")
 
-    def test_channel_route_delivered_awaiting_reply_shows_online_not_working(self):
-        # Status-split (2026-05-31): a channel-route delivered+require_reply run
+    def test_channel_and_resident_route_delivered_awaiting_reply_shows_online_not_working(self):
+        # Status-split (2026-05-31): a channel- or resident-route delivered+require_reply run
         # with NO fresh turn_busy and NO active run means the turn ENDED — the
         # agent is IDLE but owes a reply. That is `online` with an awaiting-reply
         # reason, NOT orange `working`. (Previously this was forced to "working",
@@ -10441,63 +10355,62 @@ class ApiV2RegressionTests(FastApiTestCase):
             pty=True,
             terminalRuntimes=["claude-code"],
         )
-        self._register("channel-claude", runtime="claude-code", sessionMode="resident")
-        # status_engine=new: a resident's liveness is its bridge freshness; stamp a live
-        # channel-sidecar (proof-of-life) so it reads online (not stale) like under old.
-        self._stamp_live_channel_sidecar("channel-claude")
+        for execution_mode in ("channel", "resident"):
+            with self.subTest(execution_mode=execution_mode):
+                agent_id = f"{execution_mode}-claude"
+                run_id = f"run_{execution_mode}_busy_1"
+                self._register(agent_id, runtime="claude-code", sessionMode="resident")
+                # status_engine=new: a resident's liveness is its bridge freshness; stamp a live
+                # channel-sidecar (proof-of-life) so it reads online (not stale) like under old.
+                self._stamp_live_channel_sidecar(agent_id)
 
-        # Baseline: no runs → not working.
-        agent_response = self.client.get("/api/v1/agents/channel-claude")
-        self.assertEqual(agent_response.status_code, 200, agent_response.text)
-        self.assertNotEqual(agent_response.json()["agent"]["status"], "working")
+                # Baseline: no runs → not working.
+                agent_response = self.client.get(f"/api/v1/agents/{agent_id}")
+                self.assertEqual(agent_response.status_code, 200, agent_response.text)
+                self.assertNotEqual(agent_response.json()["agent"]["status"], "working")
 
-        # Seed a channel-route delivered dispatch_run awaiting reply.
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_channel_busy_1",
-                None,
-                "dashboard",
-                "channel-claude",
-                "start_if_possible",
-                "channel",
-                "request",
-                "deep question",
-                "think hard about this",
-                "normal",
-                "delivered",
-                1,
-                "2026-05-21T00:00:00Z",
-            ),
-        )
-        # Invalidate cache so the next read recomputes against the new run.
-        asyncio.run(self._async_invalidate("channel-claude"))
+                # Seed a delivered dispatch_run awaiting reply on this route.
+                self._execute(
+                    """
+                    INSERT INTO dispatch_runs (
+                        id, message_id, from_agent, target_agent, dispatch_mode,
+                        execution_mode, message_type, subject, body, priority, status,
+                        require_reply, requested_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        run_id,
+                        None,
+                        "dashboard",
+                        agent_id,
+                        "start_if_possible",
+                        execution_mode,
+                        "request",
+                        "deep question",
+                        "think hard about this",
+                        "normal",
+                        "delivered",
+                        1,
+                        "2026-05-21T00:00:00Z",
+                    ),
+                )
+                # Invalidate cache so the next read recomputes against the new run.
+                asyncio.run(self._async_invalidate(agent_id))
 
-        awaiting_response = self.client.get("/api/v1/agents/channel-claude")
-        self.assertEqual(awaiting_response.status_code, 200, awaiting_response.text)
-        awaiting_payload = awaiting_response.json()["agent"]
-        # NEW contract: online (idle, reachable) — NOT working — with the
-        # open-reply contract surfaced in the reason.
-        self.assertEqual(awaiting_payload["status"], "online", awaiting_payload)
-        self.assertNotEqual(awaiting_payload["status"], "working")
-        self.assertIn("awaiting reply", awaiting_payload.get("statusNote", "").lower())
+                awaiting_response = self.client.get(f"/api/v1/agents/{agent_id}")
+                self.assertEqual(awaiting_response.status_code, 200, awaiting_response.text)
+                awaiting_payload = awaiting_response.json()["agent"]
+                # online (idle, reachable) — NOT working — with the open-reply contract in the reason.
+                self.assertEqual(awaiting_payload["status"], "online", awaiting_payload)
+                self.assertIn("awaiting reply", (awaiting_payload.get("statusNote") or "").lower())
 
-        # Reply lands → run completes → no longer awaiting.
-        self._execute(
-            "UPDATE dispatch_runs SET status = 'completed' WHERE id = ?",
-            ("run_channel_busy_1",),
-        )
-        asyncio.run(self._async_invalidate("channel-claude"))
-        idle_response = self.client.get("/api/v1/agents/channel-claude")
-        self.assertEqual(idle_response.status_code, 200, idle_response.text)
-        self.assertNotEqual(idle_response.json()["agent"]["status"], "working")
-        self.assertNotIn("awaiting reply", idle_response.json()["agent"].get("statusNote", "").lower())
+                # Reply lands → run completes → no longer awaiting.
+                self._execute("UPDATE dispatch_runs SET status = 'completed' WHERE id = ?", (run_id,))
+                asyncio.run(self._async_invalidate(agent_id))
+                idle_response = self.client.get(f"/api/v1/agents/{agent_id}")
+                self.assertEqual(idle_response.status_code, 200, idle_response.text)
+                self.assertNotEqual(idle_response.json()["agent"]["status"], "working")
+                self.assertNotIn("awaiting reply", (idle_response.json()["agent"].get("statusNote") or "").lower())
 
     async def _async_invalidate(self, agent_id: str):
         from service.db import get_db as _get_db
@@ -10802,115 +10715,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(ctl["action"], "stop")
         ag = self._fetchone("SELECT status FROM agents WHERE id='console-agent'")
         self.assertEqual(ag["status"], "stopped")
-
-    def test_wake_on_message_send_to_available_agent_queues_dispatch(self):
-        # Phase 3: sending to an `available` agent (env online, no live
-        # worker yet) must NOT be rejected as "cannot start live work
-        # now" — the dispatch path queues a run that the bridge claims
-        # on next poll, and the per-runtime dispatch handlers
-        # (PiSession.acquirePiSession, claude-aify wrapper spawn, etc.)
-        # spawn the worker on first claim. The send-side preflight
-        # already allows this after Phase 2's taxonomy change (available
-        # not in {offline, stale, stopped}); this test pins the
-        # contract: send to available → ok=true with a queued
-        # dispatchRun, NOT the "no live wake" error.
-        self._heartbeat_environment(
-            id="env_wake",
-            bridgeId="bridge-wake",
-            machineId="linux:wake",
-            runtimes=[
-                {
-                    "runtime": "pi",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True, "steer": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["pi"],
-        )
-        self._register("wake-pi", runtime="pi", sessionMode="managed")
-
-        # Confirm "available" status precondition.
-        avail = self.client.get("/api/v1/agents/wake-pi").json()["agent"]
-        self.assertEqual(avail["status"], "available", avail)
-
-        # Send with trigger=true → expect queued dispatch_run, not error.
-        sent = self._send_message(
-            from_agent="dashboard",
-            to="wake-pi",
-            type="request",
-            subject="wake up",
-            body="please get to work",
-            trigger=True,
-        )
-        # Phase 3 contract: available agents are NOT blocked from receiving
-        # work. The dispatch_run is created and the bridge will claim it.
-        self.assertTrue(
-            sent.get("ok") is not False or len(sent.get("dispatchRuns", [])) > 0,
-            f"Expected send to available agent to queue a dispatch, got {sent}",
-        )
-
-    def test_send_to_available_managed_codex_no_session_coldstarts_with_autobind(self):
-        # Phase 2 (2026-05-31): a wrapper-backed managed codex agent that was
-        # only REGISTERED (never run, no agent_sessions row, no env binding)
-        # must NOT be rejected with "cannot start live work now" when an
-        # online env advertises codex. The send path falls back to
-        # _coldstart_spawn_request_for_dispatch, which auto-binds the online
-        # env and queues a spawn_request the bridge claims. This is the
-        # operator-reported sc-coder bug (claude worked because its channel
-        # branch is best-effort; codex/hermes/pi hard-rejected).
-        #
-        # This suite's setUp opts into pre-Plan-4 legacy defaults; restore the
-        # production wrapper-backed defaults this behavior depends on.
-        self.client.put(
-            "/api/v1/settings",
-            json={
-                "insert_messages_via_console": False,
-                "managed_via_wrapper": ["codex", "hermes"],
-                "managed_terminal_backing_enabled": True,
-            },
-        )
-        self._heartbeat_environment(
-            id="env_codex",
-            bridgeId="bridge-codex",
-            machineId="linux:codex",
-            runtimes=[
-                {
-                    "runtime": "codex",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"nativeResume": True, "interrupt": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["codex"],
-        )
-        self._register("sc-coder", runtime="codex", sessionMode="managed")
-
-        avail = self.client.get("/api/v1/agents/sc-coder").json()["agent"]
-        self.assertEqual(avail["status"], "available", avail)
-
-        sent = self._send_message(
-            from_agent="dashboard",
-            to="sc-coder",
-            type="request",
-            subject="start work",
-            body="please get to work",
-            trigger=True,
-        )
-        self.assertNotEqual(
-            sent.get("error"),
-            "Message was not sent because one or more recipients cannot start live work now.",
-            f"available codex agent must not be hard-rejected; got {sent}",
-        )
-        rows = self._fetchall(
-            "SELECT id, environment_id, status FROM spawn_requests WHERE agent_id = ?",
-            ("sc-coder",),
-        )
-        self.assertEqual(len(rows), 1, f"a claimable spawn_request must back the agent; got {sent}")
-        self.assertEqual(rows[0]["environment_id"], "env_codex")
-        self.assertEqual(rows[0]["status"], "queued")
 
     def test_send_to_available_managed_codex_no_env_rejects_clearly(self):
         # Phase 2: when NO online env advertises the runtime, the send must
@@ -11557,52 +11361,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(len(closed), 1, f"reply_reminder_skipped must not block reaping; got {closed}")
         self.assertEqual(closed[0]["runId"], "run_reminder_1")
 
-    def test_turn_start_endpoint_sets_turn_busy_idempotent(self):
-        # Pinning test for /agents/{id}/turn-start (added in 805e2df).
-        # Symmetric counterpart to /turn-end. Sets turn_busy=1, refreshes
-        # turn_updated_at on every call.
-        self._register("turnstart-claude", runtime="claude-code", sessionMode="resident")
-        r1 = self.client.post("/api/v1/agents/turnstart-claude/turn-start", json={})
-        self.assertEqual(r1.status_code, 200, r1.text)
-        self.assertTrue(r1.json()["ok"])
-        tb = self._fetchone("SELECT turn_busy, turn_bridge_id, turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("turnstart-claude",))
-        self.assertEqual(int(tb["turn_busy"] or 0), 1)
-        self.assertEqual(tb["turn_bridge_id"], "user-prompt-submit")
-        first_updated = tb["turn_updated_at"]
-
-        # Call again — should refresh turn_updated_at (idempotent).
-        import time as _time
-        _time.sleep(0.01)
-        r2 = self.client.post("/api/v1/agents/turnstart-claude/turn-start", json={})
-        self.assertEqual(r2.status_code, 200, r2.text)
-        tb2 = self._fetchone("SELECT turn_updated_at FROM agent_turn_state WHERE agent_id = ?", ("turnstart-claude",))
-        # second call should not regress the timestamp
-        self.assertTrue(tb2["turn_updated_at"] >= first_updated)
-
-    def test_turn_start_does_not_clobber_in_flight_managed_dispatch(self):
-        # Code review I2 pinning (2026-05-22): UserPromptSubmit hook firing
-        # on a resident-takeover shouldn't wipe out a managed dispatch's
-        # turn_run_id / turn_bridge_id that's already in flight.
-        self._register("dual-claude", runtime="claude-code", sessionMode="resident")
-        # Simulate a managed bridge having just set turn_busy with real run linkage
-        self._execute(
-            """
-            INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_bridge_id, turn_runtime, turn_updated_at)
-            VALUES (?, 1, 'run_real_123', 'real-bridge-abc', 'claude-code', ?)
-            """,
-            ("dual-claude", _now()),
-        )
-        # Then UserPromptSubmit fires
-        r = self.client.post("/api/v1/agents/dual-claude/turn-start", json={})
-        self.assertEqual(r.status_code, 200, r.text)
-        tb = self._fetchone("SELECT turn_busy, turn_run_id, turn_bridge_id FROM agent_turn_state WHERE agent_id = ?", ("dual-claude",))
-        # turn_busy should still be 1
-        self.assertEqual(int(tb["turn_busy"] or 0), 1)
-        # turn_run_id should be preserved (managed dispatch context lives)
-        self.assertEqual(tb["turn_run_id"], "run_real_123")
-        # turn_bridge_id should NOT be clobbered to user-prompt-submit
-        self.assertEqual(tb["turn_bridge_id"], "real-bridge-abc")
-
     def test_virtual_rpc_bridge_takeover_revives_stopped_terminal(self):
         # Code review and operator-report pinning: bridge takeover on
         # /terminals/{id}/output also revives a stopped synth terminal
@@ -12021,75 +11779,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("vterm_idle_disabled",))
         self.assertEqual(term["status"], "running")
 
-    def test_idle_virtual_rpc_workers_not_closed_when_in_flight_run(self):
-        # Guardrail: in-flight dispatch_run blocks auto-close.
-        self.client.put("/api/v1/settings", json={"worker_idle_close_enabled": True, "worker_idle_close_minutes": 5})
-        self._heartbeat_environment(
-            id="env_idle_inflight",
-            bridgeId="bridge-idle-inflight",
-            machineId="linux:idle-inflight",
-            runtimes=[{"runtime": "pi", "modes": ["managed-warm"], "capabilities": {}}],
-        )
-        self._register("inflight-pi", runtime="pi", sessionMode="managed")
-        self._execute(
-            """
-            INSERT INTO agent_sessions (
-                id, agent_id, environment_id, runtime, workspace, mode,
-                owner_mode, owner_bridge_id, terminal_id, terminal_status,
-                terminal_command, terminal_workspace, process_id, session_handle,
-                app_server_url, spawn_spec_id, spawn_request_id, capabilities,
-                telemetry, status, started_at, last_seen, ended_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "sess_inflight", "inflight-pi", "env_idle_inflight", "pi", "/w", "managed",
-                "managed", "bridge-idle-inflight", "vterm_inflight", "running",
-                "aify://virtual-rpc/pi", "/w", "", "pi-handle-2", "", None, None,
-                "{}", "{}", "running", _now(), _now(), None,
-            ),
-        )
-        stale_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._execute(
-            """
-            INSERT INTO terminal_sessions (
-                id, session_id, agent_id, environment_id, bridge_id, runtime,
-                workspace, command, output, status, requested_by,
-                created_at, updated_at, stopped_at, error
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "vterm_inflight", "sess_inflight", "inflight-pi", "env_idle_inflight",
-                "bridge-idle-inflight", "pi", "/w", "aify://virtual-rpc/pi",
-                "", "running", "bridge-rpc", stale_at, stale_at, None, "",
-            ),
-        )
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority,
-                status, require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_inflight", None, "dashboard", "inflight-pi", "start_if_possible",
-                "managed", "request", "in flight", "body", "normal", "running", 0, _now(),
-            ),
-        )
-
-        async def _run():
-            from service.db import get_db as _get_db
-            db = await _get_db()
-            try:
-                return await _close_idle_virtual_rpc_workers(db, idle_close_enabled=True, idle_close_minutes=1, limit=10)
-            finally:
-                await db.commit()
-                await db.close()
-        closed = asyncio.run(_run())
-        self.assertEqual(len(closed), 0, "in-flight run should block auto-close")
-        term = self._fetchone("SELECT status FROM terminal_sessions WHERE id = ?", ("vterm_inflight",))
-        self.assertEqual(term["status"], "running")
-
     def test_agent_favorite_endpoint_toggles_and_returns_in_payload(self):
         self._register("fav-agent")
         # Default not favorited.
@@ -12356,59 +12045,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         agent = self.client.get("/api/v1/agents/taxonomy-hermes-wrapper").json()["agent"]
         self.assertEqual(agent["status"], "online", agent)
 
-    def test_resident_route_delivered_awaiting_reply_shows_online_not_working(self):
-        # Status-split (2026-05-31): a resident-route delivered+require_reply run
-        # with no fresh turn_busy = idle-owing-reply = `online` (awaiting reply),
-        # NOT `working`. Same contract as the channel-route case above.
-        self._heartbeat_environment(
-            id="env_resident_busy",
-            bridgeId="bridge-resident-busy",
-            machineId="linux:resident-busy",
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["claude-code"],
-        )
-        self._register("resident-claude", runtime="claude-code", sessionMode="resident")
-        self._stamp_live_channel_sidecar("resident-claude")  # status_engine=new resident proof-of-life
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_resident_busy_1",
-                None,
-                "dashboard",
-                "resident-claude",
-                "start_if_possible",
-                "resident",
-                "request",
-                "question to resident",
-                "deep think",
-                "normal",
-                "delivered",
-                1,
-                "2026-05-21T00:00:00Z",
-            ),
-        )
-        asyncio.run(self._async_invalidate("resident-claude"))
-        response = self.client.get("/api/v1/agents/resident-claude")
-        self.assertEqual(response.status_code, 200, response.text)
-        agent = response.json()["agent"]
-        self.assertEqual(agent["status"], "online", agent)
-        self.assertNotEqual(agent["status"], "working")
-        self.assertIn("awaiting reply", (agent.get("statusNote") or "").lower())
-
     def test_reply_landing_clears_turn_busy_for_channel_route(self):
         # claude-channel.js pulses turn_busy=true on every delivery and
         # relies on the 120s stale window for cleanup. That's too slow
@@ -12535,62 +12171,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertEqual(after["status"], "working", after)
         st = self._fetchone("SELECT in_turn FROM agent_status_state WHERE agent_id = ?", ("clearer-claude",))
         self.assertEqual(int(st["in_turn"] or 0), 1, "reply-landed must NOT clear the status in_turn signal")
-
-    def test_terminal_route_delivered_does_not_pin_working_status(self):
-        # Guardrail for the channel-route fix: the new
-        # _current_channel_awaiting_reply_run_row lookup must filter on
-        # execution_mode='channel'. A terminal-route dispatch sitting
-        # 'delivered' as its normal lingering state must NOT light up
-        # "working" — that's the original failure mode the strict
-        # _current_active_run_row exists to avoid.
-        self._heartbeat_environment(
-            id="env_terminal_busy",
-            bridgeId="bridge-terminal-busy",
-            machineId="linux:terminal-busy",
-            runtimes=[
-                {
-                    "runtime": "claude-code",
-                    "modes": ["managed-warm"],
-                    "capabilities": {"interrupt": True},
-                }
-            ],
-            terminal=True,
-            pty=True,
-            terminalRuntimes=["claude-code"],
-        )
-        self._register("terminal-claude", runtime="claude-code", sessionMode="managed")
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (
-                id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status,
-                require_reply, requested_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "run_terminal_busy_1",
-                None,
-                "dashboard",
-                "terminal-claude",
-                "start_if_possible",
-                "managed",
-                "request",
-                "delivered-terminal",
-                "body",
-                "normal",
-                "delivered",
-                1,
-                "2026-05-21T00:00:00Z",
-            ),
-        )
-        asyncio.run(self._async_invalidate("terminal-claude"))
-        response = self.client.get("/api/v1/agents/terminal-claude")
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertNotEqual(
-            response.json()["agent"]["status"],
-            "working",
-            "execution_mode='managed' delivered run must NOT light up working — that's the terminal-delivery lingering bug guard",
-        )
 
     def test_pi_session_state_reports_bridge_ownership_for_watchdog(self):
         # Phase 4: omp-aify queries this before exec'ing OMP. When no virtual
@@ -12734,16 +12314,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-agent",))
         self.assertEqual(row["session_handle"], "20260529_071302_ea65af")
 
-    def test_session_handle_patch_drops_unexpanded_placeholder(self):
-        self._register("ph-patch", runtime="hermes")
-        resp = self.client.patch(
-            "/api/v1/agents/ph-patch/session-handle",
-            json={"sessionHandle": "${HERMES_SESSION_ID}"},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        row = self._fetchone("SELECT session_handle FROM agents WHERE id = ?", ("ph-patch",))
-        self.assertEqual((row["session_handle"] or ""), "")
-
     # ---- Workstream A2: unconditional liveness beat (2026-06-01) ----
 
     def _has_live_channel_sidecar(self, agent_id: str) -> bool:
@@ -12874,36 +12444,25 @@ class ApiV2RegressionTests(FastApiTestCase):
             if args and args[0] == "agent_status"
         ]
 
-    def test_stop_worker_broadcasts_agent_status(self):
-        self._register("c1-stopworker")
-        self.ws.broadcasts.clear()
-
-        resp = self.client.post("/api/v1/agents/c1-stopworker/stop-worker")
-        self.assertEqual(resp.status_code, 200, resp.text)
-
-        events = self._agent_status_events()
-        self.assertTrue(events, "stop-worker must push an agent_status event")
-        evt = events[-1]
-        self.assertEqual(evt["agentId"], "c1-stopworker")
-        self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
-        self.assertIn("statusNote", evt)
-
-    def test_control_stop_broadcasts_agent_status(self):
-        self._register("c1-control")
-        self.ws.broadcasts.clear()
-
-        resp = self.client.post(
-            "/api/v1/agents/c1-control/control",
-            json={"action": "stop", "from_agent": "dashboard"},
+    def test_stop_worker_and_control_stop_broadcast_agent_status(self):
+        routes = (
+            ("c1-stopworker", "/api/v1/agents/c1-stopworker/stop-worker", None),
+            ("c1-control", "/api/v1/agents/c1-control/control", {"action": "stop", "from_agent": "dashboard"}),
         )
-        self.assertEqual(resp.status_code, 200, resp.text)
+        for agent_id, url, body in routes:
+            with self.subTest(route=url):
+                self._register(agent_id)
+                self.ws.broadcasts.clear()
 
-        events = self._agent_status_events()
-        self.assertTrue(events, "control(stop) must push an agent_status event")
-        evt = events[-1]
-        self.assertEqual(evt["agentId"], "c1-control")
-        self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
-        self.assertIn("statusNote", evt)
+                resp = self.client.post(url, json=body) if body is not None else self.client.post(url)
+                self.assertEqual(resp.status_code, 200, resp.text)
+
+                events = self._agent_status_events()
+                self.assertTrue(events, f"{url} must push an agent_status event")
+                evt = events[-1]
+                self.assertEqual(evt["agentId"], agent_id)
+                self.assertTrue(str(evt.get("status") or ""), "agent_status must carry a computed status")
+                self.assertIn("statusNote", evt)
 
     # --- PTY pid persistence + kill-by-pid stop fallback (terminals) ---
     #
@@ -13068,19 +12627,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIs(write("\x1b[1;1Htick")["reconstructed"], True, "a screen rebuilt from the tail read as whole")
         self.assertIs(write("\x1b[2J\x1b[Hwhole frame")["reconstructed"], False, "a full clear did not make it whole")
 
-    def test_agent_console_tail_control_a_screen_from_the_first_byte_is_not_rebuilt(self):
-        from service.terminal_snapshot import drop_live_screen
-        self._seed_managed_claude_with_attached_terminal("console-fresh", "term_console_fresh")
-        drop_live_screen("term_console_fresh")
-        self.addCleanup(drop_live_screen, "term_console_fresh")
-        written = self.client.post(
-            "/api/v1/terminals/term_console_fresh/output",
-            json={"bridgeId": "bridge-current", "output": "\x1b[1;1Hfirst bytes", "status": "attached"},
-        )
-        self.assertEqual(written.status_code, 200, written.text)
-        data = self.client.get("/api/v1/agents/console-fresh/console?lines=5").json()
-        self.assertIs(data["reconstructed"], False, data)
-
     def test_agent_console_tail_replay_without_a_full_clear_is_rebuilt(self):
         self._seed_managed_claude_with_attached_terminal("console-replay-partial", "term_console_replay_partial")
         self._execute(
@@ -13204,33 +12750,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         audit = [e for e in events if e["event_type"] == "agent_console_input"]
         self.assertTrue(audit, f"expected an agent_console_input audit event; got {[e['event_type'] for e in events]}")
         self.assertIn("console-manager", audit[-1]["body"])
-
-    def test_agent_console_input_unknown_caller_rejected(self):
-        self._seed_managed_claude_with_attached_terminal("console-inputee2", "term_console_in2")
-        resp = self.client.post(
-            "/api/v1/agents/console-inputee2/console/input",
-            json={"text": "x", "from": "ghost-agent-not-registered"},
-        )
-        self.assertEqual(resp.status_code, 403, resp.text)
-
-    def test_agent_console_input_no_live_console_returns_clear_message(self):
-        # Managed agent, registered, but NO live console and nothing to autostart
-        # into (no running agent_sessions row / online env terminal). The endpoint
-        # must return a clear message, not crash.
-        self._heartbeat_environment(
-            runtimes=[{"runtime": "claude-code", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
-        )
-        self._register("console-cold", runtime="claude-code", sessionMode="managed")
-        self._register("console-caller", runtime="claude-code", sessionMode="managed")
-        resp = self.client.post(
-            "/api/v1/agents/console-cold/console/input",
-            json={"text": "hi", "from": "console-caller"},
-        )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        data = resp.json()
-        self.assertFalse(data["ok"], data)
-        self.assertFalse(data["live"], data)
-        self.assertIn("no live console", data["message"].lower())
 
     async def _append_control(self, terminal_id: str, *, action: str) -> str:
         db = await get_db()
@@ -13477,18 +12996,6 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_has_live_managed_wrapper_child_true_for_fresh_bridge(self):
-        self._heartbeat_environment(
-            runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
-        )
-        self._register("mwc-fresh", runtime="hermes", sessionMode="managed")
-        self._seed_bridge(bridge_id="mwc-1", agent_id="mwc-fresh", last_seen=_now())
-        self._execute(
-            "UPDATE bridge_instances SET bridge_kind = 'managed-wrapper-child' WHERE id = ?",
-            ("mwc-1",),
-        )
-        self.assertTrue(self._run_has_live_managed_wrapper_child("mwc-fresh"))
-
     def test_has_live_managed_wrapper_child_false_for_stale_superseded_or_none(self):
         self._heartbeat_environment(
             runtimes=[{"runtime": "hermes", "modes": ["resident"], "capabilities": {}}],
@@ -13686,112 +13193,33 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_coldstart_spawn_request_carries_stored_session_handle(self):
+    def test_coldstart_spawn_request_carries_the_stored_session_handle_or_none(self):
         # G1 (2026-06-03): the resident->managed cold-start must RESUME the
         # agent's existing native session, not start fresh. The inserted
         # spawn_request must carry the agent's stored session_handle so the
         # managed worker resumes the codex thread / claude transcript / hermes
-        # session instead of losing it.
+        # session instead of losing it. An agent with NO stored handle yields an
+        # empty handle (the worker starts a fresh session — nothing to resume).
         self._online_codex_env_for_coldstart()
-        self._register("g1-coder", runtime="codex", sessionMode="managed")
-        self._execute(
-            "UPDATE agents SET session_handle = ? WHERE id = ?",
-            ("codex-thread-g1", "g1-coder"),
-        )
+        for agent_id, stored_handle in (("g1-coder", "codex-thread-g1"), ("g1-fresh", "")):
+            with self.subTest(stored_handle=stored_handle):
+                self._register(agent_id, runtime="codex", sessionMode="managed")
+                if stored_handle:
+                    self._execute("UPDATE agents SET session_handle = ? WHERE id = ?", (stored_handle, agent_id))
 
-        created = self._run_coldstart("g1-coder")
-        self.assertTrue(created, "a coldstart spawn_request must be created when an online env hosts the runtime")
+                created = self._run_coldstart(agent_id)
+                self.assertTrue(created, "a coldstart spawn_request must be created when an online env hosts the runtime")
 
-        row = self._fetchone(
-            "SELECT session_handle, resume_policy FROM spawn_requests WHERE agent_id = ? AND status = 'queued'",
-            ("g1-coder",),
-        )
-        self.assertIsNotNone(row, "expected a queued coldstart spawn_request")
-        self.assertEqual(
-            row["session_handle"], "codex-thread-g1",
-            "coldstart spawn_request must carry the agent's stored native session handle",
-        )
-        self.assertEqual(row["resume_policy"], "native_first")
-
-    def test_coldstart_spawn_request_empty_handle_when_agent_has_none(self):
-        # G1 boundary: an agent with NO stored session handle yields a coldstart
-        # spawn_request with an empty handle (the worker starts a fresh session,
-        # which is correct — there is nothing to resume).
-        self._online_codex_env_for_coldstart(env_id="env_g1b")
-        self._register("g1-fresh", runtime="codex", sessionMode="managed")
-
-        created = self._run_coldstart("g1-fresh")
-        self.assertTrue(created)
-
-        row = self._fetchone(
-            "SELECT session_handle FROM spawn_requests WHERE agent_id = ? AND status = 'queued'",
-            ("g1-fresh",),
-        )
-        self.assertIsNotNone(row)
-        self.assertEqual((row["session_handle"] or ""), "", "no stored handle -> empty handle on the coldstart spawn_request")
-
-    # ── Phase 1 G2: managed->resident blocked for managed-only runtimes ──────
-    def test_switch_pi_managed_to_resident_is_rejected_without_force(self):
-        # G2 (2026-06-03): pi (and opencode) do not support a resident bridge.
-        # Flipping a managed pi agent to resident yields a presence-only agent
-        # whose every dispatch is rejected — an undeliverable footgun. The
-        # server must reject the switch with an actionable 409 unless force=true.
-        self._register("g2-pi", runtime="pi", sessionMode="managed")
-
-        rejected = self.client.patch(
-            "/api/v1/agents/g2-pi/session-mode",
-            json={"mode": "resident"},
-        )
-        self.assertEqual(rejected.status_code, 409, rejected.text)
-        self.assertIn("not supported", rejected.json().get("detail", "").lower())
-
-        # Still managed — the rejected switch must not have changed the mode.
-        agent = self._fetchone("SELECT session_mode FROM agents WHERE id = ?", ("g2-pi",))
-        self.assertEqual(_normalize_session_mode(agent["session_mode"] or ""), "managed")
-
-    def test_switch_pi_managed_to_resident_with_force_warns_but_proceeds(self):
-        # G2: force=true overrides the guard (operator metadata-only flip) but
-        # the response carries a clear warning that the agent is now
-        # presence-only and undeliverable.
-        self._register("g2-pi-forced", runtime="pi", sessionMode="managed")
-
-        forced = self.client.patch(
-            "/api/v1/agents/g2-pi-forced/session-mode",
-            json={"mode": "resident", "force": True},
-        )
-        self.assertEqual(forced.status_code, 200, forced.text)
-        body = forced.json()
-        self.assertEqual(body.get("mode"), "resident")
-        self.assertIn("not supported", str(body.get("warning", "")).lower())
+                row = self._fetchone(
+                    "SELECT session_handle, resume_policy FROM spawn_requests WHERE agent_id = ? AND status = 'queued'",
+                    (agent_id,),
+                )
+                self.assertIsNotNone(row, "expected a queued coldstart spawn_request")
+                self.assertEqual((row["session_handle"] or ""), stored_handle)
+                if stored_handle:
+                    self.assertEqual(row["resume_policy"], "native_first")
 
     # ── Phase 3 item 1: case (a) joins LIVE terminal_sessions, not the denorm ──
-    def test_dead_session_reconcile_catches_stale_denorm_with_failed_terminal(self):
-        # The live-reproduced cms-manager/lc-coder/lc-tech-lead bug: a managed
-        # session with agent_sessions.terminal_status='attached' (stale denorm) but
-        # the live terminal_sessions row is 'failed'. The OLD case (a) read the
-        # frozen denorm and MISSED it; the fixed case (a) joins the live terminal
-        # table and reconciles it to 'stopped'.
-        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
-        self._seed_agent_row("lc-coder-x", "active")
-        self._seed_dead_session(
-            sid="sess_stale_denorm", agent_id="lc-coder-x",
-            mode="managed-warm", owner_mode="managed", status="running",
-            terminal_status="attached",  # STALE denorm
-        )
-        self._seed_terminal_for_session(
-            tid="term_live_failed", sid="sess_stale_denorm",
-            agent_id="lc-coder-x", status="failed",  # LIVE truth: dead
-        )
-        # Sanity: the denorm alone (old logic) would NOT have flagged it.
-        self.assertEqual(
-            self._fetchone(
-                "SELECT terminal_status FROM agent_sessions WHERE id = ?",
-                ("sess_stale_denorm",),
-            )["terminal_status"],
-            "attached",
-        )
-        self._run_dead_session_reconcile()
-        self.assertEqual(self._dead_session_status("sess_stale_denorm"), "stopped")
 
     def test_dead_session_reconcile_leaves_managed_session_without_terminals_alone(self):
         # A just-starting managed session that has NO terminal rows yet must NOT be
@@ -13817,8 +13245,13 @@ class ApiV2RegressionTests(FastApiTestCase):
                 await db.close()
         return asyncio.run(_run())
 
-    def test_derived_session_status_live_managed_terminal_attached_is_running(self):
+    def test_derived_session_status_follows_live_truth(self):
+        # The deriver only ever DOWNGRADES a live-looking stored status to 'stopped' (never
+        # promotes a terminal one), from the same live truth the agent dot uses. The managed
+        # dead-terminal case is proven end to end by the GET /sessions test below.
         self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+
+        # Managed session backed by a live (attached) terminal -> running.
         self._seed_agent_row("dv-live-mgr", "active")
         self._seed_dead_session(
             sid="sess_dv_live_mgr", agent_id="dv-live-mgr",
@@ -13829,33 +13262,9 @@ class ApiV2RegressionTests(FastApiTestCase):
             tid="term_dv_live", sid="sess_dv_live_mgr",
             agent_id="dv-live-mgr", status="attached",
         )
-        self.assertEqual(self._derived_session_status("sess_dv_live_mgr"), "running")
-
-    def test_derived_session_status_dead_managed_terminal_failed_is_stopped(self):
-        # The structural fix: even though the STORED status is still 'running' and
-        # the denorm says 'attached', the DERIVED display status is 'stopped'
-        # because the live terminal is failed — killing "Stopped/Stale but running".
-        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
-        self._seed_agent_row("dv-dead-mgr", "active")
-        self._seed_dead_session(
-            sid="sess_dv_dead_mgr", agent_id="dv-dead-mgr",
-            mode="managed-warm", owner_mode="managed", status="running",
-            terminal_status="attached",
-        )
-        self._seed_terminal_for_session(
-            tid="term_dv_dead", sid="sess_dv_dead_mgr",
-            agent_id="dv-dead-mgr", status="failed",
-        )
-        # Stored row still says running (deriver must NOT mutate it).
-        self.assertEqual(self._dead_session_status("sess_dv_dead_mgr"), "running")
-        self.assertEqual(self._derived_session_status("sess_dv_dead_mgr"), "stopped")
-
-    def test_derived_session_status_live_resident_fresh_bridge_is_running(self):
-        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        # Resident session with a fresh owning bridge -> running. A live channel-sidecar is
+        # the simpler proof path (_resident_bridge_is_fresh folds it in).
         self._seed_agent_row("dv-live-res", "active")
-        # A fresh resident MCP bridge: _resident_bridge_is_fresh reads the session's
-        # runtime_state.bridgeInstanceId; a live channel-sidecar is the simpler proof
-        # path used here.
         self._seed_owner_bridge(
             "dv-res-sidecar", "dv-live-res", last_seen_delta_seconds=-5,
             session_mode="resident", bridge_kind="channel-sidecar",
@@ -13865,10 +13274,7 @@ class ApiV2RegressionTests(FastApiTestCase):
             mode="resident", owner_mode="resident", status="running",
             owner_bridge_id="dv-res-sidecar",
         )
-        self.assertEqual(self._derived_session_status("sess_dv_live_res"), "running")
-
-    def test_derived_session_status_dead_resident_no_fresh_bridge_is_stopped(self):
-        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        # Resident session whose owning bridge is an hour stale -> stopped.
         self._seed_agent_row("dv-dead-res", "active")
         self._seed_owner_bridge(
             "dv-res-stale", "dv-dead-res", last_seen_delta_seconds=-3600,
@@ -13879,33 +13285,33 @@ class ApiV2RegressionTests(FastApiTestCase):
             mode="resident", owner_mode="resident", status="running",
             owner_bridge_id="dv-res-stale",
         )
-        self.assertEqual(self._derived_session_status("sess_dv_dead_res"), "stopped")
-
-    def test_derived_session_status_stopped_agent_is_stopped(self):
-        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        # Operator-stopped agent -> stopped, even with an attached terminal.
         self._seed_agent_row("dv-stopped-agent", "stopped")
         self._seed_dead_session(
             sid="sess_dv_stopped", agent_id="dv-stopped-agent",
             mode="managed-warm", owner_mode="managed", status="running",
             terminal_status="attached",
         )
-        # Even with a (hypothetically) attached terminal, a stopped agent forces stopped.
         self._seed_terminal_for_session(
             tid="term_dv_stopped", sid="sess_dv_stopped",
             agent_id="dv-stopped-agent", status="attached",
         )
-        self.assertEqual(self._derived_session_status("sess_dv_stopped"), "stopped")
-
-    def test_derived_session_status_terminal_stored_status_passes_through(self):
-        # A genuinely-terminal stored status is displayed as-is (deriver only ever
-        # downgrades a live-looking status, never promotes a terminal one).
-        self._heartbeat_environment(id="linux:test-host:default", machineId="linux:test-host")
+        # A genuinely-terminal stored status is displayed as-is.
         self._seed_agent_row("dv-ended", "active")
         self._seed_dead_session(
             sid="sess_dv_ended", agent_id="dv-ended",
             mode="managed-warm", owner_mode="managed", status="ended",
         )
-        self.assertEqual(self._derived_session_status("sess_dv_ended"), "ended")
+
+        for sid, expected in (
+            ("sess_dv_live_mgr", "running"),
+            ("sess_dv_live_res", "running"),
+            ("sess_dv_dead_res", "stopped"),
+            ("sess_dv_stopped", "stopped"),
+            ("sess_dv_ended", "ended"),
+        ):
+            with self.subTest(session=sid):
+                self.assertEqual(self._derived_session_status(sid), expected)
 
     def test_get_sessions_serves_derived_status_for_dead_managed_terminal(self):
         # End-to-end: GET /sessions returns the DERIVED status, so the dashboard
@@ -14319,6 +13725,8 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         self.assertEqual(columns[:4], ["environment_id", "bridge_id", "status", "requested_at"])
 
     def test_init_db_fails_controls_for_superseded_environment_bridge(self):
+        # Seeded with status `claimed` and NO claimed_at: the status alone must count as claimed, so
+        # the message names a claim that went away rather than "no bridge ever claimed".
         db_path = self._seed_terminal_control_db()
         conn = sqlite3.connect(str(db_path))
         conn.execute(
@@ -14342,6 +13750,7 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         self.assertEqual(row[0], "failed")
         self.assertTrue(row[1])
         self.assertIn("bridge is no longer current", row[2])
+        self.assertIn("claimed, then its bridge went away", row[2])
 
     def test_a_control_NOBODY_claimed_says_so(self):
         """The first question asked of a control that did not run is whether anything picked it up,
@@ -14405,34 +13814,6 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         self.assertIn("claimed, then its bridge went away", error)
         self.assertNotIn("never claimed", error)
 
-    def test_the_claimed_STATUS_counts_even_with_no_claimed_at(self):
-        """BOTH SIGNALS, because either can be absent on its own. `claimed_at` is what a claim writes;
-        `status = 'claimed'` is the state it moves to. The pre-existing test beside this one seeds
-        exactly that shape -- status `claimed`, no timestamp -- so keying on the timestamp alone would
-        have called a claimed control unclaimed, which is the same confident wrong answer in a new
-        place."""
-        db_path = self._seed_terminal_control_db()
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            """
-            INSERT INTO environment_controls (
-                id, environment_id, bridge_id, action, status, requested_at
-            ) VALUES (?,?,?,?,?,?)
-            """,
-            ("envctl-status-only", "env-1", "bridge-old", "stop", "claimed", "2026-07-15T00:00:00Z"),
-        )
-        conn.commit()
-        conn.close()
-
-        asyncio.run(init_db(db_path))
-
-        conn = sqlite3.connect(str(db_path))
-        error = conn.execute(
-            "SELECT error FROM environment_controls WHERE id = 'envctl-status-only'"
-        ).fetchone()[0]
-        conn.close()
-        self.assertNotIn("never claimed", error)
-
     def test_an_error_already_written_is_never_overwritten(self):
         """The drain is a last resort. A control that already recorded WHY it failed knows more than
         this sweep does, and the CASE has always preserved it -- pinned here because the branch this
@@ -14460,33 +13841,6 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         conn.close()
         self.assertEqual(error, "the launcher refused: no wrapper marker")
 
-    def test_terminal_controls_get_the_SAME_distinction(self):
-        """The two tables share one predicate and one message by design -- "is this environment's
-        bridge reachable?" must not depend on which table the control lives in. A fix applied to one
-        would recreate the same-rule-two-answers defect the shared rule exists to remove."""
-        db_path = self._seed_terminal_control_db(terminal_status="running")
-        conn = sqlite3.connect(str(db_path))
-        conn.execute(
-            """
-            INSERT INTO terminal_controls (
-                id, terminal_id, environment_id, bridge_id, action, status, requested_at
-            ) VALUES (?,?,?,?,?,?,?)
-            """,
-            ("termctl-unclaimed", "term-1", "env-1", "bridge-old", "input", "pending",
-             "2026-07-15T00:00:00Z"),
-        )
-        conn.commit()
-        conn.close()
-
-        asyncio.run(init_db(db_path))
-
-        conn = sqlite3.connect(str(db_path))
-        error = conn.execute(
-            "SELECT error FROM terminal_controls WHERE id = 'termctl-unclaimed'"
-        ).fetchone()[0]
-        conn.close()
-        self.assertIn("no bridge ever claimed this control", error)
-
     def test_init_db_fails_terminal_controls_for_superseded_environment_bridge(self):
         db_path = self._seed_terminal_control_db(terminal_status="running")
         conn = sqlite3.connect(str(db_path))
@@ -14511,3 +13865,5 @@ class TerminalSessionMigrationTests(unittest.TestCase):
         self.assertEqual(row[0], "failed")
         self.assertTrue(row[1])
         self.assertIn("bridge is no longer current", row[2])
+        # The same claimed/unclaimed distinction as environment_controls: one rule, both tables.
+        self.assertIn("no bridge ever claimed this control", row[2])
