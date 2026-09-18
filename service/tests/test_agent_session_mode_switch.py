@@ -151,36 +151,24 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         # api_server model: resident hermes resumes its pinned session via
         # --resume and needs no gatewayUrl. The old tui_gateway-era 409 guard was
         # removed, so this switch must succeed WITHOUT force=true.
+        # force=true must not change that outcome either.
         self._heartbeat_environment("hermes")
-        # Register hermes agent WITHOUT gatewayUrl, in managed mode.
-        self._register_agent(
-            agent_id="hermes-no-gw",
-            runtime="hermes",
-            session_mode="managed",
-            runtime_config={},
-        )
-        res = self.client.patch(
-            "/api/v1/agents/hermes-no-gw/session-mode",
-            json={"mode": "resident"},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertEqual(self._read_agent_mode("hermes-no-gw"), "resident")
-        self.assertIn("--resume", res.json().get("resumeCommand") or "")
-
-    def test_switch_hermes_managed_to_resident_with_force_succeeds(self):
-        self._heartbeat_environment("hermes")
-        self._register_agent(
-            agent_id="hermes-force",
-            runtime="hermes",
-            session_mode="managed",
-            runtime_config={},
-        )
-        res = self.client.patch(
-            "/api/v1/agents/hermes-force/session-mode",
-            json={"mode": "resident", "force": True},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertEqual(self._read_agent_mode("hermes-force"), "resident")
+        for agent_id, force in (("hermes-no-gw", False), ("hermes-force", True)):
+            with self.subTest(force=force):
+                # Register hermes agent WITHOUT gatewayUrl, in managed mode.
+                self._register_agent(
+                    agent_id=agent_id,
+                    runtime="hermes",
+                    session_mode="managed",
+                    runtime_config={},
+                )
+                res = self.client.patch(
+                    f"/api/v1/agents/{agent_id}/session-mode",
+                    json={"mode": "resident", "force": force},
+                )
+                self.assertEqual(res.status_code, 200, res.text)
+                self.assertEqual(self._read_agent_mode(agent_id), "resident")
+                self.assertIn("--resume", res.json().get("resumeCommand") or "")
 
     def test_switch_hermes_to_registered_resident_candidate_uses_gateway(self):
         self._heartbeat_environment("hermes")
@@ -305,32 +293,33 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         absent backing in `sideEffects.error` (Plan 6 C2: "side-effect failures
         don't roll back the mode change — they surface in response.sideEffects").
 
-        This is the same observable contract as the force=true sibling
-        (`test_switch_resident_to_managed_force_reports_missing_backing`); the
-        only thing force gates here is the in-flight-run check, not a
+        force=true gives the same observable contract (asserted in the loop);
+        the only thing force gates here is the in-flight-run check, not a
         "requires existing managed backing" guard. The next dispatch lazily
         cold-starts a spawn_request rather than the operator pre-provisioning a
         managed PTY.
         """
         self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-noenv", runtime="codex", session_mode="resident")
-        res = self.client.patch(
-            "/api/v1/agents/codex-noenv/session-mode",
-            json={"mode": "managed"},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        body = res.json()
-        self.assertEqual(body.get("mode"), "managed")
-        self.assertEqual(body.get("previousMode"), "resident")
-        self.assertTrue(body.get("changed"))
-        self.assertEqual((body.get("agent") or {}).get("sessionMode"), "managed")
-        self.assertIn((body.get("agent") or {}).get("status"), {"available", "working", "online"})
-        self.assertEqual(self._read_agent_mode("codex-noenv"), "managed")
-        # 2026-06-03: resident->managed for a wrapper-backed runtime (codex/hermes)
-        # now COLDSTARTS a managed-warm spawn_request at switch time (the lazy
-        # next-dispatch autostart became an at-switch coldstart), so the side effect
-        # reports managedSpawnRequested rather than a missing-backing error.
-        self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"), body)
+        for agent_id, force in (("codex-noenv", False), ("codex-force-noenv", True)):
+            with self.subTest(force=force):
+                self._register_agent(agent_id=agent_id, runtime="codex", session_mode="resident")
+                res = self.client.patch(
+                    f"/api/v1/agents/{agent_id}/session-mode",
+                    json={"mode": "managed", "force": force},
+                )
+                self.assertEqual(res.status_code, 200, res.text)
+                body = res.json()
+                self.assertEqual(body.get("mode"), "managed")
+                self.assertEqual(body.get("previousMode"), "resident")
+                self.assertTrue(body.get("changed"))
+                self.assertEqual((body.get("agent") or {}).get("sessionMode"), "managed")
+                self.assertIn((body.get("agent") or {}).get("status"), {"available", "working", "online"})
+                self.assertEqual(self._read_agent_mode(agent_id), "managed")
+                # 2026-06-03: resident->managed for a wrapper-backed runtime (codex/hermes)
+                # now COLDSTARTS a managed-warm spawn_request at switch time (the lazy
+                # next-dispatch autostart became an at-switch coldstart), so the side effect
+                # reports managedSpawnRequested rather than a missing-backing error.
+                self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"), body)
 
     # ─── 2026-06-12 — the sc-manager "sent but never received" strand ─────────
 
@@ -420,18 +409,6 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         )
         self.assertEqual(hb.status_code, 200, hb.text)
         self.assertTrue(hb.json().get("release"), "no live resident bridge → the displaced sidecar still releases")
-
-    def test_switch_resident_to_managed_force_reports_missing_backing(self):
-        self._heartbeat_environment("codex")
-        self._register_agent(agent_id="codex-force-noenv", runtime="codex", session_mode="resident")
-        res = self.client.patch(
-            "/api/v1/agents/codex-force-noenv/session-mode",
-            json={"mode": "managed", "force": True},
-        )
-        self.assertEqual(res.status_code, 200, res.text)
-        body = res.json()
-        self.assertEqual(body.get("mode"), "managed")
-        self.assertTrue((body.get("sideEffects") or {}).get("managedSpawnRequested"))
 
 
 if __name__ == "__main__":

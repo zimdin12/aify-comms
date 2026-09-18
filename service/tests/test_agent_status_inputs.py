@@ -27,7 +27,6 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from service.api_core import liveness
 from service.api_core.liveness import _agent_awaiting_input, _agent_config_defect
 
 
@@ -143,22 +142,13 @@ class AgentAwaitingInputTests(unittest.TestCase):
         row = {"output": "just some ordinary build output\nnothing to decide here", "cols": 100, "runtime": "claude-code"}
         self.assertFalse(run(_agent_awaiting_input(FakeDb(row=row), "agent-a")))
 
-    def test_a_claude_terminal_SHOWING_A_PROMPT_is_awaiting(self):
-        """ANTI-VACUITY, and the only case here that can fail if the function returns False always.
-
-        Every other case in this class expects False, so a `_agent_awaiting_input` that had been
-        broken into `return False` would satisfy all of them. This is the one that proves the pipeline
-        actually reaches the hint. The prompt text is one `test_terminal_awaiting_input_hint.py`
-        already pins as producing a hint, so a change to the hint rules fails there first, with a
-        clearer message than this would give.
-        """
-        row = {"output": "Overwrite existing file? (y/n) ", "cols": 100, "runtime": "claude-code"}
-        self.assertTrue(run(_agent_awaiting_input(FakeDb(row=row), "agent-prompt")))
-
     def test_the_same_prompt_under_a_DIFFERENT_agent_id_is_not_served_from_cache(self):
         """`_terminal_prompt_hint_from_raw` caches on a key the caller builds from the agent id. If
         that key were ever dropped, one agent's hint would answer for another — the failure mode a
-        shared cache always risks, and one no negative case would reveal."""
+        shared cache always risks, and one no negative case would reveal.
+
+        Its first assertion is also the ANTI-VACUITY case for this class: every other case expects
+        False, so a `_agent_awaiting_input` broken into `return False` would satisfy all of them."""
         prompt = {"output": "Overwrite existing file? (y/n) ", "cols": 100, "runtime": "claude-code"}
         quiet = {"output": "ordinary build output, nothing to decide", "cols": 100, "runtime": "claude-code"}
         self.assertTrue(run(_agent_awaiting_input(FakeDb(row=prompt), "agent-one")))
@@ -181,20 +171,6 @@ class AgentAwaitingInputTests(unittest.TestCase):
 
 
 class RelocationGuardTests(unittest.TestCase):
-    def test_the_globals_guard_in_agent_config_defect_is_satisfied_in_its_new_module(self):
-        """`_agent_config_defect` branches on `"_normalize_runtime" in globals()`.
-
-        `globals()` is the DEFINING module's namespace, so this is the one property a byte-identical
-        relocation cannot preserve by itself. If the name were not bound here the function would
-        silently fall back to `str(...).strip().lower()` — no error, no failing route, just a runtime
-        string that skips normalisation and an alias like `claude` no longer matching.
-        """
-        self.assertIn(
-            "_normalize_runtime",
-            vars(liveness),
-            "liveness.py must bind _normalize_runtime at module level or the moved guard changes branch",
-        )
-
     def test_an_alias_runtime_still_normalises(self):
         """The behaviour the guard protects, asserted rather than assumed: if normalisation were
         skipped, a launchable runtime spelled as an alias would be reported as a defect."""

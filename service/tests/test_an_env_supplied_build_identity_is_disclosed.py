@@ -67,12 +67,6 @@ class AnEnvSuppliedBuildIdentityIsDisclosed(unittest.TestCase):
         config = ServiceConfig.load()
         self.assertEqual(config.stamp_overrides, [], "a clean load claimed an override")
 
-    def test_an_env_supplied_SHA_is_recorded_by_name(self):
-        with env(AIFY_BUILD_SHA="deadbeefdeadbeef"):
-            config = ServiceConfig.load()
-        self.assertIn("build_sha", config.stamp_overrides)
-        self.assertEqual(config.build_sha, "deadbeefdeadbeef", "the override did not take effect at all")
-
     def test_every_stamp_owned_field_is_recorded_when_env_supplies_it(self):
         """All five, because the guard is written against a SET and a loop -- covering one would prove
         nothing about the other four, which is how the `service.json` half came to be checked and the

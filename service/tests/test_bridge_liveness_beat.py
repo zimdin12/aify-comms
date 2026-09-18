@@ -93,11 +93,6 @@ class BridgeLivenessBeatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("managed-wrapper-child", row["bridge_kind"])
         self.assertEqual(NOW, row["last_seen"], "the beat must still count as liveness")
 
-    async def test_an_EMPTY_kind_cannot_demote_a_managed_wrapper_child(self):
-        await self._bridge(kind="managed-wrapper-child")
-        await self._beat(kind="")
-        self.assertEqual("managed-wrapper-child", (await self._row())["bridge_kind"])
-
     async def test_neither_can_demote_a_channel_sidecar(self):
         for incoming in ("resident", ""):
             with self.subTest(incoming=incoming):

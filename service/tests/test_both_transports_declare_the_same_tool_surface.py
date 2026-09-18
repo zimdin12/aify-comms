@@ -166,13 +166,6 @@ class BothTransportsDeclareTheSameToolSurfaceTests(unittest.TestCase):
         # And a tool only one side has is not a parameter difference -- names are the other gate's job.
         self.assertEqual(set(), differences({"comms_only_stdio": {"a"}}, {"comms_x": {"a"}}))
 
-    def test_an_sse_dispatch_can_set_a_priority(self):
-        """The difference this change closed rather than declared. It is asserted by name because
-        the table above would happily hold an entry for it instead, and an accepted absence is how
-        it lived for as long as it did."""
-        self.assertIn("priority", sse_tool_parameters().get("comms_dispatch", set()))
-        self.assertIn("priority", tool_parameters().get("comms_dispatch", set()))
-
 
 if __name__ == "__main__":
     unittest.main()

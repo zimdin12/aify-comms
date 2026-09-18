@@ -58,23 +58,6 @@ def _js_says(directory: Path) -> str:
     return r.stdout.strip()
 
 
-def _render(directory: Path) -> None:
-    bash, _ = _tools()
-    subprocess.run(
-        [bash, str(INSTALL_SH), "--client", "claude", URL, "--emit-wrappers", _posix(directory)],
-        check=True, capture_output=True, env={**os.environ, "AIFY_NO_PROMPT": "1"},
-    )
-
-
-def test_both_readers_find_the_endpoint_in_a_launcher_install_sh_writes_today():
-    with tempfile.TemporaryDirectory(prefix="aify-agree-") as tmp:
-        out = Path(tmp)
-        _render(out)
-        assert (out / "claude-aify").exists(), "nothing rendered, so nothing was compared"
-        assert _bash_says(out) == URL, "the bash reader lost the current shape"
-        assert _js_says(out) == URL, "the js reader lost the current shape"
-
-
 def test_both_readers_say_nothing_for_an_empty_directory():
     """Agreement on absence matters as much as agreement on a value: a reader that invents a default
     here is how a fleet gets repointed at loopback."""

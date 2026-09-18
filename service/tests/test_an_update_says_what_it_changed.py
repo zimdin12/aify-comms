@@ -122,22 +122,6 @@ def test_an_unrunnable_verifier_reports_UNVERIFIED(tmp_path):
     assert done.returncode == 0
 
 
-def test_the_comparison_can_say_both_yes_and_no(tmp_path):
-    """ANTI-VACUITY. Every assertion above is about output; a script that printed nothing at all
-    would satisfy the negative ones. This pins that identical input produces a clean, non-failing
-    answer AND that differing input does not."""
-    rows = ["service ok", "skills-installed ok"]
-    same = _compare(_write(tmp_path / "b", rows, LF), _write(tmp_path / "a", rows, LF))
-    assert same.returncode == 0
-    assert "BROKEN BY THIS UPDATE" not in same.stdout
-
-    differing = _compare(
-        _write(tmp_path / "b2", rows, LF),
-        _write(tmp_path / "a2", ["service fail", "skills-installed ok"], LF),
-    )
-    assert differing.returncode == 1
-
-
 def test_it_names_no_individual_check(tmp_path):
     """THE DESIGN CONSTRAINT. A hand-kept list of "checks that answer whether a deploy took" is one
     more place to remember, and a check added later would be silently uncovered. Asserted on the

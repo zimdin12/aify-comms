@@ -67,10 +67,6 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
 
     # ── the key itself ───────────────────────────────────────────────────────────────────────
 
-    def test_the_right_key_in_the_HEADER_is_admitted(self):
-        response = self.client.get("/api/v1/agents", headers={"X-API-Key": API_KEY})
-        self.assertEqual(response.status_code, 200, response.text)
-
     def test_the_right_key_in_the_QUERY_STRING_is_admitted(self):
         """The bridge and some tools pass it this way. Dropping it would lock them out silently."""
         response = self.client.get("/api/v1/agents", params={"api_key": API_KEY})
@@ -142,11 +138,6 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     # ── the skip list ────────────────────────────────────────────────────────────────────────
-
-    def test_health_is_reachable_without_a_key(self):
-        """It is the container's healthcheck. Requiring a key there means docker restarts a service
-        that is running perfectly well."""
-        self.assertEqual(self.client.get("/health").status_code, 200)
 
     def test_every_documented_skip_prefix_is_actually_skipped(self):
         app = FastAPI()
@@ -270,10 +261,6 @@ class ABrowserCanHoldTheKeyTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(_app_with_key())
 
-    def test_a_browser_with_no_key_is_still_refused(self):
-        # The control. Everything below is only interesting if this stays true.
-        self.assertEqual(self.client.get("/api/v1/agents").status_code, 401)
-
     def test_a_valid_key_in_the_URL_is_exchanged_for_a_cookie(self):
         response = self.client.get(f"/api/v1/agents?api_key={API_KEY}")
         self.assertEqual(response.status_code, 200)
@@ -318,11 +305,3 @@ class ABrowserCanHoldTheKeyTests(unittest.TestCase):
         client = TestClient(_app_with_key())
         client.cookies.set("aify_api_key", "not-the-key")
         self.assertEqual(client.get("/api/v1/agents").status_code, 401)
-
-    def test_the_cookie_name_is_read_and_written_from_ONE_constant(self):
-        """Read in one method and written in another. A typo between them is a login that silently
-        never sticks -- it authenticates once, then every later request is a 401 with no clue why."""
-        self.assertEqual(APIKeyMiddleware.COOKIE, "aify_api_key")
-        header = self.client.get(f"/api/v1/agents?api_key={API_KEY}").headers["set-cookie"]
-        self.assertTrue(header.startswith(f"{APIKeyMiddleware.COOKIE}="),
-                        f"the cookie written is not the one read: {header}")

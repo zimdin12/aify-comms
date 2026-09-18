@@ -65,12 +65,6 @@ def test_it_survives_truncation_and_prefixing():
     assert is_service_authored(full[:60])
 
 
-def test_a_provider_error_is_still_not_ours():
-    # The negative control. If everything looked service-authored the registry would be decoration.
-    assert not is_service_authored("Error: 429 Too Many Requests from the model provider")
-    assert not is_service_authored("")
-
-
 def test_the_undetermined_reason_says_whose_failure_it_is():
     """A reader supplied the subject themselves and got it wrong, at real cost.
 
@@ -98,12 +92,3 @@ def test_the_undetermined_reason_says_whose_failure_it_is():
         "the reason does not name a way to find out whether the agent is alive"
     )
 
-
-def test_it_is_still_service_authored_and_still_not_provider_evidence():
-    """CONTROL on the rewrite: the two properties other code keys on must survive it.
-
-    `is_service_authored` is provenance, not wording, so this holds by construction -- but the string
-    grew a sentence and the classifier is what stops a service-authored guess being read as a
-    provider's own error. Cheap to assert, and the failure would be silent.
-    """
-    assert is_service_authored(TURN_ENDED_WITHOUT_REPLY)

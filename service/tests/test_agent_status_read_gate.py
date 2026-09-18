@@ -86,56 +86,26 @@ class AgentStatusReadGateTests(FastApiTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
 
+    def _stamp_stale_cache(self, agent_id: str, status: str) -> None:
+        """Put a cached `online`/`ready` entry with a far-future refresh_after into the IN-MEMORY
+        live-status cache -- the post-PTY-exit stale state observed 2026-05-25 for
+        graph-senior-dev. The read path serves that entry without recomputing, so the Plan 5
+        gate is the only thing between it and the response. (This used to write the retired
+        `agent_live_state` TABLE, which nothing reads, so the gate never fired.)"""
+        from service.reconcilers.status_cache import _LIVE_STATE_CACHE
+
+        _LIVE_STATE_CACHE[agent_id] = {
+            "status": status, "reason": f"stale-{status}-cache-for-test", "environment_id": "",
+            "session_id": "sess-fake", "terminal_id": "", "active_run_id": "",
+            "refresh_after": "2099-01-01T00:00:00Z", "updated_at": "2026-05-25T19:29:10Z",
+        }
+
     def _stamp_stale_online_cache(self, agent_id: str) -> None:
-        """Write a cached `online` row to agent_live_state with a future
-        refresh_after — mirrors the post-PTY-exit stale state observed
-        2026-05-25 for graph-senior-dev. Far-future ISO timestamps
-        guarantee `_refresh_expired_agent_live_states` won't touch it
-        before the read-path gate runs."""
-
-        async def _stamp():
-            from service.db import get_db
-            db = await get_db()
-            try:
-                await db.execute(
-                    """INSERT OR REPLACE INTO agent_live_state
-                    (agent_id, status, reason, environment_id, session_id,
-                     terminal_id, active_run_id, refresh_after, updated_at)
-                    VALUES (?, 'online', 'stale-cache-for-test', '',
-                            'sess-fake', '', '',
-                            '2099-01-01T00:00:00Z', '2026-05-25T19:29:10Z')""",
-                    (agent_id,),
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-        asyncio.run(_stamp())
+        self._stamp_stale_cache(agent_id, "online")
 
     def _stamp_stale_ready_cache(self, agent_id: str) -> None:
-        """Same stale-cache shape as `_stamp_stale_online_cache`, but for
-        `ready`. A ready worker still needs a live wrapper PTY; otherwise the
-        dashboard shows a dispatchable worker that cannot actually receive a
-        turn."""
-
-        async def _stamp():
-            from service.db import get_db
-            db = await get_db()
-            try:
-                await db.execute(
-                    """INSERT OR REPLACE INTO agent_live_state
-                    (agent_id, status, reason, environment_id, session_id,
-                     terminal_id, active_run_id, refresh_after, updated_at)
-                    VALUES (?, 'ready', 'stale-ready-cache-for-test', '',
-                            'sess-fake', '', '',
-                            '2099-01-01T00:00:00Z', '2026-05-26T19:29:10Z')""",
-                    (agent_id,),
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-        asyncio.run(_stamp())
+        """`ready` is just as wrong as `online` without a live wrapper PTY."""
+        self._stamp_stale_cache(agent_id, "ready")
 
     def _insert_stale_synth_terminal(self, agent_id: str, runtime: str = "hermes") -> str:
         """Insert a stale `vterm_*` (synth/virtual) terminal_sessions row with
@@ -173,22 +143,9 @@ class AgentStatusReadGateTests(FastApiTestCase):
         return asyncio.run(_stamp())
 
     def _read_agent_live_state(self, agent_id: str) -> dict:
-        async def _read():
-            from service.db import get_db
-            db = await get_db()
-            try:
-                cursor = await db.execute(
-                    "SELECT status, reason FROM agent_live_state WHERE agent_id = ?",
-                    (agent_id,),
-                )
-                row = await cursor.fetchone()
-                if row is None:
-                    return {}
-                return {"status": row["status"], "reason": row["reason"]}
-            finally:
-                await db.close()
+        from service.reconcilers.status_cache import _LIVE_STATE_CACHE
 
-        return asyncio.run(_read())
+        return dict(_LIVE_STATE_CACHE.get(agent_id) or {})
 
     # ------------------------------------------------------------------
     # Task C1 — read-path downgrades stale `online`
@@ -197,24 +154,33 @@ class AgentStatusReadGateTests(FastApiTestCase):
     def test_get_agent_downgrades_stale_online_with_no_live_worker(self):
         """GET /api/v1/agents/{id} for a managed wrapper-backed agent
         with a stale `online` cache and no live terminal_sessions row
-        must NOT return `online`."""
-        self._heartbeat_environment("codex")
-        self._register_managed_agent(agent_id="codex-stale", runtime="codex")
-        self._stamp_stale_online_cache("codex-stale")
+        must NOT return `online`. `ready` is just as wrong when the wrapper PTY is gone.
 
-        res = self.client.get("/api/v1/agents/codex-stale")
-        self.assertEqual(res.status_code, 200, res.text)
-        body = res.json()
-        agent = body["agent"]
-        self.assertNotEqual(
-            agent["status"], "online",
-            f"Plan 5 read-path gate: expected downgrade because no live "
-            f"terminal_sessions row exists; got {agent['status']!r} (body={body})",
+        READ-ONLY (2026-06-18, reverses the Plan-5 C2 writeback): the served response is
+        corrected, and the cache row is NOT written on the read path."""
+        cases = (
+            ("codex", "codex-stale", self._stamp_stale_online_cache, "online"),
+            ("hermes", "hermes-stale-ready", self._stamp_stale_ready_cache, "ready"),
         )
-        self.assertEqual(
-            agent["status"], "available",
-            f"Expected 'available' fallback; got {agent['status']!r}",
-        )
+        for runtime, agent_id, stamp, cached_status in cases:
+            with self.subTest(runtime=runtime, cached=cached_status):
+                self._heartbeat_environment(runtime)
+                self._register_managed_agent(agent_id=agent_id, runtime=runtime)
+                stamp(agent_id)
+
+                res = self.client.get(f"/api/v1/agents/{agent_id}")
+                self.assertEqual(res.status_code, 200, res.text)
+                body = res.json()
+                agent = body["agent"]
+                self.assertEqual(
+                    agent["status"], "available",
+                    f"expected downgrade to 'available' because no live terminal_sessions row "
+                    f"exists; got {agent['status']!r} (body={body})",
+                )
+                self.assertEqual(
+                    self._read_agent_live_state(agent_id).get("status"), cached_status,
+                    "read path must not persist the downgrade (no write on read)",
+                )
 
     def test_list_agents_downgrades_stale_online_with_no_live_worker(self):
         """GET /api/v1/agents (list) honors the same gate as the single-agent
@@ -231,48 +197,6 @@ class AgentStatusReadGateTests(FastApiTestCase):
             agents["codex-stale-list"]["status"], "online",
             "list_agents must apply the same Plan 5 read-path gate as get_agent",
         )
-
-    # ------------------------------------------------------------------
-    # Task C2 — downgrade is written back to the cache
-    # ------------------------------------------------------------------
-
-    def test_downgrade_corrects_response_without_persisting(self):
-        """READ-ONLY gate (2026-06-18, reverses the Plan-5 C2 writeback): the read-path
-        gate corrects the SERVED response to `available`, but must NOT write the cache on
-        the read path — the per-agent gate writeback was a `database is locked` write storm.
-        The reconcile sweep persists the same correction; the read stays write-free."""
-        self._heartbeat_environment("codex")
-        self._register_managed_agent(agent_id="codex-writeback", runtime="codex")
-        self._stamp_stale_online_cache("codex-writeback")
-
-        # Read — gate fires and the RESPONSE is downgraded.
-        res = self.client.get("/api/v1/agents/codex-writeback")
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertEqual(res.json()["agent"]["status"], "available")
-
-        # The cache row is NOT written back on the read path (still the stale 'online');
-        # the 60s reconcile sweep is the durable writer.
-        cached = self._read_agent_live_state("codex-writeback")
-        self.assertEqual(
-            cached.get("status"), "online",
-            f"read path must not persist the downgrade (no write on read); got {cached!r}",
-        )
-
-    def test_ready_cache_without_live_worker_is_downgraded_in_response(self):
-        """`ready` is just as wrong as `online` when the wrapper PTY is gone: the served
-        response must downgrade to `available`. Read-only — no cache writeback (2026-06-18)."""
-        self._heartbeat_environment("hermes")
-        self._register_managed_agent(agent_id="hermes-stale-ready", runtime="hermes")
-        self._stamp_stale_ready_cache("hermes-stale-ready")
-
-        res = self.client.get("/api/v1/agents/hermes-stale-ready")
-        self.assertEqual(res.status_code, 200, res.text)
-        agent = res.json()["agent"]
-        self.assertEqual(agent["status"], "available", res.text)
-
-        # No write on read: the stale cache row is untouched (reconcile persists later).
-        cached = self._read_agent_live_state("hermes-stale-ready")
-        self.assertEqual(cached.get("status"), "ready", cached)
 
     # ------------------------------------------------------------------
     # Plan 5 follow-up (2026-05-26) — stale synth (`vterm_*`) rows must

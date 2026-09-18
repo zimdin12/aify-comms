@@ -50,20 +50,6 @@ CASES = {
 
 
 class TheTwoAnsiStrippersAgree(unittest.TestCase):
-    def test_both_patterns_strip_every_case_identically(self):
-        disagreements = []
-        for name, raw in CASES.items():
-            left = diagnostics._ANSI_RE.sub("", raw)
-            right = terminal_text._ANSI_RE.sub("", raw)
-            if left != right:
-                disagreements.append(f"  {name}: diagnostics={left!r} terminal_text={right!r}")
-        self.assertEqual(
-            disagreements, [],
-            "the two ANSI strippers disagree. They are separate copies because a service leaf may not "
-            "import api_core, which makes this test the only thing keeping them equal:\n"
-            + "\n".join(disagreements),
-        )
-
     def test_NEITHER_leaves_an_escape_behind(self):
         """The property that actually matters, asserted directly rather than only through equality:
         two patterns can agree by being equally wrong. Every case here must come out clean."""
@@ -79,18 +65,19 @@ class TheTwoAnsiStrippersAgree(unittest.TestCase):
                     )
 
     def test_the_visible_text_SURVIVES(self):
-        """ANTI-VACUITY: a pattern that deleted everything would satisfy both tests above."""
+        """ANTI-VACUITY: a pattern that deleted everything would satisfy the test above."""
         self.assertEqual(diagnostics._ANSI_RE.sub("", CASES["several at once"]), "visible")
         self.assertEqual(terminal_text._ANSI_RE.sub("", CASES["several at once"]), "visible")
         self.assertEqual(diagnostics._ANSI_RE.sub("", CASES["plain text"]), "nothing to strip here")
 
     def test_the_two_patterns_are_literally_the_same(self):
-        """Stronger than case agreement and cheap: if the sources are identical, no untested case can
-        diverge either. Kept alongside the behavioural test rather than instead of it — this one says
-        WHETHER they differ, the other says WHERE."""
+        """Stronger than case-by-case agreement and cheap: if the sources are identical, no case --
+        tested or not -- can diverge. A per-case agreement test sat beside this one and could only
+        fail when this one also did, so it was removed."""
         self.assertEqual(
             diagnostics._ANSI_RE.pattern, terminal_text._ANSI_RE.pattern,
-            "the two copies have drifted apart; the behavioural test above names the cases affected",
+            "the two copies have drifted apart. They are separate copies because a service leaf may "
+            "not import api_core, which makes this test the only thing keeping them equal",
         )
 
 
@@ -130,21 +117,6 @@ class TheTwoControlCharStrippersAgree(unittest.TestCase):
     test the answer here rather than a refactor.
     """
 
-    def test_both_patterns_strip_every_case_identically(self):
-        disagreements = []
-        for name, raw in CTRL_CASES.items():
-            left = diagnostics._CTRL_RE.sub("", raw)
-            right = terminal_text._CTRL_RE.sub("", raw)
-            if left != right:
-                disagreements.append(f"  {name}: diagnostics={left!r} terminal_text={right!r}")
-        self.assertEqual(
-            disagreements, [],
-            "the two control-character strippers disagree, and they are separate copies because a "
-            "service leaf may not import api_core -- which makes this test the only thing keeping "
-            "them equal:",
-            *disagreements,
-        )
-
     def test_NEITHER_leaves_a_control_byte_behind(self):
         """Two patterns can agree by being equally wrong, so the property is asserted directly."""
         for name, raw in CTRL_CASES.items():
@@ -179,7 +151,8 @@ class TheTwoControlCharStrippersAgree(unittest.TestCase):
     def test_the_two_patterns_are_literally_the_same(self):
         self.assertEqual(
             diagnostics._CTRL_RE.pattern, terminal_text._CTRL_RE.pattern,
-            "the two copies have drifted; the behavioural test above names the cases affected",
+            "the two copies have drifted. They are separate copies because a service leaf may not "
+            "import api_core, which makes this test the only thing keeping them equal",
         )
 
     def test_the_class_is_NOT_written_out_inline_anywhere_else(self):

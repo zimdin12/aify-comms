@@ -31,19 +31,6 @@ def _tree() -> ast.Module:
     return ast.parse(API_V2.read_text(encoding="utf-8"))
 
 
-def test_it_declares_no_functions_or_classes():
-    """A helper here is a helper at the wrong address — that is the whole finding this file records."""
-    declared = [
-        node.name
-        for node in _tree().body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-    ]
-    assert declared == [], (
-        f"api_v2.py declares {declared}. It is the composition surface; anything callable belongs in "
-        "a domain router or an api_core leaf, not at a router's address."
-    )
-
-
 def test_it_does_not_import_the_control_plane():
     """Importing the carrier here is how a re-export starts: the names become attributes of this
     module, and `from service.routers.api_v2 import <helper>` resolves again."""
@@ -82,22 +69,6 @@ def test_every_top_level_statement_is_composition():
             continue
         unexpected.append(ast.unparse(node).splitlines()[0][:80])
     assert unexpected == [], f"api_v2.py has non-composition statements: {unexpected}"
-
-
-def test_it_exports_no_helper_under_any_name():
-    """`__all__` would re-export by declaration rather than by import — the same restoration of the
-    stale paths, spelled differently."""
-    for node in _tree().body:
-        # BOTH forms. `__all__: list[str] = [...]` is the idiomatic annotated spelling and would have
-        # sailed past an Assign-only check — the same blind spot found in the singleton and
-        # coincidence gates, which is why it is worth naming rather than quietly widening.
-        if isinstance(node, ast.Assign):
-            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            names = [node.target.id]
-        else:
-            continue
-        assert "__all__" not in names, "api_v2.py declares __all__ — it publishes nothing but `router`"
 
 
 def test_a_relocated_helper_still_fails_loudly_when_imported_from_here():

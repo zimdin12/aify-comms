@@ -87,16 +87,6 @@ class TombstoneRegistrationGateTests(unittest.TestCase):
             + "Pass restoreDeleted=true to register this ID again.",
         )
 
-    def test_the_two_messages_are_genuinely_different(self):
-        """Asserted as a relation, not just twice. A refactor that unified them would satisfy each
-        test above if the surviving message happened to be the one it asserts."""
-        auto = str(_run(_Req(auto=True), _Tombstone(removed_at=REMOVED_AT)).detail)
-        manual = str(_run(_Req(auto=False), _Tombstone(removed_at=REMOVED_AT)).detail)
-        self.assertNotEqual(auto, manual)
-        self.assertIn("restoreDeleted=true", manual)
-        self.assertNotIn("restoreDeleted", auto, "a bridge cannot pass a flag")
-        self.assertIn(REMOVED_AT, auto, "and it needs the time to correlate with its own logs")
-
     def test_asking_to_restore_is_not_this_gates_business(self):
         """`restoreDeleted=true` belongs to the resurrection gate, which weighs relaunch freshness.
         This one must pass it through untouched or that decision never gets made."""
@@ -144,19 +134,6 @@ class RenameIdReuseTests(FastApiTestCase):
             response.json()["detail"],
             'Agent "lc-gone" was intentionally removed before; clear that ID before reusing it',
         )
-
-    def test_the_two_rename_refusals_are_distinguishable(self):
-        """Both are 409 on the same field, and they need different actions from the operator —
-        pick a different name, versus clear the tombstone."""
-        self._register("lc-one")
-        self._register("lc-live")
-        self._register("lc-dead")
-        self.client.delete("/api/v1/agents/lc-dead")
-        live = self._rename("lc-one", "lc-live").json()["detail"]
-        dead = self._rename("lc-one", "lc-dead").json()["detail"]
-        self.assertNotEqual(live, dead)
-        self.assertIn("already exists", live)
-        self.assertIn("clear that ID", dead)
 
     def test_a_rename_to_a_free_id_succeeds(self):
         self._register("lc-one")

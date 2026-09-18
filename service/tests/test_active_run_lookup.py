@@ -97,13 +97,12 @@ class CurrentActiveRunTests(ActiveRunLookupTestCase):
     def test_nothing_in_flight_is_None(self):
         self.assertIsNone(self._active())
 
-    def test_a_CLAIMED_run_is_active(self):
-        self._seed("run-1", status="claimed")
-        self.assertEqual(self._active()["id"], "run-1")
-
-    def test_a_RUNNING_run_is_active(self):
-        self._seed("run-1", status="running")
-        self.assertEqual(self._active()["id"], "run-1")
+    def test_a_CLAIMED_or_RUNNING_run_is_active(self):
+        """One agent per status, so neither run can shadow the other."""
+        for agent_id, status in ((AGENT, "claimed"), (OTHER, "running")):
+            with self.subTest(status=status):
+                self._seed(f"run-{status}", status=status, target=agent_id)
+                self.assertEqual(self._active(agent_id)["id"], f"run-{status}")
 
     def test_a_DELIVERED_run_is_NOT_active(self):
         """The anti-heuristic the module is built around. Terminal-delivery runs sit
@@ -153,15 +152,14 @@ class CurrentActiveRunTests(ActiveRunLookupTestCase):
 
 
 class ChannelAwaitingReplyTests(ActiveRunLookupTestCase):
-    def test_a_DELIVERED_channel_run_awaiting_a_reply_is_found(self):
+    def test_a_DELIVERED_channel_or_resident_run_awaiting_a_reply_is_found(self):
         """Delivered here means the agent has the work and owes an answer — it IS working, and this
         is the query that lets the dashboard say so."""
-        self._seed("run-1", status="delivered", execution_mode="channel", require_reply=1)
-        self.assertEqual(self._awaiting()["id"], "run-1")
-
-    def test_a_RESIDENT_delivery_counts_too(self):
-        self._seed("run-1", status="delivered", execution_mode="resident", require_reply=1)
-        self.assertEqual(self._awaiting()["id"], "run-1")
+        for agent_id, mode in ((AGENT, "channel"), (OTHER, "resident")):
+            with self.subTest(execution_mode=mode):
+                self._seed(f"run-{mode}", status="delivered", execution_mode=mode,
+                           require_reply=1, target=agent_id)
+                self.assertEqual(self._awaiting(agent_id)["id"], f"run-{mode}")
 
     def test_a_MANAGED_delivery_is_excluded(self):
         """THE DISCRIMINATOR. Terminal-delivery runs carry `managed` and linger in delivered
@@ -220,18 +218,6 @@ class BlockingActiveRunTests(ActiveRunLookupTestCase):
         self._seed("run-1", status="running")
         blocking = self._query(
             lambda db: _get_blocking_active_run(db, AGENT, exclude_run_id="some-other-run"))
-        self.assertEqual(blocking["runId"], "run-1")
-
-    def test_a_BLANK_exclusion_excludes_nothing(self):
-        """The default value of the parameter, and the common case: almost every caller omits it.
-
-        The `exclude_run_id and ...` truthiness guard in front of the comparison cannot be
-        distinguished by this test, or by any realistic one — dropping it leaves `"" == runId`,
-        which is false for every run that has an id, and `id` is the primary key of
-        `dispatch_runs`. A mutation removing the guard survives, and manufacturing a run with an
-        empty primary key to kill it would be testing the test rather than the service."""
-        self._seed("run-1", status="running")
-        blocking = self._query(lambda db: _get_blocking_active_run(db, AGENT, exclude_run_id=""))
         self.assertEqual(blocking["runId"], "run-1")
 
 

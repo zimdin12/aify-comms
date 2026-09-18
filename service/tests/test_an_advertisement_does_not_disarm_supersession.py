@@ -125,14 +125,6 @@ class AnAdvertisementDoesNotDisarmSupersessionTests(FastApiTestCase):
 
     # -- the boundaries of the fix -------------------------------------------------------------
 
-    def test_a_bridge_that_names_itself_still_replaces_the_stored_id(self):
-        """The fix preserves an id only when none is offered. A column that could never change
-        would pass the defect test above and break every real handover."""
-        self._bridge_beat("bridge-A", "2026-08-29T10:00:00Z")
-        self.assertEqual("bridge-A", self._row()["bridgeId"])
-        self._bridge_beat("bridge-B", "2026-08-29T11:00:00Z")
-        self.assertEqual("bridge-B", self._row()["bridgeId"])
-
     def test_an_environment_first_seen_by_an_advertisement_has_no_bridge(self):
         """The INSERT path is deliberately untouched: a row being created has no prior bridge to
         preserve, and an empty id there is the truth rather than an oversight. It also means the

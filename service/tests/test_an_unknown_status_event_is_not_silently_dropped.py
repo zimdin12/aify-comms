@@ -61,13 +61,6 @@ class KnownEventKindsTests(unittest.TestCase):
         for kind in ("turn_started", "TURN_START", "", "blocked ", "zz_no_such_kind"):
             self.assertFalse(is_known_event_kind(kind), f"{kind!r} was accepted as known")
 
-    def test_a_near_miss_is_NOT_known(self):
-        """The case this exists for. `turn_started` is what somebody types when they mean
-        `turn_start`, and it used to be indistinguishable from success."""
-        self.assertFalse(is_known_event_kind("turn_started"))
-        state = {"in_turn": 0, "turn_run_id": "", "awaiting_input": 0}
-        self.assertEqual(apply_event(state, {"kind": "turn_started", "runId": "r1"}), state)
-
     def test_None_and_missing_kinds_are_handled(self):
         """The endpoint's model allows `kind` to arrive as anything a JSON body can hold."""
         for kind in (None, 0, [], {}):

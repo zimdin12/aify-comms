@@ -79,38 +79,6 @@ class AnOrphanIsARemovedAgentNotAMissingRow(FastApiTestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return int(response.json().get("deleted", 0))
 
-    def test_THE_DEFECT_the_dashboard_inbox_survives(self):
-        """`dashboard` has no `agents` row because it is not an agent. Under the old predicate that
-        made every unread message to it an orphan -- 1,792 of them on the operator's fleet."""
-        self._message("to-dashboard-1", "dashboard")
-        self._message("to-dashboard-2", "dashboard")
-        deleted = self._cleanup()
-        self.assertEqual(deleted, 0, "the cleanup deleted messages addressed to the dashboard")
-        self.assertEqual(self._remaining(), {"to-dashboard-1", "to-dashboard-2"})
-
-    def test_a_message_to_a_REMOVED_agent_is_still_deleted(self):
-        """The case the endpoint exists for. Without this the fix would be "delete nothing", which
-        also passes the test above."""
-        self._tombstone("gone-agent")
-        self._message("to-gone", "gone-agent")
-        self.assertEqual(self._cleanup(), 1)
-        self.assertEqual(self._remaining(), set())
-
-    def test_a_READ_message_to_a_removed_agent_is_history(self):
-        """The third condition, inherited unchanged. A message somebody read is not an orphan."""
-        self._tombstone("gone-agent")
-        self._message("read-one", "gone-agent", read=True)
-        self.assertEqual(self._cleanup(), 0)
-        self.assertEqual(self._remaining(), {"read-one"})
-
-    def test_a_CHANNEL_BROADCAST_row_is_not_an_orphan(self):
-        """The first condition, inherited unchanged and still load-bearing: `channel_send` writes one
-        row with no `to_agent` plus a fan-out row per member. Drop `to_agent IS NOT NULL` and every
-        unread broadcast in the database matches."""
-        self._message("broadcast", None, source="channel")
-        self.assertEqual(self._cleanup(), 0)
-        self.assertEqual(self._remaining(), {"broadcast"})
-
     def test_a_message_to_a_LIVE_agent_is_untouched(self):
         registered = self.client.post("/api/v1/agents", json={
             "agentId": "live-agent", "role": "coder", "runtime": "claude-code",
@@ -122,8 +90,14 @@ class AnOrphanIsARemovedAgentNotAMissingRow(FastApiTestCase):
         self.assertEqual(self._remaining(), {"to-live"})
 
     def test_THE_MIXED_CASE_deletes_only_the_removed_one(self):
-        """All four kinds in one database, because each test above passes on its own for a cleanup
-        that does nothing at all."""
+        """All four kinds in one database: the dashboard inbox (THE DEFECT -- `dashboard` has no
+        `agents` row because it is not an agent, so the old predicate made all 1,792 of its unread
+        messages orphans), an unread channel broadcast (no `to_agent`), a message somebody already
+        read, and the one message to a REMOVED agent that the endpoint exists to delete. One
+        fixture, so "delete nothing" and "delete everything" both fail.
+
+        The broadcast row survives through the tombstone join alone: `m.to_agent IS NOT NULL`
+        cannot change the answer, since NULL never equals a tombstone's agent id."""
         self._tombstone("gone-agent")
         self._message("keep-dashboard", "dashboard")
         self._message("keep-broadcast", None, source="channel")

@@ -336,20 +336,3 @@ class AgentRenameCoversEveryAgentReferenceTests(unittest.TestCase):
                 self.assertEqual(
                     set(), first & second,
                     f"a column is classified twice: {sorted(first & second)}")
-
-    def test_the_UNRESOLVED_bucket_is_empty_and_that_is_the_end_state(self):
-        """The gap it held closed on 2026-08-19; the bucket stays for the next one.
-
-        Its predecessor deliberately FAILED if anyone fixed `terminal_sessions.agent_id`, so the
-        classification could not go stale silently — a gap that quietly stops existing leaves this
-        file claiming one that does not. It said, in words, "if the last gap closed, delete this test
-        with the entry", and that is what happened here.
-
-        What replaces it asserts the other direction: nothing sits in UNRESOLVED while ALSO being
-        repointed, which is the state that would mean a decision was made and never written down.
-        """
-        for (table, column) in UNRESOLVED:
-            self.assertNotIn(
-                (table, column), _repointed_by_the_rewrite(),
-                f"{table}.{column} is repointed now — move it from UNRESOLVED to REPOINTED",
-            )

@@ -23,8 +23,8 @@ It was an ACTIVE route on the agent long-poll path, not dead shim debt. There ar
 accessors across the routers; one generator bug can produce several, so the class gets a gate rather
 than the instance getting a fix.
 
-Two properties are asserted, and the second is the stronger one: no accessor may call itself
-(structure), and every accessor must return the very object the router holds (behaviour). Identity,
+Every accessor is CALLED and must return the very object its owner holds, which also catches a
+self-calling one (it raises RecursionError, and a raising accessor is reported). Identity,
 not equality — a copy would satisfy `==` and would be exactly the forked-constant class the whole
 series has been avoiding.
 """
@@ -122,36 +122,6 @@ def _accessors() -> list[tuple[str, str, str]]:
 
 
 class BorrowedAccessorsTests(unittest.TestCase):
-    def test_no_accessor_calls_itself(self):
-        offenders = []
-        for pattern in SEARCH:
-            for path in REPO.glob(pattern):
-                if "__pycache__" in path.parts:
-                    continue
-                try:
-                    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-                except SyntaxError:
-                    continue
-                for node in ast.walk(tree):
-                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        continue
-                    if not node.name.startswith("_borrowed_"):
-                        continue
-                    if any(
-                        isinstance(sub, ast.Call)
-                        and isinstance(sub.func, ast.Name)
-                        and sub.func.id == node.name
-                        for sub in ast.walk(node)
-                    ):
-                        offenders.append(f"{path.relative_to(REPO).as_posix()}: {node.name}")
-        self.assertEqual(
-            offenders,
-            [],
-            "A borrowed-constant accessor calls ITSELF instead of returning the constant. Every "
-            "call raises RecursionError, and only at runtime on whichever route uses it:\n  "
-            + "\n  ".join(offenders),
-        )
-
     def test_the_scan_resolves_a_MODULE_LEVEL_owner_too(self):
         """The v0.5.4 shape, probed so the new branch cannot silently stop working.
 
@@ -237,8 +207,8 @@ class BorrowedAccessorsTests(unittest.TestCase):
         self.assertEqual(
             found,
             [("_borrowed_synthetic_probe", "_SYNTHETIC_PROBE_CONSTANT", "service.control_plane")],
-            "the accessor detector no longer recognises the borrowed-accessor shape, so the two "
-            "checks above would pass over an empty list while real accessors went unexamined",
+            "the accessor detector no longer recognises the borrowed-accessor shape, so the check "
+            "above would pass over an empty list while real accessors went unexamined",
         )
         # A SECOND PROBE whose owner is a leaf, not the carrier. The detector matched only
         # `service.control_plane` until v0.5.4 and so reported "imports nothing" for an accessor whose
