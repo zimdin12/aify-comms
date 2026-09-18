@@ -87,18 +87,16 @@ class RetentionAndDeletionTests(FastApiTestCase):
 
     # ── rotation: what it must NOT delete ────────────────────────────────────────────────────
 
-    def test_a_message_inside_the_retention_window_survives(self):
-        self._settings(retention_days=30, max_messages_per_agent=1000, rotation_enabled=True)
-        self._seed_message("recent", age_days=1)
-        response = self._rotate()
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("recent", self._message_ids())
-
     def test_a_message_past_the_window_is_expired(self):
+        """And one inside it survives. This is also the gate on the cutoff's UNITS: an ISO-string
+        cutoff deletes both rows (every INTEGER sorts below every TEXT), a seconds cutoff deletes
+        neither."""
         self._settings(retention_days=30, max_messages_per_agent=1000, rotation_enabled=True)
         self._seed_message("ancient", age_days=45)
         self._seed_message("recent", age_days=1)
-        stats = self._rotate().json()["stats"]
+        response = self._rotate()
+        self.assertEqual(response.status_code, 200, response.text)
+        stats = response.json()["stats"]
         self.assertEqual(self._message_ids(), ["recent"])
         self.assertEqual(stats["expired_messages"], 1, "the report must match what was deleted")
 

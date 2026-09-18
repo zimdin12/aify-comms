@@ -54,22 +54,14 @@ class SearchScopeTests(FastApiTestCase):
         return r.json()
 
     # ── defect 1: your own sent messages were invisible ──────────────────────────────
-    def test_finds_a_message_the_agent_SENT(self):
-        self._send("alice", "bob", "P0-Q decomposition", "the P0-Q slice is ruled")
-        body = self._search(query="P0-Q", agentId="alice")
-        self.assertEqual(body["total"], 1, "an agent must find what it dispatched itself")
-        self.assertEqual(body["results"][0]["type"], "message")
-
-    def test_finds_a_message_the_agent_RECEIVED(self):
-        self._send("bob", "alice", "P0-Q ruling", "P0-Q accepted")
-        body = self._search(query="P0-Q", agentId="alice")
-        self.assertEqual(body["total"], 1)
-
     def test_finds_both_directions_in_one_search(self):
+        """What the agent SENT was the invisible half; what it RECEIVED is the half that always
+        worked. One of each, so losing either direction changes the total."""
         self._send("alice", "bob", "P0-Q out", "P0-Q dispatched")
         self._send("bob", "alice", "P0-Q back", "P0-Q returned")
         body = self._search(query="P0-Q", agentId="alice")
         self.assertEqual(body["total"], 2, "the record is what you said AND what you were told")
+        self.assertEqual({r["type"] for r in body["results"]}, {"message"})
 
     def test_does_not_leak_a_conversation_the_agent_is_not_part_of(self):
         self.client.post("/api/v1/agents", json={
@@ -93,17 +85,8 @@ class SearchScopeTests(FastApiTestCase):
         self.assertIn("messages", body["searched"])
         self.assertEqual(body["skipped"], [], "nothing was skipped, so claim nothing")
 
-    def test_an_honest_empty_result_is_distinguishable_from_a_skipped_one(self):
-        """THE point of the fix: 'nothing matched' and 'nothing was looked at' must not look alike."""
-        genuinely_empty = self._search(query="nonexistent-term-xyz", agentId="alice")
-        never_looked = self._search(query="nonexistent-term-xyz")
-        self.assertEqual(genuinely_empty["total"], 0)
-        self.assertEqual(never_looked["total"], 0)
-        self.assertNotEqual(
-            (genuinely_empty["searched"], genuinely_empty["skipped"]),
-            (never_looked["searched"], never_looked["skipped"]),
-            "the two zero-result cases must be tellable apart by the caller",
-        )
+    # THE point of the fix is that 'nothing matched' and 'nothing was looked at' do not look alike.
+    # The two tests above pin each side's `searched`/`skipped`, which is what makes them differ.
 
     def test_scope_shared_reports_only_shared(self):
         body = self._search(query="anything", scope="shared", agentId="alice")

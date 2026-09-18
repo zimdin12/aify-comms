@@ -19,10 +19,10 @@ negative control: it runs that form against the same fixture and shows the gap a
 
 The overlap it costs is one page's worth of already-held rows, which the client discards by id.
 
-AND THE PLAN STILL STOPS AT THE PAGE. `test_the_paged_form_does_not_sort_the_table` is the paged
-sibling of `test_the_recent_messages_poll_does_not_sort_the_table`, which covers the UNPAGED form
-only. A cursor that reintroduced `USE TEMP B-TREE FOR ORDER BY` would put a 33k-row sort back on an
-endpoint every open tab polls every 15 seconds, which is what the `+m.source` hint exists to prevent.
+AND THE PLAN STILL STOPS AT THE PAGE. The paged and unpaged forms are ONE statement with the cursor
+bound as a parameter, and SQLite plans a statement before it sees the values, so the plan gate in
+`test_the_recent_messages_poll_does_not_sort_the_table.py` covers both. A cursor written as a second
+statement would need its own plan check.
 
 THE STATEMENT IS IMPORTED, NEVER RETYPED. It comes from the same reader the unpaged gate uses, so
 these tests cannot pass against a query the route does not run -- and there is one implementation of
@@ -184,17 +184,6 @@ class RecentMessagesPagesBackwardsTests(unittest.TestCase):
             any(mid.startswith("tie") for mid in missing),
             f"the loss should be the rows sharing a millisecond; lost {sorted(missing)}",
         )
-
-    def test_the_paged_form_does_not_sort_the_table(self) -> None:
-        """A cursor must not put the 33k-row sort back on a 15-second poll."""
-        plan = " | ".join(
-            row[-1] for row in self.db.execute(
-                "EXPLAIN QUERY PLAN " + _recent_messages_statement(),
-                (TIED_MS + 25 * 1000, TIED_MS + 25 * 1000, 81),
-            )
-        )
-        self.assertNotIn("TEMP B-TREE", plan, f"the paged form sorts every match. Plan: {plan}")
-        self.assertIn("idx_messages_timestamp", plan, f"the LIMIT cannot stop it. Plan: {plan}")
 
 
 if __name__ == "__main__":

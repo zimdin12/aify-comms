@@ -255,20 +255,8 @@ class SecretTests(unittest.TestCase):
         self.assertNotIn("aify-secret-topic-9f3a", blob)
         self.assertNotIn("ntfy.example.test", blob)
 
-    def test_redaction_keeps_identity_without_granting_access(self):
-        red = ntfy.redact_url(URL)
-        self.assertIn("ntfy.example.test", red)
-        self.assertNotIn("aify-secret-topic-9f3a", red)
-        self.assertTrue(red.startswith("ntfy:"))
-
-    def test_two_topics_on_one_host_are_distinguishable(self):
-        self.assertNotEqual(
-            ntfy.redact_url("https://ntfy.sh/topic-a"), ntfy.redact_url("https://ntfy.sh/topic-b")
-        )
-
-    def test_redaction_survives_garbage(self):
-        self.assertEqual(ntfy.redact_url(""), "")
-        self.assertTrue(ntfy.redact_url("not a url").startswith("ntfy:"))
+    # What `redact_url` keeps and drops, and `enabled` for an empty URL, are pinned through the
+    # relay's own `.redacted` / `.enabled` in `test_ntfy_url_containment.py`.
 
     def test_the_url_comes_from_the_environment_only(self):
         """Never config/service.json — that file is generated, and a settings surface would echo a
@@ -280,10 +268,6 @@ class SecretTests(unittest.TestCase):
         # against prose instead of code.
         code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
         self.assertNotIn("service.json", code)
-
-    def test_off_by_default(self):
-        self.assertFalse(ntfy.NtfyRelay("").enabled)
-        self.assertFalse(ntfy.NtfyRelay("   ").enabled)
 
 
 if __name__ == "__main__":

@@ -134,26 +134,5 @@ class RepairReadReceiptsTests(unittest.TestCase):
         self.assertEqual(marked, 2, "m3 no longer exists and must not produce a receipt")
         self.assertEqual(sorted(receipts), [("m1", "target"), ("m2", "target")])
 
-    def test_an_id_MENTIONED_IN_PROSE_earns_no_receipt(self):
-        """The security property behind the anchored pattern, asserted from this end too.
-
-        A body is free text written by the SENDING agent, and unread is computed as the ABSENCE of a
-        receipt — so a receipt an agent never earned SUPPRESSES that message from `comms_listen`.
-        Agents quote message ids in sentences routinely, so this needs no ill intent.
-        """
-        row = _Row(message_id="", body="As I said in MessageId: m1 earlier, the fix landed.\n")
-        marked, receipts = _run(_receipts_after(row, messages=["m1"]))
-        self.assertEqual(marked, 0, "a mid-sentence mention is prose, not a structural line")
-        self.assertEqual(receipts, [])
-
-        # …and the structural spelling of the same id still works INSIDE A REAL BUFFER, so the guard
-        # is not just refusing everything. The wrapper is the 2026-08-18 tightening: the same line in
-        # a raw sender body is now refused, because that is a body the SENDER wrote — which is the
-        # whole injection. Only a buffer the service composed can carry ids worth recovering.
-        structural = _Row(
-            message_id="",
-            body=f"{_MERGED_DISPATCH_HEADER}\nMessageId: m1\n{_MERGED_DISPATCH_FOOTER}",
-        )
-        marked_ok, receipts_ok = _run(_receipts_after(structural, messages=["m1"]))
-        self.assertEqual(marked_ok, 1)
-        self.assertEqual(receipts_ok, [("m1", "target")])
+    # An id a SENDER wrote into a plain body -- mid-sentence or even at column 0 -- earns no receipt:
+    # `test_read_receipt_injection_via_dispatch_body.py` pins that on the id scan this helper calls.

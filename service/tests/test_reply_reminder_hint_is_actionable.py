@@ -90,11 +90,8 @@ class ReplyReminderHintIsActionableTests(unittest.TestCase):
         self.assertNotIn("original-sender", text)
         self.assertIn('to="dashboard"', text)
 
-    def test_light_reminder_stays_one_line(self):
-        """The LIGHT format exists to avoid context burn (2026-07-02 operator decision)."""
-        text = self._text(_row(), full=False)
-        self.assertNotIn("\n", text)
-        self.assertEqual(text.count("run_test_1"), 1, "the run id must not be repeated")
+    # The LIGHT format staying one line is asserted on the reminder the sweep really sends, in
+    # `test_reply_reminders.py::test_light_reminders_between_full_every_nth`.
 
 
 if __name__ == "__main__":
