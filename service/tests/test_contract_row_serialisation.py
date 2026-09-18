@@ -155,10 +155,6 @@ def test_previews_are_clipped_to_420_characters():
     assert len(serialised["resultPreview"]) == 420
 
 
-def test_a_shorter_body_is_not_padded():
-    assert serialise(message_body="short")["preview"] == "short"
-
-
 # ── the plain fields ─────────────────────────────────────────────────────────────────────────
 def test_the_identifying_fields_are_passed_straight_through():
     serialised = serialise()

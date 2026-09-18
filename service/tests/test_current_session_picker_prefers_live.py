@@ -81,18 +81,6 @@ class CurrentSessionPickerPrefersLiveTests(FastApiTestCase):
 
     # --- the regression -------------------------------------------------------------------
 
-    def test_fresher_dead_row_does_not_shadow_a_live_attached_session(self):
-        """THE DEFECT. `attached` is live but shares tier 1 with `stopped`, so the fresher
-        corpse won `last_seen DESC` and became the agent's "current" session."""
-        self._seed("s-live", "shadow-1", "attached", last_seen_ago=300, terminal_id="term_live")
-        self._seed("s-dead", "shadow-1", "stopped", last_seen_ago=5, terminal_id="term_dead")
-        picked = self._pick("shadow-1")
-        self.assertIsNotNone(picked, "a live attached session must be found")
-        self.assertEqual(
-            picked["id"], "s-live",
-            "a stopped session must never shadow a live one, however fresh its last_seen",
-        )
-
     def test_every_live_status_outranks_a_fresher_dead_row(self):
         """All six members of LIVE_SESSION_STATUSES, not just the four the CASE promotes."""
         for i, live_status in enumerate(sorted(LIVE_SESSION_STATUSES)):

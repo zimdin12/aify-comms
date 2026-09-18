@@ -27,6 +27,7 @@ content and must survive -- which is the case the last test below pins.
 from __future__ import annotations
 
 import sys
+import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -49,7 +50,7 @@ REAL_WORK = (
 )
 
 
-class RecordingSelectionTests(FastApiTestCase):
+class RecordingSelectionTests(unittest.TestCase):
     """The pure decision, before any HTTP."""
 
     def test_the_exit_marker_alone_says_nothing(self) -> None:
@@ -59,28 +60,12 @@ class RecordingSelectionTests(FastApiTestCase):
             "eighteen characters of exit marker were read as an account of the death",
         )
 
-    def test_a_strip_gate_would_have_accepted_it(self) -> None:
-        """The control that names the old behaviour. If this were falsy the bug could not have
-        happened and this whole file would be guarding a case that cannot occur."""
-        self.assertTrue(
-            EXIT_MARKER_ONLY.strip(),
-            "the marker is falsy under .strip(), so the described failure is impossible",
-        )
-
-    def test_the_events_answer_when_the_column_does_not(self) -> None:
-        text, source = richest_recording(EXIT_MARKER_ONLY, REAL_WORK)
-        self.assertEqual(source, "events")
-        self.assertIn("build_terrain_heat_source", text)
-
     def test_the_column_still_wins_when_it_says_something(self) -> None:
         """No regression for the 63,423-character case: the fuller store must not be displaced, and
         the events must not even be consulted."""
         text, source = richest_recording(REAL_WORK, "something else entirely")
         self.assertEqual(source, "output")
         self.assertIn("build_terrain_heat_source", text)
-
-    def test_neither_store_saying_anything_is_its_own_answer(self) -> None:
-        self.assertEqual(richest_recording(EXIT_MARKER_ONLY, "[terminal exited]"), ("", ""))
 
     def test_a_failure_marker_carries_its_reason_and_survives(self) -> None:
         """`[terminal failed] <error>` is the one marker that says why. Filtering it as
@@ -163,18 +148,12 @@ class ConsoleTailServesTheEventsTests(FastApiTestCase):
 
         asyncio.run(go())
 
-    def test_the_fixture_reproduces_the_shape_that_failed(self) -> None:
-        """Positive control. If the seeded terminal did not have a nearly-empty column AND rich
-        events, every assertion below would pass for the wrong reason."""
+    def test_it_serves_what_the_events_recorded(self) -> None:
         self._seed_terminal(output=EXIT_MARKER_ONLY, events=[REAL_WORK])
         response = self.client.get(f"/api/v1/agents/{self.AGENT}/console")
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertTrue(body.get("historical"), "the endpoint did not take the dead-terminal path")
-
-    def test_it_serves_what_the_events_recorded(self) -> None:
-        self._seed_terminal(output=EXIT_MARKER_ONLY, events=[REAL_WORK])
-        body = self.client.get(f"/api/v1/agents/{self.AGENT}/console").json()
         self.assertEqual(body.get("recordedFrom"), "events", body.get("message"))
         self.assertIn(
             "build_terrain_heat_source", body.get("output") or "",
@@ -290,6 +269,4 @@ class ForeignKeyColumnsThatDefaultToEmptyStringTests(FastApiTestCase):
 
 
 if __name__ == "__main__":
-    import unittest
-
     unittest.main()

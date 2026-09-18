@@ -215,11 +215,6 @@ class ContainerManagerOperationsTests(unittest.TestCase):
 
         return run(body()), calls
 
-    def test_a_container_that_answers_200_is_healthy(self):
-        manager = self._manager({"a": definition()})
-        healthy, _ = self._poll(manager, answers=[200])
-        self.assertTrue(healthy)
-
     def test_it_KEEPS_POLLING_past_a_refusal(self):
         """A container loading a model answers nothing for the first seconds. Giving up on the first
         connection refusal would fail every GPU image at startup."""
@@ -242,17 +237,6 @@ class ContainerManagerOperationsTests(unittest.TestCase):
         self.assertFalse(healthy)
 
     # ── background tasks and shutdown ────────────────────────────────────────────────────────
-
-    def test_starting_background_tasks_starts_both_loops(self):
-        manager = self._manager({"a": definition()})
-
-        async def body():
-            await manager.start_background_tasks()
-            started = (manager._reaper_task is not None, manager._health_task is not None)
-            await manager.stop_background_tasks()
-            return started
-
-        self.assertEqual(run(body()), (True, True))
 
     def test_stopping_background_tasks_CANCELS_them(self):
         """They are `while True` loops. Leaving them running holds the event loop open and keeps

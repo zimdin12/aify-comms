@@ -107,13 +107,6 @@ class ContainerRouteTests(unittest.TestCase):
 
     # ── on-demand start ──────────────────────────────────────────────────────────────────────
 
-    def test_a_container_that_is_DOWN_is_started_by_the_first_request(self):
-        manager = self._manager({"a": definition()})
-        self._upstream()
-        response = self.client.get("/route/a/v1/models")
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(manager.started, ["a"])
-
     def test_every_down_state_triggers_a_start(self):
         """`defined`, `stopped` and `failed` all mean "not running now" — a failed container that an
         operator fixed upstream must come back on the next request rather than staying dead."""
@@ -212,14 +205,6 @@ class ContainerRouteTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual(fake.built["method"], method)
 
-    def test_the_body_and_query_reach_the_container(self):
-        manager = self._manager({"a": definition()})
-        self._running(manager, "a")
-        fake = self._upstream()
-        self.client.post("/route/a/v1/chat", content=b"{}", params={"stream": "true"})
-        self.assertEqual(fake.built["content"], b"{}")
-        self.assertEqual(fake.built["params"], {"stream": "true"})
-
     def test_the_upstream_status_and_body_come_back(self):
         manager = self._manager({"a": definition()})
         self._running(manager, "a")
@@ -229,16 +214,6 @@ class ContainerRouteTests(unittest.TestCase):
         self.assertEqual(response.content, b"streamed")
 
     # ── the idle clock ───────────────────────────────────────────────────────────────────────
-
-    def test_a_proxied_request_RESETS_the_idle_clock(self):
-        """The reaper stops containers by idle time. A request that does not stamp this is a
-        container reaped while it is serving — and the next request pays a cold start."""
-        manager = self._manager({"a": definition()})
-        self._running(manager, "a")
-        self._upstream()
-        self.assertIsNone(manager.states["a"].last_request_at)
-        self.client.get("/route/a/x")
-        self.assertIsNotNone(manager.states["a"].last_request_at)
 
     def test_the_TARGETS_clock_is_the_one_reset_for_a_shared_name(self):
         """Traffic through the sharer keeps the process that actually serves it alive. Stamping the

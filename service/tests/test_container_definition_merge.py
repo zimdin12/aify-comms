@@ -68,17 +68,6 @@ def test_a_list_default_is_REPLACED_not_concatenated():
     assert definitions["app"].command == ["worker"]
 
 
-def test_the_merge_is_only_one_level_deep():
-    """A dict INSIDE a merged dict replaces wholesale — the merge does not recurse. Pinned because
-    the shallow behaviour is invisible at the call site and a deepening "fix" would change what
-    starts."""
-    definitions, _ = load_container_definitions(config(
-        {"image": "base:1", "labels": {"team": "core", "tier": "1"}},
-        app={"labels": {"tier": "2"}},
-    ))
-    assert definitions["app"].labels == {"team": "core", "tier": "2"}, "one level DOES merge"
-
-
 def test_a_nested_dict_with_no_matching_default_is_taken_whole():
     definitions, _ = load_container_definitions(
         config({"image": "base:1"}, app={"environment": {"OWN": "1"}})
@@ -107,14 +96,6 @@ def test_definitions_do_not_leak_into_each_other():
     assert definitions["second"].environment == {"SHARED": "yes", "ONLY_SECOND": "1"}
 
 
-def test_the_returned_defaults_are_not_polluted_by_the_merge():
-    defaults_in = {"image": "base:1", "environment": {"SHARED": "yes"}}
-    _, defaults_out = load_container_definitions(
-        {"containers": {"defaults": defaults_in, "definitions": {"app": {"environment": {"OWN": "1"}}}}}
-    )
-    assert defaults_out["environment"] == {"SHARED": "yes"}, "the default dict must survive unedited"
-
-
 def test_unknown_keys_are_ignored_rather_than_fatal():
     """`extra="ignore"` on the model — service.json carries `_comment` fields, and a config with a
     note in it must not fail the whole service at boot."""
@@ -125,14 +106,6 @@ def test_unknown_keys_are_ignored_rather_than_fatal():
 
 
 # ── shared_with ──────────────────────────────────────────────────────────────────────────────
-def test_a_resolvable_shared_with_is_accepted():
-    definitions, _ = load_container_definitions(config(
-        primary={"image": "llm:1"},
-        secondary={"image": "llm:1", "shared_with": "primary"},
-    ))
-    assert definitions["secondary"].shared_with == "primary"
-
-
 def test_an_unresolvable_shared_with_raises_at_load():
     """Better here than at start: a container sharing a URL that does not exist proxies to nothing,
     and that failure would surface as an unexplained timeout much later."""

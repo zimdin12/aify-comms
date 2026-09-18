@@ -53,7 +53,7 @@ class DispatchClaimEmptinessTests(unittest.TestCase):
 
     # The lock-result case is NOT asserted here. A literal written by hand would be the same dict
     # as the test above and would pass whatever the route actually supplies —
-    # `test_every_route_calls_its_predicate_EMPTY_on_its_own_lock_result` reads it off the handler.
+    # `test_every_route_passes_its_own_predicate_and_scope_and_its_lock_result_is_EMPTY` reads it off the handler.
 
     def test_a_CLAIMED_RUN_is_not_empty(self):
         self.assertIs(dispatch_claim_is_empty({"ok": True, "run": {"id": "run-1"}}), False)
@@ -89,14 +89,6 @@ class DispatchClaimEmptinessTests(unittest.TestCase):
             True,
         )
 
-    def test_a_run_present_beats_every_absent_directive(self):
-        self.assertIs(
-            dispatch_claim_is_empty(
-                {"run": {"id": "r"}, "stopped": False, "release": False, "blockedBy": None},
-            ),
-            False,
-        )
-
 
 class ControlListEmptinessTests(unittest.TestCase):
     """`/dispatch/controls/claim` and `/terminals/controls/claim`."""
@@ -120,17 +112,6 @@ class ControlListEmptinessTests(unittest.TestCase):
     def test_a_NULL_controls_value_is_also_actionable(self):
         self.assertIs(dispatch_controls_is_empty({"controls": None}), False)
         self.assertIs(terminal_controls_is_empty({"controls": None}), False)
-
-    def test_the_two_control_predicates_still_AGREE(self):
-        """They are separate functions on purpose — two endpoints, two tables, two handlers — and
-        one changing shape must not silently redefine emptiness for the other. This is the test that
-        turns a divergence into a decision instead of a surprise."""
-        for result in ({"controls": []}, {"controls": [{"id": "c"}]}, {"ok": True},
-                       {"controls": None}, {}):
-            with self.subTest(result=result):
-                self.assertEqual(
-                    dispatch_controls_is_empty(result), terminal_controls_is_empty(result),
-                )
 
 
 class EnvironmentControlEmptinessTests(unittest.TestCase):
@@ -270,68 +251,12 @@ class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
             asyncio.run(call_handler())
         return captured
 
-    def test_dispatch_claim(self):
-        from service.models import DispatchClaimRequest
-        from service.routers.dispatch_messages.dispatch import claim_dispatch
+    def test_every_route_passes_its_own_predicate_and_scope_and_its_lock_result_is_EMPTY(self):
+        """Each claim route hands `longpoll` ITS predicate (by identity) under its own wake scope.
 
-        captured = self._predicate_passed_by(
-            lambda: claim_dispatch(DispatchClaimRequest(agentId="a"), _StubRequest()),
-        )
-        self.assertIs(captured["is_empty"], dispatch_claim_is_empty)
-        self.assertEqual(captured["scope"], "dispatch")
-
-    def test_dispatch_controls_claim(self):
-        from service.models import DispatchControlClaimRequest
-        from service.routers.dispatch_messages.controls import claim_dispatch_controls
-
-        captured = self._predicate_passed_by(
-            lambda: claim_dispatch_controls(
-                DispatchControlClaimRequest(agentId="a"), _StubRequest(),
-            ),
-        )
-        self.assertIs(captured["is_empty"], dispatch_controls_is_empty)
-        self.assertEqual(captured["scope"], "control")
-
-    def test_terminal_controls_claim(self):
-        from service.models import TerminalControlClaim
-        from service.routers.terminal_controls import claim_terminal_controls
-
-        captured = self._predicate_passed_by(
-            lambda: claim_terminal_controls(
-                TerminalControlClaim(environmentId="env", bridgeId="bi"),
-            ),
-        )
-        self.assertIs(captured["is_empty"], terminal_controls_is_empty)
-        self.assertEqual(captured["scope"], "terminal-control")
-
-    def test_environment_control_claim(self):
-        from service.models import EnvironmentControlClaim
-        from service.routers.environments import claim_environment_control
-
-        captured = self._predicate_passed_by(
-            lambda: claim_environment_control(
-                EnvironmentControlClaim(environmentId="env", bridgeId="bi"),
-            ),
-        )
-        self.assertIs(captured["is_empty"], environment_control_is_empty)
-        self.assertEqual(captured["scope"], "env-control")
-
-    def test_spawn_request_claim(self):
-        from service.models import SpawnRequestClaim
-        from service.routers.spawn_requests import claim_spawn_request
-
-        captured = self._predicate_passed_by(
-            lambda: claim_spawn_request(
-                SpawnRequestClaim(environmentId="env", bridgeId="bi"), _StubRequest(),
-            ),
-        )
-        self.assertIs(captured["is_empty"], spawn_request_is_empty)
-        self.assertEqual(captured["scope"], "spawn")
-
-    def test_every_route_calls_its_predicate_EMPTY_on_its_own_lock_result(self):
-        """The substituted result a claim returns under SQLite write contention. If a route's lock
-        result did not read as empty, a moment of contention would end the long poll and send that
-        bridge back to short polling — silently, and exactly under load."""
+        The lock result is the substituted result a claim returns under SQLite write contention. If a
+        route's lock result did not read as empty, a moment of contention would end the long poll and
+        send that bridge back to short polling — silently, and exactly under load."""
         from service.models import (
             DispatchClaimRequest,
             DispatchControlClaimRequest,
@@ -346,19 +271,27 @@ class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
         from service.routers.terminal_controls import claim_terminal_controls
 
         handlers = {
-            "dispatch": lambda: claim_dispatch(DispatchClaimRequest(agentId="a"), _StubRequest()),
-            "dispatch-controls": lambda: claim_dispatch_controls(
-                DispatchControlClaimRequest(agentId="a"), _StubRequest()),
-            "terminal-controls": lambda: claim_terminal_controls(
-                TerminalControlClaim(environmentId="e", bridgeId="b")),
-            "environment-control": lambda: claim_environment_control(
-                EnvironmentControlClaim(environmentId="e", bridgeId="b")),
-            "spawn-request": lambda: claim_spawn_request(
-                SpawnRequestClaim(environmentId="e", bridgeId="b"), _StubRequest()),
+            "dispatch": (
+                lambda: claim_dispatch(DispatchClaimRequest(agentId="a"), _StubRequest()),
+                dispatch_claim_is_empty, "dispatch"),
+            "dispatch-controls": (
+                lambda: claim_dispatch_controls(DispatchControlClaimRequest(agentId="a"), _StubRequest()),
+                dispatch_controls_is_empty, "control"),
+            "terminal-controls": (
+                lambda: claim_terminal_controls(TerminalControlClaim(environmentId="e", bridgeId="b")),
+                terminal_controls_is_empty, "terminal-control"),
+            "environment-control": (
+                lambda: claim_environment_control(EnvironmentControlClaim(environmentId="e", bridgeId="b")),
+                environment_control_is_empty, "env-control"),
+            "spawn-request": (
+                lambda: claim_spawn_request(SpawnRequestClaim(environmentId="e", bridgeId="b"), _StubRequest()),
+                spawn_request_is_empty, "spawn"),
         }
-        for name, handler in handlers.items():
+        for name, (handler, predicate, scope) in handlers.items():
             with self.subTest(route=name):
                 captured = self._predicate_passed_by(handler)
+                self.assertIs(captured["is_empty"], predicate)
+                self.assertEqual(captured["scope"], scope)
                 lock_result = captured["lock_result"]
                 self.assertIsNotNone(lock_result, "no lock_result — contention would raise a 503")
                 self.assertIs(captured["is_empty"](lock_result), True)

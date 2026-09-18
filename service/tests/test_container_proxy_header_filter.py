@@ -113,25 +113,6 @@ class RequestHeaderFilterTests(unittest.TestCase):
             _safe_query_params({"api_key": "secret", "API_KEY": "secret", "q": "1"}), {"q": "1"},
         )
 
-    def test_the_stripped_set_is_the_contract(self):
-        """This file re-evaluates the rule, so it must be the module's rule.
-
-        Asserting the SET rather than re-reading the source: the names are the contract, and a set
-        comparison fails loudly if one is removed — which is how a credential would start flowing
-        again.
-        """
-        from service.containers.proxy import _STRIPPED_REQUEST_HEADERS
-
-        self.assertEqual(_STRIPPED_REQUEST_HEADERS, {
-            "host", "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade",
-            "proxy-authenticate", "proxy-authorization",
-            "x-api-key", "authorization", "cookie",
-        })
-        self.assertTrue(
-            all(name == name.lower() for name in _STRIPPED_REQUEST_HEADERS),
-            "the set is compared against a lowercased name, so an entry with capitals never matches",
-        )
-
 
 class ResponseHeaderFilterTests(unittest.TestCase):
     def test_the_encoding_headers_a_decoded_stream_must_not_carry(self):

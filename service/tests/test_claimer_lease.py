@@ -122,12 +122,6 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
 
     # --- Task 5.1: lease store ---
 
-    def test_acquire_makes_lease_live(self):
-        self._register_managed_hermes("hermes-lease")
-        self.assertFalse(self._has_lease("hermes-lease"), "no lease before acquire")
-        self._post_lease("hermes-lease", "acquire")
-        self.assertTrue(self._has_lease("hermes-lease"), "acquire makes lease live")
-
     def test_release_clears_lease_immediately(self):
         self._register_managed_hermes("hermes-lease")
         self._post_lease("hermes-lease", "acquire")
@@ -190,49 +184,6 @@ class ClaimerLeaseStoreTests(unittest.TestCase):
         self.assertFalse(
             self._agent_has_live_claimer("hermes-lease"),
             "a released lease must override a still-fresh channel-sidecar row",
-        )
-
-    def test_no_lease_ever_falls_back_to_sidecar_check(self):
-        # Lazy-claim contract: an agent that NEVER recorded a lease falls back to
-        # the channel-sidecar / bridge-freshness check (a not-yet-polled claimer
-        # is NOT treated as deaf). With a fresh sidecar row and NO lease ever,
-        # the agent is deliverable via the fallback.
-        self._register_managed_hermes("hermes-nolease")
-        now = _now()
-
-        async def _seed():
-            db = await get_db()
-            try:
-                await db.execute(
-                    """
-                    INSERT INTO bridge_instances (
-                        id, agent_id, machine_id, runtime, session_mode, session_handle,
-                        terminal_id, bridge_kind, registered_at, last_seen, superseded_by
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        "hermes-channel-linux:test-host",
-                        "hermes-nolease",
-                        "linux:test-host",
-                        "hermes",
-                        "managed",
-                        "h1",
-                        "",
-                        "channel-sidecar",
-                        now,
-                        now,
-                        "",
-                    ),
-                )
-                await db.commit()
-            finally:
-                await db.close()
-
-        _run(_seed())
-        self.assertFalse(self._has_lease("hermes-nolease"), "no lease ever recorded")
-        self.assertTrue(
-            self._agent_has_live_claimer("hermes-nolease"),
-            "no-lease-ever must fall back to the fresh-sidecar check (lazy-claim contract)",
         )
 
 

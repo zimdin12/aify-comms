@@ -1,6 +1,10 @@
 """Pin that _default_console_command emits `--resume <handle>` for all runtimes
 that support it once the handle is stored. The codex carve-out (removed in
-Plan 1 of the RuntimeAdapter refactor) is the primary regression target."""
+Plan 1 of the RuntimeAdapter refactor) is the primary regression target.
+
+This goes through `_default_console_command`, the session-row wrapper, rather than the adapters
+directly (those are `service/tests/runtimes/test_console_command.py`): it is the only test that proves the stored
+`session_handle` reaches the adapter at all."""
 
 import sys
 from pathlib import Path
@@ -11,95 +15,28 @@ sys.path.insert(0, str(ROOT.parent))
 
 from service.api_core.capabilities import _default_console_command
 
-
-def _session(*, agent_id, handle, runtime):
-    return {"agent_id": agent_id, "session_handle": handle, "runtime": runtime}
-
-
-def test_claude_managed_includes_resume():
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="h1", runtime="claude-code"),
-        "/tmp",
-        interactive=False,
-    )
-    assert "claude-aify" in cmd
-    assert "--aify-agent a" in cmd
-    assert "--auto" in cmd
-    assert "--resume h1" in cmd
-
-
-def test_claude_interactive_includes_resume_when_handle_known():
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="h1", runtime="claude-code"),
-        "/tmp",
-        interactive=True,
-    )
-    assert "claude-aify --aify-agent a" in cmd
-    assert "--auto" not in cmd
-    assert "--resume h1" in cmd
+#: (runtime, handle, interactive, substrings that must appear, substrings that must not).
+CASES = [
+    # claude: managed answers for itself (--auto); both modes resume a known handle.
+    ("claude-code", "h1", False, ["claude-aify", "--aify-agent a", "--auto", "--resume h1"], []),
+    ("claude-code", "h1", True, ["claude-aify --aify-agent a", "--resume h1"], ["--auto"]),
+    # codex: Plan 1 dropped the carve-out, so managed AND interactive resume; no handle, no resume.
+    ("codex", "thread-uuid", False, ["codex-aify", "--aify-agent a", "--resume thread-uuid"], []),
+    ("codex", "thread-uuid", True, ["codex-aify --aify-agent a", "--resume thread-uuid"], []),
+    ("codex", "", False, ["codex-aify --aify-agent a"], ["--resume"]),
+    ("hermes", "hh", False, ["hermes-aify --aify-agent a", "--resume hh"], []),
+    # pi: managed resumes; interactive stays fresh on purpose (the 026H control-sequence trap).
+    ("pi", "omp-uuid", False, ["pi-aify --aify-agent a", "--resume omp-uuid"], []),
+    ("pi", "omp-uuid", True, ["pi-aify --aify-agent a"], ["--resume"]),
+]
 
 
-def test_codex_managed_includes_resume():
-    """Regression for Plan 1: drop the codex carve-out; managed launches now resume."""
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="thread-uuid", runtime="codex"),
-        "/tmp",
-        interactive=False,
-    )
-    assert "codex-aify" in cmd
-    assert "--aify-agent a" in cmd
-    assert "--resume thread-uuid" in cmd
-
-
-def test_codex_interactive_includes_resume_when_handle_known():
-    """Operator-driven Plan 1 decision: interactive Console resumes if we have a
-    handle. codex-aify wrapper handles stale handles gracefully."""
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="thread-uuid", runtime="codex"),
-        "/tmp",
-        interactive=True,
-    )
-    assert "codex-aify --aify-agent a" in cmd
-    assert "--resume thread-uuid" in cmd
-
-
-def test_codex_no_handle_no_resume():
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="", runtime="codex"),
-        "/tmp",
-        interactive=False,
-    )
-    assert "codex-aify --aify-agent a" in cmd
-    assert "--resume" not in cmd
-
-
-def test_hermes_managed_includes_resume():
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="hh", runtime="hermes"),
-        "/tmp",
-        interactive=False,
-    )
-    assert "hermes-aify --aify-agent a" in cmd
-    assert "--resume hh" in cmd
-
-
-def test_pi_managed_includes_resume():
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="omp-uuid", runtime="pi"),
-        "/tmp",
-        interactive=False,
-    )
-    assert "pi-aify --aify-agent a" in cmd
-    assert "--resume omp-uuid" in cmd
-
-
-def test_pi_interactive_no_resume():
-    cmd = _default_console_command(
-        _session(agent_id="a", handle="omp-uuid", runtime="pi"),
-        "/tmp",
-        interactive=True,
-    )
-    # Pi interactive intentionally stays fresh — comments in api_v2 explain the
-    # 026H control-sequence trap. Plan 1 preserves this behavior.
-    assert "pi-aify --aify-agent a" in cmd
-    assert "--resume" not in cmd
+def test_the_console_command_resumes_a_stored_handle_where_the_runtime_supports_it():
+    for runtime, handle, interactive, present, absent in CASES:
+        session = {"agent_id": "a", "session_handle": handle, "runtime": runtime}
+        cmd = _default_console_command(session, "/tmp", interactive=interactive)
+        case = f"{runtime} handle={handle!r} interactive={interactive}: {cmd!r}"
+        for part in present:
+            assert part in cmd, f"{part!r} missing -- {case}"
+        for part in absent:
+            assert part not in cmd, f"{part!r} present -- {case}"

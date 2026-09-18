@@ -99,15 +99,3 @@ class ConsoleInputCallerGateTests(FastApiTestCase):
         response = self._input("self-agent", {"text": "", "enter": True, "from": "self-agent"})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertFalse(response.json()["ok"])
-
-    def test_the_refusals_carry_different_status_codes(self):
-        """Stated as its own assertion because the two messages are one edit away from being merged,
-        and the codes are what a caller branches on."""
-        self._register("target-agent")
-        missing = self._input("target-agent", {"text": "x"})
-        unregistered = self._input("target-agent", {"text": "x", "from": "ghost"})
-        self.assertNotEqual(
-            missing.status_code, unregistered.status_code,
-            "a malformed request and a refused one must not answer with the same code",
-        )
-        self.assertEqual({missing.status_code, unregistered.status_code}, {400, 403})

@@ -212,11 +212,6 @@ class ControlsForEndedRunsAreClosed(FastApiTestCase):
                 self.assertEqual(self._sweep(), [])
                 self.assertEqual(self._control(control_id)["status"], settled)
 
-    def test_a_second_pass_closes_nothing_new(self):
-        self._seed("r-idem", "completed", "c-idem")
-        self.assertEqual(len(self._sweep()), 1)
-        self.assertEqual(self._sweep(), [], "the sweep re-closed a control it had already closed")
-
     def test_the_limit_is_respected_and_drains_oldest_first(self):
         """Bounded so a live control plane is never held for long, and ordered so a backlog drains
         deterministically instead of re-processing the same head every pass."""

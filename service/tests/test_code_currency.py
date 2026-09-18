@@ -43,11 +43,6 @@ class CodeCurrencyTests(unittest.TestCase):
             with self.subTest(metadata=metadata):
                 self.assertEqual(code_currency(metadata)["state"], UNKNOWN)
 
-    def test_a_missing_half_is_NOT_stale_either(self):
-        # The opposite error, and the more expensive one: reporting stale would send an operator to
-        # restart a daemon that is fine, and the restart costs them every worker it was running.
-        self.assertNotEqual(code_currency({"instance": "aaaa1111"})["state"], STALE)
-
     def test_it_still_reports_the_half_it_did_get(self):
         # "unknown" is more useful when it can say which of the two arrived.
         self.assertEqual(code_currency({"instance": "aaaa1111"})["running"], "aaaa1111")

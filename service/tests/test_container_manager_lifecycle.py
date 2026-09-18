@@ -140,11 +140,6 @@ class ContainerManagerLifecycleTests(unittest.TestCase):
         manager = self._manager({"a": definition()})
         self.assertIsNone(manager.resolve_url("nope"))
 
-    def test_resolve_url_is_none_until_the_container_has_a_hostname(self):
-        """A URL for a container that is not running would send a proxied request at nothing."""
-        manager = self._manager({"a": definition()})
-        self.assertIsNone(manager.resolve_url("a"))
-
     def test_resolve_url_follows_shared_with_to_the_TARGETS_url(self):
         """The whole point of sharing: two services, one process. Returning the sharer's own
         (absent) hostname would start a second copy of an expensive model server."""

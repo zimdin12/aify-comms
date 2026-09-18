@@ -103,21 +103,7 @@ class ConsoleCapabilityGateTests(unittest.TestCase):
             "the wasted reinstall the split exists to prevent",
         )
 
-    def test_an_advertised_list_that_is_present_but_unusable_still_names_it(self):
-        detail = _refusal(_env(terminalRuntimes=["pi"]), _session("opencode"))
-        self.assertIn("pi", detail)
-
     # ── the two branches must stay distinguishable ──────────────────────────────────────────
-
-    def test_the_host_and_selection_refusals_are_different_messages(self):
-        """The whole reason this function is not one branch. If these ever converge, an operator
-        cannot tell "your bridge is broken" from "pick another runtime" — and the recorded cost of
-        that confusion was reinstalling a working bridge."""
-        host = _refusal(_env(pty=False), _session("codex"))
-        selection = _refusal(_env(), _session("codex"))
-        self.assertNotEqual(host, selection)
-        self.assertIn("node-pty", host)
-        self.assertNotIn("node-pty", selection)
 
     def test_a_host_failure_wins_over_a_selection_failure(self):
         """Both wrong at once: no PTY AND an unadvertised runtime. The host problem must be

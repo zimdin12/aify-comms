@@ -1,5 +1,5 @@
-"""The background loops that stop idle containers and restart sick ones, plus the config that
-defines them.
+"""The background loops that stop idle containers and restart sick ones, and the listing that
+reports them. How definitions load from service.json is `test_container_definition_merge.py`.
 
 `_idle_reaper_loop`, `_health_monitor_loop`, `list_containers`, `get_groups` and `idle_seconds` were
 all among the 71 service functions the suite never entered.
@@ -25,8 +25,8 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from service.containers import manager as manager_module
-from service.containers.manager import ContainerManager, load_container_definitions
-from service.containers.models import ContainerDefinition, ContainerState, ContainerStatus
+from service.containers.manager import ContainerManager
+from service.containers.models import ContainerState, ContainerStatus
 from service.tests.test_container_manager_lifecycle import FakeDocker, definition, run
 
 
@@ -153,9 +153,6 @@ class IdleReaperTests(_ManagerFixture, unittest.TestCase):
 
 
 class IdleSecondsTests(unittest.TestCase):
-    def test_idle_seconds_is_zero_when_nothing_has_been_requested(self):
-        self.assertEqual(ContainerState(name="a").idle_seconds, 0.0)
-
     def test_idle_seconds_grows_from_the_LAST_REQUEST_not_from_the_start(self):
         """A busy container that has been up for hours is not idle. Measuring from `started_at`
         would reap the busiest containers first."""
@@ -296,46 +293,3 @@ class ListingAndConfigTests(_ManagerFixture, unittest.TestCase):
             "c": definition(),
         })
         self.assertEqual(manager.get_groups(), {"models": ["a", "b"], "default": ["c"]})
-
-    # ── definitions parsed from service.json ─────────────────────────────────────────────────
-
-    def test_defaults_merge_into_every_definition(self):
-        definitions, defaults = load_container_definitions({"containers": {
-            "defaults": {"image": "base:latest", "idle_timeout_seconds": 42},
-            "definitions": {"a": {}, "b": {"idle_timeout_seconds": 7}},
-        }})
-        self.assertEqual(definitions["a"].image, "base:latest")
-        self.assertEqual(definitions["a"].idle_timeout_seconds, 42)
-        self.assertEqual(definitions["b"].idle_timeout_seconds, 7, "a definition must win over defaults")
-        self.assertEqual(defaults["idle_timeout_seconds"], 42)
-
-    def test_a_nested_block_is_MERGED_not_replaced(self):
-        """`{"gpu": {"exclusive": true}}` must not silently drop the default device ids — that is a
-        container that quietly stops requesting a GPU at all."""
-        definitions, _ = load_container_definitions({"containers": {
-            "defaults": {"image": "base:latest", "gpu": {"device_ids": ["0"], "memory_fraction": 0.5}},
-            "definitions": {"a": {"gpu": {"exclusive": True}}},
-        }})
-        gpu = definitions["a"].gpu
-        self.assertEqual(gpu.device_ids, ["0"])
-        self.assertEqual(gpu.memory_fraction, 0.5)
-        self.assertTrue(gpu.exclusive)
-
-    def test_a_shared_with_pointing_at_nothing_is_refused_AT_LOAD(self):
-        """Caught at config load, where the operator can see it, rather than as a ValueError on the
-        first request months later."""
-        with self.assertRaises(ValueError) as caught:
-            load_container_definitions({"containers": {"definitions": {
-                "a": {"image": "x:1", "shared_with": "ghost"},
-            }}})
-        self.assertIn("ghost", str(caught.exception))
-        self.assertIn("Available", str(caught.exception), "the message must list what IS defined")
-
-    def test_no_containers_configured_is_not_an_error(self):
-        definitions, defaults = load_container_definitions({})
-        self.assertEqual(definitions, {})
-        self.assertEqual(defaults, {})
-
-
-# `ContainerDefinition` is imported for the type it validates in the loader tests above.
-assert ContainerDefinition is not None

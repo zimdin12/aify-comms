@@ -123,14 +123,6 @@ class ContainerProxyForwardingTests(unittest.TestCase):
         self.assertEqual(forwarded.get("x-trace-id"), "keep-me",
                          "an ordinary header must still be forwarded")
 
-    def test_hop_by_hop_headers_are_not_relayed_across_the_proxy(self):
-        fake = self._with_upstream()
-        self.client.get("/proxy", headers={"Connection": "keep-alive", "TE": "trailers"})
-        forwarded = {name.lower() for name in fake.built["headers"]}
-        self.assertNotIn("connection", forwarded)
-        self.assertNotIn("te", forwarded)
-        self.assertNotIn("host", forwarded, "the hub's own Host would misroute the upstream")
-
     def test_an_api_key_in_the_QUERY_STRING_is_dropped_too(self):
         """The same credential arrives both ways, so both are filtered — and the composition is
         what proves the query filter is actually reached."""

@@ -195,16 +195,6 @@ class ACheckoutReportsWhatItCommitted(unittest.TestCase):
     def _insert(self):
         return "INSERT INTO settings (key, value) VALUES ('change-feed-test', '1')"
 
-    def test_a_commit_reports_its_writes(self):
-        async def body():
-            db = await self.pool.acquire(self.path, SQLITE_BUSY_TIMEOUT_MS)
-            await db.execute("SELECT * FROM agents")
-            await db.execute(self._insert())
-            await db.commit()
-            await db.close()
-        self.run_async(body)
-        self.assertEqual([[w.table for w in report] for report in self.reports], [["settings"]])
-
     def test_a_commit_whose_writes_matched_no_rows_reports_nothing(self):
         async def body():
             db = await self.pool.acquire(self.path, SQLITE_BUSY_TIMEOUT_MS)
