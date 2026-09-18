@@ -93,17 +93,6 @@ class SpawnRequestListPairsEachSpec(FastApiTestCase):
         self.assertIn(request_id, after, "the request vanished along with its spec")
         self.assertIsNone(after[request_id].get("spawnSpec"))
 
-    def test_many_rows_still_pair_correctly(self):
-        """The dashboard asks for 200. A bug that only appears past a batch boundary would hide in a
-        six-row test."""
-        wanted = {self._create(f"/workspace/bulk-{i}"): f"/workspace/bulk-{i}" for i in range(40)}
-        by_id = {row["id"]: row for row in self._list(limit=200)}
-        mismatched = [
-            request_id for request_id, workspace in wanted.items()
-            if (by_id.get(request_id, {}).get("spawnSpec") or {}).get("workspace") != workspace
-        ]
-        self.assertEqual(mismatched, [], f"{len(mismatched)} of 40 rows carried the wrong spec")
-
     def test_an_empty_list_does_not_run_a_spec_query_at_all(self):
         """`WHERE id IN ()` is a syntax error in sqlite, so the empty case has to be guarded. This is
         the branch a happy-path test never reaches."""

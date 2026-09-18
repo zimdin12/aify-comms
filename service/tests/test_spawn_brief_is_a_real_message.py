@@ -71,9 +71,13 @@ class TheSpawnBriefIsARealMessage(FastApiTestCase):
                 await db.close()
         return asyncio.run(run())
 
-    def test_the_brief_reaches_the_agents_INBOX(self):
+    def test_the_brief_reaches_the_agents_INBOX_and_the_RUN_points_at_it(self):
         """The instruction in the dispatch text says the full details are in the inbox. Before this
-        fix there was nothing there at all."""
+        fix there was nothing there at all.
+
+        And the run's `message_id` is what the agent receives as the id to put in `inReplyTo`. Empty,
+        the reply cannot be threaded to the brief and the contract has to be closed some other way.
+        """
         self._settle(self._spawn(initial_message="Please audit the parser and report back."))
         rows = self._query(
             "SELECT id, from_agent, to_agent, subject, body, type FROM messages WHERE to_agent = ?",
@@ -84,10 +88,6 @@ class TheSpawnBriefIsARealMessage(FastApiTestCase):
         self.assertEqual(rows[0]["body"], "Please audit the parser and report back.")
         self.assertEqual(rows[0]["subject"], "First task")
 
-    def test_the_RUN_points_at_that_message_so_a_reply_can_thread(self):
-        """`message_id` is what the agent receives as the id to put in `inReplyTo`. Empty, the reply
-        cannot be threaded to the brief and the contract has to be closed some other way."""
-        self._settle(self._spawn(initial_message="do the thing"))
         runs = self._query(
             "SELECT id, message_id, require_reply FROM dispatch_runs WHERE target_agent = ?",
             ("fresh-worker",),
@@ -95,9 +95,7 @@ class TheSpawnBriefIsARealMessage(FastApiTestCase):
         self.assertEqual(len(runs), 1, runs)
         self.assertTrue(str(runs[0]["message_id"] or "").strip(),
                         "the run has no source message, so the agent has nothing to reply to")
-
-        messages = self._query("SELECT id FROM messages WHERE to_agent = ?", ("fresh-worker",))
-        self.assertEqual(runs[0]["message_id"], messages[0]["id"],
+        self.assertEqual(runs[0]["message_id"], rows[0]["id"],
                          "the run points at a different message than the one that was stored")
 
     def test_a_spawn_with_NO_brief_creates_no_message(self):

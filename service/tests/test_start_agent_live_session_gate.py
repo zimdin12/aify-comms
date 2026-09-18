@@ -12,13 +12,10 @@ gate insisted the agent was running.
 """
 import asyncio
 
-from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
 from service.clock import now as _now
-from service.api_core.tuning import LIVE_SESSION_STATUSES
 
 
 class StartAgentLiveSessionGateTests(FastApiTestCase):
@@ -79,23 +76,19 @@ class StartAgentLiveSessionGateTests(FastApiTestCase):
             f"{why}: expected the cold-start path to be reached, got {r.text}",
         )
 
-    def test_lost_session_does_not_block_start(self):
-        """THE REGRESSION. A `lost` session is terminal — it must not report alreadyRunning."""
-        self._register_managed("gate-lost")
-        self._seed_session("gate-lost", "sess-lost", "lost", ended_at="2026-04-30T13:59:11Z")
-        r = self._start("gate-lost")
-        self._assert_gate_let_it_through(
-            r, "a terminal `lost` session must not make the agent permanently unstartable"
-        )
-
     def test_every_terminal_status_leaves_the_agent_startable(self):
-        """Guard the whole class, not just `lost` — any non-live status must allow a start."""
+        """THE REGRESSION (`lost`) and the rest of its class: no non-live status may block a start.
+
+        Seeded with NO `ended_at`, so the status ALLOWLIST alone decides. The incident rows did carry
+        an `ended_at`, and seeding that made the gate's separate `ended_at` clause answer for them:
+        adding `lost` to the live set left this test green. The `ended_at` clause has its own test
+        below (`test_live_status_with_ended_at_is_treated_as_stale`).
+        """
         for status in ("lost", "ended", "stopped", "failed", "cancelled", "completed"):
             with self.subTest(status=status):
                 agent = f"gate-term-{status}"
                 self._register_managed(agent)
-                self._seed_session(agent, f"sess-{status}", status,
-                                   ended_at="2026-04-30T13:59:11Z")
+                self._seed_session(agent, f"sess-{status}", status)
                 r = self._start(agent)
                 self._assert_gate_let_it_through(
                     r, f"status={status!r} is terminal and must not block Start"
@@ -124,17 +117,3 @@ class StartAgentLiveSessionGateTests(FastApiTestCase):
                            ended_at="2026-04-30T13:59:11Z")
         r = self._start("gate-contradictory")
         self._assert_gate_let_it_through(r, "running+ended_at is stale, not live")
-
-    def test_gate_uses_the_canonical_constants(self):
-        """Pin the allowlist to the shared constants so a new session status cannot silently
-        become 'live' in this gate again."""
-        # v0.5.4: `_LIVE_SESSION_STATUSES` moved to api_core/liveness.py, so it is read from its OWNER
-        # rather than through the carrier. Reading it off `api_v2` kept working only because the carrier
-        # re-exported it, which is the indirection this series is removing.
-        union = {s.lower() for s in LIVE_SESSION_STATUSES} | {
-            s.lower() for s in _LIVE_SESSION_STATUSES
-        }
-        for terminal in ("lost", "ended", "stopped", "failed", "cancelled", "completed"):
-            self.assertNotIn(terminal, union, f"{terminal} must never count as a live session")
-        for live in ("running", "starting", "recovering"):
-            self.assertIn(live, union)

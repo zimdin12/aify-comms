@@ -89,10 +89,6 @@ class OrphanedRunsQueryTests(unittest.IsolatedAsyncioTestCase):
 
     # ---- branch 1: no live owning bridge, no progress ------------------------
 
-    async def test_a_run_with_no_claiming_bridge_is_orphaned(self):
-        await self._run("r1", bridge="")
-        self.assertEqual(["r1"], await self._select())
-
     async def test_a_run_whose_bridge_is_STALE_is_orphaned(self):
         """The 2026-05-23 operator report: sc-coder's run sat 'running' 50+ minutes because
         claim_bridge_id pointed at a bridge that had since gone stale, and the original

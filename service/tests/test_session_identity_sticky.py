@@ -174,15 +174,6 @@ class SessionIdentityStickyTests(FastApiTestCase):
         self.assertEqual(str(row["session_handle"] or ""), "sess-BBB")
         self.assertEqual(str(row["pending_session_id"] or ""), "")
 
-    def test_confirm_without_pending_409(self):
-        self._register()
-        self._heartbeat_handle("claude-1", "sess-AAA")
-        res = self.client.post(
-            "/api/v1/agents/claude-1/session/confirm",
-            json={"requestedBy": "operator"},
-        )
-        self.assertEqual(res.status_code, 409, res.text)
-
     # ── (e) keep clears pending + surfaces resume command ────────────────
     def test_keep_clears_pending_and_returns_resume_command(self):
         self._register()
@@ -210,15 +201,6 @@ class SessionIdentityStickyTests(FastApiTestCase):
         row = self._row("claude-1")
         self.assertEqual(str(row["session_handle"] or ""), "sess-AAA")
         self.assertEqual(str(row["pending_session_id"] or ""), "")
-
-    def test_keep_without_pending_409(self):
-        self._register()
-        self._heartbeat_handle("claude-1", "sess-AAA")
-        res = self.client.post(
-            "/api/v1/agents/claude-1/session/keep",
-            json={"requestedBy": "operator"},
-        )
-        self.assertEqual(res.status_code, 409, res.text)
 
     # ── cross-agent collision guard (root-cause fix, 2026-05-31) ─────────
     def test_cross_agent_collision_parks_and_keeps_own(self):

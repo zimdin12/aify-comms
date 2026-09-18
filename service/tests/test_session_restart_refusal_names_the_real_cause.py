@@ -182,13 +182,7 @@ class SessionRestartRefusalNamesTheRealCauseTests(FastApiTestCase):
             "this refusal has nothing to do with environment availability; the message asserted a "
             "cause the code never checked",
         )
-
-    def test_the_reason_travels_from_the_helper_that_recorded_it(self):
-        """Anti-vacuity: proves the text comes from the refusal RECORD, not from a second hardcoded
-        sentence that happens to mention the runtime. The reason names the runtime as the helper
-        quoted it — repr'd — which no message written at this call site would produce."""
-        self._register("srr-quoted", runtime="notarealruntime")
-        session_id = self._seed_session_without_spawn_spec("srr-quoted", runtime="notarealruntime")
-
-        detail = self._restart(session_id).json().get("detail", "")
-        self.assertIn("'notarealruntime'", detail, detail)
+        # ANTI-VACUITY: the text comes from the refusal RECORD, not from a second hardcoded sentence
+        # that happens to mention the runtime. The reason names the runtime as the helper quoted it
+        # -- repr'd -- which no message written at this call site would produce.
+        self.assertIn("'notarealruntime'", r.json().get("detail", ""), detail)

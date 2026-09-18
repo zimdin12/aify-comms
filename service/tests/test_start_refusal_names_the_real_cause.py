@@ -59,11 +59,19 @@ class StartRefusalNamesTheRealCauseTests(FastApiTestCase):
         self._register("src-noenv")
         self.assertIn("environment bound to this agent could not be resolved", self._refusal("src-noenv"))
 
-    def test_a_non_coldstartable_runtime_says_so(self):
-        """Not "no bridge available" — no bridge could ever help; the runtime is the problem."""
+    def test_a_non_coldstartable_runtime_says_so_and_claims_no_missing_bridge(self):
+        """Not "no bridge available" — no bridge could ever help; the runtime is the problem.
+
+        Two halves, both needed: the recorded cause must be there, and the specific false claim that
+        sent an operator to run a bare `aify-comms` must NOT be -- a message carrying the real cause
+        AND the old sentence would pass the first half alone. A runtime that cannot be cold-started
+        is not a bridge problem, and no bridge would fix it.
+        """
         self._register("src-badruntime", runtime="notarealruntime")
         detail = self._refusal("src-badruntime")
         self.assertIn("cold-startable", detail)
+        self.assertNotIn("environment bridge is available", detail)
+        self.assertNotIn("`aify-comms`", detail, "advice that can reap a live fleet")
 
     def test_a_resident_agent_is_refused_EARLIER_by_its_own_guard(self):
         """Measured, not assumed: the resident refusal inside `_coldstart_spawn_request_for_dispatch`
@@ -104,14 +112,6 @@ class StartRefusalNamesTheRealCauseTests(FastApiTestCase):
             f"diagnosis — the recorded reason is being discarded and a cause asserted in its "
             f"place: {shapes}",
         )
-
-    def test_no_refusal_claims_a_missing_bridge_it_did_not_check(self):
-        """The specific false claim that sent an operator to run a bare `aify-comms`. A runtime that
-        cannot be cold-started is not a bridge problem, and no bridge would fix it."""
-        self._register("src-claim-runtime", runtime="notarealruntime")
-        detail = self._refusal("src-claim-runtime")
-        self.assertNotIn("environment bridge is available", detail)
-        self.assertNotIn("`aify-comms`", detail, "advice that can reap a live fleet")
 
     # ── the idempotent case is still not a failure ──────────────────────────────────────────
 

@@ -102,6 +102,9 @@ class ReconcilableRunsQueryTests(unittest.IsolatedAsyncioTestCase):
     # ---- class 3: a reply was owed and nobody is left to give it ---------------
 
     async def test_class_3_selects_an_orphaned_stale_run(self):
+        # The `r2.id != dispatch_runs.id` clause cannot change this answer: a candidate is always
+        # `delivered`, and the in-flight subquery only counts queued/claimed/running rows, so a run
+        # never matches itself. Replacing that clause with `1 = 1` leaves every test here green.
         await self._run("r1", require_reply=1, requested_at=OLD)
         self.assertEqual(["r1"], await self._select())
 
@@ -134,11 +137,6 @@ class ReconcilableRunsQueryTests(unittest.IsolatedAsyncioTestCase):
     async def test_class_3_ignores_a_DEAD_session_of_its_own_agent(self):
         """"Has a session row" is not "has an owner" — an ended session produces no reply."""
         await self._session("s1", status="ended")
-        await self._run("r1", require_reply=1, requested_at=OLD)
-        self.assertEqual(["r1"], await self._select())
-
-    async def test_a_runs_OWN_row_does_not_count_as_its_agents_in_flight_work(self):
-        """`r2.id != dispatch_runs.id` — without it nothing in class 3 would ever be selected."""
         await self._run("r1", require_reply=1, requested_at=OLD)
         self.assertEqual(["r1"], await self._select())
 

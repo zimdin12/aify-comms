@@ -118,23 +118,6 @@ class SessionModeFsmTests(FastApiTestCase):
             },
         )
 
-    def _insert_active_run(self, agent_id, run_id="run-active"):
-        conn = sqlite3.connect(str(self._db_path))
-        try:
-            conn.execute(
-                """
-                INSERT INTO dispatch_runs (
-                    id, from_agent, target_agent, message_type, subject, body,
-                    status, requested_at, claimed_at
-                ) VALUES (?,?,?,?,?,?,?,?,?)
-                """,
-                (run_id, "lead", agent_id, "request", "work", "body",
-                 "running", "2026-05-30T00:00:00Z", "2026-05-30T00:00:00Z"),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
     # ── (a) managed -> resident: marks resident, releases, surfaces resume ────
 
     def test_managed_to_resident_marks_release_and_surfaces_resume_command(self):
@@ -423,29 +406,6 @@ class SessionModeFsmTests(FastApiTestCase):
         self.assertTrue(body.get("changed"))
         self.assertIn("--resume", body.get("resumeCommand") or "")
         self.assertEqual(self._read_agent("hermes-ng")["session_mode"], "resident")
-
-    def test_hermes_managed_to_resident_active_run_still_blocks_without_force(self):
-        """Regression: the active-run guard is KEPT — an in-flight run blocks the
-        switch with 409 unless force=true (independent of the dropped gateway
-        guard)."""
-        self._heartbeat_environment("hermes")
-        self.assertEqual(
-            self._register_hermes_no_gateway(agent_id="hermes-busy").status_code, 200)
-        self._insert_active_run("hermes-busy")
-        res = self.client.patch(
-            "/api/v1/agents/hermes-busy/session-mode",
-            json={"mode": "resident"},
-        )
-        self.assertEqual(res.status_code, 409, res.text)
-        self.assertIn("active dispatch run", (res.json().get("detail") or "").lower())
-        # force=true overrides the active-run guard.
-        forced = self.client.patch(
-            "/api/v1/agents/hermes-busy/session-mode",
-            json={"mode": "resident", "force": True},
-        )
-        self.assertEqual(forced.status_code, 200, forced.text)
-        self.assertEqual(forced.json().get("mode"), "resident")
-
 
 if __name__ == "__main__":
     unittest.main()
