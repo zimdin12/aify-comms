@@ -42,7 +42,7 @@ from service.api_core.terminal_tail_buffer import (
 from service.api_core.serialization import _json_loads_or
 from service.terminal_snapshot import drop_live_screen as _drop_live_terminal_screen
 from service.terminal_snapshot import feed_live_screen as _feed_live_terminal_screen
-from service.terminal_snapshot import render_live_screen
+from service.terminal_snapshot import live_screen_text
 
 logger = logging.getLogger("aify_comms.api_core.terminal_output")
 
@@ -234,10 +234,9 @@ async def _answer_console_prompt(db, terminal) -> None:
     """
     try:
         terminal_id = str(terminal["id"])
-        rendered = render_live_screen(terminal_id)
-        if not rendered:
+        screen = live_screen_text(terminal_id)
+        if not screen:
             return
-        screen = rendered[0]
         keys = terminal.keys()
         # THE FACT ONLY THIS SERVICE HOLDS, and the reason a host cannot decide this at all: "keep
         # the context" and "start fresh" want opposite answers to the same dialog. Fetched only for

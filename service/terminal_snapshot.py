@@ -472,6 +472,26 @@ def render_live_screen(terminal_id: str) -> Optional[tuple[str, int, int]]:
         return None
 
 
+def live_screen_text(terminal_id: str) -> Optional[str]:
+    """The VISIBLE screen as plain text, or None when no live screen is tracked.
+
+    For readers that match words on screen and throw the styling away: building the ANSI render
+    only to strip it cost the prompt check, which runs on every output flush, a quarter of the
+    service's CPU (measured 2026-09-18). No history either: a dialog a worker is parked at is on
+    the visible screen, and one that has scrolled off is not waiting for anything.
+    """
+    if not _HAVE_PYTE or not terminal_id:
+        return None
+    live = _LIVE_SCREENS.get(str(terminal_id))
+    if live is None:
+        return None
+    try:
+        screen = live.alt_screen if live.in_alt and live.alt_screen is not None else live.screen
+        return "\n".join(line.rstrip() for line in screen.display)
+    except Exception:
+        return None
+
+
 def live_screen_reconstructed(terminal_id: str) -> Optional[bool]:
     """Whether this terminal's live screen was rebuilt from the stored log and not cleared since.
 
