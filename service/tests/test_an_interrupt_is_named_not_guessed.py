@@ -91,4 +91,3 @@ def test_the_undetermined_reason_says_whose_failure_it_is():
     assert "comms_console_tail" in TURN_ENDED_WITHOUT_REPLY or "comms_agent_info" in TURN_ENDED_WITHOUT_REPLY, (
         "the reason does not name a way to find out whether the agent is alive"
     )
-

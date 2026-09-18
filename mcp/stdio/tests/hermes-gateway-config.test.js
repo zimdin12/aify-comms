@@ -158,4 +158,3 @@ test("no gateway at all resolves to empty strings, not undefined", () => {
   assert.equal(r.url, "");
   assert.equal(r.tokenEnvName, "");
 });
-

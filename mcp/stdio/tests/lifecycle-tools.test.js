@@ -123,4 +123,3 @@ test("comms_compact is NOT part of this group — subject, not adjacency", () =>
   assert.doesNotMatch(src, /server\.tool\(\s*\n?\s*"comms_compact"/, "compaction is a different subject");
   assert.ok(!tools.has("comms_compact"), "the lifecycle wrapper must not register it");
 });
-

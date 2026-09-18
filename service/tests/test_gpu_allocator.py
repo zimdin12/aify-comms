@@ -198,4 +198,3 @@ class GpuAllocatorTests(unittest.TestCase):
 
     def test_status_is_empty_before_anything_is_asked(self):
         self.assertEqual(GPUAllocator().get_status(), {})
-

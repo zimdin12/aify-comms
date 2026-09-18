@@ -151,5 +151,3 @@ def test_the_count_tracks_creation_and_removal():
     assert live_screen_count() == 1
     drop_live_screen("term-second")
     assert live_screen_count() == 0
-
-

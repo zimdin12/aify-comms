@@ -108,4 +108,3 @@ class HermesResumeReadinessTests(unittest.TestCase):
         self.assertEqual(_last_token_index(_READY_TOKEN_RE, "is ready now"), 3)
         self.assertEqual(_last_token_index(_RESUMING_TOKEN_RE, "unresuming"), -1)
         self.assertEqual(_last_token_index(_RESUMING_TOKEN_RE, "resuming"), 0)
-

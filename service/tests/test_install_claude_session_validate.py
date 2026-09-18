@@ -65,5 +65,3 @@ def test_claude_wrapper_strips_stale_explicit_resume_args():
     assert 'CLAUDE_ARGS+=("${CLAUDE_RESUME_FLAG:---resume}" "$CLAUDE_RESUME_ID")' in text, (
         "the resume flag must be re-added from the VALIDATED id, not passed through from argv"
     )
-
-
