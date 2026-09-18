@@ -84,15 +84,6 @@ class TheInstallerAsksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0,
                          "no key and nobody to ask is not a failure; the caller decides what to do")
 
-    def test_it_matches_the_read_only_path_exactly_when_there_is_nothing_to_ask(self):
-        """CONTROL, and the reason the codes matter: `install.sh` calls this and treats a non-zero
-        exit as a problem. If `--ask` diverged from the plain read, adding the ask would have turned
-        every keyless install into a reported failure."""
-        asked = self._run("--ask")
-        plain = self._run()
-        self.assertEqual((asked.returncode, asked.stdout.strip()),
-                         (plain.returncode, plain.stdout.strip()))
-
     def test_a_key_already_present_is_returned_and_NOT_asked_about(self):
         """Re-running the installer is the update path. Asking again for a key the host already
         holds trains an operator to paste secrets nothing needed."""

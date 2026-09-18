@@ -89,14 +89,6 @@ def test_A_MISSING_COMPONENT_CARRIES_ITS_OWN_INSTALLER():
     assert "aify-env" in rows and "install.sh" in rows["aify-env"][2]
 
 
-def test_the_probe_can_say_both_yes_and_no():
-    """POSITIVE CONTROL FOR THE ONE ABOVE. If the empty-PATH run reported `missing` because the script
-    errored rather than because the probes failed, the test above would pass on a broken instrument.
-    So the same script, on the real PATH, must find at least one component."""
-    found = [n for n, (s, _v, _h) in _rows(_run().stdout).items() if s == "installed"]
-    assert found, "no component resolved on the real PATH, so `missing` above proves nothing"
-
-
 def test_a_missing_component_is_a_NONZERO_exit():
     """So a caller can gate on it without parsing. Both directions, in one test, because an exit
     status that is always 0 and one that is always 1 are equally useless."""
@@ -106,7 +98,9 @@ def test_a_missing_component_is_a_NONZERO_exit():
 
 def test_missing_only_lists_nothing_when_everything_is_present():
     """`--missing` is the form a caller uses to ask "is anything absent". On a complete host it must
-    be silent rather than repeating the full listing."""
+    be silent rather than repeating the full listing. It is also the POSITIVE CONTROL for the
+    empty-PATH cases above: a script that reported `missing` because it errored, rather than because
+    the probes failed, would list something here on the real PATH too."""
     assert _run("--missing").stdout.strip() == ""
     assert _run("--missing", env={"PATH": ""}).stdout.strip() != ""
 
