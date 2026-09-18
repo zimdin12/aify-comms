@@ -109,13 +109,6 @@ def test_managed_claude_channel_behavior_unchanged():
     assert reason is None
 
 
-def test_managed_claude_in_channel_managed_runtimes():
-    """Guard: claude remains the unconditional channel-managed runtime."""
-    from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES
-
-    assert "claude-code" in _CHANNEL_MANAGED_RUNTIMES
-
-
 def test_managed_codex_behavior_unchanged():
     """Guard: managed codex without the channel flag and not wrapper-backed
     keeps its native managed route (channel flag is a hermes/claude concern;

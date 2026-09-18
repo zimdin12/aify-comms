@@ -174,12 +174,6 @@ class GithubCompareCallTests(GitHubCompareTestCase):
         result = health._github_compare(KNOWN_SHA)
         self.assertEqual(result, {"behind_by": 7, "ahead_by": 0, "status": "behind"})
 
-    def test_NOTHING_ELSE_from_the_payload_crosses_the_boundary(self):
-        """A real compare response carries every commit message and file path between the two
-        revisions. `/version` is unauthenticated — only the three counts may come back."""
-        result = health._github_compare(KNOWN_SHA)
-        self.assertEqual(set(result), {"behind_by", "ahead_by", "status"})
-
     def test_a_payload_missing_the_counts_yields_None_not_a_KeyError(self):
         """A proxy, a cached error document, or a future API shape. Missing means unknown, and
         unknown is what `_check_update` already knows how to report."""

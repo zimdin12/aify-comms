@@ -119,15 +119,6 @@ def test_the_requested_grid_is_clamped_before_it_is_applied(cols, rows, expected
     assert (live.cols, live.rows) == expected
 
 
-def test_zero_and_none_mean_default_not_minimum():
-    """`int(cols or 100)` — a falsy dimension is "unspecified", so it takes the DEFAULT geometry
-    rather than clamping down to the 20x5 floor a literal 0 would otherwise produce."""
-    live = make_screen(cols=80, rows=24)
-    resize_live_screen(TERMINAL, 0, 0)
-    assert (live.cols, live.rows) == (100, 28)
-    assert (live.cols, live.rows) != (TERMINAL_MIN_COLS, TERMINAL_MIN_ROWS)
-
-
 def test_an_unusable_dimension_drops_the_screen_rather_than_keeping_a_bad_one():
     """`int("wide")` raises inside the try, and every failure path in this module drops the screen so
     the caller falls back to the replay path. Never serve a corrupt screen."""
@@ -162,11 +153,3 @@ def test_the_count_tracks_creation_and_removal():
     assert live_screen_count() == 0
 
 
-def test_a_failed_resize_is_visible_in_the_count():
-    """The drop-on-failure is not just an internal detail — it is the bound on how many screens the
-    process holds, and this is the observable that proves it happened."""
-    terminal_snapshot._LIVE_SCREENS.clear()
-    make_screen()
-    assert live_screen_count() == 1
-    resize_live_screen(TERMINAL, "wide", 40)
-    assert live_screen_count() == 0

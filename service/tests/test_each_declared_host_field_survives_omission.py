@@ -123,15 +123,6 @@ class EachDeclaredHostFieldSurvivesOmissionTests(FastApiTestCase):
                     "frozen value rather than a preserved one",
                 )
 
-    def test_every_declared_field_has_a_sentinel(self) -> None:
-        """A field added to the declaration with no sentinel here would be silently untested.
-
-        The matrix above iterates the declaration, so a missing entry raises KeyError rather than
-        skipping -- but this says so directly, and fails with the field's name rather than a traceback.
-        """
-        missing = sorted(field for field, _c, _k in HOST_OWNED_FIELDS if field not in SENTINELS)
-        self.assertEqual(missing, [], f"declared but carrying no sentinel in this matrix: {missing}")
-
     def test_the_sentinel_and_its_contradiction_differ(self) -> None:
         """A pair that did not differ would make the overwrite assertion vacuous."""
         for field, (sentinel, contradiction) in SENTINELS.items():

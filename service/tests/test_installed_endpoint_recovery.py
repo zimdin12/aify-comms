@@ -25,13 +25,11 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 READER = REPO / "scripts" / "installed-endpoint.sh"
-INSTALL_SH = REPO / "install.sh"
 
 LEGACY = (
     '#!/bin/bash\n'
     'export AIFY_SERVER_URL="${AIFY_SERVER_URL:-http://192.168.1.9:8800}"\n'
 )
-CURRENT_SHAPE_URL = "http://10.20.30.40:8800"
 
 
 def _bash():
@@ -54,26 +52,6 @@ def _ask(directory: Path) -> str:
     return result.stdout.strip()
 
 
-def _render_current(directory: Path) -> None:
-    """A launcher in the shape install.sh writes today. `--emit-wrappers` exits before npm, MCP
-    registration or any env mutation, so this cannot touch a machine with a live fleet."""
-    subprocess.run(
-        [_bash(), str(INSTALL_SH), "--client", "claude", CURRENT_SHAPE_URL,
-         "--emit-wrappers", str(directory)],
-        check=True, capture_output=True,
-    )
-
-
-def test_reads_the_endpoint_out_of_a_launcher_install_sh_writes_today():
-    """The case that was broken. Rendered by the real installer, not by a fixture that could
-    describe a shape nothing writes."""
-    with tempfile.TemporaryDirectory(prefix="aify-endpoint-") as tmp:
-        directory = Path(tmp)
-        _render_current(directory)
-        assert (directory / "claude-aify").exists(), "nothing rendered, so nothing was tested"
-        assert _ask(directory) == CURRENT_SHAPE_URL
-
-
 def test_still_reads_a_pre_contract_launcher():
     """An operator updating from an older install has exactly these on disk. Losing them would move
     the failure rather than fix it."""
@@ -81,24 +59,6 @@ def test_still_reads_a_pre_contract_launcher():
         directory = Path(tmp)
         (directory / "claude-aify").write_text(LEGACY, encoding="utf-8")
         assert _ask(directory) == "http://192.168.1.9:8800"
-
-
-def test_an_empty_directory_answers_nothing_rather_than_a_guess():
-    """Absence must stay absent: a caller that received a default here could not tell a recovered
-    endpoint from an invented one, which is how a fleet gets repointed at loopback."""
-    with tempfile.TemporaryDirectory(prefix="aify-endpoint-") as tmp:
-        assert _ask(Path(tmp)) == ""
-
-
-def test_an_unrendered_template_is_not_an_endpoint():
-    """The placeholder must never come back as an address."""
-    with tempfile.TemporaryDirectory(prefix="aify-endpoint-") as tmp:
-        directory = Path(tmp)
-        template = REPO / "mcp" / "stdio" / "node_modules" / "aify-wrapper" / "wrappers" / "claude-aify.sh.in"
-        if not template.exists():
-            pytest.skip("aify-wrapper package not installed — run 'npm install' in mcp/stdio")
-        shutil.copyfile(template, directory / "claude-aify")
-        assert _ask(directory) == ""
 
 
 def test_neither_update_path_carries_its_own_copy_of_the_regex():

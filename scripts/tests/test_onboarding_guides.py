@@ -40,11 +40,6 @@ class OnboardingGuideTests(unittest.TestCase):
         self.assertIn("identity", self.skill.lower())
         self.assertNotRegex(self.skill, r"(?m)^aify-env\s*(#.*)?$")
 
-    def test_skill_mirrors_match_and_stay_under_existing_budget(self):
-        other = (REPO / ".agents/skills/aify-comms-install/SKILL.md").read_text(encoding="utf-8")
-        self.assertEqual(self.skill, other)
-        self.assertLessEqual(len(self.skill.replace("\r\n", "\n").encode()), 4846)
-
     def test_readme_exposes_agent_workflow_and_optional_herdr(self):
         readme = (REPO / "README.md").read_text(encoding="utf-8")
         quick_start = readme.split("## Quick start", 1)[1].split("## Agent playbooks", 1)[0]

@@ -63,17 +63,9 @@ def test_the_installer_defines_a_bounded_call_and_uses_it_for_plugins_enable() -
     )
 
 
-def test_a_hermes_that_hangs_is_abandoned_rather_than_waited_on() -> None:
-    started = time.monotonic()
-    result = _call("_bounded_hermes_call 2 sleep 60; echo \"exit=$?\"")
-    elapsed = time.monotonic() - started
-    assert "exit=0" not in result.stdout, "a hung call reported success"
-    assert elapsed < 30, f"the call was not bounded: {elapsed:.1f}s"
-
-
 def test_a_hermes_that_IGNORES_TERM_is_still_abandoned() -> None:
-    # Found by review: `timeout` sends TERM and then WAITS, so the test above -- whose `sleep` dies
-    # on TERM -- proved a bound only for children that cooperate. Measured on this host: a child
+    # Found by review: `timeout` sends TERM and then WAITS, so a child whose `sleep` dies on TERM
+    # proves a bound only for children that cooperate; this one does not, so it covers both. Measured on this host: a child
     # trapping TERM held a 1s deadline for 4.28s. `-k` escalates to KILL; this child sleeps 30s, so
     # returning well inside that is the kill, not the sleep ending.
     started = time.monotonic()

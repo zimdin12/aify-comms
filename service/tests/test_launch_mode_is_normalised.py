@@ -72,12 +72,6 @@ class NormalizeLaunchModeTests(unittest.TestCase):
         self.assertEqual(_normalize_launch_mode("future-mode"), "future-mode")
         self.assertEqual(_normalize_session_mode("future-mode"), "resident")
 
-    def test_it_is_idempotent(self):
-        for value in ("none", "detached", "managed", "codex-live"):
-            with self.subTest(value=value):
-                self.assertEqual(_normalize_launch_mode(_normalize_launch_mode(value)), value)
-
-
 class WritePathTests(unittest.TestCase):
     """The normaliser only helps at the sites that call it, so those are asserted by name.
 

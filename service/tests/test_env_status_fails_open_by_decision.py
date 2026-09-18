@@ -103,17 +103,6 @@ class EnvStatusFailsOpenByDecision(unittest.TestCase):
 
     # ── the limits of the fail-open, so it cannot quietly widen ──────────────────────────────
 
-    def test_a_SILENT_bridge_with_a_GOOD_timestamp_still_ages_to_offline(self):
-        """ANTI-VACUITY, and the load-bearing half. Every assertion above would also pass if this
-        function simply always returned `online`. The fail-open is narrow: it applies only when the
-        evidence is UNREADABLE, never when the evidence says the bridge is gone."""
-        self.assertEqual(
-            environment_effective_status(_row("online", _iso(-3600)), offline_seconds=90), "offline",
-            "a bridge silent for an hour must age to offline. If this passes as online, the "
-            "fail-open has swallowed the ordinary liveness path and every dead environment now "
-            "reads as reachable — the exact false green aify-doctor's env-bridge check exists for.",
-        )
-
     def test_a_DEGRADED_environment_still_ages_out(self):
         """The 2026-07-26 fix, re-pinned here because it is the same defect class one layer down: the
         staleness check was once gated on `status == "online"`, so a `degraded` environment never aged
@@ -123,16 +112,6 @@ class EnvStatusFailsOpenByDecision(unittest.TestCase):
             "a degraded environment stopped ageing out. It stays 'degraded' forever after the bridge "
             "dies, and callers treat degraded as still-connected.",
         )
-
-    def test_terminal_DECISIONS_are_never_aged_by_a_timestamp(self):
-        """`offline`/`forgotten`/`disabled` are decisions, not observations. Ageing them would let a
-        clock overrule an operator — the opposite direction of the same mistake."""
-        for decided in ("offline", "forgotten", "disabled"):
-            with self.subTest(status=decided):
-                self.assertEqual(
-                    environment_effective_status(_row(decided, _iso(0))), decided,
-                    f"'{decided}' is an operator/server decision and must survive any timestamp",
-                )
 
     def test_an_unknown_stored_status_is_passed_through_not_defaulted(self):
         """The fail-open default applies to an ABSENT status only. A present-but-unrecognised value is

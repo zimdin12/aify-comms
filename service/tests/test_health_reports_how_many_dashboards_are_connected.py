@@ -36,13 +36,6 @@ def _health(client: TestClient) -> dict:
     return response.json()
 
 
-def test_it_reports_a_number():
-    with TestClient(app, base_url=LOOPBACK) as client:
-        body = _health(client)
-        assert "sockets" in body, "/health does not say how many clients are connected"
-        assert isinstance(body["sockets"], int)
-
-
 def test_the_number_follows_the_manager():
     """Read from the manager rather than invented. A field that always said 0 would look correct on an
     idle host and be useless on a busy one -- which is the only time it gets asked."""

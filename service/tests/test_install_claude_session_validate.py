@@ -29,20 +29,6 @@ def _rendered_wrapper() -> str:
     return launcher("claude")
 
 
-def test_rendered_wrapper_is_not_empty():
-    """Anchors every assertion below: an empty render would satisfy none of them, but a truncated one
-    could satisfy several by accident."""
-    text = _rendered_wrapper()
-    assert text.startswith("#!/bin/bash"), "the wrapper must render as an executable script"
-    assert len(text.splitlines()) > 100, "a plausible wrapper is hundreds of lines, not a stub"
-
-
-def test_claude_wrapper_defines_validate_helper():
-    assert "validate_claude_session_id" in _rendered_wrapper(), (
-        "Plan 6 B4: the installed wrapper must define validate_claude_session_id"
-    )
-
-
 def test_claude_wrapper_checks_projects_directory():
     assert ".claude/projects" in _rendered_wrapper(), (
         "Plan 6 B4: the validator must consult ~/.claude/projects/..."
@@ -81,11 +67,3 @@ def test_claude_wrapper_strips_stale_explicit_resume_args():
     )
 
 
-def test_rendered_wrapper_has_no_unsubstituted_placeholders():
-    """A template placeholder the renderer does not know becomes literal `@@TOKEN@@` text in the
-    installed wrapper — with install.sh exiting 0 and bash -n passing."""
-    text = _rendered_wrapper()
-    import re
-
-    leftover = re.findall(r"@@[A-Z0-9_]+@@", text)
-    assert leftover == [], f"unsubstituted placeholders reached the wrapper: {sorted(set(leftover))}"

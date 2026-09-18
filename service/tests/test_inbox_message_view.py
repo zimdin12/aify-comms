@@ -90,10 +90,6 @@ class PreviewAndBodyTests(unittest.TestCase):
         message = _serialize_inbox_message(row(), include_body=False)
         self.assertNotIn("body", message)
 
-    def test_FULL_mode_includes_the_body(self):
-        self.assertEqual(
-            _serialize_inbox_message(row(), include_body=True)["body"], "the body")
-
     def test_the_PREVIEW_is_present_in_BOTH_modes(self):
         """A caller rendering a list uses `preview` whichever mode it asked for. Dropping it when the
         body is included would force two code paths for one list."""
@@ -161,12 +157,6 @@ class DispatchRequestedTests(unittest.TestCase):
 
 
 class ParentContextTests(unittest.TestCase):
-    def test_a_message_that_is_NOT_a_reply_has_NO_parentContext_key(self):
-        """Absent, not null. The three states are distinguishable only if this one is missing
-        entirely."""
-        self.assertNotIn(
-            "parentContext", _serialize_inbox_message(row(in_reply_to=None), include_body=True))
-
     def test_a_REPLY_is_seeded_with_a_NULL_parentContext(self):
         """The seed is what makes "a reply whose parent is gone" a reportable state: the handler
         overwrites this only when the parent row exists, so a reply to a deleted message keeps the

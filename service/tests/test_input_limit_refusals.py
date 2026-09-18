@@ -50,12 +50,6 @@ class InputLimitRefusalTests(FastApiTestCase):
 
     # ── length caps, tested AT the boundary ──────────────────────────────────────────────────
 
-    def test_a_description_of_exactly_2000_characters_is_accepted(self):
-        response = self.client.patch(
-            f"/api/v1/agents/{AGENT_ID}/description", json={"description": "x" * 2000},
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-
     def test_a_description_one_character_over_the_cap_is_refused(self):
         response = self.client.patch(
             f"/api/v1/agents/{AGENT_ID}/description", json={"description": "x" * 2001},

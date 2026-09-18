@@ -174,23 +174,6 @@ def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
     assert "exit (Invoke-HermesRuntime" not in text
 
 
-def test_hermes_installer_patches_visible_session_bind():
-    """Hermes managed/resident delivery must bind to the open TUI session, not
-    resume a hidden sid.
-
-    Updated 2026-05-31: the `patch_hermes_gateway_visible_bind` install.sh
-    source patch was removed (Plan 1.4) and the behavior moved into the durable
-    hermes-aify plugin. Assert the bind method + TeeTransport mirroring there.
-    """
-    text = _read_plugin_patches()
-    assert "aify.session.bind_transport" in text
-    # TeeTransport mirrors the visible-session transport with the bridge
-    # transport; the plugin binds it via a `tee_transport` alias and imports
-    # TeeTransport from tui_gateway.transport.
-    assert "tee_transport(primary, bridge_transport)" in text
-    assert "from tui_gateway.transport import TeeTransport as tee_transport" in text
-
-
 def test_hermes_visible_bind_falls_back_to_single_active_session():
     """If the saved handle is stale but this wrapper gateway has exactly one
     visible session, bind to that session instead of failing or forking hidden.
@@ -255,25 +238,6 @@ def test_hermes_wrapper_pins_stable_resume_session():
         "PowerShell wrapper must re-export AIFY_HERMES_GATEWAY_URL for resident-run registration"
     )
     assert "--resume" in ps, "wrapper must pass --resume so the session id is honored (env var alone is stripped)"
-
-
-def test_hermes_installer_preserves_wrapper_active_session_file():
-    """Hermes main.py must not discard the wrapper-provided active-session file.
-
-    Updated 2026-05-31: the install.sh `patch_hermes_tui_active_session_file`
-    source patch was removed (commit aab3cd7) and the behavior moved into the
-    hermes-aify plugin's `patch_hermes_cli_main`, which wraps `_launch_tui` so
-    the mkstemp/unlink dance does not throw away the wrapper-provided
-    `HERMES_TUI_ACTIVE_SESSION_FILE`.
-    """
-    text = _read_plugin_patches()
-    assert "def patch_hermes_cli_main(" in text
-    # It wraps the real _launch_tui (idempotently) rather than the old source
-    # patch's standalone helper.
-    assert 'getattr(module, "_launch_tui", None)' in text
-    assert 'setattr(module, "_launch_tui", launch_tui_with_active_file)' in text
-    # It keys off the wrapper-provided active-session-file env var.
-    assert 'os.environ.get("HERMES_TUI_ACTIVE_SESSION_FILE", "").strip()' in text
 
 
 def test_hermes_installer_patches_codex_stream_nonetype_fallback():

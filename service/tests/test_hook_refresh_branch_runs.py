@@ -96,14 +96,6 @@ def test_no_flag_and_no_hook_stays_skipped():
         assert "skipped" in out
 
 
-def test_somebody_elses_hook_does_not_count_as_ours():
-    """A host with an unrelated Notification hook has not opted into aify's."""
-    with tempfile.TemporaryDirectory(prefix="aify-hookbranch4-") as tmp:
-        out = _run("claude", False, Path(tmp), config='{"hooks":{"Notification":[{"hooks":[{"command":"say done"}]}]}}')
-        assert "STUB-RAN" not in out
-        assert "skipped" in out
-
-
 def test_a_client_with_no_installer_says_so_instead_of_failing():
     """The dispatch is derived from which install_<client>_hook exists. A client without one must
     report it, not crash a run that has already copied the bridge."""

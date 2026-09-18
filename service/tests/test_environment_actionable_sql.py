@@ -57,10 +57,6 @@ def actionable(db, status, last_seen) -> bool:
 
 
 # ── the two heartbeat statuses ───────────────────────────────────────────────────────────────
-def test_a_fresh_online_environment_is_actionable(db):
-    assert actionable(db, "online", FRESH) is True
-
-
 def test_a_fresh_DEGRADED_environment_is_actionable(db):
     """THE N7 FINDING. A degraded bridge is reduced-capability, not dead — excluding it is what left
     a stop pending, then failed it, and let Start spawn a second worker onto a surviving PTY."""

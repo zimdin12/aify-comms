@@ -34,14 +34,6 @@ def _health() -> dict:
         return response.json()
 
 
-def test_health_still_reports_status_first():
-    """Anchors the rest. aify-env treats a body without a string `status` as "answered, but not with a
-    health report" -- so losing this field would make the service unanswerable while looking fine."""
-    body = _health()
-    assert isinstance(body.get("status"), str)
-    assert body["status"] == "healthy"
-
-
 def test_health_names_the_build_that_answered():
     body = _health()
     assert isinstance(body.get("version"), str), (

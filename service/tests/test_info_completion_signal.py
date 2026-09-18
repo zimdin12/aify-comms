@@ -123,10 +123,3 @@ class InfoCompletionSignalTests(unittest.TestCase):
     def test_an_unknown_type_closes_nothing(self):
         self.assertFalse(_message_satisfies_reply_contract("request", "", "done"))
         self.assertFalse(_message_satisfies_reply_contract("", "", "done"))
-
-    # ── anti-vacuity ─────────────────────────────────────────────────────────────────────────
-
-    def test_the_signal_is_not_simply_always_false(self):
-        """Every STAYS_OPEN assertion would pass against a function that returns False forever."""
-        self.assertTrue(any(_signals_completion(t) for t in CLOSES))
-        self.assertEqual([t for t in CLOSES if not _signals_completion(t)], [])

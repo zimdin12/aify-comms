@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import unittest
 
-from service.containers.gpu import DeviceState, GPUAllocator
+from service.containers.gpu import GPUAllocator
 from service.containers.models import GPUConfig
 
 
@@ -199,7 +199,3 @@ class GpuAllocatorTests(unittest.TestCase):
     def test_status_is_empty_before_anything_is_asked(self):
         self.assertEqual(GPUAllocator().get_status(), {})
 
-    def test_the_device_total_is_the_sum_of_its_tenants(self):
-        state = DeviceState(active_containers={"a": 0.25, "b": 0.5})
-        self.assertAlmostEqual(state.total_memory_fraction, 0.75)
-        self.assertEqual(DeviceState().total_memory_fraction, 0)

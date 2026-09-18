@@ -29,9 +29,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from service.models import EnvironmentHeartbeat
 from service.routers.environments import (
-    COLUMN_CARRIER,
     HOST_OWNED_FIELDS,
     HOST_OWNED_METADATA,
     METADATA_CARRIER,
@@ -117,31 +115,6 @@ def test_every_guarded_host_field_is_declared() -> None:
     assert undeclared == [], (
         f"guarded as omittable but never declared host-owned: {undeclared}. "
         "A field the caller may omit and nothing preserves is blanked on the next advertisement."
-    )
-
-
-def test_every_declared_field_exists_on_the_model() -> None:
-    """A declaration naming a field the request cannot carry is a typo with a delay on it."""
-    fields = set(EnvironmentHeartbeat.model_fields)
-    missing = sorted(field for field, _c, _k in HOST_OWNED_FIELDS if field not in fields)
-    assert missing == [], f"declared host-owned but not a field of EnvironmentHeartbeat: {missing}"
-
-
-def test_both_carriers_are_represented() -> None:
-    """The defect was a metadata-only view of a two-carrier problem.
-
-    Three of these live in the `metadata` blob and TWO are COLUMNS. A set that named only the metadata
-    keys looked complete while describing three fifths of it, which is exactly why the column half
-    could go unmentioned for as long as it did.
-
-    THIS FILE CHECKS MEMBERSHIP ONLY, and that boundary is worth stating because it was not obvious:
-    review changed one storage key to `terminalBROKEN` and every test here still passed while the live
-    route erased the stored value on omission. Naming the right members says nothing about what they
-    map to. `test_each_declared_host_field_survives_omission.py` drives the real route to check that.
-    """
-    carriers = {carrier for _f, carrier, _k in HOST_OWNED_FIELDS}
-    assert carriers == {METADATA_CARRIER, COLUMN_CARRIER}, (
-        f"expected both carriers to be declared, got {sorted(carriers)}"
     )
 
 

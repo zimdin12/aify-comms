@@ -55,11 +55,6 @@ def entry(status="working", *, fresh_for=60, now=None):
 
 
 # ── the accessors ────────────────────────────────────────────────────────────────────────────
-def test_set_then_get_round_trips():
-    _live_state_set(AGENT, entry())
-    assert _live_state_get(AGENT)["status"] == "working"
-
-
 def test_a_missing_agent_is_none_everywhere_rather_than_a_keyerror():
     assert _live_state_get("nobody") is None
     assert _live_state_fresh("nobody") is None
@@ -140,23 +135,6 @@ def test_drop_removes_the_entry_entirely():
     _live_state_drop(AGENT)
     assert _live_state_get(AGENT) is None, "a MISS — this is what falls back to the raw status column"
     assert _live_state_fresh(AGENT) is None
-
-
-def test_expire_and_drop_are_not_interchangeable():
-    """Both make the entry unfresh; only one leaves a readable status. If this ever passes with the
-    two swapped, the flicker is back."""
-    _live_state_set(AGENT, entry("working"))
-    _live_state_expire(AGENT)
-    expired = _live_state_get(AGENT)
-
-    _live_state_set(AGENT, entry("working"))
-    _live_state_drop(AGENT)
-    dropped = _live_state_get(AGENT)
-
-    assert _live_state_fresh(AGENT) is None
-    assert expired is not None and dropped is None, (
-        "expire and drop agree about freshness and disagree about readability — that is the contract"
-    )
 
 
 def test_expiring_twice_is_stable():

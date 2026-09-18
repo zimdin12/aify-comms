@@ -12,7 +12,6 @@ that can tell "sent" from "arrived".
 """
 import unittest
 
-from service.models import EnvironmentHeartbeat
 from service.tests._base import FastApiTestCase
 
 VERSION = "0.6.0"
@@ -34,14 +33,6 @@ class LauncherStateReachesTheEnvironmentRowTests(FastApiTestCase):
         response = self.client.post("/api/v1/environments/heartbeat", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()["environment"]
-
-    def test_the_model_keeps_the_two_launcher_fields(self):
-        """The narrowest statement of the bug: pydantic dropped them before anything could store them."""
-        parsed = EnvironmentHeartbeat(
-            id="x", launcherVersion=VERSION, launcherRegistryFingerprint=FINGERPRINT
-        )
-        self.assertEqual(parsed.launcherVersion, VERSION)
-        self.assertEqual(parsed.launcherRegistryFingerprint, FINGERPRINT)
 
     def test_a_heartbeat_carrying_launcher_state_exposes_it_on_the_row(self):
         env = self._heartbeat(

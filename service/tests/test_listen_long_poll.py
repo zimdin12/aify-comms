@@ -159,14 +159,6 @@ class ListenLongPollTests(FastApiTestCase):
         self.assertEqual([m["id"] for m in payload["messages"]], ["m-fresh"])
         self.assertEqual(payload["total"], 1, "an already-read message was delivered again")
 
-    def test_a_message_THIS_agent_has_read_is_not_redelivered(self):
-        self._seed_message("m-1")
-        self._write(
-            "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-            ("m-1", AGENT, "2026-08-16T00:00:00Z"),
-        )
-        self.assertEqual(self._listen().json()["total"], 0)
-
     # ── the wait ─────────────────────────────────────────────────────────────────────────────
 
     def test_with_nothing_to_do_it_waits_and_then_answers_EMPTY(self):

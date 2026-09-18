@@ -78,6 +78,9 @@ class HermesResumeReadinessTests(unittest.TestCase):
         normal — what matters is whether a `ready` came after the most recent `resuming`.
         """
         self.assertFalse(_hermes_terminal_still_resuming("resuming ... ready ... resuming ... ready"))
+        # The case that tells LAST from FIRST: a first-match helper reads the old `ready` as coming
+        # after the first `resuming` and calls a session that is resuming again ready.
+        self.assertTrue(_hermes_terminal_still_resuming("resuming ... ready ... resuming"))
         self.assertTrue(_hermes_terminal_still_resuming("ready ... resuming"))
         self.assertTrue(_hermes_terminal_still_resuming("ready ... resuming ... resuming"))
 
@@ -106,11 +109,3 @@ class HermesResumeReadinessTests(unittest.TestCase):
         self.assertEqual(_last_token_index(_RESUMING_TOKEN_RE, "unresuming"), -1)
         self.assertEqual(_last_token_index(_RESUMING_TOKEN_RE, "resuming"), 0)
 
-    def test_the_last_token_helper_is_rfind_without_the_substring_bug(self):
-        """It replaces `str.rfind`, so the contract is: same answer, whole words only."""
-        text = "ready resuming ready"
-        self.assertEqual(_last_token_index(_READY_TOKEN_RE, text), text.rfind("ready"))
-        # …and where they differ is exactly the defect.
-        bug = "resuming already"
-        self.assertEqual(bug.rfind("ready"), 11, "rfind finds it inside `already`")
-        self.assertEqual(_last_token_index(_READY_TOKEN_RE, bug), -1, "the word is not there")

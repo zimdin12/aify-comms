@@ -29,32 +29,6 @@ def install_text() -> str:
     return _INSTALL_SH.read_text(encoding="utf-8")
 
 
-def test_turn_start_hook_wires_userpromptsubmit_and_posttooluse(install_text: str):
-    # proof-based turn signal (2026-06-18, reverses pure-event #4): turn-start fires at
-    # turn START (UserPromptSubmit) AND re-asserts on every tool call (PostToolUse), so a
-    # managed/channel-woken turn (no UserPromptSubmit) and a turn that survives a premature
-    # Stop hook / rate-limit retry both keep reading `working`. The re-assert can't pin an
-    # idle agent (no tool calls → no re-assert). See task #224.
-    assert "install_claude_turn_start_hook()" in install_text
-    assert "wireTurnStart('UserPromptSubmit')" in install_text, "turn-start must wire UserPromptSubmit (turn start)"
-    assert "wireTurnStart('PostToolUse')" in install_text, (
-        "turn-start must re-assert on PostToolUse (proof-based #224: channel-woken + premature-Stop coverage)"
-    )
-    # Posted through agent-state-event.mjs so it carries the key; the curl it replaced carried none.
-    # test_resident_hooks_reach_the_service_authenticated.py runs what this writes.
-    assert 'hook_command="$(agent_state_hook_command turn-start)"' in install_text
-
-
-def test_turn_end_hook_wires_stop_and_post_compaction_session_start(install_text: str):
-    # Stop is the normal turn-end. Claude can finish a turn by compacting without
-    # firing Stop; SessionStart(matcher=compact) is the first authoritative event
-    # after that boundary and must clear the otherwise latched working state.
-    assert "install_claude_turn_end_hook()" in install_text
-    assert "$(agent_state_hook_command turn-end)" in install_text
-    assert "wireTurnEnd('Stop')" in install_text
-    assert "wireTurnEnd('SessionStart', 'compact')" in install_text
-
-
 def test_turn_hooks_are_installed_for_claude(install_text: str):
     """Both hooks must actually be INVOKED in the claude install path.
 

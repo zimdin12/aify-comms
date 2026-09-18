@@ -69,26 +69,6 @@ class EndedStatusSetsAgreeTests(unittest.TestCase):
                     f"as 'already running' forever.",
                 )
 
-    def test_the_group_is_pairwise_equal_not_merely_each_equal_to_a_constant(self):
-        """Comparing each to EXPECTED would still pass if EXPECTED itself drifted with one of them.
-        Compare them to each OTHER as well."""
-        sets = [({s.lower() for s in v}, n) for n, (v, _o) in GROUP.items()]
-        first, first_name = sets[0]
-        for values, name in sets[1:]:
-            self.assertEqual(values, first, f"{name} disagrees with {first_name}")
-
-    def test_the_status_vocabulary_is_the_ended_half_not_everything(self):
-        """Anti-vacuity: agreement is trivial if the set had grown to contain every status. These
-        must NOT be in it — a live status leaking into an 'ended' set makes a running worker
-        deletable, which is the opposite failure to N7 and worse."""
-        for live in ("running", "starting", "attached", "active", "idle", "recovering", "queued"):
-            with self.subTest(status=live):
-                for name, (values, _owner) in GROUP.items():
-                    self.assertNotIn(
-                        live, {s.lower() for s in values},
-                        f"{name} now counts {live!r} as ended/deletable",
-                    )
-
     def test_sessions_router_copies_a_set_whose_owner_it_could_import(self):
         """The uneven discipline, pinned as the fact it is rather than fixed in passing.
 

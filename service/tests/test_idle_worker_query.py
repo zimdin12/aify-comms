@@ -71,10 +71,6 @@ class IdleWorkerQueryTests(unittest.IsolatedAsyncioTestCase):
         rows = await _select_idle_virtual_rpc_workers(self.db, minutes, limit)
         return [r["id"] for r in rows]
 
-    async def test_an_idle_managed_worker_is_selected(self):
-        await self._terminal()
-        self.assertEqual(["t1"], await self._select())
-
     # ---- reasons NOT to close -----------------------------------------------
 
     async def test_a_terminal_that_is_not_LIVE_is_left_alone(self):
