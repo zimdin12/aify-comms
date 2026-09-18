@@ -17,13 +17,15 @@ import test from "node:test";
 import http from "node:http";
 
 const REQUESTS = [];
+// What the fake service answers, by request. Empty JSON unless a test says otherwise.
+let RESPOND = () => ({});
 const SERVER = http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => { body += c; });
   req.on("end", () => {
     REQUESTS.push({ method: req.method, url: req.url, body });
     res.writeHead(200, { "content-type": "application/json" });
-    res.end("{}");
+    res.end(JSON.stringify(RESPOND(req)));
   });
 });
 const PORT = await new Promise((r) => SERVER.listen(0, "127.0.0.2", () => r(SERVER.address().port)));
@@ -54,6 +56,7 @@ const deps = () => ({
 });
 
 function reset() {
+  RESPOND = () => ({});
   REQUESTS.length = 0;
   REMOTE_AGENT_STATE.clear();
   ACTIVE_RUNS.clear();
@@ -101,4 +104,52 @@ test("THE SOLO-BRIDGE LONG POLL IS DECIDED BEFORE THE LOOP, from the roster size
   assert.notEqual(decl, -1, "the solo-bridge decision must be findable");
   assert.notEqual(loop, -1, "the agent loop must be findable");
   assert.ok(decl < loop, "it must be decided ONCE, before the per-agent loop");
+});
+
+// THE RECORD FETCH RUNS ONLY WHEN THE HEARTBEAT'S REVISION MOVES. It ran every tick -- every 3 s on a
+// managed hermes bridge that never long-polls a claim -- to learn nothing (measured 2026-09-18).
+const REV_AGENT = { info: { agentId: "rev-agent", runtime: "generic", sessionMode: "resident" } };
+
+async function agentGetsPerPass(revisionOf, passes) {
+  const gets = [];
+  RESPOND = (req) => (req.url.endsWith("/heartbeat") ? { ok: true, agentRevision: revisionOf() } : {});
+  for (let i = 0; i < passes; i += 1) {
+    const before = REQUESTS.length;
+    await runDispatchPass(deps());
+    // The heartbeat is fire-and-forget; let its answer land before the next tick, as it does live.
+    for (let wait = 0; wait < 100 && REMOTE_AGENT_STATE.get("rev-agent").agentRevision !== revisionOf(); wait += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    gets.push(REQUESTS.slice(before).filter((r) => r.method === "GET" && r.url.endsWith("/agents/rev-agent")).length);
+  }
+  return gets;
+}
+
+test("an unchanged record is not fetched again once its revision is known", async () => {
+  reset();
+  REMOTE_AGENT_STATE.set("rev-agent", structuredClone(REV_AGENT));
+  // Pass 1 has no revision yet; pass 2 learns r1 is newer than the fetch it made; then none.
+  assert.deepEqual(await agentGetsPerPass(() => "r1", 5), [1, 1, 0, 0, 0]);
+});
+
+test("CONTROL: a record whose revision moves (a Stop, a mode switch) is fetched again", async () => {
+  reset();
+  REMOTE_AGENT_STATE.set("rev-agent", structuredClone(REV_AGENT));
+  let revision = "r1";
+  assert.deepEqual(await agentGetsPerPass(() => revision, 3), [1, 1, 0]);
+  revision = "r2";
+  assert.deepEqual(await agentGetsPerPass(() => revision, 3), [0, 1, 0],
+    "the tick after the revision moved must re-read the record, and only that tick");
+});
+
+test("CONTROL: a service that sends no revision keeps the old fetch-every-tick behaviour", async () => {
+  reset();
+  REMOTE_AGENT_STATE.set("rev-agent", structuredClone(REV_AGENT));
+  const gets = [];
+  for (let i = 0; i < 3; i += 1) {
+    const before = REQUESTS.length;
+    await runDispatchPass(deps());
+    gets.push(REQUESTS.slice(before).filter((r) => r.method === "GET" && r.url.endsWith("/agents/rev-agent")).length);
+  }
+  assert.deepEqual(gets, [1, 1, 1]);
 });

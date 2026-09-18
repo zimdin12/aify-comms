@@ -9,7 +9,7 @@ Inter-agent communication hub: messaging, channels, file sharing, active dispatc
   rule paired with the test that fails when it is broken. Read before your first change; the rules
   below assume it.
 - [README.md](README.md) — what the service is, setup, day-to-day usage.
-- [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.hermes.md](install.hermes.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) — per-runtime install guides (wrappers, hooks, verification).
+- [install.claude.md](install.claude.md) / [install.codex.md](install.codex.md) / [install.hermes.md](install.hermes.md) / [install.opencode.md](install.opencode.md) / [install.pi.md](install.pi.md) (pi is deprecated: support kept, tests off unless `AIFY_TEST_DEPRECATED=pi`) — per-runtime install guides (wrappers, hooks, verification).
 - [docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md](docs/superpowers/plans/2026-08-20-three-repo-separation-roadmap.md)
   — **v0.6, the work in flight.** aify-comms, [aify-wrapper](https://github.com/zimdin12/aify-wrapper)
   and [aify-env](https://github.com/zimdin12/aify-env) as three repos, which phases are done, and the
@@ -231,8 +231,8 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5361 tests, 3 skipped (+10493 subtests)
-cd mcp/stdio && node tests/run-all.mjs                 # 364 suites, 2 skipped tests (named in its output)
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5343 tests, 24 skipped (+10515 subtests; 21 are deprecated pi tests)
+cd mcp/stdio && node tests/run-all.mjs                 # 356 suites, 2 skipped tests, 9 pi files disabled (all named in its output)
 cd service/new_dashboard && node --test *.test.mjs     # 1781 tests
 ```
 

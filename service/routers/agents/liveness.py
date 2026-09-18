@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from fastapi import HTTPException, Request
 
+from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
 from service.api_core.turn_busy_signal import _apply_turn_busy_signal
 from service.api_core.status_events import _apply_status_event
@@ -247,7 +248,9 @@ async def agent_heartbeat(agent_id: str, request: Request):
         if turn_flip:
             settings = await _load_settings(db)
             await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
-        return {"ok": True}
+        # THE BRIDGE RE-READS ITS RECORD ONLY WHEN THIS MOVES (service/api_core/agent_revision.py).
+        record = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        return {"ok": True, "agentRevision": agent_revision(record) if record else ""}
     finally:
         await db.close()
 

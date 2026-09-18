@@ -59,8 +59,16 @@ export async function runDispatchPass({
       }
     }
 
-    try {
+    // THE RECORD IS RE-READ ONLY WHEN ITS REVISION MOVED. The heartbeat answers with `agentRevision`
+    // (service/api_core/agent_revision.py), a fingerprint of every column but `last_seen`; a Stop, a
+    // mode switch or a config edit moves it. This fetch used to run every tick -- every 3 s on a bridge
+    // that never long-polls a claim -- to learn nothing. With no revision yet, or a service too old
+    // to send one, it still runs every tick, which is the old behaviour.
+    const refreshRecord = !state.agentRevision || state.agentRevision !== state.infoRevision;
+    if (refreshRecord) try {
+      const revisionAsked = state.agentRevision;
       const agentRes = await httpCall("GET", `/agents/${encodeURIComponent(agentId)}`);
+      state.infoRevision = revisionAsked;
       const liveAgent = agentRes.agent || null;
       if (liveAgent) {
         if (
@@ -108,7 +116,14 @@ export async function runDispatchPass({
 
     // Heartbeat after validating resident runtime reachability. This avoids
     // orphaned MCP child processes keeping a closed resident CLI "active".
-    reportAgentHeartbeat(agentId, state).catch(() => {});
+    reportAgentHeartbeat(agentId, state).then((beat) => {
+      if (beat?.agentRevision) state.agentRevision = beat.agentRevision;
+    }).catch((error) => {
+      // A beat the service refused as unknown (404) or removed (410) forces the record fetch on the
+      // next tick, whose own handling re-registers or forgets -- a bridge that never claims would
+      // otherwise have nothing left that asks.
+      if (error?.status === 404 || error?.status === 410) state.agentRevision = undefined;
+    });
 
     const managedViaWrapperRuntimes = await readManagedViaWrapperRuntimes().catch(() => null);
     let executionModes = supportedExecutionModes(state.info, { managedViaWrapperRuntimes });
