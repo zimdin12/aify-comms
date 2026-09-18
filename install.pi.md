@@ -1,5 +1,9 @@
 # Install For Oh My Pi
 
+> **Deprecated (2026-09-18).** Pi support stays in the code and keeps working as it does today, but
+> it is no longer maintained or tested by default: its test files carry `deprecated-runtime: pi` and
+> run only with `AIFY_TEST_DEPRECATED=pi`. Run them first if you bring pi back.
+
 Use aify-comms when you want dashboard-driven coordination for Pi agents: live direct messages, channels, shared artifacts, active dispatch, managed agent spawn, and environment control.
 
 ## No standalone install

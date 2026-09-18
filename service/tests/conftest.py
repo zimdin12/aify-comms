@@ -17,6 +17,8 @@ The replacement is wired as an autouse session fixture so existing test
 files inherit the speedup with ZERO edits to their bodies.
 """
 import asyncio
+import os
+import re
 import atexit
 import shutil
 import sys
@@ -147,3 +149,32 @@ def _rebind_init_db_for_late_imports(_fast_init_db):
         if real is not None and getattr(mod, "init_db", None) is real:
             mod.init_db = fast
     yield
+
+
+# A DEPRECATED RUNTIME'S TESTS ARE KEPT AND SKIPPED BY DEFAULT, the same rule as the bridge runner's
+# (mcp/stdio/tests/deprecated-runtimes.mjs): a file carrying `# deprecated-runtime: <name>` near its
+# top runs only when AIFY_TEST_DEPRECATED names that runtime (or `all`). Skipped, never dropped, so
+# the report still says they did not run. Pi is deprecated since 2026-09-18.
+_DEPRECATED_MARKER = re.compile(r"^\s*#\s*deprecated-runtime:\s*([a-z0-9_-]+)\s*$", re.MULTILINE)
+
+
+def _deprecated_runtime_of(path: Path) -> str:
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+    except OSError:
+        return ""
+    match = _DEPRECATED_MARKER.search(head)
+    return match.group(1) if match else ""
+
+
+def pytest_collection_modifyitems(config, items):
+    wanted = {part.strip().lower() for part in os.environ.get("AIFY_TEST_DEPRECATED", "").split(",") if part.strip()}
+    seen: dict = {}
+    for item in items:
+        path = Path(str(item.fspath))
+        if path not in seen:
+            seen[path] = _deprecated_runtime_of(path)
+        runtime = seen[path]
+        if runtime and "all" not in wanted and runtime not in wanted:
+            item.add_marker(pytest.mark.skip(
+                reason=f"deprecated runtime '{runtime}' (AIFY_TEST_DEPRECATED={runtime} runs it)"))

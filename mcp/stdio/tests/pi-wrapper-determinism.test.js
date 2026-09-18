@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// deprecated-runtime: pi
 // Render guard for the pi-aify / omp-aify bash wrappers (v0.6 Phase 2).
 //
 // Pi is in v0.6's wrapper scope (operator, 2026-08-19: claude + codex + pi, hermes last), so its

@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 // Pi's output parsers and its failure classifier.
 //
 // FOURTH BACKLOG PAYMENT. Five pure exports, none of them tested. The classifier is the reason this one

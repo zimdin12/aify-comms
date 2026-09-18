@@ -1,8 +1,8 @@
 # aify-comms
 
 A control plane for teams of AI coding agents: chat, work dispatch, consoles and a dashboard for
-Claude Code, Codex, Hermes, OpenCode and Oh My Pi agents running on Windows, WSL, Linux or remote
-machines.
+Claude Code, Codex, Hermes, OpenCode and Oh My Pi (deprecated) agents running on Windows, WSL, Linux
+or remote machines.
 
 You run one service, start `aify-env` on each machine that should run agents, open the dashboard,
 spawn agents into workspaces, and give them work by messaging them.

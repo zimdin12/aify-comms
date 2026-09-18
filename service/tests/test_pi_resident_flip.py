@@ -1,3 +1,4 @@
+# deprecated-runtime: pi
 """Pi flip mechanics — Plan 2.
 
 When a pi agent attempts to register as sessionMode=resident, the server

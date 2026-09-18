@@ -3,18 +3,26 @@ import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
+import { disabledBy } from "./deprecated-runtimes.mjs";
 import { skippedFrom, slowest, summarise } from "./run-all-summary.mjs";
 import { orderLongestFirst, readTimings, writeTimings } from "./run-all-timings.mjs";
 
 const root = new URL("..", import.meta.url);
 const testDirs = ["tests", "tests/adapters", "tests/controllers"];
-const files = testDirs.flatMap((dir) => (
+const found = testDirs.flatMap((dir) => (
   readdirSync(new URL(`${dir}/`, root))
     .filter((name) => name.endsWith(".test.js"))
     .sort()
     .map((name) => join(dir, name))
 ));
+// A DEPRECATED RUNTIME'S TESTS ARE KEPT AND NOT RUN (see deprecated-runtimes.mjs). They are named in
+// the summary rather than dropped, so a disabled file never reads as a pass.
+const disabled = found
+  .map((file) => ({ file, runtime: disabledBy(join(fileURLToPath(root), file)) }))
+  .filter(({ runtime }) => runtime);
+const files = found.filter((file) => !disabled.some((entry) => entry.file === file));
 
 // stdout is PIPED rather than inherited, so the runner can see what a file reported. Exit status
 // alone cannot distinguish a file that proved something from one whose tests all skipped, and this
@@ -152,6 +160,10 @@ if (summary.skipped.length > 0) {
   for (const { file, skipped } of summary.skipped) {
     console.error(`  - ${file} (${skipped} test(s))`);
   }
+}
+if (disabled.length > 0) {
+  console.error(`\n[run-all] disabled, deprecated runtime (AIFY_TEST_DEPRECATED=<runtime> runs them):`);
+  for (const { file, runtime } of disabled) console.error(`  - ${file} (${runtime})`);
 }
 console.error(`\n[run-all] ${summary.line}`);
 

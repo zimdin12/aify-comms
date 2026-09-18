@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 import assert from "assert";
 import test from "node:test";
 import { PiAdapter } from "../../adapters/pi.js";

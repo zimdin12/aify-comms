@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 // The pi session's interrupt, and the error it hands an operator when `omp` will not execute.
 //
 // Twenty-sixth cluster off the V8-coverage census: `pi-session.js`'s `get state`, `_interruptTurn` and

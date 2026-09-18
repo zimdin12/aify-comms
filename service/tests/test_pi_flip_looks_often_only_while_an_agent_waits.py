@@ -1,3 +1,4 @@
+# deprecated-runtime: pi
 """The pi flip loop looks every few seconds only while a pi agent is waiting, and is woken by a registration.
 
 MEASURED REASON, 2026-09-16: the idle service spent about 2% of a core, and this loop opened a database

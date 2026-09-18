@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 import assert from "assert";
 
 process.env.AIFY_PI_COMMAND = process.execPath;

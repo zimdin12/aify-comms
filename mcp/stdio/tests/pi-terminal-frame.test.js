@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 // The pi renderer — and an agreement test against the second copy of it that exists in this bridge.
 //
 // `hermes-acp-protocol.js` carries its OWN `colorize` and `briefJsonInline`, plus its own `ANSI`,

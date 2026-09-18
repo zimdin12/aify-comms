@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 // The pi timing helpers, CALLED — not just compared against their three siblings.
 //
 // `deferred-agreement.test.js` proves these four agree (or deliberately differ) with the codex and hermes

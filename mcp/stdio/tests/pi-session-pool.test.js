@@ -1,3 +1,4 @@
+// deprecated-runtime: pi
 // The pi session pool, tested by CALLING it — and specifically the one property that a refactor could
 // break without any test noticing.
 //

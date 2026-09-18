@@ -1,3 +1,4 @@
+# deprecated-runtime: pi
 """Plan 6 B3 — pi-aify wrapper rediscovers the real session id.
 
 The Phase-4 watchdog already curls /api/v1/agents/<id>/pi-session-state to
