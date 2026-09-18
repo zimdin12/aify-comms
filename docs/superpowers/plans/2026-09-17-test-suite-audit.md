@@ -89,7 +89,11 @@ whether the code is correct, and every later behaviour change to those functions
 it (this release paid that twice). The v0.5.x refactor series it guarded closed on 2026-08-17.
 It was the largest single reduction available.
 
-**Prose pins** that guard wording rather than behaviour: `test_the_oversized_table_names_the_real_two.py`
-(18 tests over a CLAUDE.md table), `test_the_ranked_decision_list_counts_itself.py`,
-`test_the_ledgers_receipts_name_trees_that_contain_them.py`, `test_comments_name_the_constant_the_code_uses.py`.
-Link, removed-command and skill-name gates are worth keeping; they have caught real defects.
+**Prose pins, DELETED 2026-09-18 (v0.6.15)**: `test_the_oversized_table_names_the_real_two.py`
+(19 tests over a CLAUDE.md table, 8 s), `test_the_ranked_decision_list_counts_itself.py` (5),
+`test_the_ledgers_receipts_name_trees_that_contain_them.py` (5) and
+`test_comments_name_the_constant_the_code_uses.py` (4 tests, 22 s, never fired since written). Each
+guarded the wording of a document, not behaviour. The CLAUDE.md table the first one guarded was a
+hand-copied cache of a lookup, so the table went too: CLAUDE.md now gives the one-line command that
+ranks files by size, and its 190-line section is 38. Link, removed-command and skill-name gates are
+kept; they have caught real defects.
