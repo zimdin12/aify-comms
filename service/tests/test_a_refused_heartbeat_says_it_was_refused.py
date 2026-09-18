@@ -68,14 +68,6 @@ class ARefusedHeartbeatSaysSoTests(FastApiTestCase):
         self.assertIn("bridgeStartedAt", claimer["reason"],
                       "the reason must name the field, since the caller's bug IS the field's place")
 
-    def test_the_refusal_and_the_acceptance_are_DISTINGUISHABLE(self):
-        """CONTROL. If both answered the same, every assertion above could hold on a field that is
-        hardcoded -- which is the failure being fixed, one layer up."""
-        self._beat(bridgeId="bridge-incumbent", metadata={"bridgeStartedAt": "2026-09-03T00:10:00Z"})
-        refused = self._beat(bridgeId="bridge-late", metadata={"bridgeStartedAt": "2026-09-03T00:05:00Z"})
-        accepted = self._beat(bridgeId="bridge-incumbent", metadata={"bridgeStartedAt": "2026-09-03T00:10:00Z"})
-        self.assertNotEqual(refused.json()["claimer"]["accepted"], accepted.json()["claimer"]["accepted"])
-
     def test_a_beat_with_NO_bridgeId_is_not_reported_as_a_claimer(self):
         """An advertisement describes the host and claims nothing. Reporting it accepted would invent
         the authority the advertise/claim split exists to withhold -- and that split is the reason

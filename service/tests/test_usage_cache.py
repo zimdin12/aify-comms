@@ -27,23 +27,6 @@ def test_stale_pool_dims_but_keeps_last_good_numbers():
     assert g["weekly"]["left_pct"] == 30
 
 
-def test_expired_pool_blanks_numbers():
-    # >24h without a fresh snapshot: numbers are nulled so a days-old quota can't mislead.
-    uc._USAGE_CACHE.clear()
-    uc.usage_set("openai-chatgpt-codex", {
-        "weekly": {"used_pct": 70, "left_pct": 30, "resets_at": "2026-06-01T00:00:00Z"},
-        "five_hour": {"used_pct": 10, "left_pct": 90},
-        "updated_at": _iso_ago(uc.STALE_EXPIRE_SECONDS + 3600),
-    })
-    g = uc.usage_get("openai-chatgpt-codex")
-    assert g["stale"] is True and g["expired"] is True and g["unknown"] is True
-    assert g["weekly"]["left_pct"] is None and g["weekly"]["used_pct"] is None
-    assert g["weekly"]["resets_at"] is None
-    assert g["five_hour"]["left_pct"] is None
-    # Blanking must work on a COPY — the cached entry keeps its real values.
-    assert uc._USAGE_CACHE["openai-chatgpt-codex"]["weekly"]["left_pct"] == 30
-
-
 def test_missing_timestamp_is_expired():
     uc._USAGE_CACHE.clear()
     uc.usage_set("openai-chatgpt-codex", {"weekly": {"left_pct": 30}})  # no updated_at

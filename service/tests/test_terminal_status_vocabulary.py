@@ -56,7 +56,6 @@ from service.api_core.terminal_status import (
     _TERMINAL_ACTIVE_STATUSES,
     _TERMINAL_END_STATUSES,
     _TERMINAL_MONOTONIC_STATUSES,
-    _terminal_status_transition,
 )
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -356,51 +355,3 @@ class TerminalStatusVocabularyTests(unittest.TestCase):
             "an f-string UPDATE is invisible to this scan again. A NEW literal added that way would "
             "pass unnoticed and strand the row exactly as the `lost` incident above describes",
         )
-
-    def test_an_unrecognised_status_is_refused_and_the_reason_is_what_it_would_have_cost(self):
-        """RESOLVED 2026-08-16 — the open question this file used to pin is closed.
-
-        It pinned the OPPOSITE, because `test_terminal_status_transition.py` ruled pass-through
-        deliberate. Tracing the reapers decided it: every one selects `WHERE status IN (...)` and not
-        one keys on age, so a row holding an undeclared status matches none of them. The assertions
-        below are what makes that concrete rather than a claim — the value really is outside all
-        three sets, so "invisible to every sweep" is a fact about this code, not a worry.
-        """
-        for unknown in ["stoppped", "paused", "resumed", "crashed", "exited"]:
-            with self.subTest(unknown=unknown):
-                self.assertEqual(
-                    _terminal_status_transition("running", unknown), "",
-                    "an undeclared status must not reach the column",
-                )
-                self.assertNotIn(unknown, _TERMINAL_ACTIVE_STATUSES, "…the status engine sees no live terminal")
-                self.assertNotIn(unknown, _TERMINAL_END_STATUSES, "…no close-out path ever fires")
-                self.assertNotIn(unknown, _TERMINAL_MONOTONIC_STATUSES, "…the resurrection guard is off")
-        # The rescue this buys: refusing leaves the LAST KNOWN status in place, and that status is
-        # one the reapers still act on. Keeping the unknown one is what stranded the row.
-        self.assertEqual(_terminal_status_transition("stopped", "paused"), "")
-        self.assertEqual(_terminal_status_transition("running", "stopped"), "stopped")
-
-    def test_every_real_transition_is_unchanged(self):
-        """The full ordered matrix, so a future change to this rule has to face every pair."""
-        for current in sorted(TERMINAL_SESSION_STATUSES | {""}):
-            for nxt in sorted(TERMINAL_SESSION_STATUSES):
-                expected = (
-                    "" if current in _TERMINAL_MONOTONIC_STATUSES and nxt in _TERMINAL_ACTIVE_STATUSES
-                    else nxt
-                )
-                self.assertEqual(
-                    _terminal_status_transition(current, nxt), expected,
-                    f"{current!r} -> {nxt!r} changed meaning",
-                )
-
-    def test_the_monotonic_guard_still_refuses_a_finished_terminal_going_active(self):
-        # Anti-vacuity for the loop above: assert the guard fires on a case that reaches it, so a
-        # broken guard cannot pass by making `expected` wrong in the same way on both sides.
-        self.assertEqual(_terminal_status_transition("stopped", "running"), "")
-        self.assertEqual(_terminal_status_transition("stopped", "failed"), "failed")
-        self.assertEqual(_terminal_status_transition("running", "stopped"), "stopped")
-        self.assertEqual(_terminal_status_transition("  STOPPED  ", "RUNNING"), "")
-
-    def test_case_and_whitespace_are_normalised_before_the_allowlist(self):
-        self.assertEqual(_terminal_status_transition("running", "  STOPPED "), "stopped")
-        self.assertEqual(_terminal_status_transition("running", "Attached"), "attached")

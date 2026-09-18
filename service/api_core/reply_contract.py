@@ -1,8 +1,9 @@
 """Reply-contract rules: what counts as an answer, and what the reminder says. PURE — no DB.
 
-Layer-0 slice of the v0.5.4 decomposition. These five decide the terms: which message types satisfy
-the contract, when a contract counts as operator-closed, how the overdue query is shaped, how often
-a full reminder repeats, and the reminder text itself.
+Layer-0 slice of the v0.5.4 decomposition. These decide the terms: which message types satisfy
+the contract, how the overdue query is shaped, how often a full reminder repeats, and the reminder
+text itself. (An operator close from the Work Loop needs no rule of its own: it clears
+`require_reply`, and that alone ends the contract.)
 
 WHAT IS OWED AN ANSWER, exactly as `_contract_list_query` asks it -- and it is wider than the flag.
 This paragraph used to read "a dispatch with `require_reply=1` is owed an answer", which is only
@@ -112,18 +113,6 @@ def _signals_completion(text: str) -> bool:
             continue
         return True
     return False
-
-
-def _is_operator_closed_contract(row) -> bool:
-    if not row:
-        return False
-    status = str((row["status"] if "status" in row.keys() else "") or "").strip().lower()
-    summary = str((row["summary"] if "summary" in row.keys() else "") or "").strip()
-    return (
-        status == "completed"
-        and not _row_require_reply(row)
-        and summary.startswith("Closed from Work Loop by dashboard operator.")
-    )
 
 
 def _message_satisfies_reply_contract(reply_type: str, subject: str = "", body: str = "") -> bool:
@@ -304,8 +293,6 @@ def _dispatch_reply_pending(row) -> bool:
 
 def _contract_reply_expected(row) -> bool:
     if not row:
-        return False
-    if _is_operator_closed_contract(row):
         return False
     # Send creation has already normalized type defaults plus the explicit requireReply
     # override into this field. Re-inferring from type/priority here made an explicit

@@ -124,7 +124,7 @@ class ClaimingTests(DispatchControlsClaimTestCase):
         """Claude resident runs complete on delivery. A filter on ('claimed','running') — the shape
         a later reader would reach for — makes their controls permanently unclaimable, which is an
         interrupt that can never be delivered for a whole runtime."""
-        for status in ("queued", "claimed", "running", "delivered", "completed"):
+        for status in ("queued", "claimed", "running", "delivered", "completed", "failed", "cancelled"):
             with self.subTest(run_status=status):
                 self._seed_run(f"run-{status}", status=status)
                 self._seed_control(f"ctl-{status}", f"run-{status}")

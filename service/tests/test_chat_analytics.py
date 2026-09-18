@@ -300,15 +300,24 @@ class ChatAnalyticsTests(FastApiTestCase):
         """2026-06-18 round: GET /analytics/pulse?window_minutes=N returns a glanceable
         window-scoped fleet view — message rate, working-utilization, open/overdue
         reply contracts, and a board of online agents with last-worked + in-window activity."""
-        self._register("pulse-alpha")
+        self._register("pulse-alpha", runtime="claude-code", sessionMode="resident")
         conn = sqlite3.connect(str(self._db_path))
         try:
             from datetime import datetime, timezone, timedelta
             now = datetime.now(timezone.utc)
             iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
             now_ms = int(now.timestamp() * 1000)
-            # Mark the agent as freshly seen so the status engine treats it as online.
-            conn.execute("UPDATE agents SET last_seen=?, status='idle' WHERE id=?", (iso(now), "pulse-alpha"))
+            # ONLINE, by the proof the status engine trusts for a resident: a fresh, non-superseded
+            # channel-sidecar bridge. A fresh `last_seen` alone is NOT that proof -- this test set
+            # only `last_seen` until 2026-09-18, the agent read offline, and its board assertions sat
+            # inside an `if` that was never true.
+            conn.execute("UPDATE agents SET last_seen=? WHERE id=?", (iso(now), "pulse-alpha"))
+            conn.execute(
+                "INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, "
+                "bridge_kind, registered_at, last_seen, superseded_by) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("sidecar-alpha", "pulse-alpha", "test-host", "claude-code", "resident",
+                 "channel-sidecar", iso(now), iso(now), ""),
+            )
             # Two direct messages within the last 10 minutes.
             for mid, frm, to in (("p1", "pulse-alpha", "peerA"), ("p2", "peerA", "pulse-alpha")):
                 conn.execute(
@@ -335,18 +344,15 @@ class ChatAnalyticsTests(FastApiTestCase):
         self.assertGreaterEqual(data["messages"]["count"], 2)
         # 2 messages in a 10-min window → 12/hr.
         self.assertAlmostEqual(data["messages"]["perHour"], 12.0, places=1)
-        # Contract shape: the board is a list (a bare-registered agent with no live bridge is
-        # correctly OFFLINE → excluded from the online board; board population is verified live).
-        self.assertIsInstance(data["agents"], list)
         self.assertIn("fleetUtilizationPct", data)
         self.assertIn("openReplyContracts", data)
         self.assertIn("workingNow", data)
-        # If the agent IS surfaced (status engine considers it live), its in-window working
-        # minutes reflect the 6-min run overlap.
         board = {a["id"]: a for a in data["agents"]}
-        if "pulse-alpha" in board:
-            self.assertAlmostEqual(board["pulse-alpha"]["workingMinutesInWindow"], 6.0, delta=0.6)
-            self.assertGreaterEqual(board["pulse-alpha"]["messagesInWindow"], 2)
+        self.assertIn("pulse-alpha", board, "an online resident must be on the online board")
+        # The 6-minute run overlaps the window; with started_at NULL only the claimed_at proxy
+        # can yield those minutes.
+        self.assertAlmostEqual(board["pulse-alpha"]["workingMinutesInWindow"], 6.0, delta=0.6)
+        self.assertGreaterEqual(board["pulse-alpha"]["messagesInWindow"], 2)
 
     def test_fleet_pulse_working_now_and_bounded_minutes(self):
         """Regression for the 2026-07-02 screenshot incident (commit 1fb759e): the pulse

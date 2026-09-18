@@ -163,20 +163,6 @@ def test_direct_with_a_reply_owed_is_actionable():
     assert state(result_message_id="m")["actionable"] is False
 
 
-def test_operator_closed_contract_expects_no_reply():
-    """The dashboard's Work Loop close is recognised by all three of status, flag and summary."""
-    closed = row(
-        status="completed",
-        require_reply=0,
-        summary="Closed from Work Loop by dashboard operator. Reason: superseded",
-        requested_at=iso(NOW - 3600),
-    )
-    result = _contract_state(closed, settings=settings(), now_s=NOW)
-    assert result["replyExpected"] is False
-    assert result["overdue"] is False
-    assert result["state"] == "closed"
-
-
 # ── the reminder decision ────────────────────────────────────────────────────────────────────
 OVERDUE = dict(requested_at=iso(NOW - 3600))
 

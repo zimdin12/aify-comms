@@ -253,7 +253,7 @@ class SpawnDeadTerminalFinalizeTests(_SpawnSeedMixin, FastApiTestCase):
     def test_nothing_is_logged_when_there_is_nothing_to_report(self):
         """A quiet sweep must stay quiet — this runs every 60s."""
         self._seed("plain-dead")
-        with self.assertNoLogs("service.reconcilers.spawn_lifecycle", level="INFO"):
+        with self.assertNoLogs("service.reconcilers.spawn_terminal_settlement", level="INFO"):
             self.assertEqual(self._finalize(), 1)
 
     def test_respects_the_grace_window(self):

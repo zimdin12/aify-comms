@@ -24,6 +24,11 @@ WHAT IS DELIBERATELY NOT REFUSED:
 
 `cors_origins` is honoured, because an operator who named an origin there has already decided that
 origin may drive this service. `*` grants no exemption: a wildcard is the absence of a decision.
+
+The policy itself -- every allowed and refused case above -- is pinned once, on the predicate and on
+`create_app()`, in `test_one_policy_decides_whether_a_browser_may_drive_this_service.py`. What stays
+here is what only the middleware decides: its refusal text, the headers it does NOT read, how it
+normalises `cors_origins`, and that it runs outside the key check.
 """
 
 from __future__ import annotations
@@ -75,18 +80,6 @@ class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
         self.assertIn("cors_origins", response.text,
                       "the refusal must say how an operator legitimises their own dashboard")
 
-    def test_a_cross_site_page_cannot_read_the_fleet_either(self):
-        # Reading is its own harm: the listing carries live gateway tokens, which is what doctor's
-        # `api-exposure` check reports. CORS `*` means the page can read what comes back.
-        self.assertEqual(self.client.get("/api/v1/agents", headers=CROSS).status_code, 403)
-
-    def test_a_PROGRAM_is_untouched(self):
-        """The control, and the one that matters most. Every bridge, CLI and curl sends none of these
-        headers, and refusing on absence would refuse everything this service exists to serve."""
-        self.assertEqual(self.client.get("/api/v1/agents").status_code, 200)
-        self.assertEqual(
-            self.client.post("/api/v1/agents/x/console/input").status_code, 200)
-
     def test_Nodes_own_fetch_headers_do_not_trip_it(self):
         """Node sends `sec-fetch-mode: cors` on every request -- measured against a local server. A
         guard that read THAT as a browser signal refused the real client, which is exactly what
@@ -96,43 +89,8 @@ class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
             headers={"sec-fetch-mode": "cors", "user-agent": "node", "accept-language": "*"})
         self.assertEqual(response.status_code, 200)
 
-    def test_both_dashboards_keep_working(self):
-        """SAME-ORIGIN is served without an Origin; the SECOND dashboard is served BY its Origin.
-
-        This used to assert that a bare `same-site` API GET was served, which described neither
-        dashboard: Dashboard Next answers on another port, so its fetches are CROSS-ORIGIN and
-        carry an `Origin` header -- they are allowed on that, by host. Nothing legitimate reaches
-        an API path same-site with no Origin at all, and allowing it let a sibling subdomain call
-        endpoints that mutate on GET.
-        """
-        same_origin = self.client.get("/api/v1/agents", headers={"sec-fetch-site": "same-origin"})
-        self.assertEqual(same_origin.status_code, 200, "a same-origin dashboard was refused")
-
-        second_dashboard = self.client.get("/api/v1/agents", headers={
-            "sec-fetch-site": "same-site", "origin": "http://127.0.0.1:8801"})
-        self.assertEqual(second_dashboard.status_code, 200,
-                         "Dashboard Next on another port was refused")
-
-    def test_a_same_site_API_GET_with_no_origin_is_now_REFUSED(self):
-        """The hole: `GET /messages/inbox/{agent}` settles read receipts and completes stranded
-        dispatch runs, so "GET is safe" is false here and a sibling subdomain could use it."""
-        response = self.client.get("/api/v1/agents", headers={"sec-fetch-site": "same-site"})
-        self.assertEqual(response.status_code, 403, response.text)
-
-    def test_a_browser_navigation_still_reaches_the_service(self):
-        # `none` is someone typing the URL. Refusing it would stop an operator opening their own
-        # dashboard, and a navigation cannot carry an attacker's payload cross-site anyway.
-        self.assertEqual(
-            self.client.get("/api/v1/agents", headers={"sec-fetch-site": "none"}).status_code, 200)
-
 
 class TheOperatorsOwnConfigIsHonouredTests(unittest.TestCase):
-    def test_an_origin_named_in_cors_origins_is_allowed_through(self):
-        client = TestClient(_app(["https://dash.example"]), base_url=LOOPBACK)
-        response = client.get("/api/v1/agents", headers={
-            "sec-fetch-site": "cross-site", "origin": "https://dash.example"})
-        self.assertEqual(response.status_code, 200, "a configured origin was refused")
-
     def test_a_trailing_slash_or_different_case_still_matches(self):
         """An origin is compared, not parsed, so the two spellings an operator actually writes must
         both work -- otherwise the exemption silently does nothing and looks like the guard is broken."""
@@ -140,22 +98,6 @@ class TheOperatorsOwnConfigIsHonouredTests(unittest.TestCase):
         response = client.get("/api/v1/agents", headers={
             "sec-fetch-site": "cross-site", "origin": "https://dash.example"})
         self.assertEqual(response.status_code, 200)
-
-    def test_a_WILDCARD_grants_nothing(self):
-        """`*` is the default. Reading it as "every browser may drive this" would make the guard a
-        no-op in precisely the configuration it exists to protect."""
-        client = TestClient(_app(["*"]), base_url=LOOPBACK)
-        self.assertEqual(client.get("/api/v1/agents", headers=CROSS).status_code, 403)
-
-    def test_an_origin_NOT_in_the_list_is_still_refused(self):
-        client = TestClient(_app(["https://dash.example"]), base_url=LOOPBACK)
-        self.assertEqual(client.get("/api/v1/agents", headers=CROSS).status_code, 403)
-
-    def test_a_cross_site_request_with_NO_origin_is_refused(self):
-        # A page can withhold Origin on some request kinds; Sec-Fetch-Site alone is enough to know.
-        client = TestClient(_app(["https://dash.example"]), base_url=LOOPBACK)
-        self.assertEqual(
-            client.get("/api/v1/agents", headers={"sec-fetch-site": "cross-site"}).status_code, 403)
 
 
 class TheREALAppInstallsItTests(unittest.TestCase):
@@ -186,12 +128,6 @@ class TheREALAppInstallsItTests(unittest.TestCase):
         with mock.patch("service.main.get_config", return_value=patched):
             return create_app()
 
-    def test_the_real_app_refuses_a_cross_site_page(self):
-        client = TestClient(self._real_app(), base_url=LOOPBACK)
-        response = client.get("/api/v1/agents", headers=CROSS)
-        self.assertEqual(response.status_code, 403,
-                         "create_app() does not install the cross-site guard")
-
     def test_it_runs_OUTSIDE_the_api_key_check(self):
         app = self._real_app(api_key="a-configured-key")
         installed = [m.cls.__name__ for m in app.user_middleware]
@@ -201,8 +137,3 @@ class TheREALAppInstallsItTests(unittest.TestCase):
         response = client.get("/api/v1/agents", headers=CROSS)
         self.assertEqual(response.status_code, 403,
                          "a 401 here means the key check ran first, leaving the keyless default open")
-
-    def test_a_program_still_reaches_the_real_app(self):
-        # The control: the guard must not have simply broken the service.
-        client = TestClient(self._real_app(), base_url=LOOPBACK)
-        self.assertEqual(client.get("/health").status_code, 200)

@@ -411,9 +411,6 @@ from service.api_core.vocabulary import (
 # router-owned and stays borrowed there.
 
 
-# _is_operator_closed_contract moved to service/api_core/reply_contract.py in v0.5.4.
-
-
 # _contract_reply_expected moved to service/api_core/reply_contract.py in v0.5.4.
 
 

@@ -12,6 +12,11 @@ in the 60s sweep and, for a stored-but-un-dispatched channel inbox message whose
 member's env is now available, creates the dispatch run the send would have made
 — idempotently (a member who already has a run, or who read the message, is
 never re-dispatched).
+
+Which stored messages are candidates at all (read, already dispatched, no real recipient, no
+dispatch requested) is decided by `_select_undelivered_channel_messages` and pinned once in
+`test_channel_replay_query.py`. This file keeps what the reconciler adds: the environment gate,
+idempotency across sweeps, the dedicated-run watermark and the horizon it passes.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -226,34 +231,6 @@ class ChannelOfflineReplayTests(FastApiTestCase):
         self.assertEqual(replayed2, [], "no re-replay once fB has its own run")
         self.assertEqual(len(self._runs_for(fB)), 1, "still exactly one fB run after a 2nd sweep")
 
-    def test_existing_run_not_double_dispatched(self):
-        self._seed_managed_member("m-dup")
-        fanout = self._seed_channel_inbox_message("cmsg-3", "m-dup")
-        # A run already exists (the member WAS launchable at send) — must be left alone.
-        self._execute(
-            """
-            INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, dispatch_mode,
-                execution_mode, message_type, subject, body, priority, status, require_reply, requested_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            ("run_existing", fanout, "poster", "m-dup", "start_if_possible", "managed",
-             "message", "Roll call", "please report status", "normal", "queued", 0, _now()),
-        )
-        replayed = self._run_replay()
-        self.assertEqual(replayed, [], "member already has a run → no replay")
-        self.assertEqual(len(self._runs_for(fanout)), 1, "no duplicate run")
-
-    def test_read_message_not_replayed(self):
-        self._seed_managed_member("m-read")
-        fanout = self._seed_channel_inbox_message("cmsg-4", "m-read")
-        self._execute(
-            "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
-            (fanout, "m-read", _now()),
-        )
-        replayed = self._run_replay()
-        self.assertEqual(replayed, [], "already-read message → no replay")
-        self.assertEqual(len(self._runs_for(fanout)), 0)
-
     def test_message_beyond_horizon_not_replayed(self):
         self._seed_managed_member("m-old")
         fanout = self._seed_channel_inbox_message(
@@ -261,14 +238,4 @@ class ChannelOfflineReplayTests(FastApiTestCase):
         )
         replayed = self._run_replay()
         self.assertEqual(replayed, [], "stale message beyond horizon → no replay")
-        self.assertEqual(len(self._runs_for(fanout)), 0)
-
-    def test_dashboard_member_not_replayed(self):
-        # A message addressed to the pseudo-agent 'dashboard' must never dispatch.
-        self._seed_managed_member("m-dash")
-        fanout = self._seed_channel_inbox_message(
-            "cmsg-6", "dashboard", dispatch_requested=0
-        )
-        replayed = self._run_replay()
-        self.assertEqual(replayed, [], "dashboard pseudo-member → no replay")
         self.assertEqual(len(self._runs_for(fanout)), 0)

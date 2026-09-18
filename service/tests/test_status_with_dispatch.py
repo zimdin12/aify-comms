@@ -27,6 +27,7 @@ import pytest
 
 from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _status_with_dispatch
+from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
 
 # Statuses that describe an agent that CAN work, and so may be promoted.
 PROMOTABLE = ["online", "available", "idle", "working", ""]
@@ -69,6 +70,28 @@ def test_the_run_status_is_matched_exactly():
 @pytest.mark.parametrize("base", PROTECTED)
 def test_a_protected_status_is_never_overwritten_by_a_running_run(base):
     assert _status_with_dispatch(base, state("running")) == base
+
+
+def test_no_NON_LIVE_status_is_ever_promoted():
+    """Derived from the partition rather than listed, so a fourth non-live status added later is
+    covered without anyone remembering this file."""
+    for status in NON_LIVE_AGENT_STATUSES:
+        assert _status_with_dispatch(status, state("running")) == status, (
+            f"{status} was promoted to working by an active run"
+        )
+
+
+def test_every_LIVE_status_but_blocked_is_still_promoted():
+    """ANTI-VACUITY, derived from the engine's vocabulary. A guard that refused everything would
+    satisfy every protection above and break the case the feature exists for -- a just-delivered
+    turn reading `working` before the bridge's turn-start event lands. Derived, so a status added
+    to the engine (`shell`, for one) is covered without being listed in PROMOTABLE."""
+    promotable = [s for s in VALID_STATUSES if s not in NON_LIVE_AGENT_STATUSES and s != "blocked"]
+    assert len(promotable) >= 4, promotable
+    for status in promotable:
+        assert _status_with_dispatch(status, state("running")) == "working", (
+            f"{status} should promote to working and did not"
+        )
 
 
 def test_the_manual_status_set_is_the_one_that_is_honoured():

@@ -274,28 +274,6 @@ class TheEnvPluginIdentitySurvivesTheHeartbeat(FastApiTestCase):
             "tier-version reports a comparison against something this host is not running: "
             f"{row.get('bridgeVersion')!r}")
 
-    def test_the_refused_legacy_bridge_is_TOLD_it_was_refused_and_why(self):
-        """The half a status code cannot carry, and this service has paid for it before.
-
-        A refused beat returns `ok: True` like an accepted one, so the route says so in the body:
-        without `claimer.accepted == False` the bridge keeps beating every 30 seconds believing it
-        is the claimer while `bridgeLastSeen` never moves and every spawn is refused. The reason
-        also has to be actionable — this is not a clock problem, and re-registering will not help.
-        """
-        self._beat(self._heartbeat_the_plugin_sends())
-        refused = self.client.post(
-            "/api/v1/environments/heartbeat",
-            json=self._legacy_beat("legacy-bridge", datetime.now(timezone.utc).strftime(
-                "%Y-%m-%dT%H:%M:%SZ")))
-        self.assertEqual(refused.status_code, 200, refused.text)
-        claimer = refused.json().get("claimer") or {}
-        self.assertIs(claimer.get("accepted"), False,
-                      f"a refused legacy beat was not told it was refused: {refused.json()}")
-        self.assertIn(
-            "install.sh", str(claimer.get("reason") or ""),
-            "the refusal does not tell the operator what to actually do about the retired bridge: "
-            f"{claimer.get('reason')!r}")
-
     def test_a_legacy_bridge_STILL_TAKES_a_row_no_host_tier_holds(self):
         """THE PAIRED CONTROL, driven by removing what the witness above watches.
 

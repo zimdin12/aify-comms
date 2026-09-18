@@ -20,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent))
 
-from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 from service.api_core.execution_mode import _agent_execution_mode
 
 
@@ -43,7 +42,9 @@ def test_managed_hermes_with_channel_flag_routes_to_channel():
     """A managed hermes agent whose wrapper set the channel-enabled flag
     resolves to execution_mode='channel' (claimable by hermes-channel.js),
     the same way managed claude does. Gated purely on the flag — NOT on the
-    managed_via_wrapper PTY toggle (settings omit hermes here)."""
+    managed_via_wrapper PTY toggle (settings omit hermes here). The row carries
+    an EMPTY session_handle, which must not downgrade channel delivery: the
+    sidecar drives the agent's pinned daemon session, no captured handle needed."""
     mode, reason = _agent_execution_mode(
         _managed_hermes_row(channel_enabled=True),
         settings={"managed_via_wrapper": ["codex"]},
@@ -53,32 +54,11 @@ def test_managed_hermes_with_channel_flag_routes_to_channel():
 
 
 def test_managed_hermes_channel_flag_routes_even_with_settings_none():
-    """Gating is the runtime flag, independent of the settings object."""
+    """Gating is the runtime flag, independent of the settings object. The row has
+    no managed-run capability: like channel-managed claude, the channel path skips
+    that requirement (the sidecar delivers, not the headless API)."""
     mode, reason = _agent_execution_mode(
         _managed_hermes_row(channel_enabled=True),
-        settings=None,
-    )
-    assert mode == "channel", f"expected channel; got ({mode!r}, {reason!r})"
-    assert reason is None
-
-
-def test_managed_hermes_channel_delivery_does_not_require_session_handle():
-    """The empty session_handle must NOT reject/downgrade channel delivery —
-    the sidecar drives the agent's pinned daemon session; no captured handle
-    is needed (the old gateway-handle gate is gone for the channel path)."""
-    mode, reason = _agent_execution_mode(
-        _managed_hermes_row(channel_enabled=True, session_handle=""),
-        settings={"managed_via_wrapper": ["codex"]},
-    )
-    assert mode == "channel", f"empty handle must not block channel; got {reason!r}"
-    assert reason is None
-
-
-def test_managed_hermes_channel_flag_overrides_missing_managed_run_cap():
-    """Like channel-managed claude, the channel path skips the managed-run
-    capability requirement (the sidecar delivers, not the headless API)."""
-    mode, reason = _agent_execution_mode(
-        _managed_hermes_row(channel_enabled=True, caps=["resume", "interrupt"]),
         settings=None,
     )
     assert mode == "channel", f"expected channel; got ({mode!r}, {reason!r})"
@@ -110,12 +90,6 @@ def test_managed_hermes_without_flag_but_managed_run_cap_stays_managed():
     )
     assert mode == "managed", f"expected managed; got ({mode!r}, {reason!r})"
     assert reason is None
-
-
-def test_hermes_is_in_channel_claim_runtimes():
-    """The claim-side whitelist already accepts a hermes channel claim (the
-    sidecar presents executionModes including 'channel')."""
-    assert "hermes" in _CHANNEL_CLAIM_RUNTIMES
 
 
 def test_managed_claude_channel_behavior_unchanged():
