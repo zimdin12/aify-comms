@@ -14,9 +14,11 @@ import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import { runRefreshCycle } from "./refresh-cycle.mjs";
 import { resetRefreshHistory } from "./refresh-status.mjs";
+import { SETTINGS_SCHEMA } from "./settings-panel.mjs";
 
-/** The ten paths the cycle fetches, in the order they are requested. */
+/** The paths the cycle fetches. `/settings/schema` precedes `/settings`: bodies are matched by prefix. */
 const OK_BODIES = {
+  "/settings/schema": { groups: ["Appearance"], settings: [{ key: "dashboard_title", kind: "text", group: "Appearance", label: "Title" }] },
   "/agents": { agents: [{ id: "a1", name: "one" }] },
   "/contracts": { contracts: [{ id: "c1" }] },
   "/messages/inbox": { messages: [{ id: "m-inbox" }] },
@@ -48,7 +50,9 @@ function makeElements() {
  * Returns the recorded calls plus the status-chip element.
  */
 async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmentsPage = null,
-  seed = {}, recentBody = null, inboxBody = null } = {}) {
+  seed = {}, recentBody = null, inboxBody = null, schemaHeld = false } = {}) {
+  // The schema is module state that outlives a cycle; each test says whether the page already holds it.
+  if (!schemaHeld) SETTINGS_SCHEMA.splice(0, SETTINGS_SCHEMA.length);
   const els = makeElements();
   const saved = {
     document: globalThis.document,
@@ -134,7 +138,10 @@ test("a clean cycle fetches every slice it still needs, and renders", async () =
   // /messages/recent and the primary wins whenever it returns messages, so the request was 300,154
   // bytes fetched and discarded. Re-measured here rather than adjusted by arithmetic -- the whole
   // point of pinning a count is that it is read off a run.
-  assert.equal(requested.length, 11, `expected eleven fetches, got ${requested.length}`);
+  //
+  // TWELVE on a page that does not yet hold the settings declarations (/settings/schema, 2026-09-19);
+  // the test below pins that a page holding them is back to eleven.
+  assert.equal(requested.length, 12, `expected twelve fetches, got ${requested.length}`);
   for (const path of ["/agents", "/sessions", "/settings", "/shared"]) {
     assert.ok(requested.some((r) => r.includes(path)), `${path} must be fetched each cycle`);
   }
@@ -206,8 +213,10 @@ test("a slice that misses twice running is reported stale, and named", async () 
   // resilient poll showed each one's last-good value -- so stale data rendered identically to data
   // that simply had not changed. There was no other tell anywhere on the page.
   resetRefreshHistory();
-  await cycle({ reject: ["/stats", "/settings"] });          // first miss: still a blip
-  const { chip } = await cycle({ reject: ["/stats", "/settings"] });  // second: now stale
+  // Held, so the "/settings" prefix below rejects the settings slice and not the schema's as well.
+  SETTINGS_SCHEMA.splice(0, SETTINGS_SCHEMA.length, { group: "Appearance", items: [] });
+  await cycle({ reject: ["/stats", "/settings"], schemaHeld: true });          // first miss: still a blip
+  const { chip } = await cycle({ reject: ["/stats", "/settings"], schemaHeld: true });  // second: now stale
   assert.equal(chip.textContent, "2 stale");
   assert.equal(chip.className, "status-chip warn");
   assert.match(chip.title, /stats/);
@@ -392,4 +401,15 @@ test("the FALLBACK path records the counts too, from its own response", async ()
     inboxBody: { messages: [{ id: "i1" }], showing: 1, total: 3189, unreadTotal: 1792 },
   });
   assert.deepEqual(state.messageCounts, { showing: 1, truncated: true });
+});
+
+test("the settings declarations are fetched until the page holds them, then never again", async () => {
+  // Until 2026-09-19 only the Settings slice loader asked for them, and a page opened on Settings is
+  // filled by this cycle instead -- so the panel read "Loading settings..." forever on the live dashboard.
+  const first = await cycle();
+  assert.ok(first.requested.some((r) => r.includes("/settings/schema")), "an empty page must ask");
+  assert.deepEqual(SETTINGS_SCHEMA.map((g) => g.group), ["Appearance"], "and adopt what it is given");
+  const second = await cycle({ schemaHeld: true });
+  assert.ok(!second.requested.some((r) => r.includes("/settings/schema")), "a page holding them must not ask again");
+  assert.equal(second.requested.length, 11);
 });

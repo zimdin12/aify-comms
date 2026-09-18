@@ -33,7 +33,7 @@
  */
 export const REFRESH_SLICES = Object.freeze([
   'agents', 'contracts', 'inbox', 'messages', 'runs',
-  'sessions', 'environments', 'spawn requests', 'stats', 'settings',
+  'sessions', 'environments', 'spawn requests', 'stats', 'settings', 'settings schema',
 ]);
 
 /** The index whose failure means no data is current, rather than that some of it is old. */

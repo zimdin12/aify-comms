@@ -17,7 +17,7 @@ import { chatLoadChannels, chatLoadConversation, loadInboxMessages } from './mes
 import { loadFiles } from './shared-files.mjs';
 import { shouldLoadFiles, shouldLoadForPage } from "./files-page.mjs";
 import { noteSliceFailure, refreshChipState } from './refresh-status.mjs';
-import { refreshActiveTerminalTheme } from './settings-panel.mjs';
+import { SETTINGS_SCHEMA, adoptSettingsSchema, refreshActiveTerminalTheme } from './settings-panel.mjs';
 import { runQueryPath } from './run-helpers.mjs';
 import { applyTheme } from './theme.js';
 import { byId } from './ui.js';
@@ -63,6 +63,8 @@ export async function runRefreshCycle({
     wantSpawnRequests ? api('/spawn-requests?limit=200') : Promise.resolve(null), // 7
     api('/stats'),                                                        // 8
     api('/settings'),                                                     // 9
+    // The panel's declarations never change while the service runs, so they are asked for until held.
+    SETTINGS_SCHEMA.length ? Promise.resolve(null) : api('/settings/schema'), // 10
   ]);
   const ok = (i) => settled[i].status === 'fulfilled';
   const val = (i) => (ok(i) ? settled[i].value : undefined);
@@ -134,6 +136,7 @@ export async function runRefreshCycle({
   // closed, but wiping it would make the first render after opening flash empty.
   if (wantSpawnRequests && ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');
   if (ok(8)) state.stats = val(8) || {};
+  if (ok(10) && val(10)) adoptSettingsSchema(val(10));
   if (ok(9) && val(9) && typeof val(9) === 'object') {
     state.settings = val(9);
     applyTheme(state.settings); // apply the server-stored appearance (theme/palette/title)

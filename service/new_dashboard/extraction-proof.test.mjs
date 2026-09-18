@@ -3187,6 +3187,23 @@ const EXTRACTIONS = [
         ],
                 editedSince: [
           {
+            // 2026-09-19: the settings panel is drawn from the service's declarations, and a page opened
+            // on Settings is filled by this cycle, so the cycle asks for them until the page holds them.
+            was: ["    api('/settings'),                                                     // 9"],
+            now: [
+              "    api('/settings'),                                                     // 9",
+              "    // The panel's declarations never change while the service runs, so they are asked for until held.",
+              "    SETTINGS_SCHEMA.length ? Promise.resolve(null) : api('/settings/schema'), // 10",
+            ],
+          },
+          {
+            was: ["  if (ok(9) && val(9) && typeof val(9) === 'object') {"],
+            now: [
+              "  if (ok(10) && val(10)) adoptSettingsSchema(val(10));",
+              "  if (ok(9) && val(9) && typeof val(9) === 'object') {",
+            ],
+          },
+          {
             // ONE OWNER FOR THE PAGE SIZE. `limit=80` was a literal here while the pager that walks
             // back through history needed the same number; two literals agree until somebody changes
             // one, and the symptom is a scrollback that skips a block at every page boundary.

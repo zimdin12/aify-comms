@@ -120,15 +120,15 @@ test('rejectedSlices returns what the next cycle needs, in slice names', () => {
 });
 
 test('every slice has a distinct name, so none renders as "slice 7"', () => {
-  assert.equal(REFRESH_SLICES.length, 10, 'the fetch array and its names have drifted apart');
+  assert.equal(REFRESH_SLICES.length, 11, 'the fetch array and its names have drifted apart');
   for (const name of REFRESH_SLICES) assert.ok(name && name.trim().length > 2, name);
   assert.equal(new Set(REFRESH_SLICES).size, REFRESH_SLICES.length, 'two slices share a name');
 });
 
 test('an unnamed extra slice degrades to a label rather than undefined', () => {
   const extra = [...cycle(), NO];
-  const state = refreshChipState(extra, { previouslyFailed: ['slice 10'] });
-  assert.match(state.title, /slice 10/);
+  const state = refreshChipState(extra, { previouslyFailed: ['slice 11'] });
+  assert.match(state.title, /slice 11/);
 });
 
 test('missing or empty input does not throw', () => {
