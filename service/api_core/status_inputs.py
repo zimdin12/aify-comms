@@ -68,7 +68,7 @@ from service.api_core.terminal_text import (
     _terminal_prompt_hint_from_raw,
     _terminal_prompt_hint_from_screen,
 )
-from service.terminal_snapshot import render_live_screen
+from service.terminal_snapshot import live_screen_text
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
 from service.api_core.status_signal_prefetch import status_signals_or_live
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -525,9 +525,9 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
             # the tail is written from -- so this skips a pyte reconstruction of up to 64 KB per
             # status refresh, not merely a SELECT. The fallback stays because the live screen is a
             # process global and is empty after a restart, which is precisely what the tail is for.
-            live = render_live_screen(terminal_id)
+            live = live_screen_text(terminal_id)
             if live is not None:
-                terminal_input_hint = _terminal_prompt_hint_from_screen(f"term:{terminal_id}", live[0])
+                terminal_input_hint = _terminal_prompt_hint_from_screen(f"term:{terminal_id}", live)
             else:
                 terminal_row = await (await db.execute(
                     "SELECT output, cols FROM terminal_sessions WHERE id = ?",

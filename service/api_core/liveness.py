@@ -32,7 +32,7 @@ from service.api_core.terminal_text import (
     _terminal_prompt_hint_from_raw,
     _terminal_prompt_hint_from_screen,
 )
-from service.terminal_snapshot import render_live_screen
+from service.terminal_snapshot import live_screen_text
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
 from service.api_core.settings import _load_settings
 from service.api_core.capabilities import (
@@ -296,9 +296,9 @@ async def _agent_awaiting_input(db, agent_id: str) -> bool:
     # exists to cover, and dropping it would make status wrong for a window after each restart rather
     # than merely slower.
     terminal_id = str(row["id"]) if "id" in keys else ""
-    live = render_live_screen(terminal_id) if terminal_id else None
+    live = live_screen_text(terminal_id) if terminal_id else None
     if live is not None:
-        return bool(_terminal_prompt_hint_from_screen(f"agent:{agent_id}", live[0]))
+        return bool(_terminal_prompt_hint_from_screen(f"agent:{agent_id}", live))
     return bool(_terminal_prompt_hint_from_raw(
         f"agent:{agent_id}",
         row["output"] if "output" in keys else "",
