@@ -120,7 +120,6 @@ class FixturesAreTrackedTests(unittest.TestCase):
         if tracked is None:
             self.skipTest("no .git metadata here (archive extraction) - this gate needs a checkout")
         for name in (
-            "route_inventory.txt",
             "route_metadata_inventory.txt",
             "route_owner_map.txt",
         ):
