@@ -37,7 +37,7 @@ export const SETTINGS_TAB_DESC = {
   'Replies & messages': 'When agents are reminded to reply, and what happens when they do not.',
   'Agent liveness': 'How much silence before an agent or a machine reads offline.',
   'Managed workers': 'What new dashboard-spawned workers start with. Saving changes only new workers; use the button to update existing ones.',
-  'Files & retention': "Shared file size, and how long a removed agent's run history is kept.",
+  'Files & retention': "Shared file size, and how long messages and a removed agent's run history are kept.",
   'Appearance': 'Theme, accent colours, and the dashboard title.',
   'Advanced': 'Internal timings and legacy switches. The defaults suit almost every setup.',
 };

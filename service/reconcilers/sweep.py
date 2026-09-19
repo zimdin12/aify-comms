@@ -64,6 +64,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     from service.reconcilers.terminal_history import _prune_terminal_history
     from service.reconcilers.terminal_consistency import _release_tail_buffers_for_dead_terminals
     from service.reconcilers.console_binding import rebind_orphaned_live_consoles
+    from service.reconcilers import message_rotation as _rotation
+    import time
     # v0.5 slice 3a: session reconcilers moved; imported here in the same commit as the move.
     # v0.5 slice 4.
     from service.reconcilers.managed_workers import (
@@ -201,6 +203,13 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # so the periodic-reconcile log shows them.
         closed_idle_workers = await _commit_step(await _close_idle_virtual_rpc_workers(db, limit=200,
             idle_close_minutes=int(_reconcile_settings.get("worker_idle_close_minutes", 0) or 0)))
+        # Hourly, and only when the operator has set a limit: it deletes messages for good.
+        rotated = {}
+        if _rotation.SWEEP_SCHEDULE.due():
+            _rotation.SWEEP_SCHEDULE.mark()
+            policy = _rotation.RotationPolicy.from_settings(_reconcile_settings)
+            if policy.active:
+                rotated = await _commit_step(await _rotation.rotate_messages(db, policy, now_ms=int(time.time() * 1000)))
         # Tight-window cleanup for managed-mode runs whose bridge
         # didn't report failure (bridge crashed or failure PATCH was
         # dropped during a transient connection blip). 5-min default.
@@ -372,6 +381,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "rebound_orphaned_consoles": rebound_consoles,
             "stale_resident_terminals_cleared": stale_resident_terminals,
             "idle_workers_closed": len(closed_idle_workers),
+            "messages_expired": rotated.get("expired_messages", 0),
+            "messages_trimmed": rotated.get("trimmed_messages", 0),
             "orphaned_managed_runs_closed": len(closed_orphaned_managed),
             "orphaned_claims_requeued": len(requeued_orphaned_claims),
             "rerouted_channel_runs": rerouted_channel_runs,

@@ -2,7 +2,7 @@
 
 v0.5.2k. Two handlers, and they are grouped together because of what they DO rather than where they
 sat: both delete data in bulk. `/clear` purges messages, files and agents; `/rotate` expires and
-trims on a schedule. Naming that plainly is the point of giving them their own module — they were
+trims, on request and hourly from the sweep. Naming that plainly is the point of giving them their own module — they were
 previously two unremarkable handlers among a hundred, and the next person reading a route list
 should not have to infer which ones destroy data.
 
@@ -28,6 +28,7 @@ from service.db import get_db
 from service.models import ClearRequest
 from service.routers.settings import get_settings
 from service.api_core.agent_removal import _remove_agent_record
+from service.reconcilers.message_rotation import RotationPolicy, rotate_messages
 
 logger = logging.getLogger("aify_comms.routers.maintenance")
 
@@ -126,53 +127,13 @@ async def clear_data(req: ClearRequest, request: Request):
 
 @router.post("/rotate")
 async def rotate(request: Request):
-    settings = await get_settings(request)
-    if not settings.get("rotation_enabled", True):
-        return {"ok": False, "reason": "Rotation disabled"}
-
+    """Run rotation now. The sweep also runs it hourly; see service/reconcilers/message_rotation.py."""
+    policy = RotationPolicy.from_settings(await get_settings(request))
+    if not policy.active:
+        return {"ok": False, "reason": "Rotation is off: both message limits are 0"}
     db = await get_db()
     try:
-        stats = {"expired_messages": 0, "trimmed_messages": 0, "expired_files": 0, "stale_agents": 0}
-
-        # Expire old messages
-        retention_ms = int(settings["retention_days"] * 86400 * 1000)
-        cutoff = int(time.time() * 1000) - retention_ms
-        stats["expired_messages"] = await _delete_messages_where(db, "timestamp < ?", (cutoff,))
-
-        # Trim per-agent inboxes
-        max_msgs = settings["max_messages_per_agent"]
-        agents_c = await db.execute("SELECT id FROM agents")
-        for agent in await agents_c.fetchall():
-            aid = agent["id"]
-            c = await db.execute("SELECT COUNT(*) FROM messages WHERE to_agent = ?", (aid,))
-            count = (await c.fetchone())[0]
-            if count > max_msgs:
-                trim = count - max_msgs
-                stats["trimmed_messages"] += await _delete_messages_where(
-                    db,
-                    """
-                    id IN (
-                        SELECT id FROM messages
-                        WHERE to_agent = ?
-                        ORDER BY timestamp ASC
-                        LIMIT ?
-                    )
-                    """,
-                    (aid, trim),
-                )
-
-        # NOTE (2026-06-18): the old "Mark stale agents" UPDATE (stamped agents.status='stale'
-        # for agents not seen in stale_agent_hours) was REMOVED. Under the proof-based status
-        # model, offline/staleness is DERIVED from liveness at read time (status_engine.derive),
-        # never stamped — and 'stale' is no longer a valid status word. Stamping it was a pure
-        # write (one per cleanup cycle) of a dead vocabulary value that the live-state cache
-        # already overrode. Any legacy 'stale' raw row now canonicalizes to 'offline' via
-        # _LEGACY_RAW_STATUS_TO_CANONICAL. The vestigial `stale_agent_hours` setting itself was
-        # also removed (2026-07-01) — it had no remaining consumer after this UPDATE was deleted.
-
-        # Clean orphaned read receipts
-        await db.execute("DELETE FROM read_receipts WHERE message_id NOT IN (SELECT id FROM messages)")
-
+        stats = await rotate_messages(db, policy, now_ms=int(time.time() * 1000))
         await db.commit()
         return {"ok": True, "stats": stats}
     finally:

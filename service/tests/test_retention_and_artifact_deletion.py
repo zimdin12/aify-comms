@@ -13,8 +13,9 @@ TRIMMING KEEPS THE NEWEST, and that direction is the whole value of the feature 
 from the wrong end leaves an agent holding only history it has already dealt with. It is asserted by
 content, not by count, because a count is satisfied either way.
 
-`rotation_enabled` is checked FIRST and answers `{"ok": false}` rather than raising: an operator who
-has switched rotation off gets a clear no-op, not an error to investigate.
+Both limits are OFF at 0, the default, and then rotation answers `{"ok": false}` rather than raising:
+an operator who has not asked for deletion gets a clear no-op, not an error to investigate. Since
+2026-09-19 the sweep also runs rotation hourly; the sweep half is at the end of this file.
 """
 
 from __future__ import annotations
@@ -91,7 +92,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
         """And one inside it survives. This is also the gate on the cutoff's UNITS: an ISO-string
         cutoff deletes both rows (every INTEGER sorts below every TEXT), a seconds cutoff deletes
         neither."""
-        self._settings(retention_days=30, max_messages_per_agent=1000, rotation_enabled=True)
+        self._settings(message_retention_days=30, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=45)
         self._seed_message("recent", age_days=1)
         response = self._rotate()
@@ -103,18 +104,18 @@ class RetentionAndDeletionTests(FastApiTestCase):
     def test_the_window_follows_the_SETTING_not_a_hardcoded_default(self):
         """An operator lowering retention expects it to take effect; one raising it expects their
         history back under protection. A hardcoded window would silently ignore both."""
-        self._settings(retention_days=7, max_messages_per_agent=1000, rotation_enabled=True)
+        self._settings(message_retention_days=7, message_cap_per_agent=0)
         self._seed_message("ten-days-old", age_days=10)
         self._rotate()
         self.assertEqual(self._message_ids(), [])
 
-    def test_rotation_disabled_deletes_NOTHING_and_says_why(self):
-        self._settings(retention_days=1, max_messages_per_agent=1, rotation_enabled=False)
+    def test_rotation_with_both_limits_at_zero_deletes_NOTHING_and_says_why(self):
+        self._settings(message_retention_days=0, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=99)
         response = self._rotate()
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIs(response.json()["ok"], False)
-        self.assertIn("disabled", response.json()["reason"].lower())
+        self.assertIn("off", response.json()["reason"].lower())
         self.assertEqual(self._message_ids(), ["ancient"], "rotation ran while switched off")
 
     # ── rotation: trimming keeps the NEWEST ──────────────────────────────────────────────────
@@ -122,7 +123,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
     def test_an_inbox_over_its_cap_is_trimmed_from_the_OLDEST_end(self):
         """The direction is the whole feature. Trimming the newest would leave an agent holding
         only history it has already dealt with."""
-        self._settings(retention_days=3650, max_messages_per_agent=2, rotation_enabled=True)
+        self._settings(message_retention_days=0, message_cap_per_agent=2)
         for index, age in enumerate([5, 3, 1]):
             self._seed_message(f"m{index}", age_days=age)
         stats = self._rotate().json()["stats"]
@@ -130,7 +131,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
         self.assertEqual(stats["trimmed_messages"], 1)
 
     def test_an_inbox_under_its_cap_is_left_alone(self):
-        self._settings(retention_days=3650, max_messages_per_agent=10, rotation_enabled=True)
+        self._settings(message_retention_days=0, message_cap_per_agent=10)
         for index in range(3):
             self._seed_message(f"m{index}", age_days=index)
         self._rotate()
@@ -146,7 +147,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
         one message and the mutation survived. Two means the shared count is still over when its
         turn comes.
         """
-        self._settings(retention_days=3650, max_messages_per_agent=2, rotation_enabled=True)
+        self._settings(message_retention_days=0, message_cap_per_agent=2)
         for index, age in enumerate([9, 7, 5, 3]):
             self._seed_message(f"busy{index}", to_agent=AGENT, age_days=age)
         for index, age in enumerate([8, 6]):
@@ -159,7 +160,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
     def test_rotation_clears_receipts_whose_message_is_gone(self):
         """An orphaned receipt is a claim about a message that no longer exists; left behind it
         accumulates forever and can resurrect as a false 'already read'."""
-        self._settings(retention_days=1, max_messages_per_agent=1000, rotation_enabled=True)
+        self._settings(message_retention_days=1, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=99)
         self._write(
             "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
@@ -169,7 +170,7 @@ class RetentionAndDeletionTests(FastApiTestCase):
         self.assertEqual(self._rows("SELECT * FROM read_receipts"), [])
 
     def test_a_receipt_for_a_LIVE_message_is_not_cleared(self):
-        self._settings(retention_days=3650, max_messages_per_agent=1000, rotation_enabled=True)
+        self._settings(message_retention_days=30, message_cap_per_agent=0)
         self._seed_message("kept", age_days=1)
         self._write(
             "INSERT INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
@@ -177,6 +178,63 @@ class RetentionAndDeletionTests(FastApiTestCase):
         )
         self._rotate()
         self.assertEqual(len(self._rows("SELECT * FROM read_receipts")), 1)
+
+    # ── rotation from the sweep ──────────────────────────────────────────────────────────────
+
+    def _sweep(self, *, due: bool = True) -> dict:
+        from service.reconcilers import message_rotation
+        from service.reconcilers.sweep import _run_dispatch_reconcile_once
+
+        schedule = message_rotation.RotationSchedule()
+        if not due:
+            schedule.mark()
+        message_rotation.SWEEP_SCHEDULE = schedule
+        return asyncio.run(_run_dispatch_reconcile_once())
+
+    def test_the_sweep_rotates_when_a_limit_is_set_and_reports_it(self):
+        self._settings(message_retention_days=30, message_cap_per_agent=0)
+        self._seed_message("ancient", age_days=45)
+        self._seed_message("recent", age_days=1)
+        report = self._sweep()
+        self.assertEqual(self._message_ids(), ["recent"])
+        self.assertEqual(report["messages_expired"], 1)
+
+    def test_the_sweep_deletes_nothing_at_the_defaults(self):
+        """The defaults are 0 and 0. A host that never touched these settings keeps every message."""
+        self._seed_message("ancient", age_days=4000)
+        report = self._sweep()
+        self.assertEqual(self._message_ids(), ["ancient"])
+        self.assertEqual(report["messages_expired"], 0)
+
+    def test_the_sweep_ignores_the_retired_keys_that_never_took_effect(self):
+        """Hosts whose settings page was saved hold `retention_days` 90 and `max_messages_per_agent`
+        1000 from when nothing ran rotation. Scheduling it must not start honouring them."""
+        self._write("INSERT OR REPLACE INTO settings (key, value) VALUES ('retention_days', '1')")
+        self._write("INSERT OR REPLACE INTO settings (key, value) VALUES ('max_messages_per_agent', '1')")
+        from service.api_core.settings import _invalidate_settings_cache
+        _invalidate_settings_cache()
+        self._seed_message("ancient", age_days=45)
+        self._seed_message("recent", age_days=1)
+        self._sweep()
+        self.assertEqual(self._message_ids(), ["ancient", "recent"])
+
+    def test_the_sweep_rotates_at_most_once_an_hour(self):
+        self._settings(message_retention_days=30, message_cap_per_agent=0)
+        self._seed_message("ancient", age_days=45)
+        self._sweep(due=False)
+        self.assertEqual(self._message_ids(), ["ancient"], "rotation ran before its hour was up")
+
+    def test_the_schedule_is_due_first_then_after_its_interval(self):
+        from service.reconcilers.message_rotation import RotationSchedule
+
+        now = [1000.0]
+        schedule = RotationSchedule(interval_seconds=3600, clock=lambda: now[0])
+        self.assertTrue(schedule.due())
+        schedule.mark()
+        now[0] += 3599
+        self.assertFalse(schedule.due())
+        now[0] += 1
+        self.assertTrue(schedule.due())
 
     # ── deleting a shared artifact ───────────────────────────────────────────────────────────
 

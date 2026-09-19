@@ -23,6 +23,14 @@ the auto-confirm switches, `manual_session_mode`, `idle_minutes`, `offline_minut
 `stale_agent_hours`, `status_engine` and `worker_idle_close_enabled`. The last one is folded into
 `worker_idle_close_minutes`, where 0 means off, by a one-time migration in `service/db.py`.
 
+Message rotation runs hourly from the sweep (`service/reconcilers/message_rotation.py`), and
+`POST /rotate` runs it on request. Two settings control it: `message_retention_days` and
+`message_cap_per_agent`, both 0 (off) by default. Before this, nothing ever called rotation, so its
+old keys (`rotation_enabled`, `retention_days`, `max_messages_per_agent`) never took effect. They are
+retired rather than reused: any host whose settings page was saved holds 90 and 1000 in the table,
+and scheduling rotation under those names would have started deleting messages there without anyone
+choosing it.
+
 ## Pi is deprecated: support kept, tests disabled by default (2026-09-18)
 
 The operator no longer uses Oh My Pi but may again, so its code stays and nothing is removed. Its

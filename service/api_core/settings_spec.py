@@ -166,6 +166,11 @@ SETTINGS: tuple[Setting, ...] = (
             unit="min", min=0, max=1440),
     # ── Files & retention ──
     Setting("max_shared_size_mb", 500, "int", _F, "Largest shared file", unit="MB", min=1, max=100000),
+    Setting("message_retention_days", 0, "int", _F, "Delete messages older than", unit="days",
+            help="Checked hourly. Deleted messages cannot be recovered. 0 = keep forever.", min=0, max=3650),
+    Setting("message_cap_per_agent", 0, "int", _F, "Keep at most this many messages per agent",
+            help="The oldest go first; channel messages are not counted. Checked hourly. 0 = no limit.",
+            min=0, max=1000000),
     Setting("orphaned_dispatch_run_retention_hours", 24, "int", _F, "Keep a removed agent's run history for",
             unit="h", min=1, max=8760),
     # ── Appearance ──
@@ -175,12 +180,6 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("dashboard_tertiary_color", "", "color", _A, "Tertiary colour", "Depth, charts."),
     Setting("dashboard_title", "AIFY Comms", "text", _A, "Dashboard title"),
     # ── Advanced ──
-    Setting("rotation_enabled", True, "bool", _X, "Message rotation",
-            "Rotation runs only when POST /rotate is called; nothing schedules it.", applies="next rotation"),
-    Setting("retention_days", 90, "int", _X, "Rotation: delete messages older than", unit="days",
-            min=1, max=3650, applies="next rotation"),
-    Setting("max_messages_per_agent", 1000, "int", _X, "Rotation: keep at most this many messages per agent",
-            min=1, max=100000, applies="next rotation"),
     Setting("insert_messages_via_console", False, "bool", _X, "Type messages into the console (legacy)",
             "Delivers by typing into the agent's terminal instead of its message channel. Scrambles "
             "anything typed at the same time; for diagnosing a broken channel only."),
@@ -218,6 +217,10 @@ RETIRED = frozenset({
     "console_auto_confirm_claude_dev_channels", "console_auto_confirm_claude_compaction",
     "manual_session_mode", "worker_idle_close_enabled",
     "idle_minutes", "offline_minutes", "stale_agent_hours", "status_engine",
+    # Rotation's old keys. Nothing ever scheduled rotation, so they never took effect, and hosts whose
+    # settings page was saved hold 90 / 1000 in the table. Retired, not reused, so that scheduling it
+    # (2026-09-19) cannot start deleting under a value nobody chose knowingly.
+    "rotation_enabled", "retention_days", "max_messages_per_agent",
 })
 
 
