@@ -45,7 +45,7 @@ const CEILINGS = {
   // `from`, which the tool REQUIRES and does not default from AIFY_AGENT_ID the way the console and
   // dispatch tools do -- so every send example in the always-loaded skill failed schema validation.
   // 33 bytes is three `from="me", ` prefixes.
-  "aify-comms/SKILL.md": 15_080,  // Lowered after narrowing the resident identity diagnostic guidance.
+  "aify-comms/SKILL.md": 15_053,  // Lowered again: the operator-console rule was paid for by trimming a reference pointer.
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_462,
   // RAISED 2026-09-07 -- a DECISION, argued here as this file requires. An independent docs
