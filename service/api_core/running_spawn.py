@@ -85,7 +85,15 @@ async def _settle_running_spawn(
                     instructions = excluded.instructions,
                     status = excluded.status,
                     runtime = excluded.runtime,
-                    machine_id = excluded.machine_id,
+                    -- A CLAIM THAT NAMED NO MACHINE MUST NOT ERASE THE ONE ON THE ROW. Measured on
+                    -- the operator's host 2026-09-21: every claim since aify-env took claiming over
+                    -- carried an empty `claim_machine_id`, so this line blanked `agents.machine_id`
+                    -- the moment a spawn went running. A worker that came up re-registered and put
+                    -- it back within seconds, which is why only agents whose spawns FAILED were left
+                    -- without one -- and an agent with no machine is invisible to aify-env's start
+                    -- menu, which offers only agents on its own machine. `mp-manager` sat there for
+                    -- two days. The blank is "the claimer did not say", never "it moved host".
+                    machine_id = CASE WHEN excluded.machine_id != '' THEN excluded.machine_id ELSE agents.machine_id END,
                     launch_mode = excluded.launch_mode,
                     session_mode = excluded.session_mode,
                     session_handle = excluded.session_handle,
