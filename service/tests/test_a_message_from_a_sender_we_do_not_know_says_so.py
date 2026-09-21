@@ -35,10 +35,11 @@ class AMessageFromASenderWeDoNotKnowSaysSo(FastApiTestCase):
         })
         self.assertEqual(response.status_code, 200, response.text)
 
-    def _send(self, sender: str, subject: str) -> None:
-        response = self.client.post("/api/v1/messages/send", json={
-            "from_agent": sender, "to": HOME, "type": "info", "subject": subject, "body": "hello",
-        })
+    def _send(self, sender: str, subject: str, origin: str | None = None) -> None:
+        payload = {"from_agent": sender, "to": HOME, "type": "info", "subject": subject, "body": "hello"}
+        if origin is not None:
+            payload["origin"] = origin
+        response = self.client.post("/api/v1/messages/send", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
 
     def _inbox(self) -> list[dict]:
@@ -85,3 +86,58 @@ class AMessageFromASenderWeDoNotKnowSaysSo(FastApiTestCase):
         response = self.client.delete("/api/v1/agents/departing")
         self.assertIn(response.status_code, (200, 204), response.text)
         self.assertIs([m for m in self._inbox() if m["subject"] == "before it left"][0]["fromRegistered"], False)
+
+
+class AnExternalSenderCanSayWhereItIs(FastApiTestCase):
+    """An agent on another machine sends here WITHOUT registering, and says who to answer.
+
+    THE OPERATOR SETTLED THE SHAPE, 2026-09-22: "i want external to be able to send message if
+    external knows the ip ... but in that sense it should include ip and manager name so you could
+    send message back", and "that external should not register here. he is agent in another pc and
+    it would not make sense if he would register here."
+
+    So the sender is NOT expected to appear in this roster, and the return address travels on the
+    message instead. DECLARED, NEVER MEASURED: the service cannot see a remote address -- every peer
+    it observes is the Docker bridge gateway or a sibling container -- so this is the sender's claim,
+    stored and shown as one.
+    """
+
+    DB_NAME = "aify-external-origin-test.db"
+
+    _register = AMessageFromASenderWeDoNotKnowSaysSo._register
+    _send = AMessageFromASenderWeDoNotKnowSaysSo._send
+    _inbox = AMessageFromASenderWeDoNotKnowSaysSo._inbox
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._register(HOME)
+
+    def test_an_external_sender_needs_no_row_here_and_its_origin_survives(self) -> None:
+        self._send(STRANGER, "from the other pc", origin="192.168.1.50:8800, manager mp-manager")
+        [message] = [m for m in self._inbox() if m["subject"] == "from the other pc"]
+        self.assertIs(message["fromRegistered"], False, "it must NOT have been registered by sending")
+        self.assertEqual(message["origin"], "192.168.1.50:8800, manager mp-manager")
+
+    def test_sending_does_not_create_an_agent_row(self) -> None:
+        """The anomaly that started this: a second PC's agent appearing in the roster.
+
+        Sending must never be a back door into it -- the operator's words, "it would not make sense
+        if he would register here".
+        """
+        self._send(STRANGER, "still not ours", origin="10.0.0.9:8800")
+        response = self.client.get(f"/api/v1/agents/{STRANGER}")
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_CONTROL_a_sender_that_declares_nothing_carries_nothing(self) -> None:
+        """Absent is absent: no default, no guess, no address invented for it."""
+        self._send(STRANGER, "said nothing")
+        [message] = [m for m in self._inbox() if m["subject"] == "said nothing"]
+        self.assertEqual(message["origin"], "")
+
+    def test_a_declared_origin_is_bounded_and_trimmed(self) -> None:
+        """It is attacker-controlled text from an unauthenticated-by-identity sender, so it is
+        capped and whitespace-trimmed before it is stored, and escaped where it is drawn."""
+        self._send(STRANGER, "long one", origin="  " + ("x" * 500) + "  ")
+        [message] = [m for m in self._inbox() if m["subject"] == "long one"]
+        self.assertEqual(len(message["origin"]), 200)
+        self.assertFalse(message["origin"].startswith(" "))

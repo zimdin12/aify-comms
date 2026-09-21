@@ -29,6 +29,9 @@ def _serialize_inbox_message(row, *, include_body: bool, sender_registered: bool
         # another machine, or from one that has been removed, arrives looking exactly like a
         # colleague's. The operator asked for it to arrive with a warning (2026-09-21).
         "fromRegistered": bool(sender_registered),
+        # What the sender said about where it is, when it said anything. Absent on every row
+        # written before this column existed, which reads as "did not say".
+        "origin": (row["origin"] if "origin" in row.keys() else "") or "",
         # `to` is implicit for an inbox (every row is addressed to the requested agent), but
         # the dashboard's unread/mark-read logic filters on it and falls back to inbox data
         # when /messages/recent blips — without this field that fallback silently matched

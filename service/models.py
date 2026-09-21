@@ -219,6 +219,20 @@ class MessageSend(BaseModel):
     queueIfBusy: bool = False
     requireReply: Optional[bool] = None
     clientNonce: Optional[str] = None
+    #: WHERE THIS CAME FROM, IN THE SENDER'S OWN WORDS -- an endpoint and whoever to answer, e.g.
+    #: "192.168.1.50:8800, manager mp-manager".
+    #:
+    #: DECLARED, NEVER MEASURED, and the difference matters. The service cannot see a remote
+    #: sender's address: measured 2026-09-21, every peer it observes is 172.27.0.1, the Docker
+    #: bridge gateway, or a sibling container, because Docker NATs everything arriving from outside.
+    #: An address captured here would be that same constant for this host and for another PC alike
+    #: -- a confident answer to a question it cannot answer. Only the sender knows, so the sender
+    #: says, and it is shown as a claim rather than as a fact.
+    #:
+    #: An agent on another machine sends here WITHOUT registering, which is the point: its env and
+    #: wrapper belong to its own host and it has no business in this roster. This is what lets such
+    #: a message still say who to answer.
+    origin: str = ""
 
 
 class AgentRuntimeStateUpdate(BaseModel):

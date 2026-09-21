@@ -346,22 +346,33 @@ test('a missing peer still produces a sentence rather than a dangling one', () =
   assert.match(html, /this agent/);
 });
 
-test("a message from a sender this instance never registered says so", () => {
-  // ASKED BY THE OPERATOR, 2026-09-21: an agent on their second PC sent a message here and it
-  // arrived looking exactly like a colleague's. Nothing validates `from_agent` on the way in, so
-  // the id is stored and rendered with no hint that nobody here can vouch for it.
-  const html = messageHtml({ id: "m1", from: "agent-from-another-pc", fromRegistered: false, body: "hi" });
-  assert.match(html, /unknown sender/);
+test("a message from a sender this instance never registered says so, and where it is", () => {
+  // ASKED BY THE OPERATOR, 2026-09-21/22: an agent on their second PC sends here WITHOUT
+  // registering -- which is correct, its env and wrapper belong to its own host. What was missing
+  // is any way to see that it came from outside, or who to answer.
+  const html = messageHtml({
+    id: "m1", from: "agent-from-another-pc", fromRegistered: false,
+    origin: "192.168.1.50:8800, manager mp-manager", body: "hi",
+  });
+  assert.match(html, /external: 192\.168\.1\.50:8800, manager mp-manager/);
   assert.match(html, /agent-from-another-pc/, "the id is still shown, not replaced by the badge");
+  // DECLARED, NOT MEASURED, and the chip must not imply otherwise.
+  assert.match(html, /sender SAID/);
+});
+
+test("an external sender that said nothing is still marked, with no return address invented", () => {
+  const html = messageHtml({ id: "m4", from: "stranger", fromRegistered: false, body: "hi" });
+  assert.match(html, /external sender/);
+  assert.ok(!html.includes("external:"), "nothing may be shown as an origin when none was given");
 });
 
 test("CONTROL: a registered sender is not accused, and neither is a payload that never said", () => {
   // A badge on everything is decoration, not a warning. And ABSENT is not FALSE: an older service,
   // a cached payload or a channel row carries no such field, and must not be branded on a guess.
   for (const m of [
-    { id: "m2", from: "teammate", fromRegistered: true, body: "hi" },
+    { id: "m2", from: "teammate", fromRegistered: true, origin: "somewhere", body: "hi" },
     { id: "m3", from: "teammate", body: "hi" },
   ]) {
-    assert.ok(!messageHtml(m).includes("unknown sender"), JSON.stringify(m));
+    assert.ok(!messageHtml(m).includes("external"), JSON.stringify(m));
   }
 });

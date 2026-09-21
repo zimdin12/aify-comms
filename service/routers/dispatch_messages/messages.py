@@ -181,9 +181,10 @@ async def send_message(req: MessageSend, request: Request):
             # rowcount tells us whether THIS request actually wrote the row. (Empty nonce =
             # not in the index, so nonce-less sends always insert, exactly as before.)
             cursor = await db.execute(
-                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, origin, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
-                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce, ts)
+                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce,
+                 str(req.origin or "").strip()[:200], ts)
             )
             inserted_rows += cursor.rowcount or 0
 

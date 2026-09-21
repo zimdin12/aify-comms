@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS messages (
     dispatch_requested INTEGER DEFAULT 0,
     in_reply_to TEXT,
     client_nonce TEXT DEFAULT '',
+    -- WHERE THE SENDER SAYS IT IS. Declared by the sender, never measured: see service/models.py.
+    origin TEXT DEFAULT '',
     timestamp INTEGER NOT NULL,
     FOREIGN KEY (in_reply_to) REFERENCES messages(id) ON DELETE SET NULL
 );

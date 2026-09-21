@@ -27,23 +27,28 @@ import { richMessageHtml } from './message-format.mjs';
 // the keyword is what makes the relocation legal rather than a change of behaviour. The body below
 // is byte-identical.
 /**
- * A sender this instance has never registered, said out loud.
+ * A sender this instance has never registered, and where it says it is.
  *
- * Nothing validates `from_agent` on the way in, so a message from an agent on another machine -- or
- * from one that has since been removed -- arrives looking exactly like a colleague's. The operator
- * hit this on 2026-09-21 with an agent from their second PC. `fromRegistered` is DERIVED per read
- * by the service, so a sender removed after the fact reads as unknown from then on.
+ * NOT AN ACCUSATION. An agent on another machine is SUPPOSED to be able to send here without
+ * registering -- its env and wrapper belong to its own host, and a row in this roster would be
+ * wrong. What is missing without this is simply who to answer, so the chip says "external" and
+ * shows the origin the sender declared beside it.
+ *
+ * DECLARED, NEVER MEASURED. The service cannot see a remote address: every peer it observes is the
+ * Docker bridge gateway or a sibling container, because Docker NATs everything from outside. So the
+ * origin is the sender's claim, shown as one, and absent when it said nothing.
  *
  * ABSENT MEANS SAY NOTHING. An older service, a cached payload or a channel row that never carried
- * the field must not be accused: only an explicit `false` draws this.
- *
- * Module-private: `messageHtml` is the only caller and the badge is proven through it, which is the
- * behaviour anybody depends on rather than the string this returns.
+ * `fromRegistered` must not be branded: only an explicit `false` draws this.
  */
 function foreignSenderChip(m) {
   if (m?.fromRegistered !== false) return '';
-  return '<span class="chat-msg-badge warn" title="This sender is not registered on this aify-comms.'
-    + ' The message was accepted and stored, but nobody here can vouch for who sent it.">unknown sender</span>';
+  const origin = String(m?.origin || '').trim();
+  const label = origin ? `external: ${origin}` : 'external sender';
+  const title = origin
+    ? 'This sender is not registered here. The origin is what the sender SAID, not something this service measured.'
+    : 'This sender is not registered here and did not say where it is, so there is no return address.';
+  return `<span class="chat-msg-badge warn" title="${esc(title)}">${esc(label)}</span>`;
 }
 
 export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {

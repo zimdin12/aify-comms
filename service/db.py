@@ -99,6 +99,7 @@ DISPATCH_RUN_MIGRATIONS = {
 MESSAGE_MIGRATIONS = {
     "dispatch_requested": "ALTER TABLE messages ADD COLUMN dispatch_requested INTEGER DEFAULT 0",
     "client_nonce": "ALTER TABLE messages ADD COLUMN client_nonce TEXT DEFAULT ''",
+    "origin": "ALTER TABLE messages ADD COLUMN origin TEXT DEFAULT ''",
 }
 
 DISPATCH_CONTROL_MIGRATIONS = {
