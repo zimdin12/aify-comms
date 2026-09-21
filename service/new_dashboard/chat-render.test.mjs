@@ -345,3 +345,23 @@ test('a missing peer still produces a sentence rather than a dangling one', () =
   const html = emptyConversationHtml({ identity: 'dashboard', peer: '', canLoadOlder: false });
   assert.match(html, /this agent/);
 });
+
+test("a message from a sender this instance never registered says so", () => {
+  // ASKED BY THE OPERATOR, 2026-09-21: an agent on their second PC sent a message here and it
+  // arrived looking exactly like a colleague's. Nothing validates `from_agent` on the way in, so
+  // the id is stored and rendered with no hint that nobody here can vouch for it.
+  const html = messageHtml({ id: "m1", from: "agent-from-another-pc", fromRegistered: false, body: "hi" });
+  assert.match(html, /unknown sender/);
+  assert.match(html, /agent-from-another-pc/, "the id is still shown, not replaced by the badge");
+});
+
+test("CONTROL: a registered sender is not accused, and neither is a payload that never said", () => {
+  // A badge on everything is decoration, not a warning. And ABSENT is not FALSE: an older service,
+  // a cached payload or a channel row carries no such field, and must not be branded on a guess.
+  for (const m of [
+    { id: "m2", from: "teammate", fromRegistered: true, body: "hi" },
+    { id: "m3", from: "teammate", body: "hi" },
+  ]) {
+    assert.ok(!messageHtml(m).includes("unknown sender"), JSON.stringify(m));
+  }
+});

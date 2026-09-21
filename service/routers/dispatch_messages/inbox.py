@@ -109,9 +109,24 @@ async def get_inbox(
         c = await db.execute(f"SELECT COUNT(*) {source}", params)
         total = (await c.fetchone())[0]
 
+        # WHICH OF THIS PAGE'S SENDERS THIS INSTANCE ACTUALLY KNOWS, in one query rather than one
+        # per message. An id absent here is a sender that registered somewhere else, or never at all.
+        senders = {str(row["from_agent"] or "") for row in rows if row["from_agent"]}
+        known_senders: set[str] = set()
+        if senders:
+            placeholders = ",".join("?" for _ in senders)
+            known_senders = {
+                str(r[0]) for r in await (await db.execute(
+                    f"SELECT id FROM agents WHERE id IN ({placeholders})", list(senders)
+                )).fetchall()
+            }
+
         messages = []
         for row in rows:
-            msg = _serialize_inbox_message(row, include_body=include_body)
+            msg = _serialize_inbox_message(
+                row, include_body=include_body,
+                sender_registered=str(row["from_agent"] or "") in known_senders,
+            )
             # Include parent message context for replies
             if row["in_reply_to"]:
                 pc = await db.execute("SELECT from_agent, subject, body FROM messages WHERE id = ?", (row["in_reply_to"],))

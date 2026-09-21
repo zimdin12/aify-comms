@@ -26,6 +26,26 @@ import { richMessageHtml } from './message-format.mjs';
 // module-private there because its only caller was in the same file; now that caller imports it, so
 // the keyword is what makes the relocation legal rather than a change of behaviour. The body below
 // is byte-identical.
+/**
+ * A sender this instance has never registered, said out loud.
+ *
+ * Nothing validates `from_agent` on the way in, so a message from an agent on another machine -- or
+ * from one that has since been removed -- arrives looking exactly like a colleague's. The operator
+ * hit this on 2026-09-21 with an agent from their second PC. `fromRegistered` is DERIVED per read
+ * by the service, so a sender removed after the fact reads as unknown from then on.
+ *
+ * ABSENT MEANS SAY NOTHING. An older service, a cached payload or a channel row that never carried
+ * the field must not be accused: only an explicit `false` draws this.
+ *
+ * Module-private: `messageHtml` is the only caller and the badge is proven through it, which is the
+ * behaviour anybody depends on rather than the string this returns.
+ */
+function foreignSenderChip(m) {
+  if (m?.fromRegistered !== false) return '';
+  return '<span class="chat-msg-badge warn" title="This sender is not registered on this aify-comms.'
+    + ' The message was accepted and stored, but nobody here can vouch for who sent it.">unknown sender</span>';
+}
+
 export function railItemHtml(item, selectedKey, drafts = {}, readOnly = false) {
   const active = item.key === selectedKey ? ' active' : '';
   const favClass = item.favorited ? ' fav' : '';
@@ -142,7 +162,7 @@ export function messageHtml(m, identity = 'dashboard', isChannel = false) {
   const detail = !isChannel ? `<button class="chat-msg-detail" data-message-detail="${esc(id)}" aria-label="Message details" title="Message details">⋯</button>` : '';
   const actions = `${runChip}${reply}${readToggle}${unsendBtn}${detail}`;
   return `<article class="chat-msg${m.read === false ? ' chat-msg-unread' : ''}${mine ? ' chat-msg-mine' : ''}" data-kind="message" data-id="${esc(id)}" id="chat-msg-${esc(id)}">
-    <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>
+    <div class="chat-msg-head"><strong>${esc(m.from || 'unknown')}</strong>${foreignSenderChip(m)}
       <span class="chat-msg-badges">${badges}${actions}</span>
     </div>
     ${subjectIsEchoOfBody(m.subject, m.body || m.preview || '') ? '' : (m.subject ? `<h4 class="chat-msg-subject">${esc(m.subject)}</h4>` : '')}
