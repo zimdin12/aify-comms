@@ -112,7 +112,10 @@ async def _adopt_console_terminal_on_register(db, req, console_terminal, termina
                     name = ?,
                     cwd = ?,
                     runtime = ?,
-                    machine_id = ?,
+                    -- A BLANK MEANS "I DID NOT SAY", NEVER "IT MOVED" -- the same rule as the
+                    -- session handle on the next line. See
+                    -- service/tests/test_a_blank_machine_id_does_not_erase_a_known_one.py.
+                    machine_id = CASE WHEN ? != '' THEN ? ELSE machine_id END,
                     session_handle = CASE WHEN ? != '' THEN ? ELSE session_handle END,
                     capabilities = ?,
                     runtime_config = ?,
@@ -127,7 +130,7 @@ async def _adopt_console_terminal_on_register(db, req, console_terminal, termina
                     req.name or req.agentId,
                     resolved_cwd,
                     normalized_runtime,
-                    req.machineId or "",
+                    req.machineId or "", req.machineId or "",
                     session_handle,
                     session_handle,
                     existing_capabilities,
@@ -205,7 +208,10 @@ async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, no
                 status = excluded.status,
                 status_note = excluded.status_note,
                 runtime = excluded.runtime,
-                machine_id = excluded.machine_id,
+                -- KEPT WHEN THE REGISTRATION DOES NOT SAY, not blanked. A runtime that does not
+                -- know its host id is the ordinary case; see
+                -- service/tests/test_a_blank_machine_id_does_not_erase_a_known_one.py.
+                machine_id = CASE WHEN excluded.machine_id != '' THEN excluded.machine_id ELSE agents.machine_id END,
                 launch_mode = excluded.launch_mode,
                 session_mode = excluded.session_mode,
                 session_handle = excluded.session_handle,
