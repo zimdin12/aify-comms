@@ -14,6 +14,7 @@ from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
 )
 from service.api_core.dispatch_text import _coldstart_refusal_message
+from service.api_core.events import _append_terminal_control
 from service.api_core.terminal_ownership import _active_terminal_for_agent
 from service.api_core.active_run_lookup import _get_blocking_active_run
 
@@ -139,12 +140,33 @@ async def _start_managed_backing_after_switch(db, agent_id: str, new_mode: str, 
                     else:
                         side_effects["error"] = "No managed session/backing was available for eager PTY start."
             else:
-                # managed -> resident: best-effort stop of any active managed PTY.
+                # managed -> resident: stop any active managed PTY.
+                #
+                # THE CONTROL IS WHAT STOPS A PROCESS; the row only records that it was asked. This
+                # wrote `stopping` and nothing else, so an operator switching a RUNNING managed agent
+                # to resident left its worker running in its Herdr pane, unaddressed by anything: the
+                # host reaps an orphan only after ten minutes of silence, and an attended pane is
+                # never silent that long. Meanwhile the row sat `stopping`, which the status engine
+                # renders as `working`, so the dashboard showed a busy agent that was nobody's.
+                #
+                # `stop_agent_worker` already knew this and says so in its own comment -- "Database
+                # state cannot stop a process on the owning host. Queue the bridge-side stop before
+                # marking the row stopped" -- and this path simply never called it. Asked by the
+                # operator, 2026-09-21.
                 active = await _active_terminal_for_agent(db, agent_id, settings=settings)
                 if active is not None:
                     terminal_id = active["terminal_id"] if "terminal_id" in active.keys() else None
                     session_id = active["session_id"] if "session_id" in active.keys() else ""
                     if terminal_id:
+                        keys = active.keys()
+                        side_effects["stopControlId"] = await _append_terminal_control(
+                            db,
+                            terminal_id=terminal_id,
+                            environment_id=str((active["environment_id"] if "environment_id" in keys else "") or ""),
+                            bridge_id=str((active["bridge_id"] if "bridge_id" in keys else "") or ""),
+                            action="stop",
+                            requested_by=requested_by,
+                        )
                         await db.execute(
                             "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",
                             (now, terminal_id),

@@ -285,6 +285,59 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(agent["launch_mode"], "detached")
         self.assertIn("resident-run", agent["capabilities"])
 
+    def _terminal_controls(self, terminal_id: str) -> list:
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            return [dict(r) for r in conn.execute(
+                "SELECT action, status, environment_id, bridge_id, requested_by FROM terminal_controls"
+                " WHERE terminal_id = ? ORDER BY requested_at", (terminal_id,))]
+        finally:
+            conn.close()
+
+    def test_switch_managed_to_resident_QUEUES_THE_STOP_the_host_has_to_act_on(self):
+        """The row above says `stopping`; this asks whether anything was actually TOLD to stop.
+
+        ASKED BY THE OPERATOR, 2026-09-21: "what happens if I have a managed agent running and I
+        switch him to resident when he is running in herdr-aify env?" The answer was: the row said
+        stopping and the worker kept running. A database write cannot stop a process on the owning
+        host -- `stop_agent_worker` says exactly that in its own comment and queues a terminal
+        control first -- and this path never did. aify-env stops a process when it claims a `stop`
+        control, or when an orphan has been SILENT for ten minutes; an attended Herdr pane is never
+        silent that long, so nothing collected it.
+        """
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-stop-control", runtime="codex", session_mode="managed")
+        terminal_id, _session_id = self._seed_managed_terminal("codex-stop-control", runtime="codex")
+        self._heartbeat_environment("codex")
+        self.assertEqual(self._terminal_controls(terminal_id), [],
+                         "nothing may be queued before the switch, or the assertion below is free")
+
+        res = self.client.patch("/api/v1/agents/codex-stop-control/session-mode", json={"mode": "resident"})
+        self.assertEqual(res.status_code, 200, res.text)
+
+        controls = self._terminal_controls(terminal_id)
+        self.assertEqual([c["action"] for c in controls], ["stop"],
+                         "the switch must queue exactly one stop for the host to claim")
+        self.assertEqual(controls[0]["status"], "pending", "a control nobody can claim stops nothing")
+        self.assertTrue(controls[0]["environment_id"],
+                        "a control with no environment is one no host polls for")
+        self.assertTrue(res.json().get("sideEffects", {}).get("stopControlId"),
+                        "the caller is told what was queued, so a stuck stop can be traced")
+
+    def test_CONTROL_switching_an_agent_with_no_live_terminal_queues_nothing(self):
+        """The negative control: the stop must be the TERMINAL's doing, not the switch's."""
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-no-pty", runtime="codex", session_mode="managed")
+        res = self.client.patch("/api/v1/agents/codex-no-pty/session-mode", json={"mode": "resident"})
+        self.assertEqual(res.status_code, 200, res.text)
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            queued = conn.execute("SELECT COUNT(*) FROM terminal_controls").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(queued, 0, "an agent with nothing running must not have a stop invented for it")
+
     def test_switch_resident_to_managed_without_backing_reports_missing_backing(self):
         """resident -> managed without force: under the lazy-autostart governance
         (DECISIONS.md 2026-05-31, Phase 2) an `available` managed agent with no
