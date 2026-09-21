@@ -92,15 +92,44 @@ async def register_agent(req: AgentRegister, request: Request):
     # told what it missed (service/api_core/away_briefing.py). Sent only after registration succeeded.
     previous_last_seen = await _previous_last_seen(req.agentId)
     result = await _register_agent(req, request)
+    # REGISTERING IS THE AGENT SAYING IT IS HERE, so presence moves now -- after the value above was
+    # read, and before anything else can ask. Without it a second registration moments later measured
+    # the same absence again and briefed twice, which the suite caught.
+    await _mark_present(req.agentId)
     await brief_returning_agent(req.agentId, previous_last_seen)
     return result
 
 
-async def _previous_last_seen(agent_id: str) -> str:
+async def _mark_present(agent_id: str) -> None:
+    """Stamp `last_present_at`. The only other writer is the agent's own heartbeat."""
     db = await get_db()
     try:
-        row = await (await db.execute("SELECT last_seen FROM agents WHERE id = ?", (agent_id,))).fetchone()
-        return str(row[0] or "") if row else ""
+        await db.execute("UPDATE agents SET last_present_at = ? WHERE id = ?", (_now(), agent_id))
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def _previous_last_seen(agent_id: str) -> str:
+    """When this agent was last PRESENT -- which is not when its row was last touched.
+
+    `last_seen` is stamped by Stop, Resume, a description edit and a favourite toggle, so an
+    operator pressing anything made the absence read as zero and the briefing was never sent. The
+    worst case was the canonical one: Stop overnight, Resume in the morning, and the Resume itself
+    refreshed the timestamp the absence is computed from (external review 2026-09-21, finding 6).
+
+    FALLS BACK TO `last_seen` while `last_present_at` is empty, which it is on every row written
+    before this column existed. Without that, the first registration after a deploy would measure
+    the absence from the epoch and brief the whole fleet about its entire history.
+    """
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT last_present_at, last_seen FROM agents WHERE id = ?", (agent_id,)
+        )).fetchone()
+        if not row:
+            return ""
+        return str(row[0] or "") or str(row[1] or "")
     finally:
         await db.close()
 

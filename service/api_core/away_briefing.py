@@ -101,16 +101,25 @@ class AwayBriefing:
 
 
 async def gather(db, agent_id: str, last_seen: str, away: float) -> AwayBriefing:
-    """Read what arrived for `agent_id` since `last_seen`."""
+    """Read what arrived for `agent_id` since `last_seen`.
+
+    BOTH HALVES ARE WINDOWED. The channel query always was; the unread-DM query was not, so an
+    unread message from twenty hours before the absence began was reported under "Since then" and
+    an absence with nothing new in it still dispatched a briefing -- which is exactly what this
+    feature's own commit said it would not do (external review 2026-09-21, finding 6). An old
+    unread message is still unread; it is just not something that arrived while this agent was away,
+    and the agent is told to read its inbox headers regardless.
+    """
     since_ms = int(iso_to_epoch(last_seen) * 1000)
     unread = await (await db.execute(
         """
         SELECT m.from_agent, COUNT(*) FROM messages m
         WHERE m.to_agent = ? AND m.from_agent != ?
+          AND m.timestamp > ?
           AND NOT EXISTS (SELECT 1 FROM read_receipts r WHERE r.message_id = m.id AND r.agent_id = ?)
         GROUP BY m.from_agent ORDER BY COUNT(*) DESC, m.from_agent
         """,
-        (agent_id, SENDER, agent_id),
+        (agent_id, SENDER, since_ms, agent_id),
     )).fetchall()
     channels = await (await db.execute(
         """

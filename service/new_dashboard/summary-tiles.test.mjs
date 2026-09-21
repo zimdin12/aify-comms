@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ACTIVE_AGENT_STATUSES, LIVE_AGENT_STATUSES, NON_LIVE_AGENT_STATUSES } from "./status.js";
 import { state } from "./state.mjs";
 import {
   metric,
@@ -157,4 +158,34 @@ test("KNOWN GAP: renderMetrics THROWS when its host is absent, unlike its two si
   } finally {
     if (!had) delete globalThis.document;
   }
+});
+
+test("an agent running a background shell is still an ACTIVE agent", () => {
+  // EXTERNAL REVIEW, 2026-09-21, finding 3. This tile retyped ['active','online','working','blocked']
+  // while `status.js` already exported the derived live set, so the moment `shell` joined the
+  // vocabulary an agent DROPPED OUT of the headline count the second a background shell started --
+  // the operator's fleet appearing to shrink because an agent was doing more, not less.
+  seed({
+    agents: [
+      { id: "a", status: "working" },
+      { id: "b", status: "shell" },
+      { id: "c", status: "online" },
+      { id: "d", status: "offline" },
+    ],
+    contracts: [],
+  });
+  const html = renderInto("metrics", renderMetrics);
+  assert.ok(html.includes("<b>3</b><span>Active agents</span>"),
+    `shell must count among the active; got ${html}`);
+});
+
+test("the active set is DERIVED from the vocabulary, not retyped beside it", () => {
+  // What stops this happening again: every live status counts unless it is deliberately excluded,
+  // so the next status added to AGENT_STATUSES is counted without anyone remembering this file.
+  const excluded = LIVE_AGENT_STATUSES.filter((s) => !ACTIVE_AGENT_STATUSES.includes(s));
+  assert.deepEqual(excluded, ["available", "starting"],
+    "only the live-but-no-worker-yet statuses may sit outside the active count");
+  assert.equal(ACTIVE_AGENT_STATUSES.includes("shell"), true);
+  // And nothing non-live leaks in, or the tile would count agents nobody can reach.
+  assert.deepEqual(NON_LIVE_AGENT_STATUSES.filter((s) => ACTIVE_AGENT_STATUSES.includes(s)), []);
 });

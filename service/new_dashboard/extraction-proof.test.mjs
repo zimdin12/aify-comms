@@ -1735,7 +1735,25 @@ const EXTRACTIONS = [
     items: [
       { name: "renderUsageConsumption", at: 1313, marker: "// renderUsageConsumption moved to ./summary-tiles.mjs in v0.5.4." },
       { name: "metric", at: 1366, marker: "// metric moved to ./summary-tiles.mjs in v0.5.4." },
-      { name: "renderMetrics", at: 1371, marker: "// renderMetrics moved to ./summary-tiles.mjs in v0.5.4." },
+      {
+        name: "renderMetrics",
+        at: 1371,
+        marker: "// renderMetrics moved to ./summary-tiles.mjs in v0.5.4.",
+        editedSince: [
+          // EXTERNAL REVIEW, 2026-09-21, finding 3. This tile retyped the live-status set while
+          // status.js already exported a derived one, so an agent DROPPED OUT of the headline count
+          // the moment it started a background shell -- `shell` joined the vocabulary and nobody
+          // came back to this literal. Now it asks the set that derives itself.
+          {
+            was: [
+              "  const active = state.agents.filter((a) => ['active', 'online', 'working', 'blocked'].includes(resolveStatus(a.status).kind)).length;",
+            ],
+            now: [
+              "  const active = state.agents.filter((a) => ACTIVE_AGENT_STATUSES.includes(resolveStatus(a.status).kind)).length;",
+            ],
+          },
+        ],
+      },
       { name: "selectedDiagnostics", at: 1433, marker: "// selectedDiagnostics moved to ./summary-tiles.mjs in v0.5.4." },
       { name: "renderDiagnosticsSummary", at: 1456, marker: "// renderDiagnosticsSummary moved to ./summary-tiles.mjs in v0.5.4." },
     ],

@@ -35,7 +35,7 @@ export function renderUsageConsumption() {
 }
 
 import { state } from './state.mjs';
-import { resolveStatus } from './status.js';
+import { ACTIVE_AGENT_STATUSES, resolveStatus } from './status.js';
 import { byId } from './ui.js';
 import { esc, usageFmtTokens } from './util.js';
 
@@ -46,7 +46,7 @@ export function metric(label, value, tone = 'neutral', attrs = '') {
 export function renderMetrics() {
   const working = state.agents.filter((a) => resolveStatus(a.status).kind === 'working').length;
   const blocked = state.agents.filter((a) => resolveStatus(a.status).kind === 'blocked').length;
-  const active = state.agents.filter((a) => ['active', 'online', 'working', 'blocked'].includes(resolveStatus(a.status).kind)).length;
+  const active = state.agents.filter((a) => ACTIVE_AGENT_STATUSES.includes(resolveStatus(a.status).kind)).length;
   const overdue = state.contracts.filter((c) => c.overdue).length;
   const queued = state.contracts.filter((c) => c.state === 'queued').length;
   byId('metrics').innerHTML = [

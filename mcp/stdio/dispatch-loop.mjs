@@ -117,7 +117,13 @@ export async function runDispatchPass({
     // Heartbeat after validating resident runtime reachability. This avoids
     // orphaned MCP child processes keeping a closed resident CLI "active".
     reportAgentHeartbeat(agentId, state).then((beat) => {
-      if (beat?.agentRevision) state.agentRevision = beat.agentRevision;
+      // ASSIGNED, NEVER MERELY UPDATED. A beat that carries no revision is not "unchanged": the
+      // release and `bridge_superseded` answers are both 200 with the field absent
+      // (routers/agents/liveness.py:187 and :194), and treating that as unchanged froze
+      // `refreshRecord` false for the life of the process -- so a Stop on that agent was never read
+      // and its CLI host kept running. Clearing it restores the fetch-every-tick behaviour, which is
+      // what a bridge with no revision is supposed to do.
+      state.agentRevision = beat?.agentRevision || undefined;
     }).catch((error) => {
       // A beat the service refused as unknown (404) or removed (410) forces the record fetch on the
       // next tick, whose own handling re-registers or forgets -- a bridge that never claims would

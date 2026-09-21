@@ -153,3 +153,31 @@ test("CONTROL: a service that sends no revision keeps the old fetch-every-tick b
   }
   assert.deepEqual(gets, [1, 1, 1]);
 });
+
+test("a beat that carries NO revision resumes the fetch, rather than freezing it for ever", async () => {
+  // EXTERNAL REVIEW, 2026-09-21, finding 1. `if (beat?.agentRevision)` treats an absent field as
+  // "unchanged", and TWO heartbeat answers are 200 with no revision at all: the release
+  // (routers/agents/liveness.py:187) and `bridge_superseded` (:194). Once a revision had been
+  // cached, such a beat left it in place, `refreshRecord` was false from then on, and the record was
+  // never read again -- so pressing Stop on that agent never reached terminateResidentHost and the
+  // CLI host kept running. The reaper that follows a host sleep produces exactly this state.
+  reset();
+  REMOTE_AGENT_STATE.set("rev-agent", structuredClone(REV_AGENT));
+  assert.deepEqual(await agentGetsPerPass(() => "r1", 3), [1, 1, 0], "the fetch must have stopped first");
+
+  // Now the service answers as a superseded bridge does: 200, ok, and nothing about the revision.
+  RESPOND = (req) => (req.url.endsWith("/heartbeat")
+    ? { ok: false, ignored: true, reason: "bridge_superseded", supersededBy: "other" }
+    : {});
+  const gets = [];
+  for (let i = 0; i < 3; i += 1) {
+    const before = REQUESTS.length;
+    await runDispatchPass(deps());
+    for (let wait = 0; wait < 100 && REMOTE_AGENT_STATE.get("rev-agent").agentRevision !== undefined; wait += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    gets.push(REQUESTS.slice(before).filter((r) => r.method === "GET" && r.url.endsWith("/agents/rev-agent")).length);
+  }
+  assert.deepEqual(gets, [0, 1, 1],
+    "the first tick is the one whose beat clears it; every tick after must read the record again");
+});

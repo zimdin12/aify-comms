@@ -1,5 +1,24 @@
 # Core framework
-fastapi>=0.115.0
+#
+# BOUNDED ABOVE, for the same reason `mcp` is below. From 0.140 `include_router` stops flattening the
+# child routes into `app.routes` and leaves a lazy `_IncludedRouter` in their place. Serving is
+# unaffected -- no product code walks `app.routes` -- but FIVE GATES DO, and every one of them reads
+# as a pass when it finds nothing: test_route_inventory, test_route_metadata_inventory,
+# test_every_route_is_exercised, test_removed_agent_is_refused_everywhere and
+# test_bridge_write_bodies_are_declared. One of those is "the endpoints the fleet cannot lose".
+#
+# MEASURED 2026-09-21, both sides: this container resolves fastapi 0.141.1 / starlette 1.6.0 and
+# builds an app with 11 route entries, 3 of them `_IncludedRouter`; a host at 0.136.1 builds the same
+# app with 129. So the suite is honest only where the resolved version happens to be old enough,
+# which is not a property anyone can see. The external review's own host was already past it.
+#
+# The child routes ARE reachable through `_IncludedRouter.original_router`, but their paths no longer
+# carry the parent's prefix and the prefix is not on the include context either, so recursing means
+# reconstructing paths from private internals that have just been restructured once. A walker that
+# gets that subtly wrong produces a WRONG inventory, which is worse than an empty one. Porting the
+# five gates is its own piece of work; until then this targets what flattens, and says so.
+# `test_the_route_inventory_is_not_empty.py` is the canary that fails if this ever slips.
+fastapi>=0.115.0,<0.140
 uvicorn[standard]>=0.32.0
 pydantic>=2.0.0
 

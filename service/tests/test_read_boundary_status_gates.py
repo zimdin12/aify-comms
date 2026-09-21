@@ -36,15 +36,19 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from service.api_core.registration_gates import _enforce_live_worker_gate
-from service.status_engine import VALID_STATUSES
+from service.api_core.registration_gates import _enforce_env_reachable_gate, _enforce_live_worker_gate
+from service.status_engine import VALID_STATUSES, is_live_agent_status
 
 #: Runtimes whose managed worker is a wrapper PTY. Read from the real predicate rather than retyped,
 #: so this file cannot disagree with the gate about which runtimes it even applies to.
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 
 LIVE_WORKER_GATE_OPENS_ON = {"online", "ready"}
-ENV_REACHABLE_GATE_OPENS_ON = {"online", "ready", "idle", "working", "available"}
+#: DERIVED SINCE 2026-09-21, and the reason it is: the env gate used to carry a hand-typed set of
+#: five, and `shell` -- added to the vocabulary on 2026-09-17 -- was never added to it. A managed
+#: agent reading `shell` therefore kept that status after its machine went dark, and
+#: `send_preflight` accepted live sends to it. External review, finding 3.
+ENV_REACHABLE_GATE_OPENS_ON = {s for s in VALID_STATUSES if is_live_agent_status(s)}
 
 
 class _Row(dict):
@@ -154,34 +158,96 @@ class LiveWorkerGateTests(unittest.TestCase):
 
 
 class GateStatusVocabularyTests(unittest.TestCase):
-    def test_ready_and_idle_are_spellings_no_status_engine_can_produce(self):
-        """Measured, not assumed: each gate is narrower than its literal set reads."""
-        self.assertEqual(
-            sorted(LIVE_WORKER_GATE_OPENS_ON - set(VALID_STATUSES)), ["ready"],
-        )
-        self.assertEqual(
-            sorted(ENV_REACHABLE_GATE_OPENS_ON - set(VALID_STATUSES)), ["idle", "ready"],
-        )
-        # Which leaves the sets that can actually fire -- and records that the two gates disagree
-        # about `working`: the env gate corrects it when the ENVIRONMENT is gone, the live-worker gate
-        # does not when the WORKER is gone, so a wrapper-backed agent whose PTY exited mid-turn keeps
-        # reading `working` until `turn_busy` ages out. Pinned rather than changed: widening a
-        # hot-path status correction is a reviewer's call.
+    def test_ready_is_a_spelling_no_status_engine_can_produce(self):
+        """Measured, not assumed: the live-worker gate is narrower than its literal set reads."""
+        self.assertEqual(sorted(LIVE_WORKER_GATE_OPENS_ON - set(VALID_STATUSES)), ["ready"])
         self.assertEqual(sorted(LIVE_WORKER_GATE_OPENS_ON & set(VALID_STATUSES)), ["online"])
+
+    def test_the_env_gate_opens_on_every_status_that_claims_the_agent_is_reachable(self):
+        """Including the ones added after it was written, which is the whole point of deriving it.
+
+        `shell` is the one that was missing. The others are pinned so that a status REMOVED from the
+        live set -- which would silently narrow this hot-path correction -- shows up here.
+        """
+        self.assertIn("shell", ENV_REACHABLE_GATE_OPENS_ON)
         self.assertEqual(
-            sorted(ENV_REACHABLE_GATE_OPENS_ON & set(VALID_STATUSES)),
-            ["available", "online", "working"],
+            sorted(ENV_REACHABLE_GATE_OPENS_ON),
+            ["available", "blocked", "online", "shell", "starting", "working"],
         )
+        # And the non-live ones stay out, or the gate would fire on an agent already offline.
+        self.assertEqual(ENV_REACHABLE_GATE_OPENS_ON & {"offline", "stopped", "misconfigured"}, set())
 
-    def test_the_gate_literals_still_match_this_file(self):
-        """These two sets are copied from the gates, so they must be checked against them.
+    def test_the_live_worker_gate_literal_still_matches_this_file(self):
+        """That set is still an inline literal, so there is nothing to import and this reads source.
 
-        A source read, and it is the honest form for this: the sets are inline literals inside two
-        functions, so there is nothing to import. It proves the spellings, not the behaviour — the
-        behaviour is the class above.
+        Its sibling no longer needs this: the env gate now asks `is_live_agent_status`, so the set
+        above IS the gate's own answer rather than a copy of it.
         """
         import pathlib
         source = (pathlib.Path(__file__).resolve().parents[1]
                   / "api_core" / "registration_gates.py").read_text(encoding="utf-8")
         self.assertIn('if payload.get("status") not in {"online", "ready"}:', source)
-        self.assertIn('if status not in {"online", "ready", "idle", "working", "available"}:', source)
+
+
+class _EnvDb:
+    """Answers the environments lookup, and records whether it was asked at all."""
+
+    def __init__(self, last_seen: str):
+        self.last_seen = last_seen
+        self.queries: list[str] = []
+
+    async def execute(self, sql, params=()):
+        self.queries.append(sql)
+        return _Cursor(_Row(id="env-1", status="online", last_seen=self.last_seen))
+
+
+def _long_ago():
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=400)).isoformat().replace("+00:00", "Z")
+
+
+def _now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class EnvReachableGateTests(unittest.TestCase):
+    """The behaviour the vocabulary above is only the doorway to. It had no test before 2026-09-21."""
+
+    def _judge(self, status, last_seen):
+        payload = _managed_payload(status=status, statusRaw=status, runtimeState={"environmentId": "env-1"})
+        db = _EnvDb(last_seen)
+        result = _run(_enforce_env_reachable_gate(payload, db, {}, "sc-coder"))
+        return result, db
+
+    def test_a_shell_agent_whose_machine_went_dark_is_corrected(self):
+        """THE ONE IT WAS WRITTEN FOR. Before the derivation, this status walked straight through."""
+        result, db = self._judge("shell", _long_ago())
+        self.assertEqual(result["status"], "offline")
+        self.assertEqual(result["statusRaw"], "offline", "statusRaw must move with status")
+        self.assertIn("is offline", result["statusNote"])
+        self.assertTrue(db.queries, "it must have asked about the environment")
+
+    def test_online_is_corrected_the_same_way(self):
+        """The positive control: the status that always worked, in the same run."""
+        self.assertEqual(self._judge("online", _long_ago())[0]["status"], "offline")
+
+    def test_a_live_environment_leaves_shell_alone(self):
+        """The negative control: the correction must be the ENVIRONMENT's doing, not the status's."""
+        result, _ = self._judge("shell", _now())
+        self.assertEqual(result["status"], "shell")
+        self.assertNotIn("statusNote", result, "an untouched payload must not gain a note")
+
+    def test_an_already_offline_agent_is_rejected_before_any_query(self):
+        """Anti-vacuity, and the hot-path guarantee: the cheap rejections come before the DB read."""
+        result, db = self._judge("offline", _long_ago())
+        self.assertEqual(result["status"], "offline")
+        self.assertEqual(db.queries, [], "a non-live status must not cost a query per roster poll")
+
+    def test_a_resident_agent_is_not_gated(self):
+        payload = _managed_payload(status="shell", sessionMode="resident",
+                                   runtimeState={"environmentId": "env-1"})
+        db = _EnvDb(_long_ago())
+        result = _run(_enforce_env_reachable_gate(payload, db, {}, "sc-coder"))
+        self.assertEqual(result["status"], "shell")
+        self.assertEqual(db.queries, [])

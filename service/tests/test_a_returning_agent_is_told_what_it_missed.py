@@ -51,7 +51,25 @@ class AReturningAgentIsToldWhatItMissed(FastApiTestCase):
         return asyncio.run(go())
 
     def _away_for(self, hours: float) -> None:
-        self._run(("UPDATE agents SET last_seen = ? WHERE id = ?", (_iso_hours_ago(hours), AGENT)))
+        # BOTH COLUMNS, because the absence is measured from `last_present_at` and every row written
+        # before that column existed falls back to `last_seen`.
+        self._run(("UPDATE agents SET last_seen = ?, last_present_at = ? WHERE id = ?",
+                   (_iso_hours_ago(hours), _iso_hours_ago(hours), AGENT)))
+
+    def _an_operator_touches_the_row(self) -> None:
+        """What Stop, Resume, a favourite toggle and a description edit all do: stamp `last_seen`.
+
+        Named for what it MEANS rather than which endpoint does it, because four of them do it and
+        the briefing must survive all four. `last_present_at` is deliberately not touched: the agent
+        said nothing, somebody pressed something.
+        """
+        self._run(("UPDATE agents SET last_seen = ? WHERE id = ?", (_iso_hours_ago(0), AGENT)))
+
+    def _message_at(self, message_id: str, *, hours_ago: float, to: str = "") -> None:
+        at_ms = int((time.time() - hours_ago * 3600) * 1000)
+        self._run(("INSERT INTO messages (id, from_agent, to_agent, channel, source, type, subject, body, timestamp)"
+                   " VALUES (?,?,?,?,?,?,?,?,?)",
+                   (message_id, TEAMMATE, to or None, None, "direct", "info", "update", "older news", at_ms)))
 
     def _message(self, message_id: str, *, to: str = "", channel: str = "", read: bool = False) -> None:
         now_ms = int(time.time() * 1000)
@@ -114,3 +132,74 @@ class AReturningAgentIsToldWhatItMissed(FastApiTestCase):
         self._message("m-unread", to=AGENT)
         self._register()
         self.assertEqual(self._briefings(), [])
+
+
+class AnAbsenceIsMeasuredFromWhenTheAgentWasHere(FastApiTestCase):
+    """EXTERNAL REVIEW, 2026-09-21, finding 6. Two defects, one feature that never fired.
+
+    The absence was measured from `agents.last_seen`, which Stop, Resume, a description edit and a
+    favourite toggle all stamp -- so the canonical flow, Stop overnight and Resume in the morning,
+    was the one case that never briefed: the Resume refreshed the very timestamp the absence was
+    computed from. And the unread half of the query had no time window at all, so an unread message
+    from long before the absence was reported under "Since then" and an absence with nothing new in
+    it still dispatched a briefing.
+    """
+
+    _register = AReturningAgentIsToldWhatItMissed._register
+    _run = AReturningAgentIsToldWhatItMissed._run
+    _away_for = AReturningAgentIsToldWhatItMissed._away_for
+    _an_operator_touches_the_row = AReturningAgentIsToldWhatItMissed._an_operator_touches_the_row
+    _message = AReturningAgentIsToldWhatItMissed._message
+    _message_at = AReturningAgentIsToldWhatItMissed._message_at
+    _briefings = AReturningAgentIsToldWhatItMissed._briefings
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._register()
+
+    def test_an_operator_pressing_something_mid_absence_does_not_erase_it(self) -> None:
+        self._away_for(10)
+        self._message("m-unread", to=AGENT)
+        self._an_operator_touches_the_row()
+        self._register()
+        self.assertEqual(len(self._briefings()), 1,
+                         "a favourite toggle is not the agent saying it was here")
+
+    def test_CONTROL_the_same_absence_without_the_touch_still_briefs(self) -> None:
+        self._away_for(10)
+        self._message("m-unread", to=AGENT)
+        self._register()
+        self.assertEqual(len(self._briefings()), 1)
+
+    def test_CONTROL_a_short_absence_is_still_not_briefed_after_a_touch(self) -> None:
+        """The touch must not become a way IN either: presence still decides, and it is recent."""
+        self._away_for(1)
+        self._message("m-unread", to=AGENT)
+        self._an_operator_touches_the_row()
+        self._register()
+        self.assertEqual(self._briefings(), [])
+
+    def test_an_unread_message_from_before_the_absence_is_not_news(self) -> None:
+        self._away_for(10)
+        self._message_at("m-old-unread", hours_ago=30, to=AGENT)
+        self._register()
+        self.assertEqual(self._briefings(), [],
+                         "an absence with nothing new in it must send nothing, as the feature says")
+
+    def test_CONTROL_an_unread_message_from_during_the_absence_is(self) -> None:
+        self._away_for(10)
+        self._message_at("m-new-unread", hours_ago=5, to=AGENT)
+        self._register()
+        self.assertEqual(len(self._briefings()), 1)
+
+    def test_a_row_with_no_presence_recorded_falls_back_to_last_seen(self) -> None:
+        """Every row written before the column existed, which is all of them on a real deploy.
+
+        Without the fallback the absence would be measured from the epoch and the whole fleet would
+        be briefed about its entire history on the first registration after the upgrade.
+        """
+        self._run(("UPDATE agents SET last_seen = ?, last_present_at = '' WHERE id = ?",
+                   (_iso_hours_ago(10), AGENT)))
+        self._message("m-unread", to=AGENT)
+        self._register()
+        self.assertEqual(len(self._briefings()), 1)

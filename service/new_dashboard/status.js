@@ -42,6 +42,18 @@ export const AGENT_STATUSES = ['working', 'shell', 'online', 'available', 'block
 export const NON_LIVE_AGENT_STATUSES = ['offline', 'stopped', 'misconfigured'];
 export const LIVE_AGENT_STATUSES = AGENT_STATUSES.filter((s) => !NON_LIVE_AGENT_STATUSES.includes(s));
 
+// Live, but with no worker attached yet: reachable in the sense that a send will land eventually,
+// which is not the same as being AT WORK. The summary tile counts the latter.
+const LIVE_WITHOUT_A_WORKER = ['available', 'starting'];
+// `active` is the legacy cache's word for `online`; STATUS_KINDS still maps it, so an older payload
+// keeps counting. Everything else is derived, because the hand-typed copy of this set in
+// summary-tiles.mjs silently stopped counting an agent the moment `shell` was added to the
+// vocabulary (external review 2026-09-21, finding 3).
+export const ACTIVE_AGENT_STATUSES = [
+  ...LIVE_AGENT_STATUSES.filter((s) => !LIVE_WITHOUT_A_WORKER.includes(s)),
+  'active',
+];
+
 export const STATUS_KINDS = {
   active: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },
   idle: { label: 'online', dotKind: 'online', tone: 'ok', inputEnabled: true },

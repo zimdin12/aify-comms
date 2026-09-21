@@ -197,9 +197,12 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     "reason": "bridge_superseded",
                     "supersededBy": str(bridge_row["superseded_by"] or "").strip(),
                 }
+        # `last_present_at` MOVES ONLY HERE and at registration: it is the agent saying it exists,
+        # which is what an absence is measured against. See the column's note in service/db.py.
         await db.execute(
-            "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
-            (now, agent_id),
+            "UPDATE agents SET last_seen = ?, last_present_at = ?,"
+            " status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
+            (now, now, agent_id),
         )
         if bridge_id:
             if terminal_id:

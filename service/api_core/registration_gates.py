@@ -54,6 +54,7 @@ from service.api_core.live_process_probes import _has_live_terminal_session
 from service.api_core.managed_env import _managed_owning_environment_row
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _parsed_timestamp, _timestamp_sort_key
+from service.status_engine import is_live_agent_status
 from service.api_core.resume_command import _resume_command_for
 from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -92,7 +93,13 @@ async def _enforce_env_reachable_gate(
     claims the env is usable but the env row no longer reads online/degraded, recompute
     fresh — the full derivation applies the offline policy."""
     status = str(payload.get("status") or "").lower()
-    if status not in {"online", "ready", "idle", "working", "available"}:
+    # DERIVED, NEVER LISTED. This was a hand-typed set of five, and `shell` -- added 2026-09-17 -- was
+    # never added to it, so a managed agent reading `shell` kept that status after its machine went
+    # dark and `send_preflight` accepted live sends to it (external review 2026-09-21, finding 3).
+    # `is_live_agent_status` is the owner of "does this status claim the agent is reachable", it is
+    # prefix-tolerant for derived values like `offline (no wake path)`, and a status added next year
+    # is covered by it without anyone remembering this line.
+    if not is_live_agent_status(status):
         return payload
     if str(payload.get("sessionMode") or "").lower() != "managed":
         return payload
