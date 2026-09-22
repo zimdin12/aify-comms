@@ -17,6 +17,7 @@ from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
 from service.api_core.status_broadcast import _broadcast_agent_status
 from service.api_core.routing import domain_router
+from service.api_core.validation import validate_sender
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
 
@@ -56,6 +57,7 @@ router = domain_router()
 
 @router.post("/agents/{agent_id}/control")
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
+    validate_sender(req.from_agent)
     action = str(req.action or "").strip().lower()
     if action not in {"interrupt", "stop", "resume", "start"}:
         raise HTTPException(400, f'Unsupported agent control action "{req.action}"')

@@ -18,6 +18,7 @@ import uuid
 
 from fastapi import HTTPException, Request
 
+from service.api_core.message_view import CHANNEL_NOTICE_SENDER
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -50,7 +51,7 @@ async def join_channel(name: str, req: ChannelJoin, request: Request):
         if changed:
             await db.execute(
                 "INSERT INTO messages (id, from_agent, channel, source, type, subject, body, timestamp) VALUES (?,?,?,?,?,?,?,?)",
-                (f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}", "_system", name, "channel", "info", f"#{name}", f"{req.agentId} joined the channel", int(time.time()*1000))
+                (f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}", CHANNEL_NOTICE_SENDER, name, "channel", "info", f"#{name}", f"{req.agentId} joined the channel", int(time.time()*1000))
             )
         await db.commit()
         mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (name,))
@@ -78,7 +79,7 @@ async def leave_channel(name: str, req: ChannelJoin, request: Request):
         if changed:
             await db.execute(
                 "INSERT INTO messages (id, from_agent, channel, source, type, subject, body, timestamp) VALUES (?,?,?,?,?,?,?,?)",
-                (f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}", "_system", name, "channel", "info", f"#{name}", f"{req.agentId} left the channel", int(time.time()*1000))
+                (f"{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}", CHANNEL_NOTICE_SENDER, name, "channel", "info", f"#{name}", f"{req.agentId} left the channel", int(time.time()*1000))
             )
         await db.commit()
         mem_c = await db.execute("SELECT agent_id FROM channel_members WHERE channel_name = ?", (name,))

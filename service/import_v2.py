@@ -9,6 +9,7 @@ import sys
 import asyncio
 from pathlib import Path
 from service.db import init_db, get_db
+from service.api_core.message_view import CHANNEL_NOTICE_SENDER
 
 
 async def import_v2(bundle: dict, db_path: Path):
@@ -70,13 +71,13 @@ async def import_v2(bundle: dict, db_path: Path):
                 )
             # Import channel-only messages (not in any inbox)
             for msg in ch.get("messages", []):
-                if msg.get("from") == "_system":
+                if msg.get("from") == CHANNEL_NOTICE_SENDER:
                     msg_id = msg.get("id", "")
                     if msg_id not in seen_ids:
                         seen_ids[msg_id] = True
                         await db.execute(
                             "INSERT OR IGNORE INTO messages (id, from_agent, channel, source, type, subject, body, timestamp) VALUES (?,?,?,?,?,?,?,?)",
-                            (msg_id, "_system", ch["name"], "channel", "info", f"#{ch['name']}", msg.get("body", ""), msg.get("timestamp", 0))
+                            (msg_id, CHANNEL_NOTICE_SENDER, ch["name"], "channel", "info", f"#{ch['name']}", msg.get("body", ""), msg.get("timestamp", 0))
                         )
                     continue
                 msg_id = msg.get("id", "")

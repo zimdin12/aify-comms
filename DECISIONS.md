@@ -1536,8 +1536,14 @@ is agent in another pc and it would not make sense if he would register here."**
 
 Sending already required no row and still creates none. What was missing was any way to see that a
 message came from outside, or who to answer. So a send may carry an `origin` — an endpoint and a
-contact in the sender's own words — stored on the message and shown in the inbox beside an
-`external` chip drawn from `fromRegistered`, which the API derives per read.
+contact in the sender's own words — stored on the message. `fromRegistered` is derived per read.
+Every reader carries both through one serializer (`api_core/message_view.py`): the dashboard feed and
+inbox draw an `external` chip with the origin beside it, and the `From:` line an agent reads names
+the sender as external with the origin it declared. That covers `comms_inbox` on both transports, the
+prompt a dispatch wakes an agent with, and console-typed delivery. The service's own voices
+(`dashboard`, `operator`, `aify-comms`, channel notices) have no roster row and are not external. A
+message sent *to* such a sender is stored here only, and the send answers with the origin it declared
+instead of "register the target first".
 
 **DECLARED, NEVER MEASURED, and it is labelled as a claim wherever it is drawn.** The obvious design
 is to record the client IP, and this deployment cannot: every peer the service observes is
@@ -1554,7 +1560,8 @@ shape. Derived at read time rather than stamped at send time, so a sender remove
 external from then on.
 
 **What this does NOT close:** holding the shared key still lets a caller register any agent id from
-any machine. Auth is one instance-wide secret with no notion of which host is calling, which is how
+any machine, and send as any id: `fromRegistered` says a name exists here, not that the caller is
+its owner. Auth is one instance-wide secret with no notion of which host is calling, which is how
 the second PC's agent landed in the roster in the first place. Per-machine credentials are a
 separate design, not started.
 

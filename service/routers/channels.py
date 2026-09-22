@@ -39,6 +39,7 @@ from fastapi import HTTPException, Query, Request
 # Was a borrow shim (the owner lived in the control plane, which a router cannot import at module
 # level without a cycle). It moved to api_core/dispatch_runs.py in v0.5.4, then on to
 # api_core/send_preflight.py — deciding whether a run is worth creating is not creating one.
+from service.api_core.message_view import CHANNEL_NOTICE_SENDER
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -222,7 +223,7 @@ async def get_channel(
         for row in await msg_c.fetchall():
             read = True
             fanout_id = ""
-            if viewer_id and row["from_agent"] != viewer_id and row["from_agent"] != "_system":
+            if viewer_id and row["from_agent"] != viewer_id and row["from_agent"] != CHANNEL_NOTICE_SENDER:
                 fanout_id = _channel_fanout_message_id(row["id"], viewer_id)
                 read_cursor = await db.execute(
                     "SELECT 1 FROM read_receipts WHERE message_id = ? AND agent_id = ?",

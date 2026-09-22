@@ -22,8 +22,15 @@ intercept nothing and the tests would reach for the network instead.
 from __future__ import annotations
 
 from service.sse.api_client import api as _api
+from service.api_core.message_view import _sender_label
 from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.rendering import SAFETY_HEADER, fence as _fence
+
+
+def _sender_of(m: dict) -> str:
+    # ABSENT IS NOT FALSE: only a sender the service judged external is labelled as one.
+    return _sender_label(str(m.get("from")), registered=m.get("fromRegistered") is not False,
+                         origin=str(m.get("origin") or ""))
 
 
 async def comms_inbox(
@@ -63,7 +70,7 @@ async def comms_inbox(
             preview = str(m.get("preview", "")).strip()
             parts = [
                 f"--- {m['id']} ---",
-                f"From: {m['from']} | Type: {m['type']} | "
+                f"From: {_sender_of(m)} | Type: {m['type']} | "
                 f"Subject: {_quote_untrusted_subject(m.get('subject', ''), 240)}",
             ]
             if m.get("inReplyTo"):
@@ -75,7 +82,7 @@ async def comms_inbox(
             safe_body = _fence(m.get("body", ""))
             lines.append(
                 f"--- {m['id']} ---\n"
-                f"From: {m['from']} | Type: {m['type']} | "
+                f"From: {_sender_of(m)} | Type: {m['type']} | "
                 f"Subject: {_quote_untrusted_subject(m.get('subject', ''), 240)}\n"
                 f"{safe_body}"
             )

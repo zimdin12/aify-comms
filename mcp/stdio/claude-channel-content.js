@@ -16,6 +16,7 @@
 // which is the only substitution.
 
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
+import { describeSender } from "./tool-response-format.mjs";
 
 export function dispatchContent(agentId, run) {
   const body = String(run.body || "").replace(/```/g, "'''");
@@ -45,7 +46,7 @@ export function dispatchContent(agentId, run) {
     claudeAifyReceiptLine(),
     `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
     actionLine,
-    `From: ${run.from}`,
+    `From: ${describeSender(run)}`,
     `Subject: ${run.subject}`,
     priority !== "normal" ? `Priority: ${priority.toUpperCase()}` : "",
     run.messageId ? `Message ID: ${run.messageId}` : "",

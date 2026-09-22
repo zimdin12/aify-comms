@@ -28,6 +28,7 @@ from typing import Optional
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.dispatch_runs import _create_dispatch_runs
+from service.api_core.message_view import SERVICE_SENDER
 from service.api_core.send_preflight import _preflight_live_send_recipients
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.clock import iso_to_epoch
@@ -35,8 +36,9 @@ from service.db import get_db
 
 logger = logging.getLogger("aify_comms.api_core.away_briefing")
 
-#: Who the briefing is from. Not an agent: it is the service reporting on itself.
-SENDER = "aify-comms"
+#: Who the briefing is from. Not an agent: it is the service reporting on itself, declared with the
+#: service's other voices so no reader brands it external.
+SENDER = SERVICE_SENDER
 #: How many senders and channels are named before the rest are summarised as a count.
 LISTED = 5
 

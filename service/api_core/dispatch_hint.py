@@ -23,8 +23,32 @@ from __future__ import annotations
 from typing import Any
 
 from service.api_core.capabilities import _row_capabilities
+from service.api_core.message_view import _declared_origin
 from service.api_core.runtime import _normalize_launch_mode, _normalize_runtime, _normalize_session_mode
+from service.api_core.serialization import _quote_untrusted_subject
 from service.api_core.vocabulary import LAUNCHABLE_RUNTIMES as _LAUNCHABLE_RUNTIMES
+
+
+async def _unregistered_recipient_hint(db, recipient_id: str) -> dict[str, Any]:
+    """Why a recipient with no roster row was not started, and what to do instead.
+
+    AN EXTERNAL SENDER IS NOT SOMETHING TO REGISTER. An agent on another PC sends here without a
+    row, by the operator's decision (DECISIONS.md, 2026-09-22), and declares where it is. A message
+    to it is stored here and delivered nowhere, so the hint names the address it declared instead of
+    the generic "register the target first" -- which is the one thing the operator said it must not do.
+    """
+    hint = _dispatch_fix_hint(recipient_id, None, "agent is not registered")
+    origin = await _declared_origin(db, recipient_id)
+    if origin:
+        hint["reason"] = (
+            "agent is not registered here; it is an external sender that says it is reachable at "
+            f"{_quote_untrusted_subject(origin, 200)}"
+        )
+        hint["fix"] = (
+            "This service does not relay to another instance, so a message to it is only stored here. "
+            "Send it to the aify-comms at the address the sender declared."
+        )
+    return hint
 
 
 def _dispatch_fix_hint(recipient_id: str, row, reason: str) -> dict[str, Any]:

@@ -34,6 +34,7 @@ from service.api_core.events import _append_terminal_control
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.records import _agent_session_to_dict
 from service.api_core.routing import domain_router
+from service.api_core.validation import validate_sender
 from service.api_core.session_restart import _prepare_restart_spawn
 from service.api_core.spawn_requests_io import _spawn_request_to_dict, _spawn_spec_to_dict
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
@@ -72,6 +73,7 @@ async def _live_session_for(db, agent_id: str):
 
 @router.post("/sessions/{session_id}/control")
 async def control_session(session_id: str, req: SessionControlRequest, request: Request):
+    validate_sender(req.from_agent)
     action = str(req.action or "").strip().lower()
     # Lifecycle cleanup (2026-06-03): `recover` + `resume` were byte-identical
     # aliases of `restart` with NO dashboard caller — dropped. (Resident

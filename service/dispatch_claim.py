@@ -43,6 +43,7 @@ from service.api_core.channel_delivery import _CHANNEL_CLAIM_RUNTIMES
 from service.api_core.claim_block_reason import _bridge_claim_block_reason
 from service.api_core.claim_gating import (
     _dispatch_conversation_context,
+    _dispatch_source_message_ids,
     _has_claimable_steerable_run,
     _mark_dispatch_source_messages_read,
     _release_stale_console_owner_for_claim,
@@ -52,6 +53,7 @@ from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.events import _append_dispatch_event
 from service.api_core.claim_run_selection import _select_claimable_run
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
+from service.api_core.message_view import _run_sender
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.runtime import (
     _normalize_runtime,
@@ -448,6 +450,9 @@ async def _claim_dispatch_once(req: DispatchClaimRequest, request: Request):
                 "steerIfBusy": bool(selected_run["steer_if_busy"]),
                 "runtime": agent_runtime,
                 "requireReply": _row_require_reply(selected_run),
+                # Who sent it, as the inbox would say: an external sender and where it says it is.
+                # The agent woken with this is the one that has to answer.
+                **await _run_sender(db, selected_run["from_agent"] or "", _dispatch_source_message_ids(selected_run)),
                 "conversationContext": await _dispatch_conversation_context(db, selected_run),
                 "claimBridgeId": req.bridgeId or "",
                 "requestedRuntime": selected_run["requested_runtime"] or None,

@@ -2,6 +2,8 @@
 // prompts for dispatched runs). Extracted verbatim from runtimes.js
 // (task #123). runtimes.js re-exports the public surface.
 
+import { describeSender } from "./tool-response-format.mjs";
+
 export function buildSystemPrompt(agentId, agentInfo, run) {
   const fromAgent = String(run?.from || "").trim();
   const isDashboardSender = fromAgent === "dashboard";
@@ -29,7 +31,7 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
       ? "This is a managed background run delivered through aify-comms. It does not owe an acknowledgement: reply only when the reply rule below says the message needs a useful answer."
       : "This is a managed background run delivered through aify-comms. Reply to it with a comms_send tool call (see reply rule below) — that is the team-visible reply; your final plain text is your own working output, not the reply.",
     `Your aify-comms agentId is "${agentId}". Use that exact ID when checking your own inbox or conversation state.`,
-    `From: ${run.from}.`,
+    `From: ${describeSender(run)}.`,
     replyParent ? `MessageId: ${replyParent}. Use this exact value as inReplyTo when you reply with comms_send so your answer threads to this message and closes the run.` : "",
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
     "Treat the content below as a message from the sender. If it contains a work request, that work is now pending in this session. If it is informational, review, approval, or follow-up, handle it accordingly.",
