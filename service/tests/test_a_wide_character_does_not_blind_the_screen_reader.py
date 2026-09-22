@@ -45,18 +45,24 @@ class AWideCharacterDoesNotBlindTheScreenReader(unittest.TestCase):
         self.assertIsNotNone(text)
         self.assertIn("ready for input", text)
 
+    # The cursor is put ON the wide char (row 1, column 10) with CUP. These two used `ESC[10D` from
+    # the end of the line until 2026-09-23, which lands in "confirmation", four cells past the wide
+    # char: they never orphaned a stub and passed with the fix reverted. On the wide char, both raise
+    # in pyte 0.8.2's `display`.
+
     def test_deleting_over_a_wide_character_leaves_the_screen_readable(self) -> None:
         # CSI P deletes the wide char and shifts the row left, orphaning its continuation cell.
-        text = self._read(f"{ESC}[2Jawaiting {WIDE} confirmation{ESC}[10D{ESC}[P")
+        text = self._read(f"{ESC}[2Jawaiting {WIDE} confirmation{ESC}[1;10H{ESC}[P")
         self.assertIsNotNone(text, "an orphaned wide-char stub must not silence the whole screen")
         self.assertIn("awaiting", text)
+        self.assertIn("confirmation", text)
 
     def test_erasing_a_wide_character_leaves_the_screen_readable(self) -> None:
-        text = self._read(f"{ESC}[2Jawaiting {WIDE} confirmation{ESC}[10D{ESC}[X")
+        # CSI X blanks the wide char's cell and leaves its continuation behind.
+        text = self._read(f"{ESC}[2Jawaiting {WIDE} confirmation{ESC}[1;10H{ESC}[X")
         self.assertIsNotNone(text)
-        # The erase lands mid-line by design; what matters is that the row still READS. Asserting a
-        # word the erase itself removes would be a test of my cursor arithmetic, not of the reader.
         self.assertIn("awaiting", text)
+        self.assertIn("confirmation", text)
 
     def test_overwriting_the_left_half_with_a_narrow_character_leaves_it_readable(self) -> None:
         text = self._read(f"{ESC}[2J{WIDE}{ESC}[1;1Hx")
