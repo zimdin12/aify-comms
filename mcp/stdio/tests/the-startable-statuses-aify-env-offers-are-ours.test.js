@@ -28,8 +28,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const REPO = path.resolve(new URL("../../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 const CONTRACT = path.join(REPO, "service", "contracts", "vocabulary.json");
 const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
 const THEIRS = path.join(AIFY_ENV, "lib", "startable-agents.mjs");
