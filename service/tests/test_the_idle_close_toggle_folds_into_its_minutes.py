@@ -10,10 +10,15 @@ reading 'false' skipped exactly those hosts and switched it ON for them. The DEL
 no second chance. External review, 2026-09-21, finding 9.
 """
 import asyncio
+import sqlite3
+import tempfile
 import unittest
+from contextlib import closing
+from pathlib import Path
 
 import aiosqlite
 
+import service.db as db_module
 from service.db import _IDLE_CLOSE_MERGE_MARK, _clear_stuck_internal_settings, _migrate_settings_rows
 
 
@@ -115,6 +120,26 @@ class AHiddenSettingCannotStayStuckOff(unittest.TestCase):
     def test_running_it_every_start_is_safe(self):
         after = self._run([("managed_terminal_backing_enabled", "false")], passes=3)
         self.assertEqual(after, {})
+
+    def test_startup_actually_runs_both_settings_migrations(self):
+        # The cases above call the functions directly, so deleting their CALLS from init_db left the
+        # whole suite green while the stuck host stayed stuck (measured 2026-09-23). This one goes
+        # through the only path a real host takes.
+        original_path = db_module._db_path
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "upgrading.db"
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                    conn.execute("INSERT INTO settings VALUES ('managed_terminal_backing_enabled', 'false')")
+                    conn.commit()
+                asyncio.run(db_module.init_db(path))
+                with closing(sqlite3.connect(path)) as conn:
+                    keys = {row[0] for row in conn.execute("SELECT key FROM settings")}
+        finally:
+            db_module._db_path = original_path
+        self.assertNotIn("managed_terminal_backing_enabled", keys, "init_db no longer clears the stuck row")
+        self.assertIn(_IDLE_CLOSE_MERGE_MARK, keys, "init_db no longer runs the idle-close fold")
 
 if __name__ == "__main__":
     unittest.main()
