@@ -37,11 +37,13 @@ export function importSpecifiers(source) {
   return specs;
 }
 
-/** The files in `modules` ([name, source] pairs, relative to `dir`) that import `target`. */
+/** The files in `modules` ([name, source] pairs, relative to `dir`) that import `target`. A relative
+ *  specifier resolves from the IMPORTING file's folder, as the module loader does. */
 export function importersOf(modules, dir, target) {
   return modules
     .filter(([name, source]) =>
-      importSpecifiers(source).some((spec) => spec.startsWith(".") && path.resolve(dir, spec) === target))
+      importSpecifiers(source).some((spec) =>
+        spec.startsWith(".") && path.resolve(path.dirname(path.join(dir, name)), spec) === target))
     .map(([name]) => name);
 }
 
@@ -49,10 +51,14 @@ function dashboardModules() {
   // RECURSIVE, so a module moved into a subdirectory stays inside the population. A plain
   // `readdirSync` stopped at the top level, which meant the first person to group modules into a
   // folder would silently take them out of this gate's reach (external review, finding 12).
+  //
+  // `vendor/` is third-party code, not ours to hold to this. `fixtures/` stays in: its harnesses
+  // import dashboard modules through `../` and one runs under Node, where an app.js import throws.
   return fs
     .readdirSync(DIR, { recursive: true })
     .map((name) => String(name).split("\\").join("/"))
     .filter((name) => /\.(mjs|js)$/.test(name) && !name.includes(".test.") && name !== "app.js")
+    .filter((name) => !name.startsWith("vendor/"))
     .filter((name) => fs.statSync(path.join(DIR, name)).isFile())
     .map((name) => [name, fs.readFileSync(path.join(DIR, name), "utf-8")]);
 }
@@ -73,6 +79,9 @@ test("NEGATIVE CONTROL: every import form of app.js is reported", () => {
   ]) {
     assert.deepEqual(importersOf([["m.mjs", source]], DIR, APP), ["m.mjs"], `missed: ${source}`);
   }
+  // A specifier resolves from its own file's folder, not the dashboard root.
+  assert.deepEqual(importersOf([["sub/m.mjs", 'import { refresh } from "../app.js";']], DIR, APP), ["sub/m.mjs"],
+    "a subfolder's ../app.js is app.js");
   // …and mentioning app.js is not importing it, which is how every extracted module's header reads.
   for (const source of [
     "// Extracted from app.js in v0.5.4; app.js imports it back.",
@@ -81,6 +90,8 @@ test("NEGATIVE CONTROL: every import form of app.js is reported", () => {
   ]) {
     assert.deepEqual(importersOf([["m.mjs", source]], DIR, APP), [], `false alarm: ${source}`);
   }
+  assert.deepEqual(importersOf([["sub/m.mjs", 'import { x } from "./app.js";']], DIR, APP), [],
+    "a subfolder's ./app.js is its own sibling, not the orchestrator");
 });
 
 test("POSITIVE CONTROL: the scan sees real imports in the real population", () => {
