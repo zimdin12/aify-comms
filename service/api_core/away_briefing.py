@@ -5,7 +5,8 @@ answering threads that had moved on, redoing work a teammate had finished. The o
 manager-side "rebrief" line in the lead skill, which depends on someone noticing the agent was gone.
 The agent coming back is the one party that always knows it just started, so the service tells it.
 
-HOW. On registration, the agent's PREVIOUS `last_seen` is compared with now. Past the
+HOW. On registration, when the agent was last PRESENT (`agents.last_present_at`, stamped by what the
+agent itself does; `last_seen` on rows that predate it) is compared with now. Past the
 `away_briefing_hours` setting (0 turns it off), the service gathers what arrived for the agent while
 it was away -- unread direct messages by sender, and new messages in the channels it belongs to --
 and sends it one `info` message from `aify-comms`. It is sent through the ordinary dispatch path, so
@@ -13,8 +14,8 @@ every harness receives it the way it receives any message, and the bridge batche
 work is already queued, so it arrives alongside the first task rather than as a turn of its own.
 
 NOTHING NEW, NOTHING SENT. An agent that was away but missed nothing is not woken to be told so.
-An agent registering for the first time has no previous `last_seen` and is not briefed; a second
-registration moments later sees a fresh `last_seen` and is not briefed twice.
+An agent registering for the first time has no previous presence and is not briefed; a second
+registration moments later sees a fresh one and is not briefed twice.
 """
 
 from __future__ import annotations

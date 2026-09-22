@@ -80,8 +80,10 @@ AGENT_MIGRATIONS = {
     # morning -- was the one case that never briefed, because the Resume refreshed the very
     # timestamp the absence was computed from (external review 2026-09-21, finding 6).
     #
-    # WRITTEN BY THE AGENT'S OWN HEARTBEAT AND ITS REGISTRATION, and by nothing an operator can
-    # press. Empty on every
+    # WRITTEN ONLY BY WHAT THE AGENT ITSELF DOES, through `_mark_agent_present` in
+    # service/api_core/agent_sessions.py -- which names the callers -- and by nothing an operator can
+    # press. Not just the heartbeat: an SSE client and a stdio bridge without AIFY_AGENT_ID never
+    # send one, and were briefed as away while they worked. Empty on every
     # existing row, which the reader treats as "fall back to last_seen" so a deploy brings no
     # sudden flood of briefings about history.
     "last_present_at": "ALTER TABLE agents ADD COLUMN last_present_at TEXT DEFAULT ''",

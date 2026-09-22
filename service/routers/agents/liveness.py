@@ -28,7 +28,7 @@ logger = logging.getLogger("aify_comms.routers.agents.liveness")
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 from service.models import AgentReadyUpdate
 
-from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_present
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.settings import _load_settings
 from service.api_core.validation import validate_name
@@ -197,13 +197,12 @@ async def agent_heartbeat(agent_id: str, request: Request):
                     "reason": "bridge_superseded",
                     "supersededBy": str(bridge_row["superseded_by"] or "").strip(),
                 }
-        # `last_present_at` MOVES ONLY HERE and at registration: it is the agent saying it exists,
-        # which is what an absence is measured against. See the column's note in service/db.py.
         await db.execute(
-            "UPDATE agents SET last_seen = ?, last_present_at = ?,"
+            "UPDATE agents SET last_seen = ?,"
             " status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
-            (now, now, agent_id),
+            (now, agent_id),
         )
+        await _mark_agent_present(db, agent_id, now)
         if bridge_id:
             if terminal_id:
                 await db.execute(

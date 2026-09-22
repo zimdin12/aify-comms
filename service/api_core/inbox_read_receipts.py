@@ -15,6 +15,7 @@ in order to wake the agent as a turn, and completing it from a read would silent
 """
 from __future__ import annotations
 
+from service.api_core.agent_sessions import _mark_agent_present
 from service.clock import now as _now
 
 
@@ -59,4 +60,5 @@ async def _settle_inbox_read(db, messages, agent_id, peek) -> None:
                 "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE ? END WHERE id = ?",
                 (now, new_status, agent_id)
             )
+            await _mark_agent_present(db, agent_id, now)
             await db.commit()

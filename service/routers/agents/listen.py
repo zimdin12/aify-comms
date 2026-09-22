@@ -22,6 +22,7 @@ import time
 
 from fastapi import Query, Request
 
+from service.api_core.agent_sessions import _mark_agent_present
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.clock import now as _now
@@ -40,7 +41,9 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
     # Set status to idle (waiting for work)
     db = await get_db()
     try:
-        await db.execute("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?", (_now(), agent_id))
+        now = _now()
+        await db.execute("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?", (now, agent_id))
+        await _mark_agent_present(db, agent_id, now)
         await db.commit()
     finally:
         await db.close()

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
+from service.api_core.agent_sessions import _mark_agent_present
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -46,10 +47,13 @@ async def update_agent(agent_id: str, req: AgentStatusUpdate, request: Request):
         # derivation is forbidden to argue with, and it matches on `"stopped"` exactly.
         status = str(req.status or "").strip().lower()
         status_val = f"{status}: {note}" if note else status
+        now = _now()
         cursor = await db.execute(
             "UPDATE agents SET status = ?, status_note = ?, last_seen = ? WHERE id = ?",
-            (status, note, _now(), agent_id)
+            (status, note, now, agent_id)
         )
+        # comms_status: the agent reporting on itself, so it is presence. Its siblings below are not.
+        await _mark_agent_present(db, agent_id, now)
         await db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(404, f"Agent '{agent_id}' not found")

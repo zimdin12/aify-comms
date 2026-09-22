@@ -41,7 +41,7 @@ from service.api_core.agent_registration_writes import (
     _register_via_adopted_console_terminal,
     _upsert_registered_agent_row,
 )
-from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_present
 from service.api_core.away_briefing import brief_returning_agent
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.capabilities import _default_capabilities_for
@@ -101,10 +101,9 @@ async def register_agent(req: AgentRegister, request: Request):
 
 
 async def _mark_present(agent_id: str) -> None:
-    """Stamp `last_present_at`. The only other writer is the agent's own heartbeat."""
     db = await get_db()
     try:
-        await db.execute("UPDATE agents SET last_present_at = ? WHERE id = ?", (_now(), agent_id))
+        await _mark_agent_present(db, agent_id)
         await db.commit()
     finally:
         await db.close()

@@ -203,3 +203,67 @@ class AnAbsenceIsMeasuredFromWhenTheAgentWasHere(FastApiTestCase):
         self._message("m-unread", to=AGENT)
         self._register()
         self.assertEqual(len(self._briefings()), 1)
+
+
+class WhatTheAgentDoesIsPresenceAndWhatIsDoneToItIsNot(FastApiTestCase):
+    """An agent that works without heartbeating was briefed "while you were away" mid-work.
+
+    Presence moved only on heartbeat and registration, and not every agent heartbeats: an SSE client
+    never does, and a stdio bridge started without `AIFY_AGENT_ID` skips its liveness beat. Its sends,
+    turn signals and inbox reads stamped `last_seen` only, so after a day of work its next
+    registration measured an absence from the one before and woke it with a briefing.
+
+    The rule the rows below hold: an action the agent AUTHORS is presence; an action an operator takes
+    ON the agent is not (finding 6, which is why the column exists).
+    """
+
+    _register = AReturningAgentIsToldWhatItMissed._register
+    _run = AReturningAgentIsToldWhatItMissed._run
+    _away_for = AReturningAgentIsToldWhatItMissed._away_for
+    _message_at = AReturningAgentIsToldWhatItMissed._message_at
+    _briefings = AReturningAgentIsToldWhatItMissed._briefings
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._register()
+
+    def _briefed_after(self, act) -> bool:
+        self._run(("DELETE FROM messages", ()))
+        self._away_for(10)
+        response = act()
+        self.assertLess(response.status_code, 300, response.text)
+        self._message_at("m-while-working", hours_ago=2, to=AGENT)
+        self._register()
+        return bool(self._briefings())
+
+    def test_an_agent_that_just_sent_a_message_is_not_briefed_as_away(self) -> None:
+        briefed = self._briefed_after(lambda: self.client.post("/api/v1/messages/send", json={
+            "from_agent": AGENT, "to": TEAMMATE, "subject": "progress", "body": "still working"}))
+        self.assertFalse(briefed, "an agent that sent a message seconds ago was briefed as away")
+
+    def test_each_kind_of_write_counts_as_presence_only_when_the_agent_authored_it(self) -> None:
+        def mid_turn_end():
+            # The fast path skips the write when no turn is open, so open one without a presence write.
+            self._run(("INSERT OR REPLACE INTO agent_turn_state (agent_id, turn_busy, turn_updated_at)"
+                       " VALUES (?, 1, ?)", (AGENT, _iso_hours_ago(0))))
+            return self.client.post(f"/api/v1/agents/{AGENT}/turn-end")
+
+        authored = {
+            "heartbeat": lambda: self.client.post(f"/api/v1/agents/{AGENT}/heartbeat", json={}),
+            "turn start": lambda: self.client.post(f"/api/v1/agents/{AGENT}/turn-start"),
+            "turn end": mid_turn_end,
+            "inbox read": lambda: self.client.get(f"/api/v1/messages/inbox/{AGENT}"),
+            "listen": lambda: self.client.get(f"/api/v1/agents/{AGENT}/listen?timeout=1"),
+            "own status": lambda: self.client.patch(f"/api/v1/agents/{AGENT}", json={"status": "idle"}),
+        }
+        done_to_it = {
+            "favourite": lambda: self.client.patch(f"/api/v1/agents/{AGENT}/favorite", json={"favorited": True}),
+            "description": lambda: self.client.patch(f"/api/v1/agents/{AGENT}/description",
+                                                     json={"description": "edited by the operator"}),
+        }
+        for label, act in authored.items():
+            with self.subTest(authored=label):
+                self.assertFalse(self._briefed_after(act), f"{label}: the agent acted, so it was here")
+        for label, act in done_to_it.items():
+            with self.subTest(done_to_it=label):
+                self.assertTrue(self._briefed_after(act), f"{label}: an operator's press is not presence")
