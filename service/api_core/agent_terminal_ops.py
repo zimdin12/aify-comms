@@ -30,14 +30,14 @@ _REAP_TRIAD_BODY_SENTINEL = "__aify_reap_triad__"
 
 async def _request_stop_agent_terminals(
     db, agent_id: str, *, requested_by: str, now: str, reap_triad: bool = False,
-) -> int:
+) -> list[str]:
     """Stop an agent's live MANAGED terminals — an operator Stop must kill the
     running console/TUI, since aify-comms is the lifecycle driver for managed
     sessions (operator-reported 2026-05-31: Stop interrupted the run + marked the
     agent stopped but left the host TUI running). Appends a 'stop' terminal
     control (the bridge's terminal-control poll reaps the PTY) and marks the
     terminal 'stopping'. Skips synthetic (vterm_) and already terminal-state
-    rows. Returns the number of terminals signaled.
+    rows. Returns the ids of the terminals signaled.
 
     reap_triad (fix/hermes-leak P2): stamp the body sentinel so a MANAGED-HERMES
     stop also tears down the detached triad (gateway/loop/daemon) on the bridge,
@@ -55,7 +55,7 @@ async def _request_stop_agent_terminals(
     stop_body = "Agent stopped from dashboard."
     if reap_triad:
         stop_body = f"{_REAP_TRIAD_BODY_SENTINEL} {stop_body}"
-    count = 0
+    signalled: list[str] = []
     for t in await cursor.fetchall():
         await _append_terminal_control(
             db,
@@ -75,8 +75,8 @@ async def _request_stop_agent_terminals(
                 "UPDATE agent_sessions SET terminal_status = 'stopping', last_seen = ? WHERE id = ?",
                 (now, t["session_id"]),
             )
-        count += 1
-    return count
+        signalled.append(t["id"])
+    return signalled
 
 
 async def _resolve_live_console_terminal(db, agent_id: str):

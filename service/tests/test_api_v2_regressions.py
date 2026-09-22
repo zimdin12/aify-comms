@@ -3809,7 +3809,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         switched = self.client.patch(f"/api/v1/agents/{agent_id}/session-mode", json={"mode": "resident", "force": True})
         self.assertEqual(switched.status_code, 200, switched.text)
-        self.assertEqual(switched.json().get("sideEffects", {}).get("stoppedTerminalId"), managed_terminal_id)
+        self.assertEqual(switched.json().get("sideEffects", {}).get("stoppedTerminalIds"), [managed_terminal_id])
         term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
         self.assertEqual(
             term["status"], "stopping",

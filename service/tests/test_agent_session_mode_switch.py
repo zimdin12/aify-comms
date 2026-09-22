@@ -208,15 +208,15 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
 
     # ─── C2 — state-transition side effects ───────────────────────────────
 
-    def _seed_managed_terminal(self, agent_id: str, *, runtime: str = "codex") -> tuple[str, str]:
+    def _seed_managed_terminal(self, agent_id: str, *, runtime: str = "codex", tag: str = "") -> tuple[str, str]:
         """Seed a 'running' terminal_sessions row + matching agent_sessions row
         wired up the way `_active_terminal_for_agent` expects. Returns
-        (terminal_id, session_id)."""
+        (terminal_id, session_id). `tag` seeds a second pair for the same agent."""
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
         try:
-            session_id = f"session_{agent_id}"
-            terminal_id = f"term_{agent_id}"
+            session_id = f"session_{agent_id}{tag}"
+            terminal_id = f"term_{agent_id}{tag}"
             now = "2099-01-01T00:00:00Z"
             env_row = conn.execute("SELECT id, bridge_id FROM environments LIMIT 1").fetchone()
             env_id = env_row["id"] if env_row else "linux:test-host:default"
@@ -280,7 +280,7 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(self._read_terminal_status(terminal_id), "stopping",
                          "Plan 6 C2: managed -> resident must release the managed PTY")
         body = res.json()
-        self.assertEqual(body.get("sideEffects", {}).get("stoppedTerminalId"), terminal_id)
+        self.assertEqual(body.get("sideEffects", {}).get("stoppedTerminalIds"), [terminal_id])
         agent = self._read_agent_row("codex-pty")
         self.assertEqual(agent["launch_mode"], "detached")
         self.assertIn("resident-run", agent["capabilities"])
@@ -322,8 +322,26 @@ class AgentSessionModeSwitchTests(FastApiTestCase):
         self.assertEqual(controls[0]["status"], "pending", "a control nobody can claim stops nothing")
         self.assertTrue(controls[0]["environment_id"],
                         "a control with no environment is one no host polls for")
-        self.assertTrue(res.json().get("sideEffects", {}).get("stopControlId"),
-                        "the caller is told what was queued, so a stuck stop can be traced")
+        self.assertEqual(res.json().get("sideEffects", {}).get("stoppedTerminalIds"), [terminal_id],
+                         "the caller is told what was stopped, so a stuck stop can be traced")
+
+    def test_switch_managed_to_resident_stops_EVERY_live_terminal_not_just_the_newest(self):
+        """The switch read ONE terminal (`_active_terminal_for_agent`, `LIMIT 1` on the newest
+        session) while `stop_agent_worker` stops every live one. An agent holding two live PTYs --
+        a warm rotation that left the old one running is the known way to get there -- kept one
+        running after it was switched to resident, addressed by nothing."""
+        self._heartbeat_environment("codex")
+        self._register_agent(agent_id="codex-two-pty", runtime="codex", session_mode="managed")
+        first, _ = self._seed_managed_terminal("codex-two-pty", runtime="codex")
+        second, _ = self._seed_managed_terminal("codex-two-pty", runtime="codex", tag="-b")
+        self._heartbeat_environment("codex")
+
+        res = self.client.patch("/api/v1/agents/codex-two-pty/session-mode", json={"mode": "resident"})
+        self.assertEqual(res.status_code, 200, res.text)
+
+        for terminal_id in (first, second):
+            self.assertEqual(self._read_terminal_status(terminal_id), "stopping", terminal_id)
+            self.assertEqual([c["action"] for c in self._terminal_controls(terminal_id)], ["stop"], terminal_id)
 
     def test_CONTROL_switching_an_agent_with_no_live_terminal_queues_nothing(self):
         """The negative control: the stop must be the TERMINAL's doing, not the switch's."""

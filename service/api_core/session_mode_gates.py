@@ -14,8 +14,7 @@ from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
 )
 from service.api_core.dispatch_text import _coldstart_refusal_message
-from service.api_core.events import _append_terminal_control
-from service.api_core.terminal_ownership import _active_terminal_for_agent
+from service.api_core.agent_terminal_ops import _request_stop_agent_terminals
 from service.api_core.active_run_lookup import _get_blocking_active_run
 
 
@@ -153,30 +152,15 @@ async def _start_managed_backing_after_switch(db, agent_id: str, new_mode: str, 
                 # state cannot stop a process on the owning host. Queue the bridge-side stop before
                 # marking the row stopped" -- and this path simply never called it. Asked by the
                 # operator, 2026-09-21.
-                active = await _active_terminal_for_agent(db, agent_id, settings=settings)
-                if active is not None:
-                    terminal_id = active["terminal_id"] if "terminal_id" in active.keys() else None
-                    session_id = active["session_id"] if "session_id" in active.keys() else ""
-                    if terminal_id:
-                        keys = active.keys()
-                        side_effects["stopControlId"] = await _append_terminal_control(
-                            db,
-                            terminal_id=terminal_id,
-                            environment_id=str((active["environment_id"] if "environment_id" in keys else "") or ""),
-                            bridge_id=str((active["bridge_id"] if "bridge_id" in keys else "") or ""),
-                            action="stop",
-                            requested_by=requested_by,
-                        )
-                        await db.execute(
-                            "UPDATE terminal_sessions SET status = 'stopping', updated_at = ? WHERE id = ?",
-                            (now, terminal_id),
-                        )
-                        if session_id:
-                            await db.execute(
-                                "UPDATE agent_sessions SET terminal_status = 'stopping', last_seen = ? WHERE id = ?",
-                                (now, session_id),
-                            )
-                        side_effects["stoppedTerminalId"] = terminal_id
+                #
+                # EVERY live terminal, through the helper operator Stop uses: this read one
+                # (`_active_terminal_for_agent`, newest session only), so an agent holding two live
+                # PTYs kept one running after the switch.
+                stopped = await _request_stop_agent_terminals(
+                    db, agent_id, requested_by=requested_by, now=now,
+                )
+                if stopped:
+                    side_effects["stoppedTerminalIds"] = stopped
         except Exception as exc:  # pragma: no cover — surface, do not abort
             logger.warning("session-mode side-effect failed for %s: %s", agent_id, exc)
             side_effects["error"] = str(exc)
