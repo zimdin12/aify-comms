@@ -1521,3 +1521,50 @@ page carries the key to the browser. Anyone reading this should not treat it as 
 not authentication. The deployment's real perimeter is that the host is the operator's own machine.
 
 **A console screen rebuilt from the stored tail says so (2026-09-16).** After a service restart the first chunk for an existing terminal seeds its live screen from `terminal_sessions.output`, a 64 KB tail that can start mid-escape. TUIs that redraw with relative cursor moves and never clear stay overlapping for as long as they are idle: after the 2026-09-16 rebuild three running consoles read like `ia-hHermes (all four lanes):agraftrisnenabledains`, with 0, 0 and 1 full clears in their tails. The screen is now marked `reconstructed` until the program issues `CSI 2J` or `ESC c` on the main screen. A clear inside the seed counts, because everything after it is in the seed. The replay path uses the same rule on the stored log. `GET /agents/{id}/console` returns the flag; `comms_console_tail` prints a note; `context-window` does not parse a figure from such a screen. The rule is CONSERVATIVE: a short log that really is the whole stream from byte 0 but holds no clear (claude never clears) is reported as reconstructed too, because nothing in the stored bytes says where the stream began. The screen itself is not changed and nothing is dropped; the dashboard does not show the flag yet.
+
+## 2026-09-22 — An external agent sends here without registering, and says where it is
+
+An agent on another machine must be able to send a message to this service without appearing in its
+roster. Its env and wrapper belong to its own host; a row here would claim this service knows it,
+and nothing here can vouch for it. That is the operator's call, taken after an agent from a second
+PC turned up in the registry with a blank machine id: **"that external should not register here. he
+is agent in another pc and it would not make sense if he would register here."**
+
+Sending already required no row and still creates none. What was missing was any way to see that a
+message came from outside, or who to answer. So a send may carry an `origin` — an endpoint and a
+contact in the sender's own words — stored on the message and shown in the inbox beside an
+`external` chip drawn from `fromRegistered`, which the API derives per read.
+
+**DECLARED, NEVER MEASURED, and it is labelled as a claim wherever it is drawn.** The obvious design
+is to record the client IP, and this deployment cannot: every peer the service observes is
+`172.27.0.1`, the Docker bridge gateway, or a sibling container, because Docker NATs everything
+arriving from outside. Traffic from this host and from another PC are indistinguishable at the
+socket, so an IP field would hold one constant for both and read as provenance. Only the sender
+knows, so the sender says. It is attacker-controlled text from a party with no identity beyond the
+shared key: trimmed, capped at 200 characters, escaped where drawn, and never a default.
+
+**Scoped to SHOWING the origin, not relaying a reply.** Answering an unregistered sender means
+POSTing to *their* service, which needs a peers table holding each peer's endpoint and credential
+and a decision about mismatched tokens. That is a cross-instance feature; this fits the current
+shape. Derived at read time rather than stamped at send time, so a sender removed later reads as
+external from then on.
+
+**What this does NOT close:** holding the shared key still lets a caller register any agent id from
+any machine. Auth is one instance-wide secret with no notion of which host is calling, which is how
+the second PC's agent landed in the roster in the first place. Per-machine credentials are a
+separate design, not started.
+
+## 2026-09-22 — fastapi is bounded ABOVE, because five gates go blind without it
+
+From fastapi 0.140 `include_router` leaves a lazy `_IncludedRouter` in `app.routes` instead of
+flattening the child routes into it. Serving is unaffected — no product code walks `app.routes` —
+but five inventory gates do, and every one of them reads as a pass when it finds nothing, including
+"the endpoints the fleet cannot lose". Measured on the same application: this container at 0.141.1
+builds 11 route entries, 3 of them `_IncludedRouter`; a host at 0.136.1 builds 129.
+
+Recursing instead was considered and rejected for now: the child routes are reachable through
+`_IncludedRouter.original_router`, but their paths no longer carry the parent's prefix and the
+prefix is not on the include context either, so it means rebuilding paths from private internals
+that have just been restructured once. A walker that gets that subtly wrong produces a WRONG
+inventory, which is worse than an empty one. `test_the_route_inventory_is_not_empty.py` is the
+canary: run in the container it reports `8 not greater than 60` and names the five gates.

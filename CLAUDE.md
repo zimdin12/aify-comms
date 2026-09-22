@@ -343,7 +343,7 @@ cd ~/projects/aify-wrapper && npm test                      # 551 tests, 66 skip
                                                            # deletes it, which is why this machine
                                                            # stopped accumulating ~150 aify-* temp
                                                            # directories per morning.
-cd ~/projects/aify-env    && npm test                          # 1879 tests, 2 skipped; `npm test`
+cd ~/projects/aify-env    && npm test                          # 1946 tests, 2 skipped; `npm test`
                                                            # NOT a bare `node --test`: the script
                                                            # carries --test-timeout=60000, and a
                                                            # hang there once left a test process
