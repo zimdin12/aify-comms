@@ -8,8 +8,18 @@
 // population derived from the source.
 //
 // WHY BOTH MATTER. A tool registered twice silently takes the second handler, so a stale copy shadows
-// the live one. A name exported by its owner and declared again elsewhere keeps working until the two
-// definitions disagree -- the shape `DelegatedManagedController` and the two build tags both took.
+// the live one. A name EXPORTED by its owner and declared again elsewhere keeps working until the two
+// definitions disagree -- the shape the two build tags took.
+//
+// WHAT IT DOES NOT CATCH, measured rather than assumed (external review 2026-09-21, finding 10). The
+// header used to cite `DelegatedManagedController` as an example, and that name is NOT caught: it is
+// declared in `controllers/codex-controller.js` and `controllers/hermes-controller.js` without
+// `export`, and this gate only considers names in the exported union, so the probe returns null for
+// it. Nor does it catch a name declared TWICE IN ONE FILE, which the old per-slice `declaringModules`
+// census did -- `declaredNames` collects into a Set, so one file appears once however many times it
+// declares the name. Two module-private classes sharing a name is legal and common, so widening to
+// every declaration would fire on ordinary code; the honest position is that this gate covers the
+// EXPORTED surface, and the example it cites is one it actually holds.
 
 import assert from "node:assert/strict";
 import test from "node:test";

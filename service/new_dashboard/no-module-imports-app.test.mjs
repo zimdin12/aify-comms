@@ -46,8 +46,12 @@ export function importersOf(modules, dir, target) {
 }
 
 function dashboardModules() {
+  // RECURSIVE, so a module moved into a subdirectory stays inside the population. A plain
+  // `readdirSync` stopped at the top level, which meant the first person to group modules into a
+  // folder would silently take them out of this gate's reach (external review, finding 12).
   return fs
-    .readdirSync(DIR)
+    .readdirSync(DIR, { recursive: true })
+    .map((name) => String(name).split("\\").join("/"))
     .filter((name) => /\.(mjs|js)$/.test(name) && !name.includes(".test.") && name !== "app.js")
     .filter((name) => fs.statSync(path.join(DIR, name)).isFile())
     .map((name) => [name, fs.readFileSync(path.join(DIR, name), "utf-8")]);

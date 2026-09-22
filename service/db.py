@@ -244,6 +244,23 @@ async def _migrate_settings_rows(db: aiosqlite.Connection):
     )
 
 
+async def _clear_stuck_internal_settings(db: aiosqlite.Connection):
+    """Drop a stored value that no operator can reach to change back.
+
+    `managed_terminal_backing_enabled` is `shown=False`, so it is on no panel -- and under aify-env
+    every managed worker starts from its console row, so a host holding `false` starts NO managed
+    workers and has no control to fix it with (external review 2026-09-21, finding 12). Deleting the
+    row restores the code default, which is the only value that works under the current tier.
+
+    NOT MARKED, because it is idempotent and is meant to run every start: a suite that flips this at
+    runtime gets it back at the next restart, which is the intent rather than a side effect. A row
+    reading `true` is left exactly where it is -- this removes a value, it does not write one.
+    """
+    await db.execute(
+        "DELETE FROM settings WHERE key = 'managed_terminal_backing_enabled' AND value = 'false'"
+    )
+
+
 async def _migrate_dispatch_runs_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(dispatch_runs)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -498,6 +515,7 @@ async def init_db(db_path: Path = None):
         await _migrate_agent_turn_state_table(db)
         await _migrate_agent_status_state_table(db)
         await _migrate_settings_rows(db)
+        await _clear_stuck_internal_settings(db)
         await _backfill_native_managed_capability(db)
         await _reconcile_terminal_controls(db)
         await db.commit()

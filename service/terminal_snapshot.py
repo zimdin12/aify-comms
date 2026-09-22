@@ -487,9 +487,42 @@ def live_screen_text(terminal_id: str) -> Optional[str]:
         return None
     try:
         screen = live.alt_screen if live.in_alt and live.alt_screen is not None else live.screen
-        return "\n".join(line.rstrip() for line in screen.display)
+        return _plain_screen_text(screen)
     except Exception:
         return None
+
+
+def _plain_screen_text(screen) -> str:
+    """The visible screen as plain text, read CELL BY CELL rather than through `screen.display`.
+
+    EXTERNAL REVIEW, 2026-09-21, finding 2. pyte's `display` calls `wcwidth(char[0])` per cell and
+    raises IndexError on a wide-char CONTINUATION stub with no wide char in front of it -- an
+    ordinary outcome of three everyday TUI operations (CSI P over a wide char, CSI X, a narrow
+    overwrite of a left half). The caller's `except Exception: return None` swallowed it, and the
+    parked-console answerer is `if not screen: return` -- so a worker sitting at the
+    development-channels dialog was never sent Enter. Up, and deaf.
+
+    `terminal_ansi.py` never had this bug because it already reads cells directly and SKIPS the
+    empty-string continuation; doing the same here keeps the two paths agreeing about what is on
+    screen. Skipping rather than emitting a space is also what keeps columns aligned -- a space
+    there shifts every following column one right per wide character.
+    """
+    buffer = screen.buffer
+    cols = int(getattr(screen, "columns", 0) or 0)
+    out: list[str] = []
+    for y in range(int(getattr(screen, "lines", 0) or 0)):
+        line = buffer.get(y, {})
+        row: list[str] = []
+        for x in range(cols):
+            cell = line.get(x)
+            if cell is None:
+                row.append(" ")
+                continue
+            if cell.data == "":
+                continue  # the continuation half of a wide glyph
+            row.append(cell.data)
+        out.append("".join(row).rstrip())
+    return "\n".join(out)
 
 
 def live_screen_reconstructed(terminal_id: str) -> Optional[bool]:

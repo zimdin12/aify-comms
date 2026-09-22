@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
+from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.message_store import _delete_messages_where
 
 DAY_MS = 86_400_000
@@ -62,12 +63,38 @@ class RotationSchedule:
 SWEEP_SCHEDULE = RotationSchedule()
 
 
+#: A message an OPEN dispatch run points at is not history, whatever its age.
+#:
+#: EXTERNAL REVIEW, 2026-09-21, finding 4. Rotation filtered on age and recipient only, and
+#: `message_store` nulls `dispatch_runs.message_id` for a message it deletes -- while the closing
+#: path matches a reply on `WHERE target_agent = ? AND message_id = ?`. So rotation could delete the
+#: message a live run was waiting on, leaving the run open and overdue with no id left to quote and
+#: nothing able to close it. The cap half could also delete the REPLY out of the sender's inbox,
+#: which `reconcilers/managed_workers.py` scans for exactly that purpose.
+#:
+#: DERIVED from `_DISPATCH_TERMINAL_STATUSES`, so a fourth ending added later is excluded here
+#: without anyone remembering this file. Open means "not ended": that is the eager direction, and
+#: eager is correct for a guard whose failure mode is deleting somebody's in-flight work.
+_OPEN_RUN_MESSAGE_IDS = (
+    " AND id NOT IN (SELECT message_id FROM dispatch_runs"
+    " WHERE COALESCE(message_id, '') != ''"
+    f"   AND status NOT IN ({','.join('?' * len(_DISPATCH_TERMINAL_STATUSES))}))"
+)
+_OPEN_RUN_PARAMS = tuple(sorted(_DISPATCH_TERMINAL_STATUSES))
+
+
 async def rotate_messages(db, policy: RotationPolicy, *, now_ms: int) -> dict[str, int]:
-    """Apply the policy once. Returns what was deleted; the caller commits."""
+    """Apply the policy once. Returns what was deleted; the caller commits.
+
+    Nothing an open dispatch run still points at is deleted, however old it is -- see
+    `_OPEN_RUN_MESSAGE_IDS`.
+    """
     stats = {"expired_messages": 0, "trimmed_messages": 0}
     if policy.retention_days > 0:
         cutoff = now_ms - policy.retention_days * DAY_MS
-        stats["expired_messages"] = await _delete_messages_where(db, "timestamp < ?", (cutoff,))
+        stats["expired_messages"] = await _delete_messages_where(
+            db, "timestamp < ?" + _OPEN_RUN_MESSAGE_IDS, (cutoff, *_OPEN_RUN_PARAMS)
+        )
     if policy.cap_per_agent > 0:
         # The cap is per RECIPIENT, and trimming takes the OLDEST: an inbox trimmed from the other
         # end leaves an agent holding only history it has already dealt with.
@@ -79,10 +106,13 @@ async def rotate_messages(db, policy: RotationPolicy, *, now_ms: int) -> dict[st
         for agent_id, count in await cursor.fetchall():
             stats["trimmed_messages"] += await _delete_messages_where(
                 db,
-                "id IN (SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp ASC LIMIT ?)",
-                (agent_id, count - policy.cap_per_agent),
+                "id IN (SELECT id FROM messages WHERE to_agent = ? ORDER BY timestamp ASC LIMIT ?)"
+                + _OPEN_RUN_MESSAGE_IDS,
+                (agent_id, count - policy.cap_per_agent, *_OPEN_RUN_PARAMS),
             )
-    if stats["expired_messages"] or stats["trimmed_messages"]:
-        # A receipt for a message that is gone would otherwise stay forever.
-        await db.execute("DELETE FROM read_receipts WHERE message_id NOT IN (SELECT id FROM messages)")
+    # NO SWEEP OF read_receipts HERE. `_delete_messages_by_ids` already deletes the receipts for the
+    # exact ids it removes, by id, in the same transaction -- so the `NOT IN (SELECT id FROM
+    # messages)` that used to run here re-answered a question already settled, as a FULL SCAN of
+    # both tables under the single writer lock. That is the shape `sweep.py` records as the
+    # "database is locked" incident, on a path that runs hourly (review finding 12).
     return stats

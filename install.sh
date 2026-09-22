@@ -1090,11 +1090,9 @@ function Invoke-AifyHermesKillPrior {
   # called before the spawn (nothing of ours to protect yet).
   param([string]\$AgentId, [int]\$ExcludeLoopPid = 0)
   if (-not \$AgentId) { return }
-  try {
-    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-      Where-Object { \$_.CommandLine -and \$_.CommandLine -match 'hermes-channel\\.js' -and \$_.CommandLine -match [regex]::Escape(\$AgentId) } |
-      ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
-  } catch {}
+  # NO hermes-channel.js REAP. That script was deleted with the environment-bridge tier, so this
+  # match could never find a process: it was dead code that still walked every node.exe on the box,
+  # from a function called twice per install (external review 2026-09-21, finding 12).
   # Managed visible-TUI model: reap a prior background delivery loop
   # ('hermes-managed-host.js run <agent>') for this agent. Its SIGTERM teardown
   # then kills the hidden gateway host it owns. Match the managed-host script +

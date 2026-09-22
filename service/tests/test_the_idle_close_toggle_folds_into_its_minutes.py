@@ -14,7 +14,7 @@ import unittest
 
 import aiosqlite
 
-from service.db import _IDLE_CLOSE_MERGE_MARK, _migrate_settings_rows
+from service.db import _IDLE_CLOSE_MERGE_MARK, _clear_stuck_internal_settings, _migrate_settings_rows
 
 
 async def _run(rows, *, passes=1, set_between=None):
@@ -77,6 +77,44 @@ class IdleCloseToggleMigrationTest(unittest.TestCase):
 
         self.assertIsNotNone(asyncio.run(go()), "a migration with nothing to fold must still record that it ran")
 
+
+
+class AHiddenSettingCannotStayStuckOff(unittest.TestCase):
+    """`managed_terminal_backing_enabled` is on no panel, and under aify-env a host holding `false`
+    starts NO managed workers -- with no control anywhere to change it back.
+
+    External review, 2026-09-21, finding 12. The fix removes the stored value so the code default
+    applies; it never writes one, and a row reading `true` is left alone.
+    """
+
+    @staticmethod
+    def _run(rows, *, passes=1):
+        async def go():
+            async with aiosqlite.connect(":memory:") as db:
+                await db.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+                await db.executemany("INSERT INTO settings VALUES (?, ?)", rows)
+                for _ in range(passes):
+                    await _clear_stuck_internal_settings(db)
+                cursor = await db.execute("SELECT key, value FROM settings ORDER BY key")
+                return dict(await cursor.fetchall())
+
+        return asyncio.run(go())
+
+    def test_a_stored_false_is_removed_so_the_default_applies(self):
+        after = self._run([("managed_terminal_backing_enabled", "false")])
+        self.assertEqual(after, {}, "a host stuck with no managed workers must recover on restart")
+
+    def test_CONTROL_a_stored_true_is_left_exactly_where_it_is(self):
+        after = self._run([("managed_terminal_backing_enabled", "true")])
+        self.assertEqual(after, {"managed_terminal_backing_enabled": "true"})
+
+    def test_CONTROL_no_other_setting_is_touched(self):
+        after = self._run([("away_briefing_hours", "4"), ("managed_pty_eager_spawn", "false")])
+        self.assertEqual(after, {"away_briefing_hours": "4", "managed_pty_eager_spawn": "false"})
+
+    def test_running_it_every_start_is_safe(self):
+        after = self._run([("managed_terminal_backing_enabled", "false")], passes=3)
+        self.assertEqual(after, {})
 
 if __name__ == "__main__":
     unittest.main()

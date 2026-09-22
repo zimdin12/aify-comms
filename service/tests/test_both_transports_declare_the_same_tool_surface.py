@@ -126,6 +126,26 @@ class BothTransportsDeclareTheSameToolSurfaceTests(unittest.TestCase):
         for side, schemas in (("stdio", stdio), ("sse", sse)):
             self.assertIn("body", schemas.get("comms_send", set()), f"{side} lost comms_send's body")
 
+    def test_comms_dispatch_carries_priority_on_BOTH_transports(self):
+        """PINNED BY NAME, deliberately, and restored after it was removed.
+
+        EXTERNAL REVIEW, 2026-09-21, finding 11. `test_an_sse_dispatch_can_set_a_priority` was
+        deleted by the duplicate-removal campaign (2e0d06f9). Its own docstring had said why it was
+        by-name -- "an accepted absence is how it lived for as long as it did" -- and after the
+        removal `priority` survived in this file only as PROSE.
+
+        WHY THE SURVIVING TESTS DO NOT COVER IT. They compare the two transports to EACH OTHER, so a
+        symmetric removal passes in silence, and a one-sided one passes the moment somebody adds any
+        non-blank string to DECLARED_DIFFERENCES. Neither asks whether the parameter is there at all.
+        """
+        stdio, sse = tool_parameters(), sse_tool_parameters()
+        for side, schemas in (("stdio", stdio), ("sse", sse)):
+            params = {ALIASES.get(n, n) for n in schemas.get("comms_dispatch", set())}
+            self.assertIn("priority", params, f"{side} lost comms_dispatch's `priority`")
+        # And it must not be excused as a declared difference, which is the other way it could go.
+        self.assertNotIn(("comms_dispatch", "sse", "priority"), DECLARED_DIFFERENCES)
+        self.assertNotIn(("comms_dispatch", "stdio", "priority"), DECLARED_DIFFERENCES)
+
     def test_every_parameter_difference_is_declared_with_a_reason(self):
         undeclared = sorted(differences(tool_parameters(), sse_tool_parameters())
                             - set(DECLARED_DIFFERENCES))

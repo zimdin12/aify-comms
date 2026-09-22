@@ -88,6 +88,55 @@ class RetentionAndDeletionTests(FastApiTestCase):
 
     # ── rotation: what it must NOT delete ────────────────────────────────────────────────────
 
+    def _seed_run(self, run_id: str, message_id: str, status: str) -> None:
+        """A dispatch run pointing at a message, in whatever state the case needs."""
+        self._write(
+            "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status, requested_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (run_id, message_id, OTHER, AGENT, status, "2026-01-01T00:00:00Z"),
+        )
+
+    def test_a_message_an_OPEN_run_is_waiting_on_is_never_expired(self):
+        """EXTERNAL REVIEW, 2026-09-21, finding 4.
+
+        Rotation filtered on age and recipient only. Deleting a message NULLs
+        `dispatch_runs.message_id`, and the closing path matches a reply on
+        `WHERE target_agent = ? AND message_id = ?` -- so rotation could delete the message a live
+        run was waiting on, leaving it open and overdue with no id left to quote and nothing able to
+        close it. Age is not evidence that work has finished.
+        """
+        self._seed_message("m-awaited", age_days=400)
+        self._seed_run("run-open", "m-awaited", "running")
+        self._settings(message_retention_days=30)
+        self._rotate()
+        self.assertIn("m-awaited", self._message_ids(), "an open run's message must survive rotation")
+
+    def test_CONTROL_the_same_old_message_goes_once_its_run_has_ENDED(self):
+        """In the same run, or the guard above could be refusing to delete anything at all."""
+        self._seed_message("m-done", age_days=400)
+        self._seed_run("run-done", "m-done", "completed")
+        self._settings(message_retention_days=30)
+        self._rotate()
+        self.assertNotIn("m-done", self._message_ids(), "a finished run must not pin history forever")
+
+    def test_CONTROL_an_old_message_no_run_points_at_is_still_expired(self):
+        self._seed_message("m-orphan", age_days=400)
+        self._settings(message_retention_days=30)
+        self._rotate()
+        self.assertNotIn("m-orphan", self._message_ids())
+
+    def test_the_CAP_also_spares_a_message_an_open_run_is_waiting_on(self):
+        """The other half: the cap trims the OLDEST, which is exactly where an awaited message sits."""
+        for i in range(5):
+            self._seed_message(f"m-cap-{i}", age_days=10 - i)
+        self._seed_run("run-cap", "m-cap-0", "queued")
+        self._settings(message_cap_per_agent=2)
+        self._rotate()
+        surviving = self._message_ids()
+        self.assertIn("m-cap-0", surviving, "the cap must not evict an open run's message either")
+        self.assertNotIn("m-cap-1", surviving, "...while still trimming the rest, or it trimmed nothing")
+
+
     def test_a_message_past_the_window_is_expired(self):
         """And one inside it survives. This is also the gate on the cutoff's UNITS: an ISO-string
         cutoff deletes both rows (every INTEGER sorts below every TEXT), a seconds cutoff deletes
@@ -157,9 +206,16 @@ class RetentionAndDeletionTests(FastApiTestCase):
                          "another agent's inbox was trimmed because THIS one was over")
         self.assertEqual(self._message_ids(AGENT), ["busy2", "busy3"])
 
-    def test_rotation_clears_receipts_whose_message_is_gone(self):
+    def test_rotation_takes_a_messages_receipts_WITH_it(self):
         """An orphaned receipt is a claim about a message that no longer exists; left behind it
-        accumulates forever and can resurrect as a false 'already read'."""
+        accumulates forever and can resurrect as a false 'already read'.
+
+        RENAMED 2026-09-22, because the old name described a sweep this no longer does and never
+        needed to. `_delete_messages_by_ids` deletes each message's receipts BY ID in the same
+        transaction, so the receipt goes with the message. The full-table `NOT IN` that used to run
+        after rotation was re-answering that, and this test was green because of the by-id delete
+        rather than because of the sweep it was named for (review finding 12).
+        """
         self._settings(message_retention_days=1, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=99)
         self._write(

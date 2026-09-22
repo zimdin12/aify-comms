@@ -75,7 +75,24 @@ WIDGET_FOR_TYPE = {
 #: setting cannot be hidden without saying so at its declaration.
 from service.api_core.settings_spec import GROUPS, SETTINGS, defaults as _spec_defaults  # noqa: E402
 
-NOT_OPERATOR_FACING = {s.key for s in SETTINGS if not s.shown}
+#: The settings deliberately kept off the operator's panel, WRITTEN OUT rather than derived.
+#:
+#: EXTERNAL REVIEW, 2026-09-21, finding 10. This was `{s.key for s in SETTINGS if not s.shown}`, and
+#: the served schema below is filtered by the same `shown` flag -- so the test that compares them
+#: was comparing a set with itself and could not fail, while this file's own docstring still claimed
+#: names are "pinned by NAME, in both directions". A list somebody has to edit is the whole point:
+#: hiding a new setting should cost a deliberate line here, which is what makes it a decision rather
+#: than a default.
+NOT_OPERATOR_FACING = frozenset({
+    # Under aify-env every managed worker starts from its console row, so turning this off stops
+    # them all. Not a panel control; see settings_spec.py.
+    "managed_terminal_backing_enabled",
+    # pi/opencode console pre-spawn. pi is deprecated and this is a legacy regression-suite lever.
+    "managed_pty_eager_spawn",
+})
+
+#: What the SPEC currently hides, derived -- the other side of the comparison, so the two can differ.
+SPEC_HIDES = {s.key for s in SETTINGS if not s.shown}
 SERVED_SCHEMA = {"groups": list(GROUPS), "settings": [s.describe() for s in SETTINGS if s.shown]}
 
 
@@ -456,11 +473,24 @@ class SettingsControlsMatchTheirValues(unittest.TestCase):
         self.assertEqual(wrong, [], "\n".join(["emitted bounds exclude their own defaults:"] + wrong))
 
     def test_a_setting_hidden_from_the_operator_is_named(self):
+        """The panel's hidden set must equal the WRITTEN list, not the flag that produced the panel.
+
+        Both sides used to come from `shown`, so this compared a set with itself. Now the left side
+        is what the rendered panel actually shows and the right side is a list a human maintains.
+        """
         shown = {c["key"] for c in self.controls}
         hidden = {key for key in self.defaults if key not in shown}
         self.assertEqual(
-            hidden, NOT_OPERATOR_FACING,
-            "a setting appeared on neither the panel nor the internal list; decide which it is",
+            hidden, set(NOT_OPERATOR_FACING),
+            "a setting appeared on neither the panel nor the named list; decide which it is",
+        )
+
+    def test_the_spec_hides_exactly_what_this_file_names(self):
+        """The second direction: a setting marked `shown=False` without being named here is caught,
+        and a name here whose setting became visible is caught too."""
+        self.assertEqual(
+            SPEC_HIDES, set(NOT_OPERATOR_FACING),
+            "settings_spec and the named list disagree about what is hidden",
         )
 
     def test_the_list_of_hidden_settings_holds_no_ghosts(self):

@@ -107,6 +107,32 @@ class LiveWorkerGateTests(unittest.TestCase):
         self.assertEqual(payload["statusRaw"], "available", "statusRaw must move with status")
         self.assertIn("no-live-worker", payload["statusNote"])
 
+    def test_a_cached_READY_is_downgraded_exactly_as_online_is(self):
+        """EXTERNAL REVIEW, 2026-09-21, finding 11. The `ready` arm of this gate was pinned by
+        NOTHING: dropping it from the set left the whole suite green, including the subtest in
+        `test_agent_status_read_gate.py` that names a cached `ready` -- because that one is served
+        through a later derivation and passes for a different reason than it says.
+
+        MEASURED, not argued: with the set narrowed to {"online"} the suite stayed green; narrowed
+        to {"ready"} it went red. So `online` was held and `ready` was not. This holds it here,
+        where the gate is called directly and nothing downstream can answer for it.
+        """
+        payload = _run(_enforce_live_worker_gate(
+            _managed_payload(status="ready", statusRaw="ready"), _Db(0), {}, "sc-coder"))
+        self.assertEqual(payload["status"], "available")
+        self.assertEqual(payload["statusRaw"], "available", "statusRaw must move with status")
+        self.assertIn("no-live-worker", payload["statusNote"])
+
+    def test_CONTROL_a_status_outside_the_set_is_left_alone(self):
+        """Or the test above would pass against a gate that downgraded everything it was handed."""
+        for status in ("working", "blocked", "available"):
+            with self.subTest(status=status):
+                db = _Db(0)
+                result = _run(_enforce_live_worker_gate(
+                    _managed_payload(status=status, statusRaw=status), db, {}, "sc-coder"))
+                self.assertEqual(result["status"], status)
+                self.assertEqual(db.queries, [], "a status this gate does not open on must not cost a query")
+
     def test_a_live_terminal_leaves_the_status_alone(self):
         payload = _run(_enforce_live_worker_gate(_managed_payload(), _Db(1), {}, "sc-coder"))
         self.assertEqual(payload["status"], "online")

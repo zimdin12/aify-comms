@@ -231,8 +231,13 @@ on a module that referenced an undefined name and threw on its first real call, 
 a test.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 4768 tests, 24 skipped (+10578 subtests; 21 are deprecated pi tests)
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 4785 tests, 24 skipped (+10592 subtests; 21 are deprecated pi tests)
 cd mcp/stdio && node tests/run-all.mjs                 # 357 suites, 2 skipped tests, 9 pi files disabled (all named in its output)
+#   pi is DEPRECATED and its coverage is off by default -- 9 bridge files and 3 Python files. It is
+#   still shipped, still in LAUNCHABLE_RUNTIMES, and `dispatch_hint.py` still suggests it, so the
+#   code is live while the tests are not. `AIFY_TEST_DEPRECATED=pi` turns them back on (8 skipped
+#   by default, 8 passing under the flag). That opt-in was written down in DECISIONS.md and
+#   install.pi.md and NOT here, which is where people look (external review, finding 8).
 cd service/new_dashboard && node --test *.test.mjs     # 1790 tests
 ```
 
