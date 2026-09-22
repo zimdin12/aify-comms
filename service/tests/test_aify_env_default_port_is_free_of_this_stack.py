@@ -22,7 +22,10 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 COMPOSE = REPO / "docker-compose.yml"
-AIFY_ENV = Path(os.environ.get("AIFY_ENV_REPO", Path.home() / "projects" / "aify-env"))
+#: Same order as every cross-repo test: AIFY_ENV_REPO, else beside this checkout, else ~/projects.
+AIFY_ENV = (Path(os.environ["AIFY_ENV_REPO"]) if os.environ.get("AIFY_ENV_REPO", "").strip()
+            else next((p for p in (REPO.parent / "aify-env", Path.home() / "projects" / "aify-env")
+                       if p.exists()), Path.home() / "projects" / "aify-env"))
 
 # "${NEW_DASHBOARD_PORT:-8801}:8801" and "8188:8188" both appear; the HOST port is the left half.
 #: The CONTAINER side may be a variable too, not only a literal. The https proxy publishes

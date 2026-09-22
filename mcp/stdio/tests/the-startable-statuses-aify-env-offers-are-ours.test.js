@@ -25,15 +25,16 @@
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 const CONTRACT = path.join(REPO, "service", "contracts", "vocabulary.json");
-const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
-const THEIRS = path.join(AIFY_ENV, "lib", "startable-agents.mjs");
+const SIBLING = siblingCheckout("aify-env", path.join("lib", "startable-agents.mjs"));
+const AIFY_ENV = SIBLING.looked.join(" or ");
+const THEIRS = path.join(SIBLING.dir ?? SIBLING.looked[0], "lib", "startable-agents.mjs");
 
 /** The statuses this service declares, from the file the service itself reads. */
 function ourStatuses() {
