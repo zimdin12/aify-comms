@@ -91,8 +91,9 @@ import {
   // TWO PARSERS, ONE PER PLATFORM, and the test has to follow the branch it is running on.
   // On win32 it asks PowerShell for backtick-t separated fields and hands them to `parseProcLines`;
   // elsewhere it runs `ps -eo pid=,ppid=,args=` and parses SPACE-separated columns with its own
-  // regex. Feeding either format to the other silently yields ZERO rows — which a reaper reads as
-  // "nothing to reap", the failure that looks like success.
+  // regex. Feeding the POSIX format to the Windows parser silently yields ZERO rows — which a reaper
+  // reads as "nothing to reap", the failure that looks like success. Not the other way round: `\s`
+  // matches a tab, so the POSIX regex reads the Windows form correctly.
   const onWindows = process.platform === "win32";
   const calls = [];
   const fakeSpawn = (cmd, args, opts) => {
@@ -106,7 +107,7 @@ import {
 
   // The WRONG format for this platform is zero rows, not a throw and not garbage — pinned because
   // it is the shape a silent reaper failure takes.
-  const wrongFormat = () => ({ status: 0, stdout: onWindows ? "1 2 node a.js\n" : "1\t2\tnode a.js\n" });
+  const wrongFormat = () => ({ status: 0, stdout: onWindows ? "1 2 node a.js\n" : "1,2,node a.js\n" });
   assert.deepEqual(defaultListProcesses(wrongFormat), []);
 
   // A reaper whose enumeration THROWS takes the bridge down with it; one that sees an empty list
