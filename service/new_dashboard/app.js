@@ -11,7 +11,7 @@ import { byId, toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js
 import { createChatController } from './chat.js';
 import { inspectorRefreshDecision } from './inspector-refresh.mjs';
 import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
-import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';
+import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings, settingUnchanged } from './theme.js';
 import { settingsFieldHtml } from './settings-fields.mjs';
 import {
   asAgentArray,
@@ -439,7 +439,7 @@ async function saveSettings() {
     else if (type === 'csv') payload[key] = el.value.split(',').map((s) => s.trim()).filter(Boolean);
     else payload[key] = el.value; // text, select, theme, color
   });
-  for (const key of Object.keys(payload)) if (JSON.stringify(payload[key]) === JSON.stringify(state.settings?.[key])) delete payload[key]; // send only what changed
+  for (const key of Object.keys(payload)) if (settingUnchanged(key, payload[key], state.settings, payload.dashboard_theme)) delete payload[key]; // send only what changed (theme.js)
   if (statusEl) statusEl.textContent = 'Saving…';
   try {
     const res = await api('/settings', { method: 'PUT', body: JSON.stringify(payload) });

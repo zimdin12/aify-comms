@@ -24,7 +24,7 @@
 // of reassuring, unenforced sentence that makes the next reader stop checking.
 
 import { esc } from './util.js';
-import { THEMES, normalizedHexColor, paletteFromSettings } from './theme.js';
+import { COLOR_SETTING_SLOT, THEMES, normalizedHexColor, paletteFromSettings } from './theme.js';
 
 function themePreviewTilesHtml(selectedKey) {
   const selected = THEMES[selectedKey] ? selectedKey : 'default';
@@ -55,7 +55,7 @@ export function settingsFieldHtml(item, value, settings = {}) {
   }
   if (item.type === 'color') {
     const preset = paletteFromSettings(settings, settings.dashboard_theme);
-    const fallback = item.key === 'dashboard_secondary_color' ? preset.secondary : item.key === 'dashboard_tertiary_color' ? preset.tertiary : preset.accent;
+    const fallback = preset[COLOR_SETTING_SLOT[item.key] || 'accent'];
     // Through the helper, which also LOWERCASES. This kept the value exactly as stored, while
     // `<input type="color">` normalises its own value to lowercase -- so a setting saved as #AABBCC
     // showed `#AABBCC` in the code label beside a swatch driven by `#aabbcc`, and the theme applied
