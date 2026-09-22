@@ -211,10 +211,12 @@ class RetentionAndDeletionTests(FastApiTestCase):
         accumulates forever and can resurrect as a false 'already read'.
 
         RENAMED 2026-09-22, because the old name described a sweep this no longer does and never
-        needed to. `_delete_messages_by_ids` deletes each message's receipts BY ID in the same
-        transaction, so the receipt goes with the message. The full-table `NOT IN` that used to run
-        after rotation was re-answering that, and this test was green because of the by-id delete
-        rather than because of the sweep it was named for (review finding 12).
+        needed to. TWO things take the receipt with its message, and either one alone keeps this
+        green: `read_receipts.message_id` is `ON DELETE CASCADE` with `foreign_keys=ON` on every
+        service connection, and `_delete_messages_by_ids` also deletes the receipts by id. Measured
+        2026-09-23: removing either leaves this passing; removing both turns it red. It pins the
+        behaviour, not a mechanism. The full-table `NOT IN` that used to run after rotation
+        re-answered a question both had already settled (review finding 12).
         """
         self._settings(message_retention_days=1, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=99)

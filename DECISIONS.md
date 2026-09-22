@@ -33,13 +33,14 @@ choosing it.
 
 ## Pi is deprecated: support kept, tests disabled by default (2026-09-18)
 
-The operator no longer uses Oh My Pi but may again, so its code stays and nothing is removed. Its
-tests are kept as the proof to revive with rather than deleted: each carries `deprecated-runtime: pi`
-near its top, and both runners (`mcp/stdio/tests/run-all.mjs` through `deprecated-runtimes.mjs`, and
+The operator no longer uses Oh My Pi but may again, so its code stays. Its tests, all but one, are
+kept as the proof to revive with rather than deleted: each carries `deprecated-runtime: pi` near its
+top, and both runners (`mcp/stdio/tests/run-all.mjs` through `deprecated-runtimes.mjs`, and
 `service/tests/conftest.py`) leave such files out unless `AIFY_TEST_DEPRECATED` names the runtime.
 The bridge runner lists them by name and pytest reports them skipped, so a disabled file never counts
 as a pass. The one pi test that was slow enough to matter (`pi-runtime.test.js`, about 350 of the
-bridge suite's 773 summed seconds) was deleted outright. Tests that guard OTHER runtimes against pi
+bridge suite's 773 summed seconds) is the exception: it was deleted outright in `3b090df0`, so
+reviving pi means restoring it from that commit's parent as well as setting the flag. Tests that guard OTHER runtimes against pi
 code paths, such as `virtual-terminal-input-is-pi-only.test.js`, stay enabled.
 
 ## One live instance per agent per host, replaced only on an explicit start (2026-09-14, built in v0.6.8)
