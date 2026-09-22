@@ -15,7 +15,10 @@ The version is the one already stamped at build time and read by `/version`, the
 test_version_single_source.py exists to fail.
 """
 
+import pytest
 from fastapi.testclient import TestClient
+
+pytestmark = pytest.mark.usefixtures("real_app_data_dir")
 
 #: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the browser guard now
 #: requires every request to arrive on a Host this service trusts -- loopback, a literal IP, or
