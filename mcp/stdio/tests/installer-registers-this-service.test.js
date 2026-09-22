@@ -119,7 +119,11 @@ test("a second run leaves the file byte-identical, so a reinstall does not move 
 //
 // The same class was fixed in aify-wrapper's installer earlier, where the suite could not see it
 // because every test ran through a shell that was quietly rescuing it.
-test("registration survives a shell with path conversion turned off", () => {
+// WINDOWS ONLY: MSYS path conversion and `cygpath` exist only under Git Bash, so elsewhere this case
+// skips by name rather than failing on a missing tool.
+test("registration survives a shell with path conversion turned off", {
+  skip: process.platform !== "win32" && "MSYS path conversion exists only under Git Bash on Windows",
+}, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-reg-msys-"));
   const registry = path.join(dir, "services.json").split(String.fromCharCode(92)).join("/");
   const bridgeDir = BRIDGE.split(String.fromCharCode(92)).join("/");
