@@ -31,6 +31,7 @@ import test from "node:test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { tmpDir } from "./_tmpdir.js";
 import { leakedCarriers, sealedChildEnv } from "./_child-env.mjs";
@@ -216,7 +217,7 @@ test("the runtime-markers script prints its usage to stderr and exits 1", async 
   const markers = new URL("../runtime-markers.js", HERE);
   for (const args of [[], ["write"], ["write", "claude"], ["bogus-command", "claude", "C:/tmp"]]) {
     const { code, stdout, stderr } = await new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [markers.pathname.replace(/^\//, ""), ...args], {
+      const child = spawn(process.execPath, [fileURLToPath(markers), ...args], {
         stdio: ["ignore", "pipe", "pipe"],
       });
       let out = "";
