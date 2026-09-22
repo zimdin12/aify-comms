@@ -37,7 +37,7 @@ async def _request_stop_agent_terminals(
     agent stopped but left the host TUI running). Appends a 'stop' terminal
     control (the bridge's terminal-control poll reaps the PTY) and marks the
     terminal 'stopping'. Skips synthetic (vterm_) and already terminal-state
-    rows. Returns the ids of the terminals signaled.
+    rows, matching the status case-insensitively. Returns the ids of the terminals signaled.
 
     reap_triad (fix/hermes-leak P2): stamp the body sentinel so a MANAGED-HERMES
     stop also tears down the detached triad (gateway/loop/daemon) on the bridge,
@@ -48,7 +48,7 @@ async def _request_stop_agent_terminals(
         SELECT id, environment_id, bridge_id, session_id FROM terminal_sessions
         WHERE agent_id = ?
           AND id NOT LIKE 'vterm_%'
-          AND status IN {TERMINAL_STOPPABLE_STATUS_SQL}
+          AND LOWER(COALESCE(status, '')) IN {TERMINAL_STOPPABLE_STATUS_SQL}
         """,
         (agent_id,),
     )
