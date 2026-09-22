@@ -1556,15 +1556,19 @@ separate design, not started.
 
 ## 2026-09-22 — fastapi is bounded ABOVE, because five gates go blind without it
 
-From fastapi 0.140 `include_router` leaves a lazy `_IncludedRouter` in `app.routes` instead of
+From fastapi 0.137.0 `include_router` leaves a lazy `_IncludedRouter` in `app.routes` instead of
 flattening the child routes into it. Serving is unaffected — no product code walks `app.routes` —
 but five inventory gates do, and every one of them reads as a pass when it finds nothing, including
 "the endpoints the fleet cannot lose". Measured on the same application: this container at 0.141.1
 builds 11 route entries, 3 of them `_IncludedRouter`; a host at 0.136.1 builds 129.
 
-Recursing instead was considered and rejected for now: the child routes are reachable through
-`_IncludedRouter.original_router`, but their paths no longer carry the parent's prefix and the
-prefix is not on the include context either, so it means rebuilding paths from private internals
-that have just been restructured once. A walker that gets that subtly wrong produces a WRONG
-inventory, which is worse than an empty one. `test_the_route_inventory_is_not_empty.py` is the
+**The bound first shipped as `<0.140`, which was wrong.** Bisected on 2026-09-23 with fresh
+resolves: 0.136.1 builds 129 entries, 0.137.0 and 0.139.2 build 11. `<0.140` resolved to 0.139.2,
+so the canary and five gate files were red on every fresh install. The bound is `<0.137`.
+
+Hand-recursing through `_IncludedRouter` was rejected: a walker that gets the prefixes subtly wrong
+produces a WRONG inventory, which is worse than an empty one. The way forward is fastapi's own
+`fastapi.routing.iter_route_contexts(app.routes)`, added in 0.138.0 (0.137.x has none): at 0.139.2
+it yields exactly the 129 (path, methods, name) rows that 0.136.1's flat walk yields, compared byte
+for byte. Porting the five gates to it, and then lifting the bound, is separate work. `test_the_route_inventory_is_not_empty.py` is the
 canary: run in the container it reports `8 not greater than 60` and names the five gates.

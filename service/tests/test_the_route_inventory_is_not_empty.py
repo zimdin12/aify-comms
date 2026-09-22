@@ -2,7 +2,7 @@
 
 EXTERNAL REVIEW, 2026-09-21, finding 7. `test_route_inventory`, `test_route_metadata_inventory`,
 `test_every_route_is_exercised`, `test_removed_agent_is_refused_everywhere` and
-`test_bridge_write_bodies_are_declared` all walk `app.routes`. From fastapi 0.140 `include_router`
+`test_bridge_write_bodies_are_declared` all walk `app.routes`. From fastapi 0.137.0 `include_router`
 leaves a lazy `_IncludedRouter` there instead of flattening the child routes into it, so the walk
 finds a handful of entries and every one of those gates passes having measured almost nothing.
 
@@ -11,7 +11,7 @@ an app with 11 route entries, 3 of them `_IncludedRouter`; fastapi 0.136.1 build
 suite was therefore honest only where the resolved version happened to be old enough -- which is not
 a property anybody can see from a green run.
 
-`service/requirements.txt` now bounds fastapi below 0.140. THIS FILE IS WHAT NOTICES IF THAT SLIPS:
+`service/requirements.txt` now bounds fastapi below 0.137. THIS FILE IS WHAT NOTICES IF THAT SLIPS:
 an upper bound in a requirements file is a decision somebody can undo in one character, and the
 failure it prevents is silent. A red test here is loud, and it names the five gates that went quiet.
 

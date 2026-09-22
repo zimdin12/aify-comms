@@ -1,6 +1,6 @@
 # Core framework
 #
-# BOUNDED ABOVE, for the same reason `mcp` is below. From 0.140 `include_router` stops flattening the
+# BOUNDED ABOVE, for the same reason `mcp` is below. From 0.137.0 `include_router` stops flattening the
 # child routes into `app.routes` and leaves a lazy `_IncludedRouter` in their place. Serving is
 # unaffected -- no product code walks `app.routes` -- but FIVE GATES DO, and every one of them reads
 # as a pass when it finds nothing: test_route_inventory, test_route_metadata_inventory,
@@ -12,13 +12,18 @@
 # app with 129. So the suite is honest only where the resolved version happens to be old enough,
 # which is not a property anyone can see. The external review's own host was already past it.
 #
-# The child routes ARE reachable through `_IncludedRouter.original_router`, but their paths no longer
-# carry the parent's prefix and the prefix is not on the include context either, so recursing means
-# reconstructing paths from private internals that have just been restructured once. A walker that
-# gets that subtly wrong produces a WRONG inventory, which is worse than an empty one. Porting the
-# five gates is its own piece of work; until then this targets what flattens, and says so.
+# THE FIRST CEILING HERE WAS `<0.140`, AND IT WAS TOO HIGH. Bisected 2026-09-23 on fresh resolves:
+# 0.136.1 builds 129 entries, 0.137.0 and 0.139.2 build 11. `<0.140` resolved to 0.139.2, so the
+# canary was red on every fresh install while the bound read as the fix.
+#
+# The way past this is not a hand-written recursion through `_IncludedRouter` internals: a walker that
+# gets the prefixes subtly wrong produces a WRONG inventory, which is worse than an empty one. fastapi
+# 0.138.0 added `fastapi.routing.iter_route_contexts(app.routes)`, and at 0.139.2 it yields exactly
+# the 129 (path, methods, name) rows that 0.136.1's flat walk does -- compared byte for byte on
+# 2026-09-23. 0.137.x has no such helper. Porting the five gates to it is its own piece of work; until
+# then this targets what flattens, and says so.
 # `test_the_route_inventory_is_not_empty.py` is the canary that fails if this ever slips.
-fastapi>=0.115.0,<0.140
+fastapi>=0.115.0,<0.137
 uvicorn[standard]>=0.32.0
 pydantic>=2.0.0
 
