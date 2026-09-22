@@ -220,13 +220,15 @@ _IDLE_CLOSE_MERGE_MARK = "migrated_worker_idle_close_v1"
 
 async def _migrate_settings_rows(db: aiosqlite.Connection):
     # `worker_idle_close_enabled` merged into `worker_idle_close_minutes` (0 = off) on 2026-09-19. A
-    # host that had minutes set but the toggle off must stay off, not start closing workers.
+    # host whose toggle row says 'false' had idle-closing off with minutes set, so its minutes fold to 0.
     #
-    # A MISSING TOGGLE ROW IS AN OFF ONE. Rows exist only where somebody SET the value; the default
-    # was False, so the commonest shape by far -- minutes set, toggle never touched -- was a host
-    # with idle-closing OFF. Keying the fold on a row that reads 'false' skipped exactly those hosts
-    # and turned idle-closing ON for them, and the DELETE below meant there was no second chance
-    # (external review 2026-09-21, finding 9). So the fold happens unless the toggle SAID true.
+    # ONLY AN EXPLICIT 'false' FOLDS. Every dashboard Save since the toggle arrived (2026-05-27) sent
+    # it with the rest of the form, so a host that set minutes from a panel has a toggle row. Minutes
+    # with NO toggle row means one of two histories the DB cannot tell apart: a v0.6.16-18 host whose
+    # old migration already consumed the row (every such host with minutes set), or a <=0.6.15 host
+    # whose minutes came from a raw partial PUT (rare). Folding that shape zeroed the first -- idle-
+    # close silently off, workers stay open, including hosts that had it ON. Leaving it alone is wrong
+    # only for the second, which then starts closing idle workers. The rare error was chosen.
     done = await (await db.execute(
         "SELECT 1 FROM settings WHERE key = ?", (_IDLE_CLOSE_MERGE_MARK,)
     )).fetchone()
@@ -234,11 +236,11 @@ async def _migrate_settings_rows(db: aiosqlite.Connection):
         return
     await db.execute(
         "UPDATE settings SET value = '0' WHERE key = 'worker_idle_close_minutes'"
-        " AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'worker_idle_close_enabled' AND value = 'true')"
+        " AND EXISTS (SELECT 1 FROM settings WHERE key = 'worker_idle_close_enabled' AND value = 'false')"
     )
     await db.execute("DELETE FROM settings WHERE key = 'worker_idle_close_enabled'")
-    # THE MARK IS WHAT STOPS THIS RUNNING TWICE, and it has to be written whether or not anything was
-    # folded: without it the next restart would zero a value the operator set after upgrading.
+    # THE MARK MAKES THIS RUN ONCE, written whether or not anything folded. A second run would find no
+    # toggle row anyway -- unless one came back: `import_v2` writes whatever settings a bundle holds.
     await db.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (_IDLE_CLOSE_MERGE_MARK, '"done"')
     )

@@ -21,7 +21,10 @@ under Workers.
 Retired keys (listed in `RETIRED`) are ignored on PUT, and old rows are left out on read. They are
 the auto-confirm switches, `manual_session_mode`, `idle_minutes`, `offline_minutes`,
 `stale_agent_hours`, `status_engine` and `worker_idle_close_enabled`. The last one is folded into
-`worker_idle_close_minutes`, where 0 means off, by a one-time migration in `service/db.py`.
+`worker_idle_close_minutes`, where 0 means off, by a one-time migration in `service/db.py`. Only a
+toggle row reading `false` folds the minutes to 0. Minutes with no toggle row are left alone, because
+that is what a v0.6.16-18 host looks like after its own migration deleted the row; the first 0.6.19
+version zeroed those, and hosts that already booted it keep the zero.
 
 Message rotation runs hourly from the sweep (`service/reconcilers/message_rotation.py`), and
 `POST /rotate` runs it on request. Two settings control it: `message_retention_days` and

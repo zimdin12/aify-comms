@@ -1,13 +1,13 @@
 """`worker_idle_close_enabled` was merged into `worker_idle_close_minutes` (0 = off) on 2026-09-19.
 
-The migration must keep a host that had the toggle OFF from starting to close idle workers, and must
+The migration must keep a host whose toggle said 'false' from starting to close idle workers, and must
 run once: a later restart cannot zero minutes the operator set since.
 
-A MISSING ROW IS THE COMMONEST SHAPE, and the first version of this migration did not handle it.
-Settings rows exist only where somebody SET a value, and the toggle's default was False -- so a host
-with minutes set and the toggle never touched had idle-closing OFF, and keying the fold on a row
-reading 'false' skipped exactly those hosts and switched it ON for them. The DELETE meant there was
-no second chance. External review, 2026-09-21, finding 9.
+ONLY AN EXPLICIT 'false' FOLDS. Every dashboard Save since 2026-05-27 sent the toggle with the rest of
+the form, so minutes with NO toggle row is either a v0.6.16-18 host whose old migration already ate the
+row, or a <=0.6.15 host whose minutes came from a raw partial PUT. The DB cannot tell them apart. The
+2026-09-21 version folded that shape and zeroed every upgrading 0.6.16-18 host (idle-close off, workers
+stay open); leaving it alone is wrong only for the rare raw-PUT host (idle workers start closing).
 """
 import asyncio
 import sqlite3
@@ -28,7 +28,7 @@ async def _run(rows, *, passes=1, set_between=None):
         await db.executemany("INSERT INTO settings VALUES (?, ?)", rows)
         await _migrate_settings_rows(db)
         if set_between:
-            await db.execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", set_between)
+            await db.executemany("INSERT OR REPLACE INTO settings VALUES (?, ?)", set_between)
         for _ in range(passes - 1):
             await _migrate_settings_rows(db)
         cursor = await db.execute("SELECT key, value FROM settings ORDER BY key")
@@ -43,11 +43,11 @@ class IdleCloseToggleMigrationTest(unittest.TestCase):
         after = asyncio.run(_run([("worker_idle_close_enabled", "false"), ("worker_idle_close_minutes", "45")]))
         self.assertEqual(after, {"worker_idle_close_minutes": "0"})
 
-    def test_a_host_that_never_touched_the_toggle_was_off_and_stays_off(self):
-        # The default was False. No row means nobody changed it, which means idle-closing was off --
-        # and this is the host the first version of the migration switched on.
+    def test_minutes_with_no_toggle_row_are_left_alone(self):
+        # The ambiguous shape (see the header). Most hosts reaching it ran v0.6.16-18 and are running
+        # these minutes today; zeroing them was the 2026-09-21 regression.
         after = asyncio.run(_run([("worker_idle_close_minutes", "45")]))
-        self.assertEqual(after, {"worker_idle_close_minutes": "0"})
+        self.assertEqual(after, {"worker_idle_close_minutes": "45"})
 
     def test_an_enabled_toggle_keeps_its_minutes(self):
         after = asyncio.run(_run([("worker_idle_close_enabled", "true"), ("worker_idle_close_minutes", "45")]))
@@ -56,21 +56,44 @@ class IdleCloseToggleMigrationTest(unittest.TestCase):
     def test_a_later_restart_keeps_minutes_set_after_the_migration(self):
         after = asyncio.run(_run(
             [("worker_idle_close_enabled", "false"), ("worker_idle_close_minutes", "45")],
-            passes=2, set_between=("worker_idle_close_minutes", "30"),
+            passes=2, set_between=[("worker_idle_close_minutes", "30")],
         ))
         self.assertEqual(after, {"worker_idle_close_minutes": "30"})
 
-    def test_a_later_restart_keeps_minutes_on_a_host_that_had_no_toggle_row(self):
-        # The same guarantee where there is no toggle row to consume: without the mark, every
-        # restart would zero whatever the operator had set since, for ever.
+    def test_a_toggle_row_that_comes_back_does_not_zero_minutes_set_since(self):
+        # What the mark is for, now that a second run finds no toggle row to fold: `import_v2` writes
+        # whatever settings a bundle holds, so an old host's bundle can put `false` back.
         after = asyncio.run(_run(
             [("worker_idle_close_minutes", "45")],
-            passes=3, set_between=("worker_idle_close_minutes", "30"),
+            passes=2, set_between=[("worker_idle_close_minutes", "30"), ("worker_idle_close_enabled", "false")],
         ))
-        self.assertEqual(after, {"worker_idle_close_minutes": "30"})
+        self.assertEqual(after.get("worker_idle_close_minutes"), "30")
 
     def test_a_fresh_install_has_nothing_to_migrate(self):
         self.assertEqual(asyncio.run(_run([])), {})
+
+    def test_a_host_that_ran_0_6_18_keeps_its_minutes_on_the_0_6_19_boot(self):
+        # v0.6.16-18's migration had already consumed the toggle row and wrote no mark, so the first
+        # 0.6.19 boot finds minutes with no toggle and no mark. The first 0.6.19 migration zeroed it,
+        # including hosts that had idle-close ON (toggle true + 45 -> 0) -- measured 2026-09-23 by
+        # running v0.6.18's real migration and then this one. Goes through init_db, the real boot.
+        from service.schema import SCHEMA
+
+        original_path = db_module._db_path
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "v0618.db"
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.executescript(SCHEMA)
+                    conn.execute("INSERT INTO settings VALUES ('worker_idle_close_minutes', '45')")
+                    conn.commit()
+                asyncio.run(db_module.init_db(path))
+                with closing(sqlite3.connect(path)) as conn:
+                    after = dict(conn.execute("SELECT key, value FROM settings"))
+        finally:
+            db_module._db_path = original_path
+        self.assertEqual(after.get("worker_idle_close_minutes"), "45", "the 0.6.19 boot zeroed a 0.6.18 host")
+        self.assertIn(_IDLE_CLOSE_MERGE_MARK, after, "control: the boot ran the migration at all")
 
     def test_the_mark_is_written_so_the_fold_happens_once(self):
         async def go():
