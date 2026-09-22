@@ -25,10 +25,22 @@ import {
  * @param deps.sh      run a command and return stdout
  * @param deps.repo    the checkout to compare against, or null when there is none
  * @param deps.serverUrl only for the unreachable message
+ * @param deps.transportError the error that made the last `get` return null, or null
  */
-export async function checkService({ get, add, sh, repo, serverUrl }) {
+export async function checkService({ get, add, sh, repo, serverUrl, transportError }) {
   const health = await get("/health");
   if (!health) {
+    // ACCEPTED, THEN DROPPED: something is listening and resets every connection. On a Docker Desktop
+    // host that is the published-port forward left dead by a WSL distro restart while the container
+    // runs on, healthy (2026-09-17, 2026-09-21). `up -d --build` leaves an unchanged container and
+    // its forward in place, so the remedy is different from a service that is not running.
+    const cause = transportError()?.cause?.code;
+    if (cause === "ECONNRESET" || cause === "UND_ERR_SOCKET") {
+      return add("service", false, "port-forward-reset",
+        `${serverUrl} accepted the connection and reset it (${cause}): the port forward is dead, not necessarily the service.`,
+        "Recreate the containers so Docker rebinds the port: `docker compose up -d --force-recreate` in the "
+          + "repo (add `--profile https` if you run the HTTPS proxy). Data volumes are kept.");
+    }
     return add("service", false, "unreachable",
       `No healthy service at ${serverUrl}.`,
       "Start it: `docker compose up -d --build` (in the repo), then re-run.");

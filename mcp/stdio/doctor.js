@@ -113,7 +113,11 @@ const sh = (cmd, cmdArgs, cwd) => {
 //: cannot tell those apart tells an operator to check whether the service is up while it is up and
 //: rejecting every request -- which is what happened the day `API_KEY` was first set.
 let serviceRefusedTheKey = false;
+//: Why the last `get` returned null when it never got an HTTP answer. `checkService` reads it to tell a
+//: port that resets from one nobody listens on.
+let lastTransportError = null;
 const get = async (path) => {
+  lastTransportError = null;
   try {
     // WITH THE KEY. This sent nothing until 2026-09-01, which was invisible while no key was set and
     // blinded every service-reading check the moment one was. See doctor-api-key.mjs.
@@ -127,7 +131,10 @@ const get = async (path) => {
     }
     if (!res.ok) return null;
     return await res.json();
-  } catch { return null; }
+  } catch (error) {
+    lastTransportError = error;
+    return null;
+  }
 };
 
 /** Why the service produced nothing, in the operator's terms rather than the transport's. */
@@ -468,7 +475,7 @@ function checkSkillsInstalled() {
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────────────
-await checkService({ get, add, sh, repo, serverUrl: SERVER_URL });
+await checkService({ get, add, sh, repo, serverUrl: SERVER_URL, transportError: () => lastTransportError });
 // WHICH aify-env THE ENV ROWS ASK. The launcher bakes 8802, and a `herdr-aify env` daemon listens on
 // its own port -- so on 2026-09-13 three rows reported a healthy daemon as unreachable. Resolved once,
 // only when delegating, so a host that never uses aify-env is probed exactly as before.

@@ -14,12 +14,13 @@
 // and `aify-comms doctor` was run against the live service afterwards to prove the CLI still works.
 
 import assert from "node:assert/strict";
+import net from "node:net";
 import { test } from "node:test";
 
 import { checkService } from "../service-check.mjs";
 
 /** A recorder for `add`, plus canned service answers. Nothing here touches a network or a checkout. */
-function harness({ health = { status: "healthy" }, version = {}, repo = null } = {}) {
+function harness({ health = { status: "healthy" }, version = {}, repo = null, error = null } = {}) {
   const recorded = [];
   return {
     recorded,
@@ -29,6 +30,7 @@ function harness({ health = { status: "healthy" }, version = {}, repo = null } =
       sh: () => "0",
       repo,
       serverUrl: "http://127.0.0.2:1",
+      transportError: () => error,
     },
   };
 }
@@ -97,4 +99,50 @@ test("every collaborator is REQUIRED, so a caller cannot silently get the module
   // The parameters have no defaults on purpose: a test that forgot one would otherwise reach the real
   // network or the operator's real checkout, and pass for a reason nobody chose.
   await assert.rejects(() => checkService({}), "checkService ran with no collaborators at all");
+});
+
+// A PORT THAT ACCEPTS AND THEN RESETS IS NOT A SERVICE THAT IS DOWN. Seen on the operator's host on
+// 2026-09-17 and 2026-09-21: after the WSL distro restarted, Docker Desktop's forward for the published
+// ports accepted and reset every connection while the containers stayed healthy inside the VM. The
+// row said "No healthy service" and told the operator to `up -d --build`, which leaves an unchanged
+// container (and its dead forward) in place; `--force-recreate` is what restored it.
+//
+// The errors below are REAL: fetch against a real socket that is accepted and then dropped, in both
+// shapes undici reports it (a plain close is UND_ERR_SOCKET, an RST is ECONNRESET).
+
+async function fetchFailure(port) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(5000) });
+  } catch (error) {
+    return error;
+  }
+  return assert.fail("the request was expected to fail");
+}
+
+async function failureFromServer(onConnection) {
+  const server = net.createServer(onConnection);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    return await fetchFailure(server.address().port);
+  } finally {
+    server.close();
+  }
+}
+
+test("a port that accepts and then resets is reported as the forward, not as a down service", async () => {
+  for (const [shape, drop] of [["close", (s) => s.destroy()], ["RST", (s) => s.resetAndDestroy()]]) {
+    const { recorded, deps } = harness({ health: null, error: await failureFromServer(drop) });
+    await checkService(deps);
+    assert.equal(recorded[0][2], "port-forward-reset", `a ${shape} after accept read as a down service`);
+  }
+});
+
+test("CONTROL: a closed port is still a service that is not there", async () => {
+  const probe = net.createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const { port } = probe.address();
+  await new Promise((resolve) => probe.close(resolve));
+  const { recorded, deps } = harness({ health: null, error: await fetchFailure(port) });
+  await checkService(deps);
+  assert.equal(recorded[0][2], "unreachable");
 });
