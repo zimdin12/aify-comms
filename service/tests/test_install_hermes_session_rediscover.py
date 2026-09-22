@@ -16,7 +16,10 @@ shape; the failure path is non-fatal and exercised live by the operator.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+import pytest
 
 from service.tests._launchers import launcher
 
@@ -217,6 +220,14 @@ def test_hermes_wrapper_pins_stable_resume_session():
     assert '--tui --resume "$HERMES_RESUME_REAL_ID"' in text, (
         "bash wrapper must resume the resolved real session id via an explicit --resume"
     )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason=(
+    "install.sh writes hermes-aify.ps1 only when the wrapper directory maps to a drive-letter path "
+    "(install_hermes_windows_tui_shim), which the render's temp directory does only on Windows"
+))
+def test_hermes_ps1_wrapper_resumes_the_same_real_session():
+    """The PowerShell half of the contract above: parity with the bash wrapper since 2026-06-03."""
     ps = _read_hermes_ps1()
     # PowerShell: native-session-id model parity (2026-06-03). The synthetic
     # pinned-session pin is GONE; the managed branch resumes the resolved real id.
