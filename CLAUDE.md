@@ -305,9 +305,11 @@ procedure and the trap that wastes the first ten minutes (`.mjs` served as `text
 
 **AND THE TWO SIBLING REPOS, because a change here can redden them and a change there can redden this
 one.** They are not optional extras:
-`the-credential-ref-we-write-is-one-aify-env-resolves.test.js` in the BRIDGE suite starts a real
-aify-env from the checkout, so an aify-env edit is verified by running aify-comms' tests, and an
-aify-comms edit to the seam is only verified by having aify-env present.
+`the-credential-ref-we-write-is-one-aify-env-resolves.test.js` in the BRIDGE suite imports aify-env's
+`lib/credential-store.mjs` from the checkout (it starts nothing), so an aify-env edit is verified by
+running aify-comms' tests, and an aify-comms edit to the seam is only verified by having aify-env
+present. Every cross-repo test finds the checkout one way: `AIFY_ENV_REPO` / `AIFY_WRAPPER_REPO` if
+set, else beside this checkout, else `~/projects` (`mcp/stdio/tests/_sibling-checkout.mjs`).
 
 **AND SINCE 2026-09-09 A SECOND ONE, IN THE PYTHON SUITE**, which is the direction nobody expects:
 `service/tests/test_the_env_plugin_addresses_routes_this_service_serves.py` reads aify-env's
@@ -373,7 +375,8 @@ correct -- growth with an innocent cause, which is exactly the drift this file k
 **Exit status alone cannot tell a proof from a skip, so the runner reads what each file reported.** A
 file whose tests all SKIPPED exits 0 and used to read as passed — and
 `the-credential-ref-we-write-is-one-aify-env-resolves.test.js`, the standing evidence that this
-service and the host tier agree, skips itself when the aify-env checkout is absent.
+service and the host tier agree, would read that way if it skipped without the aify-env checkout, so
+it FAILS instead.
 
 **THAT SENTENCE NAMED TWO DIFFERENT TESTS UNTIL 2026-09-05, and both were deleted that day.** It
 cited `env-client-against-real-aify-env.test.js` and `delegated-terminal-against-real-aify-env.test.js`
@@ -384,9 +387,8 @@ drove a real aify-env went with them; the one named above survives because what 
 the credential reference this service writes is the one aify-env resolves -- is still a live seam. On any other machine that
 proof ran nothing while the runner said everything passed. Skipped files are now NAMED under "skipped,
 so NOT verified here" and never folded into the pass total; a file with no TAP summary counts as zero
-skips, not as a skip, because 109 of them print none. Its sibling
-`the-credential-ref-we-write-is-one-aify-env-resolves.test.js` carries the same property — for a
-cross-repo proof, "unverified" must not read as green. (The two tests this sentence named until
+skips, not as a skip, because 109 of them print none. For a cross-repo proof, "unverified" must not
+read as green. (The two tests this sentence named until
 2026-09-05 were deleted with the tier they exercised.)
 
 Those counts are a **measured snapshot** (2026-08-27), not a target: they are there so a wrong invocation is
