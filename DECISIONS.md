@@ -1558,21 +1558,28 @@ any machine. Auth is one instance-wide secret with no notion of which host is ca
 the second PC's agent landed in the roster in the first place. Per-machine credentials are a
 separate design, not started.
 
-## 2026-09-22 — fastapi is bounded ABOVE, because five gates go blind without it
+## 2026-09-22 — the route gates walk fastapi's route contexts, and fastapi is held to 0.138-0.139
 
 From fastapi 0.137.0 `include_router` leaves a lazy `_IncludedRouter` in `app.routes` instead of
 flattening the child routes into it. Serving is unaffected — no product code walks `app.routes` —
-but five inventory gates do, and every one of them reads as a pass when it finds nothing, including
-"the endpoints the fleet cannot lose". Measured on the same application: this container at 0.141.1
-builds 11 route entries, 3 of them `_IncludedRouter`; a host at 0.136.1 builds 129.
+but eight test files did, and every gate among them reads as a pass when it finds nothing, including
+"the endpoints the fleet cannot lose". Measured on the same application: 0.136.1 builds 129 route
+entries; 0.137.0 and 0.139.2 build 11, three of them `_IncludedRouter`.
 
-**The bound first shipped as `<0.140`, which was wrong.** Bisected on 2026-09-23 with fresh
-resolves: 0.136.1 builds 129 entries, 0.137.0 and 0.139.2 build 11. `<0.140` resolved to 0.139.2,
-so the canary and five gate files were red on every fresh install. The bound is `<0.137`.
+**The first answer was an upper bound, and it was wrong twice.** `<0.140` (2026-09-22) resolved to
+0.139.2, past the collapse, so the canary was red on every fresh install. `<0.137` would have fixed
+the tests by DOWNGRADING the running service, which is on 0.139.2, at its next rebuild.
 
-Hand-recursing through `_IncludedRouter` was rejected: a walker that gets the prefixes subtly wrong
-produces a WRONG inventory, which is worse than an empty one. The way forward is fastapi's own
-`fastapi.routing.iter_route_contexts(app.routes)`, added in 0.138.0 (0.137.x has none): at 0.139.2
-it yields exactly the 129 (path, methods, name) rows that 0.136.1's flat walk yields, compared byte
-for byte. Porting the five gates to it, and then lifting the bound, is separate work. `test_the_route_inventory_is_not_empty.py` is the
-canary: run in the container it reports `8 not greater than 60` and names the five gates.
+**So the gates moved instead** (2026-09-23). All eight walk through `service/tests/served_routes.py`,
+which asks `fastapi.routing.iter_route_contexts(app.routes)`, added in 0.138.0. At 0.139.2 it yields
+the same 129 (path, methods, name) rows as 0.136.1's flat walk, compared byte for byte, and the gates,
+including the route-metadata snapshot, are green on fresh resolves of 0.138.0 and 0.139.2. A context
+wraps the route, so the one thing that changes for a gate is the declared class: ask
+`declared_class(route)`, never `type(route)`. Hand-recursing through `_IncludedRouter` was rejected:
+a walker that gets the prefixes subtly wrong produces a WRONG inventory, which is worse than an empty
+one.
+
+The requirement is `fastapi>=0.138.0,<0.140`: the floor because nothing older has the helper, the
+ceiling because 0.139.2 is what the service runs. `test_the_route_inventory_is_not_empty.py` is the
+canary. With the helper returning raw `app.routes` on 0.139.2, three of its cases go red, and so do
+all eight other files.

@@ -37,6 +37,7 @@ from fastapi.testclient import TestClient
 from service.config import get_config
 from service.main import create_app
 from service.new_dashboard_app import app as dashboard_app
+from service.tests.served_routes import walk_routes
 
 FAVICON_FILE = Path(__file__).resolve().parents[1] / "favicon.svg"
 
@@ -72,7 +73,7 @@ class ServiceRootTests(unittest.TestCase):
         """A census against the app's own routes, not against a copy of the list. An endpoint map
         is read by agents and operators to find their way around, and a path that moved leaves no
         trace here — the entry keeps looking authoritative while it 404s."""
-        served = {getattr(route, "path", "") for route in self.app.routes}
+        served = {getattr(route, "path", "") for route in walk_routes(self.app)}
         for name, path in self._root()["endpoints"].items():
             with self.subTest(endpoint=name):
                 self.assertTrue(

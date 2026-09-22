@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from service import main as main_module
 from service.main import APIKeyMiddleware, create_app
+from service.tests.served_routes import walk_routes
 
 API_KEY = "correct-horse-battery-staple"
 
@@ -193,7 +194,7 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
                             "/api/v1/favicon.svg", "/api/v1/favicon.ico"}
 
         unexpected = sorted(
-            route.path for route in app.routes
+            route.path for route in walk_routes(app)
             if any(str(getattr(route, "path", "")).startswith(p) for p in EXPECTED_SKIPS)
             and route.path not in framework_paths
             and route.path not in public_endpoints
@@ -209,7 +210,7 @@ class ApiKeyMiddlewareTests(unittest.TestCase):
         """Anti-vacuity for the census above: if none of them existed, the check would pass by
         having nothing to classify."""
         app = create_app()
-        served = {getattr(route, "path", "") for route in app.routes}
+        served = {getattr(route, "path", "") for route in walk_routes(app)}
         for path in ("/health", "/ready", "/version", "/ws"):
             with self.subTest(path=path):
                 self.assertIn(path, served)

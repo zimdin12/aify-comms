@@ -36,6 +36,7 @@ import re
 import unittest
 
 from service.main import create_app
+from service.tests.served_routes import walk_routes
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
@@ -72,7 +73,7 @@ UNTESTED_ROUTE_BACKLOG: set[str] = set()
 def _routes() -> list[tuple[str, str]]:
     app = create_app()
     found = set()
-    for route in app.routes:
+    for route in walk_routes(app):
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", None) or set()
         if not path:

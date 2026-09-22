@@ -40,6 +40,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from service.tests.served_routes import walk_routes
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -236,7 +237,7 @@ def declared_body_fields() -> dict[tuple[str, str], set[str]]:
 
     app = create_app()
     out: dict[tuple[str, str], set[str]] = {}
-    for route in app.routes:
+    for route in walk_routes(app):
         path = getattr(route, "path", None)
         body = getattr(route, "body_field", None)
         model = getattr(getattr(body, "field_info", None), "annotation", None)
@@ -291,7 +292,7 @@ def served_routes() -> set[tuple[str, str]]:
 
     app = create_app()
     out: set[tuple[str, str]] = set()
-    for route in app.routes:
+    for route in walk_routes(app):
         path = getattr(route, "path", None)
         if not path:
             continue
