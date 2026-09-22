@@ -154,7 +154,14 @@ def test_the_installer_calls_it_rather_than_re_deriving_it():
 @pytest.mark.parametrize("flag", ["--missing", "--render", ""])
 def test_no_mode_writes_anything(flag, tmp_path):
     """A reader that mutates is not a reader. Nothing here may create, move or delete a file --
-    especially not on a host where the things being measured own live processes."""
-    before = sorted(p.name for p in tmp_path.iterdir())
-    _run(*( [flag] if flag else [] ), env={"HOME": tmp_path.as_posix()})
-    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    especially not on a host where the things being measured own live processes.
+
+    npm's cache goes BESIDE the fake home: on POSIX it defaults to `~/.npm`, and `npm root -g`
+    creates it and a debug log there on every call. That is npm's housekeeping, not this script
+    writing, and on Windows it already lands in %LOCALAPPDATA%, outside the fake home."""
+    home = tmp_path / "home"
+    home.mkdir()
+    before = sorted(p.name for p in home.iterdir())
+    _run(*( [flag] if flag else [] ),
+         env={"HOME": home.as_posix(), "npm_config_cache": (tmp_path / "npm-cache").as_posix()})
+    assert sorted(p.name for p in home.iterdir()) == before
