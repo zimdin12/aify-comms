@@ -56,6 +56,7 @@ import { checkSessionHandles } from "./session-handle-check.mjs";
 import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
 import { PORT_BASE, PORT_SPAN } from "./hermes-endpoint.js";
 import { checkService } from "./service-check.mjs";
+import { portFate } from "./port-fate.mjs";
 // Spawn CLAIMING is its own subject and its own module -- `comms_envs` asks the same question and
 // must not import the doctor to get an answer. See spawn-claimer.mjs for what that cost.
 import {
@@ -475,7 +476,7 @@ function checkSkillsInstalled() {
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────────────
-await checkService({ get, add, sh, repo, serverUrl: SERVER_URL, transportError: () => lastTransportError });
+await checkService({ get, add, sh, repo, serverUrl: SERVER_URL, transportError: () => lastTransportError, portFate });
 // WHICH aify-env THE ENV ROWS ASK. The launcher bakes 8802, and a `herdr-aify env` daemon listens on
 // its own port -- so on 2026-09-13 three rows reported a healthy daemon as unreachable. Resolved once,
 // only when delegating, so a host that never uses aify-env is probed exactly as before.

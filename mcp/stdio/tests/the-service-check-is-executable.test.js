@@ -18,6 +18,7 @@ import net from "node:net";
 import { test } from "node:test";
 
 import { checkService } from "../service-check.mjs";
+import { portFate } from "../port-fate.mjs";
 
 /** A recorder for `add`, plus canned service answers. Nothing here touches a network or a checkout. */
 function harness({ health = { status: "healthy" }, version = {}, repo = null, error = null } = {}) {
@@ -31,6 +32,8 @@ function harness({ health = { status: "healthy" }, version = {}, repo = null, er
       repo,
       serverUrl: "http://127.0.0.2:1",
       transportError: () => error,
+      // Consulted only after a failure with no cause; every canned case above has none to consult.
+      portFate: async () => assert.fail("portFate was consulted without a transport failure to explain"),
     },
   };
 }
@@ -107,23 +110,29 @@ test("every collaborator is REQUIRED, so a caller cannot silently get the module
 // row said "No healthy service" and told the operator to `up -d --build`, which leaves an unchanged
 // container (and its dead forward) in place; `--force-recreate` is what restored it.
 //
-// The errors below are REAL: fetch against a real socket that is accepted and then dropped, in both
-// shapes undici reports it (a plain close is UND_ERR_SOCKET, an RST is ECONNRESET).
+// The errors below are REAL: fetch against a real socket that is accepted and then dropped, and the
+// real TCP probe against the same socket, still listening while the check runs. WHICH error fetch
+// raises depends on the platform: a plain close is UND_ERR_SOCKET on Linux, and on Windows (measured
+// 2026-09-23, node 22.20) no error at all until the timeout -- which is why the probe exists.
 
-async function fetchFailure(port) {
+async function fetchFailure(port, timeoutMs = 1500) {
   try {
-    await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(5000) });
+    await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
     return error;
   }
   return assert.fail("the request was expected to fail");
 }
 
-async function failureFromServer(onConnection) {
+/** Run `checkService` against a real listener that treats every connection with `onConnection`. */
+async function checkAgainst(onConnection) {
   const server = net.createServer(onConnection);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
   try {
-    return await fetchFailure(server.address().port);
+    const { recorded, deps } = harness({ health: null, error: await fetchFailure(port) });
+    await checkService({ ...deps, serverUrl: `http://127.0.0.1:${port}`, portFate });
+    return recorded[0][2];
   } finally {
     server.close();
   }
@@ -131,10 +140,15 @@ async function failureFromServer(onConnection) {
 
 test("a port that accepts and then resets is reported as the forward, not as a down service", async () => {
   for (const [shape, drop] of [["close", (s) => s.destroy()], ["RST", (s) => s.resetAndDestroy()]]) {
-    const { recorded, deps } = harness({ health: null, error: await failureFromServer(drop) });
-    await checkService(deps);
-    assert.equal(recorded[0][2], "port-forward-reset", `a ${shape} after accept read as a down service`);
+    assert.equal(await checkAgainst(drop), "port-forward-reset", `a ${shape} after accept read as a down service`);
   }
+});
+
+test("CONTROL: a service that accepts and hangs is not a dead forward", async () => {
+  // Its fetch fails with no cause, exactly like the Windows close above; only the probe separates them.
+  const held = [];
+  assert.equal(await checkAgainst((s) => held.push(s)), "unreachable");
+  for (const socket of held) socket.destroy();
 });
 
 test("CONTROL: a closed port is still a service that is not there", async () => {
@@ -143,6 +157,7 @@ test("CONTROL: a closed port is still a service that is not there", async () => 
   const { port } = probe.address();
   await new Promise((resolve) => probe.close(resolve));
   const { recorded, deps } = harness({ health: null, error: await fetchFailure(port) });
-  await checkService(deps);
+  await checkService({ ...deps, serverUrl: `http://127.0.0.1:${port}`, portFate });
   assert.equal(recorded[0][2], "unreachable");
+  assert.equal(await portFate(`http://127.0.0.1:${port}`), "refused", "the probe itself must say refused");
 });
