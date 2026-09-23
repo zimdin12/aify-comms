@@ -57,6 +57,7 @@ import { checkGatewayOrphans } from "./gateway-orphan-check.mjs";
 import { PORT_BASE, PORT_SPAN } from "./hermes-endpoint.js";
 import { checkService } from "./service-check.mjs";
 import { portFate } from "./port-fate.mjs";
+import { checkExternalKeys } from "./external-keys-check.mjs";
 // Spawn CLAIMING is its own subject and its own module -- `comms_envs` asks the same question and
 // must not import the doctor to get an answer. See spawn-claimer.mjs for what that cost.
 import {
@@ -570,6 +571,8 @@ await checkApiExposure({
     }
   },
 });
+// KEYS ISSUED TO OTHER MACHINES that restrict nothing: set with no API_KEY, or refused as malformed.
+await checkExternalKeys({ get, add });
 checkNativeBridge();
 // WHERE MANAGED SPAWNS RUN, and whether that place is answering.
 //
