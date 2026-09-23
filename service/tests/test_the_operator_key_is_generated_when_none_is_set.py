@@ -1,4 +1,4 @@
-"""`OPERATOR_KEY` is generated into the data volume when `.env` sets none, and the dashboard injects THAT key.
+"""`OPERATOR_KEY` is generated into its own volume when `.env` sets none, and the dashboard injects THAT key.
 
 Before 2026-09-23 nothing ever set it, so on any host where nobody had run `openssl rand` by hand the
 dashboard's delete controls refused and the service could not tell the operator sending AS an agent
@@ -47,6 +47,17 @@ class TheServiceResolvesItsOperatorKey(unittest.TestCase):
         resolve_operator_key("", self.data, create=True)
         self.assertEqual(os.stat(self.file).st_mode & 0o777, 0o600)
 
+    def test_an_empty_or_truncated_file_is_replaced_by_the_service(self) -> None:
+        # Found by review: an empty file (an interrupted write) read as "", and O_EXCL then refused to
+        # replace it -- operator privilege gone for good, with nothing logged.
+        for leftover in ("", "   \n", "short"):
+            with self.subTest(repr(leftover)):
+                self.file.write_text(leftover, encoding="utf-8")
+                self.assertEqual(resolve_operator_key("", self.data, create=False), "", "a reader must not trust it")
+                key = resolve_operator_key("", self.data, create=True)
+                self.assertRegex(key, r"^[0-9a-f]{64}$")
+                self.assertEqual(self.file.read_text(encoding="utf-8").strip(), key)
+
     def test_a_reader_never_creates_one(self) -> None:
         self.assertEqual(resolve_operator_key("", self.data, create=False), "")
         self.assertFalse(self.file.exists())
@@ -58,10 +69,10 @@ class TheServiceResolvesItsOperatorKey(unittest.TestCase):
 
 
 class TheDashboardInjectsTheSameKey(unittest.TestCase):
-    def _page(self, *, configured: str, data_dir: Path) -> str:
+    def _page(self, *, configured: str, data_dir: Path, key_dir: str = "") -> str:
         from service import new_dashboard_app
 
-        config = SimpleNamespace(operator_key=configured, data_dir=str(data_dir))
+        config = SimpleNamespace(operator_key=configured, operator_key_dir=key_dir, data_dir=str(data_dir))
         with mock.patch.object(new_dashboard_app, "get_config", return_value=config):
             return new_dashboard_app._index_html()
 
@@ -73,6 +84,18 @@ class TheDashboardInjectsTheSameKey(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             generated = resolve_operator_key("", tmp, create=True)
             self.assertEqual(self._injected(self._page(configured="", data_dir=Path(tmp))), generated)
+
+    def test_both_processes_look_in_OPERATOR_KEY_DIR_when_it_is_set(self) -> None:
+        # Compose points both at the key volume. The service writes there through the same function
+        # the dashboard reads through, so this is the check that they cannot look in different places.
+        with tempfile.TemporaryDirectory() as data, tempfile.TemporaryDirectory() as keys:
+            from service.api_core.operator_key_file import operator_key_from_config
+
+            service = SimpleNamespace(operator_key="", operator_key_dir=keys, data_dir=data)
+            generated = operator_key_from_config(service, create=True)
+            self.assertTrue((Path(keys) / OPERATOR_KEY_FILENAME).exists())
+            self.assertFalse((Path(data) / OPERATOR_KEY_FILENAME).exists(), "not in the data volume")
+            self.assertEqual(self._injected(self._page(configured="", data_dir=Path(data), key_dir=keys)), generated)
 
     def test_CONTROL_a_key_from_the_environment_still_wins(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

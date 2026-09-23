@@ -1609,7 +1609,16 @@ an external key now:
   403 naming whose key it is: the roster, registration, other agents' inboxes, consoles, spawns,
   deletes, `/mcp`. WebSockets accept the service key alone.
 - **cannot send as anyone who lives here**, whether a registered agent or one of the service's own
-  voices (`dashboard`, `aify-comms`).
+  voices (`dashboard`, `aify-comms`). Names are compared case-insensitively, as the rest of the
+  service compares them.
+- **owns the names it uses**: the first machine to send as an id keeps it, so pc2 cannot send as the
+  laptop's `lap-mgr` and take over where its replies go. The reply hint takes the declared address
+  only from messages that machine's key carried. Without that, a caller holding the ordinary service
+  key could redirect a proven sender's replies while the hint still called the machine "proven".
+- **stays external**: a proven message is labelled external even if an agent of that name registers
+  here later, because registration says a name exists here, not who sent this message. The dashboard
+  draws it as `from pc2 · by key`. A claimed origin is always drawn as `external: <text>`, so no text
+  a sender writes can reproduce the proven chip.
 
 A malformed, short, duplicated or reused (`API_KEY`/`OPERATOR_KEY`) entry grants nothing, is logged
 by name without its key, and never stops the service. With no `API_KEY` there is no authentication to
@@ -1624,14 +1633,22 @@ local sender's does, which is the point of it.
 **An operator key that exists without being asked for.** `OPERATOR_KEY` was never set by anything;
 `.env.example` asked for `openssl rand -hex 32` by hand. So on most hosts the dashboard's delete
 controls refused, and the service could not tell the operator sending **as** an agent from the agent.
-When `.env` sets none, the service now generates one into its data volume (`/data/operator.key`, mode
-0600, created with `O_EXCL` so two starts cannot disagree). A fixed default was rejected because a
-secret written in a public repo proves nothing. The dashboard container mounts that volume
-**read-only** and injects the same key, and never creates one. That mount is new, and it is what keeps
-the two holding one key. `.env` still wins.
+When `.env` sets none, the service now generates one at startup into a small dedicated volume
+(`operator-key` at `/keys/operator.key`, mode 0600). A fixed default was rejected because a secret
+written in a public repo proves nothing. The dashboard container mounts that volume **read-only** and
+injects the same key, and never creates one. The key has its own volume rather than the data volume so
+the dashboard is not handed the database to read one file. Only the service writes it: it writes aside
+and renames into place, and it replaces a file that is empty or too short to be a key. An adversarial
+review found the first version could leave an empty file that disabled operator privilege silently
+and for good. Any write failure is logged and leaves the key unset; it never stops the service.
+`.env` still wins.
 
 With a key always present, **a send carrying a valid operator key no longer counts as the agent being
 present** (`_touch_agent(..., present=False)`). Sending as an agent from the dashboard's identity
 picker had been hiding real absences from the away briefing, which was the open item left by PR #19.
 The limit is unchanged: anything that can load the dashboard page can read the key, so it separates
-the dashboard from the bridges, not from a determined local agent.
+the dashboard from the bridges, not from a determined local agent. **One real change on a host with no
+`API_KEY`**: operator privilege used to be off there unless someone set the key by hand, and it is now
+on for anyone who can load the dashboard. That is small beside what such a host already allows
+(anyone who reaches the port can type into consoles), but it is a change. Setting `API_KEY` is still
+the answer to "who may reach this at all".

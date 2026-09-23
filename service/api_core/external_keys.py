@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from fastapi import HTTPException
 
-from service.api_core.message_view import _registered_senders
+from service.api_core.message_view import SERVICE_SENDERS
 
 #: The marker a route carries, as `openapi_extra`, to admit a request made with an external key. Set
 #: where the route is declared, so the allowed set is DERIVED from the routes rather than listed here.
@@ -40,7 +40,7 @@ EXTERNAL_ROUTE = {EXTERNAL_FLAG: True}
 _LABEL = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}\Z")
 
 #: Shorter than this is guessable; `openssl rand -hex 32` gives 64.
-MIN_KEY_LENGTH = 16
+MIN_EXTERNAL_KEY_LENGTH = 16
 
 
 @dataclass(frozen=True)
@@ -89,8 +89,8 @@ def parse_external_keys(raw: str, *, reserved: tuple[str, ...] = ()) -> External
         name = f"'{label}'" if _LABEL.match(label) else f"entry {position}"
         if not sep or not _LABEL.match(label):
             rejected.append(f"{name}: expected <machine-name>:<key>, where the name is letters, digits, dot, dash or underscore")
-        elif len(key) < MIN_KEY_LENGTH:
-            rejected.append(f"{name}: the key is shorter than {MIN_KEY_LENGTH} characters")
+        elif len(key) < MIN_EXTERNAL_KEY_LENGTH:
+            rejected.append(f"{name}: the key is shorter than {MIN_EXTERNAL_KEY_LENGTH} characters")
         elif key in reserved_set:
             rejected.append(f"{name}: the key is the same as API_KEY or OPERATOR_KEY")
         elif label.lower() in {existing.lower() for existing in keys}:
@@ -106,19 +106,33 @@ def parse_external_keys(raw: str, *, reserved: tuple[str, ...] = ()) -> External
 
 
 async def refuse_external_impersonation(db, sender: str, machine: str) -> None:
-    """An external key speaks for an agent on ANOTHER machine, so it may not name one that lives here.
+    """An external key speaks only for agents on ITS machine: not for one that lives here, and not for
+    one another machine already speaks for.
 
-    Registered here includes the service's own voices (`dashboard`, `aify-comms`, ...), which
-    `_registered_senders` counts as known: a message from another machine signed `dashboard` would
-    otherwise be drawn as the operator's.
+    CASE-INSENSITIVE, because the rest of the service is: `Dashboard` would be read as the operator by
+    `is_operator_actor`, and a registered `coder` and an external `Coder` are one name to a reader.
+
+    FIRST MACHINE WINS an id. Without it, pc2 could send as the laptop's `lap-mgr` and become the newest
+    row, so the reply hint -- which calls the machine "proven" -- would send the laptop's replies to pc2.
     """
     if not sender:
         raise HTTPException(400, f"A message sent with the external key for '{machine}' must name its sender (from_agent).")
-    if sender in await _registered_senders(db, [sender]):
+    local = sender.lower() in {voice.lower() for voice in SERVICE_SENDERS} or await (await db.execute(
+        "SELECT 1 FROM agents WHERE id = ? COLLATE NOCASE LIMIT 1", (sender,))).fetchone()
+    if local:
         raise HTTPException(
             403,
             f"'{sender}' is an agent on this service, and the external key for '{machine}' speaks only for "
             f"agents on that machine. Send as the agent's own id there.",
+        )
+    other = await (await db.execute(
+        "SELECT external_machine FROM messages WHERE from_agent = ? COLLATE NOCASE"
+        " AND external_machine != '' AND external_machine != ? LIMIT 1", (sender, machine))).fetchone()
+    if other:
+        raise HTTPException(
+            403,
+            f"'{sender}' has already sent here with the key for '{other[0]}', so the key for '{machine}' "
+            f"cannot speak for it. Each machine's agents need names of their own.",
         )
 
 

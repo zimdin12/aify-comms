@@ -367,9 +367,16 @@ test("a message sent with another machine's key names that machine, and keeps th
     id: "m5", from: "pc2-manager", fromRegistered: false, externalMachine: "pc2",
     origin: "10.0.0.9:8800", body: "hi",
   });
-  assert.match(html, />external: pc2</);
+  assert.match(html, />from pc2 · by key</);
   assert.match(html, /proven by the key issued to that machine/);
   assert.match(html, /that part is its own claim/);
+});
+
+test("CONTROL: a sender CLAIMING to be pc2 cannot draw the proven chip", () => {
+  // Found by review: both used to render `external: pc2`, told apart only by hover text.
+  const html = messageHtml({ id: "m6", from: "ghost", fromRegistered: false, origin: "pc2", body: "hi" });
+  assert.match(html, />external: pc2</);
+  assert.ok(!html.includes("by key"), html);
 });
 
 test("an external sender that said nothing is still marked, with no return address invented", () => {

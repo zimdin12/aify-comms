@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from service.config import get_config
-from service.api_core.operator_key_file import resolve_operator_key
+from service.api_core.operator_key_file import operator_key_from_config
 
 APP_DIR = Path(__file__).resolve().parent / "new_dashboard"
 
@@ -122,11 +122,10 @@ async def health():
 # (`API_KEY` is unset on this deployment) and is an operator decision, recorded in docs/V0.6_PLAN.md.
 def _index_html() -> str:
     html = (APP_DIR / "index.html").read_text(encoding="utf-8")
-    # The same key the service uses: from `.env`, else the one the service generated into the data
+    # The same key the service uses: from `.env`, else the one the service generated into the key
     # volume this container mounts read-only. Read per request, so a dashboard that started before the
     # service had generated it picks it up without a restart. Never created here.
-    config = get_config()
-    key = resolve_operator_key(getattr(config, "operator_key", ""), getattr(config, "data_dir", ""), create=False)
+    key = operator_key_from_config(get_config(), create=False)
     if not key:
         return html  # no key configured: the dashboard simply cannot claim operator privilege
     # JSON-encoded so a key containing a quote or backslash cannot break out of the script literal.

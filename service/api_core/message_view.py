@@ -43,16 +43,20 @@ async def _registered_senders(db, sender_ids: Iterable[str]) -> set[str]:
 async def _last_known_address(db, sender_id: str) -> dict[str, str]:
     """Where this sender was last known to be: the machine its key PROVED, and the address it DECLARED.
 
-    Read from the newest message it sent here that carried either. Empty strings when it said nothing
-    and carried no external key -- the answer for every local agent.
+    THE PROVEN MACHINE ANCHORS THE ADDRESS. When one exists, the address is read only from messages
+    that machine's key carried, so a caller holding the ordinary service key cannot send as the same
+    id with a different address and redirect replies under the word "proven". With no machine, the
+    newest declared address is used, as before. Empty strings for every local agent.
     """
-    cursor = await db.execute(
-        "SELECT origin, external_machine FROM messages WHERE from_agent = ?"
-        " AND (origin != '' OR external_machine != '') ORDER BY timestamp DESC LIMIT 1",
-        (sender_id,),
-    )
-    row = await cursor.fetchone()
-    return {"origin": str(row[0] or "") if row else "", "externalMachine": str(row[1] or "") if row else ""}
+    row = await (await db.execute(
+        "SELECT external_machine FROM messages WHERE from_agent = ? AND external_machine != ''"
+        " ORDER BY timestamp DESC LIMIT 1", (sender_id,))).fetchone()
+    machine = str(row[0]) if row else ""
+    where, params = ("AND external_machine = ?", (sender_id, machine)) if machine else ("", (sender_id,))
+    row = await (await db.execute(
+        f"SELECT origin FROM messages WHERE from_agent = ? AND origin != '' {where}"
+        " ORDER BY timestamp DESC LIMIT 1", params)).fetchone()
+    return {"origin": str(row[0]) if row else "", "externalMachine": machine}
 
 
 async def _run_sender(db, sender: str, message_ids: Iterable[str]) -> dict[str, Any]:
@@ -72,8 +76,8 @@ async def _run_sender(db, sender: str, message_ids: Iterable[str]) -> dict[str, 
             [*ids, sender],
         )).fetchone()
         origin, machine = (str(row[0] or ""), str(row[1] or "")) if row else ("", "")
-    return {"fromRegistered": sender in await _registered_senders(db, [sender]), "origin": origin,
-            "externalMachine": machine}
+    registered = sender in await _registered_senders(db, [sender]) and not machine
+    return {"fromRegistered": registered, "origin": origin, "externalMachine": machine}
 
 
 async def _describe_sender(db, sender: str, origin: str = "", machine: str = "") -> str:
@@ -100,6 +104,10 @@ def _sender_label(sender: str, *, registered: bool, origin: str = "", machine: s
     return f"{sender} (external: not registered here, {', '.join(parts)}; a reply sent here is only stored here)"
 
 
+def _row_machine(row) -> str:
+    return str((row["external_machine"] if "external_machine" in row.keys() else "") or "")
+
+
 def _serialize_message(row, *, include_body: bool, sender_registered: bool = True) -> dict[str, Any]:
     """One message row as the API shows it -- `/messages/inbox`, `/messages/recent` and `/listen`.
 
@@ -121,13 +129,15 @@ def _serialize_message(row, *, include_body: bool, sender_registered: bool = Tru
         # instance has never seen, and inserts the message anyway. So a message from an agent on
         # another machine, or from one that has been removed, arrives looking exactly like a
         # colleague's. The operator asked for it to arrive with a warning (2026-09-21).
-        "fromRegistered": bool(sender_registered),
+        # A message PROVEN to come from another machine stays external even if an agent of that name
+        # registers here later: registration says a name exists here, not that this message came from it.
+        "fromRegistered": bool(sender_registered) and not _row_machine(row),
         # What the sender said about where it is, when it said anything. Absent on every row
         # written before this column existed, which reads as "did not say".
         "origin": (row["origin"] if "origin" in row.keys() else "") or "",
         # WHICH OTHER MACHINE sent it, proven by the external key the request carried. Written by the
         # service, never by the sender, so unlike `origin` it is a fact. Empty for every local send.
-        "externalMachine": (row["external_machine"] if "external_machine" in row.keys() else "") or "",
+        "externalMachine": _row_machine(row),
         # `to` is implicit for an inbox (every row is addressed to the requested agent), but
         # the dashboard's unread/mark-read logic filters on it and falls back to inbox data
         # when /messages/recent blips — without this field that fallback silently matched

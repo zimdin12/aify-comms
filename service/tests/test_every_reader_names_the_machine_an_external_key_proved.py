@@ -23,19 +23,22 @@ from service.tests.test_a_message_from_a_sender_we_do_not_know_says_so import _s
 
 SERVICE_KEY = "service-key-for-this-file-0001"
 PC2_KEY = "pc2-key-for-this-file-000000001"
+LAPTOP_KEY = "laptop-key-for-this-file-0000001"
 OPERATOR_KEY = "operator-key-for-this-file-0001"
 HOME = "claimer"
 REMOTE = "pc2-manager"
 
 
-class EveryReaderNamesTheMachine(FastApiTestCase):
+class _TwoMachinesAndOneLocalAgent(FastApiTestCase):
+    """The key middleware with two machines' keys, and one local agent. Helpers only: no tests here."""
+
     DB_NAME = "aify-external-machine-readers.db"
 
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
         cls._app.add_middleware(APIKeyMiddleware, api_key=SERVICE_KEY,
-                                external_keys=parse_external_keys(f"pc2:{PC2_KEY}"))
+                                external_keys=parse_external_keys(f"pc2:{PC2_KEY},laptop:{LAPTOP_KEY}"))
 
     def setUp(self) -> None:
         super().setUp()
@@ -68,6 +71,8 @@ class EveryReaderNamesTheMachine(FastApiTestCase):
             "machineId": "linux:test-host", "executionModes": ["channel", "resident"],
         })
 
+
+class EveryReaderNamesTheMachine(_TwoMachinesAndOneLocalAgent):
     def test_the_dispatch_claim_carries_the_machine(self) -> None:
         self._from_pc2("wake me")
         [message] = [m for m in self._inbox() if m["subject"] == "wake me"]
@@ -122,6 +127,47 @@ class EveryReaderNamesTheMachine(FastApiTestCase):
         self.assertEqual(present(), "", "the operator sent this from the dashboard; the agent was not here")
         self._post("/api/v1/messages/send", body)
         self.assertNotEqual(present(), "", "CONTROL: the agent's own send still counts")
+
+
+class AMachineSpeaksOnlyForItsOwnAgents(_TwoMachinesAndOneLocalAgent):
+    """Found by an adversarial review of the first version, 2026-09-24; each case was a working repro."""
+
+    DB_NAME = "aify-external-machine-ownership.db"
+
+    def _send_as(self, key: str, sender: str, subject: str, **extra):
+        return self.client.post("/api/v1/messages/send", json={
+            "from_agent": sender, "to": HOME, "type": "info", "subject": subject, "body": "b", **extra,
+        }, headers={"X-API-Key": key})
+
+    def test_a_proven_message_stays_external_when_the_name_registers_here_later(self) -> None:
+        self.assertEqual(self._send_as(PC2_KEY, "future", "before").status_code, 200)
+        self._post("/api/v1/agents", {"agentId": "future", "role": "coder", "runtime": "generic",
+                                      "sessionMode": "resident"})
+        [message] = [m for m in self._inbox() if m["subject"] == "before"]
+        self.assertIs(message["fromRegistered"], False, "registration says a name exists, not who sent this")
+        self.assertEqual(message["externalMachine"], "pc2")
+
+    def test_a_machine_cannot_take_over_another_machines_agent(self) -> None:
+        self.assertEqual(self._send_as(LAPTOP_KEY, "lap-mgr", "mine", origin="http://laptop:8800").status_code, 200)
+        taken = self._send_as(PC2_KEY, "lap-mgr", "hijack", origin="http://evil:8800")
+        self.assertEqual(taken.status_code, 403, taken.text)
+        self.assertIn("' cannot speak for it. Each machine's agents need names of their own.", taken.json()["detail"])
+        self.assertEqual(self._send_as(LAPTOP_KEY, "lap-mgr", "still mine").status_code, 200,
+                         "CONTROL: the machine that owns the name keeps using it")
+
+    def test_the_service_key_cannot_redirect_a_proven_senders_replies(self) -> None:
+        self._send_as(LAPTOP_KEY, "lap-mgr", "mine", origin="http://laptop:8800")
+        self._send_as(SERVICE_KEY, "lap-mgr", "redirect", origin="http://evil:8800")
+        result = self._post("/api/v1/messages/send", {"from_agent": HOME, "to": "lap-mgr", "type": "response",
+                                                      "subject": "re", "body": "done", "trigger": True})
+        [skipped] = [n for n in result.get("notStarted", []) if n["targetAgentId"] == "lap-mgr"]
+        self.assertIn("http://laptop:8800", skipped["reason"])
+        self.assertNotIn("evil", skipped["reason"])
+
+    def test_a_local_name_in_another_case_is_still_local(self) -> None:
+        for sender in ("Dashboard", "OPERATOR", HOME.upper()):
+            with self.subTest(sender):
+                self.assertEqual(self._send_as(PC2_KEY, sender, f"as {sender}").status_code, 403)
 
 
 class TheLabelStatesTheMachineAndQuotesTheClaim(FastApiTestCase):

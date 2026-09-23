@@ -154,7 +154,8 @@ about itself. The key can only send messages, and cannot send as an agent that l
 
 **The operator key** lets the dashboard delete other agents' messages, channels and shared files. It
 also stops a message you send *as* an agent from counting as that agent being present. Leave
-`OPERATOR_KEY` empty and one is generated into the data volume on first start.
+`OPERATOR_KEY` empty and one is generated on first start into its own volume, which the dashboard
+reads.
 
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
 `docker-compose.yml` and scope `cors_origins` in `config/service.json` if the LAN should not reach it.

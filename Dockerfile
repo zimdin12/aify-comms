@@ -21,8 +21,9 @@ ARG DOCKER_GID=999
 RUN groupadd -g ${DOCKER_GID} docker 2>/dev/null || true && \
     useradd -m -s /bin/bash service && \
     usermod -aG docker service && \
-    mkdir -p /app /data /home/service/.claude && \
-    chown -R service:service /app /data /home/service/.claude
+    mkdir -p /app /data /keys /home/service/.claude && \
+    chown -R service:service /app /data /keys /home/service/.claude && \
+    chmod 700 /keys
 
 WORKDIR /app
 
