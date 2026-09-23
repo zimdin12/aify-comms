@@ -200,6 +200,54 @@ class EveryReaderSeesWhereAnExternalMessageCameFrom(FastApiTestCase):
         self.assertIs(run.get("fromRegistered"), False)
         self.assertEqual(run.get("origin"), ORIGIN)
 
+    def test_a_message_steered_into_a_busy_agent_says_it_is_external(self) -> None:
+        """Steering is the DEFAULT path to a busy agent: the text is injected between its tool calls
+        as a `[Message from ...]` line, through a dispatch control rather than the claim. That line
+        carried the bare id, so an external sender reached a working agent looking like a colleague."""
+        self._busy_claimer()
+        response = self.client.post("/api/v1/messages/send", json={
+            "from_agent": STRANGER, "to": "claimer", "type": "info", "subject": "mid-turn",
+            "body": "hello", "trigger": True, "origin": ORIGIN,
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        steers = _steer_bodies("claimer")
+        self.assertEqual(len(steers), 1, f"the message was not steered, so this proves nothing: {response.text}")
+        self.assertIn("external", steers[0])
+        self.assertIn(ORIGIN, steers[0])
+
+    def test_CONTROL_a_colleague_steered_in_reads_exactly_as_before(self) -> None:
+        self._busy_claimer()
+        response = self.client.post("/api/v1/messages/send", json={
+            "from_agent": HOME, "to": "claimer", "type": "info", "subject": "mid-turn",
+            "body": "hello", "trigger": True,
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(_steer_bodies("claimer"), ['[Message from local-agent]\nSubject: "mid-turn"\n\nhello'])
+
+    def _busy_claimer(self) -> None:
+        self.client.post("/api/v1/agents", json={
+            "agentId": "claimer", "role": "coder", "runtime": "claude-code", "sessionMode": "resident",
+            "machineId": "linux:test-host", "bridgeId": "bridge-claimer", "launchMode": "detached",
+            "capabilities": ["resident-run", "resume", "interrupt", "steer"],
+            "runtimeConfig": {"channelEnabled": True},
+        }).raise_for_status()
+        self.client.post("/api/v1/messages/send", json={
+            "from_agent": HOME, "to": "claimer", "type": "info", "subject": "keep it busy", "body": "work",
+        }).raise_for_status()
+        [busy] = [m for m in self._inbox_of("claimer") if m["subject"] == "keep it busy"]
+        _seed_run(message_id=busy["id"], from_agent=HOME, target="claimer")
+        claim = self.client.post("/api/v1/dispatch/claim", json={
+            "agentId": "claimer", "bridgeId": "channel-linux:test-host-claimer",
+            "bridgeKind": "channel-sidecar", "machineId": "linux:test-host",
+            "executionModes": ["channel", "resident"],
+        })
+        self.assertIsNotNone(claim.json().get("run"), claim.text)
+
+    def _inbox_of(self, agent_id: str) -> list[dict]:
+        response = self.client.get(f"/api/v1/messages/inbox/{agent_id}?peek=true&limit=50")
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["messages"]
+
     def test_a_reply_to_an_external_sender_says_where_it_should_go(self) -> None:
         """The reply is stored here and delivered nowhere. The sender is told, with the address the
         external agent declared, instead of being told to register it -- which is exactly what the
@@ -265,6 +313,24 @@ class EveryReaderSeesWhereAnExternalMessageCameFrom(FastApiTestCase):
         [message] = [m for m in self._inbox() if m["subject"] == "two lines"]
         self.assertNotRegex(message["origin"], r"[\x00-\x1f\x7f]")
         self.assertTrue(message["origin"].startswith("10.0.0.9:8800 manager"), message["origin"])
+
+
+def _steer_bodies(target: str) -> list[str]:
+    import asyncio
+
+    from service.db import get_db
+
+    async def read() -> list[str]:
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                "SELECT c.body FROM dispatch_controls c JOIN dispatch_runs r ON r.id = c.run_id"
+                " WHERE r.target_agent = ? AND c.action = 'steer'", (target,))
+            return [str(row[0]) for row in await cursor.fetchall()]
+        finally:
+            await db.close()
+
+    return asyncio.run(read())
 
 
 def _seed_run(*, message_id: str, from_agent: str, target: str) -> None:
