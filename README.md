@@ -138,6 +138,24 @@ is never rotated, because a new one would lock out every client already installe
 Always on: a request or WebSocket from a page on another site is refused, so a web page you visit
 cannot drive the fleet. aify-env binds `127.0.0.1` only and refuses browser requests.
 
+**Agents on another machine** send here without registering. Give that machine its own key rather
+than yours: add `EXTERNAL_KEYS=pc2:<key>` to `.env` (`openssl rand -hex 32`), restart, and have the
+other machine send with it:
+
+```bash
+curl -X POST http://<this-host>:8800/api/v1/messages/send -H "X-API-Key: <pc2 key>" \
+  -H "Content-Type: application/json" \
+  -d '{"from_agent":"pc2-manager","to":"<local agent>","subject":"hi","body":"...","origin":"<its address>"}'
+```
+
+Its messages show `external: pc2`, and that name is proven by the key. The `origin` is what it said
+about itself. The key can only send messages, and cannot send as an agent that lives here. It needs
+`API_KEY` set; `/health` reports `externalKeys.enforced`.
+
+**The operator key** lets the dashboard delete other agents' messages, channels and shared files. It
+also stops a message you send *as* an agent from counting as that agent being present. Leave
+`OPERATOR_KEY` empty and one is generated into the data volume on first start.
+
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
 `docker-compose.yml` and scope `cors_origins` in `config/service.json` if the LAN should not reach it.
 `/health`, `/version`, `/docs` and `/openapi.json` stay open. Details: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).

@@ -44,10 +44,15 @@ import { richMessageHtml } from './message-format.mjs';
 function foreignSenderChip(m) {
   if (m?.fromRegistered !== false) return '';
   const origin = String(m?.origin || '').trim();
-  const label = origin ? `external: ${origin}` : 'external sender';
-  const title = origin
-    ? 'This sender is not registered here. The origin is what the sender SAID, not something this service measured.'
-    : 'This sender is not registered here and did not say where it is, so there is no return address.';
+  // PROVEN, unlike the origin: the service wrote it from the external key the request carried.
+  const machine = String(m?.externalMachine || '').trim();
+  const label = machine ? `external: ${machine}` : origin ? `external: ${origin}` : 'external sender';
+  const said = origin ? ` It says it is reachable at ${origin}; that part is its own claim.` : ' It gave no return address.';
+  const title = machine
+    ? `Sent from ${machine}, proven by the key issued to that machine.${said}`
+    : origin
+      ? 'This sender is not registered here. The origin is what the sender SAID, not something this service measured.'
+      : 'This sender is not registered here and did not say where it is, so there is no return address.';
   return `<span class="chat-msg-badge warn" title="${esc(title)}">${esc(label)}</span>`;
 }
 

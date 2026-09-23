@@ -74,14 +74,20 @@ async def _mark_agent_present(db, agent_id: str, now: Optional[str] = None) -> N
     await db.execute("UPDATE agents SET last_present_at = ? WHERE id = ?", (now or _now(), agent_id))
 
 
-async def _touch_agent(db, agent_id: str):
-    """The agent sent something (a message, a dispatch, a channel post): it is here and active."""
+async def _touch_agent(db, agent_id: str, *, present: bool = True):
+    """The agent sent something (a message, a dispatch, a channel post): it is here and active.
+
+    `present=False` when the OPERATOR sent it as the agent from the dashboard (`operator_is_acting`):
+    the send still happened, so `last_seen` moves, but the agent was not there -- counting it would
+    tell an agent returning days later that it had never been away.
+    """
     now = _now()
     await db.execute(
         "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
         (now, agent_id)
     )
-    await _mark_agent_present(db, agent_id, now)
+    if present:
+        await _mark_agent_present(db, agent_id, now)
 
 
 async def _agent_tombstone(db, agent_id: str):

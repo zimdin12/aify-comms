@@ -69,6 +69,10 @@ services:
         max-file: "3"
     ports:
       - "${NEW_DASHBOARD_PORT:-8801}:8801"
+    # READ-ONLY, for one file: the operator key the service generates when `.env` sets none. The
+    # dashboard injects it into its page, so it must hold the SAME key; it never writes here.
+    volumes:
+      - service-data:/data:ro
     depends_on:
       - service
     env_file:

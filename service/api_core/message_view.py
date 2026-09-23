@@ -40,51 +40,64 @@ async def _registered_senders(db, sender_ids: Iterable[str]) -> set[str]:
     return known
 
 
-async def _declared_origin(db, sender_id: str) -> str:
-    """The newest origin this sender declared on any message it sent here, or "" when it never said."""
+async def _last_known_address(db, sender_id: str) -> dict[str, str]:
+    """Where this sender was last known to be: the machine its key PROVED, and the address it DECLARED.
+
+    Read from the newest message it sent here that carried either. Empty strings when it said nothing
+    and carried no external key -- the answer for every local agent.
+    """
     cursor = await db.execute(
-        "SELECT origin FROM messages WHERE from_agent = ? AND origin != '' ORDER BY timestamp DESC LIMIT 1",
+        "SELECT origin, external_machine FROM messages WHERE from_agent = ?"
+        " AND (origin != '' OR external_machine != '') ORDER BY timestamp DESC LIMIT 1",
         (sender_id,),
     )
     row = await cursor.fetchone()
-    return str(row[0]) if row else ""
+    return {"origin": str(row[0] or "") if row else "", "externalMachine": str(row[1] or "") if row else ""}
 
 
 async def _run_sender(db, sender: str, message_ids: Iterable[str]) -> dict[str, Any]:
-    """The `fromRegistered` / `origin` pair `_serialize_message` shows, for a reader holding a RUN.
+    """The `fromRegistered` / `origin` / `externalMachine` `_serialize_message` shows, for a reader
+    holding a RUN.
 
-    A dispatch run keeps its sender but not the origin, which lives on the message it was made
-    from -- so it is read from there, and only from a message that sender actually wrote.
+    A dispatch run keeps its sender but neither of the others, which live on the message it was made
+    from -- so they are read from there, and only from a message that sender actually wrote.
     """
     ids = [str(message_id) for message_id in message_ids if message_id]
-    origin = ""
+    origin = machine = ""
     if ids:
         placeholders = ",".join("?" for _ in ids)
         row = await (await db.execute(
-            f"SELECT origin FROM messages WHERE id IN ({placeholders}) AND from_agent = ? AND origin != '' LIMIT 1",
+            f"SELECT origin, external_machine FROM messages WHERE id IN ({placeholders}) AND from_agent = ?"
+            " AND (origin != '' OR external_machine != '') LIMIT 1",
             [*ids, sender],
         )).fetchone()
-        origin = str(row[0]) if row else ""
-    return {"fromRegistered": sender in await _registered_senders(db, [sender]), "origin": origin}
+        origin, machine = (str(row[0] or ""), str(row[1] or "")) if row else ("", "")
+    return {"fromRegistered": sender in await _registered_senders(db, [sender]), "origin": origin,
+            "externalMachine": machine}
 
 
-async def _describe_sender(db, sender: str, origin: str = "") -> str:
+async def _describe_sender(db, sender: str, origin: str = "", machine: str = "") -> str:
     """`_sender_label` for a reader that holds a request rather than a stored row."""
-    return _sender_label(sender, registered=sender in await _registered_senders(db, [sender]), origin=origin)
+    return _sender_label(sender, registered=sender in await _registered_senders(db, [sender]),
+                         origin=origin, machine=machine)
 
 
-def _sender_label(sender: str, *, registered: bool, origin: str = "") -> str:
+def _sender_label(sender: str, *, registered: bool, origin: str = "", machine: str = "") -> str:
     """Who sent this, as an AGENT reading it should see it. Twin of the bridge's `describeSender`.
 
-    The agent is the one who has to answer, so it must learn the sender is outside and where it says
-    it is. The origin is the sender's claim, quoted as one: it is attacker-controlled text, and this
-    line lands in prompts.
+    The agent is the one who has to answer, so it must learn the sender is outside and where it is.
+    Two different kinds of fact, and the wording keeps them apart. The MACHINE was proven by the key
+    the request carried (service/api_core/external_keys.py), so it is stated. The ORIGIN is the
+    sender's claim, quoted as one: it is attacker-controlled text, and this line lands in prompts.
     """
     if registered:
         return sender
-    where = (f"says it is reachable at {_quote_untrusted_subject(origin, 200)}" if origin
-             else "gave no return address")
-    return f"{sender} (external: not registered here, {where}; a reply sent here is only stored here)"
+    parts = []
+    if machine:
+        parts.append(f"sent from {machine}, proven by that machine's key")
+    parts.append(f"says it is reachable at {_quote_untrusted_subject(origin, 200)}" if origin
+                 else "gave no return address")
+    return f"{sender} (external: not registered here, {', '.join(parts)}; a reply sent here is only stored here)"
 
 
 def _serialize_message(row, *, include_body: bool, sender_registered: bool = True) -> dict[str, Any]:
@@ -112,6 +125,9 @@ def _serialize_message(row, *, include_body: bool, sender_registered: bool = Tru
         # What the sender said about where it is, when it said anything. Absent on every row
         # written before this column existed, which reads as "did not say".
         "origin": (row["origin"] if "origin" in row.keys() else "") or "",
+        # WHICH OTHER MACHINE sent it, proven by the external key the request carried. Written by the
+        # service, never by the sender, so unlike `origin` it is a fact. Empty for every local send.
+        "externalMachine": (row["external_machine"] if "external_machine" in row.keys() else "") or "",
         # `to` is implicit for an inbox (every row is addressed to the requested agent), but
         # the dashboard's unread/mark-read logic filters on it and falls back to inbox data
         # when /messages/recent blips — without this field that fallback silently matched

@@ -30,7 +30,7 @@ from service.sse.rendering import SAFETY_HEADER, fence as _fence
 def _sender_of(m: dict) -> str:
     # ABSENT IS NOT FALSE: only a sender the service judged external is labelled as one.
     return _sender_label(str(m.get("from")), registered=m.get("fromRegistered") is not False,
-                         origin=str(m.get("origin") or ""))
+                         origin=str(m.get("origin") or ""), machine=str(m.get("externalMachine") or ""))
 
 
 async def comms_inbox(

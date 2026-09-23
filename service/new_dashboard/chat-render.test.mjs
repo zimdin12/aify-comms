@@ -360,6 +360,18 @@ test("a message from a sender this instance never registered says so, and where 
   assert.match(html, /sender SAID/);
 });
 
+test("a message sent with another machine's key names that machine, and keeps the claim apart", () => {
+  // The machine is PROVEN (the service wrote it from the external key); the origin is still only
+  // what the sender said, and the hover text keeps the two apart.
+  const html = messageHtml({
+    id: "m5", from: "pc2-manager", fromRegistered: false, externalMachine: "pc2",
+    origin: "10.0.0.9:8800", body: "hi",
+  });
+  assert.match(html, />external: pc2</);
+  assert.match(html, /proven by the key issued to that machine/);
+  assert.match(html, /that part is its own claim/);
+});
+
 test("an external sender that said nothing is still marked, with no return address invented", () => {
   const html = messageHtml({ id: "m4", from: "stranger", fromRegistered: false, body: "hi" });
   assert.match(html, /external sender/);

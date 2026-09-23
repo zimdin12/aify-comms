@@ -77,6 +77,9 @@ class ServiceConfig:
     # distinguish the dashboard from an agent. Empty means no caller can claim operator
     # privilege at all — see service/api_core/operator_authz.py for why that fails closed.
     operator_key: str = ""
+    #: `label:key,label:key` -- one key per OTHER machine whose agents may send here without
+    #: registering. Parsed and explained in service/api_core/external_keys.py.
+    external_keys: str = ""
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
     #: Hosts a BROWSER may claim to be reaching this service on. Empty means loopback only.
     #:
@@ -176,6 +179,7 @@ class ServiceConfig:
             "MCP_PATH_PREFIX": "mcp_path_prefix",
             "API_KEY": "api_key",
             "OPERATOR_KEY": "operator_key",
+            "EXTERNAL_KEYS": "external_keys",
             "CORS_ORIGINS": ("cors_origins", lambda v: [s.strip() for s in v.split(",")]),
             "TRUSTED_HOSTS": ("trusted_hosts", lambda v: [s.strip() for s in v.split(",") if s.strip()]),
             # The same value Caddy is given, read so the service trusts the names it is actually

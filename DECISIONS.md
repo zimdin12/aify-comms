@@ -1563,7 +1563,7 @@ external from then on.
 any machine, and send as any id: `fromRegistered` says a name exists here, not that the caller is
 its owner. Auth is one instance-wide secret with no notion of which host is calling, which is how
 the second PC's agent landed in the roster in the first place. Per-machine credentials are a
-separate design, not started.
+separate design, not started. **Started and shipped 2026-09-24: see "A key per other machine" below.**
 
 ## 2026-09-22 — the route gates walk fastapi's route contexts, and fastapi is held to 0.138-0.139
 
@@ -1590,3 +1590,48 @@ The requirement is `fastapi>=0.138.0,<0.140`: the floor because nothing older ha
 ceiling because 0.139.2 is what the service runs. `test_the_route_inventory_is_not_empty.py` is the
 canary. With the helper returning raw `app.routes` on 0.139.2, three of its cases go red, and so do
 all eight other files.
+
+## 2026-09-24 — A key per other machine, and an operator key that exists without being asked for
+
+**A key per other machine.** `EXTERNAL_KEYS=pc2:<key>,laptop:<key>` issues each other machine its
+own key, named by the operator (its machine name is the obvious choice). Until now an agent on
+another PC sent here with the shared `API_KEY`, which let it do anything a local agent can, send as
+any local id, and left the service trusting whatever it wrote about where it was. A request carrying
+an external key now:
+
+- is **proven** to come from that machine: the service stores the key's name on the message
+  (`messages.external_machine`, shown as `externalMachine`) beside the sender's declared `origin`.
+  Every reader states the machine as a fact and still quotes the origin as a claim: the inbox and feed
+  on both transports, the dispatch claim, a steer injected mid-turn, console delivery, the reply hint
+  and the dashboard chip.
+- opens **only** routes declared with `EXTERNAL_ROUTE` (today: `POST /api/v1/messages/send`). The
+  allowed set is derived from that flag on the route, not listed anywhere else. Everything else answers
+  403 naming whose key it is: the roster, registration, other agents' inboxes, consoles, spawns,
+  deletes, `/mcp`. WebSockets accept the service key alone.
+- **cannot send as anyone who lives here**, whether a registered agent or one of the service's own
+  voices (`dashboard`, `aify-comms`).
+
+A malformed, short, duplicated or reused (`API_KEY`/`OPERATOR_KEY`) entry grants nothing, is logged
+by name without its key, and never stops the service. With no `API_KEY` there is no authentication to
+restrict, so the keys do nothing. The startup log says so, and `/health` reports
+`externalKeys.enforced: false`, with counts and no machine names, because `/health` needs no key.
+
+Not done, deliberately: replying to the other machine. A reply is still stored here only, and the hint
+now names the machine to send it to. Relaying needs this service to hold the other one's endpoint and
+key, which is a peers feature. An external message with `trigger` wakes a local agent exactly as a
+local sender's does, which is the point of it.
+
+**An operator key that exists without being asked for.** `OPERATOR_KEY` was never set by anything;
+`.env.example` asked for `openssl rand -hex 32` by hand. So on most hosts the dashboard's delete
+controls refused, and the service could not tell the operator sending **as** an agent from the agent.
+When `.env` sets none, the service now generates one into its data volume (`/data/operator.key`, mode
+0600, created with `O_EXCL` so two starts cannot disagree). A fixed default was rejected because a
+secret written in a public repo proves nothing. The dashboard container mounts that volume
+**read-only** and injects the same key, and never creates one. That mount is new, and it is what keeps
+the two holding one key. `.env` still wins.
+
+With a key always present, **a send carrying a valid operator key no longer counts as the agent being
+present** (`_touch_agent(..., present=False)`). Sending as an agent from the dashboard's identity
+picker had been hiding real absences from the away briefing, which was the open item left by PR #19.
+The limit is unchanged: anything that can load the dashboard page can read the key, so it separates
+the dashboard from the bridges, not from a determined local agent.

@@ -213,7 +213,8 @@ async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_re
                 recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
                 for recipient_id in recipients
             }
-            sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""))
+            sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""),
+                                   machine=getattr(req, "_external_machine", ""))
             for recipient_id, terminal in console_recipients.items():
                 terminal_id = str(terminal["terminal_id"] or "").strip()
                 recipient_message_id = source_message_ids.get(recipient_id, msg_id)
@@ -295,7 +296,8 @@ async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipi
         `test_console_input_queueing_twins_agree.py` pins the pair: the two bodies must stay identical
         MODULO exactly those two substitutions, so a fix applied to one and not the other fails.
         """
-        sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""))
+        sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""),
+                                   machine=getattr(req, "_external_machine", ""))
         for recipient_id, terminal in console_recipients.items():
             terminal_id = str(terminal["terminal_id"] or "").strip()
             recipient_message_id = source_message_ids.get(recipient_id, message_id)

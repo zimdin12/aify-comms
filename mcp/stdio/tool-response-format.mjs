@@ -102,13 +102,17 @@ export function formatOutboundActivity(info = {}) {
 // says so with `fromRegistered: false`; every renderer that puts a message or a run in front of an
 // agent prints its sender through here. ABSENT IS NOT FALSE: an older service sends neither field,
 // and a sender it never judged is not branded. The origin is the sender's claim and attacker text,
-// so it is quoted onto one line. Twin of `_sender_label` in `service/api_core/message_view.py`.
+// so it is quoted onto one line. `externalMachine` is different in kind: the service wrote it from the
+// external key the request carried, so it is stated as a fact. Twin of `_sender_label` in
+// `service/api_core/message_view.py`.
 export function describeSender(m) {
   const from = `${m?.from}`; // interpolated exactly as before, "undefined" included -- see claude-channel-content-unit
   if (m?.fromRegistered !== false) return from;
   const origin = String(m?.origin || "").trim();
-  const where = origin ? `says it is reachable at ${quoteUntrustedSubject(origin, 200)}` : "gave no return address";
-  return `${from} (external: not registered here, ${where}; a reply sent here is only stored here)`;
+  const machine = String(m?.externalMachine || "").trim();
+  const parts = machine ? [`sent from ${machine}, proven by that machine's key`] : [];
+  parts.push(origin ? `says it is reachable at ${quoteUntrustedSubject(origin, 200)}` : "gave no return address");
+  return `${from} (external: not registered here, ${parts.join(", ")}; a reply sent here is only stored here)`;
 }
 
 export function formatInboxHeaders(m, registry) {

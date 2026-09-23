@@ -20,6 +20,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from service.longpoll import attributable_ms, begin_wait_accounting
 
 from service.config import get_config
+from service.api_core.external_keys import (
+    ExternalKeyring,
+    external_route_table,
+    parse_external_keys,
+    route_admits_external,
+)
+from service.api_core.operator_key_file import resolve_operator_key
 from service.api_core.browser_origin import (
     browser_request_is_allowed, effective_trusted_hosts, is_browser_navigation,
     url_without_api_key,
@@ -156,9 +163,14 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, api_key: str):
+    def __init__(self, app, api_key: str, external_keys: ExternalKeyring = ExternalKeyring()):
         super().__init__(app)
         self.api_key = api_key
+        # Keys issued to OTHER machines (service/api_core/external_keys.py). They open only the routes
+        # declared with `EXTERNAL_ROUTE`; the table is derived from the app on first use, because the
+        # routers are included after this middleware is constructed.
+        self.external_keys = external_keys
+        self._external_routes = None
 
     #: The cookie a browser gets in exchange for a valid `?api_key=`, so the dashboard is usable at all
     #: once a key is set. Named rather than typed at each site: it is read in one place and written in
@@ -202,6 +214,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if not provided_key or not hmac.compare_digest(
             provided_key.encode("utf-8", "ignore"), self.api_key.encode("utf-8", "ignore")
         ):
+            machine = self.external_keys.match(provided_key or "")
+            if machine:
+                return await self._admit_external(request, call_next, machine)
             return Response(
                 content='{"error":"Invalid or missing API key. Use X-API-Key header or ?api_key= param."}',
                 status_code=401,
@@ -254,6 +269,23 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 max_age=self.COOKIE_MAX_AGE, httponly=True, samesite="lax", path="/",
             )
         return response
+
+    async def _admit_external(self, request: Request, call_next, machine: str):
+        """A request made with another machine's key: only the routes open to other machines, and
+        marked with WHICH machine, so the route records a fact rather than the sender's claim. It never
+        earns the dashboard cookie -- that is issued for the service key alone, above."""
+        if self._external_routes is None:
+            self._external_routes = external_route_table(request.app.routes)
+        if not route_admits_external(self._external_routes, request.method, request.url.path):
+            return Response(
+                content=json.dumps({"error": (
+                    f"This is the external key for '{machine}'. It opens only what an agent on another "
+                    f"machine needs (sending a message here), not {request.method} {request.url.path}.")}),
+                status_code=403,
+                media_type="application/json",
+            )
+        request.state.external_machine = machine
+        return await call_next(request)
 
 
 def _setup_logging(config):
@@ -343,6 +375,8 @@ async def lifespan(app: FastAPI):
     db_path = Path(config.data_dir) / "aify.db"
     await init_db(db_path)
     logger.info(f"Database: {db_path}")
+    # Generated into the data volume when `.env` sets none; see service/api_core/operator_key_file.py.
+    config.operator_key = resolve_operator_key(config.operator_key, config.data_dir, create=True)
     # Connections are reused from here on and closed at shutdown (service/db_pool.py). Enabled HERE,
     # not at import, so only the running service pools: a test using `get_db()` with no lifespan keeps
     # a fresh connection per call and no file handle outlives its temporary database.
@@ -504,10 +538,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # API key auth
+    # API key auth, and the keys issued to other machines (service/api_core/external_keys.py).
+    external_keys = parse_external_keys(config.external_keys, reserved=(config.api_key, config.operator_key))
+    app.state.external_keyring = external_keys
+    for refusal in external_keys.rejected:
+        logger.warning(f"EXTERNAL_KEYS entry refused: {refusal}")
     if config.api_key:
-        app.add_middleware(APIKeyMiddleware, api_key=config.api_key)
-        logger.info("API key auth enabled")
+        app.add_middleware(APIKeyMiddleware, api_key=config.api_key, external_keys=external_keys)
+        logger.info(f"API key auth enabled ({len(external_keys.keys)} external machine key(s))")
+    elif external_keys.keys:
+        logger.warning("EXTERNAL_KEYS is set but API_KEY is not: with no service key there is no "
+                       "authentication, so the external keys restrict nothing. Set API_KEY.")
 
     # Cross-site browser requests, refused whether or not a key is configured.
     #

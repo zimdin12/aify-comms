@@ -170,6 +170,16 @@ async def health(request: Request = None):
     except Exception as exc:  # pragma: no cover - defensive by intent
         logger.warning("socket count unavailable in /health (%s)", type(exc).__name__)
 
+    # KEYS ISSUED TO OTHER MACHINES, as counts only (no key needed to read this, so no machine names).
+    # ONLY WHEN SOME ARE SET, like the build override above. `enforced: false` is the case worth seeing:
+    # external keys with no API_KEY restrict nothing, and that must not look like a working setup.
+    try:
+        keyring = request.app.state.external_keyring
+        if keyring.keys or keyring.rejected:
+            payload["externalKeys"] = keyring.summary(enforced=bool(get_config().api_key))
+    except Exception:  # absent on a test app or a direct call: nothing configured to report
+        pass
+
     try:
         from service.ntfy import get_relay
 

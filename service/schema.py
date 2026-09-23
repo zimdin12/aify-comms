@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS messages (
     client_nonce TEXT DEFAULT '',
     -- WHERE THE SENDER SAYS IT IS. Declared by the sender, never measured: see service/models.py.
     origin TEXT DEFAULT '',
+    -- WHICH OTHER MACHINE SENT IT, PROVEN: the label of the external key the request carried
+    -- (service/api_core/external_keys.py). Written by the service, never by the sender.
+    external_machine TEXT DEFAULT '',
     timestamp INTEGER NOT NULL,
     FOREIGN KEY (in_reply_to) REFERENCES messages(id) ON DELETE SET NULL
 );

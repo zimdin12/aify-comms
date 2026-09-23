@@ -167,7 +167,8 @@ async def _create_dispatch_runs(
                 # path to a busy agent, and a bare id here let an external sender arrive mid-turn
                 # looking like a colleague.
                 sender = await _run_sender(db, from_agent, [source_message_id])
-                label = _sender_label(from_agent, registered=sender["fromRegistered"], origin=sender["origin"])
+                label = _sender_label(from_agent, registered=sender["fromRegistered"], origin=sender["origin"],
+                                      machine=sender["externalMachine"])
                 steer_body = (
                     f"[Message from {label}]\n"
                     f"Subject: {_quote_untrusted_subject(subject, 240)}\n\n{body}"

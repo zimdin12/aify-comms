@@ -46,6 +46,8 @@ from service.api_core.dispatch_launch import _launch_recipients_for_dispatch
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.validation import _reject_sender_truncated_body, validate_sender
 from service.api_core.agent_sessions import _touch_agent
+from service.api_core.external_keys import EXTERNAL_ROUTE, refuse_external_impersonation
+from service.api_core.operator_authz import operator_is_acting
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.status_refresh import _get_recipient_info
 from service.longpoll import _wake_agent
@@ -69,15 +71,21 @@ router = domain_router()
 
 
 
-@router.post("/messages/send")
+@router.post("/messages/send", openapi_extra=EXTERNAL_ROUTE)
 async def send_message(req: MessageSend, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
     validate_sender(req.from_agent)
     _reject_sender_truncated_body(req.body)
+    # WHICH OTHER MACHINE, when the request carried an external key: set by the key middleware, so it
+    # is a fact about the request and not something the sender wrote (service/api_core/external_keys.py).
+    external_machine = str(getattr(request.state, "external_machine", "") or "")
+    req._external_machine = external_machine
     db = await get_db()
     try:
-        await _touch_agent(db, req.from_agent)
+        if external_machine:
+            await refuse_external_impersonation(db, req.from_agent, external_machine)
+        await _touch_agent(db, req.from_agent, present=not operator_is_acting(request))
         # NOTE: do NOT clear turn_busy here based on the agent sending a
         # message. The agent might send a reply and then keep working
         # (more tool calls, more analysis, more messages) — clearing on
@@ -182,10 +190,10 @@ async def send_message(req: MessageSend, request: Request):
             # rowcount tells us whether THIS request actually wrote the row. (Empty nonce =
             # not in the index, so nonce-less sends always insert, exactly as before.)
             cursor = await db.execute(
-                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, origin, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, origin, external_machine, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
                  req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce,
-                 req.origin, ts)
+                 req.origin, external_machine, ts)
             )
             inserted_rows += cursor.rowcount or 0
 

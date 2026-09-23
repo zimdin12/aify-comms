@@ -54,6 +54,7 @@ from service.api_core.agent_sessions import (
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.validation import _reject_sender_truncated_body, validate_sender
 from service.api_core.agent_sessions import _touch_agent
+from service.api_core.operator_authz import operator_is_acting
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.status_refresh import _get_recipient_info
 from service.longpoll import _wake_agent
@@ -127,7 +128,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
 
     db = await get_db()
     try:
-        await _touch_agent(db, req.from_agent)
+        await _touch_agent(db, req.from_agent, present=not operator_is_acting(request))
         resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
         warnings = []
         if req.inReplyTo and not reply_parent_found:

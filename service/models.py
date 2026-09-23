@@ -1,7 +1,7 @@
 """Pydantic models for aify-comms API."""
 import re
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 
 def _normalize_machine_id_value(value: Optional[str]) -> Optional[str]:
@@ -237,6 +237,11 @@ class MessageSend(BaseModel):
     #: wrapper belong to its own host and it has no business in this roster. This is what lets such
     #: a message still say who to answer.
     origin: str = ""
+
+    #: WHICH OTHER MACHINE, when the request carried an external key. PRIVATE, so no client can send
+    #: it: the send route copies it from the key middleware's verdict, and console delivery reads it
+    #: here because it labels the sender before the message row exists.
+    _external_machine: str = PrivateAttr(default="")
 
     @field_validator("origin")
     @classmethod

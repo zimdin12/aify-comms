@@ -28,6 +28,7 @@ import uuid
 from fastapi import HTTPException, Request
 
 from service.api_core.agent_sessions import _touch_agent
+from service.api_core.operator_authz import operator_is_acting
 from service.api_core.channel_coldstart import _coldstart_cold_channel_members
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.dispatch_runs import _create_dispatch_runs
@@ -90,7 +91,7 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
     _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
-        await _touch_agent(db, req.from_agent)
+        await _touch_agent(db, req.from_agent, present=not operator_is_acting(request))
 
         # Verify membership
         cursor = await db.execute("SELECT 1 FROM channel_members WHERE channel_name = ? AND agent_id = ?", (name, req.from_agent))

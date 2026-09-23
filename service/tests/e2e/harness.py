@@ -66,13 +66,17 @@ class E2EStack:
     #: version did, and the isolation test caught it by finding no database where it was promised.
     DB_FILENAME = "aify.db"
 
-    def __init__(self, data_dir: Path, boot_timeout: float = DEFAULT_BOOT_TIMEOUT):
+    def __init__(self, data_dir: Path, boot_timeout: float = DEFAULT_BOOT_TIMEOUT,
+                 env: Optional[dict] = None):
         self.data_dir = Path(data_dir)
         self.db_path = self.data_dir / self.DB_FILENAME
         self.port = _free_port()
         self.base_url = f"http://127.0.0.1:{self.port}"
         self._boot_timeout = float(boot_timeout)
         self._proc: Optional[subprocess.Popen] = None
+        #: Applied LAST, over the harness's own settings, so a test can turn authentication on (the
+        #: default leaves `API_KEY` empty) or clear `OPERATOR_KEY` to exercise the generated one.
+        self._env_overrides = dict(env or {})
 
     # ── lifecycle ────────────────────────────────────────────────────────────────────────────
 
@@ -104,6 +108,7 @@ class E2EStack:
         # that inherits it would do the same from here.
         for role_flag in ("AIFY_ENVIRONMENT_BRIDGE", "AIFY_AGENT_ID", "AIFY_AGENT_ROLE"):
             env.pop(role_flag, None)
+        env.update(self._env_overrides)
 
         self._proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "service.main:app",

@@ -109,6 +109,16 @@ def authorize_operator(actor: str, request, configured_key: str, *, action: str)
         f"permission.",
     )
 
+def operator_is_acting(request) -> bool:
+    """Does this request PROVE it comes from an operator surface, whatever actor it names?
+
+    The dashboard can send AS any agent from its identity picker, and such a send is the operator,
+    not the agent: it must not count as the agent being present (see `_touch_agent`). The dashboard
+    attaches the operator key to every request, and no bridge holds it, so the header is the answer.
+    """
+    return operator_privilege_granted(request, operator_key_from(request))
+
+
 def operator_key_from(request) -> str:
     """The configured operator secret for this app, or "" when unset (which refuses every claim).
 
