@@ -5,7 +5,8 @@ answering threads that had moved on, redoing work a teammate had finished. The o
 manager-side "rebrief" line in the lead skill, which depends on someone noticing the agent was gone.
 The agent coming back is the one party that always knows it just started, so the service tells it.
 
-HOW. On registration, the agent's PREVIOUS `last_seen` is compared with now. Past the
+HOW. On registration, when the agent was last PRESENT (`agents.last_present_at`, stamped by what the
+agent itself does; `last_seen` on rows that predate it) is compared with now. Past the
 `away_briefing_hours` setting (0 turns it off), the service gathers what arrived for the agent while
 it was away -- unread direct messages by sender, and new messages in the channels it belongs to --
 and sends it one `info` message from `aify-comms`. It is sent through the ordinary dispatch path, so
@@ -13,8 +14,8 @@ every harness receives it the way it receives any message, and the bridge batche
 work is already queued, so it arrives alongside the first task rather than as a turn of its own.
 
 NOTHING NEW, NOTHING SENT. An agent that was away but missed nothing is not woken to be told so.
-An agent registering for the first time has no previous `last_seen` and is not briefed; a second
-registration moments later sees a fresh `last_seen` and is not briefed twice.
+An agent registering for the first time has no previous presence and is not briefed; a second
+registration moments later sees a fresh one and is not briefed twice.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from typing import Optional
 from service.api_core.channel_delivery import _apply_channel_routing_to_claude_runs
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.dispatch_runs import _create_dispatch_runs
+from service.api_core.message_view import SERVICE_SENDER
 from service.api_core.send_preflight import _preflight_live_send_recipients
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.clock import iso_to_epoch
@@ -34,8 +36,9 @@ from service.db import get_db
 
 logger = logging.getLogger("aify_comms.api_core.away_briefing")
 
-#: Who the briefing is from. Not an agent: it is the service reporting on itself.
-SENDER = "aify-comms"
+#: Who the briefing is from. Not an agent: it is the service reporting on itself, declared with the
+#: service's other voices so no reader brands it external.
+SENDER = SERVICE_SENDER
 #: How many senders and channels are named before the rest are summarised as a count.
 LISTED = 5
 

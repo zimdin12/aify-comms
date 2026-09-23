@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { settingsFieldHtml } from "./settings-fields.mjs";
+import { THEMES, settingUnchanged } from "./theme.js";
 
 test("a toggle renders a checkbox bound to its setting key", () => {
   const html = settingsFieldHtml({ key: "notify", label: "Notify", type: "toggle" }, true);
@@ -142,4 +143,20 @@ test("ESCAPING: a hint is escaped as well as the label", () => {
   const html = settingsFieldHtml({ key: "k", label: "L", type: "text", hint: "<b>bold</b>" }, "");
   assert.doesNotMatch(html, /<b>bold<\/b>/);
   assert.match(html, /&lt;b&gt;/);
+});
+
+test('an unset colour read back from its own input is not a change', () => {
+  // The save filter compared the colour input's value to the stored setting. An unset colour renders
+  // as its theme's preset, so every save sent the preset and stored it over '' -- after which the
+  // colour no longer followed the theme.
+  const settings = { dashboard_theme: 'forest', dashboard_primary_color: '', dashboard_secondary_color: '', dashboard_tertiary_color: '' };
+  for (const key of ['dashboard_primary_color', 'dashboard_secondary_color', 'dashboard_tertiary_color']) {
+    const shown = settingsFieldHtml({ key, type: 'color', label: key }, settings[key], settings).match(/type="color"[^>]*value="([^"]+)"/)[1];
+    assert.equal(settingUnchanged(key, shown, settings), true, `${key} showing ${shown} was read back as a change`);
+  }
+  // A preset tile resets the pickers to the theme being saved; that is still no colour choice.
+  assert.equal(settingUnchanged('dashboard_primary_color', THEMES.violet.accent, settings, 'violet'), true);
+  // CONTROLS: a colour actually picked is a change, and so is any value against a colour that IS set.
+  assert.equal(settingUnchanged('dashboard_primary_color', '#123456', settings), false);
+  assert.equal(settingUnchanged('dashboard_primary_color', THEMES.forest.accent, { ...settings, dashboard_primary_color: '#123456' }), false);
 });

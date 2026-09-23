@@ -18,7 +18,6 @@
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -31,9 +30,10 @@ import {
   custodyProblemFor,
   parseIcaclsAces,
 } from "../credential-custody.mjs";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
-const AIFY_ENV = process.env.AIFY_ENV_DIR || path.join(homedir(), "projects", "aify-env");
-const OWNER = path.join(AIFY_ENV, "lib", "credential-fs.mjs");
+const SIBLING = siblingCheckout("aify-env", path.join("lib", "credential-fs.mjs"));
+const OWNER = path.join(SIBLING.dir ?? SIBLING.looked[0], "lib", "credential-fs.mjs");
 
 /** A stat as `lstat` returns one, built from the properties the rules actually read. */
 function statLike({ symlink = false, file = true, size = 10, nlink = 1, uid = 1000, mode = 0o600 }) {
@@ -86,8 +86,8 @@ const CORPUS = [
 test("THE CHECKOUT IS PRESENT — this proof does not quietly skip", () => {
   assert.ok(
     existsSync(OWNER),
-    `aify-env is not at ${AIFY_ENV}, so the rules this module caches were compared against nothing. `
-    + "Set AIFY_ENV_DIR. This FAILS rather than skips on purpose: a cross-repo proof that does not "
+    `aify-env is not at ${SIBLING.looked.join(" or ")}, so the rules this module caches were compared `
+    + "against nothing. Set AIFY_ENV_REPO. This FAILS rather than skips on purpose: a cross-repo proof that does not "
     + "run still reads green.",
   );
 });

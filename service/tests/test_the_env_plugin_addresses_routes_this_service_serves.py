@@ -40,12 +40,14 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from service.tests.served_routes import walk_routes
 
 ROOT = Path(__file__).resolve().parents[2]
 
-#: Where the sibling repo lives. `AIFY_ENV_REPO` is what lets this be driven against a MUTATED copy
-#: without touching the operator's checkout.
-DEFAULT_ENV_REPO = Path.home() / "projects" / "aify-env"
+#: Where the sibling repo lives when `AIFY_ENV_REPO` is unset: beside this checkout, then ~/projects --
+#: the same order the bridge suite's cross-repo tests use (mcp/stdio/tests/_sibling-checkout.mjs).
+#: `AIFY_ENV_REPO` is what lets this be driven against a MUTATED copy without touching the operator's.
+DEFAULT_ENV_REPOS = (ROOT.parent / "aify-env", Path.home() / "projects" / "aify-env")
 
 PLUGIN_DIR = Path("lib") / "plugins" / "aify-comms"
 
@@ -134,9 +136,11 @@ def env_repo() -> tuple[Path | None, str]:
             return Path(named), ""
         return None, (f"AIFY_ENV_REPO names {named}, which holds no {PLUGIN_DIR.as_posix()} -- "
                       "refusing to judge a different checkout than the one asked for")
-    if (DEFAULT_ENV_REPO / PLUGIN_DIR).is_dir():
-        return DEFAULT_ENV_REPO, ""
-    return None, f"no aify-env checkout at {DEFAULT_ENV_REPO} and AIFY_ENV_REPO is unset"
+    for candidate in DEFAULT_ENV_REPOS:
+        if (candidate / PLUGIN_DIR).is_dir():
+            return candidate, ""
+    return None, (f"no aify-env checkout at {' or '.join(map(str, DEFAULT_ENV_REPOS))} "
+                  "and AIFY_ENV_REPO is unset")
 
 
 def emitted_requests(repo: Path, credential: str = "") -> dict:
@@ -236,7 +240,7 @@ def declared_body_fields() -> dict[tuple[str, str], set[str]]:
 
     app = create_app()
     out: dict[tuple[str, str], set[str]] = {}
-    for route in app.routes:
+    for route in walk_routes(app):
         path = getattr(route, "path", None)
         body = getattr(route, "body_field", None)
         model = getattr(getattr(body, "field_info", None), "annotation", None)
@@ -291,7 +295,7 @@ def served_routes() -> set[tuple[str, str]]:
 
     app = create_app()
     out: set[tuple[str, str]] = set()
-    for route in app.routes:
+    for route in walk_routes(app):
         path = getattr(route, "path", None)
         if not path:
             continue

@@ -44,7 +44,7 @@ from service.ntfy import notify_operator
 from service.models import MessageSend
 from service.api_core.dispatch_launch import _launch_recipients_for_dispatch
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
-from service.api_core.validation import _reject_sender_truncated_body
+from service.api_core.validation import _reject_sender_truncated_body, validate_sender
 from service.api_core.agent_sessions import _touch_agent
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.status_refresh import _get_recipient_info
@@ -73,6 +73,7 @@ router = domain_router()
 async def send_message(req: MessageSend, request: Request):
     if not req.to and not req.toRole:
         raise HTTPException(400, "Need 'to' or 'toRole'")
+    validate_sender(req.from_agent)
     _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
@@ -184,7 +185,7 @@ async def send_message(req: MessageSend, request: Request):
                 "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, origin, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
                  req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce,
-                 str(req.origin or "").strip()[:200], ts)
+                 req.origin, ts)
             )
             inserted_rows += cursor.rowcount or 0
 

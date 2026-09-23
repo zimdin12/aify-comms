@@ -103,21 +103,43 @@ test("a console that did not answer is still UNREADABLE, not 'not running'", asy
   assert.equal(h.added[0][2], "unknown-all");
 });
 
-test("an unreadable RUNNING console names its runtime, so the operator knows what could not be read", async () => {
+// A RUNNING CONSOLE THAT SHOWS NO PAIR IS NOT APPLICABLE, NOT UNREADABLE. Claude Code never draws one
+// and hermes draws none before its first turn. On 2026-09-23 this host's row read `unknown-all` for
+// three claude-code consoles, a failure about consoles this check can never measure. The operator's
+// ruling (2026-09-16): measure only pairs on screen, never a conversation file, and leave the rest out.
+const running = (output) => ({ ok: true, live: true, output });
+
+test("a fleet of running consoles with no pair on screen is SKIPPED, not failed", async () => {
   const h = harness(
-    { x: managed("claude-code"), y: managed("claude-code"), z: managed("codex") },
-    {
-      x: { ok: true, live: true, output: "> working" },
-      y: { ok: true, live: true, output: "> idle" },
-      z: { ok: true, live: true, output: "? for shortcuts" },
-    },
+    { x: managed("claude-code"), y: managed("claude-code"), z: managed("claude-code") },
+    { x: running("> working"), y: running("> idle"), z: running("? for shortcuts") },
+  );
+  await checkContextWindow(h.deps);
+  const [, ok, code, detail] = h.added[0];
+  assert.equal(code, "skipped", `a console that can never show a pair failed the row: ${detail}`);
+  assert.equal(ok, true);
+  assert.doesNotMatch(detail, /claude-code|could not be read/);
+});
+
+test("a pairless console is left out of a measured row rather than counted as unreadable", async () => {
+  const h = harness({ cc: managed("claude-code"), h: managed() }, { cc: running("> idle"), h: running(LOW) });
+  await checkContextWindow(h.deps);
+  const [, ok, code, detail] = h.added[0];
+  assert.equal(code, "ok");
+  assert.equal(ok, true);
+  assert.doesNotMatch(detail, /could not be read/);
+});
+
+test("CONTROL: a hermes console over its window beside pairless ones still fails", async () => {
+  const h = harness(
+    { a: managed("claude-code"), b: managed("claude-code"), h: managed() },
+    { a: running("> idle"), b: running("> idle"), h: running(FULL) },
   );
   await checkContextWindow(h.deps);
   const [, ok, code, detail] = h.added[0];
   assert.equal(ok, false);
-  assert.equal(code, "unknown-all");
-  assert.match(detail, /claude-code ×2/);
-  assert.match(detail, /codex ×1/);
+  assert.equal(code, "exhausted");
+  assert.match(detail, /h 102%/);
 });
 
 test("a healthy running fleet beside stopped agents is ok, and says how many were not running", async () => {

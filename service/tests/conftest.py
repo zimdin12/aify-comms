@@ -158,6 +158,17 @@ def _rebind_init_db_for_late_imports(_fast_init_db):
 _DEPRECATED_MARKER = re.compile(r"^\s*#\s*deprecated-runtime:\s*([a-z0-9_-]+)\s*$", re.MULTILINE)
 
 
+@pytest.fixture
+def real_app_data_dir(monkeypatch, tmp_path):
+    """For a test that runs `service.main.app`'s real lifespan, which opens `<data_dir>/aify.db`.
+
+    The default `data_dir` is `/data`: the live volume inside the container and a path outside the
+    test's sandbox everywhere else (on a Linux host it is not even writable).
+    """
+    from service.config import get_config
+    monkeypatch.setattr(get_config(), "data_dir", tmp_path.as_posix())
+
+
 def _deprecated_runtime_of(path: Path) -> str:
     try:
         head = path.read_text(encoding="utf-8", errors="replace")[:2000]

@@ -27,9 +27,8 @@ from typing import Optional
 from fastapi import HTTPException, Query, Request
 
 from service.api_core.inbox_read_receipts import _settle_inbox_read
-from service.api_core.message_view import _serialize_inbox_message
+from service.api_core.message_view import _registered_senders, _serialize_message
 from service.api_core.routing import domain_router
-from service.api_core.serialization import _clip_text
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -109,21 +108,10 @@ async def get_inbox(
         c = await db.execute(f"SELECT COUNT(*) {source}", params)
         total = (await c.fetchone())[0]
 
-        # WHICH OF THIS PAGE'S SENDERS THIS INSTANCE ACTUALLY KNOWS, in one query rather than one
-        # per message. An id absent here is a sender that registered somewhere else, or never at all.
-        senders = {str(row["from_agent"] or "") for row in rows if row["from_agent"]}
-        known_senders: set[str] = set()
-        if senders:
-            placeholders = ",".join("?" for _ in senders)
-            known_senders = {
-                str(r[0]) for r in await (await db.execute(
-                    f"SELECT id FROM agents WHERE id IN ({placeholders})", list(senders)
-                )).fetchall()
-            }
-
+        known_senders = await _registered_senders(db, (row["from_agent"] for row in rows))
         messages = []
         for row in rows:
-            msg = _serialize_inbox_message(
+            msg = _serialize_message(
                 row, include_body=include_body,
                 sender_registered=str(row["from_agent"] or "") in known_senders,
             )
@@ -246,32 +234,18 @@ async def recent_messages(
         rows = await cursor.fetchall()
         truncated = len(rows) > limit
         rows = rows[:limit]
-        messages = []
-        for row in rows:
-            messages.append({
-                "id": row["id"],
-                "from": row["from_agent"],
-                "to": row["to_agent"],
-                "channel": row["channel"],
-                "source": row["source"],
-                "type": row["type"],
-                "subject": row["subject"],
-                # Full body so the dashboard chat renders complete messages — the bubble
-                # reads `m.body` and previously fell back to the 240-char `preview`, so
-                # EVERY message was truncated to 240 chars in the conversation view
-                # (operator-reported 2026-07-10). `preview` is kept for the light DM-rail
-                # one-liner; `body` carries the real content.
-                "body": row["body"] or "",
-                "preview": _clip_text(row["body"] or "", 240),
-                "priority": row["priority"],
-                "timestamp": row["timestamp"],
-                "inReplyTo": row["in_reply_to"],
-                "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
-                # Recipient-perspective read state (rr.agent_id = to_agent) so the dashboard's
-                # unread badges work; channel rows (to_agent NULL) have no receipt → read=False.
-                "read": ("read_at" in row.keys()) and (row["read_at"] is not None),
-                "readAt": row["read_at"] if "read_at" in row.keys() else None,
-            })
+        # THE SAME SERIALIZER AS THE INBOX, body always included: the chat bubble reads `m.body`, and
+        # falling back to the 240-char `preview` truncated every message in the conversation view
+        # (operator-reported 2026-07-10). Read state is the RECIPIENT's (rr.agent_id = to_agent), so
+        # the dashboard's unread badges work; a channel row has no receipt and reads unread.
+        known_senders = await _registered_senders(db, (row["from_agent"] for row in rows))
+        messages = [
+            _serialize_message(
+                row, include_body=True,
+                sender_registered=str(row["from_agent"] or "") in known_senders,
+            )
+            for row in rows
+        ]
         # `total` IS GONE AND THAT IS THE POINT. It was `len(messages)` -- the length of the PAGE,
         # under a name that promises a count of the whole. Measured on the operator's database
         # 2026-08-29: this query's WHERE matches 33,612 rows and the field reported 80. A consumer

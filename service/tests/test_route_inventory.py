@@ -12,6 +12,7 @@ regenerating the snapshot wholesale cannot silently drop one the fleet cannot lo
 from __future__ import annotations
 
 import unittest
+from service.tests.served_routes import walk_routes
 
 
 def _live_routes() -> list[str]:
@@ -19,7 +20,7 @@ def _live_routes() -> list[str]:
 
     app = create_app()
     out = set()
-    for route in app.routes:
+    for route in walk_routes(app):
         if not hasattr(route, "path"):
             continue
         methods = getattr(route, "methods", None)

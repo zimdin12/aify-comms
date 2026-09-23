@@ -22,6 +22,8 @@ import time
 
 from fastapi import Query, Request
 
+from service.api_core.agent_sessions import _mark_agent_present
+from service.api_core.message_view import _registered_senders, _serialize_message
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.clock import now as _now
@@ -40,7 +42,9 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
     # Set status to idle (waiting for work)
     db = await get_db()
     try:
-        await db.execute("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?", (_now(), agent_id))
+        now = _now()
+        await db.execute("UPDATE agents SET status = 'idle', last_seen = ? WHERE id = ?", (now, agent_id))
+        await _mark_agent_present(db, agent_id, now)
         await db.commit()
     finally:
         await db.close()
@@ -65,20 +69,19 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
                 # Fetch and return the messages (mark as read)
                 now = _now()
                 mc = await db.execute(
-                    "SELECT m.* FROM messages m LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? WHERE m.to_agent = ? AND r.message_id IS NULL ORDER BY m.timestamp DESC",
+                    "SELECT m.*, NULL AS read_at FROM messages m LEFT JOIN read_receipts r ON m.id = r.message_id AND r.agent_id = ? WHERE m.to_agent = ? AND r.message_id IS NULL ORDER BY m.timestamp DESC",
                     (agent_id, agent_id)
                 )
                 rows = await mc.fetchall()
+                known_senders = await _registered_senders(db, (row["from_agent"] for row in rows))
                 messages = []
                 for row in rows:
-                    msg = {
-                        "id": row["id"], "from": row["from_agent"], "type": row["type"],
-                        "source": row["source"], "channel": row["channel"],
-                        "subject": row["subject"], "body": row["body"],
-                        "priority": row["priority"], "timestamp": row["timestamp"],
-                        "inReplyTo": row["in_reply_to"],
-                        "dispatchRequested": bool(row["dispatch_requested"]) if "dispatch_requested" in row.keys() else False,
-                    }
+                    msg = _serialize_message(
+                        row, include_body=True,
+                        sender_registered=str(row["from_agent"] or "") in known_senders,
+                    )
+                    # Absent, not null, when the parent is gone: this route never sent the null.
+                    msg.pop("parentContext", None)
                     # Parent context for replies
                     if row["in_reply_to"]:
                         pc = await db.execute("SELECT from_agent, subject, body FROM messages WHERE id = ?", (row["in_reply_to"],))

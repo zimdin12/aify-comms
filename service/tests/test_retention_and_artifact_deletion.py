@@ -26,6 +26,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from service.clock import now as _now
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
 
@@ -136,6 +137,42 @@ class RetentionAndDeletionTests(FastApiTestCase):
         self.assertIn("m-cap-0", surviving, "the cap must not evict an open run's message either")
         self.assertNotIn("m-cap-1", surviving, "...while still trimming the rest, or it trimmed nothing")
 
+    def test_the_CAP_spares_the_REPLY_an_open_run_has_already_been_answered_with(self):
+        """An unthreaded reply is linked to its run when it is SENT: it becomes the run's
+        `result_message_id`. A managed run stays `running` after that until its turn ends, and the
+        guard covered only the run's REQUEST -- so the cap could take the reply out of the sender's
+        inbox, and deleting it NULLs `result_message_id`: the run went back to owing an answer that
+        had already been given, with nothing left for the reconciler to find.
+        """
+        self._seed_message("m-req", age_days=1)
+        self._write(
+            "INSERT INTO dispatch_runs (id, message_id, from_agent, target_agent, status,"
+            " execution_mode, require_reply, requested_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("run-answered", "m-req", OTHER, AGENT, "running", "managed", 1,
+             _now()),
+        )
+        sent = self.client.post("/api/v1/messages/send", json={
+            "from_agent": AGENT, "to": OTHER, "type": "response", "subject": "done", "body": "done",
+        })
+        self.assertEqual(sent.status_code, 200, sent.text)
+        reply_id = sent.json()["messageId"]
+        linked = self._rows("SELECT status, result_message_id FROM dispatch_runs WHERE id='run-answered'")[0]
+        self.assertEqual(linked, {"status": "running", "result_message_id": reply_id}, "precondition: linked at send")
+        # The sender's inbox then holds one older message and two newer ones: the reply is among
+        # the two oldest, which is what a cap of 2 trims.
+        self._seed_message("m-older", to_agent=OTHER, age_days=5)
+        self._seed_message("m-newer-1", to_agent=OTHER, age_days=-0.001)
+        self._seed_message("m-newer-2", to_agent=OTHER, age_days=-0.002)
+        self._settings(message_cap_per_agent=2)
+        self._rotate()
+        surviving = self._message_ids(OTHER)
+        self.assertIn(reply_id, surviving, "the reply an open run was answered with was trimmed")
+        self.assertNotIn("m-older", surviving, "...while the cap still trims the rest")
+        self.assertEqual(
+            self._rows("SELECT result_message_id FROM dispatch_runs WHERE id='run-answered'")[0]["result_message_id"],
+            reply_id,
+        )
+
 
     def test_a_message_past_the_window_is_expired(self):
         """And one inside it survives. This is also the gate on the cutoff's UNITS: an ISO-string
@@ -211,10 +248,12 @@ class RetentionAndDeletionTests(FastApiTestCase):
         accumulates forever and can resurrect as a false 'already read'.
 
         RENAMED 2026-09-22, because the old name described a sweep this no longer does and never
-        needed to. `_delete_messages_by_ids` deletes each message's receipts BY ID in the same
-        transaction, so the receipt goes with the message. The full-table `NOT IN` that used to run
-        after rotation was re-answering that, and this test was green because of the by-id delete
-        rather than because of the sweep it was named for (review finding 12).
+        needed to. TWO things take the receipt with its message, and either one alone keeps this
+        green: `read_receipts.message_id` is `ON DELETE CASCADE` with `foreign_keys=ON` on every
+        service connection, and `_delete_messages_by_ids` also deletes the receipts by id. Measured
+        2026-09-23: removing either leaves this passing; removing both turns it red. It pins the
+        behaviour, not a mechanism. The full-table `NOT IN` that used to run after rotation
+        re-answered a question both had already settled (review finding 12).
         """
         self._settings(message_retention_days=1, message_cap_per_agent=0)
         self._seed_message("ancient", age_days=99)

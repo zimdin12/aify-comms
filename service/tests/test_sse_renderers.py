@@ -105,6 +105,21 @@ class SseRendererTests(unittest.TestCase):
         self.assertNotIn("\n```\nrm -rf /", out, "the inner fence must be neutralised")
         self.assertIn("'''", out)
 
+    def test_inbox_names_an_external_sender_and_where_it_says_it_is(self):
+        """The agent reading this is the one that has to answer, so it must learn the sender is on
+        another machine. Both modes, and a registered sender in the same run as the control."""
+        origin = "192.168.1.50:8800, manager mp-manager"
+        payload = {"total": 2, "showing": 2, "messages": [
+            {"id": "m1", "from": "agent-from-another-pc", "fromRegistered": False, "origin": origin,
+             "type": "info", "subject": "s", "body": "b"},
+            {"id": "m2", "from": "sc-coder", "fromRegistered": True, "type": "info", "subject": "s",
+             "body": "b"}]}
+        for mode in ("full", "headers"):
+            with self.subTest(mode=mode):
+                out, _ = self._render(inbox_tools.comms_inbox, payload, agentId="x", mode=mode)
+                self.assertIn(origin, out)
+                self.assertEqual(out.count("external"), 1, out)
+
     def test_inbox_empty_says_empty_and_claims_nothing_more(self):
         out, _ = self._render(inbox_tools.comms_inbox, {"total": 0, "showing": 0, "messages": []}, agentId="x")
         self.assertEqual(out.strip(), "Inbox empty.")

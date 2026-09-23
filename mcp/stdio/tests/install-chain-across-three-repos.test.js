@@ -19,8 +19,10 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
-const WRAPPER_REPO = process.env.AIFY_WRAPPER_REPO || path.join(os.homedir(), "projects", "aify-wrapper");
+const SIBLING = siblingCheckout("aify-wrapper", "install.sh");
+const WRAPPER_REPO = SIBLING.dir ?? SIBLING.looked[0];
 // fileURLToPath, not pathname-with-the-slash-stripped: on Windows the URL path is /C:/... and
 // stripping the leading slash yields C:/... only by luck of the drive letter -- a UNC path or a
 // percent-encoded space comes out wrong. Node ships the correct conversion; hand-rolling it is how
@@ -55,7 +57,7 @@ const check = (w, extra = []) => spawnSync(process.execPath, [
 
 test("aify-wrapper is checked out, so this chain can be exercised", () => {
   // Failing rather than skipping: "the chain is unverified" must not read as green.
-  assert.equal(available, true, `aify-wrapper not found at ${WRAPPER_REPO}; set AIFY_WRAPPER_REPO`);
+  assert.equal(available, true, `aify-wrapper not found at ${SIBLING.looked.join(" or ")}; set AIFY_WRAPPER_REPO`);
 });
 
 test("THE CHAIN: comms writes, wrapper bakes, the checker agrees — and heals after drift", (t) => {

@@ -72,12 +72,21 @@ SWEEP_SCHEDULE = RotationSchedule()
 #: nothing able to close it. The cap half could also delete the REPLY out of the sender's inbox,
 #: which `reconcilers/managed_workers.py` scans for exactly that purpose.
 #:
+#: A run points at TWO messages: its request (`message_id`) and, once answered, its reply
+#: (`result_message_id`). An unthreaded reply is linked when it is SENT
+#: (`api_core/reply_linking.py`), and a managed run stays `running` after that until its turn ends.
+#: Guarding only the request left the reply trimmable, and deleting it NULLs `result_message_id`:
+#: the run owed an answer again that had already been given. The reconciler's own scan runs in the
+#: sweep BEFORE rotation, so a reply it can link is a `result_message_id` by the time this reads.
+#:
 #: DERIVED from `_DISPATCH_TERMINAL_STATUSES`, so a fourth ending added later is excluded here
 #: without anyone remembering this file. Open means "not ended": that is the eager direction, and
 #: eager is correct for a guard whose failure mode is deleting somebody's in-flight work.
 _OPEN_RUN_MESSAGE_IDS = (
-    " AND id NOT IN (SELECT message_id FROM dispatch_runs"
-    " WHERE COALESCE(message_id, '') != ''"
+    " AND id NOT IN (SELECT pointed FROM ("
+    "   SELECT message_id AS pointed, status FROM dispatch_runs"
+    "   UNION ALL SELECT result_message_id, status FROM dispatch_runs)"
+    " WHERE COALESCE(pointed, '') != ''"
     f"   AND status NOT IN ({','.join('?' * len(_DISPATCH_TERMINAL_STATUSES))}))"
 )
 _OPEN_RUN_PARAMS = tuple(sorted(_DISPATCH_TERMINAL_STATUSES))

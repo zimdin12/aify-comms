@@ -26,6 +26,7 @@ from fastapi import FastAPI
 
 from service.routers.api_v2 import router
 from service.tests._base import FastApiTestCase
+from service.tests.served_routes import walk_routes
 
 AGENT_ID = "lc-removed"
 
@@ -85,7 +86,7 @@ def _agent_write_routes() -> list[tuple[str, str]]:
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     found = []
-    for route in app.routes:
+    for route in walk_routes(app):
         methods = (getattr(route, "methods", set()) or set()) & {"POST", "PATCH", "PUT", "DELETE"}
         path = getattr(route, "path", "")
         if "{agent_id}" in path and methods:

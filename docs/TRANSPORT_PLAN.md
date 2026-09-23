@@ -68,7 +68,7 @@ is to make the watched path cheap.
 request a burst of 10 keys costs ~0.4 ms of wire time, not 3.9 ms. This alone removed the reported
 defect. Everything below is an improvement on a working system.
 
-### Step 2 — DONE in aify-env 0.6.6 (`1b6da12`), on the operator's decision
+### Step 2 — DONE in aify-env 0.6.7 (`1b6da12`; input/resize-only in `16ba4f1`, created locked in `155982f`), on the operator's decision
 
 Built rather than deferred: the operator asked for it, and the shape is the one described below.
 What shipped: the daemon listens on a named pipe (Windows) or a unix socket (elsewhere) IN ADDITION
@@ -77,6 +77,11 @@ when it cannot connect, when this host switched it off, or when the socket dies 
 socket carries input and resize only, never the whole API; a unix socket is chmod 0600 and a Windows
 pipe inherits the creating token's DACL. The switch is `transport.localSocket` in
 `~/.aify/config.json`, default true, written once at install and never over an operator's own value.
+
+`1b6da12` set the version to 0.6.6, but no 0.6.6 was tagged; the first release carrying the socket is
+0.6.7. Two of the properties above are not in `1b6da12` itself: it handed any absolute path to the
+full router (so `DELETE /processes/:id` over the socket stopped a process), and it bound the unix
+socket at 0755 before chmod'ing it, ignoring a failed chmod.
 
 **PASSES IN TESTS, NOT YET PROVEN ON THIS HOST.** 1917 tests including a real pipe carrying a
 keystroke into a real process's stdin, with an unknown-process refusal as the control. The running

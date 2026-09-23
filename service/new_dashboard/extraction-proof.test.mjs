@@ -48,6 +48,16 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: entry after it left.
 const CARRIER_EDITS = [
   {
+    // An unset colour renders as its theme's preset, and comparing that preset to the stored '' sent
+    // it on every save. The change filter now lives in theme.js, beside the presets it has to know.
+    now: ["  for (const key of Object.keys(payload)) if (settingUnchanged(key, payload[key], state.settings, payload.dashboard_theme)) delete payload[key]; // send only what changed (theme.js)"],
+    was: ["  for (const key of Object.keys(payload)) if (JSON.stringify(payload[key]) === JSON.stringify(state.settings?.[key])) delete payload[key]; // send only what changed"],
+  },
+  {
+    now: ["import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings, settingUnchanged } from './theme.js';"],
+    was: ["import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings } from './theme.js';"],
+  },
+  {
     // change-driven refresh: the timed poll moved into change-refresh.mjs and runs only while the socket is down.
     now: [
       "// The timed poll honours `dashboard_refresh_seconds` and runs only while the socket is down (change-refresh.mjs).",
@@ -231,6 +241,15 @@ const EXTRACTIONS = [
           "    // showed `#AABBCC` in the code label beside a swatch driven by `#aabbcc`, and the theme applied",
           "    // the lowercase one. One question, one answer.",
           "    const hex = normalizedHexColor(value, fallback);",
+        ],
+        },
+        {
+          // The slot each colour key paints is named once, for the render and the read-back.
+          was: [
+          "    const fallback = item.key === 'dashboard_secondary_color' ? preset.secondary : item.key === 'dashboard_tertiary_color' ? preset.tertiary : preset.accent;",
+        ],
+          now: [
+          "    const fallback = preset[COLOR_SETTING_SLOT[item.key] || 'accent'];",
         ],
         },
       ],

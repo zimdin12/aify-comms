@@ -60,11 +60,28 @@ ENDED_AGENT_SESSION_STATUS_SQL = "(" + ", ".join(
 ) + ")"
 
 
+async def _mark_agent_present(db, agent_id: str, now: Optional[str] = None) -> None:
+    """The agent ITSELF did something, so it was here. Stamps `last_present_at`, which the away
+    briefing measures an absence from (see the column's note in service/db.py).
+
+    Call it ONLY where the agent authored the request: its registration, heartbeat, sends, turn
+    signals, inbox reads, listen and its own status. Never where an operator or another agent acts
+    ON it -- Stop, Resume, a favourite, a description edit -- which stamp `last_seen` only, because
+    counting those as presence hid a real absence (external review 2026-09-21, finding 6). Counting
+    only the heartbeat was the opposite mistake: an SSE client never heartbeats, and neither does a
+    stdio bridge started without `AIFY_AGENT_ID`, so one that worked all day was briefed as away.
+    """
+    await db.execute("UPDATE agents SET last_present_at = ? WHERE id = ?", (now or _now(), agent_id))
+
+
 async def _touch_agent(db, agent_id: str):
+    """The agent sent something (a message, a dispatch, a channel post): it is here and active."""
+    now = _now()
     await db.execute(
         "UPDATE agents SET last_seen = ?, status = CASE WHEN status = 'stopped' THEN status ELSE 'active' END WHERE id = ?",
-        (_now(), agent_id)
+        (now, agent_id)
     )
+    await _mark_agent_present(db, agent_id, now)
 
 
 async def _agent_tombstone(db, agent_id: str):

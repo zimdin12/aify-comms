@@ -23,7 +23,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import {
   CONSUMED_SURFACE, consumedPinVerdict, pinnedWrapperSha, upstreamAdvisory,
 } from "../wrapper-pin-freshness.mjs";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const BRIDGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SHA_A = "a".repeat(40);
@@ -166,10 +166,7 @@ test("THE GATE: this repo consumes exactly the pin it declares", () => {
 // ---- the upstream advisory, only where it can be answered ----------------------------------------
 
 test("THE ADVISORY: what upstream has landed since the pin", (t) => {
-  const repo = [
-    process.env.AIFY_WRAPPER_REPO,
-    path.join(homedir(), "projects", "aify-wrapper"),
-  ].find((dir) => dir && existsSync(path.join(dir, ".git")));
+  const repo = siblingCheckout("aify-wrapper", ".git").dir;
 
   if (!repo) {
     // A SKIP, DELIBERATELY, and it is not the same call as the cross-repo integration proofs. Those

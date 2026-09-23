@@ -23,7 +23,7 @@ from typing import Any
 
 from service.api_core.active_run_discard import _discard_unusable_active_run
 from service.api_core.capabilities import _row_capabilities
-from service.api_core.dispatch_hint import _dispatch_fix_hint
+from service.api_core.dispatch_hint import _dispatch_fix_hint, _unregistered_recipient_hint
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.execution_mode import (
     _agent_execution_mode,
@@ -72,7 +72,7 @@ async def _preflight_live_send_recipients(
         agent_cursor = await db.execute("SELECT * FROM agents WHERE id = ?", (recipient_id,))
         row = await agent_cursor.fetchone()
         if not row:
-            not_started.append(_dispatch_fix_hint(recipient_id, None, "agent is not registered"))
+            not_started.append(await _unregistered_recipient_hint(db, recipient_id))
             continue
         row, _transition = await _auto_return_resident_to_managed_if_possible(db, row, settings=settings)
         if _normalize_runtime(row["runtime"] or "") == "pi":

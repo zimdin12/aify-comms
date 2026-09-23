@@ -1,4 +1,5 @@
 """Pydantic models for aify-comms API."""
+import re
 from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -205,6 +206,9 @@ class AgentStatusUpdate(BaseModel):
     note: Optional[str] = None
 
 
+_CONTROL_RUN = re.compile(r"[\x00-\x1f\x7f]+")
+
+
 class MessageSend(BaseModel):
     from_agent: str
     to: Optional[str] = None
@@ -233,6 +237,13 @@ class MessageSend(BaseModel):
     #: wrapper belong to its own host and it has no business in this roster. This is what lets such
     #: a message still say who to answer.
     origin: str = ""
+
+    @field_validator("origin")
+    @classmethod
+    def _one_line_origin(cls, value):
+        # ONE LINE, BOUNDED. An address and a name never contain a newline or an escape sequence,
+        # and this text is drawn beside a sender id and read by agents.
+        return _CONTROL_RUN.sub(" ", value or "").strip()[:200]
 
 
 class AgentRuntimeStateUpdate(BaseModel):

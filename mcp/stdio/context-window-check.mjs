@@ -87,6 +87,7 @@ export function contextWindowVerdict(rows = [], {
   nearAt = CONTEXT_NEAR_RATIO,
   unmeasured = 0,
   notRunning = 0,
+  noPair = 0,
 } = {}) {
   const considered = Array.isArray(rows) ? rows : [];
   const skipped = Math.max(0, Math.floor(unmeasured) || 0);
@@ -97,6 +98,13 @@ export function contextWindowVerdict(rows = [], {
     // 2026-08-31: the fan-out cap took the first N candidates in insertion order and the verdict never
     // learned it had been capped, so an exhausted agent sitting at position N+1 produced a clean row.
     if (skipped) return cappedVerdict(skipped, 0);
+    // RUNNING, BUT NOTHING ON SCREEN TO MEASURE. Claude Code never draws a `used/window` pair and
+    // hermes draws none before its first turn. Not a pass, since nothing was measured, and not a
+    // failure, since nothing went wrong: the check does not apply to these consoles (operator's
+    // ruling, 2026-09-16 -- conversation files are not read for a figure).
+    if (noPair) {
+      return { ok: true, code: "skipped", detail: `no running console shows a context figure to measure${stoppedNote}.` };
+    }
     // AN HONEST PASS: an exhausted agent is still running, so a fleet with no running console holds
     // nothing this check exists to find.
     return {
@@ -110,8 +118,8 @@ export function contextWindowVerdict(rows = [], {
 
   const readable = considered.filter((row) => row && row.usage);
   if (!readable.length) {
-    // NO EVIDENCE IS NOT A PASS. Every console was unreadable, so this check measured nothing --
-    // and a row that reads `ok` here would be indistinguishable from a fleet that is genuinely fine.
+    // NO EVIDENCE IS NOT A PASS. Every console that could hold a figure failed to answer (or answered
+    // with a rebuilt screen), so an exhausted agent may be among them.
     const runtimes = runtimeTally(considered);
     return {
       ok: false,
@@ -119,10 +127,8 @@ export function contextWindowVerdict(rows = [], {
       detail: `none of ${considered.length} running console(s) could be read`
         + (runtimes ? ` (${runtimes})` : "")
         + `, so no agent's context was measured${stoppedNote}.`,
-      fix: "This reads the `used/window` pair off a runtime's status line (`820.3k/900k`). A runtime "
-        + "whose screen carries no such pair cannot be measured here; otherwise check the console "
-        + "with `comms_console_tail`. Until one is readable this check cannot tell a healthy runtime "
-        + "from an exhausted one.",
+      fix: "The console route did not answer for these agents, or returned a screen rebuilt after a "
+        + "service restart. Check them with `comms_console_tail`.",
     };
   }
 
@@ -253,13 +259,15 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24, max
   const rows = [];
   let notRunning = 0;
   let unmeasured = 0;
+  let noPair = 0;
   for (const [agentId, agent] of eligible) {
     // THE CAP COUNTS RUNNING CONSOLES. Counting stopped ones against it let a sorted run of stopped
     // agents use every slot while the running agent after them -- the only kind that can be full --
     // went unopened.
     // AND A SECOND BOUND ON WHAT IS OPENED AT ALL, because a stopped console costs a fetch too: without
     // it a fleet of mostly stopped agents would be read end to end, and the doctor could stall on it.
-    if (rows.length >= maxConsoles || rows.length + notRunning >= maxOpened) {
+    const opened = rows.length + noPair;
+    if (opened >= maxConsoles || opened + notRunning >= maxOpened) {
       unmeasured += 1;
       continue;
     }
@@ -271,12 +279,17 @@ export async function checkContextWindow({ get, add, skip, maxConsoles = 24, max
       notRunning += 1;
       continue;
     }
+    const usage = console_ ? parseContextUsage(console_.output) : null;
+    // ANSWERED, NO PAIR ON SCREEN: not applicable, left out of the row entirely.
+    if (console_ && !usage) {
+      noPair += 1;
+      continue;
+    }
     // A REBUILT SCREEN IS NOT READ. After a service restart it is fragments of different frames painted
     // over a blank grid, and digits from two frames can form a pair nobody drew. It stays a row, unread.
-    const usage = console_ && console_.reconstructed === true ? null : parseContextUsage(console_ && console_.output);
-    rows.push({ agentId, runtime: agent.runtime, usage });
+    rows.push({ agentId, runtime: agent.runtime, usage: console_?.reconstructed === true ? null : usage });
   }
 
-  const verdict = contextWindowVerdict(rows, { unmeasured, notRunning });
+  const verdict = contextWindowVerdict(rows, { unmeasured, notRunning, noPair });
   return add("context-window", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }

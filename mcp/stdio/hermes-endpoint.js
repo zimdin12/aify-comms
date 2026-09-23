@@ -86,13 +86,16 @@ export function sanitizeAgentId(agentId) {
 
 // Is a local TCP port bindable (free) right now? Best-effort: tries to listen on
 // 127.0.0.1:<port> and reports whether the bind succeeded.
+//
+// The OPTIONS form, so only a TCP port can be bound. `listen(port, host)` treats a non-numeric
+// string as a pipe path: on POSIX it binds a Unix socket of that name in the cwd and answers true.
 export function isPortFree(port, host = "127.0.0.1") {
   return new Promise((resolve) => {
     const srv = net.createServer();
     srv.once("error", () => resolve(false));
     srv.once("listening", () => srv.close(() => resolve(true)));
     try {
-      srv.listen(port, host);
+      srv.listen({ port, host });
     } catch {
       resolve(false);
     }

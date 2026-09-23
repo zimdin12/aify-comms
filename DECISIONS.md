@@ -21,7 +21,10 @@ under Workers.
 Retired keys (listed in `RETIRED`) are ignored on PUT, and old rows are left out on read. They are
 the auto-confirm switches, `manual_session_mode`, `idle_minutes`, `offline_minutes`,
 `stale_agent_hours`, `status_engine` and `worker_idle_close_enabled`. The last one is folded into
-`worker_idle_close_minutes`, where 0 means off, by a one-time migration in `service/db.py`.
+`worker_idle_close_minutes`, where 0 means off, by a one-time migration in `service/db.py`. Only a
+toggle row reading `false` folds the minutes to 0. Minutes with no toggle row are left alone, because
+that is what a v0.6.16-18 host looks like after its own migration deleted the row; the first 0.6.19
+version zeroed those, and hosts that already booted it keep the zero.
 
 Message rotation runs hourly from the sweep (`service/reconcilers/message_rotation.py`), and
 `POST /rotate` runs it on request. Two settings control it: `message_retention_days` and
@@ -33,13 +36,14 @@ choosing it.
 
 ## Pi is deprecated: support kept, tests disabled by default (2026-09-18)
 
-The operator no longer uses Oh My Pi but may again, so its code stays and nothing is removed. Its
-tests are kept as the proof to revive with rather than deleted: each carries `deprecated-runtime: pi`
-near its top, and both runners (`mcp/stdio/tests/run-all.mjs` through `deprecated-runtimes.mjs`, and
+The operator no longer uses Oh My Pi but may again, so its code stays. Its tests, all but one, are
+kept as the proof to revive with rather than deleted: each carries `deprecated-runtime: pi` near its
+top, and both runners (`mcp/stdio/tests/run-all.mjs` through `deprecated-runtimes.mjs`, and
 `service/tests/conftest.py`) leave such files out unless `AIFY_TEST_DEPRECATED` names the runtime.
 The bridge runner lists them by name and pytest reports them skipped, so a disabled file never counts
 as a pass. The one pi test that was slow enough to matter (`pi-runtime.test.js`, about 350 of the
-bridge suite's 773 summed seconds) was deleted outright. Tests that guard OTHER runtimes against pi
+bridge suite's 773 summed seconds) is the exception: it was deleted outright in `3b090df0`, so
+reviving pi means restoring it from that commit's parent as well as setting the flag. Tests that guard OTHER runtimes against pi
 code paths, such as `virtual-terminal-input-is-pi-only.test.js`, stay enabled.
 
 ## One live instance per agent per host, replaced only on an explicit start (2026-09-14, built in v0.6.8)
@@ -1532,8 +1536,14 @@ is agent in another pc and it would not make sense if he would register here."**
 
 Sending already required no row and still creates none. What was missing was any way to see that a
 message came from outside, or who to answer. So a send may carry an `origin` — an endpoint and a
-contact in the sender's own words — stored on the message and shown in the inbox beside an
-`external` chip drawn from `fromRegistered`, which the API derives per read.
+contact in the sender's own words — stored on the message. `fromRegistered` is derived per read.
+Every reader carries both through one serializer (`api_core/message_view.py`): the dashboard feed and
+inbox draw an `external` chip with the origin beside it, and the `From:` line an agent reads names
+the sender as external with the origin it declared. That covers `comms_inbox` on both transports, the
+prompt a dispatch wakes an agent with, and console-typed delivery. The service's own voices
+(`dashboard`, `operator`, `aify-comms`, channel notices) have no roster row and are not external. A
+message sent *to* such a sender is stored here only, and the send answers with the origin it declared
+instead of "register the target first".
 
 **DECLARED, NEVER MEASURED, and it is labelled as a claim wherever it is drawn.** The obvious design
 is to record the client IP, and this deployment cannot: every peer the service observes is
@@ -1550,21 +1560,33 @@ shape. Derived at read time rather than stamped at send time, so a sender remove
 external from then on.
 
 **What this does NOT close:** holding the shared key still lets a caller register any agent id from
-any machine. Auth is one instance-wide secret with no notion of which host is calling, which is how
+any machine, and send as any id: `fromRegistered` says a name exists here, not that the caller is
+its owner. Auth is one instance-wide secret with no notion of which host is calling, which is how
 the second PC's agent landed in the roster in the first place. Per-machine credentials are a
 separate design, not started.
 
-## 2026-09-22 — fastapi is bounded ABOVE, because five gates go blind without it
+## 2026-09-22 — the route gates walk fastapi's route contexts, and fastapi is held to 0.138-0.139
 
-From fastapi 0.140 `include_router` leaves a lazy `_IncludedRouter` in `app.routes` instead of
+From fastapi 0.137.0 `include_router` leaves a lazy `_IncludedRouter` in `app.routes` instead of
 flattening the child routes into it. Serving is unaffected — no product code walks `app.routes` —
-but five inventory gates do, and every one of them reads as a pass when it finds nothing, including
-"the endpoints the fleet cannot lose". Measured on the same application: this container at 0.141.1
-builds 11 route entries, 3 of them `_IncludedRouter`; a host at 0.136.1 builds 129.
+but eight test files did, and every gate among them reads as a pass when it finds nothing, including
+"the endpoints the fleet cannot lose". Measured on the same application: 0.136.1 builds 129 route
+entries; 0.137.0 and 0.139.2 build 11, three of them `_IncludedRouter`.
 
-Recursing instead was considered and rejected for now: the child routes are reachable through
-`_IncludedRouter.original_router`, but their paths no longer carry the parent's prefix and the
-prefix is not on the include context either, so it means rebuilding paths from private internals
-that have just been restructured once. A walker that gets that subtly wrong produces a WRONG
-inventory, which is worse than an empty one. `test_the_route_inventory_is_not_empty.py` is the
-canary: run in the container it reports `8 not greater than 60` and names the five gates.
+**The first answer was an upper bound, and it was wrong twice.** `<0.140` (2026-09-22) resolved to
+0.139.2, past the collapse, so the canary was red on every fresh install. `<0.137` would have fixed
+the tests by DOWNGRADING the running service, which is on 0.139.2, at its next rebuild.
+
+**So the gates moved instead** (2026-09-23). All eight walk through `service/tests/served_routes.py`,
+which asks `fastapi.routing.iter_route_contexts(app.routes)`, added in 0.138.0. At 0.139.2 it yields
+the same 129 (path, methods, name) rows as 0.136.1's flat walk, compared byte for byte, and the gates,
+including the route-metadata snapshot, are green on fresh resolves of 0.138.0 and 0.139.2. A context
+wraps the route, so the one thing that changes for a gate is the declared class: ask
+`declared_class(route)`, never `type(route)`. Hand-recursing through `_IncludedRouter` was rejected:
+a walker that gets the prefixes subtly wrong produces a WRONG inventory, which is worse than an empty
+one.
+
+The requirement is `fastapi>=0.138.0,<0.140`: the floor because nothing older has the helper, the
+ceiling because 0.139.2 is what the service runs. `test_the_route_inventory_is_not_empty.py` is the
+canary. With the helper returning raw `app.routes` on 0.139.2, three of its cases go red, and so do
+all eight other files.

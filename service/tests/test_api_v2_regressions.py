@@ -3809,7 +3809,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         switched = self.client.patch(f"/api/v1/agents/{agent_id}/session-mode", json={"mode": "resident", "force": True})
         self.assertEqual(switched.status_code, 200, switched.text)
-        self.assertEqual(switched.json().get("sideEffects", {}).get("stoppedTerminalId"), managed_terminal_id)
+        self.assertEqual(switched.json().get("sideEffects", {}).get("stoppedTerminalIds"), [managed_terminal_id])
         term = self._fetchone("SELECT status, error FROM terminal_sessions WHERE id = ?", (managed_terminal_id,))
         self.assertEqual(
             term["status"], "stopping",
@@ -4533,6 +4533,29 @@ class ApiV2RegressionTests(FastApiTestCase):
                 self.assertEqual(closed["result_message_id"], reply["messageId"])
                 self.assertTrue(closed["finished_at"])
 
+
+    def test_a_console_typed_message_from_an_external_sender_says_where_it_is(self):
+        """Console delivery TYPES the message into the agent's terminal, with its own `From:` line.
+        An agent on another PC sends without registering and declares where it is; the agent at
+        this console is the one that has to answer, so the typed line must say so."""
+        origin = "192.168.1.50:8800, manager mp-manager"
+        session_id = self._create_running_session(
+            agent_id="external-console", terminal=True, runtime="claude-code",
+            terminal_runtimes=["claude-code"], session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        payload = self._send_message(
+            from_agent="agent-from-another-pc", origin=origin, to="external-console", type="request",
+            subject="console chat", body="from the other pc", trigger=True,
+        )
+        self.assertEqual(len(payload["consoleDeliveries"]), 1, payload)
+        [typed] = [row["body"] for row in self._fetchall(
+            "SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,),
+        )]
+        self.assertIn("From: agent-from-another-pc (external", typed)
+        self.assertIn(origin, typed)
 
     def test_managed_dispatch_native_runtime_can_fall_back_to_native_when_terminal_backing_disabled(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})

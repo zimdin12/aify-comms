@@ -19,7 +19,10 @@ THE APP IS THE REAL ONE, not the api_v2-only test harness: `/health` is mounted 
 the sibling health tests use `service.main.app` for the same reason.
 """
 
+import pytest
 from fastapi.testclient import TestClient
+
+pytestmark = pytest.mark.usefixtures("real_app_data_dir")
 
 #: A REALISTIC HOST. `TestClient` defaults to `http://testserver`, and the browser guard now
 #: requires every request to arrive on a Host this service trusts -- loopback, a literal IP, or

@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 from service.api_core.channel_delivery import _CHANNEL_MANAGED_RUNTIMES, _insert_messages_via_console
-from service.api_core.dispatch_hint import _dispatch_fix_hint
+from service.api_core.dispatch_hint import _dispatch_fix_hint, _unregistered_recipient_hint
 from service.api_core.execution_mode import (
     _agent_execution_mode,
     _auto_return_resident_to_managed_if_possible,
@@ -176,7 +176,9 @@ async def _resolve_dispatch_recipient_delivery(console_recipients, db, launchabl
                     if not reason and execution_mode:
                         reason = await _managed_environment_unavailable_reason(db, row)
         if reason or not execution_mode:
-            if recipient_id not in console_recipients:
+            if row is None:
+                not_started.append(await _unregistered_recipient_hint(db, recipient_id))
+            elif recipient_id not in console_recipients:
                 not_started.append(_dispatch_fix_hint(recipient_id, row, reason or "active dispatch unavailable"))
         else:
             launchable_recipients.append((recipient_id, execution_mode))

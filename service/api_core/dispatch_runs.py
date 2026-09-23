@@ -48,6 +48,7 @@ from service.api_core.dispatch_text import (
     _pending_dispatch_count,
 )
 from service.api_core.events import _append_dispatch_event
+from service.api_core.message_view import _run_sender, _sender_label
 from service.api_core.records import _status_with_dispatch
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.serialization import _json_loads_or, _quote_untrusted_subject
@@ -162,8 +163,13 @@ async def _create_dispatch_runs(
                 # tool calls, where a bare imperative line reads as an instruction. This site was the
                 # one the rule test could not see, because its `Subject:` is mid-string — reported
                 # from another instance 2026-08-17.
+                # The sender is LABELLED like every other reader labels it: steering is the default
+                # path to a busy agent, and a bare id here let an external sender arrive mid-turn
+                # looking like a colleague.
+                sender = await _run_sender(db, from_agent, [source_message_id])
+                label = _sender_label(from_agent, registered=sender["fromRegistered"], origin=sender["origin"])
                 steer_body = (
-                    f"[Message from {from_agent}]\n"
+                    f"[Message from {label}]\n"
                     f"Subject: {_quote_untrusted_subject(subject, 240)}\n\n{body}"
                 )
                 control_id = await _append_dispatch_control(

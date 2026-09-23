@@ -68,6 +68,20 @@ function withInstalledHermes() {
   return { home, full };
 }
 
+/**
+ * An override that EXISTS, outside the fake home. On POSIX a configured command that does not resolve
+ * falls through to the probe paths -- the stale-override tolerance the installer and the .ps1 wrapper
+ * also apply -- so a path that is not on disk would test that fallback, not precedence.
+ */
+function customHermes() {
+  const dir = path.join(ROOT, `custom-${seq += 1}`);
+  mkdirSync(dir, { recursive: true });
+  const full = path.join(dir, IS_WIN ? "hermes.exe" : "hermes");
+  writeFileSync(full, IS_WIN ? "MZ" : "#!/bin/sh\nexit 0\n");
+  if (!IS_WIN) chmodSync(full, 0o755);
+  return full;
+}
+
 test("the seal restores every variable it touches", () => {
   // Asserted first: these are PATH-adjacent variables, and leaking one would change how later tests — and
   // anything else in this process — resolve executables.
@@ -81,8 +95,9 @@ test("an explicitly configured command WINS over everything, and takes no args",
   // choice of a specific hermes build is silently ignored.
   const { home } = withInstalledHermes();
   const env = IS_WIN ? { USERPROFILE: home } : { HOME: home };
-  const result = withEnv({ ...env, AIFY_HERMES_COMMAND: "/custom/hermes" }, defaultHermesCommand);
-  assert.equal(result.command, "/custom/hermes");
+  const custom = customHermes();
+  const result = withEnv({ ...env, AIFY_HERMES_COMMAND: custom }, defaultHermesCommand);
+  assert.equal(result.command, custom);
   assert.deepEqual(result.args, [], "the resolver contributes no arguments of its own");
 });
 
@@ -135,8 +150,8 @@ test("a configured command still wins even when a probe path would match", () =>
   // cannot override a deliberate override.
   const { home } = withInstalledHermes();
   const env = IS_WIN ? { USERPROFILE: home } : { HOME: home };
-  assert.equal(withEnv({ ...env, AIFY_HERMES_COMMAND: "/custom/hermes" }, defaultHermesCommand).command,
-    "/custom/hermes");
+  const custom = customHermes();
+  assert.equal(withEnv({ ...env, AIFY_HERMES_COMMAND: custom }, defaultHermesCommand).command, custom);
 });
 
 test("no home directory means no probe paths, and no crash", () => {

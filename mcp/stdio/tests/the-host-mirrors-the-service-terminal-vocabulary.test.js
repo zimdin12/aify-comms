@@ -24,11 +24,11 @@
 // `delegated-terminal-against-real-aify-env` both behave this way and say why.
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import os from "node:os";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -45,14 +45,10 @@ function serviceEndStatuses() {
 
 /** aify-env's copy. */
 function hostEndStatuses() {
-  // The sibling checkout, beside this one or under the operator's projects directory. Named
+  // The sibling checkout: AIFY_ENV_REPO, else beside this one, else ~/projects. Named
   // candidates rather than a search: a walk that found some OTHER `terminal-controls.mjs` would
   // compare the wrong file and pass.
-  const candidates = [
-    path.join(REPO, "..", "aify-env"),
-    path.join(os.homedir(), "projects", "aify-env"),
-  ];
-  const root = candidates.find((dir) => existsSync(path.join(dir, "package.json")));
+  const { dir: root, looked: candidates } = siblingCheckout("aify-env");
   assert.ok(root,
     "the aify-env checkout was not found, so this cross-repo agreement was NOT verified. That is "
     + "not a pass: a vocabulary mirror that nobody measured is exactly the state this test exists "

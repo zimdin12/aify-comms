@@ -143,6 +143,13 @@ class E2EStack:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=10)
+        # THE PROCESS WE HOLD IS NOT ALWAYS THE ONE LISTENING. Under a Windows venv `sys.executable` is
+        # a launcher that runs the real interpreter as its child; ending the launcher ends the child
+        # a moment LATER (measured 2026-09-23: still listening at 0.0s, gone by 0.1s). Stop means the
+        # port is released, so wait for that -- bounded, so a process that truly leaked still fails.
+        deadline = time.time() + 5
+        while self.is_listening() and time.time() < deadline:
+            time.sleep(0.05)
 
     def _drain_output(self) -> str:
         if not self._proc or not self._proc.stdout:

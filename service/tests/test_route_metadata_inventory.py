@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from service.tests.served_routes import declared_class, walk_routes
 
 SNAPSHOT = Path(__file__).resolve().parent / "data" / "route_metadata_inventory.txt"
 OWNER_MAP = Path(__file__).resolve().parent / "data" / "route_owner_map.txt"
@@ -60,7 +61,7 @@ def _live_metadata() -> list[str]:
 
     app = create_app()
     rows = []
-    for route in app.routes:
+    for route in walk_routes(app):
         path = getattr(route, "path", None)
         if path is None:
             continue
@@ -74,7 +75,7 @@ def _live_metadata() -> list[str]:
             rows.append(
                 " ".join(
                     [
-                        f"{type(route).__name__}",
+                        f"{declared_class(route).__name__}",
                         f"{verb}",
                         f"{path}",
                         f"name={_fmt(getattr(route, 'name', None) or getattr(endpoint, '__name__', None))}",
@@ -104,7 +105,7 @@ def _shadowing_pairs() -> list[str]:
 
     app = create_app()
     seq = []
-    for index, route in enumerate(app.routes):
+    for index, route in enumerate(walk_routes(app)):
         path = getattr(route, "path", None)
         if path is None:
             continue
@@ -164,7 +165,7 @@ class RouteMetadataInventoryTests(unittest.TestCase):
 
         app = create_app()
         offenders = []
-        for route in app.routes:
+        for route in walk_routes(app):
             path = getattr(route, "path", "") or ""
             methods = getattr(route, "methods", None) or set()
             if not path.startswith("/api/v1") or not (methods & {"POST", "PATCH", "PUT", "DELETE"}):
@@ -172,8 +173,8 @@ class RouteMetadataInventoryTests(unittest.TestCase):
             endpoint = getattr(route, "endpoint", None)
             module = sys.modules.get(getattr(endpoint, "__module__", "") or "")
             touches_db = module is not None and hasattr(module, "get_db")
-            if touches_db and type(route).__name__ != "JsonApiRoute":
-                offenders.append(f"{sorted(methods)} {path} is {type(route).__name__}")
+            if touches_db and declared_class(route).__name__ != "JsonApiRoute":
+                offenders.append(f"{sorted(methods)} {path} is {declared_class(route).__name__}")
         self.assertEqual(
             offenders,
             [],
@@ -268,7 +269,7 @@ class RouteAnnotationsResolveTests(unittest.TestCase):
 
         app = create_app()
         broken = []
-        for route in app.routes:
+        for route in walk_routes(app):
             endpoint = getattr(route, "endpoint", None)
             if endpoint is None or not getattr(route, "path", None):
                 continue
@@ -292,7 +293,7 @@ class RouteAnnotationsResolveTests(unittest.TestCase):
 
         app = create_app()
         offenders = []
-        for route in app.routes:
+        for route in walk_routes(app):
             dependant = getattr(route, "dependant", None)
             endpoint = getattr(route, "endpoint", None)
             if dependant is None or endpoint is None:

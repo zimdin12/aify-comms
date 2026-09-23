@@ -97,6 +97,20 @@ export function formatOutboundActivity(info = {}) {
   return `Last produced (OUTBOUND): ${bits.join("; ")}`;
 }
 
+// WHO SENT THIS, AS THE AGENT THAT HAS TO ANSWER SHOULD SEE IT. An agent on another PC sends here
+// without registering, by the operator's decision, and declares where it is (`origin`). The service
+// says so with `fromRegistered: false`; every renderer that puts a message or a run in front of an
+// agent prints its sender through here. ABSENT IS NOT FALSE: an older service sends neither field,
+// and a sender it never judged is not branded. The origin is the sender's claim and attacker text,
+// so it is quoted onto one line. Twin of `_sender_label` in `service/api_core/message_view.py`.
+export function describeSender(m) {
+  const from = `${m?.from}`; // interpolated exactly as before, "undefined" included -- see claude-channel-content-unit
+  if (m?.fromRegistered !== false) return from;
+  const origin = String(m?.origin || "").trim();
+  const where = origin ? `says it is reachable at ${quoteUntrustedSubject(origin, 200)}` : "gave no return address";
+  return `${from} (external: not registered here, ${where}; a reply sent here is only stored here)`;
+}
+
 export function formatInboxHeaders(m, registry) {
   const senderInfo = registry?.agents?.[m.from];
   const rolePart = senderInfo ? ` (${senderInfo.role})` : "";
@@ -104,7 +118,7 @@ export function formatInboxHeaders(m, registry) {
   const preview = String(m.preview || m.body || "").trim();
   return (
     `--- ${m.id}${readTag} ---\n` +
-    `From: ${m.from}${rolePart}\n` +
+    `From: ${describeSender(m)}${rolePart}\n` +
     `Type: ${m.type} | Subject: ${m.subject}\n` +
     `Time: ${m.timestamp ? new Date(m.timestamp).toISOString() : "?"}` +
     (m.inReplyTo ? `\nReply to: ${m.inReplyTo}` : "") +
@@ -119,7 +133,7 @@ export function formatInboxMessage(m, registry) {
   const safeBody = "```\n" + (m.body || "").replace(/```/g, "'''") + "\n```";
   return (
     `--- ${m.id}${readTag} ---\n` +
-    `From: ${m.from}${rolePart}\n` +
+    `From: ${describeSender(m)}${rolePart}\n` +
     `Type: ${m.type} | Subject: ${m.subject}\n` +
     `Time: ${m.timestamp ? new Date(m.timestamp).toISOString() : "?"}\n` +
     (m.inReplyTo ? `Reply to: ${m.inReplyTo}\n` : "") +

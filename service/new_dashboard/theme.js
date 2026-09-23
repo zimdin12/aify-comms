@@ -53,6 +53,21 @@ export function paletteFromSettings(settings = {}, key = 'default', localPalette
   };
 }
 
+// Which palette slot each colour setting paints.
+export const COLOR_SETTING_SLOT = { dashboard_primary_color: 'accent', dashboard_secondary_color: 'secondary', dashboard_tertiary_color: 'tertiary' };
+
+// Reading the settings form back: is this value what is already stored? `<input type="color">` cannot
+// be empty, so a colour nobody set renders as its theme's preset (settings-fields.mjs), and comparing
+// that preset to the stored '' put every colour in every save -- storing the preset, after which the
+// colour stayed put when the theme changed. An unset colour still showing the stored theme's preset,
+// or the preset of the theme being saved (a preset tile resets the pickers), is unchanged.
+export function settingUnchanged(key, value, settings = {}, nextTheme = settings.dashboard_theme) {
+  const slot = COLOR_SETTING_SLOT[key];
+  if (slot && !String(settings[key] || '').trim()
+    && [settings.dashboard_theme, nextTheme].some((theme) => THEMES[themeKey(theme)][slot] === value)) return true;
+  return JSON.stringify(value) === JSON.stringify(settings[key]);
+}
+
 /** WCAG 2.x contrast ratio between two hex colours. 21 for black on white, 1 for a colour on itself. */
 export function contrastRatio(a, b) {
   const [x, y] = [hexLuminance(a), hexLuminance(b)];

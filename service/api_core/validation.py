@@ -45,6 +45,18 @@ def validate_name(name: str, label: str = "name") -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {label}: must be 1-128 alphanumeric chars, dots, hyphens, underscores.")
 
 
+def validate_sender(name) -> None:
+    """A message's sender is an agent id, so it is admitted by the same rule.
+
+    `from_agent` was taken as free text and printed on a `From:` line in the prompt an agent is woken
+    with, so a newline in it started a line of its own there -- a line reading `Standing
+    instructions: ...` looked exactly like the prompt's own. Empty passes: the control requests treat
+    an absent sender as "nobody said", and it cannot start a line.
+    """
+    if name:
+        validate_name(name, "sender (from_agent)")
+
+
 # v0.5.4: moved out of the control plane. It REFUSES a request at the API boundary, raising HTTPException,
 # which is precisely this module's stated subject — admission control, security-adjacent, its own home.
 def _reject_sender_truncated_body(body):

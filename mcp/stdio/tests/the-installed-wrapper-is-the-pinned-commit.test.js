@@ -32,11 +32,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { pinnedWrapperSha } from "../wrapper-pin-freshness.mjs";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
 const BRIDGE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const INSTALLED = path.join(BRIDGE, "node_modules", "aify-wrapper");
@@ -55,10 +55,7 @@ const TEMPLATES = [
 const ALWAYS_PUBLISHED = ["package.json"];
 
 function upstreamCheckout() {
-  return [
-    process.env.AIFY_WRAPPER_REPO,
-    path.join(homedir(), "projects", "aify-wrapper"),
-  ].find((dir) => dir && existsSync(path.join(dir, ".git")));
+  return siblingCheckout("aify-wrapper", ".git").dir;
 }
 
 function show(repo, pin, name) {
@@ -91,7 +88,7 @@ test("THE INSTALLED WRAPPER IS THE PINNED COMMIT, byte for byte", (t) => {
   }
   const repo = upstreamCheckout();
   if (!repo) {
-    t.skip("no aify-wrapper checkout (AIFY_WRAPPER_REPO or ~/projects/aify-wrapper), so the "
+    t.skip("no aify-wrapper checkout (AIFY_WRAPPER_REPO, beside this repo, or ~/projects/aify-wrapper), so the "
       + `bytes of ${pin.slice(0, 7)} could not be read and NOTHING was compared`);
     return;
   }

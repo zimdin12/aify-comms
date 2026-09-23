@@ -24,16 +24,17 @@
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import { credentialRefProblem as ours } from "../credential-ref.mjs";
 import { CREDENTIAL_DIR_NAME as ours_CREDENTIAL_DIR_NAME } from "../doctor-api-key.mjs";
 import { SERVICE_NAME, upsertService } from "../service-registry.mjs";
+import { siblingCheckout } from "./_sibling-checkout.mjs";
 
-const AIFY_ENV = process.env.AIFY_ENV_REPO || path.join(os.homedir(), "projects", "aify-env");
-const THEIRS_PATH = path.join(AIFY_ENV, "lib", "credential-store.mjs");
+const SIBLING = siblingCheckout("aify-env", path.join("lib", "credential-store.mjs"));
+const AIFY_ENV = SIBLING.looked.join(" or ");
+const THEIRS_PATH = path.join(SIBLING.dir ?? SIBLING.looked[0], "lib", "credential-store.mjs");
 
 /** Every shape worth disagreeing about, including the ones only one rule catches. */
 const CORPUS = [

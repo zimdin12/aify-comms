@@ -29,6 +29,7 @@ import re
 import typing
 import unittest
 from pathlib import Path
+from service.tests.served_routes import declared_class, walk_routes
 
 REPO = Path(__file__).resolve().parents[2]
 #: Where bridge code lives. Named explicitly rather than walked recursively: `mcp/stdio/scripts/` is
@@ -225,8 +226,8 @@ def _declared_write_routes() -> dict[tuple[str, str], set[str] | None]:
     from service.main import create_app
 
     routes: dict[tuple[str, str], set[str] | None] = {}
-    for route in create_app().routes:
-        if not isinstance(route, APIRoute):
+    for route in walk_routes(create_app()):
+        if not issubclass(declared_class(route), APIRoute):
             continue
         methods = {m for m in route.methods if m in {"POST", "PATCH", "PUT"}}
         if not methods:

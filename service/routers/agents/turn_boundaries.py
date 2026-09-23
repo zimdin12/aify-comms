@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_present
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
@@ -133,6 +133,7 @@ async def agent_turn_start(agent_id: str, request: Request):
             "UPDATE agents SET last_seen = ? WHERE id = ?",
             (now, agent_id),
         )
+        await _mark_agent_present(db, agent_id, now)
         # status v2: feed the event-driven engine from the SAME turn signal so the
         # `new` engine reflects working without a separate post. Flag-agnostic — only
         # the `new` read path reads agent_status_state, so this is a no-op for `old`.
@@ -227,6 +228,7 @@ async def agent_turn_end(agent_id: str, request: Request):
             "UPDATE agents SET last_seen = ? WHERE id = ?",
             (now, agent_id),
         )
+        await _mark_agent_present(db, agent_id, now)
         # status v2: feed the event-driven engine (clears in_turn). Flag-agnostic —
         # only the `new` read path reads agent_status_state, so it's a no-op for `old`.
         await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})

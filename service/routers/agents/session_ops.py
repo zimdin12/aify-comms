@@ -12,11 +12,12 @@ import time
 
 from fastapi import HTTPException, Request
 
-from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
+from service.api_core.agent_terminal_ops import _request_stop_agent_terminals
 from service.api_core.status_broadcast import _broadcast_agent_status
 from service.api_core.routing import domain_router
+from service.api_core.validation import validate_sender
 
 logger = logging.getLogger("aify_comms.routers.agents.session_ops")
 
@@ -56,6 +57,7 @@ router = domain_router()
 
 @router.post("/agents/{agent_id}/control")
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
+    validate_sender(req.from_agent)
     action = str(req.action or "").strip().lower()
     if action not in {"interrupt", "stop", "resume", "start"}:
         raise HTTPException(400, f'Unsupported agent control action "{req.action}"')
@@ -276,47 +278,15 @@ async def stop_agent_worker(agent_id: str, request: Request):
         # tore down DB state and reported success while the actual process kept running. The
         # operator's "Stop worker" button therefore lied on a destructive action.
         #
-        # No new machinery: the same `_append_terminal_control(action="stop")` the virtual path
-        # uses is what session-control already relies on, and host-side TERMINAL_MANAGER.stop
-        # escalates SIGTERM→SIGKILL. Only the target was wrong.
-        #
-        # `id NOT LIKE 'vterm_%'` skips the synthesized rows (handled above, and already marked
-        # stopped) so a virtual terminal is never double-stopped.
-        live_terminals = await (await db.execute(
-            f"""
-            SELECT * FROM terminal_sessions
-            WHERE agent_id = ?
-              AND id NOT LIKE 'vterm_%'
-              AND LOWER(COALESCE(status,'')) IN {TERMINAL_LIVE_FILTER_SQL}
-            """,
-            (agent_id,),
-        )).fetchall()
-        for row in live_terminals:
-            real_terminal_id = str(row["id"] or "")
-            if not real_terminal_id:
-                continue
-            await _append_terminal_control(
-                db,
-                terminal_id=real_terminal_id,
-                environment_id=str(row["environment_id"] or ""),
-                bridge_id=str(row["bridge_id"] or ""),
-                action="stop",
-                requested_by=requested_by,
-            )
-            # 'stopping', NOT 'stopped' — the TRANSITIONAL state, matching the shared
-            # session-control path. The stop is only QUEUED here; the host has
-            # not acknowledged it yet, so claiming 'stopped' asserts a process death that has not
-            # happened — the same "state that lies" defect this release exists to remove. A wedged
-            # 'stopping' row is caught by the STUCK_STOPPING_GRACE_SECONDS reaper.
-            await db.execute(
-                """
-                UPDATE terminal_sessions
-                SET status = 'stopping',
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (now, real_terminal_id),
-            )
+        # Through `_request_stop_agent_terminals`, the one stop-every-terminal path operator Stop,
+        # removal and the resident switch also use: a `stop` control per terminal, the row marked
+        # 'stopping' (the TRANSITIONAL state -- the host has not acknowledged anything yet, and a
+        # wedged row is caught by the STUCK_STOPPING_GRACE_SECONDS reaper). It skips `vterm_%` rows,
+        # handled above, so a virtual terminal is never double-stopped. This carried its own copy
+        # of that loop until 2026-09-23.
+        for real_terminal_id in await _request_stop_agent_terminals(
+            db, agent_id, requested_by=requested_by, now=now,
+        ):
             await _append_terminal_event(
                 db,
                 real_terminal_id,
@@ -324,6 +294,9 @@ async def stop_agent_worker(agent_id: str, request: Request):
                 json.dumps({"agentId": agent_id, "requestedAt": now, "terminal": "real"}),
             )
             if terminal_payload is None:
+                row = await (await db.execute(
+                    "SELECT * FROM terminal_sessions WHERE id = ?", (real_terminal_id,),
+                )).fetchone()
                 terminal_payload = _terminal_session_to_dict(row)
         await db.execute(
             "UPDATE agents SET runtime_state = ?, last_seen = ? WHERE id = ?",

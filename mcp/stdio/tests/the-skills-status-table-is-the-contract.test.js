@@ -23,8 +23,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const REPO = path.resolve(new URL("../../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 const CONTRACT = path.join(REPO, "service", "contracts", "vocabulary.json");
 
 /**

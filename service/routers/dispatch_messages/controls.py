@@ -30,6 +30,7 @@ from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.events import _append_dispatch_event
 from service.api_core.routing import domain_router
+from service.api_core.validation import validate_sender
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
@@ -64,6 +65,7 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
 
 @router.post("/dispatch/runs/{run_id}/control")
 async def request_dispatch_control(run_id: str, req: DispatchControlRequest, request: Request):
+    validate_sender(req.from_agent)
     action = (req.action or "").strip().lower()
     if action not in {"interrupt", "steer"}:
         raise HTTPException(400, "Unsupported control action")

@@ -29,6 +29,7 @@ import { canLaunchRuntime, launchRuntimeRun, normalizeRuntime } from "./runtimes
 import { normalizeLaunchMode, normalizeSessionMode } from "./session-mode.mjs";
 import { IS_REMOTE } from "./aify-service-endpoint.mjs";
 import { shouldSkipLoop } from "./loop-gate.mjs";
+import { describeSender } from "./tool-response-format.mjs";
 
 export async function runDispatchPass({
   AUTO_REREGISTER_AFTER_FAILURES,
@@ -204,7 +205,7 @@ export async function runDispatchPass({
     const run = batchedRuns[0];
     if (batchedRuns.length > 1) {
       const extras = batchedRuns.slice(1).map((r, i) =>
-        `--- Message ${i + 2} of ${batchedRuns.length} ---\nFrom: ${r.from}\nSubject: ${r.subject}\n${r.body || ""}`
+        `--- Message ${i + 2} of ${batchedRuns.length} ---\nFrom: ${describeSender(r)}\nSubject: ${r.subject}\n${r.body || ""}`
       ).join("\n\n");
       run.body = `${run.body || ""}\n\n${extras}`;
       run.subject = `${batchedRuns.length} messages (latest: ${run.subject})`;
