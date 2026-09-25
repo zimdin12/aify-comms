@@ -202,8 +202,3 @@ def reset_for_tests() -> None:
     """A process-global needs an explicit reset, or one test's terminal leaks into the next."""
     _BUFFERS.clear()
     set_flush_interval_for_tests(None)
-
-
-def held_count() -> int:
-    """How many terminals are buffered. One 64 KB tail each is the memory this costs."""
-    return len(_BUFFERS)
