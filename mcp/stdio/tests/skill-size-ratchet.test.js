@@ -64,95 +64,20 @@ const CEILINGS = {
   // read rather than skimmed.
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
   "aify-comms-install/SKILL.md": 4_821,
+  // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
+  // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
   "aify-comms-debug/SKILL.md": 3_117,
-  // 14_114 -> 14_118 on 2026-09-12. RAISED: it told an agent to restart an `aify-comms` environment
-  // bridge -- a command that exits 2, for a tier deleted in v0.6.2. The danger is the substitution:
-  // the only restartable thing left is aify-env, which reaps its workers.
   "aify-comms-debug/references/codex.md": 14_118,
-  // 18_454 -> 18_426 on 2026-08-30. It went DOWN while gaining a correction, so record why: the
-  // `terminalRuntimes` paragraph named the bridge as the advertiser, which is now only true when
-  // aify-env is not. Paid by dropping a merged branch name and a sentence restating what the
-  // paragraph above it already said.
-  // 17_974 -> 18_013 on 2026-09-12. RAISED for the same reason as codex.md: "Then restart
-  // `aify-comms`" named a command that starts nothing, and the obvious substitute reaps the fleet.
   "aify-comms-debug/references/dashboard-console.md": 18_013,
-    // 26_968 -> 26_955 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
-  // than leaving the ceiling slack: two references cited files deleted with the
-  // environment-bridge tier and now name the service modules that own those questions, and
-  // instructions to `restart the environment bridge` became `restart aify-env` -- the component
-  // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/dispatch-bridges.md": 25_281,  // LOWERED AGAIN 2026-09-08: two
-  // paragraphs described a `channel-enter` rule and a cursor-aware resume rule that appear in NO
-  // source file, and a **Deploy** line sending an operator to re-run `install.sh` for a change
-  // that lives in SERVICE Python. Correcting those ADDED 734 bytes, which this ratchet refused --
-  // rightly, since a ceiling raised to fit an explanation is a ceiling that stops meaning
-  // anything. Paid for by DELETING the two history paragraphs rather than annotating them: they
-  // describe rules that do not exist, and two sentences of incident carry what a reader needs.
-  // Net 1,094 bytes under the previous ceiling.
-  // PREVIOUS ENTRY, 26_375: the
-  // prompt-answering paragraph described four behaviours the service does not have -- resume and
-  // compaction auto-answer, a managed-claude gate, a not-mid-turn gate and once-per-appearance --
-  // and told the reader to reinstall wrappers to deploy a change to SERVICE Python. It now says
-  // what `console_prompts.py` actually does: one dialog, resume menus refused wholesale, deduped
-  // per terminal per rule. Shorter because the truth is smaller than the promise was.  // LOWERED 2026-09-07: the
-  // "wrapper-backed channel claim" section described a symptom whose cause was a generic
-  // ENVIRONMENT BRIDGE claiming the run -- a component v0.6.2 deleted, so the symptom cannot
-  // recur -- and closed by telling the reader to restart aify-env, which ends every managed
-  // worker on the host. What survived is the live half in five lines: which bridge_kind may
-  // claim, and why. It also paid for 77 bytes spent saying that the prompt rules match the
-  // RENDERED screen rather than the raw stream, which is the distinction that made the first
-  // implementation match nothing while its tests were green. 25_917 -> 27_139 on
-  // 2026-09-02 -> 27_131 -> 26_968 on 2026-09-03. The second paydown is v0.6.1 removing the
-  // environment-bridge command: the fleet-death entry no longer has to teach a reader that a bare
-  // `aify-comms` is dangerous, because it refuses. What it teaches instead is shorter and more
-  // useful -- the failure MODE is supersession, aify-env supersedes the same way, so starting a
-  // host tier stays the operator's action and never a check. A recovered instruction is cheaper
-  // than the rule it replaces.
-  // The raise before it added a failure CLASS that had cost the
-  // operator a day and misled two agents into reporting the fleet ready: `comms_spawn`
-  // refusing with 409 while `comms_envs` called the environment online, because `status` and
-  // `bridgeLastSeen` answer different questions. The day after, the tool was fixed to ask the
-  // right one -- so the entry no longer has to teach a reader to distrust it, and the section
-  // shrank while gaining the note about which bridge builds still show the split.
-  // 26_579 -> 26_604 on 2026-09-12. RAISED: same restart correction, partly paid back by replacing an
-  // `api_v2.py` reference for code that has moved out of that file.
+  "aify-comms-debug/references/dispatch-bridges.md": 25_281,
   "aify-comms-debug/references/dispatch-delivery.md": 26_599,
-  // 14_004 -> 14_926 on 2026-08-25. A DECISION, and here is what it buys.
-  //
-  // Managed spawns are delegated to aify-env from that date, and it is REQUIRED: the bridge refuses
-  // rather than spawning locally. So "the managed run never started" acquired a new first cause, and
-  // an agent debugging it without this entry chases cwd and launcher-path causes that no longer
-  // apply -- the entries directly below this one. Every one of the three defects the first real spawn
-  // exposed surfaces exactly this way.
-  //
-  // Paid by being the shortest thing that changes the reader's first move: it names the two commands
-  // that answer the question and the three shapes the failure takes, and nothing else.
-  // 14_926 -> 14_867 on 2026-09-05. It went DOWN while GAINING two safety facts, so record why
-  // rather than leaving the ceiling slack. Added: `pkill -f aify-comms` matches the CHECKOUT PATH
-  // two lines below it in the same recipe, so it kills the operator's own shell and no service;
-  // and starting a second aify-env reaps the first one's workers. Paid for by retiring four stale
-  // instructions to `restart the Windows aify-comms bridge` -- a component v0.6.1 removed, so the
-  // file was telling an operator to restart something that does not exist.
-  // 14_970 -> 15_002 on 2026-09-12. RAISED: the recovery block ended with `aify-env
-  // /path/to/workspace-root`, which exits 64 -- aify-env takes subcommands only, and an operator who
-  // hits that refusal may reach for a bare `aify-env`, which is the reaping path.
   "aify-comms-debug/references/dispatch-launch.md": 15_002,
-  // 27_285 -> 27_280 on 2026-09-12. LOWERED: the same restart correction, and this file paid for
-  // itself -- a pointer to a section that does not exist was replaced by the fact it was pointing at.
   "aify-comms-debug/references/hermes-session.md": 27_280,
   "aify-comms-debug/references/hermes-turns.md": 15_884,
-  // 6_704 -> 6_698 on 2026-09-12. LOWERED: the section heading named restarting a command that
-  // starts nothing, and step 1 told the reader to verify a tier deleted in v0.6.2. Both now name
-  // aify-env, and saying the true thing took fewer bytes than saying the false one.
   "aify-comms-debug/references/lifecycle.md": 6_602,
   "aify-comms-debug/references/pi.md": 7_316,
-    // 21_920 -> 21_919 on 2026-09-05. It went DOWN while gaining a correction, so record why rather
-  // than leaving the ceiling slack: two references cited files deleted with the
-  // environment-bridge tier and now name the service modules that own those questions, and
-  // instructions to `restart the environment bridge` became `restart aify-env` -- the component
-  // v0.6.1 removed, told to an operator following a troubleshooting page.
-  "aify-comms-debug/references/status-model.md": 21_913,
-  "aify-comms-debug/references/status-symptoms.md": 19_372,
+  "aify-comms-debug/references/status-model.md": 5_298,
+  "aify-comms-debug/references/status-symptoms.md": 5_207,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top
