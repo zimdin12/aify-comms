@@ -36,7 +36,6 @@ from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
-from service.api_core.request_body import json_object_body
 
 router = domain_router()
 
@@ -83,8 +82,11 @@ async def agent_turn_start(agent_id: str, request: Request):
         #
         # Returning BEFORE any write is the point: refusing the set but stamping the clock anyway would
         # postpone the same ceiling.
-        _body = await json_object_body(request)
-        _posting_bridge = str(_body.get("bridgeId") or "").strip()
+        try:
+            _body = await request.json()
+        except Exception:
+            _body = {}
+        _posting_bridge = str((_body or {}).get("bridgeId") or "").strip()
         if _posting_bridge:
             _sup = await (await db.execute(
                 "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
@@ -180,8 +182,11 @@ async def agent_turn_end(agent_id: str, request: Request):
         # detector from a replaced bridge must not false-clear the live successor's turn (the
         # F5 working→idle flap on bridge restart mid-turn). The heartbeat turnBusy=false path
         # already has this guard; this brings the dedicated endpoint in line for detector posts.
-        _body = await json_object_body(request)
-        _posting_bridge = str(_body.get("bridgeId") or "").strip()
+        try:
+            _body = await request.json()
+        except Exception:
+            _body = {}
+        _posting_bridge = str((_body or {}).get("bridgeId") or "").strip()
         if _posting_bridge:
             _sup = await (await db.execute(
                 "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",

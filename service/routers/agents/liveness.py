@@ -132,7 +132,7 @@ async def agent_last_read(agent_id: str, request: Request):
 @router.post("/agents/{agent_id}/heartbeat")
 async def agent_heartbeat(agent_id: str, request: Request):
     """Lightweight heartbeat — bridge poll loop calls this to signal liveness."""
-    body = await json_object_body(request)
+    body = await json_object_body(request, lenient=True)
     bridge_id = str(body.get("bridgeId", "") or "").strip()
     terminal_id = str(body.get("terminalId", "") or "").strip()
     bridge_kind = str(body.get("bridgeKind", "") or "").strip().lower()
@@ -269,7 +269,7 @@ async def post_claimer_lease(agent_id: str, request: Request):
     Best-effort/no-throw on the bridge side; tombstoned agents 410 so a removed
     agent's loop stops re-acquiring.
     """
-    body = await json_object_body(request)
+    body = await json_object_body(request, lenient=True)
     action = str(body.get("action", "") or "").strip().lower()
     bridge_id = str(body.get("bridgeId", "") or "").strip()
     if action not in {"acquire", "release"}:
@@ -345,7 +345,7 @@ async def agent_console_working(agent_id: str, request: Request):
         )).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
-        body = await json_object_body(request)
+        body = await json_object_body(request, lenient=True)
         subagents = bool(body.get("subagents"))
         await db.execute(
             "INSERT INTO agent_console_signal (agent_id, working_at, subagents_at) VALUES (?, ?, ?) "

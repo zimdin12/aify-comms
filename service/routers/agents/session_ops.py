@@ -223,7 +223,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
     """
     db = await get_db()
     try:
-        body = await json_object_body(request)
+        body = await json_object_body(request, lenient=True)
         requested_by = str(body.get("requestedBy") or "dashboard").strip() or "dashboard"
         agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
