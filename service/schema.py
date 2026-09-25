@@ -241,6 +241,13 @@ CREATE INDEX IF NOT EXISTS idx_dispatch_controls_run_status ON dispatch_controls
 -- controls instead: 0.0ms. (An expression index for the run-history prune was measured too, 68 -> 50ms,
 -- and left out: most old runs belong to live agents and are walked regardless.)
 CREATE INDEX IF NOT EXISTS idx_dispatch_controls_status_requested ON dispatch_controls(status, requested_at);
+-- THE MESSAGE-DELETE PATH nulls these four columns per chunk of 250, under the writer lock, on every
+-- rotation, clear, unsend and channel delete. Unindexed, each chunk was four full scans of tables that
+-- are never pruned for live agents (v0.7 scan A4; test_deleting_messages_uses_indexes.py).
+CREATE INDEX IF NOT EXISTS idx_dispatch_runs_message ON dispatch_runs(message_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_runs_in_reply_to ON dispatch_runs(in_reply_to);
+CREATE INDEX IF NOT EXISTS idx_dispatch_runs_result_message ON dispatch_runs(result_message_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_controls_source_message ON dispatch_controls(source_message_id);
 
 CREATE TABLE IF NOT EXISTS bridge_instances (
     id TEXT PRIMARY KEY,
