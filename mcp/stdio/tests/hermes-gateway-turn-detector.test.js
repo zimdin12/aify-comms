@@ -260,6 +260,14 @@ test("shouldFireTurnStart=true fires normally (dispatched turn open → real tur
   assert.equal(starts, 1, "an open dispatched turn fires /turn-start exactly once on the working edge");
 });
 
+// Wait for the detector to have READ every scripted status, not for a fixed time. At a 5 ms interval
+// on Windows (timer floor ~15 ms) a fixed 60-90 ms window was a budget below its own cost, and the
+// two tests below failed about one run in two while other suites loaded the machine.
+async function untilConsumed(read, count, deadlineMs = 3000) {
+  const deadline = Date.now() + deadlineMs;
+  while (read() < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+}
+
 test("shouldFireTurnStart gate is dynamic: fires while open, then a NEW background 'working' after end is suppressed", async () => {
   // Models the real lifecycle: dispatch open (fire), turn ends (credit revoked),
   // then post-turn background working must NOT re-fire. The gate is read live each tick.
@@ -277,7 +285,7 @@ test("shouldFireTurnStart gate is dynamic: fires while open, then a NEW backgrou
     postTurnEnd: async () => { ends++; open = false; },
     shouldFireTurnStart: () => open,
   });
-  await new Promise((r) => setTimeout(r, 90));
+  await untilConsumed(() => i, statuses.length + 1);
   stop();
   assert.equal(starts, 1, "exactly one /turn-start — for the dispatched turn; the post-end background working is suppressed");
   assert.equal(ends, 1, "the dispatched turn still ends normally on sustained idle");
@@ -295,7 +303,7 @@ test("turn-END is NEVER gated by shouldFireTurnStart (a stuck turn_busy must alw
     postTurnEnd: async () => { ends++; },
     shouldFireTurnStart: () => false, // even fully suppressed starts...
   });
-  await new Promise((r) => setTimeout(r, 60));
+  await untilConsumed(() => i, statuses.length + 1);
   stop();
   assert.equal(ends, 1, "...sustained idle still fires /turn-end (clear is never gated)");
 });
