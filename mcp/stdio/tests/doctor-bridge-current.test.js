@@ -10,9 +10,10 @@
 // OLD corrupted bytes, and was nearly recorded as a broken fix. The fix was correct; the bridge
 // making the call was pre-restart, and no check said so.
 //
-// The bridge already computed its build sha for the startup banner and wrote it only to stderr.
-// It now reports it on registration, so this check needs no process inspection at all — which is
-// what makes it work on every platform.
+// Each bridge reports the build it loaded when it registers, and `GET /bridges` lists the ones
+// beating now, so this check needs no process inspection at all — which is what makes it work on
+// every platform. Until 0.7.0 it read environment rows, where only the retired environment bridge
+// ever wrote a build, and reported green while no bridge was checked (v0.7 scan B2).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -20,28 +21,14 @@ import { bridgeCurrentVerdict } from "../doctor-predicates.js";
 
 const HEAD = "4157299abcdef0123456789abcdef0123456789a";
 const SHORT = "4157299";
-const now = new Date().toISOString();
-
-// A LIVE BRIDGE NOW MEANS A RECENT `bridgeLastSeen`, not `status: "online"`. Since aify-env began
-// advertising, `status` says that tier DESCRIBES the host -- a row can be online for a day with no
-// bridge on it, which is exactly what happened on 2026-09-02 and what `bridgeCurrentVerdict` must
-// stop reading as a running process. These fixtures model a real live bridge; without the stamp they
-// model an advertised host, and every assertion below would pass by being skipped.
-const env = (id, build, extra = {}) => ({
-  id,
-  status: "online",
-  lastSeen: now,
-  metadata: {
-    bridgeLastSeen: now,
-    ...(build === undefined ? {} : { bridgeBuild: build }),
-  },
-  ...extra,
-});
+// One row of `GET /bridges`. The service already decided these are live, so the verdict has no
+// liveness of its own to get wrong.
+const bridge = (agentId, build) => ({ id: `bridge-${agentId}`, agentId, ...(build === undefined ? {} : { build }) });
 
 // ── the failure it exists to catch ───────────────────────────────────────────────────
 test("a live bridge running older code is reported STALE", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("win:host", "deadbeef1234")],
+    bridges: [bridge("win:host", "deadbeef1234")],
     headSha: HEAD,
     headShort: SHORT,
   });
@@ -55,7 +42,7 @@ test("the fix says RESTART, and explicitly not reinstall", () => {
   // Getting this wrong would send the operator to install.sh, which changes nothing when the
   // files are already current — the code is on disk, just not in memory.
   const v = bridgeCurrentVerdict({
-    environments: [env("win:host", "deadbeef1234")], headSha: HEAD, headShort: SHORT,
+    bridges: [bridge("win:host", "deadbeef1234")], headSha: HEAD, headShort: SHORT,
   });
   assert.match(v.fix, /RESTART/);
   assert.match(v.fix, /will not help/i);
@@ -63,7 +50,7 @@ test("the fix says RESTART, and explicitly not reinstall", () => {
 
 test("a live bridge on HEAD is green", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("win:host", HEAD.slice(0, 12))], headSha: HEAD, headShort: SHORT,
+    bridges: [bridge("win:host", HEAD.slice(0, 12))], headSha: HEAD, headShort: SHORT,
   });
   assert.equal(v.ok, true);
   assert.equal(v.code, "ok");
@@ -72,24 +59,17 @@ test("a live bridge on HEAD is green", () => {
 test("comparison tolerates the bridge's 12-char prefix vs a full sha", () => {
   // The bridge reports 12 chars; repo.sha is 40. A naive === would flag every healthy bridge.
   const v = bridgeCurrentVerdict({
-    environments: [env("a", HEAD.slice(0, 12))], headSha: HEAD, headShort: SHORT,
+    bridges: [bridge("a", HEAD.slice(0, 12))], headSha: HEAD, headShort: SHORT,
   });
   assert.equal(v.ok, true, "a 12-char prefix of HEAD must count as current");
 });
 
 // ── must not cry wolf ────────────────────────────────────────────────────────────────
-test("OFFLINE bridges are ignored — a dead bridge's build claims nothing", () => {
-  const dead = { id: "old", status: "offline", lastSeen: "2020-01-01T00:00:00Z", metadata: { bridgeBuild: "deadbeef1234" } };
-  const v = bridgeCurrentVerdict({ environments: [dead], headSha: HEAD, headShort: SHORT });
-  assert.equal(v.ok, true);
-  assert.equal(v.code, "skipped");
-});
-
 test("a pre-B1 bridge that reports no build is PARTIAL, not a failure", () => {
   // Older bridges simply do not send the field yet. Failing on that would make the check red for
   // everyone until every wrapper restarts — alarm fatigue on its first day.
   const v = bridgeCurrentVerdict({
-    environments: [env("a", HEAD.slice(0, 12)), env("b", undefined)], headSha: HEAD, headShort: SHORT,
+    bridges: [bridge("a", HEAD.slice(0, 12)), bridge("b", undefined)], headSha: HEAD, headShort: SHORT,
   });
   assert.equal(v.ok, true);
   assert.equal(v.code, "partial");
@@ -102,7 +82,7 @@ test("sentinel build values count as unknown, not stale", () => {
   // fleet below.
   for (const sentinel of ["unknown", "no-git", "unknown-ref", ""]) {
     const v = bridgeCurrentVerdict({
-      environments: [env("cur", HEAD.slice(0, 12)), env("a", sentinel)], headSha: HEAD, headShort: SHORT,
+      bridges: [bridge("cur", HEAD.slice(0, 12)), bridge("a", sentinel)], headSha: HEAD, headShort: SHORT,
     });
     assert.equal(v.code, "partial", `"${sentinel}" must not be read as a mismatched sha`);
     assert.equal(v.ok, true);
@@ -120,7 +100,7 @@ test("sentinel build values count as unknown, not stale", () => {
 // pass at all. A check that cannot answer must not be counted as one that answered yes.
 test("when NO live bridge reports a build, the check FAILS — no evidence is not a pass", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("a", undefined), env("b", "unknown")], headSha: HEAD, headShort: SHORT,
+    bridges: [bridge("a", undefined), bridge("b", "unknown")], headSha: HEAD, headShort: SHORT,
   });
   assert.equal(v.ok, false, "a check that verified nothing must not read as verified");
   assert.equal(v.code, "unknown-all");
@@ -129,7 +109,7 @@ test("when NO live bridge reports a build, the check FAILS — no evidence is no
 });
 
 test("unknown-all says restart, and says install.sh alone is not it", () => {
-  const v = bridgeCurrentVerdict({ environments: [env("a", undefined)], headSha: HEAD, headShort: SHORT });
+  const v = bridgeCurrentVerdict({ bridges: [bridge("a", undefined)], headSha: HEAD, headShort: SHORT });
   assert.equal(v.code, "unknown-all");
   assert.match(v.fix, /Restart/);
   assert.match(v.fix, /install\.sh alone will not/);
@@ -139,7 +119,7 @@ test("one current bridge is enough to make the rest PARTIAL rather than unknown-
   // The boundary between the two verdicts, pinned: the difference is whether ANY live bridge
   // produced evidence, not how many did.
   const v = bridgeCurrentVerdict({
-    environments: [env("cur", HEAD.slice(0, 12)), env("a", undefined), env("b", undefined)],
+    bridges: [bridge("cur", HEAD.slice(0, 12)), bridge("a", undefined), bridge("b", undefined)],
     headSha: HEAD,
     headShort: SHORT,
   });
@@ -148,14 +128,14 @@ test("one current bridge is enough to make the rest PARTIAL rather than unknown-
 });
 
 test("no checkout, or no live bridge, skips rather than guessing", () => {
-  assert.equal(bridgeCurrentVerdict({ environments: [env("a", "x")], headSha: "" }).code, "skipped");
-  assert.equal(bridgeCurrentVerdict({ environments: [], headSha: HEAD }).code, "skipped");
+  assert.equal(bridgeCurrentVerdict({ bridges: [bridge("a", "x")], headSha: "" }).code, "skipped");
+  assert.equal(bridgeCurrentVerdict({ bridges: [], headSha: HEAD }).code, "skipped");
   assert.equal(bridgeCurrentVerdict({}).code, "skipped");
 });
 
 test("one stale among several current is still reported", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("good", HEAD.slice(0, 12)), env("bad", "0000deadbeef")],
+    bridges: [bridge("good", HEAD.slice(0, 12)), bridge("bad", "0000deadbeef")],
     headSha: HEAD,
     headShort: SHORT,
   });
@@ -174,7 +154,7 @@ test("one stale among several current is still reported", () => {
 // between TOUCHED mcp/stdio; this now asks the same question of the running process.
 test("a bridge behind HEAD by NON-bridge commits only is not stale", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("win:host", "0b2801daaaa")],
+    bridges: [bridge("win:host", "0b2801daaaa")],
     headSha: HEAD,
     headShort: SHORT,
     bridgeCommitsSince: { "0b2801daaaa": 0 },
@@ -187,7 +167,7 @@ test("a bridge behind HEAD by NON-bridge commits only is not stale", () => {
 
 test("one commit that DOES touch the bridge still reports stale", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("win:host", "0b2801daaaa")],
+    bridges: [bridge("win:host", "0b2801daaaa")],
     headSha: HEAD,
     headShort: SHORT,
     bridgeCommitsSince: { "0b2801daaaa": 1 },
@@ -200,7 +180,7 @@ test("a build with NO count is stale, not clean — unanswerable is not evidence
   // git can fail to resolve a build sha (rewritten history, unfetched commit). Falling back to
   // "clean" there would be the unknown-all false green again, one layer down.
   const v = bridgeCurrentVerdict({
-    environments: [env("win:host", "deadbeef1234")],
+    bridges: [bridge("win:host", "deadbeef1234")],
     headSha: HEAD,
     headShort: SHORT,
     bridgeCommitsSince: {},
@@ -211,7 +191,7 @@ test("a build with NO count is stale, not clean — unanswerable is not evidence
 
 test("stale wins over behind-by-docs when both are present", () => {
   const v = bridgeCurrentVerdict({
-    environments: [env("docsonly", "0b2801daaaa"), env("real", "cafebabe0000")],
+    bridges: [bridge("docsonly", "0b2801daaaa"), bridge("real", "cafebabe0000")],
     headSha: HEAD,
     headShort: SHORT,
     bridgeCommitsSince: { "0b2801daaaa": 0, cafebabe0000: 3 },
@@ -220,68 +200,6 @@ test("stale wins over behind-by-docs when both are present", () => {
   assert.equal(v.code, "stale-process");
   assert.match(v.detail, /real running cafebab/);
   assert.doesNotMatch(v.detail, /docsonly/, "the clean one must not be named as needing a restart");
-});
-
-// ── the host tier is not a silent bridge ─────────────────────────────────────────────────────────
-//
-// EXTERNAL REVIEW, Round 8 M11. This verdict read only `metadata.bridgeBuild`, and aify-env sends
-// `bridgeId`, `bridgeVersion` and `bridgeStartedAt` and NO `bridgeBuild` -- by design, because it is
-// not built from this checkout and has no sha of this repo to be current with. So on a host running
-// aify-env correctly, `unknown-all` fired for ever and `--strict` exited 1.
-//
-// A RED THAT CAN NEVER CLEAR GETS SWITCHED OFF, and it takes the real signal with it. The real
-// signal here is a bridge RUNNING old code, which is the hazard the whole H4 finding turns on.
-//
-// "No evidence is not a pass" still holds and is not being weakened: it was applied to the wrong
-// fact. A bridge that should report its build and does not is silence. A tier that was never going
-// to report one is a different kind of thing, and the tests below keep them apart.
-
-/** A live environment served by the aify-env HOST TIER: a bridge stamp, no build, and a kind. */
-const hostTier = (id) => env(id, undefined, {});
-const asHostTier = (row) => ({ ...row, metadata: { ...row.metadata, bridgeKind: "aify-env" } });
-
-test("a host that runs ONLY aify-env is not reported as unverified", () => {
-  const v = bridgeCurrentVerdict({
-    environments: [asHostTier(hostTier("windows:host:default"))], headSha: HEAD, headShort: SHORT,
-  });
-  assert.equal(v.ok, true,
-    `a correctly-configured aify-env host reports ${v.code}. --strict then exits 1 for ever, and a `
-    + "check that can never go green is one an operator switches off");
-  assert.equal(v.code, "host-tier",
-    "the answer must say WHY it passed. 'does not apply here' and 'passed' are different facts, and "
-    + "folding them together is how this row stops being readable");
-  assert.match(v.detail, /no bridge is running/i, "the detail must say what was actually established");
-});
-
-test("a SILENT BRIDGE beside a host tier still fails, because that one really is unverified", () => {
-  // THE CONTROL, and the reason the fix is an exclusion rather than a relaxation. If `bridgeKind`
-  // made the whole row pass, a genuine bridge running old code would be hidden by the presence of an
-  // aify-env on another host -- which is precisely the hazard H4 is about.
-  const v = bridgeCurrentVerdict({
-    environments: [asHostTier(hostTier("windows:host:default")), env("wsl:other:default", undefined)],
-    headSha: HEAD, headShort: SHORT,
-  });
-  assert.equal(v.ok, false,
-    "a bridge that reports no build was excused because an aify-env host was in the same list");
-  assert.equal(v.code, "unknown-all");
-});
-
-test("a STALE bridge beside a host tier is still called stale", () => {
-  const v = bridgeCurrentVerdict({
-    environments: [asHostTier(hostTier("windows:host:default")), env("wsl:other:default", "999999999999")],
-    headSha: HEAD, headShort: SHORT,
-  });
-  assert.equal(v.ok, false, "a bridge running old code was hidden by a host tier in the same list");
-});
-
-test("a CURRENT bridge beside a host tier still passes", () => {
-  // The fourth cell, so the table is complete rather than sampled: excluding the host tier must not
-  // change the answer for a bridge that is doing everything right.
-  const v = bridgeCurrentVerdict({
-    environments: [asHostTier(hostTier("windows:host:default")), env("wsl:other:default", HEAD)],
-    headSha: HEAD, headShort: SHORT,
-  });
-  assert.equal(v.ok, true, `a current bridge was failed: ${v.code} ${v.detail}`);
 });
 
 console.log("doctor-bridge-current.test.js: all assertions passed");

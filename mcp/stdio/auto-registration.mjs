@@ -39,6 +39,7 @@ import { writeAgentBindingFile } from "./binding-file.js";
 // the `SERVICE_RUNTIME_PATHS` crash in doctor.js, found by the gate written after it.
 import { REMOTE_AGENT_STATE, forgetRemoteAgent } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
+import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
 import {
   DEFAULT_CWD,
@@ -157,6 +158,7 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
       // stops a still-running bridge from resurrecting a deliberately-removed
       // agent on its next passive auto re-register.
       bridgeStartedAt: BRIDGE_STARTED_AT,
+      bridgeBuild: BRIDGE_BUILD_TAG,
       // Phase 4 race guard escape hatch (2026-05-31): when a same-mode resident
       // bridge is still LIVE, the service hard-rejects (409) a different bridge
       // re-registering this identity. Set AIFY_FORCE_REGISTER=1 to deliberately
@@ -277,6 +279,7 @@ export async function reregisterAgentFromState(agentId, state) {
     // A 404 auto-re-register from a lingering bridge must not resurrect a
     // deliberately-removed agent unless this bridge launched after the deletion.
     bridgeStartedAt: BRIDGE_STARTED_AT,
+    bridgeBuild: BRIDGE_BUILD_TAG,
   };
   try {
     await httpCall("POST", "/agents", payload);

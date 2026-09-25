@@ -34,22 +34,16 @@ const cappedVerdict = () => contextWindowVerdict([], { unmeasured: 7 });
 /**
  * Live bridges match HEAD, but one is too old to report a build at all.
  *
- * `bridgeBuild` sits under `metadata`, and the first version of this fixture put it at the top level:
- * the verdict counted BOTH bridges as silent and returned `unknown-all`, which is a different row
- * with a different meaning. The control below is what caught it -- an invented object would have been
- * accepted by the glyph function without complaint and proved nothing.
+ * A fixture in the wrong shape makes the verdict count BOTH bridges as silent and return `unknown-all`,
+ * a different row with a different meaning -- the first version of this fixture did exactly that. The
+ * control below is what caught it.
  */
 const HEAD_SHA = "abc1234abc1234abc1234abc1234abc1234abc12";
 const partlyKnownBridges = () => bridgeCurrentVerdict({
-  environments: [
-    // `bridgeLastSeen` is what makes these LIVE BRIDGES rather than advertised hosts: since aify-env
-    // began heartbeating the same row, `status: "online"` no longer implies a bridge is there, and
-    // `bridgeCurrentVerdict` skips rows without a recent stamp. Omitting it here would make this
-    // file assert a glyph on a verdict that was never produced.
-    { id: "a", status: "online", lastSeen: new Date().toISOString(),
-      metadata: { bridgeLastSeen: new Date().toISOString(), bridgeBuild: HEAD_SHA } },
-    { id: "b", status: "online", lastSeen: new Date().toISOString(),
-      metadata: { bridgeLastSeen: new Date().toISOString() } },
+  // Rows of `GET /bridges`: the service has already decided these are live.
+  bridges: [
+    { id: "bridge-a", agentId: "a", build: HEAD_SHA },
+    { id: "bridge-b", agentId: "b" },
   ],
   headSha: HEAD_SHA, headShort: HEAD_SHA.slice(0, 7), bridgeCommitsSince: {},
 });

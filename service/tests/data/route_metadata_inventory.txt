@@ -34,6 +34,7 @@ JsonApiRoute GET /api/v1/agents/{agent_id}/pi-session-state name=get_agent_pi_se
 JsonApiRoute GET /api/v1/analytics name=get_analytics status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/analytics/agent/{agent_id} name=get_agent_analytics status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/analytics/pulse name=get_analytics_pulse status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/bridges name=list_live_bridges status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/channels name=list_channels status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/channels/{name} name=get_channel status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/contracts name=list_work_contracts status=- response_model=- tags=api deps=0 in_schema=True

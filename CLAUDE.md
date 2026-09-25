@@ -128,7 +128,7 @@ check that gathered no evidence reports `unknown`, never ok.
 | `bridge-installed` | a commit since the installed marker touched `mcp/stdio/` and `install.sh` was not re-run (docs- or service-only commits read clean) |
 | `bridge-running` | a running bridge started before the last install, so it runs old code; names the agents to relaunch. Linux only (reads `/proc`) |
 | `agent-identity` | a registered agent whose process has no `AIFY_AGENT_ID`, so its status cannot be proven. Linux only |
-| `bridge-current` | a registered agent whose self-reported `bridgeBuild` is behind; reads `unknown` when no agent reports a build |
+| `bridge-current` | a live bridge (`GET /bridges`) whose self-reported `bridgeBuild` is behind; `unknown-all` when no live bridge reports one |
 | `skills-installed` | a skill edited in the checkout that `install.sh` has not copied out yet |
 | `spawn-delegation` | the aify-env serving this host is not answering, so spawns fail with no cause attached |
 | `tier-version` | the aify-env serving this host is older than `MINIMUM_AIFY_ENV_VERSION` (`tier-version-check.mjs`) |

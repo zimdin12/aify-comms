@@ -259,6 +259,9 @@ test("the module reaches only owned leaves", () => {
     "./aify-service-endpoint.mjs",
     "./binding-file.js",
     "./bridge-agent-state.mjs",
+    // REVIEWED, 0.7.0. A leaf that reads only the install stamp or `.git/HEAD`: the build this process
+    // loaded, sent on registration so `aify-comms doctor`'s `bridge-current` can compare it to HEAD.
+    "./bridge-build.mjs",
     "./bridge-instance.mjs",
     "./claude-turn-detector-state.mjs",
     // REVIEWED, 2026-08-29. A PURE leaf that imports nothing: it answers whether this process may

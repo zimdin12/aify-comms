@@ -39,6 +39,7 @@ import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { writeAgentBindingFile } from "./binding-file.js";
 import { ACTIVE_RUNS, REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID, BRIDGE_STARTED_AT } from "./bridge-instance.mjs";
+import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { armClaudeTurnEndDetector, isClaudeTurnDetectorArmed } from "./claude-turn-detector-state.mjs";
 import { writeSessionIdMarker } from "./hermes-endpoint.js";
 import { AIFY_AGENT_ID, IS_MANAGED_DISPATCH } from "./launch-identity.mjs";
@@ -208,6 +209,7 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
         // time so the service can distinguish a genuine fresh relaunch from a
         // lingering bridge re-registering a deliberately-removed agent.
         bridgeStartedAt: BRIDGE_STARTED_AT,
+        bridgeBuild: BRIDGE_BUILD_TAG,
       };
 
       // Write agent ID to a session-specific temp file keyed by PID so the

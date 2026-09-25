@@ -113,8 +113,8 @@ has no status. So a flow is done when `aify-comms doctor` says `ok: true`, not w
 | install / update the service | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | doctor `service` reads `build <sha> == repo HEAD` (`/health` alone does not say which build) |
 | update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client) | `bridge-installed` green, then every agent that was running before the install relaunched |
 
-`bridge-current` names any registered agent still reporting an older bridge build, and reads
-`unknown` until agents report one; on Linux `bridge-running` also names running bridges started
+`bridge-current` names any live bridge still running an older build, and reads `unknown-all` until
+bridges started on 0.7.0 or later report one; on Linux `bridge-running` also names running bridges started
 before the install.
 
 Rules that cost real hours:

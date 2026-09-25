@@ -28,6 +28,7 @@ async def _record_bridge_registration(
     session_handle: str,
     terminal_id: str = "",
     managed_wrapper_child: bool = False,
+    bridge_build: str = "",
     now: str,
 ) -> None:
     """Single source of truth for register-time bridge_instances writes.
@@ -48,8 +49,8 @@ async def _record_bridge_registration(
         """
         INSERT OR REPLACE INTO bridge_instances (
             id, agent_id, machine_id, runtime, session_mode, session_handle,
-            terminal_id, bridge_kind, registered_at, last_seen, superseded_by, superseded_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            terminal_id, bridge_kind, bridge_build, registered_at, last_seen, superseded_by, superseded_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             bridge_id,
@@ -60,6 +61,7 @@ async def _record_bridge_registration(
             normalized_session_handle_value,
             normalized_terminal_id_value,
             bridge_kind,
+            str(bridge_build or ""),
             now,
             now,
             "",

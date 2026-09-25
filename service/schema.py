@@ -244,6 +244,7 @@ CREATE TABLE IF NOT EXISTS bridge_instances (
     session_handle TEXT DEFAULT '',
     terminal_id TEXT DEFAULT '',
     bridge_kind TEXT DEFAULT '',
+    bridge_build TEXT DEFAULT '',
     registered_at TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     superseded_by TEXT DEFAULT '',

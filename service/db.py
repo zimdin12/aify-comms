@@ -339,6 +339,7 @@ BRIDGE_INSTANCE_MIGRATIONS = {
     "session_handle": "ALTER TABLE bridge_instances ADD COLUMN session_handle TEXT DEFAULT ''",
     "terminal_id": "ALTER TABLE bridge_instances ADD COLUMN terminal_id TEXT DEFAULT ''",
     "bridge_kind": "ALTER TABLE bridge_instances ADD COLUMN bridge_kind TEXT DEFAULT ''",
+    "bridge_build": "ALTER TABLE bridge_instances ADD COLUMN bridge_build TEXT DEFAULT ''",
 }
 
 

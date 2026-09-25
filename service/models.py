@@ -118,6 +118,15 @@ def drop_unusable_model_selfreport(value):
         return None
 
 
+_BUILD_TAG_RE = re.compile(r"[0-9A-Za-z._-]{1,64}")
+
+
+def drop_unusable_build_tag(value):
+    """A bridge build tag is a short sha or one of `bridge-build.mjs`'s words; anything else is dropped."""
+    text = str(value or "").strip()
+    return text if _BUILD_TAG_RE.fullmatch(text) else None
+
+
 def validate_model_shape(value):
     """Public because a boundary is only a boundary if EVERY ingress uses it.
 
@@ -185,6 +194,11 @@ class AgentRegister(_MachineIdNormalizingModel):
     # Mirrors the environment forget-tombstone freshness check (forgottenAt vs
     # bridgeStartedAt) in environment_heartbeat.
     bridgeStartedAt: Optional[str] = None
+    # The build this bridge process loaded (`bridge-build.mjs`), so `aify-comms doctor` can tell a
+    # bridge RUNNING old code from one whose files are merely old. Self-report: an unusable value is
+    # dropped, never refused.
+    bridgeBuild: Optional[str] = None
+    _clean_bridge_build = field_validator("bridgeBuild")(drop_unusable_build_tag)
     # Phase 4 race guard (2026-05-31): a fresh same-mode resident re-register
     # by a DIFFERENT bridge is hard-rejected (409) to prevent two live wrappers
     # silently racing one identity. Set force=true to take over deliberately

@@ -312,15 +312,7 @@ async function checkAgentIdentity() {
 async function checkEnvBridge() {
   const envs = await get("/api/v1/environments");
   if (!envs) {
-    skip("env-bridge", whyNoService());
-    // AND bridge-current, for the SAME reason spelled out fifty lines below: a bare `return` here
-    // took the rest of this function with it, so an unreachable service produced a report with no
-    // `bridge-current` row at all -- not a skip, not a failure, absent. That was fixed once for the
-    // no-online-bridge branch and left standing on this one, which is the branch that fires when the
-    // service is down or refusing the key. A check that could not be asked must SAY it was not asked.
-    return add("bridge-current", false, "unknown-all",
-      `${whyNoService().replace(/\.$/, "")}, so no live bridge could be asked which build it is running.`,
-      "Check the `service` row above, then re-run.");
+    return skip("env-bridge", whyNoService());
   }
   const list = envs.environments || [];
   // THE SPAWN'S OWN QUESTION, not the row's status. `status` and `lastSeen` are refreshed by aify-env
@@ -361,60 +353,49 @@ async function checkEnvBridge() {
       "Start the host tier: `aify-env` on that host (it claims spawns now; `aify-comms` starts "
       + "nothing and refuses). Ask with `aify-env doctor` before starting one -- supersession reaps "
       + "the predecessor's workers.");
-    // AND STILL REPORT bridge-current, which used to VANISH here. This `return` took the whole
-    // rest of the function with it, so whenever no env bridge was online the report simply had no
-    // `bridge-current` row — not a skip, not a failure, absent. An operator counting checks saw ten
-    // and no sign that the eleventh question went unasked.
-    //
-    // It matters most exactly here. On Windows `bridge-running` and `agent-identity` both skip
-    // (they read /proc), so `bridge-current` is the ONLY check that answers "are the live bridges
-    // running current code" — and it disappeared precisely when the fleet was down, which is when
-    // an operator is most likely to be reading this report.
-    //
-    // Same family as `a2f9e42`'s `unknown-all`: a check that could not gather evidence must say so.
-    // `bridgeCurrentVerdict` already returns a proper skip for "no live environment bridge to
-    // check", so reporting it needs nothing but not returning early.
-    const noLiveBridge = bridgeCurrentVerdict({
-      environments: list,
-      headSha: repo ? repo.sha : "",
-      headShort: repo ? repo.short : "",
-      bridgeCommitsSince: {},
-    });
-    return add(
-      "bridge-current",
-      noLiveBridge.ok,
-      noLiveBridge.code,
-      noLiveBridge.detail,
-      noLiveBridge.fix,
-    );
+    return;
   }
-  // B1: are the LIVE bridges running current code? bridge-installed only proves the files on
-  // disk; a process keeps what it loaded at boot, and bridge-running (which would catch that)
-  // skips on Windows. See bridgeCurrentVerdict.
-  // Ask the same question bridge-installed asks of the files on disk (N13): did any commit since
-  // this bridge's build actually TOUCH `mcp/stdio`? Without it a docs-only commit made every live
-  // bridge read STALE and told the operator to restart it — a wrong instruction, and after the
-  // 2026-08-11 outage the last one to give lightly. An empty/failed count is left OUT of the map
-  // so the verdict falls through to stale: unanswerable is not clean.
-  const bridgeCommitsSince = {};
-  for (const env of list) {
-    const build = String(env?.metadata?.bridgeBuild || "").trim();
-    if (!build || bridgeCommitsSince[build] !== undefined || !repo) continue;
-    const n = sh("git", ["rev-list", "--count", `${build}..HEAD`, "--", "mcp/stdio"], repo.dir);
-    if (n !== "" && Number.isFinite(Number(n))) bridgeCommitsSince[build] = Number(n);
-  }
-  const current = bridgeCurrentVerdict({
-    environments: list,
-    headSha: repo ? repo.sha : "",
-    headShort: repo ? repo.short : "",
-    bridgeCommitsSince,
-  });
-  add("bridge-current", current.ok, current.code, current.detail, current.fix);
   const unknown = list.filter(envStateIsUnknown);
   const detail = `${online.length} online: ${online.map((e) => e.id).join(", ")}`
     + (offline.length ? ` (${offline.length} registered but cannot host a spawn: ${offline.map(describeEnv).join(", ")})` : "")
     + (unknown.length ? ` — WARNING: unrecognised status on ${unknown.map(describeEnv).join(", ")}; doctor's state vocabulary may be stale` : "");
   add("env-bridge", true, "ok", detail);
+}
+
+// ── bridge-current: are the LIVE bridges running current code? ──────────────────────────
+// `bridge-installed` only proves the files on disk; a process keeps what it loaded at boot, and
+// `bridge-running` (which would catch that) skips on Windows. Each bridge reports its build when it
+// registers and `/bridges` lists the ones beating now. See bridgeCurrentVerdict.
+//
+// A service that could not be asked gets its own row, never an absent one: a report with no
+// `bridge-current` line reads as ten checks passing rather than eleven asked.
+async function checkBridgeCurrent() {
+  const live = await get("/api/v1/bridges");
+  if (!live) {
+    return add("bridge-current", false, "unknown-all",
+      `${whyNoService().replace(/\.$/, "")}, so no live bridge could be asked which build it is running.`,
+      "Check the `service` row above, then re-run.");
+  }
+  const bridges = Array.isArray(live.bridges) ? live.bridges : [];
+  // Ask the same question bridge-installed asks of the files on disk (N13): did any commit since
+  // this bridge's build actually TOUCH code the bridge runs? Test-only commits are excluded for the
+  // same reason as there -- this row's remedy is a relaunch, which reaps managed workers. An
+  // empty/failed count is left OUT of the map so the verdict falls through to stale.
+  const bridgeCommitsSince = {};
+  for (const bridge of bridges) {
+    const build = String(bridge?.build || "").trim();
+    if (!build || bridgeCommitsSince[build] !== undefined || !repo) continue;
+    const n = sh("git", ["rev-list", "--count", `${build}..HEAD`, "--", "mcp/stdio",
+      ...BRIDGE_RUNTIME_EXCLUDE_PATHS.map((path) => `:(exclude)${path}`)], repo.dir);
+    if (n !== "" && Number.isFinite(Number(n))) bridgeCommitsSince[build] = Number(n);
+  }
+  const current = bridgeCurrentVerdict({
+    bridges,
+    headSha: repo ? repo.sha : "",
+    headShort: repo ? repo.short : "",
+    bridgeCommitsSince,
+  });
+  add("bridge-current", current.ok, current.code, current.detail, current.fix);
 }
 
 // ── 8. OpenAI usage (proves the connection, not the file) ────────────────────────────
@@ -786,6 +767,7 @@ await checkGatewayOrphans({
 checkRunningBridges();
 await checkAgentIdentity();
 await checkEnvBridge();
+await checkBridgeCurrent();
 await checkUsage();
 // Beside the usage check because it is the same subject -- a credential with a deadline -- and
 // because 21 claude-code agents share one grant that nothing was watching.

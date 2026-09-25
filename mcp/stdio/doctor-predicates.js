@@ -11,10 +11,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// SPAWN CLAIMING MOVED OUT, and is re-exported nowhere -- a stale import must fail loudly rather
-// than resolve. `comms_envs` needs the same answer and must not import the doctor to get it.
-import { envCanClaimASpawn } from "./spawn-claimer.mjs";
-//
 // Extracted from doctor.js (v0.2 item B2, done in v0.1) for ONE reason: doctor.js is a top-level
 // script that runs every check at import and ends in `process.exit()`, so it cannot be imported by
 // a test. That structural fact is why the check with the worst track record in this repo had zero
@@ -417,9 +413,14 @@ function buildVerdict({
 // saw the OLD corrupted bytes, and nearly recorded a working fix as broken. The fix was correct;
 // my own bridge was pre-restart, and no check said so.
 //
-// The bridge already computed its build sha for the startup banner and then wrote it only to
-// stderr. Reporting it on registration makes this platform-independent: compare what each LIVE
-// bridge says it is running against the checkout, with no process inspection at all.
+// Each bridge sends the build it loaded (`bridge-build.mjs`) when it registers, and `GET /bridges`
+// lists the ones beating now. Comparing those against the checkout needs no process inspection, so
+// this works on every platform.
+//
+// IT READ ENVIRONMENT ROWS UNTIL 0.7.0 AND SAW NOTHING. Only the retired environment bridge ever put
+// a `bridgeBuild` there, so from v0.6.2 every live row was aify-env's, and this reported "no bridge
+// is running" in green while every `claude-aify`, `codex-aify` and `hermes-aify` session ran
+// `server.js` unchecked (v0.7 scan B2).
 //
 // Deliberately reports a RESTART, never a reinstall — the files are already current in this case,
 // so `install.sh` would change nothing and telling the operator to run it would be a wrong fix.
@@ -428,46 +429,24 @@ function buildVerdict({
 // the operator to restart it, which is the same cry-wolf `bridge-installed` already fixed for the
 // files on disk (N13): being behind is not the question, running different CODE is. A build with
 // no entry is treated as stale, not as clean — an unanswerable delta is not evidence of currency.
-export function bridgeCurrentVerdict({ environments = [], headSha = "", headShort = "", bridgeCommitsSince = {} } = {}) {
+const BUILD_SENTINELS = new Set(["", "unknown", "no-git", "unknown-ref"]);
+
+export function bridgeCurrentVerdict({ bridges = [], headSha = "", headShort = "", bridgeCommitsSince = {} } = {}) {
   const head = String(headSha || "");
   if (!head) {
     return { ok: true, code: "skipped", detail: "no checkout to compare running bridges against", fix: "" };
   }
-  // Only rows where a BRIDGE is live -- `envCanClaimASpawn`, not `envIsOnline`. A dead bridge's
-  // build is not a claim about anything running, and since aify-env began advertising, `status:
-  // online` no longer means a bridge is there at all. Measured 2026-09-02: this reported "1 live
-  // bridge is RUNNING older code" against a host whose last bridge had spoken 26 hours earlier --
-  // naming a stale build for a process that did not exist, and sending the operator to relaunch a
-  // wrapper rather than to start a bridge.
-  const live = environments.filter((e) => envCanClaimASpawn(e));
-  if (!live.length) {
-    return { ok: true, code: "skipped", detail: "no live environment bridge to check", fix: "" };
+  if (!bridges.length) {
+    return { ok: true, code: "skipped", detail: "no bridge is beating right now, so none can be running old code", fix: "" };
   }
+  const name = (b) => String(b?.agentId || b?.id || "(unnamed)");
   const stale = [];
   const behindByNonBridge = [];
-  let unknown = 0;
-  // THE HOST TIER IS NOT A SILENT BRIDGE, and conflating the two made this row red for ever on a
-  // correctly-configured host. External review, Round 8 M11.
-  //
-  // aify-env sends `bridgeId`, `bridgeVersion` and `bridgeStartedAt`, and NO `bridgeBuild` -- by
-  // design, because it is not built from this checkout and has no sha of this repo to be current
-  // with. Counting it as "did not report" made `unknown-all` permanent and `--strict` exit 1 on a
-  // host doing exactly the right thing. A red that can never clear gets switched off, and it takes
-  // the real signal with it -- and the real signal here is a bridge RUNNING old code, which is the
-  // hazard the whole H4 finding turns on.
-  //
-  // "No evidence is not a pass" still holds; it was being applied to the wrong fact. A bridge that
-  // should report its build and does not is no evidence. A tier that was never going to report one
-  // is not silence, it is a different kind of thing.
-  const hostTier = [];
-  for (const env of live) {
-    if (String(env?.metadata?.bridgeKind || "").trim().toLowerCase() === "aify-env") {
-      hostTier.push(env);
-      continue;
-    }
-    const build = String(env?.metadata?.bridgeBuild || "").trim();
-    if (!build || build === "unknown" || build === "no-git" || build === "unknown-ref") {
-      unknown += 1;
+  const silent = [];
+  for (const bridge of bridges) {
+    const build = String(bridge?.build || "").trim();
+    if (BUILD_SENTINELS.has(build)) {
+      silent.push(name(bridge));
       continue;
     }
     // The bridge reports a 12-char prefix; compare on the shorter of the two.
@@ -476,10 +455,10 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
     const touched = bridgeCommitsSince?.[build];
     if (touched === 0) {
       // Behind HEAD, but not one of those commits changed a byte the bridge executes.
-      behindByNonBridge.push(`${env?.id || "(unnamed)"} at ${build.slice(0, 7)}`);
+      behindByNonBridge.push(`${name(bridge)} at ${build.slice(0, 7)}`);
       continue;
     }
-    stale.push(`${env?.id || "(unnamed)"} running ${build.slice(0, 7)}`);
+    stale.push(`${name(bridge)} running ${build.slice(0, 7)}`);
   }
   if (stale.length) {
     return {
@@ -492,47 +471,27 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
         + "is already green — the code is on disk, just not in memory.",
     };
   }
-  // AUDIT 4/4 F1, live-confirmed on this host: the ONE online environment bridge reported no
-  // `bridgeBuild` at all, so this check returned ok and `aify-doctor --strict` PASSED — while
-  // proving nothing whatsoever about what the running bridge executes. That is the same false
-  // green as `env-bridge` counting registered rows (756f3a5), in the check written to prevent it.
-  //
-  // So the two absences must not share a verdict. Some-current-some-silent is degraded reporting
-  // on a partially proven fleet. ZERO current evidence is not a partial result, it is NO result,
-  // and a check with no result must not be counted as a passed one.
-  // EVERY LIVE ENVIRONMENT IS A HOST TIER: there is no bridge here to be stale, so there is nothing
-  // to report and nothing to fail. Said as its own code rather than folded into `ok` with an empty
-  // detail, because "this check does not apply here" and "this check passed" are different answers
-  // and an operator reading the report deserves the first one.
-  if (hostTier.length && hostTier.length === live.length) {
-    return {
-      ok: true,
-      code: "host-tier",
-      detail: `${hostTier.length} live environment(s), all served by the aify-env host tier, which `
-        + "reports no build of this repo because it is not built from it. Nothing here can be "
-        + "running stale aify-comms bridge code, because no bridge is running.",
-      fix: "",
-    };
-  }
-  if (unknown === live.length - hostTier.length && unknown > 0) {
+  // SOME evidence with gaps is a partial pass; ZERO evidence is not a pass at all. A check that
+  // could not answer must not be counted as one that answered yes (AUDIT 4/4 F1, live-confirmed).
+  if (silent.length === bridges.length) {
     return {
       ok: false,
       code: "unknown-all",
-      detail: `none of the ${live.length} live bridge(s) report which build they are running, so `
+      detail: `none of the ${bridges.length} live bridge(s) report which build they are running, so `
         + `nothing here verifies them against repo HEAD ${headShort}. This is NOT "they are current" `
-        + "— it is no evidence either way (every bridge predates the build-stamp report, or none "
-        + "has restarted since).",
+        + "— it is no evidence either way (every bridge predates the build report, or none has "
+        + "restarted since).",
       fix: "Restart the bridges/wrappers. They report their build on registration from then on, "
         + "and this check becomes real. Re-running install.sh alone will not do it — a process "
         + "keeps what it loaded at boot.",
     };
   }
-  if (unknown) {
+  if (silent.length) {
     return {
       ok: true,
       code: "partial",
-      detail: `${live.length - unknown} live bridge(s) match repo HEAD; ${unknown} did not report a `
-        + "build sha (pre-B1 bridge — restart it to start reporting)",
+      detail: `${bridges.length - silent.length} live bridge(s) match repo HEAD; ${silent.length} did not `
+        + `report a build sha (${silent.join(", ")}: started before 0.7.0 — restart to start reporting)`,
       fix: "",
     };
   }
@@ -540,13 +499,13 @@ export function bridgeCurrentVerdict({ environments = [], headSha = "", headShor
     return {
       ok: true,
       code: "ok-nonbridge",
-      detail: `${live.length} live bridge(s) are running current BRIDGE code; ${behindByNonBridge.length} `
+      detail: `${bridges.length} live bridge(s) are running current BRIDGE code; ${behindByNonBridge.length} `
         + `report an older sha than repo HEAD ${headShort} (${behindByNonBridge.join(", ")}) but no commit `
         + "in between touched `mcp/stdio`, so there is nothing for a restart to pick up.",
       fix: "",
     };
   }
-  return { ok: true, code: "ok", detail: `${live.length} live bridge(s) running repo HEAD ${headShort}`, fix: "" };
+  return { ok: true, code: "ok", detail: `${bridges.length} live bridge(s) running repo HEAD ${headShort}`, fix: "" };
 }
 
 // ── `skills-installed` ───────────────────────────────────────────────────────────────

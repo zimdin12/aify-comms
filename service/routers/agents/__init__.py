@@ -12,6 +12,7 @@ from service.routers.agents.console import router as _console_router
 from service.routers.agents.environment_assignment import router as _environment_assignment_router
 from service.routers.agents.listen import router as _listen_router
 from service.routers.agents.attributes import router as _attributes_router
+from service.routers.agents.bridges import router as _bridges_router
 from service.routers.agents.identity import router as _identity_router
 from service.routers.agents.registration import router as _registration_router
 from service.routers.agents.rename import router as _rename_router
@@ -49,3 +50,5 @@ router.include_router(_session_handle_router)
 router.include_router(_liveness_router)
 # The turn-boundary pair left `liveness.py` in v0.5.4, still in first-appearance order.
 router.include_router(_turn_boundaries_router)
+# The live-bridge read `aify-comms doctor` asks which build each bridge loaded (0.7.0).
+router.include_router(_bridges_router)

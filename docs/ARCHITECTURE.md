@@ -28,7 +28,7 @@ another is the most common way a change appears not to work.
 
 **The wrapper and the bridge reload in opposite ways.** A bridge is a running process, so new code on
 disk does nothing until the agent restarts; `aify-comms doctor`'s `bridge-current` compares the build
-each registered agent's bridge reports, and reads `unknown` when none reports one. A wrapper is
+each live bridge reported when it registered (`GET /bridges`), and reads `unknown-all` when none did. A wrapper is
 generated text, so restarting it does nothing until `install.sh` is re-run; `aify-wrapper-check`
 reports a stale one.
 

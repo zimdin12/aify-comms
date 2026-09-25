@@ -124,9 +124,8 @@ loadSettingsEnv();
 // init/Relay and linger). process.ppid changes on reparenting; this snapshot does not.
 const ORIGINAL_PARENT_PID = Number(process.ppid) || 0;
 const MACHINE_ID = defaultMachineId();
-// Same one source as every handshake (see version.js). This one also reaches the server as
-// `bridgeVersion` on registration and the startup banner, so a stale literal here misreported
-// the bridge's version to the control plane too, not just to MCP clients.
+// Same one source as every handshake (see version.js). It is printed in the startup banner; what
+// reaches the service on registration is the BUILD (`bridgeBuild`), which `aify-comms doctor` reads.
 const BRIDGE_VERSION = AIFY_VERSION;
 
 // Log to stderr on startup so users can see which code is running.
