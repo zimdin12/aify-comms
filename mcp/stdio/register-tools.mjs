@@ -26,84 +26,19 @@ import { registerSendTools } from "./send-tools.mjs";
 import { registerUsageTool } from "./usage-tool.mjs";
 
 export function registerAllTools(server, z, { ensureDispatchLoop }) {
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 1. comms_register -- Register agent with ID, role, name, cwd, model, instructions
-  // ═══════════════════════════════════════════════════════════════════════════════
-
   registerRegistrationTool(server, z, { ensureDispatchLoop });
-
   registerEnvironmentTools(server, z);
-
-
-
-
-
-
   registerUsageTool(server, z);
-
-
   registerCompactTool(server, z);
-
   registerAgentReportingTools(server, z);
-
   registerSelfRecordTools(server, z);
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 3. comms_send -- Send message to agent by ID or role
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  // COMMS_SEND_TOOL_DESCRIPTION moved to ./send-tools.mjs in v0.5.4 — it describes comms_send,
-  // so it belongs with the tool rather than with the file the tool used to live in.
-
-  // The two SEND tools live in ./send-tools.mjs. No `moved to` marker: that form names a DECLARATION, and
-  // a tool name is not one — every earlier tool extraction left only its register call, same as this.
   registerSendTools(server, z);
-
   registerDispatchTools(server, z);
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // comms_console_tail / comms_console_input -- read & unstick a managed agent's console
-  // ═══════════════════════════════════════════════════════════════════════════════
-
   registerConsoleTools(server, z);
-
-  // comms_run_steer removed from stdio — ordinary comms_send does not require
-  // knowing the runId, creates an inbox message, and steers busy steer-capable
-  // targets unless queueIfBusy=true. Busy non-steer targets queue/merge instead.
-
-  /**
-   * Spawn a local runtime instance to handle a triggered message.
-   * Fire-and-forget: the result is delivered back to the sender's inbox.
-   */
-  // spawnTriggeredAgent moved to ./spawn-triggered-agent.mjs in v0.5.4.
-
   registerInboxTools(server, z);
-
   registerSearchTool(server, z);
-
-
-
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 6. comms_share -- Share text content or file to shared space
-  // ═══════════════════════════════════════════════════════════════════════════════
-
   registerArtifactTools(server, z);
-
   registerChannelTools(server, z);
-
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 11. comms_channel_send -- Send message to channel
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-
-
-
   registerLifecycleTools(server, z);
-
   registerDashboardTool(server, z);
-
-  // ── Entrypoint ───────────────────────────────────────────────────────────────
 }
