@@ -53,7 +53,6 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
 }
 
 import { api } from './api-client.mjs';
-import { environmentStartCommand } from './environment-start-command.mjs';
 import { asArray, environmentRoots, environmentRuntimes } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim, statusWhyContext } from './status.js';
@@ -227,9 +226,11 @@ export function renderRuntime() {
         <button class="ghost" data-env-roots="${esc(env.id)}" title="Edit the workspace roots agents may be spawned into">Edit roots…</button>
         ${resolveStatus(env.status).kind === 'offline'
           ? `<button class="ghost danger" data-env-control="forget" data-env-id="${esc(env.id)}" title="Hide this offline environment (identities/chats/records remain)">Forget</button>`
-          : `<button class="ghost danger" data-env-control="stop" data-env-id="${esc(env.id)}" title="Ask this host bridge process to exit">Stop bridge</button>`}
+          // No "Stop" for a live host: that control was drained by the aify-comms environment bridge
+          // v0.6.2 deleted, and aify-env does not claim it, so the stop it queued was never acted on.
+          : ''}
       </div>
-    </article>`).join('') || '<div class="empty-state"><span class="empty-icon">🔌</span><strong>No environments connected</strong><p>Start an aify-comms bridge on a host to see it here.</p></div>';
+    </article>`).join('') || '<div class="empty-state"><span class="empty-icon">🔌</span><strong>No environments connected</strong><p>Start <code>aify-env</code> on a host to see it here; <code>aify-env doctor</code> there says what it can see.</p></div>';
 }
 /**
  * Fetch the spawn requests this page renders, and draw them.
@@ -319,6 +320,16 @@ export function renderEnvironmentSummary() {
  * The hint shown in an empty roots box: an EXAMPLE of the shape this host writes, never a place this
  * service claims anything is installed. A Windows-only hint was the whole prompt on a Linux environment.
  */
+/**
+ * What an operator runs on a host whose environment is missing or silent.
+ *
+ * aify-env is the host tier, and it takes no directory and no roots: the roots are this service's
+ * policy, set above. The doctor first, because it answers without changing anything; `aify-env` then
+ * starts the environment, and shows one that is already running agents instead of replacing it.
+ * This was `cd <root>` + `aify-comms <roots>`, which since v0.6.1 refuses with exit 2.
+ */
+const HOST_START_COMMAND = 'aify-env doctor\naify-env';
+
 export function rootsPlaceholder(env) {
   const os = String(env?.os || env?.kind || '').toLowerCase();
   if (os.includes('win')) return 'C:/work\nC:/projects';        // example path
@@ -331,9 +342,9 @@ export function openEnvironmentRootsEditor(environmentId) {
   const roots = environmentRoots(env);
   const manualRoots = !!(env.metadata && (env.metadata.manualRoots || env.metadata.manual_roots));
   const overrideBadge = manualRoots
-    ? '<span class="mb mb-warn" title="Roots were set from the dashboard and override what the bridge advertises">dashboard override active</span>'
-    : '<span class="subtle">using bridge-advertised roots</span>';
-  const startCmd = environmentStartCommand(env);
+    ? '<span class="mb mb-warn" title="Roots were set from the dashboard and override what the host advertises">dashboard override active</span>'
+    : '<span class="subtle">using the roots the host advertises</span>';
+  const startCmd = HOST_START_COMMAND;
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
       <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
@@ -341,14 +352,14 @@ export function openEnvironmentRootsEditor(environmentId) {
       <label class="settings-label">Roots (one per line)
         <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="${esc(rootsPlaceholder(env))}">${esc(roots.join('\n'))}</textarea>
       </label>
-      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to bridge roots” to restore the advertised set.</p>
-      <label class="settings-label">Start command <span class="subtle">(run on the host to bring this bridge back)</span>
+      <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to host roots” to restore the advertised set.</p>
+      <label class="settings-label">Host commands <span class="subtle">(run on the host: the doctor says whether aify-env is running; aify-env starts it, and shows one already running agents rather than replacing it)</span>
         <textarea id="env-start-cmd" rows="2" spellcheck="false" readonly>${esc(startCmd)}</textarea>
       </label>
       <div class="agent-drawer-actions">
         <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
-        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to bridge roots</button>
-        <button class="ghost" data-copy-text="${esc(startCmd)}">Copy start command</button>
+        <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to host roots</button>
+        <button class="ghost" data-copy-text="${esc(startCmd)}">Copy host commands</button>
       </div>
     </div>`;
   state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
@@ -381,7 +392,7 @@ export function initEnvironmentActions(deps) {
 
 
 export async function controlEnvironment(environmentId, action) {
-  if ((action === 'stop' || action === 'forget') && !await uiConfirm(`${action === 'stop' ? 'Stop the bridge process' : 'Forget this environment'} "${environmentId}"?`, { tone: 'danger' })) return;
+  if (action === 'forget' && !await uiConfirm(`Forget this environment "${environmentId}"?`, { tone: 'danger' })) return;
   try {
     await api(`/environments/${encodeURIComponent(environmentId)}/control`, { method: 'POST', body: JSON.stringify({ action, requestedBy: 'dashboard' }) });
     toast(`Environment ${action} requested`, 'ok');
@@ -392,7 +403,7 @@ export async function controlEnvironment(environmentId, action) {
 export async function submitEnvironmentRoots(environmentId) {
   const text = byId('env-edit-roots')?.value || '';
   const roots = text.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
-  if (!roots.length) { toast('At least one root is required. Use “Reset to bridge roots” to restore advertised roots.', 'warn'); return; }
+  if (!roots.length) { toast('At least one root is required. Use “Reset to host roots” to restore advertised roots.', 'warn'); return; }
   try {
     await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ roots, requestedBy: 'dashboard' }) });
     toast('Workspace roots updated', 'ok');
@@ -402,10 +413,10 @@ export async function submitEnvironmentRoots(environmentId) {
 }
 
 export async function resetEnvironmentRoots(environmentId) {
-  if (!await uiConfirm(`Reset "${environmentId}" to the roots advertised by its bridge process?`)) return;
+  if (!await uiConfirm(`Reset "${environmentId}" to the roots its host advertises?`)) return;
   try {
     await api(`/environments/${encodeURIComponent(environmentId)}/roots`, { method: 'PATCH', body: JSON.stringify({ resetToBridgeAdvertised: true, requestedBy: 'dashboard' }) });
-    toast('Workspace roots reset to bridge-advertised', 'ok');
+    toast('Workspace roots reset to what the host advertises', 'ok');
     closeInspector();
     await refresh();
   } catch (err) { toast(`Root reset failed: ${err?.message || err}`, 'error'); }

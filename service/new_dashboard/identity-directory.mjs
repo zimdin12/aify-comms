@@ -6,8 +6,8 @@
 // `localStorage` — moving it would make its module, and every module importing it, unloadable outside a
 // browser. That is a decision, not a script; see docs/APP_JS_APIBASE_PACKET.md.
 //
-// One declaration, and that is not a sign it should have stayed. `environment-start-command.mjs`,
-// `terminal-width.mjs` and `inspector-refresh.mjs` are single-purpose modules for the same reason: a
+// One declaration, and that is not a sign it should have stayed. `terminal-width.mjs` and
+// `inspector-refresh.mjs` are single-purpose modules for the same reason: a
 // function only becomes testable once it leaves app.js, which is reachable only by source regex. The
 // counts this renders — how many agents are managed versus resident, and the unread total — are summary
 // arithmetic over live fleet state, and nothing has ever checked them.
