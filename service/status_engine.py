@@ -180,8 +180,6 @@ def derive(i: StatusInputs) -> str:
     return "offline"
 
 
-EVENT_KINDS = ("turn_start", "turn_end", "blocked", "unblocked")
-
 def _on_turn_start(s: dict, event: dict) -> None:
     s["in_turn"] = 1
     s["turn_run_id"] = str(event.get("runId") or "")
@@ -189,6 +187,12 @@ def _on_turn_start(s: dict, event: dict) -> None:
 
 
 def _on_turn_end(s: dict, event: dict) -> None:
+    # An end that names a run ends THAT run. A late end for an older run, arriving after a newer
+    # turn started, must not close the newer one. An end naming no run still closes whatever is open.
+    ending = str(event.get("runId") or "")
+    current = str(s.get("turn_run_id") or "")
+    if ending and current and ending != current:
+        return
     s["in_turn"] = 0
     s["turn_run_id"] = ""
     s["awaiting_input"] = 0

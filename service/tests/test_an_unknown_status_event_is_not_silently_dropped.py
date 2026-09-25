@@ -45,7 +45,8 @@ class KnownEventKindsTests(unittest.TestCase):
         """
         opposites = {
             "turn_start": {"in_turn": 0, "turn_run_id": "", "awaiting_input": 1},
-            "turn_end": {"in_turn": 1, "turn_run_id": "r1", "awaiting_input": 1},
+            # The run the event ends (r2): an end for ANOTHER run leaves a newer turn alone.
+            "turn_end": {"in_turn": 1, "turn_run_id": "r2", "awaiting_input": 1},
             "blocked": {"in_turn": 1, "turn_run_id": "r1", "awaiting_input": 0},
             "unblocked": {"in_turn": 1, "turn_run_id": "r1", "awaiting_input": 1},
         }

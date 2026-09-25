@@ -87,7 +87,7 @@ def test_disabled_always_stopped():
     assert derive(_inp(disabled=True, in_turn=True)) == "stopped"
 
 
-from service.status_engine import apply_event, EVENT_KINDS
+from service.status_engine import apply_event
 
 def test_turn_start_sets_in_turn_then_turn_end_clears():
     s = {"in_turn": 0, "awaiting_input": 0, "turn_run_id": ""}
@@ -95,6 +95,17 @@ def test_turn_start_sets_in_turn_then_turn_end_clears():
     assert s["in_turn"] == 1 and s["turn_run_id"] == "r1"
     s = apply_event(s, {"kind": "turn_end", "runId": "r1"})
     assert s["in_turn"] == 0
+
+def test_a_late_turn_end_for_an_older_run_leaves_the_newer_turn_alone():
+    # A turn_end is about ONE run. When run r2 started after r1, a late r1 end cleared r2's turn and
+    # the agent read online mid-turn (comms-senior-dev, v0.7 scan G3).
+    s = {"in_turn": 0, "awaiting_input": 0, "turn_run_id": ""}
+    s = apply_event(s, {"kind": "turn_start", "runId": "r2"})
+    s = apply_event(s, {"kind": "turn_end", "runId": "r1"})
+    assert s["in_turn"] == 1 and s["turn_run_id"] == "r2"
+    # Control: the matching end, and an end that names no run, both still close the turn.
+    assert apply_event(dict(s), {"kind": "turn_end", "runId": "r2"})["in_turn"] == 0
+    assert apply_event(dict(s), {"kind": "turn_end", "runId": ""})["in_turn"] == 0
 
 def test_blocked_event_sets_awaiting_input():
     s = apply_event({"in_turn": 1, "awaiting_input": 0, "turn_run_id": ""}, {"kind": "blocked"})
