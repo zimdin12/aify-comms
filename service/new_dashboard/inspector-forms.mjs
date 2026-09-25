@@ -23,6 +23,7 @@
 
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
+import { findLoadedMessage } from './message-store.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim } from './status.js';
 import { byId, toast } from './ui.js';
@@ -65,8 +66,13 @@ export function openAgentEditForm(agentId) {
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
 export function openMessageDetail(msgId) {
-  const m = state.messages.find((x) => messageId(x) === String(msgId));
-  if (!m) { toast('Message not found in the loaded set', 'warn'); return; }
+  const m = findLoadedMessage(msgId);
+  if (!m) {
+    // A REFRESH of this same drawer keeps what is on screen: the message only left the loaded window.
+    if (state.inspector?.kind === 'message' && String(state.inspector.messageId) === String(msgId)) return;
+    toast('Message not found in the loaded set', 'warn');
+    return;
+  }
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer">

@@ -20,7 +20,7 @@ import { createSpawnRequest, initEnvironmentActions, renderEnvironmentSpawnOptio
 import { renderDiagnosticsSummary, renderMetrics, selectedDiagnostics } from './summary-tiles.mjs';
 import { openCompactionHistory, openMessageDetail } from './inspector-forms.mjs';
 import { restoreChatDraft, persistChatDrafts } from './chat-prefs.mjs';
-import { createMessageHistory } from './message-history.mjs';
+import { messageHistory } from './message-store.mjs';
 import { mountXtermForTerminal as mountXtermForTerminalImpl } from './xterm-mount.mjs';
 import { renderSessionConsole as renderSessionConsoleImpl } from './session-console.mjs';
 import { renderInstallSnippet } from './static-links.mjs';
@@ -103,7 +103,7 @@ const chatController = createChatController({
   restoreDraft: () => restoreChatDraft(),
   // OLDER MESSAGES, ON DEMAND. The poll owns the newest page and replaces it every cycle; this
   // owns everything older and is only appended to, so the two cannot fight over one array.
-  history: createMessageHistory(api),
+  history: messageHistory, // the one store every message action reads (message-store.mjs)
   // Replying to a peer clears their unread badge — quiet, since the send already toasts.
   markConversationRead: (agentId, opts) => markConversationRead(agentId, opts),
   // Keep the details drawer pointed at whatever the operator just selected — otherwise its
