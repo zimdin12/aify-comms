@@ -53,7 +53,7 @@ spawn agents into workspaces, and give them work by messaging them.
 
 `aify-comms` itself only verifies (`doctor`, `--check`, `--version`, `--help`); any other invocation
 exits 2 and points at aify-env. Inside an agent, the everyday tools are `comms_send`, `comms_inbox`,
-`comms_read`, `comms_agents`, `comms_dispatch` and `comms_console_tail`; the full list is in
+`comms_read`, `comms_agents` and `comms_console_tail`; the full list is in
 [`.claude/skills/aify-comms/SKILL.md`](.claude/skills/aify-comms/SKILL.md).
 
 ## Quick start
@@ -186,7 +186,8 @@ Both are off by default, and only messages addressed to you (`to: dashboard`) or
 notify; repeats from one sender on one subject coalesce to one alert per 90 seconds.
 
 - **Desktop:** enable notifications in the dashboard and grant browser permission. `localhost` works
-  over plain HTTP; a LAN address needs the HTTPS proxy (`docker compose --profile https up -d`).
+  over plain HTTP; a LAN address needs the HTTPS proxy (`docker compose --profile https up -d`),
+  which serves `https://<host>:8443` (`HTTPS_PORT` in `.env`).
 - **Phone:** set `AIFY_NTFY_URL=https://ntfy.sh/<private-topic>` in `.env`, run
   `docker compose up -d`, and subscribe to the topic in the ntfy app. The topic URL is a credential;
   keep it in `.env`. `curl -s localhost:8800/health | jq .ntfy` shows whether alerts are going out.
@@ -217,7 +218,8 @@ it there and restart the proxy.
 - **Resident**: a terminal you opened with `claude-aify --aify-agent <id>` (or `codex-aify` /
   `hermes-aify`). Add `--shared` so aify-env owns the terminal and it survives closing the window.
   One instance of an agent runs per host; starting one by hand replaces the running instance.
-- Switch an agent between the two from **Sessions → Actions** or the chat details panel.
+- Switch an agent between the two with **Switch to managed** / **Switch to resident**, in its details
+  drawer or on its row in **Sessions**.
 
 Agent statuses, delivery paths per runtime, compaction, handle repair and the runtime settings are
 described in [docs/OPERATING_MODES.md](docs/OPERATING_MODES.md). Setup for remote hosts and workspace
