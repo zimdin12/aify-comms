@@ -567,6 +567,8 @@ The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide
 
 ### Canonical status labels (operator reference)
 
+**Superseded as a reference: the vocabulary has grown past these six (see `VALID_STATUSES` in `service/status_engine.py`), and the one table of what each state means is "Status Meanings" in [`.claude/skills/aify-comms/references/operations.md`](.claude/skills/aify-comms/references/operations.md).** The table below is the 2026-06-18 snapshot.
+
 Proof-based 6-state model (2026-06-18). Status is PROVEN, not time-assumed — no minute thresholds, no time-decay states.
 
 | Label | Meaning |
