@@ -199,6 +199,7 @@ export async function fetchAnthropicUsage({ readCreds = defaultReadCreds, fetchI
     const tok = creds && creds.claudeAiOauth && creds.claudeAiOauth.accessToken;
     if (!tok) return unknown;
     const res = await fetchImpl(ANTHROPIC_USAGE_URL, {
+      redirect: "manual", // a redirect would carry the OAuth token to whatever origin it names
       headers: { authorization: `Bearer ${tok}`, ...ANTHROPIC_USAGE_HEADERS },
     });
     if (!res || !res.ok) return unknown;
@@ -442,6 +443,7 @@ export async function fetchChatGptUsageLive({ readHermesAuth = defaultReadHermes
   if (!tok) return null;
   try {
     const res = await fetchImpl(CHATGPT_USAGE_URL, {
+      redirect: "manual", // a redirect would carry the OAuth token to whatever origin it names
       headers: { authorization: `Bearer ${tok}`, accept: "application/json", "user-agent": "codex-cli" },
     });
     if (!res || !res.ok) return null;
@@ -524,6 +526,7 @@ export async function checkOpenAiUsageAccess({ readHermesAuth = defaultReadHerme
   let res;
   try {
     res = await fetchImpl(CHATGPT_USAGE_URL, {
+      redirect: "manual", // a redirect would carry the OAuth token to whatever origin it names
       headers: { authorization: `Bearer ${token}`, accept: "application/json", "user-agent": "codex-cli" },
     });
   } catch (err) {

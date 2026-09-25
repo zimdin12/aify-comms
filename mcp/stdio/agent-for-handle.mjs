@@ -22,8 +22,11 @@ export async function agentForHandle({ url, runtime, handle, fetchImpl = fetch, 
   if (!url || !runtime || !handle) return "";
   const base = String(url).replace(/\/+$/, "");
   const key = keyFor(base);
+  // NEVER FOLLOWED: `fetch` re-sends custom headers on a redirect, so a 302 would hand the key to
+  // whatever origin it names (v0.7 review reproduced exactly that). A redirect answers nothing here.
   const response = await fetchImpl(`${base}/api/v1/agents`, {
     headers: key ? { "X-API-Key": key } : {},
+    redirect: "manual",
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!response.ok) return "";

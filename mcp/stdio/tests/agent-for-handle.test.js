@@ -63,6 +63,29 @@ test("with the key it can resolve, the owner of the handle is printed", async ()
   }
 });
 
+test("A REDIRECT IS NOT FOLLOWED, so the key never reaches another origin", async () => {
+  // v0.7 review: without `redirect: "manual"` fetch followed the 302 and the second origin received
+  // the X-API-Key header. Both servers are separate origins (different ports).
+  const seenByOther = [];
+  const other = http.createServer((req, res) => {
+    seenByOther.push(req.headers["x-api-key"] || "");
+    res.writeHead(200, { "content-type": "application/json" }).end('{"agents":{"x":{"runtime":"codex","sessionHandle":"sess-1"}}}');
+  });
+  await new Promise((resolve) => other.listen(0, "127.0.0.1", resolve));
+  const redirector = http.createServer((req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${other.address().port}/api/v1/agents` }).end();
+  });
+  await new Promise((resolve) => redirector.listen(0, "127.0.0.1", resolve));
+  try {
+    const done = await run(`http://127.0.0.1:${redirector.address().port}`, "codex", "sess-1", { AIFY_API_KEY: KEY });
+    assert.deepEqual(done, { code: 0, stdout: "" });
+    assert.deepEqual(seenByOther, [], "the redirect was followed to another origin");
+  } finally {
+    other.close();
+    redirector.close();
+  }
+});
+
 test("an unreachable service prints nothing and exits 0", async () => {
   const done = await run("http://127.0.0.1:9", "codex", "sess-1", { AIFY_API_KEY: KEY });
   assert.deepEqual(done, { code: 0, stdout: "" });
