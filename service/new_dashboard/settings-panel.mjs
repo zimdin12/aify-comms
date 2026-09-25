@@ -158,7 +158,24 @@ export function applyThemeChoice(themeChoice) {
 export function selectSettingsTab(settingsTab) {
   state.settingsTab = settingsTab.dataset.settingsTab;
   try { localStorage.setItem('aifySettingsTab', state.settingsTab); } catch { /* ignore */ }
-  renderSettings();
+  showActiveSettingsTab();
+}
+
+// SWITCHES THE VISIBLE TAB WITHOUT REBUILDING THE PANELS. Every panel stays in the DOM so Save
+// collects every field; rebuilding them from `state.settings` on a tab click threw away whatever the
+// operator had typed on the tab they left, and the Save after it sent nothing for those fields.
+// Only a form that has not been drawn yet is rendered from scratch.
+function showActiveSettingsTab() {
+  const host = byId('settings-form');
+  if (!host) return;
+  if (!host.querySelector?.('[data-settings-panel]')) { renderSettings(); return; }
+  const active = activeSettingsTab();
+  host.querySelectorAll('[data-settings-tab]').forEach((tab) => tab.classList.toggle('active', tab.dataset.settingsTab === active));
+  host.querySelectorAll('[data-settings-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.settingsPanel === active));
+  const helpBand = byId('help-band');
+  if (helpBand) helpBand.hidden = active !== HELP_TAB;
+  const saveBtn = byId('settings-save');
+  if (saveBtn) saveBtn.style.display = active === HELP_TAB ? 'none' : '';
 }
 
 // THE PANEL IS DRAWN FROM THE SERVICE'S DECLARATIONS (service/api_core/settings_spec.py), served by

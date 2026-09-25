@@ -382,3 +382,48 @@ test("settingsItemFromDeclaration maps each declared kind to the control that ca
   assert.equal(item({ key: "w", kind: "int", label: "W", applies: "next worker start" }).hint,
     "Takes effect when a worker next starts.");
 });
+
+// --- switching tabs keeps unsaved edits (v0.7 C1) -------------------------------------------------
+
+/** A settings form that already holds its rendered tabs and panels, the way a real page does. */
+function renderedSettingsHost(groups) {
+  const node = (dataset) => {
+    const classes = new Set();
+    return {
+      dataset,
+      classList: {
+        toggle: (name, on) => { if (on) classes.add(name); else classes.delete(name); },
+        contains: (name) => classes.has(name),
+      },
+    };
+  };
+  const tabs = [...groups, HELP_TAB].map((group) => node({ settingsTab: group }));
+  const panels = groups.map((group) => node({ settingsPanel: group }));
+  return {
+    tabs,
+    panels,
+    innerHTML: "RENDERED PANELS, WITH THE OPERATOR'S UNSAVED VALUES IN THEIR INPUTS",
+    contains: () => true,
+    querySelector: (sel) => (sel.includes("data-settings-panel") ? panels[0] || null : null),
+    querySelectorAll: (sel) => (sel.includes("data-settings-panel") ? panels : sel.includes("data-settings-tab") ? tabs : []),
+  };
+}
+
+test("SWITCHING SETTINGS TABS KEEPS AN UNSAVED EDIT ON ANOTHER TAB", () => {
+  // Every panel stays in the DOM so Save collects every field whatever tab is showing. A tab click
+  // that REBUILDS the panels from `state.settings` throws away what the operator typed on the tab
+  // they just left, and the Save that follows sends nothing for it with no sign anything was lost.
+  adoptSettingsSchema(SERVED);
+  const groups = SETTINGS_SCHEMA.map((g) => g.group);
+  const host = renderedSettingsHost(groups);
+  withSettingsTab({}, () => withSettingsDom({ host }, (els) => {
+    const form = els["settings-form"];
+    selectSettingsTab({ dataset: { settingsTab: groups[1] } });
+    assert.equal(form.innerHTML, "RENDERED PANELS, WITH THE OPERATOR'S UNSAVED VALUES IN THEIR INPUTS",
+      "a tab switch must not rebuild the panels, which would discard what was typed into them");
+    assert.deepEqual(form.panels.map((p) => p.classList.contains("active")), groups.map((g) => g === groups[1]),
+      "only the chosen panel is shown");
+    assert.deepEqual(form.tabs.map((t) => t.classList.contains("active")), [...groups, HELP_TAB].map((g) => g === groups[1]),
+      "only the chosen tab is marked");
+  }));
+});

@@ -2036,6 +2036,12 @@ const EXTRACTIONS = [
         at: 4239,
         marker: "    selectSettingsTab(settingsTab);",
         wrapper: { header: ["export function selectSettingsTab(settingsTab) {"], footer: ["}"], dedent: "  " },
+        // v0.7 C1: a tab click shows the chosen panel instead of rebuilding them all, which discarded
+        // unsaved edits on the tab the operator left.
+        editedSince: [{
+          was: ["    renderSettings();"],
+          now: ["    showActiveSettingsTab();"],
+        }],
       },
     ],
   },
