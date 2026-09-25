@@ -179,6 +179,7 @@ export async function addChannelMember(name) {
   if (!agentId) { toast('Pick an agent to add', 'warn'); return; }
   try {
     await api(`/channels/${encodeURIComponent(name)}/join`, { method: 'POST', body: JSON.stringify({ agentId }) });
+    if (sel) sel.value = ''; // the bar is left alone while this holds a choice (chat.js), so release it
     await chatLoadChannels();
     chatController.render();
     toast(`${agentId} added to #${name}`, 'ok');

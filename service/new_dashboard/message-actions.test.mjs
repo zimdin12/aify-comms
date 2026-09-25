@@ -354,3 +354,15 @@ test("UNSEND ON A PAGED-IN ROW removes it from the timeline", async () => {
     assert.equal(shown("old-u"), undefined, "an unsent message must not stay visible to be unsent again");
   } finally { h.restore(); }
 });
+
+test("an added member's select is cleared, so the action bar repaints with them in it", async () => {
+  // The chat leaves the channel action bar alone while its add-member select holds a value (v0.7
+  // C10), so a value left behind after a successful add would freeze the bar on the old member list.
+  const h = withMessages();
+  try {
+    const select = makeEl({ value: "coder" });
+    h.els.set("chat-add-member-general", select);
+    await addChannelMember("general");
+    assert.equal(select.value, "", "the chosen member stayed selected after being added");
+  } finally { h.restore(); }
+});
