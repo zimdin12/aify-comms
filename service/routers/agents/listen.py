@@ -58,6 +58,10 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
     # Poll for unread messages, waiting on the event
     deadline = time.time() + timeout
     while time.time() < deadline:
+        # A caller that has gone must not have its messages marked read: returning them to nobody
+        # drops the agent's unread count for messages it never saw (v0.7 scan A13).
+        if await request.is_disconnected():
+            return {"total": 0, "messages": []}
         db = await get_db()
         try:
             cursor = await db.execute(

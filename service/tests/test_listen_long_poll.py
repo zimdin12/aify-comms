@@ -159,6 +159,24 @@ class ListenLongPollTests(FastApiTestCase):
         self.assertEqual([m["id"] for m in payload["messages"]], ["m-fresh"])
         self.assertEqual(payload["total"], 1, "an already-read message was delivered again")
 
+    def test_a_caller_that_has_GONE_is_not_handed_its_messages(self):
+        """The bridge died mid-poll. Marking its unread messages read would return them to nobody,
+        and the agent's inbox would say it had seen work it never saw."""
+        from starlette.requests import Request
+
+        from service.routers.agents.listen import listen_for_messages
+
+        async def gone():
+            return {"type": "http.disconnect"}
+
+        request = Request({"type": "http", "method": "GET", "path": "/", "headers": []}, receive=gone)
+        self._seed_message("m-1")
+        self.assertEqual(asyncio.run(listen_for_messages(AGENT, request, timeout=1)),
+                         {"total": 0, "messages": []})
+        self.assertEqual(self._rows("SELECT * FROM read_receipts"), [],
+                         "a disconnected listener marked the message read")
+        self.assertEqual(self._listen().json()["total"], 1, "control: a connected listener still gets it")
+
     # ── the wait ─────────────────────────────────────────────────────────────────────────────
 
     def test_with_nothing_to_do_it_waits_and_then_answers_EMPTY(self):
