@@ -11,7 +11,7 @@
 // makes collapse state stop persisting, silently.
 //
 // The bodies are byte-identical to those that stood in app.js; the only change is two spaces of
-// indentation, which the reconstruction proof strips before comparing. The run contains no multi-line
+// indentation, which the reconstruction proof (retired in v0.7) stripped before comparing. The run contains no multi-line
 // template literal, so that re-indentation cannot alter a string.
 
 import { toggleFavorite } from './message-actions.mjs';

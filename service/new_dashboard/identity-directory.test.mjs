@@ -89,8 +89,8 @@ test("KNOWN GAP: a truthy non-numeric unread renders the total as NaN", () => {
   // truthy junk value as a number, so one malformed row turns the whole fleet total into "NaN" — the
   // `|| 0` fallback only catches falsy values, which is not the same thing.
   //
-  // NOT FIXED HERE, deliberately: this slice moves the declaration BYTE-IDENTICALLY and the reconstruction
-  // proof compares it against the pristine fixture, so editing the body would fail the proof. Pinned as the
+  // NOT FIXED when found, because the reconstruction proof then forbade editing a moved body. That proof
+  // was retired in v0.7, so this is now an ordinary fix. Pinned as the
   // current behaviour so the gap is visible rather than absent; whoever repairs it will see this test fail
   // and update it on purpose.
   const { html } = render({ agents: [{ id: "a", unread: 3 }, { id: "b", unread: "nope" }] });

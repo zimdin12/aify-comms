@@ -124,8 +124,8 @@ export function installRejectionToast() {
 // where they were declared. It lands here rather than in util.js because this is the DOM-facing
 // module and util.js is the pure-value one.
 //
-// The braceless body is deliberate and byte-identical to app.js's: the reconstruction proof compares
-// moved declarations exactly. It also briefly failed the harness's module-scope-browser-globals check,
+// The braceless body is deliberate and byte-identical to app.js's: the reconstruction proof (retired in v0.7)
+// compared moved declarations exactly. It also briefly failed the harness's module-scope-browser-globals check,
 // which read `document` here as load-time code -- it is not, it runs only when called, and the check
 // was corrected rather than this line reworded to suit it.
 export const byId = (id) => document.getElementById(id);

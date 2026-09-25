@@ -10,7 +10,7 @@
 // unknown bucket, which is the failure this module's tests exist to catch.
 //
 // The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof strips before comparing. Their leading comments stayed behind
+// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Their leading comments stayed behind
 // in app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its
 // comments could not round-trip through the proof.
 
