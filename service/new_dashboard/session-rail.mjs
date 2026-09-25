@@ -28,6 +28,8 @@ import { collapseSupersededSessions, countSupersededSessions } from './sessions-
 import { state } from './state.mjs';
 import { AGENT_STATUSES, renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
+import { paintIfChanged } from './drawer-paint.mjs';
+import { shouldLoadForPage } from './files-page.mjs';
 import { esc } from './util.js';
 
 export function agentForSession(session) {
@@ -74,13 +76,13 @@ function renderSessionBulkToolbar() {
   const toolbar = byId('session-bulk-toolbar');
   const ids = selectedSessionIds();
   toolbar.hidden = ids.length === 0;
-  toolbar.innerHTML = ids.length
+  paintIfChanged(toolbar, ids.length
     ? `<span>${ids.length} selected</span>
        <button class="ghost" data-bulk-session-action="recreate">Reset</button>
        <button class="ghost" data-bulk-session-action="restart">Restart</button>
        <button class="ghost danger" data-bulk-session-action="stop">Stop</button>
        <button class="ghost danger" data-bulk-session-action="delete">Delete</button>`
-    : '';
+    : '');
 }
 export const SESSION_FILTER_KINDS = AGENT_STATUSES;
 function renderSessionStatusFilter() {
@@ -109,9 +111,13 @@ function renderSessionStatusFilter() {
   } else if (superseded) {
     hiddenNote += `<button type="button" class="filter-hidden-note" data-toggle-superseded title="Older non-live sessions for agents that already have a newer one. Click to show them — they are not reachable anywhere else, and Delete session is only offered on a visible row.">${superseded} older session${superseded === 1 ? '' : 's'} collapsed — show</button>`;
   }
-  host.innerHTML = presets + chips + hiddenNote;
+  paintIfChanged(host, presets + chips + hiddenNote);
 }
 export function renderSessionRail() {
+  // PAINTED ONLY ON ITS PAGE, AND ONLY WHEN IT CHANGES (v0.7 C14). Every render rebuilt up to 80 rows
+  // while the operator was elsewhere, and on the page a rebuild took keyboard focus off a row's
+  // checkbox or a chip. `setPage` re-renders it on the way in.
+  if (!shouldLoadForPage('sessions')) return;
   const groups = groupedSessionsByEnvironment();
   renderSessionBulkToolbar();
   renderSessionStatusFilter();
@@ -131,7 +137,7 @@ export function renderSessionRail() {
   const capped = state.sessionsTruncated
     ? '<div class="mb mb-warn">Showing the most recent sessions, live ones first. Find and the status filter search only these — older sessions are not loaded. Full history is under Environments.</div>'
     : '';
-  byId('session-rail').innerHTML = capped + (groups.length ? groups.map((group) => `
+  paintIfChanged(byId('session-rail'), capped + (groups.length ? groups.map((group) => `
     <details class="session-env-group" data-env-group="${esc(group.id)}"${sessionGroupCollapsed(group.id) ? '' : ' open'}>
       <summary class="session-env-title">${esc(group.label)} <span>${group.sessions.length}</span></summary>
       ${group.sessions.map((session) => {
@@ -157,7 +163,7 @@ export function renderSessionRail() {
     // NOT "no sessions yet" when the server said there are more. That sentence sent an operator to
     // spawn a second session for an agent that already had one running.
     ? '<div class="empty-state"><span class="empty-icon">🔎</span><strong>None on this page</strong><p>None of the loaded sessions match. Older sessions are not loaded and are not searchable here — full history is under Environments.</p></div>'
-    : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>'));
+    : '<div class="empty-state"><span class="empty-icon">🖥️</span><strong>No sessions yet</strong><p>Spawn a managed session from Environments to get an agent running.</p><button class="primary" data-page-jump="environments">Spawn a session</button></div>')));
 }
 export function sessionGroupCollapsed(envId) {
   try { return (JSON.parse(localStorage.getItem('aifyCollapsedSessionGroups') || '[]') || []).includes(envId); } catch { return false; }
