@@ -45,7 +45,7 @@ const EXEMPT = new Map([
 // took that file with it: it let nothing through, and the day a file of that name landed it
 // would have been exempted before anyone read it, under a reason written about different code.
 // The comment above already states the standard -- a name with no reason is an unguarded hole --
-// and this is that hole in its quieter form. Found by `scripts/deleted-import-census.py`.
+// and this is that hole in its quieter form. Found by a census of names deleted modules left behind.
 const present = new Set(readdirSync(TESTS));
 const stale = [...EXEMPT.keys()].filter((name) => !present.has(name));
 assert.deepEqual(

@@ -168,7 +168,7 @@ test("the modules this series created are NOT in the backlog", () => {
   // backlog and appears in no untested list, so four assertions passed on nothing. The sibling
   // test one screen up already says why -- "A deleted file left in the list would quietly shrink
   // the gate's reach" -- and enforces it for the backlog. This list had no such guard, so it
-  // rotted exactly as its neighbour predicts. Found by `scripts/deleted-import-census.py`.
+  // rotted exactly as its neighbour predicts. Found by a census of names deleted modules left behind.
   const present = new Set(modules());
   const vanished = RECENT.filter((m) => !present.has(m));
   assert.deepEqual(

@@ -10,8 +10,8 @@ this module rather than an implementation detail.
 
 The three ENDED-status constants came WITH it: `ENDED_AGENT_SESSION_STATUSES` is read only to derive
 `_ENDED_AGENT_SESSION_STATUS_PARAMS`, which is read only to derive the placeholder string, which is
-read only by `_current_agent_session_row`. The whole chain had exactly one consumer, measured with
-scripts/constant_readership.py, so it is a sole-reader move end to end.
+read only by `_current_agent_session_row`. The whole chain had exactly one consumer, so it is a
+sole-reader move end to end.
 
 DB ACCESS: `db` is passed to every function, reads and writes are issued on it, and none opens a
 connection, commits, or rolls back — each joins its caller's transaction. That is the reviewer's

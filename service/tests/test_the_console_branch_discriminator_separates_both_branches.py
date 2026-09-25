@@ -1,10 +1,10 @@
 """`renderedCols` at a wide viewport separates the live-screen branch from the replay one.
 
-WHY THIS EXISTS. `scripts/measure-live-console-fetch.py` reports which branch each live console
-takes, and it answered LIVE for all nine on this fleet. A verdict with one observed value is not a
-verdict: against the live service the instrument never once said REPLAY, because five ended consoles
-still hold screens and the rest have no stored tail to render at all. Nothing there exercised the
-path the answer is supposed to be distinguishable from.
+WHY THIS EXISTS. A live measurement of which branch each console takes answered LIVE for all nine
+consoles on this fleet. A verdict with one observed value is not a verdict: against the live service
+the instrument never once said REPLAY, because five ended consoles still hold screens and the rest
+have no stored tail to render at all. Nothing there exercised the path the answer is supposed to be
+distinguishable from.
 
 THE SIGNAL, from `_attach_terminal_snapshot`'s own two arms:
 
@@ -15,10 +15,9 @@ So a viewer WIDER than the stored geometry separates them: the replay arm widens
 the live arm does not. It is a pure read -- the GET handler performs no write, which is what makes
 it safe to point at a console somebody is watching.
 
-THIS TEST IS THE CONTROL FOR THAT INSTRUMENT: two terminals with the SAME stored tail, one given a
-live screen and one not, both asked at 200 columns. If the two ever stop separating, the script's
-"every live console is on the LIVE branch" becomes a sentence with no evidence behind it, and this
-goes red rather than the script going quietly meaningless.
+THIS TEST IS THE CONTROL FOR THAT SIGNAL: two terminals with the SAME stored tail, one given a live
+screen and one not, both asked at 200 columns. If the two ever stop separating, `renderedCols` no
+longer tells the branches apart, and this goes red rather than the signal going quietly meaningless.
 """
 
 from __future__ import annotations

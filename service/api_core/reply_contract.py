@@ -25,8 +25,8 @@ defensible and the choice belongs to whoever owns the dispatch contract, not to 
 visible diff rather than a drift.
 
 `_HANDOFF_REPLY_TYPES` and `_COMPLETION_INFO_RE` moved WITH the function that reads them —
-`_message_satisfies_reply_contract` was their only code reader, measured with
-`scripts/constant_readership.py`, so this is a sole-reader move rather than the accessor case.
+`_message_satisfies_reply_contract` was their only code reader, so this is a sole-reader move rather
+than the accessor case.
 
 Worth keeping together and away from the delivery machinery: these are the CONTRACT, and the strand
 bugs in this subsystem have historically come from delivery paths disagreeing about what closes one.

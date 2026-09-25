@@ -14,9 +14,9 @@ So the leaves ended up containing shims that import the carrier: a leaf dependin
 20k-line module it exists to drain, which is the exact inversion this architecture forbids. Nothing
 failed. The suite stayed at 1450 passing, `create_app()` built all 124 routes, the census went green
 (the imports resolved — to the wrong direction), and the undefined-name sweep saw nothing, because a
-function-scope import is a perfectly valid binding. I found it only because
-`scripts/constant_readership.py` reported a reader in the carrier for a function I believed had left,
-and chasing that inconsistency turned up three duplicate definitions.
+function-scope import is a perfectly valid binding. It was found only because a constant-readership
+census reported a reader in the carrier for a function believed to have left, and chasing that
+inconsistency turned up three duplicate definitions.
 
 TWO LESSONS, and the gate below is the first one:
   1. The leaf/carrier direction has to be checked, not documented. It is invisible to every other gate.
