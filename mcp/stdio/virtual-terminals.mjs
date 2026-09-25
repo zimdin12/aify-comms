@@ -20,9 +20,10 @@
 // so those readers keep mutating the same object — one owner, several readers, which is the arrangement
 // this series has converged on.
 //
-// Bodies are byte-identical to those in server.js; the only substitution is the added `export `.
+// Moved out of server.js; each body gained an `export `.
 
 
+import { setTimeout as sleep } from "node:timers/promises";
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
@@ -135,7 +136,7 @@ export function createVirtualTerminalSink(terminalId) {
           return;
         }
         if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 250 * Math.pow(2, attempt)));
+          await sleep(250 * Math.pow(2, attempt));
         }
       }
     }

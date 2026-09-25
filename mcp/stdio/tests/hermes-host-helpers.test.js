@@ -18,7 +18,6 @@ import {
   isGatewayConnectRefused,
   nextReEnsureBudget,
   shouldApplyGatewayTurnEnd,
-  sleep,
 } from "../hermes-gateway.mjs";
 import { HERMES_CMD, MACHINE_ID, RUNTIME } from "../hermes-env.mjs";
 import { ATTACH_POLL_MS, ATTACH_WAIT_MS } from "../hermes-active-session.mjs";
@@ -88,12 +87,6 @@ test("shouldApplyGatewayTurnEnd suppresses a turn-end only while a dispatch turn
     "with no dispatch turn open there is nothing to protect");
   assert.equal(shouldApplyGatewayTurnEnd(), true, "the default argument must not suppress a turn-end");
   assert.equal(shouldApplyGatewayTurnEnd({}), true);
-});
-
-test("sleep resolves after roughly the requested delay", async () => {
-  const started = Date.now();
-  await sleep(20);
-  assert.ok(Date.now() - started >= 15, "sleep must actually wait");
 });
 
 // ---------------------------------------------------------------- the neutral env module

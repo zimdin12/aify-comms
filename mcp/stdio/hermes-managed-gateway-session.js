@@ -15,6 +15,7 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
 import net from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import WebSocket from "ws";
 import {
   buildPromptSubmitFrame,
@@ -386,7 +387,7 @@ export class HermesManagedGatewaySession {
         if (Date.now() - startedAt > timeoutMs) {
           throw new Error(`hermes turn timed out after ${timeoutMs}ms`);
         }
-        await new Promise((r) => setTimeout(r, 100));
+        await sleep(100);
       }
 
       if (turn.finalError) {
