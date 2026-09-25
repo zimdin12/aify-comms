@@ -17,18 +17,17 @@ one that does not, and neither had a test.
 
 TWO THINGS THE TESTS MEASURE RATHER THAN ASSUME.
 
-DEAD SPELLINGS. The live-worker gate opens on `status in {"online", "ready"}` and the env gate on
-`{"online", "ready", "idle", "working", "available"}`. `ready` and `idle` are NOT in
-`status_engine.VALID_STATUSES` — nothing can produce them — so each gate is narrower than it reads.
-That is harmless in itself and is pinned here because it is what made the next point hard to see.
+ONE VOCABULARY, OWNED ONCE. The live-worker gate opened on a literal `{"online", "ready"}` until
+0.7.0. `ready` is not in `status_engine.VALID_STATUSES` (`records.py` maps a raw `ready` to `online`
+before any gate sees it), and `shell` -- a live worker at a prompt, added 2026-09-17 -- was missing,
+so a managed agent whose PTY had exited kept reading `shell` (v0.7 scan A8). The gate now reads
+`status_engine.WORKER_AT_REST_STATUSES`, and these tests pin that every member is a real status.
 
-THE SIBLINGS DISAGREE ABOUT `working`. Strip the dead spellings and the env gate covers
-{online, working, available} while the live-worker gate covers {online} alone. So a managed
-wrapper-backed agent whose worker is gone is corrected within one poll at `online`, and NOT corrected
-at `working` — where `turn_busy` holds it for up to `TURN_BUSY_BACKSTOP_SECONDS` (30 minutes). Both
-gates ask "does the thing behind this status still exist"; only one of them asks it about a working
-agent. Whether that asymmetry is deliberate is not settled here — the tests pin today's answer, name
-the difference, and make a change to either side visible.
+THE SIBLINGS STILL DISAGREE ABOUT `working`. The env gate covers every live status while the
+live-worker gate covers the at-rest pair only. So a managed wrapper-backed agent whose worker is gone
+is corrected within one poll at `online`, and NOT corrected at `working` -- where `turn_busy` holds it
+for up to `TURN_BUSY_BACKSTOP_SECONDS` (30 minutes). Whether that asymmetry is deliberate is not
+settled here -- the tests pin today's answer and make a change to either side visible.
 """
 
 from __future__ import annotations
@@ -37,13 +36,13 @@ import asyncio
 import unittest
 
 from service.api_core.registration_gates import _enforce_env_reachable_gate, _enforce_live_worker_gate
-from service.status_engine import VALID_STATUSES, is_live_agent_status
+from service.status_engine import VALID_STATUSES, WORKER_AT_REST_STATUSES, is_live_agent_status
 
 #: Runtimes whose managed worker is a wrapper PTY. Read from the real predicate rather than retyped,
 #: so this file cannot disagree with the gate about which runtimes it even applies to.
 from service.api_core.capabilities import _managed_via_wrapper_for_runtime
 
-LIVE_WORKER_GATE_OPENS_ON = {"online", "ready"}
+LIVE_WORKER_GATE_OPENS_ON = set(WORKER_AT_REST_STATUSES)
 #: DERIVED SINCE 2026-09-21, and the reason it is: the env gate used to carry a hand-typed set of
 #: five, and `shell` -- added to the vocabulary on 2026-09-17 -- was never added to it. A managed
 #: agent reading `shell` therefore kept that status after its machine went dark, and
@@ -107,18 +106,11 @@ class LiveWorkerGateTests(unittest.TestCase):
         self.assertEqual(payload["statusRaw"], "available", "statusRaw must move with status")
         self.assertIn("no-live-worker", payload["statusNote"])
 
-    def test_a_cached_READY_is_downgraded_exactly_as_online_is(self):
-        """EXTERNAL REVIEW, 2026-09-21, finding 11. The `ready` arm of this gate was pinned by
-        NOTHING: dropping it from the set left the whole suite green, including the subtest in
-        `test_agent_status_read_gate.py` that names a cached `ready` -- because that one is served
-        through a later derivation and passes for a different reason than it says.
-
-        MEASURED, not argued: with the set narrowed to {"online"} the suite stayed green; narrowed
-        to {"ready"} it went red. So `online` was held and `ready` was not. This holds it here,
-        where the gate is called directly and nothing downstream can answer for it.
-        """
+    def test_a_cached_SHELL_is_downgraded_exactly_as_online_is(self):
+        """v0.7 scan A8. `shell` is a live worker at a prompt, and the gate's literal set predated it,
+        so a managed agent whose PTY had exited kept reading `shell` on every roster poll."""
         payload = _run(_enforce_live_worker_gate(
-            _managed_payload(status="ready", statusRaw="ready"), _Db(0), {}, "sc-coder"))
+            _managed_payload(status="shell", statusRaw="shell"), _Db(0), {}, "sc-coder"))
         self.assertEqual(payload["status"], "available")
         self.assertEqual(payload["statusRaw"], "available", "statusRaw must move with status")
         self.assertIn("no-live-worker", payload["statusNote"])
@@ -184,10 +176,11 @@ class LiveWorkerGateTests(unittest.TestCase):
 
 
 class GateStatusVocabularyTests(unittest.TestCase):
-    def test_ready_is_a_spelling_no_status_engine_can_produce(self):
-        """Measured, not assumed: the live-worker gate is narrower than its literal set reads."""
-        self.assertEqual(sorted(LIVE_WORKER_GATE_OPENS_ON - set(VALID_STATUSES)), ["ready"])
-        self.assertEqual(sorted(LIVE_WORKER_GATE_OPENS_ON & set(VALID_STATUSES)), ["online"])
+    def test_the_live_worker_gate_opens_only_on_real_statuses(self):
+        """A spelling no status engine can produce makes the gate narrower than it reads (`ready`
+        did, until 0.7.0). Pinned whole, so dropping `shell` or `online` shows up here too."""
+        self.assertEqual(LIVE_WORKER_GATE_OPENS_ON - set(VALID_STATUSES), set())
+        self.assertEqual(sorted(LIVE_WORKER_GATE_OPENS_ON), ["online", "shell"])
 
     def test_the_env_gate_opens_on_every_status_that_claims_the_agent_is_reachable(self):
         """Including the ones added after it was written, which is the whole point of deriving it.
@@ -202,17 +195,6 @@ class GateStatusVocabularyTests(unittest.TestCase):
         )
         # And the non-live ones stay out, or the gate would fire on an agent already offline.
         self.assertEqual(ENV_REACHABLE_GATE_OPENS_ON & {"offline", "stopped", "misconfigured"}, set())
-
-    def test_the_live_worker_gate_literal_still_matches_this_file(self):
-        """That set is still an inline literal, so there is nothing to import and this reads source.
-
-        Its sibling no longer needs this: the env gate now asks `is_live_agent_status`, so the set
-        above IS the gate's own answer rather than a copy of it.
-        """
-        import pathlib
-        source = (pathlib.Path(__file__).resolve().parents[1]
-                  / "api_core" / "registration_gates.py").read_text(encoding="utf-8")
-        self.assertIn('if payload.get("status") not in {"online", "ready"}:', source)
 
 
 class _EnvDb:

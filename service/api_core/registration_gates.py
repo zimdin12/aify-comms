@@ -54,7 +54,7 @@ from service.api_core.live_process_probes import _has_live_terminal_session
 from service.api_core.managed_env import _managed_owning_environment_row
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
 from service.api_core.serialization import _parsed_timestamp, _timestamp_sort_key
-from service.status_engine import is_live_agent_status
+from service.status_engine import WORKER_AT_REST_STATUSES, is_live_agent_status
 from service.api_core.resume_command import _resume_command_for
 from service.clock import now as _now
 from service.env_status import environment_effective_status as _environment_effective_status
@@ -159,6 +159,8 @@ async def _enforce_live_worker_gate(
     db,
     settings: dict[str, Any],
     agent_id: str,
+    *,
+    live_terminal_agents: set[str] | None = None,
 ) -> dict[str, Any]:
     """Plan 5 Section C (2026-05-25): downgrade cached `online` to `available`
     for managed wrapper-backed agents that have no non-terminated
@@ -179,11 +181,11 @@ async def _enforce_live_worker_gate(
     API still returned `online` because the cache row never fell behind a
     fresh-enough heartbeat to trigger a recompute.
 
-    This gate is a final-step correction at the API boundary. Cache stays
-    for performance; the writeback below keeps subsequent reads honest
-    without re-running the terminal_sessions check.
+    This gate is a final-step correction at the API boundary; it corrects this response only (see
+    the READ-ONLY note at the end). `live_terminal_agents` is the roster's one-query answer
+    (`_agents_with_live_terminal_sessions`); without it the gate asks for this one agent.
     """
-    if payload.get("status") not in {"online", "ready"}:
+    if payload.get("status") not in WORKER_AT_REST_STATUSES:
         return payload
     session_mode = str(payload.get("sessionMode") or "").lower()
     if session_mode != "managed":
@@ -191,7 +193,10 @@ async def _enforce_live_worker_gate(
     runtime = str(payload.get("runtime") or "").lower()
     if not _managed_via_wrapper_for_runtime(settings, runtime):
         return payload
-    if await _has_live_terminal_session(db, agent_id):
+    if live_terminal_agents is not None:
+        if agent_id in live_terminal_agents:
+            return payload
+    elif await _has_live_terminal_session(db, agent_id):
         return payload
     payload["status"] = "available"
     payload["statusRaw"] = "available"

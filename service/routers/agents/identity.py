@@ -17,6 +17,7 @@ import time
 
 from fastapi import HTTPException, Request
 
+from service.api_core.live_process_probes import _agents_with_live_terminal_sessions
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.identity")
@@ -107,6 +108,7 @@ async def list_agents(request: Request):
         dispatch_map = await _get_dispatch_state_map(db, agent_ids)
         # Roster: cheap half only — see include_runs.
         outbound_map = await _get_outbound_activity_map(db, agent_ids, include_runs=False)
+        live_terminal_agents = await _agents_with_live_terminal_sessions(db, agent_ids)
         result = {}
         for row in agents:
             aid = row["id"]
@@ -115,7 +117,7 @@ async def list_agents(request: Request):
             # Plan 5 Section C: read-path live-worker gate — see
             # _enforce_live_worker_gate for full rationale. (In-memory correction
             # only; the writeback was removed 2026-06-18 to cut read-path writes.)
-            payload = await _enforce_live_worker_gate(payload, db, settings, aid)
+            payload = await _enforce_live_worker_gate(payload, db, settings, aid, live_terminal_agents=live_terminal_agents)
             payload = await _enforce_env_reachable_gate(
                 payload, db, settings, aid, agent_row=row,
                 environments_by_machine=environments_by_machine,

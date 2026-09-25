@@ -37,6 +37,12 @@ VALID_STATUSES = (
 #: binding on the same run.
 NON_LIVE_AGENT_STATUSES = ("offline", "stopped", "misconfigured")
 
+#: Statuses that claim a managed worker is running and IDLE at its prompt, which is exactly what the
+#: roster's live-worker gate checks against a live terminal. It listed `online` and `ready` until
+#: 0.7.0: `ready` is not a status, and `shell` -- the other "worker at its prompt" -- was missing, so a
+#: cached `shell` outlived its terminal (v0.7 scan A8).
+WORKER_AT_REST_STATUSES = ("online", "shell")
+
 
 def is_live_agent_status(status) -> bool:
     """Whether an agent with this status counts toward the live fleet.

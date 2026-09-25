@@ -68,6 +68,32 @@ async def _has_live_terminal_session(db, agent_id: str) -> bool:
         return False
 
 
+async def _agents_with_live_terminal_sessions(db, agent_ids) -> set[str]:
+    """`_has_live_terminal_session` for a whole roster in ONE query (v0.7, A7).
+
+    The roster ran the single-agent COUNT once per online managed agent: 22 of 84 statements at 30
+    agents, growing with the fleet, on the route every dashboard tab polls. Same rows, same `vterm_`
+    exclusion; an agent with no live row is simply absent from the set.
+    """
+    ids = [str(agent_id) for agent_id in agent_ids if agent_id]
+    if db is None or not ids:
+        return set()
+    placeholders = ",".join("?" for _ in ids)
+    try:
+        cursor = await db.execute(
+            f"""
+            SELECT DISTINCT agent_id FROM terminal_sessions
+            WHERE agent_id IN ({placeholders})
+              AND status IN {TERMINAL_LIVE_FILTER_SQL}
+              AND id NOT LIKE 'vterm_%'
+            """,
+            ids,
+        )
+        return {str(row["agent_id"]) for row in await cursor.fetchall()}
+    except Exception:
+        return set()
+
+
 async def _has_live_channel_sidecar(db, agent_id: str) -> bool:
     """Task 1.6 (2026-05-30): True when a standalone channel sidecar
     (claude-channel.js for claude; the `hermes-managed-host.js run <agent>`
