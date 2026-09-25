@@ -1,10 +1,7 @@
 #!/bin/bash
 # Unified installer for aify-comms on Claude Code, Codex, or Hermes.
-# Pi/OMP managed delivery uses the environment bridge plus plain `omp --mode rpc`;
-# resident `omp-aify` / `pi-aify` wrapper install is disabled by default because
-# OMP is single-client and cannot receive live wake injection into an open TUI.
-# OpenCode client/resident install is disabled; managed OpenCode remains
-# available through an environment bridge installed by a supported client.
+# Pi/OMP and OpenCode are not installable clients: managed agents on either run under aify-env.
+# `--client pi --emit-wrappers <dir>` still RENDERS the pi wrapper, for its tests.
 #
 # Usage:
 #   bash install.sh --client claude
@@ -71,8 +68,8 @@ Examples:
                                 the local bridge from ~/.aify-comms. With sse it talks to
                                 <endpoint>/mcp/sse instead and needs no service code on this host.
 
-  --client pi is intentionally disabled (managed Pi runs the bridge's `omp --mode rpc`);
-  --client opencode is intentionally disabled (managed OpenCode runs through a bridge too).
+  --client pi is intentionally disabled (managed Pi runs under aify-env as `omp --mode rpc`);
+  --client opencode is intentionally disabled (managed OpenCode runs under aify-env too).
 EOF
 }
 
@@ -177,14 +174,14 @@ fi
 # below would be unreachable, i.e. dead code that reads as coverage.
 if [ "$CLIENT" = "pi" ] && [ -z "$EMIT_WRAPPERS_DIR" ]; then
   echo "Pi/OMP resident wrapper install is disabled."
-  echo "Managed Pi remains supported through the environment bridge using plain 'omp --mode rpc'."
+  echo "Managed Pi remains supported through aify-env using plain 'omp --mode rpc'."
   echo "Reason: OMP is single-client, so omp-aify/pi-aify cannot provide live resident wake into an open TUI."
   exit 1
 fi
 
 if [ "$CLIENT" = "opencode" ]; then
   echo "OpenCode client/resident install is disabled."
-  echo "Managed OpenCode remains available through an environment bridge installed by a supported client."
+  echo "Managed OpenCode remains available through aify-env."
   exit 1
 fi
 
@@ -421,6 +418,12 @@ refresh_plugin_snapshot() {
   local manifest="$dst/.claude-plugin/plugin.json"
   if [ ! -f "$manifest" ]; then
     echo "  Skipped $label plugin refresh: $dst has no .claude-plugin/plugin.json."
+    return 0
+  fi
+  # A plugin dir that IS this checkout (a symlink to the repo) would have its own service/ and mcp/
+  # deleted by the loop below before they were copied from (v0.7 docs review). Compare physical paths.
+  if [ "$(cd "$dst" && pwd -P)" = "$(cd "$SCRIPT_DIR" && pwd -P)" ]; then
+    echo "  Skipped $label plugin refresh: $dst is this checkout."
     return 0
   fi
   # Copy the files a plugin actually serves. Deliberately NOT a wholesale rm -rf of the
@@ -1617,123 +1620,6 @@ copy_codex_assets() {
   install_skill_tree "$SCRIPT_DIR/.agents/skills" "${CODEX_HOME:-$HOME/.codex}/skills"
 }
 
-install_opencode_config() {
-  local config_root="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-  local config_file="$config_root/opencode.json"
-  local node_config_file=""
-  local node_server_path=""
-  local api_key; api_key="$(aify_api_key)"
-  mkdir -p "$config_root"
-  if [ ! -f "$config_file" ]; then
-    cat > "$config_file" <<'EOF'
-{
-  "$schema": "https://opencode.ai/config.json"
-}
-EOF
-  fi
-
-  node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
-
-  MSYS_NO_PATHCONV=1 node -e "
-    const fs = require('fs');
-    const file = process.argv[1];
-    const serverUrl = process.argv[2];
-    const apiKey = process.argv[3];
-    const serverPath = process.argv[4];
-    let data = {};
-    try {
-      data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    } catch (err) {
-      try {
-        if (fs.existsSync(file)) {
-          const bak = file + '.aify-bak-' + Date.now();
-          fs.copyFileSync(file, bak);
-          console.error('[aify-install] WARN: ' + file + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify entry only.');
-        }
-      } catch (_) {}
-    }
-    if (!data || typeof data !== 'object') data = {};
-    if (!data['\$schema']) data['\$schema'] = 'https://opencode.ai/config.json';
-    if (!data.mcp || typeof data.mcp !== 'object' || Array.isArray(data.mcp)) data.mcp = {};
-    const environment = {};
-    if (serverUrl) {
-      environment.AIFY_SERVER_URL = serverUrl;
-      environment.CLAUDE_MCP_SERVER_URL = serverUrl;
-    }
-    if (apiKey) {
-      environment.AIFY_API_KEY = apiKey;
-      environment.CLAUDE_MCP_API_KEY = apiKey;
-    }
-    data.mcp['aify-comms'] = {
-      type: 'local',
-      enabled: true,
-      command: ['node', serverPath],
-      ...(Object.keys(environment).length ? { environment } : {}),
-    };
-    fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
-  " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
-}
-
-install_pi_config() {
-  local config_root="$HOME/.omp/agent"
-  local config_file="$config_root/mcp.json"
-  local node_config_file=""
-  local node_server_path=""
-  local api_key; api_key="$(aify_api_key)"
-  mkdir -p "$config_root"
-  if [ ! -f "$config_file" ]; then
-    cat > "$config_file" <<'EOF'
-{
-  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
-  "mcpServers": {}
-}
-EOF
-  fi
-
-  node_config_file="$(path_for_node "$config_file")"
-  node_server_path="$(path_for_node "$AIFY_BRIDGE_DIR/server.js")"
-
-  MSYS_NO_PATHCONV=1 node -e "
-    const fs = require('fs');
-    const file = process.argv[1];
-    const serverUrl = process.argv[2];
-    const apiKey = process.argv[3];
-    const serverPath = process.argv[4];
-    let data = {};
-    try {
-      data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    } catch (err) {
-      try {
-        if (fs.existsSync(file)) {
-          const bak = file + '.aify-bak-' + Date.now();
-          fs.copyFileSync(file, bak);
-          console.error('[aify-install] WARN: ' + file + ' was malformed (' + err.message + '); backed up to ' + bak + ' and rebuilt with the aify entry only.');
-        }
-      } catch (_) {}
-    }
-    if (!data || typeof data !== 'object') data = {};
-    if (!data['\$schema']) data['\$schema'] = 'https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json';
-    if (!data.mcpServers || typeof data.mcpServers !== 'object' || Array.isArray(data.mcpServers)) data.mcpServers = {};
-    const env = {};
-    if (serverUrl) {
-      env.AIFY_SERVER_URL = serverUrl;
-      env.CLAUDE_MCP_SERVER_URL = serverUrl;
-    }
-    if (apiKey) {
-      env.AIFY_API_KEY = apiKey;
-      env.CLAUDE_MCP_API_KEY = apiKey;
-    }
-    data.mcpServers['aify-comms'] = {
-      type: 'stdio',
-      command: 'node',
-      args: [serverPath],
-      ...(Object.keys(env).length ? { env } : {}),
-    };
-    fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
-  " "$node_config_file" "$SERVER_URL" "$api_key" "$node_server_path"
-}
-
 _patch_hermes_config_at() {
   # Patch a hermes config.yaml with the aify-comms MCP entry. It REPLACES an existing entry rather
   # than skipping it, so re-running this IS the fix for a config written before the env block grew.
@@ -2473,12 +2359,6 @@ register_stdio_server() {
   elif [ "$cli" = "hermes" ]; then
     install_hermes_config
     return
-  elif [ "$cli" = "opencode" ]; then
-    install_opencode_config
-    return
-  elif [ "$cli" = "pi" ]; then
-    install_pi_config
-    return
   else
     "$cli" mcp remove "$server_name" >/dev/null 2>&1 || true
   fi
@@ -2663,9 +2543,7 @@ fi
 
 require_cmd node
 require_cmd npm
-if [ "$CLIENT" = "pi" ]; then
-  require_cmd omp
-elif [ "$CLIENT" = "hermes" ]; then
+if [ "$CLIENT" = "hermes" ]; then
   require_hermes_cmd
 else
   require_cmd "$CLIENT"
@@ -2806,8 +2684,6 @@ elif [ "$CLIENT" = "hermes" ]; then
       echo "  ERROR: hermes-daemon-cli.js / hermes-managed-host.js failed node --check — fix before launch." >&2
     fi
   fi
-elif [ "$CLIENT" = "pi" ]; then
-  install_pi_wrapper
 fi
 
 echo ""
@@ -2875,17 +2751,6 @@ elif [ "$CLIENT" = "hermes" ]; then
   if is_git_bash_windows; then
     echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\hermes-aify.cmd"
   fi
-else
-  if [ "$CLIENT" = "opencode" ]; then
-    echo "Restart OpenCode for changes to take effect."
-  else
-    echo "Restart Oh My Pi for changes to take effect."
-    echo "For resident-session wakeups, start Pi with: omp-aify (alias: pi-aify)"
-    echo "  (wrappers installed at ~/.local/bin/omp-aify and ~/.local/bin/pi-aify)"
-    if is_git_bash_windows; then
-      echo "  Windows shims installed at %USERPROFILE%\\.local\\bin\\omp-aify.cmd and pi-aify.cmd"
-    fi
-  fi
 fi
 echo ""
 echo "Quick start:"
@@ -2895,9 +2760,6 @@ if [ "$CLIENT" = "codex" ]; then
   echo "  # Add sessionHandle=\"\$CODEX_THREAD_ID\" only when CODEX_THREAD_ID is non-empty in this same session."
 elif [ "$CLIENT" = "claude" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"claude-code\")"
-elif [ "$CLIENT" = "pi" ]; then
-  echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"pi\", sessionHandle=\"\$PI_SESSION_ID\")"
-  echo "  # If PI_SESSION_ID is unavailable, omit sessionHandle; resident Pi will be visible but not resumable until bound."
 elif [ "$CLIENT" = "hermes" ]; then
   echo "  comms_register(agentId=\"my-agent\", role=\"coder\", runtime=\"hermes\")"
   echo "  # Add sessionHandle=\"\$HERMES_SESSION_ID\" only after explicit hermes-aify --resume <id> in this same terminal."

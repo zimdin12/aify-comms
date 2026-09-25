@@ -4,8 +4,8 @@
 // THE DEFECT THIS PINS. Until 2026-08-30 the aify-comms entry written into hermes' `config.yaml`
 // carried the service URL and no key. Measured with controls: `AIFY_API_KEY` appeared 0 times in
 // the emitting function against 3 for `AIFY_SERVER_URL` (instrument works) and 0 for a string
-// known absent (instrument can say no). `install_opencode_config` and `install_pi_config` both
-// pass the key, and both of those installs are DISABLED -- the one runtime the fleet actually runs
+// known absent (instrument can say no). The opencode and pi config writers
+// passed the key, and both of those installs were DISABLED -- the one runtime the fleet actually runs
 // on was the one without it. Consequence: setting `API_KEY` would 401 hermes on every call, with
 // nothing naming the cause, so the documented way to secure the service broke the fleet instead.
 //

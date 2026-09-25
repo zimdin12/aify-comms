@@ -31,12 +31,18 @@ INSTALL = ROOT / "install.sh"
 
 
 def installer_server_name() -> str:
-    """The name install.sh writes the comms_* TOOLS server under, in a client's MCP config."""
+    """The name install.sh registers the comms_* TOOLS server under, read from `register_stdio_server`.
+
+    It was read from `data.mcpServers[...]` until 0.7.0, whose only occurrence was the pi config writer
+    -- code no install could reach, deleted as dead.
+    """
     source = INSTALL.read_text(encoding="utf-8")
-    names = set(re.findall(r"data\.mcpServers\['([^']+)'\]", source))
-    assert names, "install.sh no longer registers a named MCP server; this test is measuring nothing"
+    start = source.index("register_stdio_server() {")
+    body = source[start:source.index("\n}\n", start)]
+    names = re.findall(r'local server_name="([^"]+)"', body)
+    assert names, "register_stdio_server no longer names its server; this test is measuring nothing"
     assert len(names) == 1, f"more than one tools server registered: {sorted(names)}"
-    return names.pop()
+    return names[0]
 
 
 def test_the_installer_registers_the_tools_server_and_the_channel_separately():

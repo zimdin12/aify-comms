@@ -11,8 +11,8 @@
 // Measured 2026-08-30 with controls: `AIFY_API_KEY` appeared 0 times in the emitting function
 // against 3 for `AIFY_SERVER_URL`, and 0 for a string known to be absent. So the moment an
 // operator set `API_KEY`, hermes -- the runtime the fleet actually runs on -- would 401 on every
-// call, with no error naming the cause. `install_opencode_config` and `install_pi_config` both
-// pass the key, and those two installs are DISABLED; the enabled one did not.
+// call, with no error naming the cause. The opencode and pi config writers
+// passed the key, and those two installs were DISABLED; the enabled one did not.
 //
 // WHY THE KEY IS NOT GIVEN THE `${VAR}` FALLBACK THE URLS GET. Hermes filters env down to
 // `_SAFE_ENV_KEYS` before spawning a stdio MCP child, and resolves `${VAR}` at spawn time from

@@ -171,7 +171,10 @@ const CEILINGS = {
   // read-back, since aify-env is the only spawner and the switch chose nothing but which endpoint
   // the doctor asked (B4). Paid out of it: the B6 wording (2 lines), a named refusal for a valued
   // flag with no value (B15) and the aify-doctor .cmd shim (B14).
-  "install.sh": 2910,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2910 -> 2772 on 2026-09-26, PAID DOWN: the opencode and pi MCP-config writers, the pi install
+  // branches and their closing messages were unreachable (`--client pi|opencode` exits before any of
+  // them). Paid out of it: a guard that stops the plugin refresh deleting the checkout it copies from.
+  "install.sh": 2772,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.
