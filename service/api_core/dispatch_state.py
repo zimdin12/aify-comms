@@ -73,7 +73,7 @@ async def _get_dispatch_state_map(db, agent_ids: list[str]) -> dict[str, dict[st
 #
 # The distinction is readership, measured rather than assumed. `_DISPATCH_TERMINAL_STATUSES` has three
 # carrier readers and two of them stay (`_mirror_missing_dispatch_handoff`, `_contract_state`), so it is
-# a neutral owner here and the carrier imports it. The two CLAUDE_*_DELIVERY_SUMMARY_PREFIX constants
+# a neutral owner here and its other readers import it. The two CLAUDE_*_DELIVERY_SUMMARY_PREFIX constants
 # have exactly ONE reader each — the function that moved — so they follow it, which is the v0.5.4
 # constant rule rather than the v0.5.3 accessor rule.
 #

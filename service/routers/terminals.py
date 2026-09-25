@@ -63,8 +63,8 @@ router = domain_router()
 # ways a terminal ends left in v0.5.4; this module keeps the read and the output/input surface and
 # includes the other two, so `api_v2.py` still sees ONE terminal router.
 #
-# Not converted to a package, deliberately. Thirteen provenance comments across `api_core/`,
-# `control_plane.py` and the split fixtures say a helper "moved out of service/routers/terminals.py"
+# Not converted to a package, deliberately. Provenance comments across `api_core/` and the split
+# fixtures say a helper "moved out of service/routers/terminals.py"
 # — statements about what HAPPENED. Turning this module into a package of that name would make every
 # one of them false, and rewriting history in comments to satisfy a path gate is the wrong trade.
 from service.routers.terminal_controls import router as _terminal_controls_router

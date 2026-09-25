@@ -3,10 +3,11 @@
 Until v0.5.3 this file was `api_v2.py`, 20,545 lines at its peak and 6,987 by the end of the
 domain extraction — and by then it declared ZERO routes. It was a helper library living at a
 router's address, which meant anyone looking for the claim gate went looking in a router, and
-anyone reading `service/routers/` assumed these were HTTP surfaces. The helpers moved to
-`service/control_plane.py`; what remains here is the composition they were never part of.
+anyone reading `service/routers/` assumed these were HTTP surfaces. The helpers moved out, through a
+control-plane module that v0.7.0 deleted once it was empty, to their owners under `service/api_core/`
+and `service/reconcilers/`; what remains here is the composition they were never part of.
 
-There is deliberately NO re-export of the control-plane helpers from this module. A compatibility
+There is deliberately NO re-export of those helpers from this module. A compatibility
 shim would have preserved the misleading import surface and hidden every stale import instead of
 failing on it, which is the opposite of what the move is for.
 

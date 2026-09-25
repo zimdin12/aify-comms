@@ -1,6 +1,6 @@
 """Build the StatusInputs the pure status engine derives from — the first LAYER-1 module.
 
-Everything moved out of `service/control_plane.py` before this was layer 0: a helper whose whole
+Everything moved out of the old control-plane module before this was layer 0: a helper whose whole
 dependency closure already lived in one existing module, so it went there and no new module appeared.
 `_gather_status_inputs` is the first one that cannot. It reads FOUR of those modules — `liveness`,
 `managed_env`, `channel_delivery` and `status_engine` — and three of them already import `liveness`,
@@ -9,8 +9,8 @@ layer needs to be its own module.
 
 WHY THAT MATTERS BEYOND BOOKKEEPING. This is the join point where "is the bridge fresh", "is the
 console booting", "is a worker present" and "is the environment reachable" become ONE snapshot handed
-to `derive()`. Splitting those questions across the modules that answer them individually would put
-the join back inside the control plane, which is where it has been all along.
+to `derive()`. Splitting those questions across the modules that answer them individually would
+scatter the join, which has always lived in one place.
 
 `engine_status` comes with it because it IS the one-line composition of the two — gather, then derive
 — and separating a function from its only caller when the caller is three lines long buys nothing.

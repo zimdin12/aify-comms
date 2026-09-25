@@ -1,7 +1,7 @@
-"""Tuning constants the control plane declared but never read.
+"""Tuning constants the old control-plane module declared but never read.
 
 NINE CONSTANTS AND NINE BORROW SHIMS, retired together in v0.5.4. Each of these was declared in
-`service/control_plane.py` and read by one or two OTHER modules through a function-scope
+the control-plane module (deleted in v0.7.0) and read by one or two OTHER modules through a function-scope
 a function-scope import of the carrier — the borrow pattern the reconcilers' docstrings record as
 deferred debt. (Spelled out in prose rather than quoted, because the tracked shim count is a grep for
 that exact string and a docstring quoting it would inflate the number it exists to measure.) The control plane never read any of them itself: grep found exactly one occurrence of

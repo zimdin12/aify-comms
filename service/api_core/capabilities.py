@@ -1,6 +1,6 @@
 """Runtime capability and environment-support predicates. PURE — no database, no router.
 
-The first slice of the v0.5.4 layer decomposition. `control_plane.py`'s call graph turned out to be
+The first slice of the v0.5.4 layer decomposition. The old control-plane module's call graph turned out to be
 a clean 8-layer DAG, and these eight sit in layer 0: they call nothing else in the control plane and
 touch no DB, so they are unit-testable in isolation — the pattern `terminal_diagnostics.py` set and
 CLAUDE.md asks new work to follow.
@@ -12,7 +12,7 @@ rather than relocated — the first work in this series that reduces the shim co
 to it.
 
 Everything here depends only on other leaves (`api_core.settings`, `api_core.runtime`, `env_status`,
-`clock`, `runtimes`), so this module cannot participate in a cycle with the control plane.
+`clock`, `runtimes`), so this module cannot participate in an import cycle.
 """
 
 from __future__ import annotations

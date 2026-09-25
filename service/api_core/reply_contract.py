@@ -288,7 +288,7 @@ def _dispatch_reply_pending(row) -> bool:
 # what a reminder says; it did not own whether a contract is currently open, what state it is in, or
 # whether a reminder is due — so the three questions a reminder sweep asks were answered in two modules.
 #
-# `_run_contract_reminders_once` stays in the carrier for now: it reads the status cache. It becomes a
+# `_run_contract_reminders_once` lives in api_core/dispatch_sweeps.py: it reads the status cache. It is a
 # caller of `_contract_reminder_due` rather than a co-owner of the rule.
 
 def _contract_reply_expected(row) -> bool:

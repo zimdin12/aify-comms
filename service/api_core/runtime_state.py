@@ -14,7 +14,7 @@ asymmetry is deliberate and a "tidy-up" that unified the key would break codex r
 
 A LEAF. Imports `_normalize_runtime` (api_core/runtime.py) and `_json_loads_or`
 (api_core/serialization.py) and nothing else, so it cannot join an import cycle and — the rule that
-matters — it does not import the control plane. The control plane is now a caller.
+matters — it does not import a router.
 """
 
 from __future__ import annotations

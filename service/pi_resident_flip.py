@@ -11,7 +11,7 @@ put a `get_db()` + `commit()` inside the layer whose whole guarantee is that the
 transaction, and nothing in the suite would have objected.
 
 A LEAF in the import sense: `service/db.py`, `service/clock.py` and two api_core siblings. It does not
-import a router and does not import the control plane, which is now a caller.
+import a router.
 """
 
 from __future__ import annotations

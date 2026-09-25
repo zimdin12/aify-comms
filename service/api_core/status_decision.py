@@ -1,14 +1,13 @@
 """The agent status DECISION: facts in, effective status out.
 
-v0.5.4. The heart of the status engine, extracted from `service/control_plane.py` so its branches can be
+v0.5.4. The heart of the status engine, extracted from the old control-plane module so its branches can be
 tested directly. It had no direct test before this move — every existing status test reached it through a
 database and a route, which is why a 147-line decision with eighteen conditions had no branch coverage.
 
-The derivation in the carrier is three phases: gather facts (database reads), DECIDE (this module),
+The derivation is three phases: gather facts (database reads), DECIDE (this module),
 adjust the result (refresh windows, overrides). Only the middle phase is here.
 
-A LEAF: imports two api_core siblings and nothing else. It does not import the control plane; the control
-plane is now a caller.
+A LEAF: imports two api_core siblings and nothing else. Its caller is `service/api_core/status_inputs.py`.
 """
 
 from __future__ import annotations
@@ -71,7 +70,7 @@ async def _decide_effective_status(
     """Decide an agent's effective status from already-gathered facts. THE status derivation.
 
     v0.5.4, extracted verbatim out of the 551-line `_compute_live_status_cache`. This is the block that
-    actually decides — everything before it in the carrier gathers facts from the database, everything
+    actually decides — everything before it in `_compute_live_status_cache` gathers facts from the database, everything
     after adjusts the result. Twelve assignment sites across four outcomes (offline, blocked, working,
     online) behind eighteen conditions.
 
