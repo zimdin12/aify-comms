@@ -118,7 +118,12 @@ export function renderRuns() {
 export function renderRunInspector() {
   const run = state.inspector.run;
   if (!run) {
-    byId('inspector-content').innerHTML = '<div class="run-inspector-loading">Loading run inspector...</div>';
+    // A run that could not be loaded says so in a sentence, and keeps saying it across refreshes
+    // rather than flashing "Loading" and a JSON blob each time (a pruned run 404s for ever).
+    const failed = state.inspector.error;
+    byId('inspector-content').innerHTML = failed
+      ? `<p class="subtle">Could not load run ${esc(state.inspector.runId)}: ${esc(failed)}</p>`
+      : '<div class="run-inspector-loading">Loading run inspector...</div>';
     return;
   }
   const statusContext = runStatusContext(run);
@@ -192,7 +197,7 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
   state.inspector = {
     kind: 'run', runId: String(runId), source, run: previous?.run || null, events: previous?.events || [],
     hasMore: Boolean(previous?.hasMore), loadingMore: false, eventOrder: previous?.eventOrder || 'desc',
-    sourceMessageId, loading: true,
+    sourceMessageId, loading: true, error: previous?.error || '',
   };
   openInspector({ kind: 'run', runId, source });
   renderRunInspector();
@@ -206,6 +211,7 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
     ]);
     if (!stillShowing()) return;
     state.inspector.loading = false;
+    state.inspector.error = '';
     state.inspector.run = run;
     state.inspector.events = eventPage.events || [];
     state.inspector.hasMore = Boolean(eventPage.hasMore);
@@ -213,7 +219,8 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
   } catch (error) {
     if (!stillShowing()) return;
     state.inspector.loading = false;
-    byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify({ error: error.message }, null, 2))}</pre>`;
+    state.inspector.error = String(error?.message || error || 'request failed');
+    renderRunInspector();
   }
 }
 

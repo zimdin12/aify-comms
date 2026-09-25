@@ -502,3 +502,44 @@ test("empty and COMPLETE keeps the original advice, which is sound there", () =>
     assert.match(h.els.get("run-list").innerHTML, /Adjust the filters/i);
   } finally { h.restore(); }
 });
+
+// ---- a run that cannot be loaded (v0.7 C3) -------------------------------------------------------
+// v0.6.22 fixed the refresh flash on the SUCCESS path only. A run that 404s (pruned by retention)
+// repainted "Loading run inspector..." and then a raw JSON blob on every refresh.
+
+/** Record every paint of the drawer, classified. */
+function recordPaints(h) {
+  const paints = [];
+  let html = "";
+  const el = h.els.get("inspector-content") || {};
+  Object.defineProperty(el, "innerHTML", {
+    get: () => html,
+    set: (v) => {
+      html = v;
+      paints.push(/Loading run inspector/.test(v) ? "LOADING" : /<pre>/.test(v) ? "JSON" : /Could not load run/.test(v) ? "ERROR" : "OTHER");
+    },
+    configurable: true,
+  });
+  h.els.set("inspector-content", el);
+  return paints;
+}
+
+test("A RUN THAT CANNOT BE LOADED says so in a sentence, and a refresh keeps that on screen", async () => {
+  const h = withInspector(null);
+  try {
+    const paints = recordPaints(h);
+    state.inspector = {};
+    let held = holdFetch();
+    let opening = openRunInspector({ runId: "run-gone", source: "runs" });
+    held.fail();
+    await opening;
+    held = holdFetch();
+    opening = openRunInspector({ runId: "run-gone", source: "refresh" });
+    assert.equal(state.inspector.loading, true);
+    held.fail();
+    await opening;
+    assert.deepEqual(paints, ["LOADING", "ERROR", "ERROR", "ERROR"],
+      "a fresh open says Loading once; after that the error stays, and it is never a JSON dump");
+    assert.match(h.els.get("inspector-content").innerHTML, /Could not load run run-gone: service went away/);
+  } finally { h.restore(); }
+});

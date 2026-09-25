@@ -482,3 +482,33 @@ test("the details of a message PAGED IN by scrolling back open like any other", 
   assert.deepEqual(toasts, []);
   assert.match(els["inspector-content"].innerHTML, /paged in/);
 });
+
+test("a History drawer whose fetch FAILS keeps the error on screen across refreshes, with no Loading flash", async () => {
+  // v0.6.22 fixed the success path only; the error path never set `loaded`, so every refresh
+  // repainted "Loading…" and then the same error again.
+  serveHistory({ detail: "boom" }, 500);
+  state.inspector = {};
+  await renderAsync(async (els) => {
+    const paints = [];
+    let html = "";
+    Object.defineProperty(els["inspector-content"], "innerHTML", {
+      get: () => html,
+      set: (v) => { html = v; paints.push(/Loading…/.test(v) ? "LOADING" : /Could not load spawn records/.test(v) ? "ERROR" : "OTHER"); },
+    });
+    await openCompactionHistory("coder-1");
+    await openCompactionHistory("coder-1");
+    assert.deepEqual(paints, ["LOADING", "ERROR", "ERROR"]);
+  });
+});
+
+test("CONTROL: after a failed History load, a successful refresh replaces the error", async () => {
+  serveHistory({ detail: "boom" }, 500);
+  state.inspector = {};
+  await renderAsync(async (els) => {
+    await openCompactionHistory("coder-1");
+    serveHistory({ spawnRequests: [] });
+    await openCompactionHistory("coder-1");
+    assert.match(els["inspector-content"].innerHTML, /Compact\/continue lineage/);
+    assert.doesNotMatch(els["inspector-content"].innerHTML, /Could not load/);
+  });
+});
