@@ -33,7 +33,7 @@ for (const source of [endpoint]) {
   // failed a local bridge over to a remote host); non-loopback fallbacks are explicit
   // opt-in via AIFY_SERVER_FALLBACK_URLS. Publish scrub (2026-07-02) also removed the
   // personal LAN IP default from install.sh — assert the neutral defaults instead.
-  assert.match(source, /http:\/\/127\.0\.0\.1:8800/);
+  // What the loopback fallback IS is asserted by calling it: a-fallback-stays-on-the-primary-port.test.js.
   assert.doesNotMatch(source, /192\.168\.\d+\.\d+["'`]/, "no hardcoded LAN IP fallback literals");
 }
 

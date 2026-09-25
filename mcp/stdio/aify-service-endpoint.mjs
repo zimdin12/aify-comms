@@ -126,17 +126,26 @@ const SERVER_URL = coerceLoopbackToIPv4(
  * Environment still wins, so an operator or a test can override without touching the store, and a
  * host with no registry behaves exactly as before. Resolved once, and only when env carried nothing.
  */
-//: The operator's explicit choice. An exported key applies to whatever destinations they configured.
-const ENV_API_KEY = apiKeyFrom();
+/**
+ * The key for each destination, resolved the one way every bridge component must use.
+ *
+ * An EXPORTED key is the operator's explicit choice and applies wherever they pointed the process.
+ * Otherwise the credential aify-env holds opens ONLY the endpoint the registry names for it. The
+ * claude channel sidecar and the notify hook resolved from the environment alone until 0.7.0 (B5),
+ * so a host that turned API_KEY on after install got MCP tools that authenticated and a wake path
+ * that 401ed in silence. They call this after loading their settings env, which is why it takes
+ * `env` rather than reading the module-level value below.
+ */
+export function destinationKeyResolver(serverUrl, {
+  env = process.env, readFile = (f) => readFileSync(f), joinPath = join, homeDir = homedir(), ...rest
+} = {}) {
+  const envKey = apiKeyFrom(env);
+  const store = envKey ? { key: "", endpoint: "" }
+    : keyForEndpoint({ env, readFile, join: joinPath, homeDir, endpoint: serverUrl, ...rest });
+  return (url) => envKey || (sameEndpoint(store.endpoint, url) ? store.key : "");
+}
 
-//: The credential aify-env holds, and the ONE endpoint the registry authorises it for.
-const STORE_CREDENTIAL = ENV_API_KEY ? { key: "", source: "", endpoint: "" } : keyForEndpoint({
-  env: process.env,
-  readFile: (f) => readFileSync(f),
-  join,
-  homeDir: homedir(),
-  endpoint: SERVER_URL,
-});
+const KEY_FOR_URL = destinationKeyResolver(SERVER_URL);
 
 /**
  * The key authorised for ONE destination.
@@ -152,8 +161,7 @@ const STORE_CREDENTIAL = ENV_API_KEY ? { key: "", source: "", endpoint: "" } : k
  * own configuration, so it travels wherever they pointed this process.
  */
 function keyForUrl(url) {
-  if (ENV_API_KEY) return ENV_API_KEY;
-  return sameEndpoint(STORE_CREDENTIAL.endpoint, url) ? STORE_CREDENTIAL.key : "";
+  return KEY_FOR_URL(url);
 }
 
 //: What this process sends to its PRIMARY endpoint. Exported for the callers bound to `SERVER_URL`;
@@ -169,14 +177,16 @@ const API_KEY = keyForUrl(SERVER_URL);
 const IS_REMOTE = !!SERVER_URL;
 
 function defaultFallbackServerUrls(primary) {
-  if (!/^https?:\/\/(localhost|127\.0\.0\.1)(?::|\/|$)/i.test(String(primary || ""))) return [];
-  // Loopback only. Previously this also added host.docker.internal and a
-  // hardcoded LAN IP (192.0.2.10), which silently failed a local bridge
-  // over to a developer's shared server — a plain local install would register
-  // its agents on a remote host. Fallbacks now stay on the loopback the
-  // operator already chose. Set AIFY_SERVER_FALLBACK_URLS / CLAUDE_MCP_FALLBACK_URLS
-  // to opt into any non-loopback fallback explicitly.
-  return ["http://127.0.0.1:8800", "http://localhost:8800"];
+  const match = /^(https?):\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.exec(String(primary || ""));
+  if (!match) return [];
+  // Loopback only, and the SAME PORT: the other spelling of the address the operator chose. It once
+  // added host.docker.internal and a hardcoded LAN IP, which failed a local bridge over to a shared
+  // server; and until 0.7.0 it added :8800 for a loopback primary on ANY port, so a refused
+  // connection to a second service or a test instance moved the bridge to the live one on :8800 and
+  // latched there (v0.7, B9). Set AIFY_SERVER_FALLBACK_URLS / CLAUDE_MCP_FALLBACK_URLS to opt into
+  // any other fallback explicitly.
+  const [, scheme, , port = ""] = match;
+  return [`${scheme}://127.0.0.1${port}`, `${scheme}://localhost${port}`];
 }
 
 function splitServerUrls(value) {
