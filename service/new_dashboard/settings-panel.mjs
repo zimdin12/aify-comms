@@ -13,11 +13,7 @@
 // The constants come along because nothing outside the closure reads them: the ownership test used
 // throughout the series is a count of DIRECT readers, not a guess at where a name belongs.
 //
-// Every declaration was byte-identical to the one that stood in app.js, with `export ` added. Since
-// 2026-09-19 the schema, tab labels and effort lists differ, declared as edits in
-// extraction-proof.test.mjs: the settings come from the service now (see adoptSettingsSchema below). Leading comments stayed behind in
-// app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its comments
-// could not round-trip through the proof.
+// Since 2026-09-19 the schema comes from the service (see adoptSettingsSchema below).
 
 
 import { settingsFieldHtml } from './settings-fields.mjs';
@@ -26,14 +22,12 @@ import { THEMES, normalizedHexColor, previewTheme } from './theme.js';
 import { byId } from './ui.js';
 import { esc } from './util.js';
 
-export const EFFORT_OPTS = Object.freeze([]); // empty: choices come from GET /settings/schema; kept for the proof
-export const PI_EFFORT_OPTS = Object.freeze([]); // empty: choices come from GET /settings/schema; kept for the proof
 export const SETTINGS_SCHEMA = []; // filled from GET /settings/schema by adoptSettingsSchema()
-export const SETTINGS_TAB_LABELS = {
+const SETTINGS_TAB_LABELS = {
   'Replies & messages': 'Replies', 'Agent liveness': 'Liveness', 'Managed workers': 'Workers',
   'Files & retention': 'Files', 'Appearance': 'Appearance', 'Advanced': 'Advanced',
 };
-export const SETTINGS_TAB_DESC = {
+const SETTINGS_TAB_DESC = {
   'Replies & messages': 'When agents are reminded to reply, and what happens when they do not.',
   'Agent liveness': 'How much silence before an agent or a machine reads offline.',
   'Managed workers': 'What new dashboard-spawned workers start with. Saving changes only new workers; use the button to update existing ones.',
@@ -42,7 +36,7 @@ export const SETTINGS_TAB_DESC = {
   'Advanced': 'Internal timings and legacy switches. The defaults suit almost every setup.',
 };
 export const HELP_TAB = 'Help';
-export function activeSettingsTab() {
+function activeSettingsTab() {
   const tabs = [...SETTINGS_SCHEMA.map((g) => g.group), HELP_TAB];
   return tabs.includes(state.settingsTab) ? state.settingsTab : (SETTINGS_SCHEMA[0]?.group || HELP_TAB);
 }
@@ -75,7 +69,7 @@ export function renderSettings() {
   const saveBtn = byId('settings-save');
   if (saveBtn) saveBtn.style.display = active === HELP_TAB ? 'none' : '';
 }
-export function readAppearanceInputs() {
+function readAppearanceInputs() {
   const val = (k) => byId(`set-${k}`)?.value;
   return {
     dashboard_theme: val('dashboard_theme'),

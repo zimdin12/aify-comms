@@ -49,7 +49,7 @@ export function renderFiles() {
       </div>
     </article>`).join('') : '<div class="empty-state"><span class="empty-icon">📂</span><strong>No shared files</strong><p>Upload an artifact above, or share one from an agent with comms_share.</p></div>';
 }
-export async function downloadSharedFile(name) {
+async function downloadSharedFile(name) {
   let url;
   let anchor;
   try {

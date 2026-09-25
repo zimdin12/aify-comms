@@ -6,7 +6,7 @@
 // entirely in the signature — too coarse and it re-renders constantly, too narrow and it goes blind to
 // a real change.
 
-export const _sectionSig = Object.create(null);
+const _sectionSig = Object.create(null);
 
 import { noteSliceFailure } from './refresh-status.mjs';
 import { state } from './state.mjs';

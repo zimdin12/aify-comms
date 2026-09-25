@@ -244,9 +244,12 @@ test("every name the carriers gave away still resolves", () => {
 test("the scan is actually looking at something — and at EVERY carrier, not a hardcoded pair", () => {
   // Anti-vacuity, and the fix for this gate's own first version. If a rename broke the marker format the
   // scan above would pass on an empty set forever; if discovery broke, it would silently cover fewer files.
-  assert.ok(CARRIERS.length >= 3,
-    `expected at least three carriers to be DISCOVERED, found ${CARRIERS.length}: ${CARRIERS.join(", ")}`);
-  for (const expected of ["mcp/stdio/server.js", "mcp/stdio/hermes-managed-host.js", "service/new_dashboard/app.js"]) {
+  assert.ok(CARRIERS.length >= 2,
+    `expected at least two carriers to be DISCOVERED, found ${CARRIERS.length}: ${CARRIERS.join(", ")}`);
+  // app.js left this list in v0.7: its 197 markers were deleted with the dashboard reconstruction proof
+  // that read them, so it is no longer a carrier. The floors below were lowered with it, to the 82
+  // markers, 81 claims and 24 destinations the two remaining bridge carriers hold.
+  for (const expected of ["mcp/stdio/server.js", "mcp/stdio/hermes-managed-host.js"]) {
     assert.ok(CARRIERS.includes(expected), `${expected} carries markers and must be discovered`);
   }
   let total = 0;
@@ -254,7 +257,7 @@ test("the scan is actually looking at something — and at EVERY carrier, not a 
     total += [...fs.readFileSync(path.join(REPO, rel), "utf-8")
       .matchAll(new RegExp(MARKER_LINE.source, "gm"))].length;
   }
-  assert.ok(total > 150, `expected the carriers to declare many moved names, found ${total}`);
+  assert.ok(total > 60, `expected the carriers to declare many moved names, found ${total}`);
 });
 
 // --- and does the destination actually have it? ----------------------------
@@ -346,7 +349,7 @@ test("EVERY moved-to marker names a module that really declares the symbol", () 
       }
     }
   }
-  assert.ok(total > 150, `expected many claims to check, found ${total}`);
+  assert.ok(total > 60, `expected many claims to check, found ${total}`);
   assert.deepEqual(wrong, [], `markers pointing somewhere wrong:\n  ${wrong.join("\n  ")}`);
 });
 
@@ -491,7 +494,7 @@ test("every module a carrier extracted INTO is imported by at least one test", (
     (rel) => fs.readFileSync(path.join(REPO, rel), "utf-8"),
     dirs,
   );
-  assert.ok(dests.length > 30, `expected many destination modules, found ${dests.length}`);
+  assert.ok(dests.length > 15, `expected many destination modules, found ${dests.length}`);
 
   const testSources = [];
   for (const dir of ["mcp/stdio/tests", "service/new_dashboard"]) {

@@ -73,7 +73,7 @@ export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {
 }
 
 /** The console embed a find-bar element sits in. */
-export function consoleHostOf(el) {
+function consoleHostOf(el) {
   return el?.closest?.('.console-embed') ?? el;
 }
 

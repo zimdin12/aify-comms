@@ -23,7 +23,7 @@
 import { byId } from './ui.js';
 import { esc } from './util.js';
 
-export let _statusWhyReturnFocus = null;
+let _statusWhyReturnFocus = null;
 export function openStatusWhy(trigger) {
   const popover = byId('status-why-popover');
   if (!popover || !trigger) return;

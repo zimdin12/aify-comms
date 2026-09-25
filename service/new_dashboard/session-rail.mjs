@@ -70,7 +70,7 @@ export function groupedSessionsByEnvironment() {
 export function selectedSessionIds() {
   return [...state.selectedSessionIds].filter((id) => state.sessions.some((session) => sessionId(session) === id));
 }
-export function renderSessionBulkToolbar() {
+function renderSessionBulkToolbar() {
   const toolbar = byId('session-bulk-toolbar');
   const ids = selectedSessionIds();
   toolbar.hidden = ids.length === 0;
@@ -83,7 +83,7 @@ export function renderSessionBulkToolbar() {
     : '';
 }
 export const SESSION_FILTER_KINDS = AGENT_STATUSES;
-export function renderSessionStatusFilter() {
+function renderSessionStatusFilter() {
   const host = byId('session-status-filter');
   if (!host) return;
   const presets = `<span class="filter-presets">`

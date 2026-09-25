@@ -43,8 +43,7 @@ export function currentApiBase() {
 let operatorKey = '';
 
 // Read at module load from what the dashboard server injected into the page. Done HERE rather than
-// wired from app.js: app.js is reconstructed byte-identically by `extraction-proof`, so new lines there
-// are a gate failure, and the repo's own rule is that new behaviour goes in a module.
+// wired from app.js, because the repo's rule is that new behaviour goes in a module.
 if (typeof globalThis !== 'undefined' && globalThis.__AIFY_OPERATOR_KEY__) {
   operatorKey = String(globalThis.__AIFY_OPERATOR_KEY__);
 }
