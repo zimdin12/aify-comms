@@ -1,4 +1,4 @@
-"""No product source file may exceed 1000 lines unless the reviewer allowlisted it. Python half.
+"""No product source file may exceed 1000 lines unless the reviewer allowlisted it. Python and JS.
 
 WHY THIS EXISTS. In v0.5.4 a relocation moved a 6-line helper into `service/db.py` — the right subject
 owner — and took that file from 995 lines to 1006. `control_plane.py` got smaller and a NEW file went over
@@ -10,9 +10,7 @@ none of them measures the DESTINATION of a move. The reviewer caught it by readi
 POLICY-OWNED ALLOWLIST, NOT A SELF-MEASURED RATCHET. The first version of this gate inferred its exempt set
 from whatever was already oversized, deliberately, because I did not want to encode a policy that was the
 reviewer's to set. They then set it: five decision/ceiling files, each with an open packet or a standing
-ruling. `oversized-allowlist.json` at the repo root now holds that list and is read by BOTH this gate and
-its JS counterpart — one source of truth, because two copies of the same list is the forked-constant class
-this whole series has been removing.
+ruling. `oversized-allowlist.json` at the repo root now holds that list.
 
 PATHS, NOT BASENAMES. The first version matched `p.name`, which would have exempted any file called
 `app.js` or `server.js` anywhere in the tree. That hole was found while converting to the reviewer's shape,
@@ -27,8 +25,9 @@ was.
 DELIBERATELY ABSENT: any cap on how much an allowlisted file may GROW. That would be a second, weaker rule
 pretending to be this one. The series' own line-count receipts track those.
 
-Scope is non-test Python under `service/`. `mcp/stdio/tests/no-new-oversized-source-file.test.js` covers
-the JS roots, where four of the five allowlisted files live.
+Scope is non-test `.py`, `.js` and `.mjs`, repo-wide. Until v0.7 a JS twin of this file in the bridge
+suite gated the JS half with the same walk, the same allowlist and the same assertions; one gate now
+measures both languages, so the rule cannot drift into two policies.
 """
 
 from __future__ import annotations
@@ -54,8 +53,17 @@ LIMIT = _POLICY["limit"]
 ALLOWED = {entry["path"] for entry in _POLICY["allowed"]}
 
 
+def _is_product_source(name: str) -> bool:
+    """A non-test Python or JS file name. Test files are `test_*.py` and `*.test.js` / `*.test.mjs`."""
+    if name.endswith(".py"):
+        return not name.startswith("test_")
+    if name.endswith((".js", ".mjs")):
+        return not name.endswith((".test.js", ".test.mjs"))
+    return False
+
+
 def _source_files(root: Path = REPO, skip=SKIP_DIRS):
-    """Every non-test Python file in the repo, pruned at the directory level.
+    """Every non-test Python and JS file in the repo, pruned at the directory level.
 
     REPO-WIDE, and it was not until 2026-08-15. This scanned `service/**` only, which left FIFTEEN
     Python files outside the gate entirely: `mcp/sse_server.py` — 730 lines, and the SSE transport
@@ -72,7 +80,7 @@ def _source_files(root: Path = REPO, skip=SKIP_DIRS):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in skip)
         for name in sorted(filenames):
-            if name.endswith(".py") and not name.startswith("test_"):
+            if _is_product_source(name):
                 yield Path(dirpath) / name
 
 
@@ -97,7 +105,7 @@ def is_exempt(rel_path: str, allowed=None) -> bool:
 
 
 class NoNewOversizedSourceFileTests(unittest.TestCase):
-    def test_no_python_file_outside_the_allowlist_is_oversized(self):
+    def test_no_source_file_outside_the_allowlist_is_oversized(self):
         offenders = [
             f"{_rel(p)}: {_line_count(p)} lines"
             for p in _source_files()
@@ -112,12 +120,10 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
             + "\n  ".join(offenders),
         )
 
-    def test_the_allowlist_has_no_stale_python_entries(self):
+    def test_the_allowlist_has_no_stale_entries(self):
         """A cleared file must be REMOVED, or the allowlist rots into unchecked names."""
         stale = []
         for rel in sorted(ALLOWED):
-            if not rel.endswith(".py"):
-                continue  # the JS gate owns those entries
             path = REPO / rel
             if not path.exists():
                 stale.append(f"{rel}: no longer exists")
@@ -191,6 +197,31 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
         self.assertIn("service/db.py", found)
         self.assertNotIn("service/tests/test_no_new_oversized_source_file.py", found, "tests are out of scope")
 
+    def test_the_scan_covers_js_and_mjs_and_skips_their_tests(self):
+        """The JS half, which a separate bridge-suite gate measured until v0.7.
+
+        Named file by file, one per root and extension, so a scan that stopped reading JS says which
+        population it lost instead of passing over nothing.
+        """
+        found = {_rel(p) for p in _source_files()}
+        for rel in (
+            "mcp/stdio/server.js",
+            "mcp/stdio/service-registry.mjs",
+            "service/new_dashboard/app.js",
+            "service/new_dashboard/extraction-proof.mjs",
+        ):
+            self.assertIn(rel, found, f"{rel} is product JS and must be governed by the size limit")
+        self.assertFalse(
+            [f for f in found if f.endswith((".test.js", ".test.mjs"))],
+            "JS test files are out of scope",
+        )
+        self.assertTrue(_is_product_source("server.js"))
+        self.assertTrue(_is_product_source("registry.mjs"))
+        self.assertFalse(_is_product_source("server.test.js"))
+        self.assertFalse(_is_product_source("state.test.mjs"))
+        self.assertFalse(_is_product_source("test_db.py"))
+        self.assertFalse(_is_product_source("install.sh"))
+
     def test_the_scan_covers_python_OUTSIDE_service(self):
         """The hole this gate shipped with, named file by file.
 
@@ -237,7 +268,7 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
         """
         found = {_rel(p) for p in _source_files()}
         self.assertNotIn("install.sh", found)
-        self.assertFalse([f for f in found if f.endswith((".sh", ".css"))], "this gate is Python-only")
+        self.assertFalse([f for f in found if f.endswith((".sh", ".css", ".html"))], "this gate is Python and JS only")
         # THE PREMISE, MEASURED. If either file were under the limit the exclusion would be moot, and
         # a reader would have no way to tell that from the prose.
         for name in ("install.sh", "service/new_dashboard/styles.css"):
