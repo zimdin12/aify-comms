@@ -112,10 +112,10 @@ aify-wrapper's in the other, invisible while both files read 0.5.7. Each cross-r
 carries a test on the PRODUCING side too — the registry fingerprint, the endpoint readers, the launcher
 exports, and the service self-report `/health` answers to aify-env.
 
-**Both decisions are now spent.** The Phase 8 flip was taken on 2026-08-25, on an idle fleet:
-managed spawns go to aify-env, and `install.sh --delegate-spawns` bakes it into the launcher so the
-setting lives in the file rather than in whatever environment started it
-([docs/PHASE8_STATUS.md](docs/PHASE8_STATUS.md)).
+**Both decisions are now spent.** The Phase 8 flip was taken on 2026-08-25, on an idle fleet, and
+aify-env is now the only spawner: it claims spawn requests, runs the launchers and owns the PTYs;
+aify-comms spawns no managed worker. The launch travels as structured `argv` beside the command string
+(`terminal_sessions.argv`), because aify-env runs a launcher file by path and never a shell string.
 
 **The flip is where the cost of a two-ended contract came due, exactly as this entry predicted.** The
 seam had been proven against a real aify-env and still could not spawn: the caller never passed argv,
