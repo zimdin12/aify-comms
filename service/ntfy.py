@@ -32,7 +32,7 @@ import os
 import time
 from typing import Any, Optional
 from urllib.parse import urlsplit
-from service.clock import ISO_SECONDS
+from service.clock import now as _now
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +261,7 @@ class NtfyRelay:
         return 200 <= response.status_code < 300
 
     async def _drain_once(self, item: dict[str, str]) -> None:
-        stamp = time.strftime(ISO_SECONDS, time.gmtime())
+        stamp = _now()
         try:
             ok = await self._post(item)
         except Exception as exc:

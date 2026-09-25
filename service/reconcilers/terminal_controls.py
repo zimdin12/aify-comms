@@ -16,7 +16,6 @@ is implemented in TWO places — here and in `terminal_runs.py::_reconcile_ended
 Both carry the exemption or neither does; `test_stop_control_survives_reconcile.py` drives both
 paths specifically so they cannot drift apart again.
 """
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -97,7 +96,7 @@ async def _reconcile_terminal_controls(db: aiosqlite.Connection):
     # repo has already been bitten six times by exactly that (bughunt-round2-2026-07-03). Safe
     # today because the only comparison is datetime(handled_at), but one future `handled_at >= ?`
     # would be a silent bug. One shape, everywhere (C2).
-    now = time.strftime(ISO_SECONDS, time.gmtime())
+    now = _now()
     # A queued `stop` is EXEMPT from the liveness sweep. This rule is implemented TWICE — here and
     # in `service/reconcilers/terminal_runs.py::_reconcile_ended_terminal_controls` — with the same
     # predicate and the same error

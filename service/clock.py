@@ -25,11 +25,13 @@ def now() -> str:
     return time.strftime(ISO_SECONDS, time.gmtime())
 
 
-def iso_to_epoch(value: Any) -> float:
+def iso_to_epoch(value: Any, default: float | None = 0.0) -> float | None:
+    """Epoch seconds, or `default` for an empty or unparseable value. Pass `default=None` where an
+    unknown time must be told apart from 1970."""
     text = str(value or "").strip()
     if not text:
-        return 0.0
+        return default
     try:
         return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
     except Exception:
-        return 0.0
+        return default

@@ -218,14 +218,6 @@ async def get_analytics(request: Request, analytics_range: str = Query("hour", a
         # ── Fleet operational analytics (2026-06-17 round: "real analytics") ──
         # Everything below is additive; all run-time math uses julianday() on the ISO TEXT
         # run columns (never epoch arithmetic on those) and is windowed by `run_where`.
-        from datetime import datetime as _dt
-
-        def _iso_to_epoch(value: Any) -> float | None:
-            try:
-                return _dt.fromisoformat(str(value or "").replace("Z", "+00:00")).timestamp()
-            except Exception:
-                return None
-
         # Dispatch success rate over the window (completed vs. completed+failed+cancelled).
         runs_completed_n = int(runs_by_status.get("completed", 0))
         runs_failed_n = int(runs_by_status.get("failed", 0)) + int(runs_by_status.get("cancelled", 0))
@@ -307,19 +299,12 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
     """
     db = await get_db()
     try:
-        from datetime import datetime as _dt
         settings = await _load_settings(db)
         now_s = int(time.time())
         win_s = now_s - window_minutes * 60
         win_ms = win_s * 1000
         now_iso = _iso_from_ms(now_s * 1000)
         win_iso = _iso_from_ms(win_ms)
-
-        def _ep(value):
-            try:
-                return _dt.fromisoformat(str(value or "").replace("Z", "+00:00")).timestamp()
-            except Exception:
-                return None
 
         # Messages in window (direct + channel, same filter as GET /analytics).
         msg_where = "((source='direct' AND to_agent IS NOT NULL) OR (source='channel' AND to_agent IS NULL))"
@@ -356,8 +341,8 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
             a = r["target_agent"]
             if not a:
                 continue
-            s = _ep(r["started_at"] or r["claimed_at"])
-            f = _ep(r["finished_at"]) if r["finished_at"] else now_s
+            s = _iso_to_epoch(r["started_at"] or r["claimed_at"], default=None)
+            f = _iso_to_epoch(r["finished_at"], default=None) if r["finished_at"] else now_s
             if s is None:
                 continue
             if f <= s:
@@ -406,7 +391,7 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
         )
         owed = await owed_c.fetchall()
         overdue_cut = now_s - reply_reminder_minutes(settings) * 60
-        overdue = sum(1 for r in owed if (_ep(r["requested_at"]) or now_s) < overdue_cut)
+        overdue = sum(1 for r in owed if (_iso_to_epoch(r["requested_at"]) or now_s) < overdue_cut)
 
         return {
             "ok": True,

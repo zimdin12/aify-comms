@@ -25,7 +25,7 @@ from .gpu import GPUAllocator
 logger = logging.getLogger(__name__)
 
 
-def _now():
+def _utc_datetime():
     return datetime.now(timezone.utc)
 
 
@@ -80,8 +80,8 @@ class ContainerManager:
                         state.status = ContainerStatus.RUNNING
                         state.container_id = container.id
                         state.container_hostname = container.name
-                        state.started_at = _now()
-                        state.last_request_at = _now()
+                        state.started_at = _utc_datetime()
+                        state.last_request_at = _utc_datetime()
                         defn = self.definitions[name]
                         if defn.gpu.device_ids:
                             self.gpu.allocate(name, defn.gpu)
@@ -228,8 +228,8 @@ class ContainerManager:
 
                 if healthy:
                     state.status = ContainerStatus.RUNNING
-                    state.started_at = _now()
-                    state.last_request_at = _now()
+                    state.started_at = _utc_datetime()
+                    state.last_request_at = _utc_datetime()
                     state.consecutive_health_failures = 0
                     logger.info(f"Container started: {name} -> {container_name}:{defn.internal_port}")
                 else:
@@ -357,7 +357,7 @@ class ContainerManager:
                 target_state = self.states.get(defn.shared_with)
                 entry["resolved_url"] = target_state.internal_url if target_state else None
             if state.status == ContainerStatus.RUNNING:
-                entry["uptime_seconds"] = (_now() - state.started_at).total_seconds() if state.started_at else 0
+                entry["uptime_seconds"] = (_utc_datetime() - state.started_at).total_seconds() if state.started_at else 0
                 entry["idle_seconds"] = state.idle_seconds
             if state.error_message:
                 entry["error"] = state.error_message
