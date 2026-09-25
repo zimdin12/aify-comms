@@ -78,9 +78,3 @@ export function dispositionOf(event) {
   if (Object.prototype.hasOwnProperty.call(IGNORED, name)) return 'ignore';
   return 'refresh';
 }
-
-/** Why an event is ignored, or null when it is not. For a caller that wants to explain itself. */
-export function ignoredReason(event) {
-  const name = String(event || '');
-  return Object.prototype.hasOwnProperty.call(IGNORED, name) ? IGNORED[name] : null;
-}

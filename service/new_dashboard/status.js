@@ -110,12 +110,6 @@ export function renderStatusChip(rawStatus, context = {}) {
   return `<span class="status-chip ${esc(status.tone)} status-why-trigger" role="button" tabindex="0" title="${esc(why)}" data-status-why="${esc(why)}" data-tone="${esc(status.tone)}" data-status-kind="${esc(status.kind)}"><span class="status-dot ${esc(status.dotKind)}"></span>${esc(status.label)}${badges}</span>`;
 }
 
-// Bare status dot (no label) for dense rows.
-export function renderStatusDot(rawStatus) {
-  const status = resolveStatus(rawStatus);
-  return `<span class="status-dot dot ${esc(status.dotKind)}" data-status-kind="${esc(status.kind)}" role="img" title="${esc(status.label)}" aria-label="${esc(status.label)}"></span>`;
-}
-
 // WHY a thing is in the state its chip shows — the tooltip body `renderStatusChip` renders beside the
 // label. It lives here because it is the same subject as the chip: `resolveStatus` decides WHAT the status
 // is, this explains it, and splitting the two across modules is how a chip ends up saying one thing and its

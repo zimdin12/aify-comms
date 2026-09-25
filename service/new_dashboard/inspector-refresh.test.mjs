@@ -5,13 +5,11 @@ import {
   FORM_INSPECTOR_KINDS,
   REFRESHABLE_INSPECTOR_KINDS,
   inspectorRefreshDecision,
-  shouldRefreshInspector,
 } from "./inspector-refresh.mjs";
 
 // The operator's report: "when i have inspector open and status changes, it does not update."
 test("an open agent drawer refreshes — the case that was reported", () => {
   assert.equal(inspectorRefreshDecision({ kind: 'agent' }, { isOpen: true }), 'refresh');
-  assert.ok(shouldRefreshInspector({ kind: 'agent' }, { isOpen: true }));
 });
 
 test("every read-only kind refreshes", () => {

@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 
-import { api, currentApiBase, setApiBase, setOperatorKey } from "./api-client.mjs";
+import { api, apiBase, setApiBase, setOperatorKey } from "./api-client.mjs";
 
 let HANDLER = (_req, res) => { res.writeHead(200); res.end("{}"); };
 const SEEN = [];
@@ -47,7 +47,7 @@ function respond(status, payload, { raw = false } = {}) {
 test("the seeded base is what requests are built on", async () => {
   // app.js seeds this once at startup. Without the seeding call the module would send every request to a
   // relative URL and Node's fetch would reject outright.
-  assert.equal(currentApiBase(), BASE);
+  assert.equal(apiBase, BASE);
   respond(200, { ok: true });
   const data = await api("/agents");
   assert.deepEqual(data, { ok: true });

@@ -70,7 +70,3 @@ export function inspectorRefreshDecision(inspector, {
   if (isLoading) return 'loading';
   return 'refresh';
 }
-
-export function shouldRefreshInspector(inspector, context) {
-  return inspectorRefreshDecision(inspector, context) === 'refresh';
-}

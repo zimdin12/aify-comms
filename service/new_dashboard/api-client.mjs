@@ -32,11 +32,6 @@ export function setApiBase(base, origin = base) {
   apiOrigin = origin;
 }
 
-/** The base currently in use. Exported for tests and diagnostics -- nothing in the app reads it. */
-export function currentApiBase() {
-  return apiBase;
-}
-
 // The OPERATOR KEY, if this dashboard was served with one. It proves that a request naming
 // `requestedBy=operator` really comes from an operator surface — since R5-H1 (2026-08-18) the actor
 // string alone grants nothing, because any caller could type it. Never logged, never rendered.
