@@ -61,8 +61,8 @@ class IdleCloseToggleMigrationTest(unittest.TestCase):
         self.assertEqual(after, {"worker_idle_close_minutes": "30"})
 
     def test_a_toggle_row_that_comes_back_does_not_zero_minutes_set_since(self):
-        # What the mark is for, now that a second run finds no toggle row to fold: `import_v2` writes
-        # whatever settings a bundle holds, so an old host's bundle can put `false` back.
+        # What the mark is for, now that a second run finds no toggle row to fold: a settings table
+        # copied off an older host can put `false` back.
         after = asyncio.run(_run(
             [("worker_idle_close_minutes", "45")],
             passes=2, set_between=[("worker_idle_close_minutes", "30"), ("worker_idle_close_enabled", "false")],

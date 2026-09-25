@@ -241,7 +241,7 @@ async def _migrate_settings_rows(db: aiosqlite.Connection):
     )
     await db.execute("DELETE FROM settings WHERE key = 'worker_idle_close_enabled'")
     # THE MARK MAKES THIS RUN ONCE, written whether or not anything folded. A second run would find no
-    # toggle row anyway -- unless one came back: `import_v2` writes whatever settings a bundle holds.
+    # toggle row anyway -- unless one came back, from a settings table copied off an older host.
     await db.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (_IDLE_CLOSE_MERGE_MARK, '"done"')
     )
