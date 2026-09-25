@@ -137,7 +137,7 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
     const payload = {
       agentId: AIFY_AGENT_ID,
       role: AIFY_AGENT_ROLE || "coder",
-      name: process.env.AIFY_AGENT_NAME || AIFY_AGENT_ID,
+      name: AIFY_AGENT_ID,
       cwd,
       runtime,
       machineId: MACHINE_ID,

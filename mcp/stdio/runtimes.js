@@ -224,7 +224,7 @@ export function runtimeCommandWithoutResume(runtime = "", command = "") {
 export function runtimeLaunchAvailability(runtime) {
   const normalized = normalizeRuntime(runtime);
   if (normalized === "claude-code") {
-    const configured = String(process.env.AIFY_CLAUDE_COMMAND || process.env.CLAUDE_COMMAND || "").trim();
+    const configured = String(process.env.AIFY_CLAUDE_COMMAND || "").trim();
     const expected = configured || "claude-aify";
     const resolved = resolveExecutable(expected);
     const staleReason = staleClaudeAifyWrapperReason(resolved);
