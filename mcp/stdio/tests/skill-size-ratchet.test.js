@@ -41,20 +41,11 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 
 //: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
-  // 15_014 -> 15_047 on 2026-09-12. RAISED, as a decision: every comms_send example here omitted
-  // `from`, which the tool REQUIRES and does not default from AIFY_AGENT_ID the way the console and
-  // dispatch tools do -- so every send example in the always-loaded skill failed schema validation.
-  // 33 bytes is three `from="me", ` prefixes.
-  "aify-comms/SKILL.md": 15_053,  // Lowered again: the operator-console rule was paid for by trimming a reference pointer.
+  // 15_053 -> 14_915 on 2026-09-25 (0.7.0): the trust rule and the "the reply wakes you" line were
+  // paid for by shorter registration notes and dropping a pointer the file already makes below.
+  "aify-comms/SKILL.md": 14_915,
   "aify-comms/references/building-software.md": 4_488,
-  "aify-comms/references/leading-a-team.md": 19_462,
-  // RAISED 2026-09-07 -- a DECISION, argued here as this file requires. An independent docs
-  // audit found these files instructing an agent to restart aify-env as a routine remedy (it
-  // ends every managed worker on the host), naming `api_v2.py` for a constant that lives in
-  // `channel_delivery.py`, and defining `stopped` in a way that contradicts the other skill.
-  // ~1.9 KB of stale-tier prose was DELETED to pay for the corrections; these 205 characters
-  // are what is left, and what they buy is a recipe that no longer sends a reader to rebuild a
-  // healthy service and three warnings that a step is the operator's, not an agent's.
+  "aify-comms/references/leading-a-team.md": 19_449,
   "aify-comms/references/operations.md": 11_598,
   "aify-comms/references/teamwork.md": 15_981,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
