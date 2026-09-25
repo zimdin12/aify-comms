@@ -62,6 +62,7 @@ from service.db import get_db
 # Imported for ANNOTATIONS as well as calls. Under postponed evaluation a missing model does not
 # fail import -- FastAPI demotes the body to a query param and the route 422s at request time.
 from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
+from service.api_core.terminal_status import _TERMINAL_END_STATUSES
 
 logger = logging.getLogger("aify_comms.routers.sessions")
 
@@ -94,7 +95,6 @@ router.include_router(_session_control_router)
 # Hiding those three broke real consumers (comms_restart, comms_compact, the drawer's
 # Restart/Reset/Compact buttons). Only a cleanly-finished session is pure history.
 SESSION_CLEAN_HISTORY_STATUSES = {"ended", "completed", "cancelled"}
-_TERMINAL_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
 
 
 
@@ -285,7 +285,7 @@ async def delete_session(session_id: str, request: Request):
         stale_active_terminal_ids = [
             terminal["id"]
             for terminal in terminal_rows
-            if str(terminal["status"] or "").strip().lower() not in _TERMINAL_DELETE_ALLOWED_STATUSES
+            if str(terminal["status"] or "").strip().lower() not in _TERMINAL_END_STATUSES
         ]
 
         for terminal in terminal_rows:

@@ -63,12 +63,14 @@ from __future__ import annotations
 
 import pathlib
 import re
+import sys
 import unittest
+from unittest import mock
 
 from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES
-from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
+from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES, _TERMINAL_END_STATUSES
 from service.env_status import ENVIRONMENT_STATUSES
 from service.ntfy import NOTIFIABLE_EVENTS
 from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
@@ -87,6 +89,7 @@ OWNERS: dict[str, frozenset] = {
     "_LIVE_SESSION_STATUSES": frozenset(_LIVE_SESSION_STATUSES),
     "_NATIVE_MANAGED_RUNTIMES": frozenset(_NATIVE_MANAGED_RUNTIMES),
     "_TERMINAL_ACTIVE_STATUSES": frozenset(_TERMINAL_ACTIVE_STATUSES),
+    "_TERMINAL_END_STATUSES": frozenset(_TERMINAL_END_STATUSES),
     "ENVIRONMENT_STATUSES": frozenset(ENVIRONMENT_STATUSES),
 }
 
@@ -114,15 +117,10 @@ EXACT_TWINS: dict[tuple[str, str], list[str]] = {
     # agent, which the contract defines as one that can never start, was counted as live AND put in
     # the denominator of fleet utilization. Declaring `NON_LIVE_AGENT_STATUSES` made it bindable.
     ("service/new_dashboard/status.js", "NON_LIVE_AGENT_STATUSES"): ["NON_LIVE_AGENT_STATUSES"],
-    # AMBIGUOUS. `ENDED_AGENT_SESSION_STATUSES`, `_TERMINAL_END_STATUSES`,
-    # `_SESSION_DELETE_ALLOWED_STATUSES` and `_TERMINAL_DELETE_ALLOWED_STATUSES` all hold these six.
-    # Which one the console chooser is copying is not derivable from the values.
-    ("service/new_dashboard/console-chooser.js", "sessionDead"): [
-        "ENDED_AGENT_SESSION_STATUSES",
-        "_SESSION_DELETE_ALLOWED_STATUSES",
-        "_TERMINAL_DELETE_ALLOWED_STATUSES",
-        "_TERMINAL_END_STATUSES",
-    ],
+    # One owner since 2026-09-25. It was AMBIGUOUS until then: four differently-named constants held
+    # these six values, so which one the console chooser copied was not derivable. The other three
+    # names are now aliases of this one, so the census sees one holder.
+    ("service/new_dashboard/console-chooser.js", "sessionDead"): ["_TERMINAL_END_STATUSES"],
 }
 
 #: JS sets that are DELIBERATELY WIDER than a Python owner. The census cannot find these — it matches
@@ -342,10 +340,17 @@ class JsStatusSetTwinsTests(unittest.TestCase):
         undeclared, which is the hole this gate exists to close — but it reports both names so the
         ledger has to say so out loud."""
         census = _census(_js_sources())
-        ambiguous = {k: v for k, v in census.items() if len(v) > 1}
-        self.assertTrue(ambiguous, "no ambiguous twin found; console-chooser.js should be one")
-        for key, owners in ambiguous.items():
+        for key, owners in census.items():
+            if len(owners) > 1:
+                self.assertEqual(
+                    owners, EXACT_TWINS[key],
+                    f"the constants holding {key}'s value set changed",
+                )
+
+        # POSITIVE CONTROL, synthetic because the tree holds no ambiguous set today: two Python
+        # names holding one value set are both reported, not one picked.
+        two_names = {"FIRST": frozenset({"a", "b"}), "SECOND": frozenset({"a", "b"})}
+        with mock.patch.object(sys.modules[__name__], "_python_named_sets", lambda: two_names):
             self.assertEqual(
-                owners, EXACT_TWINS[key],
-                f"the constants holding {key}'s value set changed",
+                _census([("x.js", 'const pair = ["a", "b"];')]), {("x.js", "pair"): ["FIRST", "SECOND"]},
             )

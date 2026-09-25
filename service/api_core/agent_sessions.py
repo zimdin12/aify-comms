@@ -25,18 +25,14 @@ import time
 from typing import Any, Optional
 
 from service.api_core.runtime import _normalize_session_mode
+from service.api_core.terminal_status import _TERMINAL_END_STATUSES
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
 
 
-ENDED_AGENT_SESSION_STATUSES = {
-    "ended",
-    "completed",
-    "cancelled",
-    "stopped",
-    "failed",
-    "lost",
-}
+#: A session has ended on exactly the statuses a terminal has, and the rule in force is "ended implies
+#: deletable" for both. ONE set, owned by terminal_status.py; four modules used to type it out.
+ENDED_AGENT_SESSION_STATUSES = _TERMINAL_END_STATUSES
 _ENDED_AGENT_SESSION_STATUS_PARAMS = tuple(sorted(ENDED_AGENT_SESSION_STATUSES))
 _ENDED_AGENT_SESSION_STATUS_PLACEHOLDERS = ", ".join("?" * len(_ENDED_AGENT_SESSION_STATUS_PARAMS))
 

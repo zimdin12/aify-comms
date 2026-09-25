@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import re
 
+from service.api_core.terminal_status import _TERMINAL_END_STATUSES
+
 _RUNTIME_CONFIG_LIVE_KEYS = {
     "appServerUrl",
     "remoteAuthTokenEnv",
@@ -26,7 +28,8 @@ _RUNTIME_CONFIG_LIVE_KEYS = {
     "channelEnabled",
 }
 
-_SESSION_DELETE_ALLOWED_STATUSES = {"stopped", "failed", "lost", "ended", "completed", "cancelled"}
+#: A session may be deleted once it has ended. The one ended set, not a copy of it.
+_SESSION_DELETE_ALLOWED_STATUSES = _TERMINAL_END_STATUSES
 
 # Workstream B2 (2026-06-01): grace before a managed claude with a LIVE sidecar
 # but a DEAD console PTY is treated as a headless orphan worker. Must exceed the
