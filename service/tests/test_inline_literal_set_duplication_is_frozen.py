@@ -62,11 +62,8 @@ FROZEN: dict[frozenset[str], int] = {
     # and now use `RUNTIMES_THAT_TRACK_A_TURN`, declared separately because the runtime contract does
     # not model turn tracking. The sets are equal TODAY and that is a coincidence, not a definition;
     # collapsing them back would make one call site silently answer the other's question.
-    # runtimes/hermes.py (the active-session file + the sessions-dir scan), runtimes/pi.py.
-    # 4 -> 3 on 2026-08-17: the fourth site was `_query_gateway_most_recent`, deleted as dead code
-    # (nothing called it, and `discover_session_id` deliberately refuses to). This gate caught the
-    # drop, which is what it is for — the ledger shrinks when the duplication does, and only then.
-    frozenset({"id", "sessionId", "session_id"}): 3,
+    # The {id, sessionId, session_id} group went 3 -> 0 on 2026-09-25 with the service-side session
+    # discovery in runtimes/, which nothing in the service called. Gone rather than zero, as above.
     # api_core/claim_gating.py:181, api_core/terminal_ownership.py:100, reconcilers/sessions.py:97
     frozenset({"active", "attached", "idle", "running", "starting"}): 3,
     # api_core/channel_delivery.py:257, routers/session_console.py:87

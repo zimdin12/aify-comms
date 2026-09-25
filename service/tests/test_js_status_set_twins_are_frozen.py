@@ -4,7 +4,7 @@
 "Add a status to a canonical set and every hardcoded twin silently keeps the old meaning". It scans
 `service/**/*.py`. **The JavaScript copies were outside every scan it makes.**
 
-There are eleven of them, in two runtimes that cannot import Python at all — the dashboard, which
+There are nine of them, in two runtimes that cannot import Python at all — the dashboard, which
 runs in a browser, and the MCP bridge, which runs on the host. Each spells out a set whose owner is a
 Python constant:
 
@@ -15,10 +15,7 @@ Python constant:
     service/new_dashboard/console-chooser.js sessionDead               <- (four candidates; see below)
     mcp/stdio/dispatch-execution.js          NATIVE_MANAGED_RUNTIMES   <- _NATIVE_MANAGED_RUNTIMES
     mcp/stdio/lifecycle-tools.mjs            live                      <- _LIVE_SESSION_STATUSES
-    mcp/stdio/runtimes-pi.js                 PI_MODEL_PLACEHOLDER_...  <- runtimes.base.MODEL_PLACEHOLDERS
     mcp/stdio/virtual-terminals.mjs          VIRTUAL_RPC_RUNTIMES      <- _NATIVE_MANAGED_RUNTIMES
-    mcp/stdio/adapters/base.js               MODEL_PLACEHOLDERS        <- runtimes.base.MODEL_PLACEHOLDERS
-    mcp/stdio/adapters/base.js               HANDLE_PLACEHOLDERS       <- runtimes.base.HANDLE_PLACEHOLDERS
     mcp/stdio/doctor-predicates.js           ENV_KNOWN_STATES          <- env_status.ENVIRONMENT_STATUSES
 
 THE LAST ONE ARRIVED BY THIS GATE WORKING. `ENV_KNOWN_STATES` was unattributable when the ledger was
@@ -26,12 +23,6 @@ first written, because the `environments.status` vocabulary had NO Python owner 
 in one docstring and as literals at three write sites, and the only complete statement of it in the
 repo was that JavaScript set. Declaring `env_status.ENVIRONMENT_STATUSES` made it bindable, and the
 census demanded the declaration on the same run that introduced the constant.
-
-THE LAST TWO ARE WHY THE CENSUS WALKS THE WHOLE REPO. `mcp/stdio/adapters/base.js` is a direct port
-of `service/runtimes/base.py` — same class, same two constants, same normalization — and it sits one
-directory deeper than every other bridge module. A scan listing `mcp/stdio/*.js` reads eleven twins
-and misses these two while looking exactly as thorough. The Python side of the 1000-line gate made
-that mistake for real, leaving fifteen files ungoverned including one that ships in the container.
 
 Exactly ONE was bound to its owner: `AGENT_STATUSES`, by `test_status_vocabulary_binding.py`, written
 for H1 of the 2026-07-31 audit. Its reasoning applies unchanged to the other ten and was never
@@ -80,7 +71,6 @@ from service.api_core.runtime import _NATIVE_MANAGED_RUNTIMES
 from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.env_status import ENVIRONMENT_STATUSES
 from service.ntfy import NOTIFIABLE_EVENTS
-from service.runtimes.base import HANDLE_PLACEHOLDERS, MODEL_PLACEHOLDERS
 from service.status_engine import NON_LIVE_AGENT_STATUSES, VALID_STATUSES
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -98,8 +88,6 @@ OWNERS: dict[str, frozenset] = {
     "_NATIVE_MANAGED_RUNTIMES": frozenset(_NATIVE_MANAGED_RUNTIMES),
     "_TERMINAL_ACTIVE_STATUSES": frozenset(_TERMINAL_ACTIVE_STATUSES),
     "ENVIRONMENT_STATUSES": frozenset(ENVIRONMENT_STATUSES),
-    "HANDLE_PLACEHOLDERS": frozenset(HANDLE_PLACEHOLDERS),
-    "MODEL_PLACEHOLDERS": frozenset(MODEL_PLACEHOLDERS),
 }
 
 #: JS declaration -> the Python constant name(s) holding the identical value set.
@@ -108,11 +96,6 @@ OWNERS: dict[str, frozenset] = {
 #: Python constants hold it, so no single owner can be asserted. Those entries are declared to keep
 #: the census complete, not to bind anything; picking one owner for them is a reviewer's call.
 EXACT_TWINS: dict[tuple[str, str], list[str]] = {
-    # A direct port of `service/runtimes/base.py`, down to the constant names. The Python side
-    # already freezes both value sets (`service/tests/runtimes/test_base.py`); nothing was watching
-    # the port.
-    ("mcp/stdio/adapters/base.js", "HANDLE_PLACEHOLDERS"): ["HANDLE_PLACEHOLDERS"],
-    ("mcp/stdio/adapters/base.js", "MODEL_PLACEHOLDERS"): ["MODEL_PLACEHOLDERS"],
     # THIS ENTRY EXISTS BECAUSE THE PYTHON SIDE GAINED AN OWNER, not because the JS changed.
     # `ENV_KNOWN_STATES` held the only complete statement of the `environments.status` vocabulary
     # anywhere in the repo — Python had it as prose plus three scattered write sites — so the census
@@ -121,7 +104,6 @@ EXACT_TWINS: dict[tuple[str, str], list[str]] = {
     ("mcp/stdio/doctor-predicates.js", "ENV_KNOWN_STATES"): ["ENVIRONMENT_STATUSES"],
     ("mcp/stdio/dispatch-execution.js", "NATIVE_MANAGED_RUNTIMES"): ["_NATIVE_MANAGED_RUNTIMES"],
     ("mcp/stdio/lifecycle-tools.mjs", "live"): ["_LIVE_SESSION_STATUSES"],
-    ("mcp/stdio/runtimes-pi.js", "PI_MODEL_PLACEHOLDER_VALUES"): ["MODEL_PLACEHOLDERS"],
     ("mcp/stdio/virtual-terminals.mjs", "VIRTUAL_RPC_RUNTIMES"): ["_NATIVE_MANAGED_RUNTIMES"],
     ("service/new_dashboard/notify.mjs", "NOTIFIABLE_EVENTS"): ["NOTIFIABLE_EVENTS"],
     ("service/new_dashboard/run-inspector-controls.mjs", "terminal"): ["_DISPATCH_TERMINAL_STATUSES"],

@@ -1,93 +1,64 @@
-"""Per-adapter wrapper_name + console_command assertions.
+"""Per-adapter console launch, as the one string the service shows for it.
 
-The console_command outputs must match what _default_console_command produced
-in Plan 1/2 so the regression suite (test_console_command_resume.py) passes
-unchanged after Plan 3's migration.
+The service flattens `console_argv` with a single space (`_default_console_command` in
+api_core/capabilities.py), so these pin that string per runtime.
 """
 
 
-def test_claude_wrapper_name():
-    from service.runtimes.claude import ClaudeAdapter
-    assert ClaudeAdapter().wrapper_name == "claude-aify"
+def _console(adapter, **opts):
+    return " ".join(adapter.console_argv(**opts))
 
 
 def test_claude_console_command_interactive():
     from service.runtimes.claude import ClaudeAdapter
-    cmd = ClaudeAdapter().console_command(agent_id="a", handle="h", interactive=True)
+    cmd = _console(ClaudeAdapter(), agent_id="a", handle="h", interactive=True)
     assert cmd == "claude-aify --aify-agent a --resume h"
 
 
 def test_claude_console_command_managed_with_handle():
     from service.runtimes.claude import ClaudeAdapter
-    cmd = ClaudeAdapter().console_command(agent_id="a", handle="h", interactive=False)
+    cmd = _console(ClaudeAdapter(), agent_id="a", handle="h", interactive=False)
     assert cmd == "claude-aify --aify-agent a --auto --resume h"
 
 
 def test_claude_console_command_managed_no_handle():
     from service.runtimes.claude import ClaudeAdapter
-    cmd = ClaudeAdapter().console_command(agent_id="a", handle="", interactive=False)
+    cmd = _console(ClaudeAdapter(), agent_id="a", handle="", interactive=False)
     assert cmd == "claude-aify --aify-agent a --auto"
-
-
-def test_codex_wrapper_name():
-    from service.runtimes.codex import CodexAdapter
-    assert CodexAdapter().wrapper_name == "codex-aify"
 
 
 def test_codex_console_command_with_handle():
     from service.runtimes.codex import CodexAdapter
     a = CodexAdapter()
-    assert a.console_command(agent_id="a", handle="h", interactive=True) == "codex-aify --aify-agent a --resume h"
-    assert a.console_command(agent_id="a", handle="h", interactive=False) == "codex-aify --aify-agent a --resume h"
+    assert _console(a, agent_id="a", handle="h", interactive=True) == "codex-aify --aify-agent a --resume h"
+    assert _console(a, agent_id="a", handle="h", interactive=False) == "codex-aify --aify-agent a --resume h"
 
 
 def test_codex_console_command_no_handle():
     from service.runtimes.codex import CodexAdapter
-    cmd = CodexAdapter().console_command(agent_id="a", handle="", interactive=False)
+    cmd = _console(CodexAdapter(), agent_id="a", handle="", interactive=False)
     assert cmd == "codex-aify --aify-agent a"
-
-
-def test_hermes_wrapper_name():
-    from service.runtimes.hermes import HermesAdapter
-    assert HermesAdapter().wrapper_name == "hermes-aify"
 
 
 def test_hermes_console_command_with_handle():
     from service.runtimes.hermes import HermesAdapter
-    cmd = HermesAdapter().console_command(agent_id="a", handle="h", interactive=False)
+    cmd = _console(HermesAdapter(), agent_id="a", handle="h", interactive=False)
     assert cmd == "hermes-aify --aify-agent a --resume h"
-
-
-def test_pi_wrapper_name():
-    from service.runtimes.pi import PiAdapter
-    assert PiAdapter().wrapper_name == "pi-aify"
 
 
 def test_pi_console_command_interactive_no_resume():
     from service.runtimes.pi import PiAdapter
-    cmd = PiAdapter().console_command(agent_id="a", handle="h", interactive=True)
+    cmd = _console(PiAdapter(), agent_id="a", handle="h", interactive=True)
     assert cmd == "pi-aify --aify-agent a"
 
 
 def test_pi_console_command_managed_with_handle():
     from service.runtimes.pi import PiAdapter
-    cmd = PiAdapter().console_command(agent_id="a", handle="h", interactive=False)
+    cmd = _console(PiAdapter(), agent_id="a", handle="h", interactive=False)
     assert cmd == "pi-aify --aify-agent a --resume h"
-
-
-def test_opencode_wrapper_name():
-    """The WRAPPER, which is not the runtime binary — and this pinned the wrong one.
-
-    It asserted `opencode`, which is what `console_command` runs (a console is the bare CLI, see
-    the test below). The wrapper is `opencode-aify`: this adapter resumes through it, and so do
-    `mcp/stdio/adapters/opencode.js`, the map in `runtimes.js` and its `AIFY_OPENCODE_AIFY_COMMAND`
-    default. Two adjacent facts about one runtime, and the shorter one was typed into both slots.
-    """
-    from service.runtimes.opencode import OpencodeAdapter
-    assert OpencodeAdapter().wrapper_name == "opencode-aify"
 
 
 def test_opencode_console_command():
     from service.runtimes.opencode import OpencodeAdapter
-    cmd = OpencodeAdapter().console_command(agent_id="a", handle="h", interactive=False)
+    cmd = _console(OpencodeAdapter(), agent_id="a", handle="h", interactive=False)
     assert cmd == "opencode"

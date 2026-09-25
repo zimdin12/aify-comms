@@ -9,7 +9,6 @@
 //       "supportsManaged": true,
 //       "supportsSteering": true,
 //       "supportsInterrupt": true,
-//       "supportsMultiClient": true,
 //       "preferredDeliveryMode": "managed-via-wrapper"
 //     },
 //     ...
@@ -25,7 +24,6 @@ for (const name of supportedRuntimes()) {
     supportsManaged: a.supportsManaged,
     supportsSteering: a.supportsSteering,
     supportsInterrupt: a.supportsInterrupt,
-    supportsMultiClient: a.supportsMultiClient,
     preferredDeliveryMode: a.preferredDeliveryMode,
   };
 }

@@ -1,12 +1,11 @@
 """Python RuntimeAdapter package — parallel to mcp/stdio/adapters/.
 
-Plan 2 introduces this so the server (Python) and bridge (JS) can both
-own per-runtime capabilities through their own adapter classes. Plan 3
-extends with console_command / inject_message / interrupt / steer.
+The service reads per-runtime capabilities, the console launch argv and the
+operator's resume command through these adapters; the bridge (JS) owns
+everything that runs inside a session.
 
-Per-adapter modules (claude/codex/hermes/pi/opencode) are imported lazily so
-the base contract is usable before subclasses land (Task 1 of Plan 2 ships
-the base + factory wiring; Tasks 2-6 add the subclass modules).
+Per-adapter modules (claude/codex/hermes/pi/opencode) are imported lazily on
+first lookup.
 """
 
 from __future__ import annotations
