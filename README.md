@@ -109,9 +109,13 @@ has no status. So a flow is done when `aify-comms doctor` says `ok: true`, not w
 
 | flow | do | done when |
 |---|---|---|
-| install a client | `bash install.sh --client <runtime> http://<service>:8800 --with-hook` | doctor `bridge-installed` green; restart the client |
+| install a client | `bash install.sh --client <runtime> http://<service>:8800 --with-hook` | doctor `bridge-installed` green, then every agent that was running before the install relaunched |
 | install / update the service | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | doctor `service` reads `build <sha> == repo HEAD` (`/health` alone does not say which build) |
-| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client) | `bridge-installed` green, and `bridge-current` (Windows) / `bridge-running` (Linux) names no agent still on old code |
+| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client) | `bridge-installed` green, then every agent that was running before the install relaunched |
+
+`bridge-current` names any registered agent still reporting an older bridge build, and reads
+`unknown` until agents report one; on Linux `bridge-running` also names running bridges started
+before the install.
 
 Rules that cost real hours:
 
@@ -123,10 +127,11 @@ Rules that cost real hours:
 4. **After updating Hermes itself**, re-run `install.sh --client hermes`: a hermes update deletes the
    prebuilt web bundle its console needs.
 
-Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day. Each
-one reports and never acts, and carries its own `fix`: `tier-version`, `spawn-queue`,
-`session-handles`, `context-window`, `managed-orphans`, `gateway-orphans`, `env-processes`,
-`claude-login`, `usage-openai`, `api-exposure`. What each catches is in [CLAUDE.md](CLAUDE.md).
+Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day:
+`tier-version`, `env-code-currency`, `spawn-queue`, `session-handles`, `context-window`,
+`managed-orphans`, `gateway-orphans`, `env-processes`, `claude-login`, `usage-openai`,
+`api-exposure`, `external-keys`, `client-api-key`. Each one reports and never acts; its `detail`
+says what it found and its `fix` what to do (`aify-comms doctor --json` prints both).
 
 ## Security
 
