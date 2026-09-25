@@ -444,3 +444,21 @@ test("INIT REFUSES A PARTIAL BAG", () => {
   }
   assert.doesNotThrow(() => initAgentSessionActions(full));
 });
+
+// --- submitAgentEdit ---------------------------------------------------------------------------
+import { submitAgentEdit } from "./agent-session-actions.mjs";
+
+test("submitAgentEdit sends only the fields that changed, and a declined rename sends nothing", async () => {
+  const edited = withActions({ confirm: true, fields: { "edit-agent-id": "coder", "edit-agent-desc": "new words", "edit-agent-handle": "" } });
+  try {
+    await submitAgentEdit("coder");
+    assert.deepEqual(mutating(edited), ["PATCH /agents/coder/description"],
+      "an unchanged handle, no environment and no rename must not be written");
+  } finally { edited.restore(); }
+
+  const declined = withActions({ confirm: false, fields: { "edit-agent-id": "coder-2", "edit-agent-desc": "new words", "edit-agent-handle": "" } });
+  try {
+    await submitAgentEdit("coder");
+    assert.deepEqual(mutating(declined), [], "cancelling the rename prompt must leave every field alone");
+  } finally { declined.restore(); }
+});

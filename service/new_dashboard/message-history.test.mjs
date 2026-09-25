@@ -217,3 +217,15 @@ test("canPage says no when there is nothing to page from, and yes when there is"
   assert.equal(history.canPage([{ id: "a" }]), false, "a row with no timestamp is not a cursor");
   assert.equal(history.canPage([{ id: "a", timestamp: 1789300000 }]), true, "a real cursor was refused");
 });
+
+// ── createMessageHistory ────────────────────────────────────────────────────────────────────────
+import { RECENT_PAGE_LIMIT, createMessageHistory } from "./message-history.mjs";
+
+test("createMessageHistory pages /messages/recent backwards from the oldest held timestamp", async () => {
+  const asked = [];
+  const history = createMessageHistory(async (url) => { asked.push(url); return { messages: [{ id: "old", timestamp: 5 }], truncated: false }; });
+  const added = await history.loadOlder([{ id: "live", timestamp: 10 }]);
+  assert.equal(added, 1);
+  assert.deepEqual(asked, [`/messages/recent?limit=${RECENT_PAGE_LIMIT}&before=10`],
+    "the poll and the pager share one page size, and the cursor is the oldest live timestamp");
+});

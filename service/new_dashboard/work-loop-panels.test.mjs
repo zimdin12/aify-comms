@@ -463,3 +463,51 @@ test("no two actions share a path or a label", () => {
   assert.equal(new Set(paths).size, paths.length, "duplicate paths");
   assert.equal(new Set(labels).size, labels.length, "duplicate labels");
 });
+
+// ── contractCard, renderActivityFeed, pruneDiagnosticSelection ─────────────────────────────────
+import { contractCard, pruneDiagnosticSelection, renderActivityFeed } from "./work-loop-panels.mjs";
+
+test("contractCard offers Remind and Close only on an actionable contract, and escapes its text", () => {
+  withDiagnostics([], () => {
+    const open = contractCard({ id: "c1", state: "working", subject: "<b>ship</b>", from: "a", targetAgentId: "b", type: "request" });
+    assert.match(open, /data-remind-contract="c1"/);
+    assert.match(open, /data-close-contract="c1"/);
+    assert.ok(open.includes("&lt;b&gt;ship&lt;/b&gt;"), "the subject is escaped");
+    const done = contractCard({ id: "c2", state: "answered", subject: "done" }, { selectable: false });
+    assert.doesNotMatch(done, /data-close-contract/);
+    assert.doesNotMatch(done, /diagnostic-check/, "selectable:false renders no checkbox");
+  });
+});
+
+test("renderActivityFeed paints the feed, and says so when there is nothing to show", () => {
+  const feed = { innerHTML: "" };
+  const hadDoc = "document" in globalThis;
+  globalThis.document = { getElementById: (id) => (id === "activity-feed" ? feed : null) };
+  try {
+    seed({});
+    renderActivityFeed();
+    assert.match(feed.innerHTML, /No recent activity loaded/);
+    seed({ runs: [{ id: "r1", status: "completed", fromAgentId: "a", targetAgentId: "b", ...at("2026-09-25T10:00:00Z") }] });
+    renderActivityFeed();
+    assert.match(feed.innerHTML, /data-run-inspector="r1"/);
+  } finally {
+    if (!hadDoc) delete globalThis.document;
+  }
+});
+
+test("pruneDiagnosticSelection drops selections whose record is gone and keeps the rest", () => {
+  // Otherwise a bulk action addresses a run the operator can no longer see.
+  const savedRuns = state.runs, savedContracts = state.contracts;
+  state.runs = [{ id: "r1" }];
+  state.contracts = [{ id: "c1" }];
+  try {
+    withDiagnostics([diagnosticKey("run", "r1"), diagnosticKey("run", "gone"), diagnosticKey("contract", "c1")], () => {
+      pruneDiagnosticSelection();
+      assert.deepEqual([...state.selectedDiagnosticIds].sort(),
+        [diagnosticKey("contract", "c1"), diagnosticKey("run", "r1")].sort());
+    });
+  } finally {
+    state.runs = savedRuns;
+    state.contracts = savedContracts;
+  }
+});

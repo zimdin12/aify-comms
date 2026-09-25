@@ -215,3 +215,21 @@ test("Ctrl+Shift+C does nothing with no console open", () => {
     });
   }
 });
+
+// --- handleGlobalInput -------------------------------------------------------------------------
+import { handleGlobalInput } from "./keyboard-shortcuts.mjs";
+
+test("handleGlobalInput searches the console the find box sits in, and ignores every other input", () => {
+  const asked = [];
+  const summary = { textContent: "" };
+  const input = { value: "needle" };
+  const embed = { querySelector: (sel) => { asked.push(sel); return sel === ".console-find-input" ? input : sel === ".console-find-summary" ? summary : null; } };
+  const findBox = { matches: (sel) => sel === ".console-find-input", closest: (sel) => (sel === ".console-embed" ? embed : null) };
+  const other = { matches: () => false, closest: () => embed };
+
+  handleGlobalInput({ target: other });
+  assert.deepEqual(asked, [], "typing anywhere else must not run a console search");
+  handleGlobalInput({ target: findBox });
+  assert.ok(asked.includes(".console-find-input"), "the search reads the box inside ITS console embed");
+  assert.notEqual(summary.textContent, "", "and paints a result count there");
+});

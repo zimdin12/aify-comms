@@ -17,6 +17,7 @@ import {
   buildHandoffPacket,
   openAgentEditForm,
   openCompactionHistory,
+  openContinueForm,
   openMessageDetail,
   spawnRecordLineage,
 } from "./inspector-forms.mjs";
@@ -399,4 +400,17 @@ test("an answer that arrives after another drawer was opened does not paint over
     await opening;
     assert.equal(els["inspector-content"].innerHTML, "THE AGENT DRAWER");
   });
+});
+
+test("the continue form is prefilled from the session, and a missing session opens nothing", () => {
+  state.sessions = [{ id: "s1", agentId: "coder", role: "tester", environmentId: "env-a", runtime: "codex", workspace: "C:/w" }];
+  state.messages = [{ from: "manager", to: "coder", body: "carry this over" }];
+  const compact = render(() => openContinueForm("s1", false));
+  assert.match(compact, /id="cont-agent-id" type="text" value="coder"/, "compacting keeps the same agent id");
+  assert.match(compact, /carry this over/, "the handoff packet is in the form");
+  assert.equal(state.inspector.kind, "continue");
+  const split = render(() => openContinueForm("s1", true));
+  assert.match(split, /id="cont-agent-id" type="text" value=""/, "continuing as a new agent asks for a new id");
+  state.sessions = [];
+  assert.equal(render(() => openContinueForm("gone", true)), "", "no session, no form");
 });

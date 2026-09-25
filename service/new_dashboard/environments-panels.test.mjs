@@ -469,3 +469,29 @@ test("a spawn's error is readable in full: the cell wraps and carries the whole 
   assert.ok(html.includes('class="clip spawn-detail"'), "the error cell is the wrapping kind");
   assert.ok(html.includes(`title="${reason.replace(/"/g, "&quot;").replace(/'/g, "&#39;")}"`), "the whole reason is on the cell's title");
 });
+
+// --- loadSpawnRequests ------------------------------------------------------------------------
+import { setApiBase } from "./api-client.mjs";
+import { loadSpawnRequests } from "./environments-panels.mjs";
+
+test("loadSpawnRequests fetches the table on navigation, and a failed fetch keeps the rows already shown", async () => {
+  const realFetch = globalThis.fetch;
+  const saved = state.spawnRequests;
+  setApiBase("");
+  try {
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder", status: "queued" }] }) });
+    await withDomAsync({ "spawn-requests-list": el() }, async (els) => {
+      await loadSpawnRequests();
+      assert.deepEqual(state.spawnRequests.map((r) => r.id), ["sr-1"]);
+      assert.match(els["spawn-requests-list"].innerHTML, /coder/);
+    });
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    await withDomAsync({ "spawn-requests-list": el() }, async () => {
+      await loadSpawnRequests();
+      assert.deepEqual(state.spawnRequests.map((r) => r.id), ["sr-1"], "a failed fetch must not empty the table");
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+    state.spawnRequests = saved;
+  }
+});

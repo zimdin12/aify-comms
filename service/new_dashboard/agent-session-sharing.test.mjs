@@ -103,3 +103,15 @@ test("the container id is shared, not spelled twice", () => {
   assert.equal(typeof AGENT_SHARING_ID, "string");
   assert.ok(AGENT_SHARING_ID.length > 0);
 });
+
+// --- fillSessionSharing ------------------------------------------------------------------------
+import { fillSessionSharing } from "./agent-session-sharing.mjs";
+
+test("fillSessionSharing overwrites the reused container, so one agent's warning never shows under another", () => {
+  const host = { innerHTML: "STALE WARNING ABOUT ANOTHER AGENT" };
+  const byId = (id) => (id === AGENT_SHARING_ID ? host : null);
+  fillSessionSharing("alone", { byId, agents: [{ id: "alone", sessionHandle: "h-1" }] });
+  assert.equal(host.innerHTML, renderSessionSharing([{ id: "alone", sessionHandle: "h-1" }], "alone"));
+  assert.doesNotMatch(host.innerHTML, /STALE/);
+  assert.doesNotThrow(() => fillSessionSharing("x", { byId: () => null, agents: [] }), "no container is not an error");
+});

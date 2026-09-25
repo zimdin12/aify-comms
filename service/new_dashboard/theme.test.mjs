@@ -49,3 +49,18 @@ test('derivePaletteVars produces the accent var set', () => {
 test('hexLuminance: white brighter than black', () => {
   assert.ok(hexLuminance('#ffffff') > hexLuminance('#000000'));
 });
+
+// ── COLOR_SETTING_SLOT ──────────────────────────────────────────────────────────────────────────
+import { COLOR_SETTING_SLOT } from './theme.js';
+
+test('every colour setting paints a slot every theme preset defines', () => {
+  // settings-fields.mjs renders an unset colour from `preset[COLOR_SETTING_SLOT[key]]`; a slot a
+  // preset lacks would render as undefined and be sent back as a change on the next save.
+  assert.deepEqual(Object.keys(COLOR_SETTING_SLOT).sort(),
+    ['dashboard_primary_color', 'dashboard_secondary_color', 'dashboard_tertiary_color']);
+  for (const [name, preset] of Object.entries(THEMES)) {
+    for (const slot of Object.values(COLOR_SETTING_SLOT)) {
+      assert.match(String(preset[slot]), /^#[0-9a-f]{6}$/i, `${name} has no ${slot}`);
+    }
+  }
+});

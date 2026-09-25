@@ -316,3 +316,18 @@ test("a NON-401 failure does not mount the prompt", async () => {
     globalThis.document = realDoc;
   }
 });
+
+// ── apiResponse ─────────────────────────────────────────────────────────────────────────────────
+import { apiResponse } from "./api-client.mjs";
+
+test("apiResponse hands back the untouched Response, so a caller can branch on a status api() throws on", async () => {
+  // The 409 consent flow (switching an agent's mode, uploading over a file) reads the status and the
+  // body itself; `api()` would have turned both into an Error message.
+  setApiBase(BASE); // earlier tests point the base at a dead port and leave it there
+  respond(409, { detail: "needs consent", consentRequired: true });
+  const response = await apiResponse("/agents/a1/mode", { method: "POST", body: "{}" });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { detail: "needs consent", consentRequired: true });
+  assert.equal(SEEN[0].url, "/api/v1/agents/a1/mode");
+  assert.equal(SEEN[0].headers["content-type"], "application/json", "the default content type is still sent");
+});
