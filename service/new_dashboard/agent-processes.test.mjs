@@ -322,3 +322,24 @@ test("the ordinary case still writes: same agent, drawer still open", () => {
     byId: () => host,
   }).then(() => assert.match(host.innerHTML, /term_ok/, "the panel never filled for the current agent"));
 });
+
+// --- a clipped listing says so (v0.7 C18) --------------------------------------------------------
+
+test("A CLIPPED LISTING SAYS IT SHOWS ONLY THE NEWEST, rather than presenting a part as the whole", () => {
+  // `/terminals` returns `truncated` for an agent with more than its limit, and the count line read
+  // "N terminal(s), M live" as though that were everything -- the failure the route's own comment
+  // warns a reconciliation cannot survive.
+  const rows = [{ id: "t1", status: "running", processId: "1" }];
+  assert.match(renderAgentProcesses(rows, { truncated: true }), /newest 1 shown/);
+  assert.doesNotMatch(renderAgentProcesses(rows), /newest/, "CONTROL: a whole listing says nothing extra");
+});
+
+test("the loader hands the service's truncated flag to the panel", async () => {
+  drawerOn("sc-lead");
+  const host = { innerHTML: "" };
+  await loadAgentProcesses("sc-lead", {
+    api: async () => ({ terminals: [{ id: "t1", status: "running" }], truncated: true }),
+    byId: (id) => (id === AGENT_PROCESSES_ID ? host : null),
+  });
+  assert.match(host.innerHTML, /newest 1 shown/);
+});

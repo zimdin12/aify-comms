@@ -97,9 +97,10 @@ function endReason(terminal, status) {
  * only part that needs any of those, and it is deliberately thin.
  *
  * @param {object[]} terminals as `/terminals` returns them
- * @param {{error?: string}} [options] a fetch that failed says so here rather than rendering empty
+ * @param {{error?: string, truncated?: boolean}} [options] a fetch that failed says so here rather than
+ *   rendering empty; `truncated` is the service saying older terminals exist beyond this listing
  */
-export function renderAgentProcesses(terminals, { error = '' } = {}) {
+export function renderAgentProcesses(terminals, { error = '', truncated = false } = {}) {
   // AN ERROR IS NOT AN EMPTY LIST. Rendering "no processes" after a failed read tells the operator
   // something false about their fleet, which is worse than telling them the panel is broken.
   if (error) {
@@ -146,7 +147,7 @@ export function renderAgentProcesses(terminals, { error = '' } = {}) {
   ].join('')).join('');
   const liveCount = list.filter((t) => t.live).length;
   return [
-    `<p class="subtle">${list.length} terminal(s), ${liveCount} live.</p>`,
+    `<p class="subtle">${list.length} terminal(s), ${liveCount} live${truncated ? ` (newest ${list.length} shown; older ones exist)` : ''}.</p>`,
     '<table class="agent-processes"><thead><tr>',
     '<th>Terminal</th><th>Status</th><th>PID</th><th>Size</th><th>Updated</th><th></th>',
     '</tr></thead><tbody>',
@@ -175,7 +176,7 @@ export async function loadAgentProcesses(agentId, { api, byId } = {}) {
   try {
     // `status=all` so a stopped row holding a pid is visible -- see the header.
     const answer = await api(`/terminals?agentId=${encodeURIComponent(id)}&status=all`);
-    if (stillShowing(id)) paintIfChanged(host, renderAgentProcesses(answer?.terminals));
+    if (stillShowing(id)) paintIfChanged(host, renderAgentProcesses(answer?.terminals, { truncated: Boolean(answer?.truncated) }));
   } catch (err) {
     if (stillShowing(id)) paintIfChanged(host, renderAgentProcesses([], { error: String(err?.message || err) }));
   }
