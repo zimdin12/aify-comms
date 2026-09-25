@@ -479,3 +479,40 @@ test("A MODE SWITCH THAT CANNOT REACH THE SERVICE SAYS SO IN A TOAST, not a JSON
     assert.ok(said.some((t) => /Mode switch failed: boom/.test(t)), "the refusal still names its reason");
   } finally { h.restore(); }
 });
+
+// --- session confirmations wear the red button and use the button's words (v0.7 C21) ------------------
+
+/** Run `act` and return every confirmation dialog's markup it raised. */
+async function dialogsRaisedBy(act, { selected = [] } = {}) {
+  const h = withActions({ confirm: false });
+  const dialogs = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); dialogs.push(el); return el; };
+  try {
+    state.selectedSessionIds = new Set(selected);
+    await act();
+    return dialogs.map((d) => d.innerHTML).filter(Boolean);
+  } finally { h.restore(); }
+}
+
+test("STOPPING OR RESETTING A SESSION ASKS WITH THE DANGER TONE", async () => {
+  // Both end live work, and they asked in the same neutral dialog as a harmless action.
+  for (const action of ["stop", "recreate"]) {
+    const [dialog] = await dialogsRaisedBy(() => requestSessionControl("s1", action));
+    assert.match(dialog, /dialog-danger/, `${action} is not marked destructive`);
+  }
+  const [restart] = await dialogsRaisedBy(() => requestSessionControl("s1", "restart"));
+  assert.doesNotMatch(restart, /dialog-danger/, "CONTROL: a restart keeps the saved backing and is not red");
+});
+
+test("THE BULK RESET ASKS ABOUT A RESET, the word on the button, and in the danger tone", async () => {
+  const [dialog] = await dialogsRaisedBy(() => requestBulkSessionControl("recreate"), { selected: ["s1", "s2"] });
+  assert.match(dialog, /Reset 2 selected sessions/, "the button says Reset; the question said recreate");
+  assert.match(dialog, /dialog-danger/);
+});
+
+test("DELETING A SESSION RECORD NAMES WHICH ONE", async () => {
+  const [dialog] = await dialogsRaisedBy(() => deleteSessionById("s1"));
+  assert.match(dialog, /s1/, "the confirmation named no session");
+  assert.match(dialog, /coder/, "…nor its agent");
+});

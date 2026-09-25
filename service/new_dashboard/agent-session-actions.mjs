@@ -211,7 +211,9 @@ export async function stopAgentWorker(agentId) {
 
 export async function deleteSessionById(sid) {
   if (!sid) return;
-  if (!await uiConfirm('Delete this session record?', { tone: 'danger' })) return;
+  // NAMES WHICH ONE: the drawer and the rail both reach this, and "this session" is not an answer.
+  const owner = sessionAgentId(state.sessions.find((s) => sessionId(s) === String(sid)) || {});
+  if (!await uiConfirm(`Delete the session record ${sid}${owner ? ` (agent ${owner})` : ''}?`, { tone: 'danger' })) return;
   try {
     await api(`/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' });
     toast('Session deleted', 'ok');
@@ -227,7 +229,9 @@ export async function requestSessionControl(sessionId, action, confirmAction = t
     recreate: 'RESET this session with a fresh context (the current native session is discarded)',
   };
   if (!sessionId || !action) return;
-  if (confirmAction && !await uiConfirm(`Really ${labels[action] || action}?`)) return;
+  // Stop and reset end live work, so they ask in the destructive tone; a restart keeps its backing.
+  const destructive = action === 'stop' || action === 'recreate';
+  if (confirmAction && !await uiConfirm(`Really ${labels[action] || action}?`, { tone: destructive ? 'danger' : '' })) return;
   try {
     await api(`/sessions/${encodeURIComponent(sessionId)}/control`, {
       method: 'POST',
@@ -262,7 +266,10 @@ export async function requestSessionControl(sessionId, action, confirmAction = t
 export async function requestBulkSessionControl(action) {
   const ids = selectedSessionIds();
   if (!ids.length || !action) return;
-  if (!await uiConfirm(`Really ${action} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`, { tone: action === 'delete' ? 'danger' : '' })) return;
+  // THE BUTTON'S WORD: the toolbar says Reset for `recreate` (session-rail.mjs), and asking to
+  // "recreate" named an action the operator never saw. Only a restart keeps its backing.
+  const verb = { recreate: 'Reset', stop: 'Stop', restart: 'Restart', delete: 'Delete' }[action] || action;
+  if (!await uiConfirm(`${verb} ${ids.length} selected session${ids.length === 1 ? '' : 's'}?`, { tone: action === 'restart' ? '' : 'danger' })) return;
   for (const id of ids) {
     if (action === 'delete') {
       try { await api(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(`Delete ${id} failed: ${err?.message || err}`, 'error'); }
