@@ -109,7 +109,3 @@ export function resumeMachineNote(machine) {
 export function continueCliDetails(agent, session) {
   return continueCliInfo(agent, session, { sessionRuntime, sessionAgentId });
 }
-
-export function continueCliCommand(agent, session) {
-  return continueCliDetails(agent, session).command;
-}
