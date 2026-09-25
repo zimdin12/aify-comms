@@ -113,9 +113,10 @@ test("codex-aify recovers the agent id from a bare --resume via the service", ()
     text.includes('[ -z "$CODEX_AIFY_AGENT_ID" ] && [ -n "${CODEX_RESUME_HANDLE:-}" ]'),
     "recovery must be gated on an EMPTY agent id plus a resume handle",
   );
-  assert.match(text, /\/api\/v1\/agents/, "must ask the service which agent owns the handle");
-  assert.match(text, /=== *"codex"/,
-    'must scope the match to runtime "codex" so a claude agent sharing a handle cannot cross-bind');
+  // The bridge asks the service, carrying this host's API key (a bare curl got a 401 once a key was
+  // required). The runtime argument is what stops a claude agent sharing a handle from cross-binding.
+  assert.match(text, /agent-for-handle\.mjs" "\$HARNESS_ENDPOINT" codex /,
+    'must ask the service, through the bridge, which "codex" agent owns the handle');
   assert.match(text, /resolved aify agent/, "must announce a successful recovery");
   assert.match(text, /NO AGENT ID for --resume/,
     "must say so OUT LOUD when the id is still unknown — silent degradation is the whole defect");
