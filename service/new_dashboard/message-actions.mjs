@@ -12,6 +12,7 @@
 import { sessionForAgent } from './agent-drawer.mjs';
 import { openAgentChat } from './agent-session-actions.mjs';
 import { api } from './api-client.mjs';
+import { findLoadedMessage, messageHistory } from './message-store.mjs';
 import { chatLoadChannels } from './message-transport.mjs';
 import { messageId, messageIdOf, sessionId } from './record-fields.mjs';
 import { agentForSession } from './session-rail.mjs';
@@ -51,6 +52,7 @@ export async function markMessageRead(msgId, read) {
     await api(`/messages/${encodeURIComponent(msgId)}/read`, { method: 'POST', body: JSON.stringify({ agentId: state.chat.identity, read }) });
     const m = state.messages.find((x) => messageIdOf(x) === msgId);
     if (m) m.read = read;
+    messageHistory.update(msgId, { read }); // a paged-in copy is what the timeline shows once the live one ages out
     chatController.render();
   } catch (err) { toast(`Read update failed: ${err?.message || err}`, 'error'); }
 }
@@ -62,6 +64,7 @@ export async function unsendMessage(messageId) {
     // delete. The dashboard is an operator surface, so it may unsend a message it did not write.
     await api(`/messages/${encodeURIComponent(messageId)}?requestedBy=dashboard`, { method: 'DELETE' });
     state.messages = state.messages.filter((m) => messageIdOf(m) !== messageId);
+    messageHistory.remove(messageId);
     toast('Message unsent', 'ok');
     chatController.render();
     refreshSoon();
@@ -194,7 +197,7 @@ export async function removeChannelMember(name, agentId) {
 
 // WS-J: open a message's thread in the real Chat page (not the removed Sessions composer).
 export function openMessageThread(messageIdValue) {
-  const message = state.messages.find((item) => messageId(item) === String(messageIdValue));
+  const message = findLoadedMessage(messageIdValue);
   if (!message) return;
   const agentId = message.from === 'dashboard' ? message.to : message.from;
   openAgentChat(agentId);

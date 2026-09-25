@@ -252,3 +252,23 @@ test("runChannelAction passes ACTION then CHANNEL, and swallows a rejection", as
     if (!hadRaf) delete globalThis.requestAnimationFrame;
   }
 });
+
+// --- a reply to a row paged in by scrolling back (v0.7 C7) -----------------------------------------
+import { messageHistory } from "./message-store.mjs";
+
+test("Write reply works on a row PAGED IN by scrolling back", async () => {
+  const fetchNow = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ messages: [{ id: "old-1", from: "bob", body: "from last week", timestamp: 5 }], truncated: true }) });
+  try {
+    await messageHistory.loadOlder([{ id: "cursor", timestamp: 100 }]);
+  } finally {
+    globalThis.fetch = fetchNow;
+  }
+  const ctl = controller();
+  withChat({ selected: "dm:bob" }, (dom) => {
+    state.messages = [{ id: "live-1", from: "bob", body: "today", timestamp: 100 }];
+    openChatReply({ dataset: { chatReply: "old-1" } }, ctl);
+    assert.equal(state.chat.replyTo?.id, "old-1", "the reply target is staged");
+    assert.equal(dom.focusCount(), 1);
+  });
+});
