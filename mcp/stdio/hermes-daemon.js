@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { agentEndpoint, claimedByOtherAgents, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
-import { terminateProcessTree } from "./runtimes.js";
+import { defaultKillTree } from "./proc-probes.js";
 import { reapPriorHermes } from "./hermes-prior-reap.mjs";
 // The filename sanitiser has ONE owner (`hermes-endpoint.js`); this module carried a
 // byte-identical copy until v0.5.4. Three copies of a function that turns an agent id into a
@@ -128,19 +128,6 @@ function defaultIsAlive(pid) {
   } catch (err) {
     // EPERM = exists but not ours to signal → still alive.
     return err && err.code === "EPERM";
-  }
-}
-
-// Default tree-killer keyed on a raw pid. Wraps terminateProcessTree (which
-// takes a {pid} handle). Never throws.
-function defaultKillTree(pid) {
-  const n = Number(pid);
-  if (!Number.isInteger(n) || n <= 0) return false;
-  try {
-    terminateProcessTree({ pid: n }, "SIGKILL");
-    return true;
-  } catch {
-    return false;
   }
 }
 
