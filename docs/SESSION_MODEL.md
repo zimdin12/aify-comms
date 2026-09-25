@@ -197,7 +197,7 @@ Use it for:
 - smoke tests
 - implementation internals
 
-It can be exposed later as an advanced tool, but the normal **Spawn Agent** flow should default to managed warm.
+It can be exposed later as an advanced tool, but the normal **Spawn Session** flow (Dashboard **Environments**) should default to managed warm.
 
 ## CLI Attach
 
