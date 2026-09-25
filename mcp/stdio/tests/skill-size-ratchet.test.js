@@ -67,7 +67,7 @@ const CEILINGS = {
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
   "aify-comms-debug/SKILL.md": 3_117,
-  "aify-comms-debug/references/codex.md": 14_118,
+  "aify-comms-debug/references/codex.md": 5_242,
   "aify-comms-debug/references/dashboard-console.md": 18_013,
   "aify-comms-debug/references/dispatch-bridges.md": 6_224,
   "aify-comms-debug/references/dispatch-delivery.md": 7_437,
