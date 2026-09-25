@@ -236,3 +236,29 @@ test("the module imports in Node with no browser globals present", async () => {
   const again = await import("./shared-files.mjs");
   assert.equal(again.loadFiles, loadFiles, "one module instance, no load-time side effects");
 });
+
+// --- the empty state says which kind of empty it is (v0.7 C24) ----------------------------------
+
+test("WHEN FIND HIDES EVERY FILE, the page says none match rather than that none exist", () => {
+  const host = { innerHTML: "" };
+  state.files = [{ name: "report.txt", from: "agent-1" }];
+  state.filter = "zzz-no-such-file";
+  try {
+    withDom({ "files-list": host }, renderFiles);
+    assert.match(host.innerHTML, /None match Find/);
+    assert.doesNotMatch(host.innerHTML, /No shared files/, "a Find term read as an empty store");
+  } finally { state.filter = ""; }
+});
+
+test("A FIRST LOAD THAT FAILED says so, rather than inviting an upload to an empty store", async () => {
+  respond({ detail: "boom" }, 500);
+  state.files = [];
+  await loadFiles();
+  const host = { innerHTML: "" };
+  withDom({ "files-list": host }, renderFiles);
+  assert.match(host.innerHTML, /Could not load shared files/);
+  respond({ files: [] });
+  await loadFiles();
+  withDom({ "files-list": host }, renderFiles);
+  assert.match(host.innerHTML, /No shared files/, "CONTROL: a store that loaded empty is empty");
+});

@@ -22,8 +22,17 @@ export async function loadFiles() {
   // REPORTED HERE, where the failure is actually seen. The poll cycle wraps this call in its own
   // catch, but that catch can never run: this function swallows its own error, so `await loadFiles()`
   // returns normally on failure and the caller has nothing to catch.
-  try { const res = await api('/shared'); state.files = res.files || res || []; }
-  catch (_) { noteSliceFailure('files'); /* keep prior */ }
+  //
+  // The reason is KEPT (`state.filesError`) so an empty page can tell "the store is empty" from "the
+  // store could not be read": a failed first load used to invite an upload into an empty store.
+  try {
+    const res = await api('/shared');
+    state.files = res.files || res || [];
+    state.filesError = '';
+  } catch (err) {
+    noteSliceFailure('files');
+    state.filesError = String(err?.message || err || 'request failed'); // keep the prior list
+  }
 }
 export function renderFiles() {
   const host = byId('files-list');
@@ -47,7 +56,14 @@ export function renderFiles() {
         <button class="ghost" data-file-download="${esc(f.name)}">Download</button>
         <button class="ghost danger" data-file-delete="${esc(f.name)}">Delete</button>
       </div>
-    </article>`).join('') : '<div class="empty-state"><span class="empty-icon">📂</span><strong>No shared files</strong><p>Upload an artifact above, or share one from an agent with comms_share.</p></div>';
+    </article>`).join('') : emptyFilesHtml((state.files || []).length, state.filesError);
+}
+
+/** Which empty this is: hidden by Find, unreadable, or genuinely empty. Each asks for something else. */
+function emptyFilesHtml(held, error) {
+  if (held) return `<div class="empty-state"><span class="empty-icon">🔎</span><strong>None match Find</strong><p>${held} shared file${held === 1 ? '' : 's'} hidden by the Find box above.</p></div>`;
+  if (error) return `<div class="empty-state"><span class="empty-icon">⚠</span><strong>Could not load shared files</strong><p>${esc(error)}</p></div>`;
+  return '<div class="empty-state"><span class="empty-icon">📂</span><strong>No shared files</strong><p>Upload an artifact above, or share one from an agent with comms_share.</p></div>';
 }
 async function downloadSharedFile(name) {
   let url;
