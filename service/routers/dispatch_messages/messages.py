@@ -49,6 +49,7 @@ from service.api_core.agent_sessions import _touch_agent
 from service.api_core.external_keys import EXTERNAL_ROUTE, refuse_external_impersonation
 from service.api_core.operator_authz import operator_is_acting
 from service.api_core.dispatch_runs import _create_dispatch_runs
+from service.api_core.send_nonce import prior_send_for_nonce
 from service.api_core.status_refresh import _get_recipient_info
 from service.longpoll import _wake_agent
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
@@ -105,14 +106,11 @@ async def send_message(req: MessageSend, request: Request):
         # behavior (old bridges omit it, so no dedup — fully backward compatible).
         client_nonce = str(req.clientNonce or "").strip()
         if client_nonce:
-            prior = await (await db.execute(
-                "SELECT id FROM messages WHERE from_agent = ? AND client_nonce = ? ORDER BY timestamp ASC LIMIT 1",
-                (req.from_agent, client_nonce),
-            )).fetchone()
-            if prior is not None:
+            prior_id = await prior_send_for_nonce(db, req, client_nonce)
+            if prior_id is not None:
                 return {
                     "ok": True,
-                    "messageId": prior["id"],
+                    "messageId": prior_id,
                     "replayed": True,
                     "recipients": [],
                     "recipientStatus": {},
@@ -202,13 +200,10 @@ async def send_message(req: MessageSend, request: Request):
         # its ORIGINAL messageId with ok:true and create NO dispatch runs (the winner made
         # them), so a retry that overlapped the first in-flight request never double-sends.
         if client_nonce and inserted_rows == 0:
-            prior = await (await db.execute(
-                "SELECT id FROM messages WHERE from_agent = ? AND client_nonce = ? ORDER BY timestamp ASC LIMIT 1",
-                (req.from_agent, client_nonce),
-            )).fetchone()
+            prior_id = await prior_send_for_nonce(db, req, client_nonce)
             return {
                 "ok": True,
-                "messageId": prior["id"] if prior is not None else msg_id,
+                "messageId": prior_id or msg_id,
                 "replayed": True,
                 "recipients": [],
                 "recipientStatus": {},

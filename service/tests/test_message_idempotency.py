@@ -91,6 +91,31 @@ class MessageIdempotencyTests(FastApiTestCase):
         self.assertNotEqual(a.json().get("messageId"), b.json().get("messageId"))
         self.assertEqual(self._count_messages("sender", "nokey"), 2)
 
+    def test_a_reused_nonce_for_a_different_send_is_refused_not_swallowed(self):
+        # A nonce names ONE logical send. Before 0.7.0 the replay lookup keyed only on
+        # (from_agent, client_nonce) and never compared the payload, so a second, DIFFERENT send
+        # carrying a reused nonce answered ok:true/replayed:true with the first message's id and
+        # was silently dropped (comms-senior-dev, v0.7 scan G2).
+        self._register("third")
+        first = self._send(from_agent="sender", to="recipient", body="the first send",
+                           type="message", clientNonce="reused")
+        self.assertTrue(first.json().get("ok"), first.text)
+        for label, changed in (
+            ("another recipient", {"to": "third", "body": "the first send"}),
+            ("another body", {"to": "recipient", "body": "a different body"}),
+            ("a triggered send", {"to": "recipient", "body": "the first send", "trigger": True}),
+        ):
+            with self.subTest(label):
+                body = {"from_agent": "sender", "type": "message", "clientNonce": "reused", **changed}
+                second = self._send(**body)
+                self.assertEqual(second.status_code, 409, second.text)
+                self.assertIn("reused", second.text)
+        # Control: the SAME send under the same nonce is still a replay.
+        again = self._send(from_agent="sender", to="recipient", body="the first send",
+                           type="message", clientNonce="reused")
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json().get("messageId"), first.json().get("messageId"))
+
     def test_nonce_scoped_per_sender(self):
         # The same nonce string from a DIFFERENT sender is a different logical send.
         self._register("other")
