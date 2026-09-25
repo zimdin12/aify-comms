@@ -202,8 +202,8 @@ async def longpoll(
 # behaviour change, not a move — but they are the same SUBJECT, and having them in one file is what
 # makes the difference visible instead of accidental.
 #
-# MUTABLE PROCESS-GLOBAL. Six agent-surface modules reach `_listen_events` through one borrow
-# accessor, and `routers/agents/config.py` INSERTS into it. Two copies would put a waiter in one
+# MUTABLE PROCESS-GLOBAL. `routers/agents/listen.py` INSERTS a waiter into it, reaching it as
+# `longpoll._listen_events`, and `_wake_agent` below sets it. Two copies would put a waiter in one
 # dict and the wake in the other: `comms_listen` would simply hang to its timeout, with no error and
 # nothing in the logs. `service/tests/test_process_global_identity.py` names this module as the
 # owner so a second module-level assignment fails the suite.

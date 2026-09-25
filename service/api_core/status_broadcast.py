@@ -15,30 +15,18 @@ each is to push exactly what the corresponding READ would return, so a push that
 path's answer would be a push that disagrees with the next poll.
 
 A MANUAL STATUS IS NEVER OVERWRITTEN BY EITHER. An operator who set a status explicitly outranks
-anything derived, which is what `_borrowed_manual_statuses` guards in both. It travelled with them
-because they were its only two callers.
+anything derived, which is what the `_MANUAL_STATUSES` check guards in both.
 
 BOTH ARE BEST-EFFORT AND SWALLOW EVERYTHING. A failed push must never fail the request that
 triggered it -- the state change already happened, and the next poll will show it.
 """
 from __future__ import annotations
 
+from service.api_core.manual_status import _MANUAL_STATUSES
 from service.api_core.records import _row_status_note
 from service.api_core.settings import _load_settings
 from service.api_core.status_inputs import _compute_live_status_cache, engine_status
 from service.status_engine import derive
-
-
-def _borrowed_manual_statuses():
-    """One owner, never a copy (finding N7) — and the owner is now a LEAF, not the control plane.
-
-    This borrowed through `service.control_plane` while `_MANUAL_STATUSES` lived there. v0.5.4 moved it to
-    `api_core/manual_status.py`, a stdlib-only leaf, so this reads the owner directly and
-    the control plane is no longer in the path.
-    """
-    from service.api_core.manual_status import _MANUAL_STATUSES
-
-    return _MANUAL_STATUSES
 
 
 async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
@@ -62,7 +50,7 @@ async def _broadcast_agent_status(ws, db, agent_id: str) -> None:
         # PUSH/POLL PARITY: the WS push serves the SAME proof-engine value the polled read does
         # (derive of the assembled inputs), so a push never overwrites a correct polled status.
         note = cache.get("reason") or ""
-        if status not in _borrowed_manual_statuses():
+        if status not in _MANUAL_STATUSES:
             try:
                 _derived = derive(cache["status_inputs"])
                 # PUSH/POLL PARITY of the NOTE too (2026-07-10 review): the polled
@@ -103,7 +91,7 @@ async def _broadcast_engine_status(ws, db, agent_id: str, *, settings=None) -> N
         # Manual statuses (stop/disable) are operator overrides both paths honor
         # identically — surface the persisted status, not an engine derivation.
         manual = str(row["status"] or "").strip().lower()
-        if manual in _borrowed_manual_statuses():
+        if manual in _MANUAL_STATUSES:
             status = manual
             note = _row_status_note(row)
         else:

@@ -32,12 +32,6 @@ from service.api_core.tuning import _UNTHREADED_HANDOFF_WINDOW_MS
 from service.clock import now as _now
 
 
-def _borrowed_unthreaded_handoff_window_ms():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-
-    return _UNTHREADED_HANDOFF_WINDOW_MS
-
-
 def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
     if not existing_message or not replied_run:
         return True
@@ -139,7 +133,7 @@ async def _link_unthreaded_reply_to_recent_dispatch_run(
         return False
 
     latest_requested_at = _iso_from_ms(reply_timestamp_ms)
-    earliest_requested_at = _iso_from_ms(max(0, reply_timestamp_ms - _borrowed_unthreaded_handoff_window_ms()))
+    earliest_requested_at = _iso_from_ms(max(0, reply_timestamp_ms - _UNTHREADED_HANDOFF_WINDOW_MS))
     run_cursor = await db.execute(
         """
         SELECT * FROM dispatch_runs

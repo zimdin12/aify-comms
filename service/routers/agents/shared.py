@@ -1,9 +1,5 @@
-"""Helpers owned by the agents surfaces, plus every borrow they still need.
-
-v0.5.2m. Defined once so the six surface modules share one shim rather than each
-declaring its own. Borrows are established by FOLLOWING SHIMS, not raw caller count:
-anything another module already borrows from the router stays borrowed here too.
-"""
+"""Helpers shared by the agents surfaces, defined once so the six surface modules do not each
+declare their own."""
 
 from __future__ import annotations
 
@@ -13,8 +9,6 @@ import time
 from typing import Any
 
 
-from service.api_core.liveness import _LIVE_SESSION_STATUSES
-
 from service.api_core.capabilities import (  # re-exported for this package's modules
     _managed_via_wrapper_for_runtime,
 )
@@ -23,154 +17,19 @@ import sqlite3
 logger = logging.getLogger("aify_comms.routers.agents.shared")
 
 
-
-
-
-
-# Was a borrow shim; the owner is service/api_core/records.py, not the control plane.
-
-
-
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
-# module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
-# a plain import works.
-
-
-# Was a borrow shim for the same reason `engine_status` above was: the legacy status path lived in
-# the control plane, which a router cannot import at module level. Both status paths moved to
-# service/api_core/status_inputs.py in v0.5.4, so this is a plain import.
-
-
-
-
-
-
-
-
 # _fail_active_runs_for_superseded_bridges moved to service/api_core/bridge_supersede.py in v0.5.4.
-
-
 
 
 # _machine_family moved to service/api_core/registration_gates.py in v0.5.4.
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # _stop_virtual_terminals_for_superseded_bridges moved to service/api_core/bridge_supersede.py in v0.5.4.
 
 
-
-
-
-
-
-
-# Was a borrow shim: the DB-reading wrapper lived in the control plane, and a router importing that
-# at module level is a cycle. It moved to service/api_core/status_inputs.py in v0.5.4, so this is a
-# plain import now. NOT `derive` — that is the pure state machine this wrapper feeds.
 from service.api_core.tuning import (
-    LIST_AGENTS_REFRESH_LIMIT,
-    _CONSOLE_TAIL_MAX_BYTES,
-    _CONSOLE_TAIL_MAX_LINES,
     _RUNTIME_CONFIG_LIVE_KEYS,
     _SHELL_PLACEHOLDER_HANDLE_RE,
 )
-
-
-def _borrowed_list_agents_refresh_limit():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-
-    return LIST_AGENTS_REFRESH_LIMIT
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _borrowed_console_tail_max_bytes():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-
-    return _CONSOLE_TAIL_MAX_BYTES
-
-
-def _borrowed_console_tail_max_lines():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-
-    return _CONSOLE_TAIL_MAX_LINES
-
-
-def _borrowed_live_session_statuses():
-    """BORROWED constant: one owner, never a copy (finding N7).
-
-    v0.5.4: the owner is now `api_core/liveness.py`, not the control plane. The accessor stays because its
-    callers are unchanged and the borrow still reads exactly one owner — only the owner moved.
-    """
-    from service.api_core.liveness import _LIVE_SESSION_STATUSES
-
-    return _LIVE_SESSION_STATUSES
-
-
-# _borrowed_manual_statuses moved to service/api_core/status_broadcast.py in v0.5.4.
-
-
-
-
-def _borrowed_runtime_config_live_keys():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-
-    return _RUNTIME_CONFIG_LIVE_KEYS
-
-
-def _borrowed_shell_placeholder_handle_re():
-    """BORROWED constant: one owner, never a copy (finding N7)."""
-
-    return _SHELL_PLACEHOLDER_HANDLE_RE
-
-
-
-
-
-
-
-
-def _borrowed_listen_events():
-    """One owner, never a copy (finding N7) — and the owner is now a LEAF, not the control plane.
-
-    v0.5.4 moved `_listen_events` to `service/longpoll.py`, which already owned the other waiter
-    registry. The accessor stays because its six callers are unchanged and it still reads exactly one
-    owner; only the owner moved. Returning the dict itself is the point — `routers/agents/config.py`
-    INSERTS into it, so a copy would put the waiter in one dict and the wake in another and
-    `comms_listen` would hang to its timeout with nothing logged.
-    """
-    from service.longpoll import _listen_events
-
-    return _listen_events
-
-
 
 
 # _apply_status_event moved to service/api_core/status_events.py in v0.5.4 — it had seven
@@ -194,16 +53,12 @@ def _borrowed_listen_events():
 # service/api_core/same_mode_bridge_gate.py.
 
 
-
-
 def _merge_runtime_policy_for_wrapper_reregister(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     """Keep durable model/effort policy when a wrapper child refreshes live metadata."""
     previous = existing if isinstance(existing, dict) else {}
     current = incoming if isinstance(incoming, dict) else {}
-    durable_previous = {key: value for key, value in previous.items() if key not in _borrowed_runtime_config_live_keys()}
+    durable_previous = {key: value for key, value in previous.items() if key not in _RUNTIME_CONFIG_LIVE_KEYS}
     return {**durable_previous, **current}
-
-
 
 
 async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: str, now: str) -> str:
@@ -231,7 +86,6 @@ async def _record_claimer_lease(db, agent_id: str, *, action: str, bridge_id: st
 # _resolve_live_console_terminal moved to service/api_core/agent_terminal_ops.py in v0.5.4.
 
 
-
 def _sanitize_session_handle(session_handle: Any) -> str:
     """Drop an unexpanded shell placeholder passed as a session handle.
 
@@ -244,7 +98,7 @@ def _sanitize_session_handle(session_handle: Any) -> str:
     Real handles (UUIDs, timestamp_hash ids) never match this shape.
     """
     handle = str(session_handle or "").strip()
-    if handle and _borrowed_shell_placeholder_handle_re().match(handle):
+    if handle and _SHELL_PLACEHOLDER_HANDLE_RE.match(handle):
         return ""
     return handle
 
@@ -262,8 +116,6 @@ def _synth_terminal_should_be_created(runtime: str, settings: dict[str, Any]) ->
     if _managed_via_wrapper_for_runtime(settings, runtime):
         return False
     return True
-
-
 
 
 # _validate_registration_cwd moved to service/api_core/registration_gates.py in v0.5.4.

@@ -88,7 +88,6 @@ logger = logging.getLogger("aify_comms.routers.dispatch_messages.shared")
 
 
 
-# _borrowed_unthreaded_handoff_window_ms moved to service/api_core/reply_linking.py in v0.5.4.
 
 
 

@@ -85,7 +85,7 @@ router.include_router(_session_control_router)
 
 # Domain-local: nothing outside this module referenced them once the handlers moved.
 # CLEAN history: finished AND nothing left to act on — the only rows GET /sessions hides by
-# default. Deliberately NOT the same set as _borrowed_session_delete_allowed_statuses() above, and the
+# default. Deliberately NOT the same set as _SESSION_DELETE_ALLOWED_STATUSES, and the
 # difference is load-bearing (regression 2026-07-26, caught in review): "safe to eventually
 # delete" is not "not worth showing".
 #   * `stopped` is a session the OPERATOR stopped — Restart / Reset / Compact are precisely the
@@ -99,10 +99,6 @@ SESSION_CLEAN_HISTORY_STATUSES = {"ended", "completed", "cancelled"}
 
 
 
-def _borrowed_session_delete_allowed_statuses():
-    """BORROWED constant: one owner, never a copy — a forked status set is finding N7."""
-
-    return _SESSION_DELETE_ALLOWED_STATUSES
 
 
 
@@ -267,7 +263,7 @@ async def delete_session(session_id: str, request: Request):
             raise HTTPException(404, f'Session "{session_id}" not found')
 
         status = str(session["status"] or "").strip().lower()
-        if status not in _borrowed_session_delete_allowed_statuses():
+        if status not in _SESSION_DELETE_ALLOWED_STATUSES:
             raise HTTPException(
                 409,
                 f'Session "{session_id}" is {status or "active"}; stop or finish it before deleting the session record.',

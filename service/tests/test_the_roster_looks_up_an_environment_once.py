@@ -13,7 +13,7 @@ issued that query SEVENTEEN times. Attributed by walking the stack at each call:
     1x  registration_gates.py:125 in _enforce_env_reachable_gate   <- the cached path
 
 The cache was created between the two phases. `list_agents` refreshes expired live states FIRST
-(bounded by `_borrowed_list_agents_refresh_limit()`, which is why the count is 8 agents and not 50),
+(bounded by `LIST_AGENTS_REFRESH_LIMIT`, which is why the count is 8 agents and not 50),
 and only then builds the dict for the per-agent gate loop. So the phase doing most of the resolving
 ran before the cache existed and could not use it.
 

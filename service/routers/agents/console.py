@@ -41,11 +41,8 @@ from service.terminal_snapshot import (
     render_snapshot as _render_terminal_snapshot,
 )
 import sqlite3
-from service.routers.agents.shared import (
-    _borrowed_console_tail_max_bytes,
-    _borrowed_console_tail_max_lines,
-    logger,
-)
+from service.api_core.tuning import _CONSOLE_TAIL_MAX_BYTES, _CONSOLE_TAIL_MAX_LINES
+from service.routers.agents.shared import logger
 from service.terminal_write_queue import TERMINAL_OUTPUT_WRITES
 from service.api_core.agent_terminal_ops import (
     _resolve_live_console_terminal,
@@ -149,7 +146,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
                 replayed = await _replayed_terminal_output(db, str(past["id"] or ""))
                 recorded, recorded_from = _richest_recording(streamed, replayed)
             if past is not None and (recorded.strip() or str(past["error"] or "").strip()):
-                tail_lines = max(1, min(int(lines or 40), _borrowed_console_tail_max_lines()))
+                tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
                 output = _terminal_failure_tail(recorded, max_lines=tail_lines)
                 cause = _terminal_failure_line(recorded) or str(past["error"] or "").strip()
                 died_at = str(past["stopped_at"] or past["updated_at"] or "")
@@ -218,7 +215,7 @@ async def get_agent_console(agent_id: str, lines: int = 40):
         terminal = await (
             await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal["id"],))
         ).fetchone()
-        tail_lines = max(1, min(int(lines or 40), _borrowed_console_tail_max_lines()))
+        tail_lines = max(1, min(int(lines or 40), _CONSOLE_TAIL_MAX_LINES))
         keys = terminal.keys()
         full_output = (terminal["output"] if "output" in keys else "") or ""
         screen_output = full_output
@@ -249,8 +246,8 @@ async def get_agent_console(agent_id: str, lines: int = 40):
             screen_lines.pop()
         selected = screen_lines[-tail_lines:]
         output = "\n".join(selected)
-        if len(output.encode("utf-8", "ignore")) > _borrowed_console_tail_max_bytes():
-            output = output.encode("utf-8", "ignore")[-_borrowed_console_tail_max_bytes():].decode("utf-8", "ignore")
+        if len(output.encode("utf-8", "ignore")) > _CONSOLE_TAIL_MAX_BYTES:
+            output = output.encode("utf-8", "ignore")[-_CONSOLE_TAIL_MAX_BYTES:].decode("utf-8", "ignore")
         return {
             "ok": True,
             "live": True,

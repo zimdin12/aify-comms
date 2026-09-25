@@ -312,7 +312,7 @@ class ManualStatusOwnerTests(unittest.TestCase):
         the push."""
         from service.api_core.manual_status import _MANUAL_STATUSES
 
-        self.assertIs(status_broadcast._borrowed_manual_statuses(), _MANUAL_STATUSES)
+        self.assertIs(status_broadcast._MANUAL_STATUSES, _MANUAL_STATUSES)
 
 
 if __name__ == "__main__":
