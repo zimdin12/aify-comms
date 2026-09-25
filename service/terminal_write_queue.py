@@ -573,6 +573,22 @@ class TerminalOutputWriteQueue:
 
 TERMINAL_OUTPUT_WRITES = TerminalOutputWriteQueue()
 
+
+async def drain_terminal_output_writes(queue: TerminalOutputWriteQueue = None, timeout: float = 5.0) -> bool:
+    """Write what the queue still holds, at shutdown. True when it drained, False when it ran out of time.
+
+    `POST /terminals/{id}/output` answers once a chunk is QUEUED, and the queue holds it for up to a
+    24 ms window (longer after a lock error re-queues a batch). Nothing flushed it at shutdown, so output
+    a bridge had been told was accepted was lost on every restart (v0.7 scan A6). BOUNDED, because
+    `flush_all` loops until the queue is empty and a terminal whose writes keep failing would hold
+    shutdown open for ever.
+    """
+    try:
+        await asyncio.wait_for((queue or TERMINAL_OUTPUT_WRITES).flush_all(), timeout)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
 async def flush_terminal_output_writes_for_tests() -> None:
     await TERMINAL_OUTPUT_WRITES.flush_all()
 

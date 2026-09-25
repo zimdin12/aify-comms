@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from service.terminal_write_queue import drain_terminal_output_writes
 from service.longpoll import attributable_ms, begin_wait_accounting
 
 from service.config import get_config
@@ -480,6 +481,9 @@ async def lifespan(app: FastAPI):
             await pi_flip_task
         except asyncio.CancelledError:
             pass
+        # Output already acknowledged to a bridge, written before the pool closes (v0.7, A6).
+        if not await drain_terminal_output_writes():
+            logger.warning("shutdown: terminal output still queued after 5 s; the remainder is lost")
         # After every background task has stopped, so nothing checks a connection out again.
         await CONNECTION_POOL.aclose()
         CHANGE_FEED.detach()
