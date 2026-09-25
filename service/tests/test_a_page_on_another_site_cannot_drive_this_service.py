@@ -77,7 +77,7 @@ class APageOnAnotherSiteCannotDriveThisServiceTests(unittest.TestCase):
         """The endpoint the audit named. It is the sharpest one, not the only one."""
         response = self.client.post("/api/v1/agents/x/console/input", headers=CROSS)
         self.assertEqual(response.status_code, 403)
-        self.assertIn("cors_origins", response.text,
+        self.assertIn("CORS_ORIGINS in .env", response.text,
                       "the refusal must say how an operator legitimises their own dashboard")
 
     def test_Nodes_own_fetch_headers_do_not_trip_it(self):

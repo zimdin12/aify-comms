@@ -157,7 +157,7 @@ class CrossSiteBrowserMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
         return Response(
-            content='{"error":"Cross-site browser requests are refused. Add the origin to cors_origins in config/service.json if this is your own dashboard."}',
+            content='{"error":"Cross-site browser requests are refused. If this is your own dashboard, add its origin to CORS_ORIGINS in .env (it overrides config/service.json) and restart."}',
             status_code=403,
             media_type="application/json",
         )
