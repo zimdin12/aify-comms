@@ -543,3 +543,36 @@ test("empty and COMPLETE still offers the spawn path", () => {
   assert.match(html, /No sessions yet/);
   assert.match(html, /data-page-jump="environments"/);
 });
+
+// --- a session row can be opened from the keyboard (v0.7 C12) ---------------------------------------
+
+/** Render the rail into a recording DOM and return its HTML. */
+function railHtml() {
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  const els = new Map();
+  const el = () => ({
+    hidden: false, innerHTML: "", textContent: "", value: "", dataset: {}, style: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+  });
+  globalThis.document = {
+    getElementById: (id) => { if (!els.has(id)) els.set(id, el()); return els.get(id); },
+    querySelector: () => el(), querySelectorAll: () => [], createElement: () => el(),
+  };
+  try {
+    renderSessionRail();
+    return els.get("session-rail").innerHTML;
+  } finally {
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+  }
+}
+
+test("A SESSION ROW'S BODY IS A FOCUSABLE BUTTON, so it can be opened without a mouse", () => {
+  // The row was an <article> with a click handler and nothing else: a keyboard user could tick its
+  // checkbox and could not open the session.
+  seed({ sessions: [session("s-1", "coder", "env-a")], agents: [{ id: "coder" }], statusFilter: new Set() });
+  const html = railHtml();
+  assert.match(html, /<div class="session-row-body" role="button" tabindex="0" data-session-select="s-1"/);
+});

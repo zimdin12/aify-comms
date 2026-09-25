@@ -233,3 +233,18 @@ test("handleGlobalInput searches the console the find box sits in, and ignores e
   assert.ok(asked.includes(".console-find-input"), "the search reads the box inside ITS console embed");
   assert.notEqual(summary.textContent, "", "and paints a result count there");
 });
+
+// --- session rows (v0.7 C12) ------------------------------------------------------------------------
+
+test("Enter or Space on a session row opens it, through the same click the mouse sends", () => {
+  withKeys({}, ({ closeInspector, toggleFavorite }) => {
+    for (const k of ["Enter", " "]) {
+      let clicked = 0;
+      const row = { matches: (sel) => sel === "[data-session-select][role=\"button\"]", dataset: { sessionSelect: "s-1" }, click: () => { clicked += 1; } };
+      const event = key(k, { target: row });
+      handleGlobalKeydown(event, closeInspector, toggleFavorite);
+      assert.equal(clicked, 1, `${JSON.stringify(k)} did not open the session`);
+      assert.equal(event.prevented, 1, "Space must not also scroll the page");
+    }
+  });
+});
