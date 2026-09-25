@@ -46,7 +46,9 @@ const CEILINGS = {
   "aify-comms/SKILL.md": 14_915,
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 19_449,
-  "aify-comms/references/operations.md": 11_598,
+  // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
+  // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
+  "aify-comms/references/operations.md": 10_810,
   "aify-comms/references/teamwork.md": 15_981,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
