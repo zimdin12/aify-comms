@@ -12,6 +12,7 @@
 // Six dependencies stay in server.js and are injected: the claim tuning, this machine's identity, and
 // the two functions that end a resident host. Everything else it needs is a module already.
 
+import { followRunOutcome } from "./run-outcome.mjs";
 import { reportAgentHeartbeat, reportTurnBusy } from "./agent-heartbeat.mjs";
 import { httpCall, logTransientOrError } from "./aify-service-endpoint.mjs";
 import { reregisterAgentFromState } from "./auto-registration.mjs";
@@ -325,8 +326,8 @@ export async function runDispatchPass({
       }
     };
 
-    controller.promise
-      .then(async (result) => {
+    followRunOutcome(controller.promise, {
+      succeed: async (result) => {
         const summary = result.summary || "";
         const terminalStatus = result.status === "cancelled" ? "cancelled" : "completed";
         await httpCall("PATCH", `/dispatch/runs/${encodeURIComponent(run.id)}`, {
@@ -348,8 +349,8 @@ export async function runDispatchPass({
             runtimeState: state.info.runtimeState,
           });
         }
-      })
-      .catch(async (error) => {
+      },
+      fail: async (error) => {
         const message = error?.message || String(error);
         // Retry the failure-PATCH up to 3 times with exponential
         // backoff. Without this, a transient connection blip during
@@ -383,11 +384,12 @@ export async function runDispatchPass({
           `[aify] failed to report dispatch failure for ${run.id} after 3 retries; server reconciler will catch it within active_managed_run_stale_minutes:`,
           lastErr?.message || lastErr,
         );
-      })
-      .finally(async () => {
+      },
+      always: async () => {
         await clearTurnBusy();
         ACTIVE_RUNS.delete(agentId);
-      });
+      },
+    });
   }
 }
 
