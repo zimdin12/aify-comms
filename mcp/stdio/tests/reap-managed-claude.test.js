@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import {
-  pidsForResumeHandle,
   procsForResumeHandle,
   parentBelongsToAgent,
   reapPriorManagedClaude,
@@ -31,11 +30,12 @@ const WRAPPERS = {
 };
 const getCmdline = (pid) => WRAPPERS[pid] || "";
 
-// 1. procsForResumeHandle / pidsForResumeHandle match by handle (unchanged).
+// 1. procsForResumeHandle matches by handle.
 {
-  assert.deepEqual(pidsForResumeHandle(PROCS, HANDLE).sort((a, b) => a - b), [100, 200]);
-  assert.deepEqual(pidsForResumeHandle(PROCS, SHARED).sort((a, b) => a - b), [400, 500]);
-  assert.deepEqual(pidsForResumeHandle(PROCS, ""), []);
+  const pids = (handle) => procsForResumeHandle(PROCS, handle).map((p) => p.pid).sort((a, b) => a - b);
+  assert.deepEqual(pids(HANDLE), [100, 200]);
+  assert.deepEqual(pids(SHARED), [400, 500]);
+  assert.deepEqual(pids(""), []);
 }
 
 // 2. parentBelongsToAgent matches --aify-agent (space + = forms), with boundary.

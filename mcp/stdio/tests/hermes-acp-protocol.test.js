@@ -11,7 +11,6 @@ import assert from "node:assert/strict";
 import {
   formatSessionUpdateAsTerminalFrame,
   encodeRequest,
-  encodeNotification,
   encodeResponse,
   encodeError,
   parseMessage,
@@ -120,15 +119,6 @@ import {
   assert.equal(parsed.id, 7);
   assert.equal(parsed.method, "session/prompt");
   assert.equal(parsed.params.sessionId, "s");
-}
-
-// encodeNotification → no id field
-{
-  const wire = encodeNotification("session/update", { sessionId: "s", update: {} });
-  const parsed = JSON.parse(wire.trim());
-  assert.equal(parsed.jsonrpc, "2.0");
-  assert.equal(parsed.method, "session/update");
-  assert.ok(!("id" in parsed), "notifications must not include an id");
 }
 
 // encodeResponse → result wrapped

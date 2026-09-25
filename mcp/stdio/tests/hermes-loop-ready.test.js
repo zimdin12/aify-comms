@@ -17,7 +17,6 @@ import path from "node:path";
 
 import {
   writeLoopReady,
-  loopReadyFresh,
   clearLoopReady,
   loopReadyFile,
 } from "../hermes-loop-ready.js";
@@ -50,26 +49,6 @@ test("writeLoopReady creates aify-hermes-loop-ready-<agent>", () => {
   }
 });
 
-test("loopReadyFresh is true only within the mtime window", () => {
-  const dir = mkTmp();
-  try {
-    writeLoopReady("sc-coder", dir);
-    // Fresh immediately after write.
-    assert.equal(loopReadyFresh("sc-coder", dir, 60_000), true, "just-written marker is fresh");
-
-    // Backdate the mtime well past the window.
-    const f = path.join(dir, "aify-hermes-loop-ready-sc-coder");
-    const old = new Date(Date.now() - 5 * 60_000);
-    fs.utimesSync(f, old, old);
-    assert.equal(loopReadyFresh("sc-coder", dir, 60_000), false, "stale marker is not fresh");
-
-    // A missing marker is not fresh.
-    assert.equal(loopReadyFresh("nobody", dir, 60_000), false, "missing marker is not fresh");
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("writeLoopReady refreshes the mtime on a re-write (claim keeps it live)", () => {
   const dir = mkTmp();
   try {
@@ -77,10 +56,11 @@ test("writeLoopReady refreshes the mtime on a re-write (claim keeps it live)", (
     const f = path.join(dir, "aify-hermes-loop-ready-sc-coder");
     const old = new Date(Date.now() - 5 * 60_000);
     fs.utimesSync(f, old, old);
-    assert.equal(loopReadyFresh("sc-coder", dir, 60_000), false, "backdated marker is stale");
+    const ageMs = () => Date.now() - fs.statSync(f).mtimeMs;
+    assert.ok(ageMs() > 60_000, "control: the marker was backdated");
     // Re-write refreshes mtime -> fresh again.
     writeLoopReady("sc-coder", dir);
-    assert.equal(loopReadyFresh("sc-coder", dir, 60_000), true, "re-write refreshes freshness");
+    assert.ok(ageMs() < 60_000, "re-write refreshes the marker's mtime");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -105,7 +85,6 @@ test("writeLoopReady: empty agentId is a no-op false (never crashes)", () => {
   const dir = mkTmp();
   try {
     assert.equal(writeLoopReady("", dir), false);
-    assert.equal(loopReadyFresh("", dir, 60_000), false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -32,7 +32,6 @@ import {
   CREDENTIAL_DIR_NAME,
   MAX_CREDENTIAL_BYTES,
   REGISTRY_ENV_NAME,
-  credentialRefIn,
   decodeCredentialBytes,
   keyForEndpoint,
   registryEntryFor,
@@ -301,17 +300,17 @@ test("the identity has ONE owner, and the re-export keeps it that way", () => {
   assert.equal(REGISTRY_SERVICE_NAME, SERVICE_NAME, "the owner and its re-export disagree");
 });
 
-test("credentialRefIn reads one service's ref, and tolerates a registry it cannot parse", () => {
+test("registryEntryFor reads one service's ref, and tolerates a registry it cannot parse", () => {
   const registry = JSON.stringify({
     services: { "aify-comms": { credentialRef: "ours.key" }, "aify-dashboard": { credentialRef: "theirs.key" } },
   });
-  assert.equal(credentialRefIn(registry, "aify-comms"), "ours.key");
-  assert.equal(credentialRefIn(registry, "aify-dashboard"), "theirs.key", "it cannot read another entry");
-  assert.equal(credentialRefIn(registry, "not-installed"), "");
+  assert.equal(registryEntryFor(registry, "aify-comms").ref, "ours.key");
+  assert.equal(registryEntryFor(registry, "aify-dashboard").ref, "theirs.key", "it cannot read another entry");
+  assert.equal(registryEntryFor(registry, "not-installed").ref, "");
   // An unreadable registry is a state `service-registry.mjs` deliberately REFUSES to repair, so it
   // can legitimately sit there broken. A resolver that threw would take a bridge down over it.
   for (const junk of ["{{{", "", null, undefined, "[]"]) {
-    assert.equal(credentialRefIn(junk, "aify-comms"), "", `${JSON.stringify(junk)} was not tolerated`);
+    assert.equal(registryEntryFor(junk, "aify-comms").ref, "", `${JSON.stringify(junk)} was not tolerated`);
   }
 });
 

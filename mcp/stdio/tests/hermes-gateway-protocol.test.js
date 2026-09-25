@@ -7,7 +7,6 @@ import {
   buildRenderNoticeFrame,
   buildSessionMostRecentFrame,
   buildSessionListFrame,
-  buildSessionInterruptFrame,
   buildSessionActiveListFrame,
   pickSessionForKey,
   pickSessionById,
@@ -73,12 +72,6 @@ test("buildSessionListFrame is parameter-less", () => {
   const frame = buildSessionListFrame({ id: 2 });
   assert.equal(frame.method, "session.list");
   assert.deepEqual(frame.params, {});
-});
-
-test("buildSessionInterruptFrame targets a specific session", () => {
-  const frame = buildSessionInterruptFrame({ id: 9, sessionId: "sess-1" });
-  assert.equal(frame.method, "session.interrupt");
-  assert.deepEqual(frame.params, { session_id: "sess-1" });
 });
 
 test("buildSessionActiveListFrame is a JSON-RPC 2.0 session.active_list", () => {

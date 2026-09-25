@@ -129,13 +129,6 @@ export function procsForResumeHandle(procs, handle) {
   );
 }
 
-// Back-compat: pids matching the handle (NOT agent-scoped; for tests/inspection).
-export function pidsForResumeHandle(procs, handle) {
-  return procsForResumeHandle(procs, handle)
-    .map((p) => Number(p.pid))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
-}
-
 // Does `parentCmdline` show this is THIS agent's managed claude wrapper?
 // Matches `--aify-agent <agentId>` (space or = form), with a boundary so a
 // longer agent id that merely contains agentId is not matched.

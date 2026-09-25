@@ -40,19 +40,6 @@ export function writeLoopReady(agentId, dir, { fs: fsImpl = fs } = {}) {
   }
 }
 
-// Is the ready marker present AND fresh (mtime within maxAgeMs)? A missing or
-// stale marker → false. Never throws.
-export function loopReadyFresh(agentId, dir, maxAgeMs, { fs: fsImpl = fs } = {}) {
-  if (!sanitizeAgentId(agentId)) return false;
-  try {
-    const stat = fsImpl.statSync(loopReadyFile(agentId, dir));
-    const ageMs = Date.now() - stat.mtimeMs;
-    return ageMs <= Math.max(0, Number(maxAgeMs) || 0);
-  } catch {
-    return false;
-  }
-}
-
 // Remove the ready marker for an agent. Best-effort + idempotent; never throws.
 // Returns true when the marker is known to be gone afterward.
 export function clearLoopReady(agentId, dir, { fs: fsImpl = fs } = {}) {

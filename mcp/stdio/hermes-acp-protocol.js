@@ -58,10 +58,6 @@ export function encodeRequest(id, method, params) {
   return JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
 }
 
-export function encodeNotification(method, params) {
-  return JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n";
-}
-
 export function encodeResponse(id, result) {
   return JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n";
 }
