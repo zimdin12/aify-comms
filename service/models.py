@@ -657,7 +657,8 @@ class AgentConsoleInputRequest(BaseModel):
 
 
 class ClearRequest(BaseModel):
-    target: str  # inbox, shared, agents, all, channels
+    # A CLOSED SET: an unknown target answered 200 ok having deleted nothing (v0.7, A1).
+    target: Literal["inbox", "shared", "agents", "channels", "all"]
     agentId: Optional[str] = None
     olderThanHours: Optional[float] = None
 

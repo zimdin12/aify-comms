@@ -21,6 +21,7 @@ from fastapi import Request
 
 from service.api_core.routing import domain_router
 from service.api_core.ws import _get_ws
+from service.clock import ISO_SECONDS
 from service.db import get_db
 # Imported for the ANNOTATION. Under postponed evaluation a missing model does not fail import --
 # FastAPI demotes the body to a query param and the endpoint 422s. On a DESTRUCTIVE route that
@@ -42,67 +43,63 @@ from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 @router.post("/clear")
 async def clear_data(req: ClearRequest, request: Request):
+    """Bulk delete. With `olderThanHours`, EVERY target keeps what is newer (v0.7, A1): until 0.7.0 the
+    cutoff reached inbox messages only, so `clear(all, olderThanHours=1)` wiped new files and agents.
+    The tables only `all` touches (sessions, spawn records, environments, read receipts) have no single
+    age to honour, so a cutoff leaves them alone rather than guessing."""
     db = await get_db()
     try:
-        cutoff = None
+        cutoff_ms = cutoff_iso = None
         if req.olderThanHours:
-            cutoff = int((time.time() - req.olderThanHours * 3600) * 1000)
+            cutoff_epoch = time.time() - req.olderThanHours * 3600
+            cutoff_ms = int(cutoff_epoch * 1000)
+            cutoff_iso = time.strftime(ISO_SECONDS, time.gmtime(cutoff_epoch))
 
         deleted_messages = 0
         deleted_files = 0
         deleted_agents = 0
+        files_to_unlink: list[Path] = []
 
         if req.target in ("inbox", "all"):
+            where, params = ("to_agent IS NOT NULL", ())
             if req.agentId:
-                if cutoff:
-                    deleted_messages += await _delete_messages_where(
-                        db,
-                        "to_agent = ? AND timestamp < ?",
-                        (req.agentId, cutoff),
-                    )
-                else:
-                    deleted_messages += await _delete_messages_where(db, "to_agent = ?", (req.agentId,))
-            else:
-                if cutoff:
-                    deleted_messages += await _delete_messages_where(
-                        db,
-                        "to_agent IS NOT NULL AND timestamp < ?",
-                        (cutoff,),
-                    )
-                else:
-                    deleted_messages += await _delete_messages_where(db, "to_agent IS NOT NULL")
+                where, params = ("to_agent = ?", (req.agentId,))
+            if cutoff_ms:
+                where, params = (f"{where} AND timestamp < ?", (*params, cutoff_ms))
+            deleted_messages += await _delete_messages_where(db, where, params)
 
         if req.target in ("shared", "all"):
-            # Delete binary files from disk
-            cursor = await db.execute("SELECT file_path FROM shared_artifacts WHERE is_binary = 1")
-            for row in await cursor.fetchall():
-                if row["file_path"]:
-                    p = Path(row["file_path"])
-                    if p.exists(): p.unlink()
-            count_cursor = await db.execute("SELECT COUNT(*) FROM shared_artifacts")
-            deleted_files = (await count_cursor.fetchone())[0]
-            await db.execute("DELETE FROM shared_artifacts")
+            where, params = ("1 = 1", ()) if not cutoff_iso else ("shared_at < ?", (cutoff_iso,))
+            rows = await (await db.execute(f"SELECT file_path, is_binary FROM shared_artifacts WHERE {where}", params)).fetchall()
+            files_to_unlink = [Path(row["file_path"]) for row in rows if row["is_binary"] and row["file_path"]]
+            deleted_files = len(rows)
+            await db.execute(f"DELETE FROM shared_artifacts WHERE {where}", params)
 
         if req.target in ("agents", "all"):
+            where, params = ("1 = 1", ())
             if req.agentId and req.target == "agents":
-                agent_rows = await (await db.execute("SELECT id FROM agents WHERE id = ?", (req.agentId,))).fetchall()
-            else:
-                agent_rows = await (await db.execute("SELECT id FROM agents")).fetchall()
-            agent_ids = [row["id"] for row in agent_rows]
-            for agent_id in agent_ids:
+                where, params = ("id = ?", (req.agentId,))
+            if cutoff_iso:
+                where, params = (f"{where} AND COALESCE(last_seen, '') < ?", (*params, cutoff_iso))
+            agent_rows = await (await db.execute(f"SELECT id FROM agents WHERE {where}", params)).fetchall()
+            for row in agent_rows:
                 deleted_agents += await _remove_agent_record(
                     db,
-                    agent_id,
+                    row["id"],
                     removed_by="clear",
                     reason=f'clear(target="{req.target}")',
                 )
 
         if req.target in ("channels", "all"):
-            await db.execute("DELETE FROM channel_members")
-            deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL")
-            await db.execute("DELETE FROM channels")
+            if cutoff_ms:
+                # Old channel messages go; the channels and their members stay.
+                deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL AND timestamp < ?", (cutoff_ms,))
+            else:
+                await db.execute("DELETE FROM channel_members")
+                deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL")
+                await db.execute("DELETE FROM channels")
 
-        if req.target == "all":
+        if req.target == "all" and not cutoff_ms:
             await db.execute("DELETE FROM read_receipts")
             await db.execute("DELETE FROM agent_sessions")
             await db.execute("DELETE FROM spawn_requests")
@@ -110,6 +107,13 @@ async def clear_data(req: ClearRequest, request: Request):
             await db.execute("DELETE FROM environments")
 
         await db.commit()
+        # Off the disk only once the rows are gone: unlinking first left rows naming missing files
+        # whenever the commit then failed.
+        for path in files_to_unlink:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("clear: could not remove %s", path)
         ws = await _get_ws(request)
         if ws: await ws.broadcast("data_cleared", {"target": req.target})
         return {
