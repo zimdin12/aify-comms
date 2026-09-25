@@ -166,7 +166,7 @@ The cost is that a state-based sweep can race a legitimate transition, so the gu
 3. If the id is **still** unknown, the wrapper says so loudly (`NO AGENT ID: aify turn/status detection is DISABLED`). Anonymous sessions stay legal — a plain claude+comms session is a real use case — they just may never be *silent* again.
 4. **Not fixable at runtime.** `comms_register` writes DB rows; `AIFY_AGENT_ID` is read once at bridge boot. Claude Code's in-app `/resume` picker swaps the conversation *inside* the same process and keeps its env. Only a relaunch repairs identity — `--resume` preserves the conversation, so the cost is a relaunch, not context.
 
-**Still open:** codex has no wrapper-side recovery. Its operator path is covered by (1), but a hand-typed `codex-aify --resume <id>` is still identity-less.
+**Codex has the same recovery.** `codex-aify` (aify-wrapper's `codex-aify.sh.in`) asks the service which codex agent owns a bare `--resume <handle>`, and prints `NO AGENT ID` when none does; it has no local session store to fall back to.
 
 ## Turn state is re-asserted from process truth in BOTH directions — KEEP-FRESH and KEEP-CLEARED (2026-07-13)
 
