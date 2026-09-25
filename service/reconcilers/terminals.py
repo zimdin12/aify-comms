@@ -290,8 +290,3 @@ async def _reconcile_stale_managed_terminals_for_resident_agents(db) -> int:
             (terminal_id,),
         )
     return len(rows)
-
-
-# _prune_terminal_history moved to service/reconcilers/terminal_history.py in v0.5.4 —
-# retention is not reconciliation. The reconcilers here repair rows that stopped describing
-# reality; that one deletes rows nobody will read again.

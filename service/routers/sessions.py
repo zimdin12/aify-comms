@@ -135,14 +135,6 @@ async def _agent_session_dict_live(db, row, *, agent_row=None) -> dict[str, Any]
     return data
 
 
-# _repair_current_session_freshness moved to service/reconcilers/sessions.py in v0.5.4 - session
-# reconciliation belongs to the reconciler; the CALL SITE is unchanged.
-
-
-# _repair_superseded_recovering_sessions moved to service/reconcilers/sessions.py in v0.5.4 - session
-# reconciliation belongs to the reconciler; the CALL SITE is unchanged.
-
-
 @router.get("/sessions")
 async def list_sessions(
     request: Request,

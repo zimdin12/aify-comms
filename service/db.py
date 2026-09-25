@@ -10,8 +10,6 @@ from pathlib import Path
 from service.change_feed import CHANGE_FEED
 from service.db_pool import ConnectionPool
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
-# SCHEMA moved to service/schema.py in v0.5.4 — 431 lines of DDL is data, and this module opens
-# connections. Imported rather than re-exported: `init_db` below is its only reader.
 from service.schema import SCHEMA
 
 SQLITE_BUSY_TIMEOUT_MS = 5000

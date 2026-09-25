@@ -183,10 +183,10 @@ export async function handleVirtualTerminalControl(agentId, terminalId, control)
   throw new Error(`Unsupported virtual-terminal control action: ${action}`);
 }
 
-// Which agent owns a virtual terminal, moved out of server.js in v0.5.4. It belongs here because the
-// map it searches is this module's own, and the runtime allowlist travels with it: the pair is what
-// distinguishes an RPC-backed virtual terminal from a real PTY, and a lookup that ignored the runtime
-// would hand a PTY terminal's input to an agent that never had one.
+// Which agent owns a virtual terminal. The map it searches is this module's own, and the runtime
+// allowlist below travels with it: the pair is what distinguishes an RPC-backed virtual terminal
+// from a real PTY, and a lookup that ignored the runtime would hand a PTY terminal's input to an
+// agent that never had one.
 // Bridge-side runtimes that own a synthesized virtual rpc
 // terminal_session. Must stay aligned with the service-side
 // VIRTUAL_RPC_COMMANDS_BY_RUNTIME in service/api_core/virtual_rpc.py — when a new runtime

@@ -64,9 +64,6 @@ _BALANCED_ALT_SCREEN_RE = re.compile(
 )
 
 
-# The ANSI serialisers (_screen_to_ansi, _line_to_ansi, _cell_sgr, _color_sgr) and their _NAMED
-# colour table moved to service/terminal_ansi.py in v0.5.4 — this module owns mutable screen
-# STATE, they own FORMAT. `_screen_to_ansi` is imported back because `render_snapshot` calls it.
 def _strip_balanced_alt_screens(raw_output: str) -> str:
     return _BALANCED_ALT_SCREEN_RE.sub("", raw_output)
 

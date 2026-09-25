@@ -36,9 +36,6 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Query, Request
 
-# Was a borrow shim (the owner lived in the control plane, which a router cannot import at module
-# level without a cycle). It moved to api_core/dispatch_runs.py in v0.5.4, then on to
-# api_core/send_preflight.py — deciding whether a run is worth creating is not creating one.
 from service.api_core.message_view import CHANNEL_NOTICE_SENDER
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
@@ -66,31 +63,7 @@ router.include_router(_channel_membership_router)
 router.include_router(_channel_send_router)
 
 
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
-# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
-
-
 from service.api_core.message_store import _delete_messages_where  # noqa: E402
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
-# module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
-# a plain import works.
-
-
-
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
-# module level without a cycle. It moved to service/longpoll.py in v0.5.4 — the module that
-# already owned the other waiter registry — so a plain import works.
 
 
 def _normalize_channel_history_where(channel_name: str) -> tuple[str, tuple[Any, ...]]:

@@ -378,7 +378,3 @@ async def _create_dispatch_runs(
         await _append_dispatch_event(db, run_id, "queued", f"{message_type}: {subject}")
         runs.append({"runId": run_id, "targetAgentId": recipient_id, "status": "queued", "requireReply": require_reply})
     return runs
-
-
-# _preflight_live_send_recipients moved to service/api_core/send_preflight.py in v0.5.4 —
-# it decides whether a run is worth creating, which is a different job from creating one.

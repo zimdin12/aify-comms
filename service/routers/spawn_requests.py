@@ -145,25 +145,6 @@ _SPAWN_TERMINAL_STATUSES = {"running", "failed", "cancelled"}
 _SPAWN_MODES = {"managed-warm"}
 
 
-
-
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
-# module level without a cycle. It moved to service/api_core/dispatch_runs.py in v0.5.4.
-
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
-# module level without a cycle. It moved to service/longpoll.py in v0.5.4 — the module that
-# already owned the other waiter registry — so a plain import works.
-
-
-
 @router.get("/spawn-requests")
 async def list_spawn_requests(
     request: Request,

@@ -34,14 +34,6 @@ logger = logging.getLogger("aify_comms.routers.contracts")
 router = domain_router()
 
 
-
-
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which this module cannot import at
-# module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
 from service.api_core.dispatch_sweeps import _run_contract_reminders_once  # noqa: E402
 
 

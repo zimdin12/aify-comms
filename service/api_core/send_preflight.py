@@ -174,33 +174,3 @@ async def _preflight_live_send_recipients(
         launchable.append((recipient_id, execution_mode))
 
     return launchable, not_started
-
-
-
-
-
-
-
-
-
-
-
-
-# _terminal_status_transition moved to service/routers/terminals.py in v0.5.3, then on to
-# service/api_core/terminal_status.py in v0.5.4.
-
-
-
-
-# class TerminalOutputWriteQueue moved to service/terminal_write_queue.py in v0.5.4,
-# with its singleton. It is not an api_core leaf: it owns its own transaction.
-
-
-# TERMINAL_OUTPUT_WRITES moved to service/terminal_write_queue.py in v0.5.4 —
-# the declaration must stay beside the class so a second instance cannot appear.
-#
-# That move left ONE line of the flushing function's body behind, and because comments and blank
-# lines do not close a Python block it landed inside `_preflight_live_send_recipients`, 27 lines
-# after its `return` — unreachable, and the only remaining reference to the name, which is why the
-# now-removed `TERMINAL_OUTPUT_WRITES` import still read as live. Deleted 2026-08-16;
-# `test_no_unreachable_statements.py` is the gate that makes the next one a red test.

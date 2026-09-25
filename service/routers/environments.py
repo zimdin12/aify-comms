@@ -58,12 +58,6 @@ logger = logging.getLogger("aify_comms.routers.environments")
 router = domain_router()
 
 
-
-
-# SUPERSEDE_STOP_STALE_SECONDS moved to service/api_core/superseded_bridge_stops.py in v0.5.4 —
-# it travelled with the drain that was its only reader.
-
-
 def _canonical_runtimes(rows: Any) -> list:
     """Runtime rows with their names put through the shared vocabulary.
 
@@ -764,10 +758,6 @@ async def claim_environment_control(req: EnvironmentControlClaim):
         fallback_s=3.0,
         lock_result={"ok": True, "control": None},
     )
-
-
-# _claim_environment_control_once moved to service/environment_claim.py in v0.5.4 - it owns
-# its own connection and transaction, which is the service-level rule dispatch_claim.py set.
 
 
 @router.patch("/environments/controls/{control_id}")
