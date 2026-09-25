@@ -284,3 +284,30 @@ test("A PASTED IMAGE THAT FAILS TO UPLOAD SAYS SO IN A TOAST, and leaves the dra
     assert.ok(created.some((el) => /Image upload failed: disk full/.test(el.textContent)), "no toast named the failure");
   } finally { dom.restore(); }
 });
+
+// --- the Runs filter leaves the health chip as it found it (v0.7 C19) --------------------------------
+
+test("FILTERING RUNS DOES NOT PAINT THE HEALTH CHIP GREEN, whether the fetch works or fails", async () => {
+  // It set 'live' in green on completion AND in the catch, overwriting an amber 'stale' or
+  // 'reconnecting' with a claim the filter fetch had no standing to make.
+  const dom = recordingDom();
+  globalThis.document.createElement = () => ({ textContent: "", className: "", classList: { add() {}, remove() {} }, setAttribute() {}, addEventListener() {}, remove() {}, appendChild: (c) => c, children: [], firstElementChild: null });
+  globalThis.document.body.appendChild = (c) => c;
+  try {
+    wireGlobalControls(DEPS);
+    const chip = dom.els.get("api-status") || globalThis.document.getElementById("api-status");
+    const change = dom.bound.find((b) => b.on === "run-status-filter" && b.type === "change").fn;
+    for (const outcome of ["fails", "works"]) {
+      chip.textContent = "stale";
+      chip.className = "status-chip warn";
+      chip.title = "Not refreshed: runs.";
+      globalThis.fetch = outcome === "fails"
+        ? async () => { throw new TypeError("Failed to fetch"); }
+        : async () => ({ ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ runs: [] }) });
+      await change({ target: { value: "running" } });
+      assert.equal(chip.textContent, "stale", `the filter fetch ${outcome} and repainted the chip`);
+      assert.equal(chip.className, "status-chip warn");
+      assert.equal(chip.title, "Not refreshed: runs.");
+    }
+  } finally { dom.restore(); }
+});

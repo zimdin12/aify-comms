@@ -89,16 +89,18 @@ export function wireGlobalControls({
   byId('contract-state')?.addEventListener('change', (event) => loadContractsForState(event.target.value));
   byId('contract-category')?.addEventListener('change', renderContracts);
   byId('run-status-filter')?.addEventListener('change', async (event) => {
-    byId('api-status').textContent = 'filtering';
-    byId('api-status').className = 'status-chip muted';
+    // 'filtering' while it runs, then EXACTLY what the chip said before. It used to end on a green
+    // 'live' either way, which overwrote an amber 'stale' or 'reconnecting' with a claim this one
+    // fetch has no standing to make; only the refresh cycle decides the chip.
+    const chip = byId('api-status');
+    const before = chip ? { text: chip.textContent, className: chip.className, title: chip.title } : null;
+    if (chip) { chip.textContent = 'filtering'; chip.className = 'status-chip muted'; }
     try {
       await loadRunsForStatus(event.target.value);
-      byId('api-status').textContent = 'live';
-      byId('api-status').className = 'status-chip ok';
     } catch (error) {
-      byId('api-status').textContent = 'live';
-      byId('api-status').className = 'status-chip ok';
       toast(`Run filter failed: ${error?.message || error}`, 'error');
+    } finally {
+      if (chip && before) { chip.textContent = before.text; chip.className = before.className; chip.title = before.title; }
     }
   });
   byId('run-from-filter')?.addEventListener('change', (e) => { state.runFromFilter = e.target.value; renderRuns(); });
