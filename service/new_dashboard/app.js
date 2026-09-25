@@ -282,7 +282,7 @@ function refreshOpenInspector() {
       if (!el || !drawer || !drawer.contains(el)) return false;
       return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable === true;
     })(),
-    isLoading: !!state.inspector?.loadingMore,
+    isLoading: !!(state.inspector?.loadingMore || state.inspector?.loading),
   });
   if (decision !== 'refresh') return decision;
   const ins = state.inspector || {};

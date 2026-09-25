@@ -48,6 +48,13 @@ const PRISTINE = "fixtures/app.before-settings-fields.js";
 //: entry after it left.
 const CARRIER_EDITS = [
   {
+    // A drawer's FIRST load is in flight too, not only its "load more": the History and run drawers set
+    // `loading` while they fetch, so a refresh no longer starts a second fetch on top of the first
+    // (operator report 2026-09-25: History showed "Loading…" and never finished).
+    now: ["    isLoading: !!(state.inspector?.loadingMore || state.inspector?.loading),"],
+    was: ["    isLoading: !!state.inspector?.loadingMore,"],
+  },
+  {
     // An unset colour renders as its theme's preset, and comparing that preset to the stored '' sent
     // it on every save. The change filter now lives in theme.js, beside the presets it has to know.
     now: ["  for (const key of Object.keys(payload)) if (settingUnchanged(key, payload[key], state.settings, payload.dashboard_theme)) delete payload[key]; // send only what changed (theme.js)"],
@@ -1866,53 +1873,87 @@ const EXTRACTIONS = [
         // on 149. The logic moved to the exported `spawnRecordLineage`, which is a NEW declaration
         // in the module and therefore not part of any span here.
         editedSince: [
-        // No longer pre-escapes a label renderStatusChip escapes again: it rendered `a & b` as `a &amp;amp; b`.
+        // REWRITTEN 2026-09-25, not patched, so declared as ONE edit of the whole body. The six entries
+        // it replaces (lineage via spawnRecordLineage, the double-escaped status label, requested-by)
+        // are all inside it. The rewrite: ask the service by agentId, keep the drawer's content on a
+        // refresh, mark `loading` for the refresh guard, and drop an answer for a drawer no longer open.
         {
           was: [
+            "  byId('inspector-content').innerHTML = `<div class=\"agent-drawer\"><div class=\"agent-drawer-head\"><strong>History · ${esc(agentId)}</strong></div><p class=\"subtle\">Loading…</p></div>`;",
+            "  byId('inspector')?.classList.add('open');",
+            "  byId('inspector')?.classList.remove('run-inspector-sheet');",
+            "  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId };",
+            "  let rows = [];",
+            "  try {",
+            "    const res = await api('/spawn-requests');",
+            "    const reqs = res.spawnRequests || res.requests || res || [];",
+            "    rows = (Array.isArray(reqs) ? reqs : []).filter((r) => {",
+            "      const m = r.metadata || {};",
+            "      return m.continuedFromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;",
+            "    }).sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));",
+            "  } catch (err) {",
+            "    byId('inspector-content').innerHTML = `<div class=\"agent-drawer\"><div class=\"agent-drawer-head\"><strong>History · ${esc(agentId)}</strong></div><p class=\"subtle\">Could not load spawn records: ${esc(String(err?.message || err))}</p></div>`;",
+            "    return;",
+            "  }",
+            "  const body = rows.length ? rows.map((r) => {",
+            "    const m = r.metadata || {};",
+            "    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';",
+            "    return `<div class=\"history-row\">",
             "      <div class=\"history-head\"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: esc(r.status || 'queued'), why: `Spawn request ${r.status || 'queued'}.` })}</div>",
+            "      <dl class=\"agent-drawer-kv\">",
+            "        <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>",
+            "        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>",
+            "        ${m.continuedFromAgentId ? `<dt>From agent</dt><dd>${esc(m.continuedFromAgentId)}</dd>` : ''}",
+            "        ${m.continuedFromSessionId ? `<dt>From session</dt><dd class=\"clip\">${esc(m.continuedFromSessionId)}</dd>` : ''}",
+            "        ${r.subject ? `<dt>Subject</dt><dd class=\"clip\">${esc(r.subject)}</dd>` : ''}",
+            "      </dl></div>`;",
+            "  }).join('') : '<div class=\"empty-state\"><span class=\"empty-icon\">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';",
+            "  byId('inspector-content').innerHTML = `<div class=\"agent-drawer\"><div class=\"agent-drawer-head\"><strong>History · ${esc(agentId)}</strong></div><p class=\"subtle\">Compact/continue lineage from spawn records.</p>${body}</div>`;",
           ],
           now: [
+            "  const showing = state.inspector?.kind === 'history' && state.inspector.agentId === agentId && state.inspector.loaded;",
+            "  if (!showing) byId('inspector-content').innerHTML = historyFrame(agentId, '<p class=\"subtle\">Loading…</p>');",
+            "  byId('inspector')?.classList.add('open');",
+            "  byId('inspector')?.classList.remove('run-inspector-sheet');",
+            "  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId, loading: true };",
+            "  const stillShowing = () => state.inspector?.kind === 'history' && state.inspector.agentId === agentId;",
+            "  let rows = [];",
+            "  let truncated = false;",
+            "  try {",
+            "    const res = await api(`/spawn-requests?agentId=${encodeURIComponent(agentId)}&limit=${HISTORY_LIMIT}`);",
+            "    const reqs = res.spawnRequests || res.requests || res || [];",
+            "    truncated = Boolean(res && res.truncated);",
+            "    rows = (Array.isArray(reqs) ? reqs : []).filter((r) => {",
+            "      // An agent's history is the records it CAME FROM as well as the ones that produced it. The",
+            "      // service already filters by both; this keeps an older service's unfiltered answer honest.",
+            "      const { fromAgentId } = spawnRecordLineage(r);",
+            "      return fromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;",
+            "    }).sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));",
+            "  } catch (err) {",
+            "    if (!stillShowing()) return;",
+            "    state.inspector.loading = false;",
+            "    byId('inspector-content').innerHTML = historyFrame(agentId, `<p class=\"subtle\">Could not load spawn records: ${esc(String(err?.message || err))}</p>`);",
+            "    return;",
+            "  }",
+            "  if (!stillShowing()) return;",
+            "  state.inspector.loading = false;",
+            "  state.inspector.loaded = true;",
+            "  const body = rows.length ? rows.map((r) => {",
+            "    const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);",
+            "    return `<div class=\"history-row\">",
             "      <div class=\"history-head\"><strong>${esc(mode)}</strong>${renderStatusChip(r.status || 'queued', { label: r.status || 'queued', why: `Spawn request ${r.status || 'queued'}.` })}</div>",
+            "      <dl class=\"agent-drawer-kv\">",
+            "        <dt>When</dt><dd>${esc(relTime(r.createdAt || r.created_at))} ago</dd>",
+            "        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>",
+            "        <dt>Requested by</dt><dd>${esc(requestedBy || 'not recorded')}${selfRequested ? ' <span class=\"subtle\">(itself)</span>' : ''}</dd>",
+            "        ${fromAgentId ? `<dt>From agent</dt><dd>${esc(fromAgentId)}</dd>` : ''}",
+            "        ${fromSessionId ? `<dt>From session</dt><dd class=\"clip\">${esc(fromSessionId)}</dd>` : ''}",
+            "        ${r.subject ? `<dt>Subject</dt><dd class=\"clip\">${esc(r.subject)}</dd>` : ''}",
+            "      </dl></div>`;",
+            "  }).join('') : '<div class=\"empty-state\"><span class=\"empty-icon\">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';",
+            "  const more = truncated ? `<p class=\"subtle\">Showing the newest ${HISTORY_LIMIT} records; older ones exist.</p>` : '';",
+            "  byId('inspector-content').innerHTML = historyFrame(agentId, `<p class=\"subtle\">Compact/continue lineage from spawn records.</p>${body}${more}`);",
           ],
-        },
-        {
-          was: [
-          "      const m = r.metadata || {};",
-          "      return m.continuedFromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;",
-        ],
-          now: [
-          "      // An agent's history is the records it CAME FROM as well as the ones that produced it.",
-          "      const { fromAgentId } = spawnRecordLineage(r);",
-          "      return fromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;",
-        ],
-        },
-        {
-          was: [
-          "    const m = r.metadata || {};",
-          "    const mode = m.splitIdentity ? 'Continue-as' : m.compactMode === 'handoff' ? 'Compact' : 'Spawn';",
-        ],
-          now: [
-          "    const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);",
-        ],
-        },
-        {
-          was: [
-          "        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>",
-        ],
-          now: [
-          "        <dt>New agent</dt><dd>${esc(r.agentId || r.agent_id || '—')}</dd>",
-          "        <dt>Requested by</dt><dd>${esc(requestedBy || 'not recorded')}${selfRequested ? ' <span class=\"subtle\">(itself)</span>' : ''}</dd>",
-        ],
-        },
-        {
-          was: [
-          "        ${m.continuedFromAgentId ? `<dt>From agent</dt><dd>${esc(m.continuedFromAgentId)}</dd>` : ''}",
-          "        ${m.continuedFromSessionId ? `<dt>From session</dt><dd class=\"clip\">${esc(m.continuedFromSessionId)}</dd>` : ''}",
-        ],
-          now: [
-          "        ${fromAgentId ? `<dt>From agent</dt><dd>${esc(fromAgentId)}</dd>` : ''}",
-          "        ${fromSessionId ? `<dt>From session</dt><dd class=\"clip\">${esc(fromSessionId)}</dd>` : ''}",
-        ],
         },
       ],
       },
@@ -3940,6 +3981,67 @@ const EXTRACTIONS = [
         name: "openRunInspector",
         at: 3361,
         marker: "// openRunInspector moved to ./run-inspector.mjs in v0.5.4.",
+        // A refresh of the run already shown keeps its content and event order, marks `loading` for the
+        // refresh guard, and a late error no longer paints over another drawer (2026-09-25).
+        editedSince: [
+        {
+          was: [
+            "  if (!runId) return;",
+            "  state.inspector = { kind: 'run', runId: String(runId), source, run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId };",
+            "  openInspector({ kind: 'run', runId, source });",
+            "  renderRunInspector();",
+            "  try {",
+            "    const [run, eventPage] = await Promise.all([",
+            "      loadRunDetails(runId),",
+            "      loadRunEvents(runId, { limit: RUN_INSPECTOR_EVENT_LIMIT }),",
+            "    ]);",
+            "    // Still-current check (review finding #7): clicking run B while run A's fetch is in",
+            "    // flight let A's slower response overwrite B's inspector. Bail if superseded.",
+            "    if (state.inspector?.kind !== 'run' || state.inspector.runId !== String(runId)) return;",
+            "    state.inspector.run = run;",
+            "    state.inspector.events = eventPage.events || [];",
+            "    state.inspector.hasMore = Boolean(eventPage.hasMore);",
+            "    renderRunInspector();",
+            "  } catch (error) {",
+            "    byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify({ error: error.message }, null, 2))}</pre>`;",
+            "  }",
+          ],
+          now: [
+            "  if (!runId) return;",
+            "  // A REFRESH OF THE RUN ALREADY SHOWN keeps what is on screen, and the order the operator chose, until",
+            "  // the new answer lands. Every dashboard refresh re-runs this, and resetting `run` to null here drew",
+            "  // \"Loading run inspector...\" each time -- the same flash that left the History drawer looking stuck",
+            "  // (operator report 2026-09-25). `loading` is what the refresh guard reads to skip a second fetch.",
+            "  const previous = state.inspector?.kind === 'run' && state.inspector.runId === String(runId) ? state.inspector : null;",
+            "  state.inspector = {",
+            "    kind: 'run', runId: String(runId), source, run: previous?.run || null, events: previous?.events || [],",
+            "    hasMore: Boolean(previous?.hasMore), loadingMore: false, eventOrder: previous?.eventOrder || 'desc',",
+            "    sourceMessageId, loading: true,",
+            "  };",
+            "  openInspector({ kind: 'run', runId, source });",
+            "  renderRunInspector();",
+            "  // Still-current check (review finding #7): clicking run B while run A's fetch is in flight let A's",
+            "  // slower response overwrite B's inspector. Applied to the error too, which used to paint regardless.",
+            "  const stillShowing = () => state.inspector?.kind === 'run' && state.inspector.runId === String(runId);",
+            "  try {",
+            "    const [run, eventPage] = await Promise.all([",
+            "      loadRunDetails(runId),",
+            "      loadRunEvents(runId, { limit: RUN_INSPECTOR_EVENT_LIMIT }),",
+            "    ]);",
+            "    if (!stillShowing()) return;",
+            "    state.inspector.loading = false;",
+            "    state.inspector.run = run;",
+            "    state.inspector.events = eventPage.events || [];",
+            "    state.inspector.hasMore = Boolean(eventPage.hasMore);",
+            "    renderRunInspector();",
+            "  } catch (error) {",
+            "    if (!stillShowing()) return;",
+            "    state.inspector.loading = false;",
+            "    byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify({ error: error.message }, null, 2))}</pre>`;",
+            "  }",
+          ],
+        },
+        ],
       },
       {
         name: "requestRunControl",

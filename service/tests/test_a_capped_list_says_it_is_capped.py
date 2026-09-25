@@ -71,12 +71,23 @@ def _recent_page_limit() -> str:
 
 
 #: Placeholders the dashboard interpolates into literal paths.
+def _history_limit() -> str:
+    """The history drawer's page size, read from the module that declares it, for the same reason."""
+    source = (DASHBOARD / "inspector-forms.mjs").read_text(encoding="utf-8")
+    found = re.search(r"const HISTORY_LIMIT\s*=\s*(\d+)\s*;", source)
+    assert found, "inspector-forms.mjs no longer declares HISTORY_LIMIT, so this gate cannot resolve its path"
+    return found.group(1)
+
+
 SUBSTITUTIONS = {
     "${encodeURIComponent(name)}": "gate-channel",
     "${encodeURIComponent(state.chat.identity)}": "gate-agent",
     "${RECENT_PAGE_LIMIT}": _recent_page_limit(),
     # The history pager's cursor: a millisecond timestamp, so any real one exercises the same route.
     "${encodeURIComponent(before)}": "1756000000000",
+    # An agent's history asks the spawn listing for that one agent (2026-09-25).
+    "${encodeURIComponent(agentId)}": "gate-agent",
+    "${HISTORY_LIMIT}": _history_limit(),
 }
 
 
@@ -349,10 +360,14 @@ class CappedListSaysItIsCappedTests(FastApiTestCase):
         # A SPEC PER REQUEST: `spawn_spec_id` is NOT NULL and a FOREIGN KEY, so a request without one
         # is refused outright -- the schema saying that a spawn request is a request to run a
         # particular spec, not a free-floating row.
+        # EACH CONTINUED FROM `gate-agent`, so the per-agent history listing
+        # (`/spawn-requests?agentId=gate-agent`) has three rows to truncate as well, through the lineage
+        # branch rather than the produced-agent one.
         self._seed_rows(
-            "INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, workspace, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO spawn_specs (id, agent_id, environment_id, runtime, workspace, metadata, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [(f"gate-spec-{i}", f"gate-spawn-agent-{i}", "gate-env", "claude-code", "C:/gate",
+              '{"continuedFromAgentId": "gate-agent"}',
               "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z") for i in range(3)],
         )
         self._seed_rows(

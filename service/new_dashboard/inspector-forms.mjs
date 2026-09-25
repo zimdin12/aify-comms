@@ -142,6 +142,9 @@ export function openContinueForm(sid, splitIdentity) {
  * `r.metadata` is still consulted as a fallback: it costs one `??` and means a future serialiser that
  * DOES flatten the field needs no change here.
  */
+/** The service's own maximum page for `/spawn-requests`, so one agent's history is one request. */
+const HISTORY_LIMIT = 500;
+
 export function spawnRecordLineage(record = {}) {
   const meta = (record.spawnSpec && record.spawnSpec.metadata) || record.metadata || {};
   const mode = meta.splitIdentity
@@ -166,24 +169,55 @@ export function spawnRecordLineage(record = {}) {
   };
 }
 
+/** The history drawer's frame around whatever it currently says. */
+function historyFrame(agentId, inner) {
+  return `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div>${inner}</div>`;
+}
+
+/**
+ * Open (or refresh) an agent's compact/continue history.
+ *
+ * OPERATOR-REPORTED 2026-09-25: the drawer showed "Loading…" and never finished. Every dashboard
+ * refresh re-runs the open drawer's opener, and this one BLANKED itself first and then fetched a page of
+ * every agent's spawn records to filter here -- so with agents active it was back at "Loading…" before
+ * the answer arrived. Three rules now, the same ones the run inspector needs:
+ *
+ *   * a refresh of the drawer already showing this agent keeps what is on screen until the answer lands;
+ *   * `state.inspector.loading` is set while the fetch is in flight, which the refresh guard reads, so a
+ *     refresh never starts a second one on top of it;
+ *   * an answer that arrives after the operator opened something else is dropped, not painted over it.
+ *
+ * And it asks the service for THIS agent's records (`agentId`), because the unfiltered listing is the
+ * newest 100 rows and an agent spawned before them read as having no history at all.
+ */
 export async function openCompactionHistory(agentId) {
-  byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Loading…</p></div>`;
+  const showing = state.inspector?.kind === 'history' && state.inspector.agentId === agentId && state.inspector.loaded;
+  if (!showing) byId('inspector-content').innerHTML = historyFrame(agentId, '<p class="subtle">Loading…</p>');
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
-  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId };
+  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId, loading: true };
+  const stillShowing = () => state.inspector?.kind === 'history' && state.inspector.agentId === agentId;
   let rows = [];
+  let truncated = false;
   try {
-    const res = await api('/spawn-requests');
+    const res = await api(`/spawn-requests?agentId=${encodeURIComponent(agentId)}&limit=${HISTORY_LIMIT}`);
     const reqs = res.spawnRequests || res.requests || res || [];
+    truncated = Boolean(res && res.truncated);
     rows = (Array.isArray(reqs) ? reqs : []).filter((r) => {
-      // An agent's history is the records it CAME FROM as well as the ones that produced it.
+      // An agent's history is the records it CAME FROM as well as the ones that produced it. The
+      // service already filters by both; this keeps an older service's unfiltered answer honest.
       const { fromAgentId } = spawnRecordLineage(r);
       return fromAgentId === agentId || r.agentId === agentId || r.agent_id === agentId;
     }).sort((a, b) => String(b.createdAt || b.created_at || '').localeCompare(String(a.createdAt || a.created_at || '')));
   } catch (err) {
-    byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p></div>`;
+    if (!stillShowing()) return;
+    state.inspector.loading = false;
+    byId('inspector-content').innerHTML = historyFrame(agentId, `<p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p>`);
     return;
   }
+  if (!stillShowing()) return;
+  state.inspector.loading = false;
+  state.inspector.loaded = true;
   const body = rows.length ? rows.map((r) => {
     const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);
     return `<div class="history-row">
@@ -197,5 +231,6 @@ export async function openCompactionHistory(agentId) {
         ${r.subject ? `<dt>Subject</dt><dd class="clip">${esc(r.subject)}</dd>` : ''}
       </dl></div>`;
   }).join('') : '<div class="empty-state"><span class="empty-icon">🕮</span><strong>No history</strong><p>No compaction or continuation records found for this agent.</p></div>';
-  byId('inspector-content').innerHTML = `<div class="agent-drawer"><div class="agent-drawer-head"><strong>History · ${esc(agentId)}</strong></div><p class="subtle">Compact/continue lineage from spawn records.</p>${body}</div>`;
+  const more = truncated ? `<p class="subtle">Showing the newest ${HISTORY_LIMIT} records; older ones exist.</p>` : '';
+  byId('inspector-content').innerHTML = historyFrame(agentId, `<p class="subtle">Compact/continue lineage from spawn records.</p>${body}${more}`);
 }

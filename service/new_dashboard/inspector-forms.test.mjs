@@ -322,3 +322,81 @@ test('a record with no metadata anywhere does not throw', () => {
     assert.equal(spawnRecordLineage(record).mode, 'Spawn');
   }
 });
+
+// ── the history drawer under a refreshing dashboard (operator report 2026-09-25) ───────────────────
+//
+// Every dashboard refresh re-runs the open drawer's opener. This one blanked itself to "Loading…" and
+// fetched a page of EVERY agent's spawn records, so with agents active it never got to show anything.
+// Each test below holds the answer back, so the in-between state is what is asserted.
+
+function holdHistory(payload) {
+  const held = { url: "", release: null };
+  HISTORY_HANDLER = (req, res) => {
+    held.url = req.url;
+    held.release = () => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(payload)); };
+  };
+  return held;
+}
+
+async function untilAsked(held) {
+  for (let i = 0; i < 200 && !held.release; i += 1) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(held.release, "the drawer never asked the service");
+}
+
+test("the history drawer asks the service for THIS agent's records, not a page of everyone's", async () => {
+  // The unfiltered listing is the newest 100 rows; an agent spawned before them read as "No history".
+  const held = holdHistory({ spawnRequests: [] });
+  state.inspector = {};
+  await renderAsync(async () => {
+    const opening = openCompactionHistory("coder-1");
+    await untilAsked(held);
+    held.release();
+    await opening;
+  });
+  const url = new URL(held.url, "http://x");
+  assert.equal(url.pathname, "/api/v1/spawn-requests");
+  assert.equal(url.searchParams.get("agentId"), "coder-1");
+  assert.equal(url.searchParams.get("limit"), "500");
+});
+
+test("a refresh of the history already shown keeps it on screen until the answer lands", async () => {
+  const held = holdHistory({ spawnRequests: [{ agentId: "coder-1", createdAt: "2026-08-01", metadata: {} }] });
+  state.inspector = { kind: "history", agentId: "coder-1", loaded: true };
+  await renderAsync(async (els) => {
+    els["inspector-content"].innerHTML = "WHAT WAS SHOWING";
+    const opening = openCompactionHistory("coder-1");
+    await untilAsked(held);
+    assert.equal(els["inspector-content"].innerHTML, "WHAT WAS SHOWING", "a refresh must not blank the drawer");
+    assert.equal(state.inspector.loading, true, "the refresh guard reads this to skip a second fetch");
+    held.release();
+    await opening;
+    assert.match(els["inspector-content"].innerHTML, /Compact\/continue lineage/);
+    assert.equal(state.inspector.loading, false);
+  });
+});
+
+test("CONTROL: opening history fresh still says it is loading", async () => {
+  const held = holdHistory({ spawnRequests: [] });
+  state.inspector = { kind: "agent", agentId: "coder-1" };
+  await renderAsync(async (els) => {
+    const opening = openCompactionHistory("coder-1");
+    await untilAsked(held);
+    assert.match(els["inspector-content"].innerHTML, /Loading…/);
+    held.release();
+    await opening;
+  });
+});
+
+test("an answer that arrives after another drawer was opened does not paint over it", async () => {
+  const held = holdHistory({ spawnRequests: [] });
+  state.inspector = {};
+  await renderAsync(async (els) => {
+    const opening = openCompactionHistory("coder-1");
+    await untilAsked(held);
+    state.inspector = { kind: "agent", agentId: "someone-else" };
+    els["inspector-content"].innerHTML = "THE AGENT DRAWER";
+    held.release();
+    await opening;
+    assert.equal(els["inspector-content"].innerHTML, "THE AGENT DRAWER");
+  });
+});

@@ -381,6 +381,66 @@ test("openRunInspector records where the operator came from", async () => {
   } finally { h.restore(); }
 });
 
+// ---- a refresh of the run already shown (operator report 2026-09-25) ------------------------------
+// Every dashboard refresh re-runs the open drawer's opener. This one reset the run to null, so the
+// drawer flashed "Loading run inspector..." each time and lost the operator's event order.
+
+function holdFetch() {
+  // EVERY call is held: the opener asks for the run and its events at once, and answering only the
+  // last one leaves the other pending for ever -- which node reports as cancelled, not as failed.
+  const pending = [];
+  globalThis.fetch = () => new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  return {
+    answer: (run) => pending.splice(0).forEach(({ resolve }) =>
+      resolve({ ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ run, events: [] }) })),
+    fail: () => pending.splice(0).forEach(({ reject }) => reject(new Error("service went away"))),
+  };
+}
+
+test("a refresh of the run already shown keeps it, and its order, until the answer lands", async () => {
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: [{ id: "e0" }], eventOrder: "asc", source: "chat" };
+    const held = holdFetch();
+    const opening = openRunInspector({ runId: "run-1", source: "refresh" });
+    assert.equal(state.inspector.run, RUNNING, "the run on screen must survive the refresh");
+    assert.equal(state.inspector.eventOrder, "asc", "the order the operator chose must survive it too");
+    assert.equal(state.inspector.loading, true, "the refresh guard reads this to skip a second fetch");
+    assert.doesNotMatch(h.els.get("inspector-content").innerHTML, /Loading run inspector/);
+    held.answer({ ...RUNNING, status: "completed" });
+    await opening;
+    assert.equal(state.inspector.loading, false);
+    assert.equal(state.inspector.run.status, "completed");
+  } finally { h.restore(); }
+});
+
+test("CONTROL: opening a different run still starts from an empty drawer", async () => {
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: [{ id: "e0" }], eventOrder: "asc" };
+    const held = holdFetch();
+    const opening = openRunInspector({ runId: "run-2", source: "runs" });
+    assert.equal(state.inspector.run, null, "another run's data must not be shown under this run's id");
+    assert.equal(state.inspector.eventOrder, "desc");
+    held.answer(COMPLETED);
+    await opening;
+  } finally { h.restore(); }
+});
+
+test("a failure that arrives after another drawer was opened does not paint over it", async () => {
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = {};
+    const held = holdFetch();
+    const opening = openRunInspector({ runId: "run-1", source: "runs" });
+    state.inspector = { kind: "agent", agentId: "coder" };
+    h.els.get("inspector-content").innerHTML = "THE AGENT DRAWER";
+    held.fail();
+    await opening;
+    assert.equal(h.els.get("inspector-content").innerHTML, "THE AGENT DRAWER");
+  } finally { h.restore(); }
+});
+
 // ---- the runs list is a PAGE, and four of its five filters cannot reach past it ------------------
 
 test("A TRUNCATED RUNS LIST SAYS WHICH FILTERS REACH THE SERVER", () => {

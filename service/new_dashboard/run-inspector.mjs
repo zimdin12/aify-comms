@@ -184,22 +184,35 @@ export function renderRunInspector() {
 
 export async function openRunInspector({ runId, source = 'programmatic', sourceMessageId = '' } = {}) {
   if (!runId) return;
-  state.inspector = { kind: 'run', runId: String(runId), source, run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId };
+  // A REFRESH OF THE RUN ALREADY SHOWN keeps what is on screen, and the order the operator chose, until
+  // the new answer lands. Every dashboard refresh re-runs this, and resetting `run` to null here drew
+  // "Loading run inspector..." each time -- the same flash that left the History drawer looking stuck
+  // (operator report 2026-09-25). `loading` is what the refresh guard reads to skip a second fetch.
+  const previous = state.inspector?.kind === 'run' && state.inspector.runId === String(runId) ? state.inspector : null;
+  state.inspector = {
+    kind: 'run', runId: String(runId), source, run: previous?.run || null, events: previous?.events || [],
+    hasMore: Boolean(previous?.hasMore), loadingMore: false, eventOrder: previous?.eventOrder || 'desc',
+    sourceMessageId, loading: true,
+  };
   openInspector({ kind: 'run', runId, source });
   renderRunInspector();
+  // Still-current check (review finding #7): clicking run B while run A's fetch is in flight let A's
+  // slower response overwrite B's inspector. Applied to the error too, which used to paint regardless.
+  const stillShowing = () => state.inspector?.kind === 'run' && state.inspector.runId === String(runId);
   try {
     const [run, eventPage] = await Promise.all([
       loadRunDetails(runId),
       loadRunEvents(runId, { limit: RUN_INSPECTOR_EVENT_LIMIT }),
     ]);
-    // Still-current check (review finding #7): clicking run B while run A's fetch is in
-    // flight let A's slower response overwrite B's inspector. Bail if superseded.
-    if (state.inspector?.kind !== 'run' || state.inspector.runId !== String(runId)) return;
+    if (!stillShowing()) return;
+    state.inspector.loading = false;
     state.inspector.run = run;
     state.inspector.events = eventPage.events || [];
     state.inspector.hasMore = Boolean(eventPage.hasMore);
     renderRunInspector();
   } catch (error) {
+    if (!stillShowing()) return;
+    state.inspector.loading = false;
     byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify({ error: error.message }, null, 2))}</pre>`;
   }
 }

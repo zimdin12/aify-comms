@@ -169,6 +169,7 @@ async def list_spawn_requests(
     request: Request,
     status: Optional[str] = None,
     environmentId: Optional[str] = None,
+    agentId: Optional[str] = None,
     limit: int = Query(100, ge=1, le=500),
 ):
     db = await get_db()
@@ -185,6 +186,16 @@ async def list_spawn_requests(
         if environmentId:
             where.append("sr.environment_id = ?")
             params.append(environmentId)
+        if agentId:
+            # ONE AGENT'S HISTORY: the records that produced it and the ones it was continued or
+            # compacted INTO, the two lineage vocabularies `spawnRecordLineage` reads in the dashboard.
+            # Asked here rather than filtered from a page there: the page is the newest 100, so an
+            # agent spawned before them read as having no history at all. `json_valid` first, because
+            # json_extract RAISES on malformed JSON and one bad row would fail this listing for everyone.
+            lineage = "CASE WHEN json_valid(ss.metadata) THEN json_extract(ss.metadata, '$.{}') END"
+            where.append(f"(sr.agent_id = ? OR {lineage.format('continuedFromAgentId')} = ?"
+                         f" OR {lineage.format('compactedFromAgentId')} = ?)")
+            params.extend([agentId] * 3)
         where_sql = "WHERE " + " AND ".join(where) if where else ""
         cursor = await db.execute(
             f"""
