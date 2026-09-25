@@ -96,6 +96,7 @@ class MessageIdempotencyTests(FastApiTestCase):
         # carrying a reused nonce answered ok:true/replayed:true with the first message's id and
         # was silently dropped (comms-senior-dev, v0.7 scan G2).
         self._register("third")
+        parent = self._send(from_agent="recipient", to="sender", body="a parent", type="message").json()["messageId"]
         first = self._send(from_agent="sender", to="recipient", body="the first send",
                            type="message", clientNonce="reused")
         self.assertTrue(first.json().get("ok"), first.text)
@@ -103,6 +104,12 @@ class MessageIdempotencyTests(FastApiTestCase):
             ("another recipient", {"to": "third", "body": "the first send"}),
             ("another body", {"to": "recipient", "body": "a different body"}),
             ("a triggered send", {"to": "recipient", "body": "the first send", "trigger": True}),
+            # v0.7 review: these were not compared, so a retry that changed them got the old message
+            # back and the change was lost -- the reply linkage and priority most of all.
+            ("another reply parent", {"to": "recipient", "body": "the first send", "inReplyTo": parent}),
+            ("another priority", {"to": "recipient", "body": "the first send", "priority": "urgent"}),
+            ("another reply contract", {"to": "recipient", "body": "the first send", "requireReply": True}),
+            ("another delivery option", {"to": "recipient", "body": "the first send", "queueIfBusy": True}),
         ):
             with self.subTest(label):
                 body = {"from_agent": "sender", "type": "message", "clientNonce": "reused", **changed}

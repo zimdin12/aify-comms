@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS messages (
     dispatch_requested INTEGER DEFAULT 0,
     in_reply_to TEXT,
     client_nonce TEXT DEFAULT '',
+    -- The identity of the send a clientNonce names, empty without one. See service/api_core/send_nonce.py.
+    send_fingerprint TEXT DEFAULT '',
     -- WHERE THE SENDER SAYS IT IS. Declared by the sender, never measured: see service/models.py.
     origin TEXT DEFAULT '',
     -- WHICH OTHER MACHINE SENT IT, PROVEN: the label of the external key the request carried

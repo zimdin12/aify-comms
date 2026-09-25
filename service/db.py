@@ -101,6 +101,7 @@ MESSAGE_MIGRATIONS = {
     "client_nonce": "ALTER TABLE messages ADD COLUMN client_nonce TEXT DEFAULT ''",
     "origin": "ALTER TABLE messages ADD COLUMN origin TEXT DEFAULT ''",
     "external_machine": "ALTER TABLE messages ADD COLUMN external_machine TEXT DEFAULT ''",
+    "send_fingerprint": "ALTER TABLE messages ADD COLUMN send_fingerprint TEXT DEFAULT ''",
 }
 
 DISPATCH_CONTROL_MIGRATIONS = {

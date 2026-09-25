@@ -49,7 +49,7 @@ from service.api_core.agent_sessions import _touch_agent
 from service.api_core.external_keys import EXTERNAL_ROUTE, refuse_external_impersonation
 from service.api_core.operator_authz import operator_is_acting
 from service.api_core.dispatch_runs import _create_dispatch_runs
-from service.api_core.send_nonce import prior_send_for_nonce
+from service.api_core.send_nonce import prior_send_for_nonce, send_fingerprint
 from service.api_core.status_refresh import _get_recipient_info
 from service.longpoll import _wake_agent
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
@@ -105,8 +105,17 @@ async def send_message(req: MessageSend, request: Request):
         # messageId so the bridge can retry safely. Scoped per sender; absent nonce = today's
         # behavior (old bridges omit it, so no dedup — fully backward compatible).
         client_nonce = str(req.clientNonce or "").strip()
+        # Resolved BEFORE the nonce is judged: a retry is the same send when it resolves to the same
+        # reply parent and recipients, which is what the stored fingerprint records.
+        resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
+        recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
+        fingerprint = (
+            send_fingerprint(req, in_reply_to=resolved_in_reply_to, recipients=recipients) if client_nonce else ""
+        )
         if client_nonce:
-            prior_id = await prior_send_for_nonce(db, req, client_nonce)
+            prior_id = await prior_send_for_nonce(
+                db, req, client_nonce, fingerprint=fingerprint, in_reply_to=resolved_in_reply_to,
+            )
             if prior_id is not None:
                 return {
                     "ok": True,
@@ -121,7 +130,6 @@ async def send_message(req: MessageSend, request: Request):
                 }
         msg_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
         ts = int(time.time() * 1000)
-        resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
         warnings = []
         if req.inReplyTo and not reply_parent_found:
             warnings.append(
@@ -139,8 +147,6 @@ async def send_message(req: MessageSend, request: Request):
         # only for NEW dispatches (requests/etc.), never for replies.
         # A reply is identified by a resolved inReplyTo OR type=="response".
         is_reply = bool(resolved_in_reply_to) or str(req.type or "").strip().lower() == "response"
-
-        recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
 
         if not recipients:
             return {"ok": False, "error": "No recipients found", "recipients": []}
@@ -188,9 +194,9 @@ async def send_message(req: MessageSend, request: Request):
             # rowcount tells us whether THIS request actually wrote the row. (Empty nonce =
             # not in the index, so nonce-less sends always insert, exactly as before.)
             cursor = await db.execute(
-                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, origin, external_machine, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, send_fingerprint, origin, external_machine, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
-                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce,
+                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce, fingerprint,
                  req.origin, external_machine, ts)
             )
             inserted_rows += cursor.rowcount or 0
@@ -200,7 +206,9 @@ async def send_message(req: MessageSend, request: Request):
         # its ORIGINAL messageId with ok:true and create NO dispatch runs (the winner made
         # them), so a retry that overlapped the first in-flight request never double-sends.
         if client_nonce and inserted_rows == 0:
-            prior_id = await prior_send_for_nonce(db, req, client_nonce)
+            prior_id = await prior_send_for_nonce(
+                db, req, client_nonce, fingerprint=fingerprint, in_reply_to=resolved_in_reply_to,
+            )
             return {
                 "ok": True,
                 "messageId": prior_id or msg_id,
