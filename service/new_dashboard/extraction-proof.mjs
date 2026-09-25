@@ -1,23 +1,13 @@
-// Reconstruction equivalence for a JS extraction — the analogue of the Python extract-method gate.
+// JS parsing helpers shared by gates in both trees, plus the reconstruction prover.
 //
-// The Python side proves a relocation with AST + byte identity against `git show HEAD:`. There is no
-// stdlib JS parser here, so equivalence is defined TEXTUALLY and mechanically instead of by reading a
-// diff: put the extracted spans back where they came from, remove the import line that was added, and
-// require the result to be byte-identical to the pre-slice file.
+// `declarationSpan` / `functionSpan` locate a declaration by name with this repo's own parser, and
+// `moduleScopeBrowserRefs` finds browser globals read at import time. Bridge and dashboard tests import
+// them from here.
 //
-// That direction matters. Comparing the extracted module against the original proves the bodies survived;
-// it says nothing about whether anything ELSE in the 5,000-line file moved — a stray whitespace change, a
-// line deleted two functions away, an import inserted in the wrong place. Reconstruction proves the
-// complement: everything not extracted is untouched.
-//
-// It must fail if an extracted span is the wrong function, if untouched whitespace moves, or if the
-// import-deletion mask is broad enough to hide an edit. There are tests for each of those below.
-//
-// ONE PRISTINE FIXTURE, A GROWING PLAN. The first version of this proof compared against a per-slice
-// snapshot, which went stale the moment the next slice touched app.js — a proof that can only run once is
-// a receipt, not a gate. It now reconstructs app.js as it was before ANY extraction, from the current
-// app.js plus every module extracted since, so it keeps proving the WHOLE extraction history was pure and
-// the fixture never needs updating.
+// THE DASHBOARD'S APP.JS RECONSTRUCTION PROOF IS RETIRED (v0.7): its pristine fixture, its extraction
+// plan and its tests are gone, as the Python analogue went on 2026-09-18. `reconstruct` and the two
+// helpers only it calls (`unwrapBody`, `undoEdits`) stay ONLY because
+// `mcp/stdio/tests/hermes-gateway-extraction.test.js` still imports `reconstruct`; they go with that proof.
 
 const NL = String.fromCharCode(10);
 
@@ -518,61 +508,4 @@ export function moduleScopeBrowserRefs(source) {
     }
   }
   return hits;
-}
-
-/**
- * Keys declared twice inside one entry of the extraction plan.
- *
- * The plan is a JS object literal, so a second `editedSince:` on one entry is legal and SILENT:
- * the later key wins and the earlier declaration disappears. That happened on 2026-08-29 while
- * declaring the destructive-confirmation edits -- `unsendMessage` already carried an `editedSince`
- * three lines below its `name`, past the `at` and `marker` that sit between them, so a generator
- * checking only the following line added a second one. The undeclared edit then surfaced as a
- * whole-file byte mismatch reported thousands of lines from its cause, which is the same failure
- * shape the index-0 refusal above was built for.
- *
- * Scoped to the named plan constant, and it THROWS when that constant is absent: the test file
- * also holds inline fixtures whose objects carry a `name`, and scanning those reported four
- * entries of a fixture as duplicate-keyed. A scan that cannot find its subject must say so rather
- * than widen to whatever else it can see.
- *
- * Depth, not indentation, decides what belongs to an entry -- the plan nests two levels deep in
- * places and an indent rule read a nested `was:` as a sibling key.
- *
- * Returns `[{ name, key, count }]`, empty when the plan is well formed.
- */
-export function duplicateEntryKeys(source, planName = "EXTRACTIONS") {
-  // NOT declarationSpan: it counts brackets inside string literals by design, and the plan's
-  // markers carry code, so its balance reaches zero 188 lines into a 3,000-line array and it
-  // answers null. The plan's own shape is unambiguous instead -- it opens at its declaration and
-  // closes at a `];` in column zero.
-  const all = source.split(NL);
-  const first = all.findIndex((l) => l.startsWith(`const ${planName} = [`));
-  if (first === -1) throw new Error(`duplicateEntryKeys: no ${planName} declaration to scan`);
-  const last = all.findIndex((l, i) => i > first && l === "];");
-  if (last === -1) throw new Error(`duplicateEntryKeys: ${planName} is never closed at column zero`);
-  const lines = all.slice(first, last + 1);
-  const depths = [];
-  let depth = 0;
-  for (const line of lines) {
-    depths.push(depth);
-    for (const ch of line) {
-      if (ch === "{" || ch === "[") depth += 1;
-      else if (ch === "}" || ch === "]") depth -= 1;
-    }
-  }
-  const out = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const m = /^\s*name:\s*"([^"]+)"/.exec(lines[i]);
-    if (!m) continue;
-    const own = depths[i];
-    const counts = new Map();
-    for (let j = i; j < lines.length && depths[j] >= own; j += 1) {
-      if (depths[j] !== own) continue;
-      const key = /^\s*([A-Za-z_$][\w$]*):/.exec(lines[j]);
-      if (key) counts.set(key[1], (counts.get(key[1]) || 0) + 1);
-    }
-    for (const [key, count] of counts) if (count > 1) out.push({ name: m[1], key, count });
-  }
-  return out;
 }

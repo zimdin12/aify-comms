@@ -6,14 +6,14 @@
 // `localStorage` — moving it would make its module, and every module importing it, unloadable outside a
 // browser. That is a decision, not a script; see docs/APP_JS_APIBASE_PACKET.md.
 //
-// One declaration, and that is not a sign it should have stayed. `environment-start-command.mjs`,
-// `terminal-width.mjs` and `inspector-refresh.mjs` are single-purpose modules for the same reason: a
+// One declaration, and that is not a sign it should have stayed. `terminal-width.mjs` and
+// `inspector-refresh.mjs` are single-purpose modules for the same reason: a
 // function only becomes testable once it leaves app.js, which is reachable only by source regex. The
 // counts this renders — how many agents are managed versus resident, and the unread total — are summary
 // arithmetic over live fleet state, and nothing has ever checked them.
 //
 // The declaration is byte-identical to the one that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof strips before comparing. Its leading comments stayed behind in
+// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Its leading comments stayed behind in
 // app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its comments
 // could not round-trip through the proof.
 
@@ -23,7 +23,8 @@ import { sessionEnvironmentId, sessionRuntime } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
-import { esc, relTime } from './util.js';
+import { paintIfChanged } from './drawer-paint.mjs';
+import { esc, relTimeHtml } from './util.js';
 
 export function openIdentityDirectory() {
   const agents = [...state.agents].sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
@@ -38,7 +39,7 @@ export function openIdentityDirectory() {
     const env = session ? (state.environments.find((e) => String(e.id) === String(sessionEnvironmentId(session))) || null) : null;
     const envLabel = (env && (env.label || env.id)) || (session ? sessionEnvironmentId(session) : '') || '';
     const runtime = agent.runtime || (session && sessionRuntime(session)) || '';
-    const lastSeen = agent.lastSeen || '';
+    const lastSeen = relTimeHtml(agent.lastSeen || '');
     return `<tr>
       <td><strong>${esc(id)}</strong></td>
       <td>${esc(agent.role || '')}</td>
@@ -47,7 +48,7 @@ export function openIdentityDirectory() {
       <td class="clip">${esc(envLabel || '—')}</td>
       <td>${renderStatusChip(agent.status || 'unknown', statusWhyContext('agent', agent, agent.status))}</td>
       <td>${Number(agent.unread || 0) || 0}</td>
-      <td>${lastSeen ? esc(relTime(lastSeen)) + ' ago' : '—'}</td>
+      <td>${lastSeen ? `${lastSeen} ago` : '—'}</td>
       <td class="identity-row-actions">
         <button class="ghost" data-agent-details="${esc(id)}" title="Open the agent detail drawer (lifecycle controls)">Details</button>
         <button class="ghost danger" data-agent-remove="${esc(id)}" title="Unregister/forget this identity (tombstones it)">Remove</button>
@@ -59,7 +60,9 @@ export function openIdentityDirectory() {
         <th>ID</th><th>Role</th><th>Runtime</th><th>Mode</th><th>Environment</th><th>Status</th><th>Unread</th><th>Last seen</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="empty-state"><span class="empty-icon">🪪</span><strong>No identities</strong><p>No agents are registered yet.</p></div>';
-  byId('inspector-content').innerHTML = `
+  // PAINTED ONLY WHEN IT CHANGES (v0.7 C13): a rewrite snapped the table's horizontal scroll back to
+  // the left on every refresh. The ages carry their instant, so the ticker keeps them current.
+  paintIfChanged(byId('inspector-content'), `
     <div class="agent-drawer identity-directory">
       <div class="agent-drawer-head"><strong>Identity directory</strong></div>
       <p class="subtle">Identities are the stable mailbox, role, and routing behind chat. Use this directory to audit roles, runtime, session mode, bound environment, and live status — or to forget an offline CLI identity. Runtime control lives on Sessions.</p>
@@ -69,7 +72,7 @@ export function openIdentityDirectory() {
         <dt>Total unread</dt><dd>${unread}</dd>
       </dl>
       ${table}
-    </div>`;
+    </div>`);
   state.inspector = { ...state.inspector, kind: 'identity-directory', runId: '' };
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');

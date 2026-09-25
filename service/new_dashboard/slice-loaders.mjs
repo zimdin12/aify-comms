@@ -39,11 +39,12 @@ export const SLICE_LOADERS = Object.freeze({
   },
   async contracts() {
     const res = await api('/contracts?limit=80');
-    state.contracts = res.contracts || [];
-    state.contractsBase = state.contracts;
-    // A non-default Work-loop State filter stays applied, as it does across a full cycle.
+    state.contractsBase = res.contracts || [];
+    // A non-default Work-loop State filter stays applied, as it does across a full cycle, and the
+    // open set is never on screen under its name while it reloads.
     const selected = byId('contract-state')?.value || '';
     if (selected && selected !== 'open') await loadContractsForState(selected, false);
+    else state.contracts = state.contractsBase;
   },
   async messages() {
     const res = await api(`/messages/recent?limit=${RECENT_PAGE_LIMIT}`);
@@ -72,7 +73,9 @@ export const SLICE_LOADERS = Object.freeze({
     state.environments = asArray(await api('/environments'), 'environments');
   },
   async spawnRequests() {
-    state.spawnRequests = asArray(await api('/spawn-requests?limit=200'), 'spawnRequests');
+    const res = await api('/spawn-requests?limit=200');
+    state.spawnRequests = asArray(res, 'spawnRequests');
+    state.spawnRequestsTruncated = Boolean(res?.truncated);
   },
   async stats() {
     state.stats = (await api('/stats')) || {};

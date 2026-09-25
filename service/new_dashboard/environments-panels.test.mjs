@@ -278,7 +278,7 @@ test("the roots editor flags a dashboard override, under either metadata spellin
     openEnvironmentRootsEditor("e1");
     return els["inspector-content"].innerHTML;
   });
-  assert.ok(plain.includes("using bridge-advertised roots"));
+  assert.ok(plain.includes("using the roots the host advertises"));
 });
 
 test("the roots editor opens for an environment that is not in state", async () => {
@@ -468,4 +468,84 @@ test("a spawn's error is readable in full: the cell wraps and carries the whole 
   const html = spawnRows([{ agentId: "lca-coder", status: "failed", error: reason }]);
   assert.ok(html.includes('class="clip spawn-detail"'), "the error cell is the wrapping kind");
   assert.ok(html.includes(`title="${reason.replace(/"/g, "&quot;").replace(/'/g, "&#39;")}"`), "the whole reason is on the cell's title");
+});
+
+// --- loadSpawnRequests ------------------------------------------------------------------------
+import { setApiBase } from "./api-client.mjs";
+import { loadSpawnRequests } from "./environments-panels.mjs";
+
+test("loadSpawnRequests fetches the table on navigation, and a failed fetch keeps the rows already shown", async () => {
+  const realFetch = globalThis.fetch;
+  const saved = state.spawnRequests;
+  setApiBase("");
+  try {
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder", status: "queued" }] }) });
+    await withDomAsync({ "spawn-requests-list": el() }, async (els) => {
+      await loadSpawnRequests();
+      assert.deepEqual(state.spawnRequests.map((r) => r.id), ["sr-1"]);
+      assert.match(els["spawn-requests-list"].innerHTML, /coder/);
+    });
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    await withDomAsync({ "spawn-requests-list": el() }, async () => {
+      await loadSpawnRequests();
+      assert.deepEqual(state.spawnRequests.map((r) => r.id), ["sr-1"], "a failed fetch must not empty the table");
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+    state.spawnRequests = saved;
+  }
+});
+
+// --- the host tier is aify-env (v0.7 C6) --------------------------------------------------------
+// Since v0.6.1 a bare `aify-comms` refuses with exit 2 and starts nothing, and before that the same
+// paste superseded the live bridge and reaped the fleet. The page's only recovery instruction was it.
+
+test("THE PAGE TELLS THE OPERATOR TO RUN aify-env, never the retired bare aify-comms", async () => {
+  state.environments = [];
+  const empty = withDom({ "environment-list": el() }, null, (els) => { renderRuntime(); return els["environment-list"].innerHTML; });
+  assert.match(empty, /aify-env/, "the empty state names the host tier");
+  assert.doesNotMatch(empty, /aify-comms bridge/);
+
+  state.environments = [{ id: "e1", os: "windows", cwdRoots: ["C:/work"] }];
+  const editor = await withDomAsync({ "inspector-content": el(), inspector: el() }, (els) => {
+    openEnvironmentRootsEditor("e1");
+    return els["inspector-content"].innerHTML;
+  });
+  const command = /<textarea id="env-start-cmd"[^>]*>([^<]*)<\/textarea>/.exec(editor)?.[1] ?? "";
+  assert.match(command, /aify-env doctor/, "the copied command checks the host first");
+  assert.ok(!command.split("\n").some((line) => /^\s*aify-comms\b/.test(line)), `still pastes aify-comms: ${command}`);
+  assert.doesNotMatch(editor, /Reset to bridge roots/, "the reset names the host, not the retired bridge");
+});
+
+test("AN ONLINE ENVIRONMENT OFFERS NO 'Stop bridge': nothing claims that control any more", () => {
+  // `/environments/controls/claim` was drained by the aify-comms environment bridge, deleted in
+  // v0.6.2; aify-env does not claim it. The button queued a stop nobody would ever act on.
+  const online = runtimeHtmlFor({ id: "e1", label: "Box", status: "online" });
+  assert.doesNotMatch(online, /data-env-control="stop"/);
+  assert.doesNotMatch(online, /Stop bridge/);
+  const offline = runtimeHtmlFor({ id: "e2", label: "Gone", status: "offline" });
+  assert.match(offline, /data-env-control="forget"/, "CONTROL: an offline environment can still be forgotten");
+});
+
+// --- a capped spawn table says it is capped (v0.7 C17) --------------------------------------------
+
+test("A CAPPED SPAWN-REQUEST TABLE SAYS SO, like every other capped list here", async () => {
+  // `/spawn-requests?limit=200` shows the newest 200 (about 1,215 existed when this was written), and
+  // the Sessions rail sends people here for "full history". Sessions, runs, contracts and messages
+  // all say when they are a page; this said nothing.
+  const realFetch = globalThis.fetch;
+  const saved = state.spawnRequests;
+  setApiBase("");
+  try {
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder" }], truncated: true }) });
+    const capped = await withDomAsync({ "spawn-requests-list": el() }, async (els) => { await loadSpawnRequests(); return els["spawn-requests-list"].innerHTML; });
+    assert.match(capped, /mb-warn/);
+    assert.match(capped, /Showing the newest 1 spawn request/);
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder" }], truncated: false }) });
+    const whole = await withDomAsync({ "spawn-requests-list": el() }, async (els) => { await loadSpawnRequests(); return els["spawn-requests-list"].innerHTML; });
+    assert.doesNotMatch(whole, /Showing the newest/, "CONTROL: a complete list says nothing");
+  } finally {
+    globalThis.fetch = realFetch;
+    state.spawnRequests = saved;
+  }
 });

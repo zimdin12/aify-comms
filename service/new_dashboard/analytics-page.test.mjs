@@ -74,16 +74,24 @@ test("a first load fetches analytics, usage and consumption", async () => {
   } finally { h.restore(); }
 });
 
-test("A SECOND LOAD INSIDE THE CACHE WINDOW FETCHES NOTHING but still renders", async () => {
-  // This is what keeps the poll off the analytics endpoints. Rendering anyway matters: the page must
-  // still repaint from the cached data, or switching to Analytics between fetches shows an empty page.
+test("A SECOND LOAD INSIDE THE CACHE WINDOW FETCHES NOTHING AND REWRITES NOTHING", async () => {
+  // This is what keeps the poll off the analytics endpoints. It used to re-render all nine panels
+  // from the same data on every render, which on an active fleet is every socket event: hover titles
+  // flickered and the work was wasted. Opening the page and changing the range both force a fetch,
+  // which renders, so nothing is left for the throttled call to paint.
   const h = withAnalytics();
   try {
     await loadAnalytics();
     const afterFirst = h.asked.length;
+    const kpis = h.els.get("analytics-ops");
+    let writes = 0;
+    let html = kpis.innerHTML;
+    Object.defineProperty(kpis, "innerHTML", { get: () => html, set: (v) => { writes += 1; html = v; } });
     await loadAnalytics();
     assert.equal(h.asked.length, afterFirst, "a poll inside the window must not re-fetch");
-    assert.ok(h.els.get("analytics-page") || true);
+    assert.equal(writes, 0, "a poll inside the window re-rendered the page from the same data");
+    await loadAnalytics(true);
+    assert.equal(writes, 1, "CONTROL: a forced load renders");
   } finally { h.restore(); }
 });
 
@@ -151,12 +159,29 @@ test("A FAILED /usage KEEPS THE LAST-GOOD NUMBER AND FLAGS IT STALE", async () =
   } finally { down.restore(); }
 });
 
-test("a failed /analytics still leaves an object, so the renderers have something to read", async () => {
+test("A FIRST LOAD THAT FAILS SAYS SO, rather than showing a quiet fleet of zeros", async () => {
+  // Every fetch was `.catch(() => null)`, the data became `{}`, and the KPI grid rendered 0 Messages,
+  // 0 Runs, 0 Overdue: a failure indistinguishable from an idle fleet. The toast meant to report it
+  // sat in a catch branch Promise.all could never reach.
   const h = withAnalytics({ fail: ["/analytics"] });
   try {
     await loadAnalytics();
-    assert.deepEqual(state.analytics.data, {}, "an empty object, not null");
+    assert.equal(state.analytics.data, null, "no data is not an empty data set");
     assert.equal(state.analytics.loading, false, "the in-flight flag must clear even on failure");
+    assert.equal(h.els.get("analytics-ops").innerHTML, "", "no KPI grid of zeros");
+    assert.match(h.els.get("analytics-traffic").innerHTML, /Could not load analytics \(Failed to fetch\)/);
+  } finally { h.restore(); }
+});
+
+test("A LATER FAILURE KEEPS THE LAST GOOD NUMBERS AND SAYS THEY ARE STALE", async () => {
+  const h = withAnalytics();
+  try {
+    await loadAnalytics(true);
+    assert.doesNotMatch(h.els.get("analytics-traffic").innerHTML, /stale|Could not load/i, "CONTROL: a good load says nothing");
+    globalThis.fetch = async () => { throw new TypeError("down"); };
+    await loadAnalytics(true);
+    assert.deepEqual(state.analytics.data, { traffic: [], health: {} }, "last-good data is kept");
+    assert.match(h.els.get("analytics-traffic").innerHTML, /Last analytics refresh failed \(down\)/);
   } finally { h.restore(); }
 });
 

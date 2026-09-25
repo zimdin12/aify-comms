@@ -130,16 +130,20 @@ test("a second scroll while the first is still in flight does not double-fetch",
   assert.equal(await first, 1);
 });
 
-test("reset forgets the pages so a reload starts from the live window", async () => {
+test("update and remove change only the paged-in row they name", async () => {
+  // The actions' half: the poll never re-reads a paged-in row, so a read toggle or an unsend has to
+  // be applied here or the timeline keeps showing what the server already changed.
   const s = server(30);
   const history = new MessageHistory(s.fetchPage);
   const live = s.all.slice(0, 10);
   await history.loadOlder(live);
-  assert.ok(history.rows.length > 0);
-  history.reset();
-  assert.deepEqual(history.rows, []);
-  assert.equal(history.exhausted, false);
-  assert.deepEqual(history.combined(live).map((m) => m.id), live.map((m) => m.id));
+  const [first, second] = history.rows;
+  history.update(first.id, { read: true });
+  assert.equal(first.read, true);
+  assert.notEqual(second.read, true, "only the named row changes");
+  history.remove(first.id);
+  assert.equal(history.rows.some((m) => m.id === first.id), false);
+  assert.equal(history.rows.some((m) => m.id === second.id), true);
 });
 
 test("a failed page leaves the store loadable rather than stuck", async () => {
@@ -216,4 +220,16 @@ test("canPage says no when there is nothing to page from, and yes when there is"
   assert.equal(history.canPage([]), false, "no cursor, yet paging was offered");
   assert.equal(history.canPage([{ id: "a" }]), false, "a row with no timestamp is not a cursor");
   assert.equal(history.canPage([{ id: "a", timestamp: 1789300000 }]), true, "a real cursor was refused");
+});
+
+// ── createMessageHistory ────────────────────────────────────────────────────────────────────────
+import { RECENT_PAGE_LIMIT, createMessageHistory } from "./message-history.mjs";
+
+test("createMessageHistory pages /messages/recent backwards from the oldest held timestamp", async () => {
+  const asked = [];
+  const history = createMessageHistory(async (url) => { asked.push(url); return { messages: [{ id: "old", timestamp: 5 }], truncated: false }; });
+  const added = await history.loadOlder([{ id: "live", timestamp: 10 }]);
+  assert.equal(added, 1);
+  assert.deepEqual(asked, [`/messages/recent?limit=${RECENT_PAGE_LIMIT}&before=10`],
+    "the poll and the pager share one page size, and the cursor is the oldest live timestamp");
 });

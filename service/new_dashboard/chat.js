@@ -12,6 +12,7 @@ import { fleetPulseHtml } from './analytics.js';
 // a document — and it is the only caller of both.
 import { chatConversationItems, dmMessages, sortChronological } from './chat-select.mjs';
 import { anchoredScrollTop } from './message-history.mjs';
+import { paintIfChanged } from './drawer-paint.mjs';
 import { createMessengerReading } from './messenger-reading.mjs';
 // The pure HTML builders left for `chat-render.mjs` in v0.5.4 — data in, string out, no app state and
 // no DOM. The controller below is their only caller here; `chat.test.mjs` imports them from their new
@@ -148,10 +149,17 @@ export function createChatController(deps) {
     const isChannel = key.startsWith('channel:');
     const id = key.slice(key.indexOf(':') + 1);
     const readOnly = state.chat.identity === 'all';
-    if (titleEl) titleEl.textContent = isChannel ? `#${id}` : id;
+    const title = isChannel ? `#${id}` : id;
+    if (titleEl && titleEl.textContent !== title) titleEl.textContent = title;
     // Channel management actions (join/leave/read) reflect membership for the viewing identity.
+    // PAINTED ONLY WHEN THEY CHANGE, like the rail (v0.7 C10): the chat re-renders on any status or
+    // message anywhere in the fleet, and rebuilding this bar reset a half-chosen channel member.
     const actions = byId('chat-conv-actions');
-    if (actions) {
+    const picking = isChannel && (() => {
+      const select = byId(`chat-add-member-${id}`);
+      return !!select && (!!select.value || document.activeElement === select);
+    })();
+    if (actions && !picking) {
       if (isChannel) {
         const chan = (state.chat.channels || []).find((c) => c.name === id) || {};
         const members = chan.members || [];
@@ -162,7 +170,7 @@ export function createChatController(deps) {
         const addControl = candidates.length
           ? `<select id="chat-add-member-${esc(id)}" class="chat-add-member" aria-label="Add a member to ${esc(id)}"><option value="">+ Add member…</option>${candidates.map((aid) => `<option value="${esc(aid)}">${esc(aid)}</option>`).join('')}</select><button class="ghost" data-channel-add-member="${esc(id)}">Add</button>`
           : '';
-        actions.innerHTML = `<span class="chat-members" title="${esc(members.join(', '))}">${count} member${count === 1 ? '' : 's'}</span>`
+        let actionsHtml = `<span class="chat-members" title="${esc(members.join(', '))}">${count} member${count === 1 ? '' : 's'}</span>`
           + (readOnly ? '' : (isMember
             ? `<button class="ghost" data-chat-channel-action="leave" data-channel="${esc(id)}">Leave</button>`
             : `<button class="ghost" data-chat-channel-action="join" data-channel="${esc(id)}">Join</button>`))
@@ -171,8 +179,9 @@ export function createChatController(deps) {
           + addControl;
         // Member chips with remove buttons below the action row.
         if (members.length) {
-          actions.innerHTML += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}${readOnly ? '' : `<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button>`}</span>`).join('')}</div>`;
+          actionsHtml += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}${readOnly ? '' : `<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button>`}</span>`).join('')}</div>`;
         }
+        paintIfChanged(actions, actionsHtml);
       } else {
         // Messenger | Console segmented toggle — inline terminal access without leaving Chat.
         const view = !readOnly && state.chat.view === 'console' ? 'console' : 'messenger';
@@ -180,10 +189,10 @@ export function createChatController(deps) {
           + `<button class="seg${view === 'messenger' ? ' active' : ''}" data-chat-view="messenger" aria-pressed="${view === 'messenger'}">Messenger</button>`
           + `<button class="seg${view === 'console' ? ' active' : ''}" data-chat-view="console" aria-pressed="${view === 'console'}" title="Open ${esc(id)}'s live terminal inline">Console</button>`
           + `</span>`;
-        actions.innerHTML = toggle
+        paintIfChanged(actions, toggle
           + (readOnly ? '' : `<button class="ghost" data-mark-conv-read="${esc(id)}" title="Mark all messages from ${esc(id)} read">Mark all read</button>`)
           + `<button class="ghost" data-agent-drawer="${esc(id)}">Details</button>`
-          + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`;
+          + `<button class="ghost" data-chat-analytics="${esc(id)}">Analytics</button>`);
       }
     }
     // Console view (DMs only): render the agent's live terminal inline instead of the message
@@ -243,7 +252,8 @@ export function createChatController(deps) {
       : '';
     const searchBanner = msgFilter ? `<p class="chat-search-banner">${msgs.length} of ${allMsgs.length} message${allMsgs.length === 1 ? '' : 's'} match “${esc(msgFilter)}”</p>` : '';
     // A bounded global window can contain no rows for this peer. Recovery still belongs here.
-    timeline.innerHTML = (reading.notice ? `<p class="chat-search-banner${reading.failed ? ' chat-history-error' : ''}"${reading.failed ? ' role="alert"' : ''}>${esc(reading.notice)}${reading.failed ? ' <button type="button" data-messenger-retry>Retry oldest unread</button>' : ''}</p>` : '') + olderBanner + searchBanner + (allMsgs.length
+    // Painted only when it changes, so a message elsewhere in the fleet leaves a selection intact.
+    paintIfChanged(timeline, (reading.notice ? `<p class="chat-search-banner${reading.failed ? ' chat-history-error' : ''}"${reading.failed ? ' role="alert"' : ''}>${esc(reading.notice)}${reading.failed ? ' <button type="button" data-messenger-retry>Retry oldest unread</button>' : ''}</p>` : '') + olderBanner + searchBanner + (allMsgs.length
       ? (msgs.length ? msgs.map((m) => messageHtml(m, state.chat.identity, isChannel)).join('') : '<p class="chat-search-banner">No messages match.</p>')
       : emptyConversationHtml({
           identity: state.chat.identity,
@@ -255,7 +265,7 @@ export function createChatController(deps) {
           // -- and not while the reader is mid-jump or showing its own retry, the same guards the
           // scroll pager applies.
           canLoadOlder: !isChannel && !!history && !msgFilter && !reading.failed && !reading.jumping && history.canPage(state.messages),
-        }));
+        })));
     if (pinBottom || (nearBottom && !msgFilter)) {
       timeline.scrollTop = timeline.scrollHeight;
       // A forced pin (open/send) must land EXACTLY at the bottom. Setting scrollTop right after
@@ -411,8 +421,9 @@ export function createChatController(deps) {
   function close() {
     state.chat.selected = '';
     state.chat.analytics = { agent: '', data: null };
-    state.chat.pulse.data = null; // force a fresh pulse fetch on return
+    state.chat.pulse.data = null; // a stale pulse must not greet the operator on return...
     render();
+    loadFleetPulse(true); // ...and the 12 s throttle must not refuse the refetch that replaces it
     onSelectionChange();
   }
 

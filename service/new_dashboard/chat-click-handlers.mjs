@@ -13,13 +13,14 @@
 // app.js-local callbacks. Passing it leaves every body byte-identical to the branch it left — the name it
 // reads is a parameter now instead of a module-scope const.
 
+import { findLoadedMessage } from './message-store.mjs';
 import { messageId } from './record-fields.mjs';
 import { state } from './state.mjs';
 import { byId, toast } from './ui.js';
 import { disposeActiveXterm } from './xterm-lifecycle.mjs';
 
 export function openChatReply(chatReply, chatController) {
-  const msg = state.messages.find((m) => messageId(m) === chatReply.dataset.chatReply);
+  const msg = findLoadedMessage(chatReply.dataset.chatReply);
   if (msg) {
     state.chat.replyTo = { id: messageId(msg), from: msg.from || 'unknown', subject: msg.subject || '', preview: msg.body || msg.preview || '', conversationKey: state.chat.selected };
     chatController.renderConversation();

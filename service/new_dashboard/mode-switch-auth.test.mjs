@@ -11,7 +11,7 @@ import { state } from './state.mjs';
 function harness(t, replies, confirm = true) {
   const saved = Object.fromEntries(['document', 'localStorage', 'fetch', 'requestAnimationFrame', 'setTimeout'].map(k => [k, globalThis[k]]));
   const store = new Map();
-  const sent = [], dialogs = [], inspections = [], nodes = [];
+  const sent = [], dialogs = [], nodes = [];
   let refreshes = 0, renders = 0;
   const element = () => {
     const listeners = new Map();
@@ -52,10 +52,12 @@ function harness(t, replies, confirm = true) {
   state.agents = [{ id: 'coder /one', sessionMode: 'resident' }];
   state.sessions = [];
   initAgentSessionActions({ chatController: { render() { renders++; } }, closeInspector() {},
-    inspect: (...args) => inspections.push(args), markConversationRead() {}, refresh() {},
+    markConversationRead() {}, refresh() {},
     refreshSoon() { refreshes++; }, renderSessionWorkspace() {}, setPage() {} });
   t.after(() => { Object.assign(globalThis, saved); setOperatorKey(''); setApiBase(''); resetAdoptionForTests(); });
-  return { sent, dialogs, inspections, nodes, store, refreshes: () => refreshes, renders: () => renders };
+  // What the operator is told: toasts land in a host appended to the body (ui.js).
+  const toasts = () => nodes.flatMap((n) => n.children || []).map((c) => c.textContent).filter(Boolean);
+  return { sent, dialogs, toasts, nodes, store, refreshes: () => refreshes, renders: () => renders };
 }
 function requestIsAuthenticated(request, force = false) {
   assert.equal(request.url, 'https://synthetic.invalid/api/v1/agents/coder%20%2Fone/session-mode');
@@ -87,7 +89,7 @@ test('401 prompts for a key without forcing, retrying, or painting success', asy
   assert.equal(h.dialogs.length, 0);
   assert.equal(h.refreshes(), 0);
   assert.equal(state.agents[0].sessionMode, 'resident');
-  assert.equal(h.inspections[0][1].status, 401);
+  assert.ok(h.toasts().includes('Mode switch failed: Invalid key'), `told: ${h.toasts()}`);
 });
 for (const confirmed of [false, true]) test(`409 ${confirmed ? 'confirmation' : 'cancellation'} preserves force consent and credentials`, async t => {
   const h = harness(t, [conflict(), success()], confirmed);
@@ -107,16 +109,16 @@ test('a forced 409 stops after one confirmed retry', async t => {
   assert.equal(h.sent.length, 2);
   requestIsAuthenticated(h.sent[1], true);
   assert.equal(h.dialogs.length, 1);
-  assert.equal(h.inspections[0][1].status, 409);
+  assert.ok(h.toasts().includes('Mode switch failed: Active run synthetic-run'), `told: ${h.toasts()}`);
   assert.equal(h.refreshes(), 0);
 });
-test('network failure is inspected without retry or optimistic state', async t => {
+test('network failure is reported without retry or optimistic state', async t => {
   const h = harness(t, [new TypeError('synthetic network down')]);
   assert.equal(await switchAgentSessionMode('coder /one', 'managed'), null);
   requestIsAuthenticated(h.sent[0]);
   assert.equal(h.sent.length, 1);
   assert.equal(h.dialogs.length, 0);
-  assert.equal(h.inspections[0][1].error, 'synthetic network down');
+  assert.ok(h.toasts().includes('Mode switch failed: synthetic network down'), `told: ${h.toasts()}`);
   assert.equal(state.agents[0].sessionMode, 'resident');
   assert.equal(h.refreshes(), 0);
 });

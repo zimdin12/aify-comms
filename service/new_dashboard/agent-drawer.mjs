@@ -18,7 +18,7 @@
 // `sessionForAgent` comes along because this closure is what reaches it; app.js imports it back.
 //
 // Every declaration is byte-identical to the one that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof strips before comparing. Leading comments stayed behind in
+// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Leading comments stayed behind in
 // app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its comments
 // could not round-trip through the proof.
 
@@ -58,21 +58,26 @@ export function openAgentDrawer(agentId) {
   // case the operator hit.
   const agentStatus = String(agent.status || '').trim().toLowerCase();
   const canStopWorker = !['offline', 'stopped', 'available'].includes(agentStatus);
+  // TWO GROUPS, DESTRUCTIVE LAST (v0.7 C23): the four red buttons sat among the benign ones in one
+  // wrapping row, a misclick apart. "Open in Sessions" is offered only with a session to open: with
+  // none it switched pages onto whatever session was selected before, often another agent's.
   const actions = [
-    canStopWorker
-      ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Kill this agent's live worker. Identity, history and resume handle are kept — it can be started again.">Stop worker</button>`
-      : '',
     sid ? `<button class="ghost" data-agent-control="restart" data-session="${esc(sid)}">Restart</button>` : '',
     sid ? `<button class="ghost" data-agent-control="recreate" data-session="${esc(sid)}" title="Restart with a FRESH context (discards native session)">Reset</button>` : '',
-    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop session</button>` : '',
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
     `<button class="ghost" data-agent-edit="${esc(id)}">Edit…</button>`,
     `<button class="ghost" data-agent-history="${esc(id)}">History</button>`,
+    sid ? `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>` : '',
+  ].filter(Boolean).join('');
+  const dangerActions = [
+    canStopWorker
+      ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Kill this agent's live worker. Identity, history and resume handle are kept — it can be started again.">Stop worker</button>`
+      : '',
+    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop session</button>` : '',
     sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
-    `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>`,
   ].filter(Boolean).join('');
   // Always render this block. When there is no command, say WHY — an absent section is
   // indistinguishable from a broken feature (operator report: "llama-manager does not have cli
@@ -141,8 +146,13 @@ export function openAgentDrawer(agentId) {
         <div id="${AGENT_RUNS_ID}"></div>
       </div>
       <div class="agent-drawer-actions">${actions}</div>
+      <div class="agent-drawer-actions">${dangerActions}</div>
     </div>`;
-  paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)
+  // A REFRESH is this drawer already open on this agent. It re-reads the processes only when the
+  // drawer actually changed: `/terminals?status=all` on every data change was the cost (v0.7 C9).
+  const refreshing = state.inspector?.kind === 'agent' && state.inspector.agentId === id
+    && !!byId('inspector')?.classList.contains('open');
+  const changed = paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)
   // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
   // (see syncInspectorToSelection) instead of leaving a stale panel open on the previous agent.
   state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
@@ -152,7 +162,7 @@ export function openAgentDrawer(agentId) {
   // polled with the other nine endpoints -- "browse" is a deliberate act, so the read is too. Fire
   // and forget: `loadAgentProcesses` renders its own failure into its own panel, and everything
   // else in this drawer stays true whether that read succeeds or not.
-  loadAgentProcesses(id, { api, byId });
+  if (!refreshing || changed) loadAgentProcesses(id, { api, byId });
   fillAgentRuns(id, { byId });
   fillSessionSharing(id, { byId, agents: state.agents });
 }

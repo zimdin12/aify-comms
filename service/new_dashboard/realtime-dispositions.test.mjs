@@ -20,7 +20,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { GRANULAR, IGNORED, dispositionOf, ignoredReason } from './realtime-dispositions.mjs';
+import { GRANULAR, IGNORED, dispositionOf } from './realtime-dispositions.mjs';
 
 const SERVICE = join(process.cwd(), '..', '..', 'service');
 
@@ -113,9 +113,8 @@ test('every ignored event states why, at length', () => {
   for (const [name, reason] of Object.entries(IGNORED)) {
     assert.equal(typeof reason, 'string', name);
     assert.ok(reason.length > 60, `${name} is ignored without a real reason: ${reason}`);
-    assert.equal(ignoredReason(name), reason);
+    assert.equal(dispositionOf(name), 'ignore', name);
   }
-  assert.equal(ignoredReason('agent_status'), null, 'a handled event reported an ignore reason');
 });
 
 test('nothing is ignored that the service never sends', () => {

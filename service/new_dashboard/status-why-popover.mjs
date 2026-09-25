@@ -15,7 +15,7 @@
 // downward — possible at all because `state` and `byId` were given owners earlier in the series.
 //
 // The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof strips before comparing. Their leading comments stayed behind
+// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Their leading comments stayed behind
 // in app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its
 // comments could not round-trip through the proof.
 
@@ -23,7 +23,7 @@
 import { byId } from './ui.js';
 import { esc } from './util.js';
 
-export let _statusWhyReturnFocus = null;
+let _statusWhyReturnFocus = null;
 export function openStatusWhy(trigger) {
   const popover = byId('status-why-popover');
   if (!popover || !trigger) return;

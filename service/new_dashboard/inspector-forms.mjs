@@ -23,6 +23,7 @@
 
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
+import { findLoadedMessage } from './message-store.mjs';
 import { state } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim } from './status.js';
 import { byId, toast } from './ui.js';
@@ -65,8 +66,13 @@ export function openAgentEditForm(agentId) {
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
 export function openMessageDetail(msgId) {
-  const m = state.messages.find((x) => messageId(x) === String(msgId));
-  if (!m) { toast('Message not found in the loaded set', 'warn'); return; }
+  const m = findLoadedMessage(msgId);
+  if (!m) {
+    // A REFRESH of this same drawer keeps what is on screen: the message only left the loaded window.
+    if (state.inspector?.kind === 'message' && String(state.inspector.messageId) === String(msgId)) return;
+    toast('Message not found in the loaded set', 'warn');
+    return;
+  }
   const row = (label, value) => `<dt>${esc(label)}</dt><dd>${value}</dd>`;
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer">
@@ -191,11 +197,13 @@ function historyFrame(agentId, inner) {
  * newest 100 rows and an agent spawned before them read as having no history at all.
  */
 export async function openCompactionHistory(agentId) {
-  const showing = state.inspector?.kind === 'history' && state.inspector.agentId === agentId && state.inspector.loaded;
+  // An error on screen counts as showing too: a refresh keeps it until an answer replaces it.
+  const showing = state.inspector?.kind === 'history' && state.inspector.agentId === agentId
+    && (state.inspector.loaded || state.inspector.error);
   if (!showing) byId('inspector-content').innerHTML = historyFrame(agentId, '<p class="subtle">Loading…</p>');
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
-  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId, loading: true };
+  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId, loading: true, ...(showing ? {} : { loaded: false, error: '' }) };
   const stillShowing = () => state.inspector?.kind === 'history' && state.inspector.agentId === agentId;
   let rows = [];
   let truncated = false;
@@ -212,12 +220,14 @@ export async function openCompactionHistory(agentId) {
   } catch (err) {
     if (!stillShowing()) return;
     state.inspector.loading = false;
+    state.inspector.error = String(err?.message || err);
     byId('inspector-content').innerHTML = historyFrame(agentId, `<p class="subtle">Could not load spawn records: ${esc(String(err?.message || err))}</p>`);
     return;
   }
   if (!stillShowing()) return;
   state.inspector.loading = false;
   state.inspector.loaded = true;
+  state.inspector.error = '';
   const body = rows.length ? rows.map((r) => {
     const { mode, fromAgentId, fromSessionId, requestedBy, selfRequested } = spawnRecordLineage(r);
     return `<div class="history-row">

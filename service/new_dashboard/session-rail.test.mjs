@@ -220,7 +220,7 @@ test("toggleSupersededSessions FLIPS the flag and RE-RENDERS in the same call", 
   // would leave this at zero.
   const el = () => ({
     hidden: false, innerHTML: "", textContent: "", value: "", dataset: {},
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    classList: { add() {}, remove() {}, toggle() {}, contains: (c) => c === "active" },
     setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
   });
@@ -439,7 +439,7 @@ test("a session's WORKSPACE PATH is marked as a path, not styled as prose", () =
     hidden: false, textContent: "", value: "", dataset: {},
     set innerHTML(v) { if (capture) railHtml = v; },
     get innerHTML() { return capture ? railHtml : ""; },
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    classList: { add() {}, remove() {}, toggle() {}, contains: (c) => c === "active" },
     setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
   });
@@ -476,7 +476,7 @@ function renderRailHtml(seedArgs) {
     hidden: false, textContent: "", value: "", dataset: {},
     set innerHTML(v) { if (capture) railHtml = v; },
     get innerHTML() { return capture ? railHtml : ""; },
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    classList: { add() {}, remove() {}, toggle() {}, contains: (c) => c === "active" },
     setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
   });
@@ -542,4 +542,90 @@ test("empty and COMPLETE still offers the spawn path", () => {
   const html = renderRailHtml({ sessions: [], statusFilter: new Set(), truncated: false });
   assert.match(html, /No sessions yet/);
   assert.match(html, /data-page-jump="environments"/);
+});
+
+// --- a session row can be opened from the keyboard (v0.7 C12) ---------------------------------------
+
+/** Render the rail into a recording DOM and return its HTML. */
+function railHtml() {
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  const els = new Map();
+  const el = () => ({
+    hidden: false, innerHTML: "", textContent: "", value: "", dataset: {}, style: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: (c) => c === "active" },
+    setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+  });
+  globalThis.document = {
+    getElementById: (id) => { if (!els.has(id)) els.set(id, el()); return els.get(id); },
+    querySelector: () => el(), querySelectorAll: () => [], createElement: () => el(),
+  };
+  try {
+    renderSessionRail();
+    return els.get("session-rail").innerHTML;
+  } finally {
+    if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document;
+  }
+}
+
+test("A SESSION ROW'S BODY IS A FOCUSABLE BUTTON, so it can be opened without a mouse", () => {
+  // The row was an <article> with a click handler and nothing else: a keyboard user could tick its
+  // checkbox and could not open the session.
+  seed({ sessions: [session("s-1", "coder", "env-a")], agents: [{ id: "coder" }], statusFilter: new Set() });
+  const html = railHtml();
+  assert.match(html, /<div class="session-row-body" role="button" tabindex="0" data-session-select="s-1"/);
+});
+
+// --- the rail is painted when it changes, and only on its own page (v0.7 C14) -----------------------
+
+/** A DOM with a Sessions page that is open or closed, counting writes to the rail and the chips. */
+function countingRail({ sessionsOpen }) {
+  const hadDoc = "document" in globalThis;
+  const prevDoc = globalThis.document;
+  const writes = { "session-rail": 0, "session-status-filter": 0 };
+  const els = new Map();
+  const el = (id) => {
+    let html = "";
+    const node = {
+      hidden: false, textContent: "", value: "", dataset: {}, style: {}, firstElementChild: null,
+      classList: { add() {}, remove() {}, toggle() {}, contains: (c) => c === "active" && sessionsOpen },
+      setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
+      querySelector: () => null, querySelectorAll: () => [], closest: () => null,
+    };
+    Object.defineProperty(node, "innerHTML", {
+      get: () => html,
+      set: (v) => { if (id in writes) writes[id] += 1; html = v; node.firstElementChild = v ? { token: Symbol(id) } : null; },
+    });
+    return node;
+  };
+  globalThis.document = {
+    getElementById: (id) => { if (!els.has(id)) els.set(id, el(id)); return els.get(id); },
+    querySelector: () => null, querySelectorAll: () => [], createElement: () => el("x"),
+  };
+  return { writes, restore: () => { if (hadDoc) globalThis.document = prevDoc; else delete globalThis.document; } };
+}
+
+test("THE RAIL IS NOT REBUILT WHEN NOTHING CHANGED, so focus on a row or chip survives a render", () => {
+  seed({ sessions: [session("s-1", "coder", "env-a", { status: "running" })], agents: [{ id: "coder" }], statusFilter: new Set() });
+  const dom = countingRail({ sessionsOpen: true });
+  try {
+    renderSessionRail();
+    renderSessionRail();
+    assert.equal(dom.writes["session-rail"], 1, "an unchanged render rebuilt the rail");
+    assert.equal(dom.writes["session-status-filter"], 1, "an unchanged render rebuilt the filter chips");
+    state.sessions = [session("s-1", "coder", "env-a", { status: "stopped" })];
+    renderSessionRail();
+    assert.equal(dom.writes["session-rail"], 2, "CONTROL: a changed session repaints");
+  } finally { dom.restore(); }
+});
+
+test("THE RAIL IS NOT BUILT AT ALL WHILE ANOTHER PAGE IS OPEN", () => {
+  // Every render rebuilt up to 80 rows while the operator was on Chat. Opening Sessions renders it.
+  seed({ sessions: [session("s-1", "coder", "env-a")], agents: [{ id: "coder" }], statusFilter: new Set() });
+  const dom = countingRail({ sessionsOpen: false });
+  try {
+    renderSessionRail();
+    assert.equal(dom.writes["session-rail"], 0);
+  } finally { dom.restore(); }
 });

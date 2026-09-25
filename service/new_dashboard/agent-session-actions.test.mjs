@@ -91,7 +91,6 @@ function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {} 
   initAgentSessionActions({
     chatController: { close: () => { calls.chatClosed += 1; }, open: (sel) => { state.chat.selected = sel; }, render() {}, renderRail() {}, renderConversation() {} },
     closeInspector: () => { calls.closeInspector += 1; },
-    inspect: () => {},
     markConversationRead: async (id) => { calls.read.push(id); },
     refresh: async () => { calls.refresh += 1; },
     refreshSoon: () => { calls.refreshSoon += 1; },
@@ -434,7 +433,7 @@ test("a typed environment and runtime are enough on their own", async () => {
 
 test("INIT REFUSES A PARTIAL BAG", () => {
   const full = {
-    chatController: { close() {}, open() {} }, closeInspector() {}, inspect() {}, markConversationRead: async () => {},
+    chatController: { close() {}, open() {} }, closeInspector() {}, markConversationRead: async () => {},
     refresh: async () => {}, refreshSoon() {}, renderSessionWorkspace() {}, setPage() {},
   };
   for (const missing of Object.keys(full)) {
@@ -443,4 +442,77 @@ test("INIT REFUSES A PARTIAL BAG", () => {
     assert.throws(() => initAgentSessionActions(partial), new RegExp(missing), `omitting ${missing} must throw`);
   }
   assert.doesNotThrow(() => initAgentSessionActions(full));
+});
+
+// --- submitAgentEdit ---------------------------------------------------------------------------
+import { submitAgentEdit } from "./agent-session-actions.mjs";
+
+test("submitAgentEdit sends only the fields that changed, and a declined rename sends nothing", async () => {
+  const edited = withActions({ confirm: true, fields: { "edit-agent-id": "coder", "edit-agent-desc": "new words", "edit-agent-handle": "" } });
+  try {
+    await submitAgentEdit("coder");
+    assert.deepEqual(mutating(edited), ["PATCH /agents/coder/description"],
+      "an unchanged handle, no environment and no rename must not be written");
+  } finally { edited.restore(); }
+
+  const declined = withActions({ confirm: false, fields: { "edit-agent-id": "coder-2", "edit-agent-desc": "new words", "edit-agent-handle": "" } });
+  try {
+    await submitAgentEdit("coder");
+    assert.deepEqual(mutating(declined), [], "cancelling the rename prompt must leave every field alone");
+  } finally { declined.restore(); }
+});
+
+// --- a failed mode switch is a toast, not a JSON drawer (v0.7 C16) ------------------------------------
+
+test("A MODE SWITCH THAT CANNOT REACH THE SERVICE SAYS SO IN A TOAST, not a JSON drawer", async () => {
+  const h = withActions();
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  try {
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    await switchAgentSessionMode("coder", "managed");
+    globalThis.fetch = async () => ({ ok: false, status: 500, statusText: "err", json: async () => ({ detail: "boom" }), text: async () => "{}" });
+    await switchAgentSessionMode("coder", "managed");
+    const said = created.map((el) => el.textContent).filter(Boolean);
+    assert.ok(said.some((t) => /Mode switch failed: Failed to fetch/.test(t)), `no toast for the network error: ${said}`);
+    assert.ok(said.some((t) => /Mode switch failed: boom/.test(t)), "the refusal still names its reason");
+  } finally { h.restore(); }
+});
+
+// --- session confirmations wear the red button and use the button's words (v0.7 C21) ------------------
+
+/** Run `act` and return every confirmation dialog's markup it raised. */
+async function dialogsRaisedBy(act, { selected = [] } = {}) {
+  const h = withActions({ confirm: false });
+  const dialogs = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); dialogs.push(el); return el; };
+  try {
+    state.selectedSessionIds = new Set(selected);
+    await act();
+    return dialogs.map((d) => d.innerHTML).filter(Boolean);
+  } finally { h.restore(); }
+}
+
+test("STOPPING OR RESETTING A SESSION ASKS WITH THE DANGER TONE", async () => {
+  // Both end live work, and they asked in the same neutral dialog as a harmless action.
+  for (const action of ["stop", "recreate"]) {
+    const [dialog] = await dialogsRaisedBy(() => requestSessionControl("s1", action));
+    assert.match(dialog, /dialog-danger/, `${action} is not marked destructive`);
+  }
+  const [restart] = await dialogsRaisedBy(() => requestSessionControl("s1", "restart"));
+  assert.doesNotMatch(restart, /dialog-danger/, "CONTROL: a restart keeps the saved backing and is not red");
+});
+
+test("THE BULK RESET ASKS ABOUT A RESET, the word on the button, and in the danger tone", async () => {
+  const [dialog] = await dialogsRaisedBy(() => requestBulkSessionControl("recreate"), { selected: ["s1", "s2"] });
+  assert.match(dialog, /Reset 2 selected sessions/, "the button says Reset; the question said recreate");
+  assert.match(dialog, /dialog-danger/);
+});
+
+test("DELETING A SESSION RECORD NAMES WHICH ONE", async () => {
+  const [dialog] = await dialogsRaisedBy(() => deleteSessionById("s1"));
+  assert.match(dialog, /s1/, "the confirmation named no session");
+  assert.match(dialog, /coder/, "…nor its agent");
 });

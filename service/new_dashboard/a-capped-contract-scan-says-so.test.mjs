@@ -94,7 +94,9 @@ test("the board view carries the notice too", () => {
 // drive the real loader over a stubbed `fetch`.
 
 test("the loader stores the flag the endpoint sent", async () => {
-  harness();
+  // The select reads the state being loaded, as it does when the operator picks it: an answer for a
+  // state no longer selected is dropped (v0.7 C20).
+  harness().get("contract-state").value = "missing_reply";
   const calls = [];
   globalThis.fetch = async (url) => {
     calls.push(String(url));
@@ -117,7 +119,7 @@ test("the loader stores the flag the endpoint sent", async () => {
 test("the loader clears the flag when the endpoint does not set it", async () => {
   // Anti-vacuity, and a real failure mode: a flag that is only ever set to true stays true for the
   // rest of the session, and the notice becomes permanent furniture the operator learns to ignore.
-  harness({ truncated: true });
+  harness({ truncated: true }).get("contract-state").value = "closed";
   globalThis.fetch = async () => ({
     ok: true, status: 200, text: async () => JSON.stringify({ contracts: [], truncated: false }),
   });

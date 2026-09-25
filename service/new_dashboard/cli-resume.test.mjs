@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CLI_RESUME_RUNTIMES,
-  continueCliCommand,
   continueCliDetails,
   continueCliInfo,
   resumeMachineNote,
@@ -158,7 +157,7 @@ test('N11: an UNKNOWN session mode does not assume managed', () => {
   }
 });
 
-// ── continueCliDetails / continueCliCommand, moved from app.js in v0.5.4 ─────────────────────────
+// ── continueCliDetails, moved from app.js in v0.5.4 ─────────────────────────
 //
 // These are the DEFAULT binding of the injection `continueCliInfo` exposes. The seam stays open — the
 // tests above still supply their own readers — but callers no longer re-bind it at each call site, which
@@ -173,20 +172,12 @@ test("continueCliDetails binds the real record readers", () => {
   assert.deepEqual(camel, snake, "both spellings must produce the same details");
 });
 
-test("continueCliCommand is exactly the command from the details", () => {
-  // It exists so a caller wanting only the string does not have to know the shape of the details object.
-  const agent = { id: "agent-a" };
-  const session = { runtime: "claude-code", agentId: "agent-a" };
-  assert.equal(continueCliCommand(agent, session), continueCliDetails(agent, session).command);
-});
-
-test("both survive an unknown runtime and a missing session", () => {
+test("the details survive an unknown runtime and a missing session", () => {
   // Rendered per agent row; one odd record must not blank the drawer.
   for (const session of [undefined, null, {}, { runtime: "nonsense" }]) {
     const details = continueCliDetails({ id: "a" }, session ?? {});
     assert.equal(typeof details, "object", `${JSON.stringify(session)} must still yield details`);
-    const command = continueCliCommand({ id: "a" }, session ?? {});
-    assert.ok(command === "" || typeof command === "string", "the command must be a string or empty");
+    assert.equal(typeof details.command, "string", "the command must be a string, possibly empty");
   }
 });
 

@@ -14,6 +14,16 @@
 const painted = new WeakMap();
 
 /**
+ * The render with every relative-time LABEL blanked, keeping its instant.
+ *
+ * `rel-time-ticker.mjs` keeps those labels current in place, so a label that moved from "5s" to "6s"
+ * is not a change the drawer has to repaint for. Comparing it made nearly every refresh of a recently
+ * seen agent repaint the whole drawer. A new `data-rel-ts` still counts.
+ */
+const REL_TIME_LABEL = /(<span class="rel-time" data-rel-ts="[^"]*">)[^<]*(<\/span>)/g;
+const withoutTickingLabels = (html) => String(html).replace(REL_TIME_LABEL, '$1$2');
+
+/**
  * Write `html` into `host` as the drawer for `agentId`. Returns whether anything was written.
  *
  * @param {Element} host             the drawer content element
@@ -27,14 +37,15 @@ export function paintAgentDrawer(host, agentId, html, keepId) {
   // Still OUR paint only if the root we wrote is still there: the run and message drawers write into
   // the same element, and after one of them an identical agent render must paint again.
   const sameAgent = last && last.agentId === agentId && last.root && host.firstElementChild === last.root;
-  if (sameAgent && last.html === html) return false;
+  const key = withoutTickingLabels(html);
+  if (sameAgent && last.key === key) return false;
   const kept = sameAgent && keepId ? host.querySelector(`#${keepId}`)?.innerHTML : undefined;
   host.innerHTML = html;
   if (kept !== undefined) {
     const panel = host.querySelector(`#${keepId}`);
     if (panel) panel.innerHTML = kept;
   }
-  painted.set(host, { agentId, html, root: host.firstElementChild });
+  painted.set(host, { agentId, key, root: host.firstElementChild });
   return true;
 }
 
@@ -48,8 +59,9 @@ const panelHtml = new WeakMap();
 export function paintIfChanged(panel, html) {
   if (!panel) return false;
   const last = panelHtml.get(panel);
-  if (last && last.html === html && panel.firstElementChild === last.root) return false;
+  const key = withoutTickingLabels(html); // a ticking age is kept current in place (rel-time-ticker.mjs)
+  if (last && last.key === key && panel.firstElementChild === last.root) return false;
   panel.innerHTML = html;
-  panelHtml.set(panel, { html, root: panel.firstElementChild });
+  panelHtml.set(panel, { key, root: panel.firstElementChild });
   return true;
 }

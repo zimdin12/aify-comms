@@ -39,12 +39,26 @@ export async function loadContractsForState(stateVal, render = true) {
   // that scan hits its ceiling the list is a page, not the whole answer. A truncated list that
   // does not admit it is truncated reads as "that is everything" -- which is exactly the defect
   // this endpoint just had, in its summary.
+  //
+  // AN ANSWER FOR A STATE NO LONGER SELECTED IS DROPPED: two quick changes could otherwise land out
+  // of order and leave one filter's rows under the other. And the POLL PATH (render=false) does not
+  // toast -- it re-applies the filter every cycle, so a failing fetch toasted on every one. It
+  // rethrows instead, so the cycle records the slice as failed and retries it.
+  const selected = () => {
+    const el = typeof document === 'undefined' ? null : byId('contract-state');
+    return el ? String(el.value || '').trim() : v;
+  };
   try {
     const res = await api(qs);
+    if (selected() !== v) return;
     state.contracts = res.contracts || [];
     state.contractsTruncated = Boolean(res.truncated);
+  } catch (err) {
+    if (!render) throw err;
+    if (selected() !== v) return;
+    noteSliceFailure('contract filter');
+    toast(`Load contracts failed: ${err?.message || err}`, 'error');
   }
-  catch (err) { noteSliceFailure('contract filter'); toast(`Load contracts failed: ${err?.message || err}`, 'error'); }
   if (render) renderContracts();
 }
 
@@ -175,7 +189,7 @@ export async function requestBulkDiagnosticAction(action) {
     return;
   }
   if (action === 'close') {
-    if (!await uiConfirm(`Close ${selected.length} selected diagnostics item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
+    if (!await uiConfirm(`Close ${selected.length} selected Work item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
     for (const item of selected) {
       if (item.kind === 'contract') {
         await closeWorkContract(item.id, false, false);
@@ -183,8 +197,8 @@ export async function requestBulkDiagnosticAction(action) {
         await patchRun(item.id, {
           status: 'completed',
           requireReply: false,
-          summary: 'Closed from Diagnostics by dashboard operator.',
-          appendEvent: 'Closed from Diagnostics by dashboard operator.',
+          summary: 'Closed from Work by dashboard operator.',
+          appendEvent: 'Closed from Work by dashboard operator.',
           eventType: 'operator_closed',
         });
       }

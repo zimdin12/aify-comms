@@ -12,10 +12,7 @@ import { esc } from './util.js';
 
 // WHAT THE SERVICE IS BUILT FROM, remembered by the module that already fetches it.
 //
-// It lives here rather than in `state` for two reasons. This module is the only thing that reads
-// `/version`, so it is state with an owner rather than state at large -- and `state` is
-// reconstructed byte-for-byte by extraction-proof.test.mjs, so a field added there is a change
-// outside a declared span.
+// It lives here rather than in `state` because this module is the only thing that reads `/version`, so it is state with an owner rather than state at large.
 //
 // EMPTY UNTIL A FETCH SUCCEEDS, and empty is never compared against. A reader that treated the
 // absence of a build as a mismatch would warn on every dashboard load before the first poll.

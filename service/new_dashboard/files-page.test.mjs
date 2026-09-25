@@ -33,3 +33,16 @@ test("it asks for the Files page specifically, not whichever page is active", ()
   const doc = { getElementById: (id) => (id === "page-chat" ? pageEl(["page", "active"]) : null) };
   assert.equal(shouldLoadFiles(doc), true, "no #page-files element, so it cannot tell -- fetch");
 });
+
+import { shouldLoadForPage } from "./files-page.mjs";
+
+test("shouldLoadForPage loads only for the open page, and fails open when it cannot tell", () => {
+  const page = (active) => ({ classList: { contains: (c) => c === "active" && active } });
+  const doc = (els) => ({ getElementById: (id) => els[id] || null });
+  assert.equal(shouldLoadForPage("environments", doc({ "page-environments": page(true) })), true);
+  assert.equal(shouldLoadForPage("environments", doc({ "page-environments": page(false) })), false,
+    "a closed page does not pay for its slice");
+  assert.equal(shouldLoadForPage("environments", doc({})), true, "a missing element is not evidence of a closed page");
+  assert.equal(shouldLoadForPage("environments", null), true);
+  assert.equal(shouldLoadForPage("", doc({})), true);
+});

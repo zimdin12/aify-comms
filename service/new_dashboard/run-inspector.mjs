@@ -118,7 +118,12 @@ export function renderRuns() {
 export function renderRunInspector() {
   const run = state.inspector.run;
   if (!run) {
-    byId('inspector-content').innerHTML = '<div class="run-inspector-loading">Loading run inspector...</div>';
+    // A run that could not be loaded says so in a sentence, and keeps saying it across refreshes
+    // rather than flashing "Loading" and a JSON blob each time (a pruned run 404s for ever).
+    const failed = state.inspector.error;
+    byId('inspector-content').innerHTML = failed
+      ? `<p class="subtle">Could not load run ${esc(state.inspector.runId)}: ${esc(failed)}</p>`
+      : '<div class="run-inspector-loading">Loading run inspector...</div>';
     return;
   }
   const statusContext = runStatusContext(run);
@@ -192,7 +197,7 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
   state.inspector = {
     kind: 'run', runId: String(runId), source, run: previous?.run || null, events: previous?.events || [],
     hasMore: Boolean(previous?.hasMore), loadingMore: false, eventOrder: previous?.eventOrder || 'desc',
-    sourceMessageId, loading: true,
+    sourceMessageId, loading: true, error: previous?.error || '',
   };
   openInspector({ kind: 'run', runId, source });
   renderRunInspector();
@@ -206,15 +211,34 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
     ]);
     if (!stillShowing()) return;
     state.inspector.loading = false;
+    state.inspector.error = '';
     state.inspector.run = run;
-    state.inspector.events = eventPage.events || [];
-    state.inspector.hasMore = Boolean(eventPage.hasMore);
+    const merged = keepLoadedEvents(eventPage, previous?.events || []);
+    state.inspector.events = merged.events;
+    state.inspector.hasMore = merged.hasMore;
     renderRunInspector();
   } catch (error) {
     if (!stillShowing()) return;
     state.inspector.loading = false;
-    byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify({ error: error.message }, null, 2))}</pre>`;
+    state.inspector.error = String(error?.message || error || 'request failed');
+    renderRunInspector();
   }
+}
+
+/**
+ * A refresh's first page, with the older events the operator already loaded kept below it.
+ *
+ * A refresh re-fetches page one. Replacing the list with it truncated the timeline to one page and reset
+ * the scroll on every data change, undoing "Load more". The events held below the new page are still
+ * true, and they are in order after it in either direction, so they stay; the end-of-list flag is then
+ * theirs rather than page one's.
+ */
+function keepLoadedEvents(firstPage, held) {
+  const events = firstPage.events || [];
+  const seen = new Set(events.map((e) => e?.id));
+  const tail = held.filter((e) => !seen.has(e?.id));
+  if (!tail.length || held.length <= events.length) return { events, hasMore: Boolean(firstPage.hasMore) };
+  return { events: [...events, ...tail], hasMore: Boolean(state.inspector.hasMore) };
 }
 
 export async function requestRunControl(runId) {
@@ -283,30 +307,44 @@ export async function handleRunInspectorControl(action) {
   } catch (err) { toast(`Run ${action} failed: ${err?.message || err}`, 'error'); }
 }
 
+// A page that lands after the operator opened another run, or flipped the order, belongs to a view
+// that is no longer on screen: appending it put run A's events under run B's header.
+const stillPaging = (runId, order) => state.inspector?.kind === 'run' && state.inspector.runId === runId
+  && state.inspector.eventOrder === order;
+
 export async function loadMoreRunEvents() {
   if (!state.inspector.runId || state.inspector.loadingMore) return;
-  state.inspector.loadingMore = true;
-  const last = state.inspector.events[state.inspector.events.length - 1];
+  const inspector = state.inspector;
+  const { runId, eventOrder: order } = inspector;
+  inspector.loadingMore = true;
+  const last = inspector.events[inspector.events.length - 1];
   try {
-    const page = await loadRunEvents(state.inspector.runId, {
-      before: last?.id || '',
-      order: state.inspector.eventOrder,
-      limit: RUN_INSPECTOR_EVENT_LIMIT,
-    });
+    const page = await loadRunEvents(runId, { before: last?.id || '', order, limit: RUN_INSPECTOR_EVENT_LIMIT });
+    if (!stillPaging(runId, order)) return;
     state.inspector.events = [...state.inspector.events, ...(page.events || [])];
     state.inspector.hasMore = Boolean(page.hasMore);
     renderRunInspector();
+  } catch (err) {
+    if (stillPaging(runId, order)) toast(`Load more failed: ${err?.message || err}`, 'error');
   } finally {
-    state.inspector.loadingMore = false;
+    inspector.loadingMore = false;
   }
 }
 
 export async function toggleRunEventOrder() {
   if (!state.inspector.runId) return;
-  state.inspector.eventOrder = state.inspector.eventOrder === 'desc' ? 'asc' : 'desc';
+  const runId = state.inspector.runId;
+  const order = state.inspector.eventOrder === 'desc' ? 'asc' : 'desc';
+  state.inspector.eventOrder = order;
   state.inspector.events = [];
-  const page = await loadRunEvents(state.inspector.runId, { order: state.inspector.eventOrder, limit: RUN_INSPECTOR_EVENT_LIMIT });
-  state.inspector.events = page.events || [];
-  state.inspector.hasMore = Boolean(page.hasMore);
+  try {
+    const page = await loadRunEvents(runId, { order, limit: RUN_INSPECTOR_EVENT_LIMIT });
+    if (!stillPaging(runId, order)) return;
+    state.inspector.events = page.events || [];
+    state.inspector.hasMore = Boolean(page.hasMore);
+  } catch (err) {
+    if (!stillPaging(runId, order)) return;
+    toast(`Loading events failed: ${err?.message || err}`, 'error');
+  }
   renderRunInspector();
 }

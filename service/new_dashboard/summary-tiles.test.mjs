@@ -146,8 +146,8 @@ test("KNOWN GAP: renderMetrics THROWS when its host is absent, unlike its two si
   // NOT LIVE TODAY: `#metrics` is present in index.html, and all three run on the same poll. It is a
   // latent inconsistency, not a current failure — but the two siblings guard for exactly this reason.
   //
-  // NOT FIXED HERE, deliberately: this slice moves the declaration BYTE-IDENTICALLY and the reconstruction
-  // proof compares it against the pristine fixture, so adding the guard would fail the proof. Pinned as
+  // NOT FIXED when found, because the reconstruction proof then forbade editing a moved body. That proof
+  // was retired in v0.7, so this is now an ordinary fix. Pinned as
   // current behaviour; whoever adds the guard will see this fail and delete it on purpose.
   seed({});
   const had = "document" in globalThis;

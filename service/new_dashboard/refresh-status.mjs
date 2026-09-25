@@ -89,11 +89,8 @@ export function noteSliceFailure(name) {
 
 // ONE CYCLE OF MEMORY, owned here.
 //
-// It lives in this module rather than in `state` or in refresh-cycle's module scope, for two
-// reasons. The module that decides what counts as stale is the one that needs the history, and it
-// has exactly one reader — so this is state with an owner, not state at large. And `state` is
-// reconstructed byte-for-byte from the pre-extraction app.js by extraction-proof.test.mjs, so a
-// field added there is a change outside a declared span; the gate caught that on the first attempt.
+// It lives in this module rather than in `state` or in refresh-cycle's module scope: the module that
+// decides what counts as stale is the one that needs the history, and it has exactly one reader — so this is state with an owner, not state at large.
 let previousFailures = [];
 
 /** Forget the history. For tests that need a defined starting point rather than the last one's. */

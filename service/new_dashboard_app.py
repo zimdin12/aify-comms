@@ -48,8 +48,8 @@ class AssetsOnly(StaticFiles):
 
     The modules the browser loads live beside their own tests and one very large fixture, and the
     mount published all of it. Measured 2026-08-25 against the running service: 88 `*.test.mjs`
-    files (988 KB) and `fixtures/app.before-settings-fields.js` (273 KB, a whole historical copy of
-    app.js) were reachable at /assets/ and returned 200. That is 1,262 KB of test source on a
+    files (988 KB) and a 273 KB fixture holding a whole historical copy of app.js (retired in v0.7)
+    were reachable at /assets/ and returned 200. That is 1,262 KB of test source on a
     service compose starts with `--host 0.0.0.0`, so it is not localhost-only.
 
     No page requests any of it: a cold load traced 126 requests and not one was a test file. So this

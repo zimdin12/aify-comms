@@ -298,3 +298,16 @@ test("contractActionable never throws on a missing record", () => {
     assert.equal(contractActionable(c), false, `${JSON.stringify(c)} must be inactionable, not an error`);
   }
 });
+
+// ── environmentRuntimes ─────────────────────────────────────────────────────────────────────────
+import { environmentRuntimes } from "./record-fields.mjs";
+
+test("environmentRuntimes accepts both advertised shapes and drops what names no runtime", () => {
+  // aify-env advertises bare names; older rows carry objects with an availability flag.
+  assert.deepEqual(
+    environmentRuntimes({ runtimes: ["codex", { runtime: "hermes", available: false }, { available: true }, null] }),
+    [{ runtime: "codex", available: true }, { runtime: "hermes", available: false }],
+  );
+  assert.deepEqual(environmentRuntimes({ runtimes: "codex" }), [], "a non-array is no runtimes, not a crash");
+  assert.deepEqual(environmentRuntimes(undefined), []);
+});

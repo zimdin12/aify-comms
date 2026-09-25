@@ -13,7 +13,6 @@ import {
   AGENT_STATUSES,
   STATUS_KINDS,
   renderStatusChip,
-  renderStatusDot,
   resolveStatus,
   runStatusContext,
   statusWhyContext,
@@ -75,12 +74,6 @@ test("renderStatusChip escapes interpolated values (XSS guard)", () => {
   assert.ok(!html.includes("<img"), "chip must escape attribute-context HTML");
   assert.ok(html.includes("&quot;") || html.includes("&gt;"), "escaped entities present");
   assert.ok(html.includes('data-status-kind="online"'));
-});
-
-test("renderStatusDot reflects the resolved dotKind", () => {
-  assert.ok(renderStatusDot("blocked").includes("status-dot dot blocked"));
-  assert.ok(renderStatusDot("offline").includes("offline"));
-  assert.ok(renderStatusDot("frobnicate").includes("unknown"));
 });
 
 // ── statusWhyContext / runStatusContext, moved here from app.js in v0.5.4 ────────────────────────

@@ -534,3 +534,64 @@ test("a FAILED older page is shown, not re-rendered in silence", async () => {
     globalThis.document = previousDocument;
   }
 });
+
+test("CLOSING A CONVERSATION WITHIN THE THROTTLE STILL REFETCHES THE PULSE", () => withStubDocument(async () => {
+  // close() drops the cached pulse so a stale one never greets the operator -- and the 12 s throttle
+  // then refused the refetch, leaving "Loading fleet pulse…" up until the next render after it expired
+  // (the 60 s liveness tick on a quiet fleet).
+  let calls = 0;
+  const h = pulseHarness({ loadPulse: async () => { calls += 1; return { ok: true, agents: [] }; } });
+  h.controller.refreshPulse(true);
+  await settle();
+  assert.equal(calls, 1, "CONTROL: the landing view fetched once");
+  h.controller.open("dm:alice");
+  h.controller.close();
+  h.controller.refreshPulse();
+  await settle();
+  assert.equal(calls, 2, "returning to the pulse fetches it again");
+  assert.doesNotMatch(h.els["chat-timeline"].innerHTML, /Loading fleet pulse/);
+}));
+
+// ── the open conversation is not rebuilt for changes elsewhere in the fleet (v0.7 C10) ──────────
+
+/** Count every write to an element's innerHTML. */
+function countWrites(el) {
+  let html = el.innerHTML;
+  el.writes = 0;
+  Object.defineProperty(el, "innerHTML", {
+    get: () => html,
+    set: (value) => { el.writes += 1; html = value; },
+    configurable: true,
+  });
+  return el;
+}
+
+test("A STATUS CHANGE OR MESSAGE ELSEWHERE DOES NOT REBUILD THE OPEN DM", () => withStubDocument(async () => {
+  // Any agent changing status or any message anywhere re-rendered the open conversation: the text
+  // the operator was selecting was deselected, and a channel's half-chosen member was reset.
+  const h = pulseHarness({ selected: "dm:alice" });
+  h.state.messages = [{ id: "m1", from: "alice", to: "dashboard", body: "hello", timestamp: 1 }];
+  h.controller.render();
+  const timeline = countWrites(h.els["chat-timeline"]);
+  const actions = countWrites(h.els["chat-conv-actions"]);
+  h.state.agents = [{ id: "alice", status: "online" }, { id: "bob", status: "working" }];
+  h.state.messages = [...h.state.messages, { id: "m2", from: "bob", to: "carol", body: "elsewhere", timestamp: 2 }];
+  h.controller.render();
+  assert.equal(timeline.writes, 0, "the timeline was rebuilt for a message in another conversation");
+  assert.equal(actions.writes, 0, "the action bar was rebuilt for another agent's status");
+  h.state.messages = [...h.state.messages, { id: "m3", from: "alice", to: "dashboard", body: "new here", timestamp: 3 }];
+  h.controller.render();
+  assert.equal(timeline.writes, 1, "CONTROL: a new message in THIS conversation is painted");
+}));
+
+test("A CHANNEL'S HALF-CHOSEN NEW MEMBER SURVIVES A RENDER", () => withStubDocument(async () => {
+  const h = pulseHarness({ selected: "channel:ops" });
+  h.state.chat.channels = [{ name: "ops", members: ["alice"], memberCount: 1 }];
+  const picked = { value: "bob" };
+  h.els["chat-add-member-ops"] = picked;
+  h.controller.render();
+  const actions = countWrites(h.els["chat-conv-actions"]);
+  h.state.agents = [...h.state.agents, { id: "zed", status: "online" }]; // a new candidate: the list would change
+  h.controller.render();
+  assert.equal(actions.writes, 0, "the select the operator was choosing from was rebuilt under them");
+}));

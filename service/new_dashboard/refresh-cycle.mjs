@@ -68,16 +68,29 @@ export async function runRefreshCycle({
   ]);
   const ok = (i) => settled[i].status === 'fulfilled';
   const val = (i) => (ok(i) ? settled[i].value : undefined);
+  // WHICH SLICES DID NOT LAND, by the names change-refresh.mjs retries (slice-tables.mjs). Each keeps
+  // its last-good value either way; naming it is what stops the caller recording it as current.
+  const failed = [];
+  const SLOT_SLICES = { 0: 'agents', 1: 'contracts', 4: 'runs', 5: 'sessions', 6: 'environments', 7: 'spawnRequests', 8: 'stats', 9: 'settings', 10: 'settings' };
+  for (const [slot, slice] of Object.entries(SLOT_SLICES)) {
+    if (!ok(Number(slot)) && !failed.includes(slice)) failed.push(slice);
+  }
 
   if (ok(0)) state.agents = asAgentArray(val(0));
-  if (ok(1)) { state.contracts = val(1).contracts || []; state.contractsBase = state.contracts; }
   // Keep a non-default Work-loop State filter alive across polls: the base fetch is
   // open-scope, so a terminal selection (Answered/Failed/Missing reply/…) emptied ~15s
   // after choosing it when the poll overwrote state.contracts (review finding #4).
-  // contractsBase keeps the open set for the metrics; state.contracts follows the filter.
+  // contractsBase keeps the open set for the metrics; state.contracts follows the filter, and is
+  // NOT handed the open set in between -- a render during the filtered fetch showed open contracts
+  // under the other filter's name.
   const contractStateSel = byId('contract-state')?.value || '';
-  if (ok(1) && contractStateSel && contractStateSel !== 'open') {
-    try { await loadContractsForState(contractStateSel, false); } catch (_) { noteSliceFailure('contract filter'); /* keep base */ }
+  const filteredContracts = contractStateSel && contractStateSel !== 'open';
+  if (ok(1)) {
+    state.contractsBase = val(1).contracts || [];
+    if (!filteredContracts) state.contracts = state.contractsBase;
+  }
+  if (ok(1) && filteredContracts) {
+    try { await loadContractsForState(contractStateSel, false); } catch (_) { noteSliceFailure('contract filter'); failed.push('contracts'); /* keep base */ }
   }
   // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.
   //
@@ -96,6 +109,7 @@ export async function runRefreshCycle({
   let inboxMessages = null;
   if (!recentUsable) {
     try { inboxMessages = await loadInboxMessages(); } catch (_) { noteSliceFailure('inbox'); /* keep prior messages */ }
+    failed.push('messages'); // the inbox is a stand-in; the slice itself is retried
   }
   // `inboxMessages` IS THE WHOLE RESPONSE NOW, not the array. The loader returns it so the counts
   // travel with the rows; unwrapping here rather than there keeps the decision about WHICH list is on
@@ -134,7 +148,10 @@ export async function runRefreshCycle({
   // Guarded on the REQUEST, not just the result: a skipped slice resolves to null, and assigning
   // asArray(null) would wipe the list rather than leave it alone. Nothing reads it while the page is
   // closed, but wiping it would make the first render after opening flash empty.
-  if (wantSpawnRequests && ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');
+  if (wantSpawnRequests && ok(7)) {
+    state.spawnRequests = asArray(val(7), 'spawnRequests');
+    state.spawnRequestsTruncated = Boolean(val(7)?.truncated);
+  }
   if (ok(8)) state.stats = val(8) || {};
   if (ok(10) && val(10)) adoptSettingsSchema(val(10));
   if (ok(9) && val(9) && typeof val(9) === 'object') {
@@ -143,12 +160,12 @@ export async function runRefreshCycle({
     refreshActiveTerminalTheme(); // keep a mounted console's accent in sync
     armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
-  try { await chatLoadChannels(); } catch (_) { noteSliceFailure('channels'); /* keep prior channels */ }
+  try { await chatLoadChannels(); } catch (_) { noteSliceFailure('channels'); failed.push('channels'); /* keep prior channels */ }
   // Keep an OPEN channel conversation live: channel messages are otherwise fetched only on
   // open/send, so the rail badge ticked up while the open timeline stayed frozen (review
   // finding #5). The conversation sig covers the re-render.
   if (String(state.chat.selected || '').startsWith('channel:')) {
-    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { noteSliceFailure('conversation'); /* keep prior view */ }
+    try { await chatLoadConversation(state.chat.selected.slice('channel:'.length)); } catch (_) { noteSliceFailure('conversation'); failed.push('conversation'); /* keep prior view */ }
   }
   // Stale-selection guard (review finding #10): if the open conversation's agent/channel was
   // removed (here or by another client), close back to the overview — otherwise the header,
@@ -164,7 +181,7 @@ export async function runRefreshCycle({
   // open: 8.0 MB an hour per tab at the default 15s refresh, 23.9 at the 5s floor. navigateToPage
   // loads it on open, so the page shows a fetched list rather than a cached one.
   if (shouldLoadFiles()) {
-    try { await loadFiles(); } catch (_) { noteSliceFailure('files'); /* keep prior files */ }
+    try { await loadFiles(); } catch (_) { noteSliceFailure('files'); failed.push('files'); /* keep prior files */ }
   }
   // Only flip to "loaded" once the roster actually arrived: with the server fully down all
   // slices reject, and loaded=true made the rail show a misleading "No agents." while the
@@ -200,4 +217,5 @@ export async function runRefreshCycle({
     chipEl.className = chip.className;
     chipEl.title = chip.title;
   }
+  return failed;
 }

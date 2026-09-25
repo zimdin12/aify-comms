@@ -32,19 +32,13 @@ export function setApiBase(base, origin = base) {
   apiOrigin = origin;
 }
 
-/** The base currently in use. Exported for tests and diagnostics -- nothing in the app reads it. */
-export function currentApiBase() {
-  return apiBase;
-}
-
 // The OPERATOR KEY, if this dashboard was served with one. It proves that a request naming
 // `requestedBy=operator` really comes from an operator surface — since R5-H1 (2026-08-18) the actor
 // string alone grants nothing, because any caller could type it. Never logged, never rendered.
 let operatorKey = '';
 
 // Read at module load from what the dashboard server injected into the page. Done HERE rather than
-// wired from app.js: app.js is reconstructed byte-identically by `extraction-proof`, so new lines there
-// are a gate failure, and the repo's own rule is that new behaviour goes in a module.
+// wired from app.js, because the repo's rule is that new behaviour goes in a module.
 if (typeof globalThis !== 'undefined' && globalThis.__AIFY_OPERATOR_KEY__) {
   operatorKey = String(globalThis.__AIFY_OPERATOR_KEY__);
 }

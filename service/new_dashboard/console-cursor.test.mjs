@@ -50,3 +50,17 @@ test("`outputSeq` OWNS THE ANSWER, and `seq` is only consulted when it is absent
   assert.equal(cursorFromSnapshot({ outputSeq: null, seq: 11 }, 4), -1);
   assert.equal(cursorFromSnapshot({ seq: 11 }, 4), 11);
 });
+
+// ── rememberPainted ─────────────────────────────────────────────────────────────────────────────
+import { rememberPainted } from "./console-cursor.mjs";
+
+test("rememberPainted keeps a bounded tail of what was painted, newest last", () => {
+  // The await-input pill reads `recentText`; every path that writes to the terminal records here.
+  const entry = {};
+  rememberPainted(entry, "first ");
+  rememberPainted(entry, "second");
+  assert.equal(entry.recentText, "first second");
+  rememberPainted(entry, "x".repeat(100_000));
+  assert.ok(entry.recentText.length < 100_000, "the tail is bounded, not the whole scrollback");
+  assert.ok(entry.recentText.endsWith("x"), "and it is the NEWEST text that is kept");
+});

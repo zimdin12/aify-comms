@@ -17,6 +17,7 @@ import {
   buildHandoffPacket,
   openAgentEditForm,
   openCompactionHistory,
+  openContinueForm,
   openMessageDetail,
   spawnRecordLineage,
 } from "./inspector-forms.mjs";
@@ -398,5 +399,116 @@ test("an answer that arrives after another drawer was opened does not paint over
     held.release();
     await opening;
     assert.equal(els["inspector-content"].innerHTML, "THE AGENT DRAWER");
+  });
+});
+
+test("the continue form is prefilled from the session, and a missing session opens nothing", () => {
+  state.sessions = [{ id: "s1", agentId: "coder", role: "tester", environmentId: "env-a", runtime: "codex", workspace: "C:/w" }];
+  state.messages = [{ from: "manager", to: "coder", body: "carry this over" }];
+  const compact = render(() => openContinueForm("s1", false));
+  assert.match(compact, /id="cont-agent-id" type="text" value="coder"/, "compacting keeps the same agent id");
+  assert.match(compact, /carry this over/, "the handoff packet is in the form");
+  assert.equal(state.inspector.kind, "continue");
+  const split = render(() => openContinueForm("s1", true));
+  assert.match(split, /id="cont-agent-id" type="text" value=""/, "continuing as a new agent asks for a new id");
+  state.sessions = [];
+  assert.equal(render(() => openContinueForm("gone", true)), "", "no session, no form");
+});
+
+// --- the message details drawer and the rows the operator paged in (v0.7 C2) ----------------------
+
+import { messageHistory } from "./message-store.mjs";
+
+/** Render while recording the text of every toast raised. */
+function renderCountingToasts(run) {
+  const toasts = [];
+  const els = { "inspector-content": el(), inspector: el() };
+  const had = { d: "document" in globalThis, r: "requestAnimationFrame" in globalThis };
+  globalThis.document = {
+    getElementById: (id) => els[id] || null,
+    querySelector: () => null,
+    createElement: () => {
+      const node = {
+        className: "", children: [], firstElementChild: null,
+        setAttribute() {}, remove() {}, addEventListener() {},
+        classList: { add() {}, remove() {} },
+        appendChild: (c) => c,
+      };
+      Object.defineProperty(node, "textContent", { set: (v) => toasts.push(v), get: () => "" });
+      return node;
+    },
+    body: { appendChild: (c) => c },
+  };
+  globalThis.requestAnimationFrame = (fn) => fn();
+  try {
+    run(els);
+    return { els, toasts };
+  } finally {
+    if (!had.d) delete globalThis.document;
+    if (!had.r) delete globalThis.requestAnimationFrame;
+  }
+}
+
+test("a REFRESH of a message drawer whose message left the live window keeps it and raises no alert", () => {
+  // `state.messages` is the fleet's newest 80. Every data change re-runs the open drawer's opener, so
+  // once 80 newer messages arrived anywhere a drawer the operator was reading raised a role=alert
+  // "Message not found" toast on EVERY refresh and was left stale.
+  state.messages = [{ id: "m-left", from: "manager", to: "coder", body: "the body" }];
+  state.inspector = {};
+  const { els, toasts } = renderCountingToasts((e) => {
+    openMessageDetail("m-left");
+    state.messages = [{ id: "m-newer", from: "x", to: "y", body: "newer" }];
+    openMessageDetail("m-left");
+    openMessageDetail("m-left");
+  });
+  assert.deepEqual(toasts, [], "a refresh must not toast");
+  assert.match(els["inspector-content"].innerHTML, /the body/, "what the operator was reading stays on screen");
+});
+
+test("CONTROL: a CLICK on a message that is not loaded still says so", () => {
+  state.messages = [];
+  state.inspector = { kind: "agent", agentId: "coder" };
+  const { toasts } = renderCountingToasts(() => openMessageDetail("gone"));
+  assert.equal(toasts.length, 1);
+});
+
+test("the details of a message PAGED IN by scrolling back open like any other", async () => {
+  // The "..." button is on every DM row, and most of a busy DM was paged in rather than live.
+  state.messages = [{ id: "m-live", from: "manager", to: "dashboard", body: "live", timestamp: 2000 }];
+  serveHistory({ messages: [{ id: "m-old", from: "manager", to: "dashboard", body: "paged in", timestamp: 1000 }], truncated: true });
+  await messageHistory.loadOlder(state.messages);
+  state.inspector = {};
+  const { els, toasts } = renderCountingToasts(() => openMessageDetail("m-old"));
+  assert.deepEqual(toasts, []);
+  assert.match(els["inspector-content"].innerHTML, /paged in/);
+});
+
+test("a History drawer whose fetch FAILS keeps the error on screen across refreshes, with no Loading flash", async () => {
+  // v0.6.22 fixed the success path only; the error path never set `loaded`, so every refresh
+  // repainted "Loading…" and then the same error again.
+  serveHistory({ detail: "boom" }, 500);
+  state.inspector = {};
+  await renderAsync(async (els) => {
+    const paints = [];
+    let html = "";
+    Object.defineProperty(els["inspector-content"], "innerHTML", {
+      get: () => html,
+      set: (v) => { html = v; paints.push(/Loading…/.test(v) ? "LOADING" : /Could not load spawn records/.test(v) ? "ERROR" : "OTHER"); },
+    });
+    await openCompactionHistory("coder-1");
+    await openCompactionHistory("coder-1");
+    assert.deepEqual(paints, ["LOADING", "ERROR", "ERROR"]);
+  });
+});
+
+test("CONTROL: after a failed History load, a successful refresh replaces the error", async () => {
+  serveHistory({ detail: "boom" }, 500);
+  state.inspector = {};
+  await renderAsync(async (els) => {
+    await openCompactionHistory("coder-1");
+    serveHistory({ spawnRequests: [] });
+    await openCompactionHistory("coder-1");
+    assert.match(els["inspector-content"].innerHTML, /Compact\/continue lineage/);
+    assert.doesNotMatch(els["inspector-content"].innerHTML, /Could not load/);
   });
 });

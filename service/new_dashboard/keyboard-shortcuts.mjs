@@ -52,6 +52,12 @@ export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {
     event.preventDefault();
     jumpFromDiagnostic(event.target);
   }
+  // A Sessions rail row's body. Its click is the delegated one, so the key sends that same click
+  // rather than a second copy of what selecting a session does.
+  if ((event.key === 'Enter' || event.key === ' ') && event.target?.matches?.('[data-session-select][role="button"]')) {
+    event.preventDefault();
+    event.target.click();
+  }
   // Ctrl+Shift+C copies the console when it has a selection (xterm swallows plain Ctrl+C as
   // SIGINT into the PTY, so the copy shortcut is shifted — parity with the old dashboard).
   if (event.ctrlKey && event.shiftKey && (event.key === 'C' || event.key === 'c') && state.activeXterm?.term) {
@@ -73,7 +79,7 @@ export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {
 }
 
 /** The console embed a find-bar element sits in. */
-export function consoleHostOf(el) {
+function consoleHostOf(el) {
   return el?.closest?.('.console-embed') ?? el;
 }
 

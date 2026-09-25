@@ -314,3 +314,55 @@ test("INIT REFUSES A PARTIAL BAG", () => {
   }
   assert.doesNotThrow(() => initMessageActions(full));
 });
+
+// --- rows paged in by scrolling back (v0.7 C7) ----------------------------------------------------
+//
+// The DM timeline shows the live window PLUS older pages, and the actions searched only the live
+// window: Mark read changed the server and not the badge, Unsend left the row visible so a second
+// click 404ed.
+
+import { messageHistory } from "./message-store.mjs";
+
+/** Page `rows` into the shared store the timeline reads, through its real fetch path. */
+async function pageIn(rows) {
+  const fetchNow = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ messages: rows, truncated: true }) });
+  try {
+    await messageHistory.loadOlder([{ id: "cursor", timestamp: 1_000_000 }]);
+  } finally {
+    globalThis.fetch = fetchNow;
+  }
+}
+const shown = (id) => messageHistory.combined(state.messages).find((m) => m.id === id);
+
+test("MARK READ ON A PAGED-IN ROW updates the row the timeline shows", async () => {
+  const h = withMessages();
+  try {
+    await pageIn([{ id: "old-r", read: false, timestamp: 10 }]);
+    await markMessageRead("old-r", true);
+    assert.deepEqual(mutating(h), ["POST /messages/old-r/read"]);
+    assert.equal(shown("old-r").read, true, "the badge must follow the server, not wait for a reload");
+  } finally { h.restore(); }
+});
+
+test("UNSEND ON A PAGED-IN ROW removes it from the timeline", async () => {
+  const h = withMessages({ confirm: true });
+  try {
+    await pageIn([{ id: "old-u", timestamp: 11 }]);
+    await unsendMessage("old-u");
+    assert.deepEqual(mutating(h), ["DELETE /messages/old-u?requestedBy=dashboard"]);
+    assert.equal(shown("old-u"), undefined, "an unsent message must not stay visible to be unsent again");
+  } finally { h.restore(); }
+});
+
+test("an added member's select is cleared, so the action bar repaints with them in it", async () => {
+  // The chat leaves the channel action bar alone while its add-member select holds a value (v0.7
+  // C10), so a value left behind after a successful add would freeze the bar on the old member list.
+  const h = withMessages();
+  try {
+    const select = makeEl({ value: "coder" });
+    h.els.set("chat-add-member-general", select);
+    await addChannelMember("general");
+    assert.equal(select.value, "", "the chosen member stayed selected after being added");
+  } finally { h.restore(); }
+});

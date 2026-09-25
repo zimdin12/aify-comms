@@ -160,7 +160,6 @@ const WATCHED = [
   "keyboard-shortcuts.mjs",
   "layout-prefs.mjs",
   "page-titles.mjs",
-  "record-lookup.mjs",
   "render-memo.mjs",
   "run-helpers.mjs",
   "static-links.mjs",
@@ -189,7 +188,7 @@ test("EVERY WATCHED MODULE EXISTS — the list cannot rot into names that are go
   const missing = WATCHED.filter((f) => !fs.existsSync(path.join(HERE, f)));
   assert.deepEqual(missing, [], "watched modules that no longer exist");
   const files = handlerModules();
-  assert.ok(files.length >= 13, `expected every watched module, found ${files.length}`);
+  assert.ok(files.length >= 12, `expected every watched module, found ${files.length}`);
   for (const f of files) {
     const src = fs.readFileSync(path.join(HERE, f), "utf-8");
     // `export function` OR `export const`: `page-titles.mjs` is a data map, not handlers, and demanding

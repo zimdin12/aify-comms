@@ -201,3 +201,39 @@ test("each turn carries a distinct request id", () => {
   assert.equal(sent.length, 2);
   assert.notEqual(sent[0].id, sent[1].id);
 });
+
+// --- codexConsoleConnect -----------------------------------------------------------------------
+import { codexConsoleConnect } from "./codex-console.mjs";
+
+test("codexConsoleConnect refuses a non-socket URL, and subscribes to the agent's thread once open", () => {
+  codexConsoleConnections.clear();
+  const container = fakeContainer();
+  const sockets = [];
+  const hadWs = "WebSocket" in globalThis;
+  const realWs = globalThis.WebSocket;
+  globalThis.WebSocket = class {
+    constructor(url) { this.url = url; this.sent = []; this.handlers = {}; sockets.push(this); }
+    addEventListener(name, fn) { this.handlers[name] = fn; }
+    send(frame) { this.sent.push(JSON.parse(frame)); }
+    close() {}
+  };
+  const had = "document" in globalThis;
+  globalThis.document = {
+    createElement: () => ({ className: "", textContent: "" }),
+    querySelector: (sel) => (sel === '[data-codex-console="coder"] .codex-console-stream' ? container : null),
+  };
+  try {
+    codexConsoleConnect("coder", "http://127.0.0.1:1/not-a-socket", "thr-1");
+    assert.equal(sockets.length, 0, "an http URL is not a codex app-server socket");
+    codexConsoleConnect("coder", "ws://127.0.0.1:1", "thr-1");
+    assert.equal(sockets.length, 1);
+    assert.equal(codexConsoleConnections.get("coder").threadId, "thr-1");
+    sockets[0].handlers.open();
+    assert.deepEqual(sockets[0].sent.map((f) => f.method), ["initialize", "initialized", "thread/resume"]);
+    assert.equal(sockets[0].sent[2].params.threadId, "thr-1");
+  } finally {
+    codexConsoleConnections.clear();
+    if (hadWs) globalThis.WebSocket = realWs; else delete globalThis.WebSocket;
+    if (!had) delete globalThis.document;
+  }
+});

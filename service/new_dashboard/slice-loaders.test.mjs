@@ -24,7 +24,8 @@ async function withStubs({ reject = [], pages = {} } = {}, run) {
     requested.push(path);
     if (reject.some((p) => path.startsWith(p))) throw new TypeError('Failed to fetch');
     const body = path.startsWith('/agents') ? { agents: [{ id: 'fresh' }] }
-      : path.startsWith('/environments') ? { environments: [{ id: 'env-fresh' }] } : {};
+      : path.startsWith('/environments') ? { environments: [{ id: 'env-fresh' }] }
+      : path.startsWith('/spawn-requests') ? { spawnRequests: [{ id: 'sr-1' }], truncated: true } : {};
     return { ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(body) };
   };
   setApiBase('');
@@ -83,5 +84,14 @@ test('a slice for a closed page is not fetched, as the full cycle decides', asyn
     assert.equal(sliceIsWanted('conversation'), true);
     await loadSlices(['files'], deps);
     assert.deepEqual(requested, [], 'a closed page was fetched');
+  });
+});
+
+test('the spawn-requests slice records that it is a page, so the table can say so', async () => {
+  await withStubs({ pages: { environments: 'open' } }, async ({ deps }) => {
+    state.spawnRequestsTruncated = false;
+    await loadSlices(['spawnRequests'], deps);
+    assert.deepEqual(state.spawnRequests.map((r) => r.id), ['sr-1']);
+    assert.equal(state.spawnRequestsTruncated, true);
   });
 });

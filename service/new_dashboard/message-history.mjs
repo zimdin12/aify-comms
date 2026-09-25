@@ -107,17 +107,18 @@ export class MessageHistory {
   combined(live) { return mergeById(live, this.#rows); }
 
   /**
-   * Forget every page, so a reload starts from the live window again.
+   * Apply what an action just changed on the server to a paged-in row.
    *
-   * NOT called on conversation switch. History is fetched globally, exactly as the live window is,
-   * so pages loaded while reading one conversation are equally valid for the next -- dropping them
-   * would re-fetch the same rows every time the operator changed chats.
+   * The poll refreshes only the live window, so a paged-in row is never re-read: marking it read
+   * changed the server and left the badge "unread" until a reload.
    */
-  reset() {
-    this.#rows = [];
-    this.#exhausted = false;
-    this.#complete = false;
-    this.#error = '';
+  update(id, patch) {
+    for (const m of this.#rows) if (m?.id === id) Object.assign(m, patch);
+  }
+
+  /** Drop a paged-in row the server no longer has, so an unsent message stops being shown. */
+  remove(id) {
+    this.#rows = this.#rows.filter((m) => m?.id !== id);
   }
 
   /**

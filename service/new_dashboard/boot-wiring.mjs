@@ -11,7 +11,7 @@
 // makes collapse state stop persisting, silently.
 //
 // The bodies are byte-identical to those that stood in app.js; the only change is two spaces of
-// indentation, which the reconstruction proof strips before comparing. The run contains no multi-line
+// indentation, which the reconstruction proof (retired in v0.7) stripped before comparing. The run contains no multi-line
 // template literal, so that re-indentation cannot alter a string.
 
 import { toggleFavorite } from './message-actions.mjs';
@@ -47,7 +47,6 @@ export function wireGlobalControls({
   renderSessionWorkspace,
   saveSettings,
   chatCreateChannel,
-  inspect,
 }) {
   document.addEventListener('keydown', (event) => {
     handleGlobalKeydown(event, closeInspector, toggleFavorite);
@@ -90,16 +89,18 @@ export function wireGlobalControls({
   byId('contract-state')?.addEventListener('change', (event) => loadContractsForState(event.target.value));
   byId('contract-category')?.addEventListener('change', renderContracts);
   byId('run-status-filter')?.addEventListener('change', async (event) => {
-    byId('api-status').textContent = 'filtering';
-    byId('api-status').className = 'status-chip muted';
+    // 'filtering' while it runs, then EXACTLY what the chip said before. It used to end on a green
+    // 'live' either way, which overwrote an amber 'stale' or 'reconnecting' with a claim this one
+    // fetch has no standing to make; only the refresh cycle decides the chip.
+    const chip = byId('api-status');
+    const before = chip ? { text: chip.textContent, className: chip.className, title: chip.title } : null;
+    if (chip) { chip.textContent = 'filtering'; chip.className = 'status-chip muted'; }
     try {
       await loadRunsForStatus(event.target.value);
-      byId('api-status').textContent = 'live';
-      byId('api-status').className = 'status-chip ok';
     } catch (error) {
-      byId('api-status').textContent = 'live';
-      byId('api-status').className = 'status-chip ok';
       toast(`Run filter failed: ${error?.message || error}`, 'error');
+    } finally {
+      if (chip && before) { chip.textContent = before.text; chip.className = before.className; chip.title = before.title; }
     }
   });
   byId('run-from-filter')?.addEventListener('change', (e) => { state.runFromFilter = e.target.value; renderRuns(); });
@@ -112,10 +113,20 @@ export function wireGlobalControls({
   });
   byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    // ONE REQUEST PER SPAWN. A double-click posted two spawn requests for one agent id before the
+    // first answered. The form holds the flag and the button shows it, until the request settles.
+    const form = byId('environment-spawn-form');
+    if (form.dataset.submitting) return;
+    form.dataset.submitting = '1';
+    const button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
     try {
       await createSpawnRequest();
     } catch (error) {
       toast(`Spawn request failed: ${error?.message || error}`, 'error');
+    } finally {
+      delete form.dataset.submitting;
+      if (button) button.disabled = false;
     }
   });
   byId('send-reminders')?.addEventListener('click', async () => {
@@ -311,7 +322,8 @@ export function wireGlobalControls({
     const blob = imageItem.getAsFile();
     if (!blob) return;
     event.preventDefault();
-    uploadPastedImage(blob, target).catch((error) => inspect('paste-error', { message: error.message || 'Image upload failed' }));
+    // A toast, not the drawer: the operator is typing in the composer this would cover.
+    uploadPastedImage(blob, target).catch((error) => toast(`Image upload failed: ${error?.message || error}`, 'error'));
   });
   byId('close-inspector').addEventListener('click', closeInspector);
   byId('toggle-nav').addEventListener('click', () => {

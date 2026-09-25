@@ -37,8 +37,10 @@ export const state = {
   sessions: [],
   environments: [],
   spawnRequests: [], // GET /spawn-requests — queued/claimed/failed/done spawns, surfaced on Environments.
+  spawnRequestsTruncated: false, // that list is the newest page, and says so when older requests exist
   stats: {},
   files: [],
+  filesError: '', // why the last /shared read failed, so an empty Files page can say which empty it is
   // Plan 6 C3/C4/C5/C6: server settings snapshot (GET /api/v1/settings).
   // Mode-switch chips (Plan 6) and any other settings-gated UI consult
   // state.settings here. Empty object until first refresh completes.

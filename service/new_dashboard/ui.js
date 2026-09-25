@@ -110,26 +110,6 @@ export function uiPrompt(message, opts = {}) {
   return openDialog({ ...opts, message, kind: 'prompt', defaultValue: opts.defaultValue || '', confirmLabel: opts.confirmLabel || 'OK', cancelLabel: opts.cancelLabel || 'Cancel' });
 }
 
-// Wrap an async handler so a rejection becomes a NAMED toast. Returns a function that never throws.
-//
-// CURRENTLY UNUSED, and the reason is worth stating because the old note here said "today several
-// delegated handlers reject silently" -- which stopped being true when `installRejectionToast`
-// was wired at boot. Measured 2026-08-28: 14 mutating handlers in click-dispatch.mjs are still
-// fired and forgotten, and every one of their failures reaches the operator through that global
-// net. What is lost is only the NAME: "Unexpected error: HTTP 500" rather than "Stop worker
-// failed: HTTP 500".
-//
-// Wrapping those fourteen call sites was measured and declined -- fourteen edits to the router
-// every click passes through, for a message-specificity gain, when nothing is silent. Use this
-// for a NEW handler where naming the action matters; do not treat its existence as evidence that
-// the fourteen are unprotected.
-export function asyncAction(fn, label = 'Action') {
-  return (...args) => Promise.resolve().then(() => fn(...args)).catch((err) => {
-    toast(`${label} failed: ${err && err.message ? err.message : err}`, 'error');
-    console.error(`[dashboard] ${label} failed`, err);
-  });
-}
-
 // Global safety net: any otherwise-unhandled promise rejection toasts instead of dying
 // silently in the console (call once at init).
 export function installRejectionToast() {
@@ -144,8 +124,8 @@ export function installRejectionToast() {
 // where they were declared. It lands here rather than in util.js because this is the DOM-facing
 // module and util.js is the pure-value one.
 //
-// The braceless body is deliberate and byte-identical to app.js's: the reconstruction proof compares
-// moved declarations exactly. It also briefly failed the harness's module-scope-browser-globals check,
+// The braceless body is deliberate and byte-identical to app.js's: the reconstruction proof (retired in v0.7)
+// compared moved declarations exactly. It also briefly failed the harness's module-scope-browser-globals check,
 // which read `document` here as load-time code -- it is not, it runs only when called, and the check
 // was corrected rather than this line reworded to suit it.
 export const byId = (id) => document.getElementById(id);
