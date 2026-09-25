@@ -249,4 +249,3 @@ test("both kinds at once are both reported", () => {
   assert.match(verdict.detail, /NO live terminal/);
   assert.match(verdict.detail, /not running/);
 });
-
