@@ -189,7 +189,7 @@ export async function requestBulkDiagnosticAction(action) {
     return;
   }
   if (action === 'close') {
-    if (!await uiConfirm(`Close ${selected.length} selected diagnostics item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
+    if (!await uiConfirm(`Close ${selected.length} selected Work item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
     for (const item of selected) {
       if (item.kind === 'contract') {
         await closeWorkContract(item.id, false, false);
@@ -197,8 +197,8 @@ export async function requestBulkDiagnosticAction(action) {
         await patchRun(item.id, {
           status: 'completed',
           requireReply: false,
-          summary: 'Closed from Diagnostics by dashboard operator.',
-          appendEvent: 'Closed from Diagnostics by dashboard operator.',
+          summary: 'Closed from Work by dashboard operator.',
+          appendEvent: 'Closed from Work by dashboard operator.',
           eventType: 'operator_closed',
         });
       }

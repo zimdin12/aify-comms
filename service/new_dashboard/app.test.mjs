@@ -448,3 +448,10 @@ test("the full refresh hands the slices that FAILED to the change-driven refresh
   const source = read("app.js");
   assert.match(source, /const failed = await _refreshImpl\(\);\s*\n\s*changeRefresh\.fullyRefreshed\(startedAt, failed\);/);
 });
+
+test("the Settings button that discards unsaved edits says so, not 'Reset'", () => {
+  // Elsewhere on this dashboard "Reset" is a fresh-context restart of a live session (the agent
+  // drawer, the Sessions bulk bar); one word naming a harmless and a destructive action is a trap.
+  const html = read("index.html");
+  assert.match(html, /<button class="ghost" id="settings-reset"[^>]*>Discard changes<\/button>/);
+});

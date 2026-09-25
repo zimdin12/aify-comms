@@ -464,3 +464,23 @@ test("AN ANSWER FOR A STATE NO LONGER SELECTED IS DROPPED, so quick changes cann
     dom.restore();
   }
 });
+
+// --- the page is called Work (v0.7 C22) ---------------------------------------------------------------
+
+test("BULK CLOSE NAMES THE PAGE THE NAV CALLS 'Work', in the question and in what it records", async () => {
+  // The confirm said "diagnostics items" and the event recorded on each run said "Closed from
+  // Diagnostics": a page name that does not exist, written permanently into run history.
+  const h = withWorkLoop({ confirm: true });
+  const dialogs = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); dialogs.push(el); return el; };
+  try {
+    select([{ kind: "run", id: "r1" }]);
+    await requestBulkDiagnosticAction("close");
+    const asked = dialogs.map((d) => d.innerHTML).join(" ");
+    assert.match(asked, /Close 1 selected Work item as operator-reviewed/);
+    const recorded = h.sent.map((r) => String(r.body || "")).join(" ");
+    assert.match(recorded, /Closed from Work by dashboard operator/);
+    assert.doesNotMatch(`${asked} ${recorded}`, /[Dd]iagnostics/);
+  } finally { h.restore(); }
+});
