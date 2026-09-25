@@ -66,7 +66,7 @@ const CEILINGS = {
   "aify-comms-install/SKILL.md": 4_821,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
-  "aify-comms-debug/SKILL.md": 3_117,
+  "aify-comms-debug/SKILL.md": 3_056,
   "aify-comms-debug/references/codex.md": 5_242,
   "aify-comms-debug/references/dashboard-console.md": 3_844,
   "aify-comms-debug/references/dispatch-bridges.md": 6_224,
