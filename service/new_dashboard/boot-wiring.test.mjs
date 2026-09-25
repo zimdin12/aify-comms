@@ -311,3 +311,45 @@ test("FILTERING RUNS DOES NOT PAINT THE HEALTH CHIP GREEN, whether the fetch wor
     }
   } finally { dom.restore(); }
 });
+
+// --- the Spawn form posts once per click, however fast the clicks come (v0.7 C26) ---------------------
+
+test("A DOUBLE-SUBMITTED SPAWN FORM POSTS ONE REQUEST, and the form works again once it settles", async () => {
+  // The submit handler awaited the POST with nothing held, so a double-click sent two spawn requests
+  // for one agent id before the first answered.
+  const dom = recordingDom();
+  globalThis.document.createElement = () => ({ textContent: "", className: "", classList: { add() {}, remove() {} }, setAttribute() {}, addEventListener() {}, remove() {}, appendChild: (c) => c, children: [], firstElementChild: null });
+  globalThis.document.body.appendChild = (c) => c;
+  try {
+    wireGlobalControls(DEPS);
+    const field = (id, value) => { globalThis.document.getElementById(id).value = value; };
+    const fill = () => {
+      field("env-spawn-environment", "windows:host:default");
+      field("env-spawn-runtime", "claude-code");
+      field("env-spawn-agent-id", "new-agent");
+      field("env-spawn-workspace", "C:/work");
+    };
+    const submit = dom.bound.find((b) => b.on === "environment-spawn-form" && b.type === "submit").fn;
+    const posts = [];
+    let answer;
+    globalThis.fetch = (url, init) => {
+      if (init?.method === "POST") posts.push(String(url));
+      return new Promise((resolve) => { answer = () => resolve({ ok: true, status: 200, statusText: "OK", text: async () => "{}" }); });
+    };
+    const event = { preventDefault() {} };
+    fill();
+    const first = submit(event);
+    const second = submit(event);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(posts.length, 1, `a second submit while the first was in flight posted too: ${posts.join(", ")}`);
+    answer();
+    await Promise.all([first, second]);
+
+    fill();
+    const third = submit(event);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(posts.length, 2, "the form stayed locked after its request settled");
+    answer();
+    await third;
+  } finally { dom.restore(); }
+});

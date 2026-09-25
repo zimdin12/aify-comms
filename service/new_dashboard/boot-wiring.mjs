@@ -113,10 +113,20 @@ export function wireGlobalControls({
   });
   byId('environment-spawn-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    // ONE REQUEST PER SPAWN. A double-click posted two spawn requests for one agent id before the
+    // first answered. The form holds the flag and the button shows it, until the request settles.
+    const form = byId('environment-spawn-form');
+    if (form.dataset.submitting) return;
+    form.dataset.submitting = '1';
+    const button = form.querySelector('button[type="submit"]');
+    if (button) button.disabled = true;
     try {
       await createSpawnRequest();
     } catch (error) {
       toast(`Spawn request failed: ${error?.message || error}`, 'error');
+    } finally {
+      delete form.dataset.submitting;
+      if (button) button.disabled = false;
     }
   });
   byId('send-reminders')?.addEventListener('click', async () => {
