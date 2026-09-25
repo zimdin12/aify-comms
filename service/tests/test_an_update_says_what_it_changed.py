@@ -156,3 +156,49 @@ def test_redeploy_actually_uses_it():
         "the baseline is captured after the refresh, so it can only ever agree with the result"
     )
     assert text.index("deploy-delta.sh\" compare") > refresh
+
+
+def test_a_skipped_check_is_neither_broken_nor_still_failing(tmp_path):
+    """The doctor marks a skip `ok: false` so nothing reads it as a pass. On Windows `bridge-running`
+    and `agent-identity` always skip, and until 0.7.0 every redeploy called them "still failing"."""
+    before = _write(tmp_path / "b", ["agent-identity skip", "service ok"], LF)
+    after = _write(tmp_path / "a", ["agent-identity skip", "service ok"], LF)
+    done = _compare(before, after)
+    assert done.stdout == "", done.stdout
+    assert done.returncode == 0
+
+
+def test_a_check_that_stops_being_verified_is_said(tmp_path):
+    before = _write(tmp_path / "b", ["service ok"], LF)
+    after = _write(tmp_path / "a", ["service skip"], LF)
+    done = _compare(before, after)
+    assert "no longer verified here: service" in done.stdout
+    assert done.returncode == 0, "a skip is not a regression"
+
+
+def test_capture_needs_no_python(tmp_path):
+    """A stock Ubuntu has `python3` and no `python`, and capture piped through `python`, so every
+    redeploy there read UNVERIFIED (v0.7 scan B10). Run with a PATH that holds node, the shell's own
+    tools and a stand-in verifier, and nothing else."""
+    import os
+    import shutil
+
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    doctor = fake / "aify-comms"
+    doctor.write_bytes(
+        b"#!/bin/bash\n"
+        b"echo '{\"checks\":[{\"id\":\"service\",\"ok\":true},{\"id\":\"env-bridge\",\"ok\":false},"
+        b"{\"id\":\"agent-identity\",\"ok\":false,\"skipped\":true}]}'\n"
+    )
+    doctor.chmod(0o755)
+    shell_bin = Path(bash()).parent
+    path = os.pathsep.join([str(fake), str(Path(shutil.which("node")).parent), str(shell_bin), "/usr/bin"])
+    assert shutil.which("python", path=path) is None, f"control: python is reachable on {path}"
+    out = tmp_path / "captured"
+    done = subprocess.run(
+        [bash(), SCRIPT.as_posix(), "capture", out.as_posix()],
+        capture_output=True, text=True, timeout=120, env={**os.environ, "PATH": path},
+    )
+    assert done.returncode == 0, done.stderr
+    assert out.read_text().splitlines() == ["agent-identity skip", "env-bridge fail", "service ok"]

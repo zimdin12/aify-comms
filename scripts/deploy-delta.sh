@@ -52,17 +52,22 @@ capture() {
     : > "$out"
     return 0
   fi
-  # `id ok` per line, sorted, so `compare` is a join rather than a JSON dependency. The doctor's own
-  # --json is the source; nothing here re-derives a verdict.
-  $cmd --json 2>/dev/null | python -c "
-import json, sys
-try:
-    checks = json.load(sys.stdin).get('checks') or []
-except Exception:
-    sys.exit(0)
-for c in sorted(checks, key=lambda c: str(c.get('id'))):
-    print('%s %s' % (c.get('id'), 'ok' if c.get('ok') else 'fail'))
-" 2>/dev/null | tr -d '\r' > "$out" || : > "$out"
+  # `id state` per line, sorted, so `compare` is a join rather than a JSON dependency. The doctor's own
+  # --json is the source; nothing here re-derives a verdict. NODE, not python: the installer already
+  # requires node, and a stock Ubuntu ships `python3` with no `python`, which left every capture empty
+  # and every redeploy UNVERIFIED (v0.7 scan B10). A skipped row is its own state -- the doctor marks
+  # it `ok: false` so nothing reads it as a pass, and it is not a failure either.
+  $cmd --json 2>/dev/null | node -e '
+let input = "";
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  let checks = [];
+  try { checks = JSON.parse(input).checks || []; } catch { process.exit(0); }
+  const state = (c) => (c.skipped ? "skip" : c.ok ? "ok" : "fail");
+  const rows = checks.map((c) => `${c.id} ${state(c)}`).sort();
+  if (rows.length) process.stdout.write(rows.join("\n") + "\n");
+});
+' 2>/dev/null | tr -d '\r' > "$out" || : > "$out"
 }
 
 compare() {
@@ -78,7 +83,8 @@ compare() {
   fi
 
   local broke=0
-  # THREE CATEGORIES AND THEY MUST NOT BE COLLAPSED. "Was fine, now broken" is what an update did.
+  # THREE CATEGORIES AND THEY MUST NOT BE COLLAPSED, plus a skip, which is none of them: a check that
+  # could not run on this host (Windows cannot read /proc) is neither broken nor still failing. "Was fine, now broken" is what an update did.
   # "Was broken, now fine" is what it fixed, and an operator who is not told stops believing the
   # tool. "Still broken" is pre-existing and must not be attributed to this update -- misattributing
   # a cause sends the next reader somewhere else entirely.
@@ -99,6 +105,8 @@ compare() {
       echo "  fixed by this update:  $id"
     elif [ "$state" = "fail" ]; then
       echo "  still failing (was already): $id"
+    elif [ "$state" = "skip" ] && [ "$was" = "ok" ]; then
+      echo "  no longer verified here: $id"
     fi
   done < "$after"
 
