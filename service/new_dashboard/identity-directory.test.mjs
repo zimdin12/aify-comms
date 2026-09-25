@@ -143,3 +143,37 @@ test("every agent gets Details and Remove actions keyed on its id", () => {
   assert.ok(html.includes('data-agent-details="coder"'));
   assert.ok(html.includes('data-agent-remove="coder"'));
 });
+
+// --- a refresh that changes nothing leaves the table alone (v0.7 C13) -------------------------------
+
+test("A REFRESH WITH NOTHING CHANGED DOES NOT REBUILD THE DIRECTORY, whose ages tick in place", () => {
+  // The 9-column table sits in a narrow drawer with horizontal scroll. Every refresh rewrote it, which
+  // snapped the scroll back to the left (hiding Last seen and Remove) and cleared any selection -- and
+  // the "Last seen" text changed every second, so the HTML never matched anyway.
+  state.agents = [{ id: "coder", status: "online", lastSeen: new Date(Date.now() - 5000).toISOString() }];
+  state.sessions = [];
+  state.environments = [];
+  state.inspector = {};
+  let writes = 0;
+  let html = "";
+  const content = fakeEl();
+  Object.defineProperty(content, "innerHTML", {
+    get: () => html,
+    set: (v) => { writes += 1; html = v; content.firstElementChild = v ? { token: Symbol("root") } : null; },
+  });
+  const els = { inspector: fakeEl(), "inspector-content": content };
+  const had = "document" in globalThis;
+  globalThis.document = { getElementById: (id) => els[id] || null };
+  try {
+    openIdentityDirectory();
+    assert.match(html, /data-rel-ts="\d+"/, "the age carries its instant, so the ticker keeps it current");
+    state.agents = [{ ...state.agents[0], lastSeen: state.agents[0].lastSeen }];
+    openIdentityDirectory();
+    assert.equal(writes, 1, "an unchanged refresh rewrote the table");
+    state.agents = [{ ...state.agents[0], status: "working" }];
+    openIdentityDirectory();
+    assert.equal(writes, 2, "CONTROL: a real change repaints");
+  } finally {
+    if (!had) delete globalThis.document;
+  }
+});

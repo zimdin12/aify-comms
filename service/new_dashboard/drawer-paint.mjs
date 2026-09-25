@@ -59,8 +59,9 @@ const panelHtml = new WeakMap();
 export function paintIfChanged(panel, html) {
   if (!panel) return false;
   const last = panelHtml.get(panel);
-  if (last && last.html === html && panel.firstElementChild === last.root) return false;
+  const key = withoutTickingLabels(html); // a ticking age is kept current in place (rel-time-ticker.mjs)
+  if (last && last.key === key && panel.firstElementChild === last.root) return false;
   panel.innerHTML = html;
-  panelHtml.set(panel, { html, root: panel.firstElementChild });
+  panelHtml.set(panel, { key, root: panel.firstElementChild });
   return true;
 }
