@@ -13,6 +13,8 @@
 // the kind of green-looking nothing this file exists to avoid.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
@@ -114,4 +116,24 @@ test("codex-aify passes the runtime's exit code through unchanged", () => {
   const r = run({ stubExitCode: 42 });
   assert.equal(r.launched, true, r.stderr);
   assert.equal(r.status, 42);
+});
+
+test("codex-aify finds a saved session under CODEX_HOME, where codex keeps it", () => {
+  // It read ~/.codex/sessions regardless, so with CODEX_HOME set a session that exists was called
+  // "not found" and a fresh codex started (v0.7 docs review). The sealed HOME holds no sessions, so
+  // only the CODEX_HOME copy can be found; the control without CODEX_HOME must start fresh.
+  const id = "019a0000-aaaa-bbbb-cccc-codexhometest";
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "aify-codex-home-"));
+  try {
+    fs.mkdirSync(path.join(codexHome, "sessions"), { recursive: true });
+    fs.writeFileSync(path.join(codexHome, "sessions", `${id}.jsonl`), "{}\n");
+    const args = ["--aify-agent", "cx-probe", "--resume", id];
+    const found = run({ args, env: { CODEX_HOME: codexHome.replace(/\\/g, "/") } });
+    assert.equal(found.launched, true, found.stderr);
+    assert.ok(found.argv.includes("resume") && found.argv.includes(id), `not resumed: ${JSON.stringify(found.argv)}`);
+    const fresh = run({ args });
+    assert.ok(!fresh.argv.includes("resume"), "control: with no session anywhere codex starts fresh");
+  } finally {
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
 });
