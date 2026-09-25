@@ -100,13 +100,13 @@ test("open:false really does not launch anything", () => {
   // CONTAINMENT — every launch sits inside a guard — so this checks each launch line against the line above
   // it rather than comparing totals.
   const lines = readFileSync(path.join(STDIO_DIR, "dashboard-tool.mjs"), "utf-8").split("\n");
-  const launches = lines.map((line, i) => [i, line]).filter(([, line]) => /spawn\(openCmd/.test(line));
+  // v0.7: every launch goes through one `openInBrowser(...)` helper, and its callers carry the guard on
+  // the same line.
+  const launches = lines.map((line, i) => [i, line]).filter(([, line]) => /\bopenInBrowser\(/.test(line) && !/const openInBrowser/.test(line));
   assert.ok(launches.length >= 1, "the tool does launch a browser by default");
-  for (const [i] of launches) {
-    assert.match(
-      lines[i - 1], /if \(open !== false\)/,
-      `the launch on line ${i + 1} must be directly guarded by the open parameter`,
-    );
+  for (const [i, line] of launches) {
+    assert.match(line, /if \(open !== false\) openInBrowser\(/,
+      `the launch on line ${i + 1} must be directly guarded by the open parameter`);
   }
   assert.equal(launches.length, 2, "both modes launch — remote opens a URL, local opens the generated file");
 

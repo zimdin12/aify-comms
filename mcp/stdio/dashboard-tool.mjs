@@ -8,12 +8,9 @@
 // inboxes and shared artifacts assembled on the spot. The second half is most of the code and shares
 // nothing with the rest of the bridge except the store it reads.
 //
-// FLAGGED, NOT CHANGED — the launch is a shell spawn. Remote mode builds a URL containing the configured
-// API key and passes it to the platform opener with `shell: true`. Both inputs are operator-configured
-// (`AIFY_SERVER_URL` and the API key from the environment), so nothing an agent or a message can influence
-// reaches that command line — but a key containing shell metacharacters would be interpreted rather than
-// passed, and `shell: false` with an argv array would remove the question entirely. Behavioural change, so
-// it stays as it is and is recorded here instead.
+// THE KEY OPENS THE PAGE AND IS NEVER PRINTED (v0.7, B8). The answer lands in the agent's transcript and
+// in anything relayed from it, and until 0.7.0 it carried `?api_key=<the service key>`. The opener is
+// launched WITHOUT a shell, as an argv array, so neither the key nor a path with spaces is re-parsed.
 //
 // The `// 16.` banner is the original text; its number refers to server.js's tool ordering, which no longer
 // exists as one list.
@@ -45,15 +42,20 @@ export function registerDashboardTool(server, z) {
       open: z.boolean().optional().describe("Auto-open in browser (default: true)"),
     },
     async ({ open }) => {
-      const openCmd =
-        process.platform === "win32" ? "start" : process.platform === "darwin" ? "open" : "xdg-open";
+      const openInBrowser = (target) => {
+        // rundll32's URL handler takes the target as one argument and parses nothing, unlike `start`.
+        const [cmd, args] = process.platform === "win32"
+          ? ["rundll32", ["url.dll,FileProtocolHandler", target]]
+          : [process.platform === "darwin" ? "open" : "xdg-open", [target]];
+        const child = spawn(cmd, args, { shell: false, detached: true, stdio: "ignore" });
+        child.on("error", () => {});
+        child.unref();
+      };
 
       // Remote mode: open the server's dashboard directly
       if (IS_REMOTE) {
-        const dashUrl = `${SERVER_URL}/api/v1/dashboard${API_KEY ? "?api_key=" + API_KEY : ""}`;
-        if (open !== false) {
-          spawn(openCmd, [dashUrl], { shell: true, detached: true, stdio: "ignore" }).unref();
-        }
+        const dashUrl = `${SERVER_URL}/api/v1/dashboard`;
+        if (open !== false) openInBrowser(API_KEY ? `${dashUrl}?api_key=${encodeURIComponent(API_KEY)}` : dashUrl);
         return { content: [{ type: "text", text: `Dashboard: ${dashUrl}${open !== false ? "\nOpened in browser." : ""}` }] };
       }
 
@@ -142,9 +144,7 @@ export function registerDashboardTool(server, z) {
       const dashPath = path.join(MESSAGES_DIR, "dashboard.html");
       fs.writeFileSync(dashPath, html);
 
-      if (open !== false) {
-        spawn(openCmd, [dashPath], { shell: true, detached: true, stdio: "ignore" }).unref();
-      }
+      if (open !== false) openInBrowser(dashPath);
 
       return {
         content: [{
