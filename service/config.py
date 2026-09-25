@@ -17,7 +17,7 @@ from typing import Any
 # What the build stamp OWNS, and which `service.json` therefore may not set. Named as one set so the
 # rule is a single readable fact rather than five conditions, and so a test can assert the set is
 # complete against the stamp's own keys.
-_STAMP_OWNED_KEYS = frozenset({"version", "build_sha", "build_short", "build_branch", "built_at"})
+_STAMP_OWNED_KEYS = frozenset({"version", "build_sha", "build_short", "build_branch", "built_at", "build_dirty"})
 
 
 @dataclass
@@ -39,6 +39,9 @@ class ServiceConfig:
     # written by scripts/stamp.sh before each build because the container has no
     # .git of its own). Env-overridable; defaults to "unknown".
     build_sha: str = "unknown"
+    #: Built from a tree with uncommitted changes to code the image runs, so `build_sha` names the
+    #: commit it started from and not what is running. Written by scripts/stamp.sh.
+    build_dirty: bool = False
 
     #: Stamp-owned fields an environment variable overrode, in the order they were applied.
     #:
@@ -122,6 +125,7 @@ class ServiceConfig:
                 config.build_short = str(stamp.get("short", config.build_short) or "unknown")
                 config.build_branch = str(stamp.get("branch", config.build_branch) or "unknown")
                 config.built_at = str(stamp.get("built_at", config.built_at) or "")
+                config.build_dirty = stamp.get("dirty") is True
                 # A stamp written before the version field existed has no "version" key —
                 # keep the fallback rather than blanking the identity the API reports.
                 config.version = str(stamp.get("version", config.version) or config.version)

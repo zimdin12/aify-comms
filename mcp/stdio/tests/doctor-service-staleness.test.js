@@ -412,6 +412,21 @@ test("the adapter reads the payload's own field names", () => {
   assert.equal(serviceVerdictFrom({ sha: "aaaabbbbcccc" }, { headSha: "aaaabbbbcccc" }).ok, true);
 });
 
+test("a build from a DIRTY tree is never certified as a commit", () => {
+  // v0.7 scan B19. `stamp.sh` names the commit a build started from; with uncommitted service edits
+  // the running code matches no commit, and until 0.7.0 this read "== repo HEAD".
+  const head = "aaaabbbbccccddddeeeeffff0000111122223333";
+  const dirty = serviceVerdictFrom({ sha: head, sha_short: "aaaabbb", dirty: true }, { headSha: head, headShort: "aaaabbb" });
+  assert.equal(dirty.ok, false);
+  assert.equal(dirty.code, "dirty-build");
+  // A stale dirty build keeps its stale verdict, and says it was dirty too.
+  const stale = serviceVerdictFrom({ sha: "1111", dirty: true }, { headSha: head, headShort: "aaaabbb", runtimeCommits: 2, totalCommits: 2 });
+  assert.equal(stale.code, "stale");
+  assert.match(stale.detail, /uncommitted changes/);
+  // Control: the same payload, clean, is certified.
+  assert.equal(serviceVerdictFrom({ sha: head, sha_short: "aaaabbb", dirty: false }, { headSha: head }).ok, true);
+});
+
 test("a payload with NO sha is unknown-build, not certified", () => {
   // The other early return the call site used to answer for itself.
   const verdict = serviceVerdictFrom({ sha_short: "" }, { headSha: "aaaabbbbcccc" });

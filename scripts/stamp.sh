@@ -51,6 +51,19 @@ elif command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >
   branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 fi
 
+# DIRTY: uncommitted changes to code the image runs (the same paths `aify-comms doctor`'s `service`
+# check counts). A build from such a tree matches no commit, so reporting only HEAD's sha let the
+# doctor say "serving HEAD" while the running code differed (v0.7 scan B19). Env overrides and a tree
+# with no git report false: nothing here can tell.
+dirty="false"
+if [ -z "${GIT_SHA:-}" ] && command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  changed="$(git -C "$REPO_ROOT" status --porcelain -- service mcp config Dockerfile \
+    ':(exclude)service/tests' ':(exclude)service/**/*.test.mjs' ':(exclude)mcp/stdio' 2>/dev/null)"
+  if [ -n "$changed" ]; then
+    dirty="true"
+  fi
+fi
+
 built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
 
 # Escape backslash + double-quote so a branch name containing them can't produce
@@ -63,7 +76,7 @@ built_at="$(_json_escape "$built_at")"
 version="$(_json_escape "$version")"
 
 cat > "$OUT" <<EOF
-{"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at","version":"$version"}
+{"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at","version":"$version","dirty":$dirty}
 EOF
 
-echo "stamp.sh: wrote $OUT (version=$version sha=$short branch=$branch)"
+echo "stamp.sh: wrote $OUT (version=$version sha=$short branch=$branch dirty=$dirty)"

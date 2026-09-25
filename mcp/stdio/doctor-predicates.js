@@ -298,6 +298,7 @@ export function serviceVerdictFrom(version, { headSha = "", headShort = "", runt
     runtimeCommits,
     totalCommits,
     identityOverriddenBy: Array.isArray(version?.identityOverriddenBy) ? version.identityOverriddenBy : [],
+    dirty: version?.dirty === true,
   });
 }
 
@@ -313,10 +314,27 @@ export function serviceBuildVerdict(input = {}) {
   const overridden = Array.isArray(input.identityOverriddenBy)
     ? input.identityOverriddenBy.filter(Boolean)
     : [];
-  const verdict = buildVerdict(input);
+  const verdict = dirtyBuildVerdict(buildVerdict(input), input);
   const caveat = overridden.filter((f) => f !== "build_sha" && f !== "build_short");
   if (!caveat.length || verdict.code === "build-identity-overridden") return verdict;
   return { ...verdict, detail: `${verdict.detail} (${caveat.join(", ")} came from the environment)` };
+}
+
+/**
+ * A build stamped from a tree with uncommitted changes to code the image runs matches NO commit, so no
+ * verdict that says it matches one may stand. `stamp.sh` records the flag; until 0.7.0 it did not,
+ * and a build from edited files read "== repo HEAD" (v0.7 scan B19).
+ */
+function dirtyBuildVerdict(verdict, { dirty = false } = {}) {
+  if (!dirty) return verdict;
+  if (!verdict.ok) return { ...verdict, detail: `${verdict.detail} It was also built with uncommitted changes.` };
+  return {
+    ok: false,
+    code: "dirty-build",
+    detail: "healthy, but built from a tree with uncommitted changes to code it runs, so it matches no "
+      + "commit and nothing here can say what it is running.",
+    fix: "Commit or discard those changes, then rebuild: `bash scripts/stamp.sh && docker compose up -d --build`.",
+  };
 }
 
 function buildVerdict({

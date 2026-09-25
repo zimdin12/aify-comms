@@ -119,17 +119,17 @@ class ServiceJsonCannotOverrideTheStamp(unittest.TestCase):
         # Drift gate. `scripts/stamp.sh` is the writer; if it gains a sixth field, this set must gain
         # it too, or the new field is overridable from day one and nothing says so.
         stamp_sh = (REPO_ROOT / "scripts" / "stamp.sh").read_text(encoding="utf-8")
-        written = {key for key in ("sha", "short", "branch", "built_at", "version")
+        written = {key for key in ("sha", "short", "branch", "built_at", "version", "dirty")
                    if f'"{key}":' in stamp_sh}
         self.assertEqual(
-            written, {"sha", "short", "branch", "built_at", "version"},
+            written, {"sha", "short", "branch", "built_at", "version", "dirty"},
             "stamp.sh no longer writes the fields this test assumes; re-derive _STAMP_OWNED_KEYS",
         )
         # The config attribute names differ from the stamp's JSON keys (`sha` -> `build_sha`), so the
         # mapping is asserted rather than inferred.
         self.assertEqual(
             _STAMP_OWNED_KEYS,
-            {"version", "build_sha", "build_short", "build_branch", "built_at"},
+            {"version", "build_sha", "build_short", "build_branch", "built_at", "build_dirty"},
             "the stamp-owned key set changed; every one of these is read back out of the stamp in "
             "ServiceConfig.load() and must stay refused to service.json",
         )

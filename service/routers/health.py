@@ -209,6 +209,8 @@ async def version():
         "sha_short": config.build_short,
         "branch": config.build_branch,
         "built_at": config.built_at,
+        # Built with uncommitted changes to code the image runs: `sha` is where it started, not what runs.
+        "dirty": config.build_dirty,
         # THE CONSUMER IS `aify-comms doctor`, which reads THIS endpoint and compares `sha` against a
         # checkout. Every field above can be supplied by an environment variable, and a supplied sha
         # compared against a checkout produces a confident green for a build that was never made. Named

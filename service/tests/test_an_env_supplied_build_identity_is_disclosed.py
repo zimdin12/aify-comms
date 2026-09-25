@@ -58,7 +58,7 @@ class AnEnvSuppliedBuildIdentityIsDisclosed(unittest.TestCase):
         recording branch would never run and the tests would pass against nothing."""
         self.assertEqual(
             _STAMP_OWNED_KEYS,
-            frozenset({"version", "build_sha", "build_short", "build_branch", "built_at"}),
+            frozenset({"version", "build_sha", "build_short", "build_branch", "built_at", "build_dirty"}),
         )
 
     def test_a_clean_load_records_NOTHING(self):
