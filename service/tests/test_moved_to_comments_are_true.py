@@ -115,6 +115,28 @@ def _declared_names(path: Path) -> set[str] | None:
     return names
 
 
+def _names_imported_from_their_owner(path: Path) -> set[str]:
+    """Names `path` imports, unrenamed, from a module that DECLARES them. One hop, verified.
+
+    A symbol that moved once more and is imported back into the old destination is still where the
+    comment says: a reader following it lands on an import line that names the owner. Only a hop
+    that ends at a real declaration counts, so this cannot turn a false comment true.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError):
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or not node.module or node.level:
+            continue
+        owner = _declared_names(REPO / (node.module.replace(".", "/") + ".py"))
+        if owner is None:
+            continue
+        names.update(a.name for a in node.names if a.asname in (None, a.name) and a.name in owner)
+    return names
+
+
 def broken_claims():
     """(source file, line, symbol, destination, why) for every tombstone that no longer holds."""
     bad = []
@@ -127,7 +149,9 @@ def broken_claims():
             declared = _declared_names(REPO / dest)
             if declared is None:
                 bad.append((rel, line, symbol, dest, "that module does not exist or does not parse"))
-            elif (rename or symbol) not in declared:
+            elif (rename or symbol) not in declared and (rename or symbol) not in _names_imported_from_their_owner(
+                REPO / dest
+            ):
                 bad.append((rel, line, symbol, dest, "that module does not declare %s" % (rename or symbol)))
     return bad
 
@@ -174,6 +198,22 @@ class MovedToCommentsAreTrueTests(unittest.TestCase):
             "the destination-check must be reading real declarations",
         )
         self.assertIn("now", real, "…and must find one that is genuinely there")
+
+    def test_an_import_counts_only_when_its_source_declares_the_name(self):
+        """The one-hop rule accepts a name imported from its owner and nothing weaker."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = Path(tmp) / "probe.py"
+            probe.write_text(
+                "from service.clock import now\n"
+                "from service.clock import _a_symbol_clock_does_not_have_zzz\n"
+                "from service.clock import now as renamed_now\n"
+                "from service.no_such_module_zzz import thing\n",
+                encoding="utf-8",
+            )
+            got = _names_imported_from_their_owner(probe)
+        self.assertEqual(got, {"now"})
 
     def test_multi_hop_and_multi_symbol_comments_parse(self):
         """The two shapes that broke the first version of this parser."""

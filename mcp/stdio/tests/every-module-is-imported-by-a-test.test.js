@@ -2,8 +2,8 @@
 //
 // THE STANDING STANDARD, FINALLY ENFORCED FOR ALL MODULES. The reviewer's rule for this series is
 // "byte-identical bodies + the new module EXPORTS what it extracts + real unit tests that call it". The
-// third clause was gated only for modules named as a `moved to` DESTINATION
-// (`moved-names-resolve.test.js`). That misses everything extracted without a marker — which is every
+// third clause was gated only for modules named as a `moved to` DESTINATION, by a marker scan since
+// retired. That missed everything extracted without a marker — which is every
 // *-tools.mjs module, because a tool name is not a declaration and those slices correctly left only their
 // register call. `send-tools.mjs` was the most recent: it would have satisfied every gate in the repo with
 // no test at all.
@@ -43,11 +43,9 @@ const TEST_DIRS = ["mcp/stdio/tests", "mcp/stdio", "service/new_dashboard"];
 //: CHILD process in `usage-preflight.test.js` because nothing in-process can witness its own import.
 //:
 //: EMPTY as of 2026-08-17. `hermes-daemon-cli.js` was expected to need an end-to-end harness because it
-//: DRIVES a daemon; it did not. Injecting the two daemon functions alongside argv and the two writers,
-//: and RETURNING the exit code instead of calling `process.exit`, was enough — and the test that split
-//: made possible asserts something no end-to-end run would have checked: the `api_server` key
-//: `ensureDaemon` resolves is deliberately absent from the line the wrapper captures into a shell
-//: variable. An empty list here is the end state, not a gap.
+//: DRIVES a daemon; it did not. Injecting the daemon function alongside argv and the two writers,
+//: and RETURNING the exit code instead of calling `process.exit`, was enough. An empty list here is the
+//: end state, not a gap.
 const UNTESTED_BACKLOG = [
 ];
 
@@ -168,7 +166,7 @@ test("the modules this series created are NOT in the backlog", () => {
   // backlog and appears in no untested list, so four assertions passed on nothing. The sibling
   // test one screen up already says why -- "A deleted file left in the list would quietly shrink
   // the gate's reach" -- and enforces it for the backlog. This list had no such guard, so it
-  // rotted exactly as its neighbour predicts. Found by `scripts/deleted-import-census.py`.
+  // rotted exactly as its neighbour predicts. Found by a census of names deleted modules left behind.
   const present = new Set(modules());
   const vanished = RECENT.filter((m) => !present.has(m));
   assert.deepEqual(

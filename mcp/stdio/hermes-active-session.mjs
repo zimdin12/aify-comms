@@ -39,7 +39,8 @@ import {
 } from "./hermes-endpoint.js";
 import { HERMES_CMD, TMP_DIR, resolveHermesPython } from "./hermes-env.mjs";
 import { AIFY_API_KEY, AIFY_SERVER_URL, makeAifyHttpCall } from "./aify-http.mjs";
-import { openGatewayWsClient, sleep } from "./hermes-gateway.mjs";
+import { setTimeout as sleep } from "node:timers/promises";
+import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import {
   buildSessionActiveListFrame,
   buildSessionListFrame,

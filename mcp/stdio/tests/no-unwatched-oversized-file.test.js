@@ -1,7 +1,7 @@
-// Source files the two size gates CANNOT SEE, held at a ceiling that may only go down.
+// Source files the size gate CANNOT SEE, held at a ceiling that may only go down.
 //
-// THE HOLE THIS CLOSES. `test_no_new_oversized_source_file.py` globs `*.py` under `service/`;
-// `no-new-oversized-source-file.test.js` matches `/\.m?js$/`. Between them they cover the twelve files the
+// THE HOLE THIS CLOSES. `test_no_new_oversized_source_file.py` measures `.py`, `.js` and `.mjs` (until
+// v0.7 a separate JS gate did the JS half). Between them they covered the twelve files the
 // v0.5.4 goal named — and miss `install.sh` at 4,371 lines, which is the LARGEST source file in the repo
 // and a first-class product artifact (CLAUDE.md lists it; re-running it is a required release step). A
 // file no gate can see can double without any test noticing, and this one nearly did: the whole series ran
@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const LIMIT = 1000;
 
-//: Extensions the two existing size gates do not scan. Kept explicit so adding a new source LANGUAGE to
+//: Extensions the size gate does not scan. Kept explicit so adding a new source LANGUAGE to
 //: the repo is a deliberate act rather than something this gate silently starts or stops covering.
 const UNWATCHED_EXTENSIONS = [".sh", ".css", ".in"];
 

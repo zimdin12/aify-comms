@@ -74,36 +74,6 @@ router.include_router(_terminal_controls_router)
 router.include_router(_terminal_lifecycle_router)
 
 
-# _TERMINAL_MONOTONIC_STATUSES moved to service/api_core/terminal_status.py in v0.5.4, together
-# with `_terminal_status_transition` and `_TERMINAL_ACTIVE_STATUSES`. This module owned it for one
-# release on the grounds that its only reader lived here; the reader left, and a constant does not
-# stay behind its reader.
-
-
-# _terminal_status_transition moved to service/api_core/terminal_status.py in v0.5.4.
-
-
-
-# _trim_terminal_output moved to service/api_core/terminal_output.py in v0.5.4.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _terminal_event_to_dict(row) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -112,13 +82,6 @@ def _terminal_event_to_dict(row) -> dict[str, Any]:
         "body": row["body"] or "",
         "createdAt": row["created_at"] or "",
     }
-
-
-# _append_terminal_output moved to service/api_core/terminal_output.py in v0.5.4.
-
-
-
-
 
 
 #: The statuses that mean a terminal is supposed to have a process behind it right now.

@@ -10,8 +10,6 @@ from pathlib import Path
 from service.change_feed import CHANGE_FEED
 from service.db_pool import ConnectionPool
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
-# SCHEMA moved to service/schema.py in v0.5.4 — 431 lines of DDL is data, and this module opens
-# connections. Imported rather than re-exported: `init_db` below is its only reader.
 from service.schema import SCHEMA
 
 SQLITE_BUSY_TIMEOUT_MS = 5000
@@ -264,6 +262,17 @@ async def _clear_stuck_internal_settings(db: aiosqlite.Connection):
     await db.execute(
         "DELETE FROM settings WHERE key = 'managed_terminal_backing_enabled' AND value = 'false'"
     )
+
+
+async def _drop_retired_tables(db: aiosqlite.Connection):
+    """Drop tables nothing reads or writes, so an existing database gives the space back.
+
+    `agent_live_state` held the derived agent status until 2026-06-18, when it moved to the in-memory
+    `_LIVE_STATE_CACHE` (reconcilers/status_cache.py). The table stayed for schema compatibility,
+    written by nothing; its ON DELETE CASCADE still made every agent delete touch it. Dropping the
+    table drops its index with it. Idempotent.
+    """
+    await db.execute("DROP TABLE IF EXISTS agent_live_state")
 
 
 async def _migrate_dispatch_runs_table(db: aiosqlite.Connection):
@@ -521,6 +530,7 @@ async def init_db(db_path: Path = None):
         await _migrate_agent_status_state_table(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)
+        await _drop_retired_tables(db)
         await _backfill_native_managed_capability(db)
         await _reconcile_terminal_controls(db)
         await db.commit()

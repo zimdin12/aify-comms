@@ -11,7 +11,8 @@ import {
   formatPiEventAsTerminalFrame,
 } from "./pi-terminal-frame.mjs";
 import { piSessionPool } from "./pi-session-registry.mjs";
-import { createDeferred, idleTimeoutFor, startupTimeoutFor, timeoutFor } from "./pi-session-timeouts.mjs";
+import { idleTimeoutFor, startupTimeoutFor, timeoutFor } from "./pi-session-timeouts.mjs";
+import { createDeferred } from "./session-timing.mjs";
 import {
   spawnProcess,
   terminateProcessTree,

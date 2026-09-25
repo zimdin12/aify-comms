@@ -15,6 +15,7 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
 import net from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import WebSocket from "ws";
 import {
   buildPromptSubmitFrame,
@@ -23,6 +24,7 @@ import {
   translateGatewayEvent,
 } from "./hermes-gateway-protocol.js";
 import { terminateProcessTree } from "./runtimes.js";
+import { createDeferred } from "./session-timing.mjs";
 import {
   isTuiDepsBuildFailure,
   tuiDepsBuildFailureMessage,
@@ -85,13 +87,6 @@ function waitForReady(url, deadlineMs, isDead) {
     };
     tryOnce();
   });
-}
-
-function createDeferred() {
-  let resolve, reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-  promise.catch(() => {});
-  return { promise, resolve, reject };
 }
 
 export class HermesManagedGatewaySession {
@@ -392,7 +387,7 @@ export class HermesManagedGatewaySession {
         if (Date.now() - startedAt > timeoutMs) {
           throw new Error(`hermes turn timed out after ${timeoutMs}ms`);
         }
-        await new Promise((r) => setTimeout(r, 100));
+        await sleep(100);
       }
 
       if (turn.finalError) {

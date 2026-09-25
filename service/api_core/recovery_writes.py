@@ -137,7 +137,7 @@ async def _record_channel_sidecar_heartbeat(
     # sidecar JUST came alive. That flips `_has_live_channel_sidecar` -> True, so
     # the agent's derived status goes available->online. Invalidate the cached
     # live-state so the NEXT read recomputes immediately instead of waiting out
-    # `agent_live_state.refresh_after` (keyed on heartbeat freshness, NOT worker
+    # the cached entry's `refresh_after` (keyed on heartbeat freshness, NOT worker
     # presence) — otherwise the operator sees the agent "spontaneously" flip to
     # online up to a poll-interval later, with no operator action.
     await _invalidate_agent_live_state(db, agent_id)

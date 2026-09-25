@@ -48,10 +48,6 @@ from service.routers.agent_analytics import router as _agent_analytics_router
 router.include_router(_agent_analytics_router)
 
 
-
-# Was a borrow shim: the owner lived in the control plane, which a router cannot import at
-# module level without a cycle. It moved to service/api_core/status_refresh.py in v0.5.4, so
-# a plain import works.
 from service.api_core.status_refresh import _compute_agent_status  # noqa: E402
 from service.api_core.managed_env import load_session_environment_by_agent  # noqa: E402
 from service.api_core.status_signal_prefetch import PrefetchedStatusSignals  # noqa: E402

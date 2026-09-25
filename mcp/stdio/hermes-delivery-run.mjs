@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { dispatchContent } from "./claude-channel-content.js";
 import {
   ATTACH_POLL_MS,
@@ -21,7 +22,6 @@ import {
   gatewayUnreachableMessage,
   isGatewayConnectRefused,
   reportGatewayDead,
-  sleep,
   redactGatewayUrl,
 } from "./hermes-gateway.mjs";
 import {

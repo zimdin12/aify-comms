@@ -77,11 +77,6 @@ export function registryEntryFor(registryText, serviceName) {
   return { ref, endpoint };
 }
 
-/** Kept for the doctor, which asks only which ref a registry names. */
-export function credentialRefIn(registryText, serviceName) {
-  return registryEntryFor(registryText, serviceName).ref;
-}
-
 /**
  * Do two endpoints name the same service instance?
  *

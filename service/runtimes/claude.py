@@ -10,17 +10,12 @@ from .base import RuntimeAdapter
 
 class ClaudeAdapter(RuntimeAdapter):
     name = "claude-code"
-    display_name = "Claude Code"
     session_env_vars = ["CLAUDE_SESSION_ID"]
     supports_resident = True
     supports_managed = True
     supports_steering = True
     supports_interrupt = True
-    supports_multi_client = True
     preferred_delivery_mode = "managed-via-wrapper"
-
-    # Plan 3 additions
-    wrapper_name = "claude-aify"
 
     def resume_command(self, session_id, agent_id="") -> str:
         # Mirror mcp/stdio/adapters/claude.js resumeCommand. The agent id is
@@ -46,12 +41,3 @@ class ClaudeAdapter(RuntimeAdapter):
         if not runtime_config:
             return False
         return runtime_config.get("channelEnabled") is True
-
-    async def discover_session_id(self) -> str | None:
-        # Session discovery for claude is bridge-side ONLY (the JS adapter,
-        # mcp/stdio/adapters/claude.js, which scopes discovery to the agent's
-        # own cwd). This Python path is never invoked in service/ flow; it
-        # deliberately returns None rather than re-implementing a machine-global
-        # transcript scan that would cross-agent-contaminate — exactly what the
-        # JS adapter was rewritten to forbid.
-        return None

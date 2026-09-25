@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   AIFY_API_KEY,
   AIFY_SERVER_URL,
@@ -46,7 +47,6 @@ import {
   nextReEnsureBudget,
   openGatewayWsClient,
   reportGatewayDead,
-  sleep,
 } from "./hermes-gateway.mjs";
 import {
   REPULSE_MS,

@@ -36,14 +36,14 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
-import {  // v0.5.4: neutral owner
+import {
   TMP_DIR,
 } from "./hermes-env.mjs";
-import {  // v0.5.4: moved out; the host is now a CALLER of the session module
+import {
   ensureStableSession,
   runResolveSessionCli,
 } from "./hermes-active-session.mjs";
-import {  // v0.5.4: moved out; this file is now a CALLER of the gateway module
+import {
   ensureGatewayHost,
   openGatewayWsClient,
 } from "./hermes-gateway.mjs";
@@ -51,9 +51,6 @@ import {
   resolveGatewayPort,
   writeGatewayUrlMarker,
 } from "./hermes-endpoint.js";
-// v0.5.4: the delivery loop and the per-run work moved to ./hermes-delivery-loop.mjs and
-// ./hermes-delivery-run.mjs — 998 lines together, which one module could not hold without a fresh
-// violation of the 1000-line rule. The CLI entry points below stay here and call in.
 import { runDeliveryLoop } from "./hermes-delivery-loop.mjs";
 import { attachToAgentLease } from "./agent-lease-attach.mjs";
 
@@ -63,30 +60,18 @@ const IS_MAIN =
   Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 // Windows + Docker Desktop: force IPv4 loopback (see claude-channel.js).
-// coerceLoopbackToIPv4 moved to ./aify-http.mjs in v0.5.4.
 
-// AIFY_SERVER_URL moved to ./aify-http.mjs in v0.5.4.
-// AIFY_API_KEY moved to ./aify-http.mjs in v0.5.4.
-
-// MACHINE_ID moved to ./hermes-env.mjs in v0.5.4.
 // Per-agent channel-sidecar bridge id (holistic-review F1, 2026-05-31). A
 // machine-global `hermes-managed-host-<machine>` id collided across co-located
 // managed hermes agents because bridge_instances.id is the PRIMARY KEY — only
 // one agent could own the row, starving the others' liveness heartbeats and
 // letting two detached delivery loops fight over one row. Scope by agentId.
-// CHANNEL_BRIDGE_PREFIX moved to ./hermes-run-reporting.mjs in v0.5.4 with its only reader.
-// channelBridgeId moved to ./hermes-run-reporting.mjs in v0.5.4.
-// HTTP_TIMEOUT_MS moved to ./aify-http.mjs in v0.5.4.
-// READY_TIMEOUT_MS moved to ./hermes-gateway.mjs in v0.5.4.
-// RPC_TIMEOUT_MS moved to ./hermes-gateway.mjs in v0.5.4.
 // COLD-START DELIVERY RACE (2026-05-31): on the first dispatch after a cold
 // (re)launch, the delivery loop can claim + try to deliver BEFORE the visible
 // TUI has finished resuming its real session into the gateway, so
 // session.active_list returns no matching session yet. Wait (bounded) for the
 // session to attach before submitting; if it never attaches in time, REQUEUE
 // the run (leave it claimable) rather than failing it permanently.
-// ATTACH_WAIT_MS moved to ./hermes-active-session.mjs in v0.5.4.
-// ATTACH_POLL_MS moved to ./hermes-active-session.mjs in v0.5.4.
 // BOUNDED NO-ATTACH FAIL (Task 2.3, 2026-06-03). The cold-start requeue (above) is
 // correct for a genuine cold start — the visible `hermes --tui` is still resuming
 // its session into the gateway, so a poll or two finds active_list empty and the
@@ -111,9 +96,6 @@ const IS_MAIN =
 // the grace elapses, an attached (present-in-active_list) session is accepted even
 // if its stamp predates delivery. Default: 45% of the attach deadline (configurable),
 // clamped to a sane floor/ceiling.
-// ATTACH_FRESH_GRACE_FRACTION moved to ./hermes-active-session.mjs in v0.5.4.
-// TMP_DIR moved to ./hermes-env.mjs in v0.5.4.
-// RUNTIME moved to ./hermes-env.mjs in v0.5.4.
 // In-flight re-pulse cadence + bounded window (#172). prompt.submit is
 // FIRE-AND-FORGET (returns on accept, not turn completion) and the managed-host
 // WS client cannot reliably observe the gateway turn-complete event, so we
@@ -123,8 +105,6 @@ const IS_MAIN =
 // `working` forever (anti-feedback-loop guard for this completion-event-less
 // path). The agent's own reply closing the run is the precise clear; the next
 // submit resets the window.
-// REPULSE_MS moved to ./hermes-inflight.mjs in v0.5.4.
-// TURN_START_TIMEOUT_MS moved to ./hermes-inflight.mjs in v0.5.4.
 // Continuous gateway turn-state detector cadence (fix/hermes-working-debounce).
 // A faster, dedicated poll of the gateway session["running"] status that drives
 // the BIDIRECTIONAL turn-state detector (sets working on a gateway-running turn,
@@ -132,8 +112,6 @@ const IS_MAIN =
 // promptly; the idle→end debounce (GATEWAY_TURN_IDLE_DEBOUNCE ticks at this
 // cadence) is what prevents the mid-turn-idle flap. ~3s × 3 ticks = ~9s of
 // sustained idle before a turn-end — well under the 120s server backstop.
-// REPULSE_WINDOW_MS moved to ./hermes-inflight.mjs in v0.5.4.
-// HERMES_CMD moved to ./hermes-env.mjs in v0.5.4.
 // Proactive gateway-liveness probe cadence (status-liveness, 2026-06-02). Every
 // interval the delivery loop probes the gateway HOST (dashboard index) for
 // reachability; after GATEWAY_PROBE_THRESHOLD consecutive failures it reports
@@ -165,42 +143,33 @@ const IS_MAIN =
 // firing after N empties as before. Default 90s; configurable.
 // Per-probe HTTP timeout — short so a slow probe still completes within the
 // interval and counts as ONE failure (not a hang). Debounced by the threshold.
-// GATEWAY_PROBE_TIMEOUT_MS moved to ./hermes-gateway.mjs in v0.5.4.
-
-// sleep moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Flatten the many session.active_list envelope shapes into a row array. Mirrors
 // hermes-gateway-protocol.js's internal normalizer (kept local so the freshness
 // guard can read a chosen row's timestamp without an extra protocol export).
-// activeListRowsLocal moved to ./hermes-active-session.mjs in v0.5.4.
 
 // Freshness epoch (ms) of a session.active_list row — the SAME key precedence
 // pickMostRecentSession orders by (last_active → started_at → created_at). 0 when
 // no parseable timestamp is present (a row with no stamp can never clear a floor
 // that is > 0, so it's treated as not-fresh — the safe default for the guard).
-// rowFreshnessStamp moved to ./hermes-active-session.mjs in v0.5.4.
 
 // The real id off an active_list row (`id` / `session_id` / `sessionId`).
-// rowRealIdLocal moved to ./hermes-active-session.mjs in v0.5.4.
 
 // Seed the per-agent active-session file (FIX C) in the SAME shape hermes' TUI
 // writes (useSessionLifecycle.ts writeActiveSessionFile → {"session_id": "..."}),
 // and that hermes' Python wrapper reads (_read_tui_active_session_file → .session_id).
 // Byte-compatible so the in-session bridge reads a real handle at launch instead of
 // the stale launch-time id. Best-effort; the caller swallows throws.
-// defaultWriteActiveSessionFile moved to ./hermes-active-session.mjs in v0.5.4.
 
 // Freshness stamp of the row whose real id is `recentId` within an active_list
 // response (so the fallback can compare the CHOSEN most-recent session against
 // the freshness floor). 0 when the row can't be found / has no stamp.
-// stampForSessionId moved to ./hermes-active-session.mjs in v0.5.4.
 
 // The STABLE resume key the visible TUI attaches under. Its runtime id is
 // ephemeral; we match on this stable key in session.active_list. This MUST be
 // byte-identical to what the install.sh wrapper passes as HERMES_TUI_RESUME, so
 // it reuses the SAME sanitization scheme (pinnedSessionId from
 // hermes-session-id.js, which the wrapper mirrors via `tr -c 'a-zA-Z0-9_-'`).
-// sessionKeyFor moved to ./hermes-active-session.mjs in v0.5.4.
 
 // Resolve the bound agentId from the PID-keyed temp file (same mechanism as
 // claude-channel.js), falling back to AIFY_AGENT_ID.
@@ -215,7 +184,6 @@ function readBoundAgentId() {
 }
 
 // Default aify httpCall(method, endpoint, body) against ${baseUrl}/api/v1.
-// makeAifyHttpCall moved to ./aify-http.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // 1. GATEWAY HOST — hidden `hermes dashboard --tui` child + token scrape.
@@ -223,11 +191,9 @@ function readBoundAgentId() {
 
 // Fetch the dashboard index and scrape __HERMES_SESSION_TOKEN__. Returns the
 // token string or throws. fetchImpl is injectable (tests pass a fake).
-// scrapeToken moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Poll the dashboard index until it responds (and carries a token), or the
 // deadline elapses. Returns the token.
-// waitForIndexToken moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Spawn (idempotently) the hidden gateway host and return its coordinates.
 //   { port, token, wsUrl, child }
@@ -235,7 +201,6 @@ function readBoundAgentId() {
 // - detached:true, windowsHide:true (CRITICAL — no popup OS window).
 // - When probeFirst is set we probe the index first; if a host is already
 //   serving (token scrape succeeds) we DON'T spawn (idempotent re-attach).
-// ensureGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // Blast-radius isolation (task #237 item a): PROACTIVE gateway re-ensure.
@@ -268,14 +233,10 @@ function readBoundAgentId() {
 // respawns a fresh dashboard process every POLL_MS with no ceiling — each a hermes.exe
 // the reapers must then clean (the proliferation / headless-orphan class). This budget
 // caps consecutive no-recovery respawns; a live ws connect (real recovery) resets it.
-// MAX_REENSURE_WITHOUT_RECOVERY moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Pure budget arbiter so the guard is unit-testable without sockets/processes. Returns
 // the next budget: a live ws RESETS to max; a re-ensure DECREMENTS (floored at 0); a
 // steady tick is unchanged. Callers gate the respawn on `budget > 0`.
-// nextReEnsureBudget moved to ./hermes-gateway.mjs in v0.5.4.
-
-// maybeReEnsureGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // Stable session pre-seed — guarantee `aify-<agentId>` exists in hermes' DB so
@@ -297,13 +258,11 @@ function readBoundAgentId() {
 // hermesCmd is typically an absolute path to .../venv/Scripts/hermes(.exe) or
 // .../venv/bin/hermes; the python sibling lives in the same dir. Returns the
 // python path if found on disk, else "python" (PATH fallback).
-// resolveHermesPython moved to ./hermes-active-session.mjs in v0.5.4, then on to ./hermes-env.mjs.
 
 // Create-or-ignore the stable `aify-<agentId>` session row via the hermes
 // SessionDB. Idempotent (INSERT OR IGNORE) + best-effort (never throws). Returns
 // true when the row is known to exist afterward, false on any failure.
 // `spawnSync` is injectable for tests.
-// ensureStableSession moved to ./hermes-active-session.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // WS client — a thin JSON-RPC request/response wrapper over `ws`.
@@ -311,15 +270,10 @@ function readBoundAgentId() {
 
 // Open a WS client to the gateway and return { request(frame), close() }.
 // `WebSocketImpl` is injectable for tests; production uses the bundled `ws`.
-// openGatewayWsClient moved to ./hermes-gateway.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // aify dispatch reporting helpers (mirror hermes-channel.js).
 // ---------------------------------------------------------------------------
-
-// reportTurnBusy moved to ./hermes-run-reporting.mjs in v0.5.4.
-
-// clearTurn moved to ./hermes-run-reporting.mjs in v0.5.4.
 
 // Read the dispatch run's current status + require_reply flag (the
 // host-observable turn-end signals). Best-effort: any error → status "" (treated
@@ -329,11 +283,6 @@ function readBoundAgentId() {
 // the OTHER (a delivery-only nudge owes no turn) — see shouldLatchComplete.
 // GET /dispatch/runs/{id} already exposes `requireReply` via
 // _serialize_dispatch_run_row (no server change needed).
-// fetchRunStatus moved to ./hermes-inflight.mjs in v0.5.4.
-
-// markRunDelivered moved to ./hermes-run-reporting.mjs in v0.5.4.
-
-// markRunFailed moved to ./hermes-run-reporting.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // GATEWAY LIVENESS GAP — reactive mitigation (status-liveness).
@@ -356,10 +305,8 @@ function readBoundAgentId() {
 // AFTER a healthy connect (`hermes gateway WS closed`, `... WS not open`, RPC
 // timeouts, or a 4009 busy). Only the connect failure should self-correct the
 // agent off `available`; a transient mid-turn blip must not.
-// isGatewayConnectRefused moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Build the actionable run-failure message for a dead gateway port.
-// gatewayUnreachableMessage moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Build the actionable run-failure message for the BOUNDED no-attach case (Task
 // 2.3): the gateway host is REACHABLE (we polled session.active_list) but NO
@@ -378,26 +325,22 @@ function readBoundAgentId() {
 // channel-sidecar bridge id is not the resident MCP bridge that owns
 // runtime_state.bridgeInstanceId, so sending it would hit the server's
 // bridge_not_current guard and be ignored. Best-effort: never throws.
-// reportGatewayDead moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Derive the gateway HOST index URL (`http://127.0.0.1:<port>/`) from the
 // gateway WS URL (`ws://127.0.0.1:<port>/api/ws?token=...`). The index is the
 // cheapest reachability signal for the hidden `hermes dashboard --tui` host —
 // the same surface ensureGatewayHost's idempotent probe uses. Returns "" when
 // the URL can't be parsed (probe then treats the gateway as unreachable).
-// gatewayIndexUrlFromWs moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Build a single-shot gateway reachability probe for the proactive liveness
 // checker. Resolves `{ alive: boolean }`; a non-OK response or a thrown
 // fetch/timeout counts as not-alive (a failure). `fetchImpl` + `timeoutMs` are
 // injectable so the driver is unit-testable with no real sockets.
-// makeGatewayReachabilityProbe moved to ./hermes-gateway.mjs in v0.5.4.
 
 // COLD-START requeue: the visible TUI has not (yet) attached its real session
 // to the gateway, so this is a TRANSIENT not-yet-ready condition, NOT a
 // permanent failure. Put the run back to `queued` (claimable) so the very next
 // poll delivers once the TUI finishes resuming. Never markRunFailed for this.
-// markRunRequeued moved to ./hermes-run-reporting.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // 3. DELIVERY — claim → active_list → prompt.submit (requeue on busy) → delivered.
@@ -420,7 +363,6 @@ function readBoundAgentId() {
 //       requeue, never a hard fail).
 // `nextId` advances the RPC id across polls. `wsClient`, `sleepImpl`, the timing,
 // and the marker read/write are injectable for tests.
-// waitForActiveSession moved to ./hermes-active-session.mjs in v0.5.4.
 
 // Drive ONE claimed run end-to-end (WAKE-ONLY). NEVER throws.
 //   reportTurnBusy(true) → WAIT for active session (cold-start race) →
@@ -464,9 +406,6 @@ function readBoundAgentId() {
 // treated as NOT idle (best-effort: keep re-pulsing, fall through to run-status).
 // `readGatewayStatus` and `clearTurnImpl` are optional: omitted → the original
 // run-status-only behaviour, so existing callers are unaffected.
-// makeInFlightProbe moved to ./hermes-inflight.mjs in v0.5.4.
-
-// shouldApplyGatewayTurnEnd moved to ./hermes-gateway.mjs in v0.5.4.
 
 // The re-pulse PULSE for the managed-host beat. Returns the `pulse` callback for
 // startInFlightRepulse. CRITICAL: it threads the OPEN run's id
@@ -478,7 +417,6 @@ function readBoundAgentId() {
 // reflects the run that currently owns the window. Factored out so the wiring
 // (runId threaded, not empty) is unit-testable independent of the time-driven
 // setInterval beat. `reportTurnBusyImpl` is injectable for tests.
-// makeInFlightPulse moved to ./hermes-inflight.mjs in v0.5.4.
 
 // One poll cycle: claim a small batch of channel/resident runs and deliver each.
 // Returns { processed, released, terminal? }. NEVER throws.
@@ -497,11 +435,8 @@ function readBoundAgentId() {
 // Teardown — kill the gateway-host child on shutdown / release.
 // ---------------------------------------------------------------------------
 
-// _teardownState moved to ./hermes-gateway.mjs in v0.5.4.
-
 // Kill the gateway-host child. Best-effort + idempotent (a shared `state` flag
 // guards double teardown). NEVER throws.
-// teardownGatewayHost moved to ./hermes-gateway.mjs in v0.5.4.
 
 // Build a bound teardown callback that kills the gateway host the loop owns —
 // by its OWNED CHILD HANDLE when one exists, else BY PORT (a reused host the
@@ -510,7 +445,6 @@ function readBoundAgentId() {
 // shared `state` flag. NEVER throws. `killByPort` defaults to the real
 // port→PID→kill from hermes-daemon.js; `clearMarkers` (optional) runs after the
 // kill so a teardown also drops the agent's port/key markers (Task 4.1 wiring).
-// makeTeardown moved to ./hermes-gateway.mjs in v0.5.4 — teardown is that module's subject.
 
 // Wire SIGTERM/SIGINT → teardown → exit. When the caller supplies a bound
 // `teardown` (the port-aware makeTeardown from runDeliveryLoop, Task 1.2) it is
@@ -518,7 +452,6 @@ function readBoundAgentId() {
 // falls back to the legacy child-only teardownGatewayHost. `getChild` returns
 // the current gateway-host child (it's spawned after handler install). `proc` is
 // injectable for tests.
-// installShutdownTeardown moved to ./hermes-gateway.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // Terminal-condition classifier for the delivery loop.
@@ -533,7 +466,6 @@ function readBoundAgentId() {
 // Everything else (transient WS/connect drops, RPC timeouts, 5xx) is
 // NON-terminal: the loop keeps its existing retry behaviour.
 // ---------------------------------------------------------------------------
-
 
 // Classify a /dispatch/claim error against a small mutable counter object
 // `{ count }` (the consecutive-404 self-heal counter). Returns one of:
@@ -581,8 +513,6 @@ function readBoundAgentId() {
 // to aify, so the next launch resolves the live session. Pure READ of gateway truth + marker write;
 // never throws into delivery. An empty active_list (gateway idle/restarting) leaves the marker
 // UNCHANGED — clearing is resolve's job, not this beat's.
-// startResumeMarkerSync moved to ./hermes-active-session.mjs in v0.5.4.
-
 
 // ---------------------------------------------------------------------------
 // `ensure-host` CLI mode — bring the hidden gateway host up (or reuse) and
@@ -680,7 +610,6 @@ export async function runEnsureHostCli(agentId, deps = {}) {
 // loop converges on the new session even though the launch-time resume id is now
 // historical. Launch resolves the BEST id known at launch; runtime convergence is
 // owned by the loop + the TUI's active-file writes, not by re-exec'ing the TUI.
-// runResolveSessionCli moved to ./hermes-active-session.mjs in v0.5.4.
 
 // ---------------------------------------------------------------------------
 // argv dispatch.

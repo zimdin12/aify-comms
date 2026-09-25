@@ -20,6 +20,7 @@ so a reconciler that committed on its own would break that batching.
 """
 from __future__ import annotations
 
+from service.api_core.terminal_status import _TERMINAL_END_STATUSES_ORDERED
 from service.api_core.tuning import (
     TERMINAL_EVENTS_KEPT_PER_TERMINAL,
     TERMINAL_LIFECYCLE_EVENTS_KEPT_PER_TERMINAL,
@@ -115,12 +116,15 @@ async def _prune_terminal_history(
                 if n < chunk:
                     break
 
+    # EVERY ended status, from the one owner. This listed four of the six by hand and left `lost`
+    # and `completed` out, so a terminal ending in either kept its replay buffer for ever.
+    ended = ", ".join("?" * len(_TERMINAL_END_STATUSES_ORDERED))
     cur = await db.execute(
         "UPDATE terminal_sessions SET output = '' "
-        "WHERE status IN ('stopped', 'failed', 'ended', 'cancelled') "
+        f"WHERE status IN ({ended}) "
         "AND COALESCE(output, '') != '' "
         "AND datetime(updated_at) < datetime('now', ?)",
-        (f"-{max(1, int(ended_output_ttl_hours))} hours",),
+        (*_TERMINAL_END_STATUSES_ORDERED, f"-{max(1, int(ended_output_ttl_hours))} hours"),
     )
     await db.commit()
     counts["ended_output_cleared"] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0

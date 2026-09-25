@@ -47,27 +47,6 @@ REPO = Path(__file__).resolve().parent.parent.parent
 #: specific places, so it expires the moment the places change: a new holder has not been ruled on and
 #: must fail until someone extends the entry.
 RULINGS = {
-    frozenset({"stopped", "failed", "lost", "ended", "completed", "cancelled"}): ({
-        "service/api_core/terminal_status.py:_TERMINAL_END_STATUSES",
-        "service/api_core/tuning.py:_SESSION_DELETE_ALLOWED_STATUSES",
-        "service/routers/sessions.py:_TERMINAL_DELETE_ALLOWED_STATUSES",
-        "service/api_core/agent_sessions.py:ENDED_AGENT_SESSION_STATUSES",
-    }, (
-        "FOUR QUESTIONS, ONE ANSWER TODAY, deliberately not merged.\n"
-        "  api_core/terminal_status._TERMINAL_END_STATUSES  — which terminal statuses mean the\n"
-        "      terminal has ENDED. Its ordered twin is derived from it and a test pins the pair.\n"
-        "  api_core/tuning._SESSION_DELETE_ALLOWED_STATUSES — which SESSION statuses may be deleted.\n"
-        "  routers/sessions._TERMINAL_DELETE_ALLOWED_STATUSES — which TERMINAL rows may be deleted.\n"
-        "  api_core/agent_sessions.ENDED_AGENT_SESSION_STATUSES — which AGENT SESSION statuses mean\n"
-        "      the session has ended, so a dead row cannot shadow the live one.\n"
-        "The fourth was found by pinning holders: three were recorded from an earlier scan and the\n"
-        "group was exempt before its membership was ever read, which is the failure this entry now\n"
-        "documents twice over.\n"
-        "Deleting a row and ending a terminal are different permissions, and the same file already\n"
-        "records a regression from treating a coinciding set as the same concept: "
-        "SESSION_CLEAN_HISTORY_STATUSES is deliberately narrower than the delete set, because "
-        "'safe to eventually delete' is not 'not worth showing'."
-    )),
     frozenset({"codex", "pi", "opencode", "hermes"}): ({
         "service/api_core/runtime.py:_NATIVE_MANAGED_RUNTIMES",
         "service/db.py:_NATIVE_MANAGED_RUNTIMES",
@@ -265,9 +244,10 @@ class NoUnruledConstantCoincidencesTests(unittest.TestCase):
         reported = {
             value for value, places in constant_groups().items() if len(holders(places)) > 1
         }
+        # 2 -> 1 on 2026-09-25, when the four ended-status sets became one set under four names.
         self.assertEqual(
-            len(reported), 2,
-            "the cross-module group count moved; both were already present before annotated "
+            len(reported), 1,
+            "the cross-module group count moved; the one group was already present before annotated "
             "declarations were collected, so a change here is a real new coincidence",
         )
 

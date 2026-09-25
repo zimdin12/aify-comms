@@ -5360,18 +5360,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         self.assertEqual(sent["dispatchRuns"], [])
         run_id = sent["consoleDeliveries"][0]["contractRunId"]
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                status = excluded.status,
-                reason = excluded.reason,
-                updated_at = excluded.updated_at,
-                refresh_after = excluded.refresh_after
-            """,
-            ("console-agent", "active", "stale cached status", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z"),
-        )
         delivered = self.client.patch(
             f"/api/v1/dispatch/runs/{run_id}",
             json={
@@ -5385,18 +5373,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         listed_active_after_delivery = self.client.get("/api/v1/agents")
         self.assertEqual(listed_active_after_delivery.status_code, 200, listed_active_after_delivery.text)
         self.assertEqual(listed_active_after_delivery.json()["agents"]["console-agent"]["status"], "online")
-        self._execute(
-            """
-            INSERT INTO agent_live_state (agent_id, status, reason, updated_at, refresh_after)
-            VALUES (?,?,?,?,?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                status = excluded.status,
-                reason = excluded.reason,
-                updated_at = excluded.updated_at,
-                refresh_after = excluded.refresh_after
-            """,
-            ("console-agent", "working", "stale cached status", "2026-01-01T00:00:00Z", "2099-01-01T00:00:00Z"),
-        )
 
         reply = self.client.post(
             "/api/v1/messages/send",
@@ -10050,7 +10026,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         )
         overdue_at = _iso_from_ms(int((time.time() - 120) * 1000))
         self._execute("UPDATE dispatch_runs SET requested_at = ? WHERE id = ?", (overdue_at, run_id))
-        self._execute("DELETE FROM agent_live_state WHERE agent_id = ?", ("console-agent",))
 
         result = asyncio.run(service_main._run_dispatch_reconcile_once())
         self.assertEqual(result["reply_reminders"], 1)
@@ -12071,25 +12046,6 @@ class ApiV2RegressionTests(FastApiTestCase):
                 fresh,
                 None,
                 "",
-            ),
-        )
-        self._execute(
-            """
-            INSERT INTO agent_live_state (
-                agent_id, status, reason, environment_id, session_id, terminal_id,
-                active_run_id, refresh_after, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                "taxonomy-hermes-wrapper",
-                "online",
-                "",
-                "env_wrapper_gate",
-                "sess_wrapper_gate_1",
-                "term_wrapper_gate_1",
-                "",
-                "9999-12-31T23:59:59Z",
-                fresh,
             ),
         )
 

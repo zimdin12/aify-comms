@@ -194,165 +194,90 @@ def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, mes
 
 
 async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_recipients, console_deliveries, resolved_in_reply_to):
-        """Queue the terminal `input` control that actually delivers a dispatch to a console session.
+    """Queue the terminal `input` controls that deliver a SENT message to its console recipients.
 
-        Extracted from `send_message` in v0.5.4; `test_send_message_split_is_inert.py` (retired in v0.6.13) inlined it back
-        and AST-compared against the pre-split fixture, so the round trip is re-proved on every run.
-
-        Body left at its original 8-space column. The same reason as the register_agent extractions:
-        re-indenting would have re-indented the contents of the multi-line literals inside it, and the
-        gate compares ASTs rather than accepting "the whitespace does not matter".
-
-        THE PER-RECIPIENT MESSAGE ID is the subtle part. A fan-out send gives every recipient its OWN
-        id (`{msg_id}-{recipient_id}`) but a single-recipient send reuses `msg_id` unchanged — so the
-        common case threads against the id the caller already knows, while a fan-out cannot have two
-        recipients replying against one id and collapsing into each other's thread.
-        """
-        if req.trigger:
-            source_message_ids = {
-                recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
-                for recipient_id in recipients
-            }
-            sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""),
-                                   machine=getattr(req, "_external_machine", ""))
-            for recipient_id, terminal in console_recipients.items():
-                terminal_id = str(terminal["terminal_id"] or "").strip()
-                recipient_message_id = source_message_ids.get(recipient_id, msg_id)
-                # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped
-                # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,
-                # action, requested_by, body, cols and rows -- no runtime. Passing one is a
-                # behaviour change to what a control carries, not a cleanup, so the dead line
-                # goes and the question stays open.
-                control_id = await _append_terminal_control(
-                    db,
-                    terminal_id=terminal_id,
-                    environment_id=terminal["environment_id"],
-                    bridge_id=terminal["bridge_id"] or "",
-                    action="input",
-                    requested_by=req.from_agent,
-                    body=_console_dispatch_input_body(
-                        req,
-                        recipient_id=recipient_id,
-                        message_id=recipient_message_id,
-                        bracketed_paste=True,
-                        sender=sender,
-                    ),
-                )
-                submit_control_id = ""
-                await _append_terminal_event(
-                    db,
-                    terminal_id,
-                    "terminal_input_requested",
-                    json.dumps({
-                        "requestedBy": req.from_agent,
-                        "controlId": control_id,
-                        "submitControlId": submit_control_id,
-                        "source": "message_send",
-                        "messageId": recipient_message_id,
-                    }),
-                )
-                contract_run_id = await _record_terminal_delivery_contract(
-                    db,
-                    source_message_id=recipient_message_id,
-                    from_agent=req.from_agent,
-                    recipient_id=recipient_id,
-                    message_type=req.type,
-                    subject=req.subject,
-                    body=req.body,
-                    priority=req.priority,
-                    in_reply_to=resolved_in_reply_to,
-                    require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
-                    terminal_id=terminal_id,
-                    control_id=control_id,
-                    runtime=terminal["runtime"] or "",
-                )
-                console_deliveries.append({
-                    "targetAgentId": recipient_id,
-                    "terminalId": terminal_id,
-                    "controlId": control_id,
-                    "contractRunId": contract_run_id,
-                    "status": "sent_to_console",
-                })
+    THE PER-RECIPIENT MESSAGE ID is the subtle part. A fan-out send gives every recipient its OWN
+    id (`{msg_id}-{recipient_id}`) but a single-recipient send reuses `msg_id` unchanged — so the
+    common case threads against the id the caller already knows, while a fan-out cannot have two
+    recipients replying against one id and collapsing into each other's thread.
+    """
+    if not req.trigger:
+        return
+    source_message_ids = {
+        recipient_id: (f"{msg_id}-{recipient_id}" if len(recipients) > 1 else msg_id)
+        for recipient_id in recipients
+    }
+    await _queue_console_inputs_for_dispatch(
+        db, req, msg_id, console_recipients, console_deliveries, source_message_ids,
+        resolved_in_reply_to, source="message_send",
+    )
 
 
 async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipients, console_deliveries,
-                                             source_message_ids, resolved_in_reply_to):
-        """Queue the terminal `input` control that delivers a DISPATCH to a console session.
+                                             source_message_ids, resolved_in_reply_to, *, source="dispatch"):
+    """Queue the terminal `input` control that delivers a message or dispatch to a console session.
 
-        Extracted from `create_dispatch` in v0.5.4; `test_create_dispatch_split_is_inert.py` (retired in v0.6.13) inlined it
-        back and AST-compared against the pre-split fixture. Body at its original 8-space column so the
-        literals inside are preserved byte-for-byte.
-
-        IT IS A NEAR-TWIN OF `_queue_console_dispatch_inputs` ABOVE, and that is recorded rather than
-        merged. Fifty-one of the fifty-three lines are identical; the two that are not are:
-
-            source_message_ids.get(recipient_id, msg_id)   vs   (..., message_id)   — a rename
-            "source": "message_send"                       vs   "source": "dispatch" — a VALUE
-
-        The second is real: the delivery contract records which path produced it, and collapsing the two
-        would either lose that or need it threaded through as a parameter. That is a behaviour-shaped
-        change, not a byte-identical move, so it is not being smuggled into a refactor slice.
-
-        `test_console_input_queueing_twins_agree.py` pins the pair: the two bodies must stay identical
-        MODULO exactly those two substitutions, so a fix applied to one and not the other fails.
-        """
-        sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""),
-                                   machine=getattr(req, "_external_machine", ""))
-        for recipient_id, terminal in console_recipients.items():
-            terminal_id = str(terminal["terminal_id"] or "").strip()
-            recipient_message_id = source_message_ids.get(recipient_id, message_id)
-            # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped
-            # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,
-            # action, requested_by, body, cols and rows -- no runtime. Passing one is a
-            # behaviour change to what a control carries, not a cleanup, so the dead line
-            # goes and the question stays open.
-            control_id = await _append_terminal_control(
-                db,
-                terminal_id=terminal_id,
-                environment_id=terminal["environment_id"],
-                bridge_id=terminal["bridge_id"] or "",
-                action="input",
-                requested_by=req.from_agent,
-                body=_console_dispatch_input_body(
-                    req,
-                    recipient_id=recipient_id,
-                    message_id=recipient_message_id,
-                    bracketed_paste=True,
-                    sender=sender,
-                ),
-            )
-            submit_control_id = ""
-            await _append_terminal_event(
-                db,
-                terminal_id,
-                "terminal_input_requested",
-                json.dumps({
-                    "requestedBy": req.from_agent,
-                    "controlId": control_id,
-                    "submitControlId": submit_control_id,
-                    "source": "dispatch",
-                    "messageId": recipient_message_id,
-                }),
-            )
-            contract_run_id = await _record_terminal_delivery_contract(
-                db,
-                source_message_id=recipient_message_id,
-                from_agent=req.from_agent,
+    `source` is recorded on the `terminal_input_requested` event and says which path produced the
+    delivery: "dispatch" for create_dispatch, "message_send" for send_message (through
+    `_queue_console_dispatch_inputs` above).
+    """
+    sender = await _describe_sender(db, req.from_agent, getattr(req, "origin", ""),
+                               machine=getattr(req, "_external_machine", ""))
+    for recipient_id, terminal in console_recipients.items():
+        terminal_id = str(terminal["terminal_id"] or "").strip()
+        recipient_message_id = source_message_ids.get(recipient_id, message_id)
+        # NO `terminal_runtime`. It normalised the recipient's runtime here and dropped
+        # it: `_append_terminal_control` takes terminal_id, environment_id, bridge_id,
+        # action, requested_by, body, cols and rows -- no runtime. Passing one is a
+        # behaviour change to what a control carries, not a cleanup, so the dead line
+        # goes and the question stays open.
+        control_id = await _append_terminal_control(
+            db,
+            terminal_id=terminal_id,
+            environment_id=terminal["environment_id"],
+            bridge_id=terminal["bridge_id"] or "",
+            action="input",
+            requested_by=req.from_agent,
+            body=_console_dispatch_input_body(
+                req,
                 recipient_id=recipient_id,
-                message_type=req.type,
-                subject=req.subject,
-                body=req.body,
-                priority=req.priority,
-                in_reply_to=resolved_in_reply_to,
-                require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
-                terminal_id=terminal_id,
-                control_id=control_id,
-                runtime=terminal["runtime"] or "",
-            )
-            console_deliveries.append({
-                "targetAgentId": recipient_id,
-                "terminalId": terminal_id,
+                message_id=recipient_message_id,
+                bracketed_paste=True,
+                sender=sender,
+            ),
+        )
+        submit_control_id = ""
+        await _append_terminal_event(
+            db,
+            terminal_id,
+            "terminal_input_requested",
+            json.dumps({
+                "requestedBy": req.from_agent,
                 "controlId": control_id,
-                "contractRunId": contract_run_id,
-                "status": "sent_to_console",
-            })
+                "submitControlId": submit_control_id,
+                "source": source,
+                "messageId": recipient_message_id,
+            }),
+        )
+        contract_run_id = await _record_terminal_delivery_contract(
+            db,
+            source_message_id=recipient_message_id,
+            from_agent=req.from_agent,
+            recipient_id=recipient_id,
+            message_type=req.type,
+            subject=req.subject,
+            body=req.body,
+            priority=req.priority,
+            in_reply_to=resolved_in_reply_to,
+            require_reply=_dispatch_requires_reply(req.requireReply, default=_message_type_expects_reply(req.type)),
+            terminal_id=terminal_id,
+            control_id=control_id,
+            runtime=terminal["runtime"] or "",
+        )
+        console_deliveries.append({
+            "targetAgentId": recipient_id,
+            "terminalId": terminal_id,
+            "controlId": control_id,
+            "contractRunId": contract_run_id,
+            "status": "sent_to_console",
+        })

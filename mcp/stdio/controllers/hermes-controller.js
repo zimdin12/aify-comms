@@ -28,41 +28,8 @@
 // until then the comment says what is true, because a comment asserting a wiring the imports lack is
 // how a reader concludes a code path exists and builds on it.
 
-import { BaseController } from "./base-controller.js";
+import { BaseController, DelegatedManagedController } from "./base-controller.js";
 import { HermesManagedController } from "./hermes-managed-controller.js";
-
-// Lightweight delegated controller used for managed + managedViaWrapper: the
-// wrapper's child bridge owns the actual dispatch, so this controller resolves
-// immediately with a "delegated" status and exposes no-op control surfaces.
-class DelegatedManagedController extends BaseController {
-  constructor(opts) {
-    super(opts);
-    this._capabilities = { interrupt: false, steer: false };
-    this._promise = Promise.resolve({
-      status: "delegated",
-      summary: "managed dispatch delegated to wrapper-PTY child bridge",
-      runtimeState: {},
-      externalRefs: {},
-    });
-  }
-
-  start() {
-    // Plan 4 ready: managed-via-wrapper delegates to wrapper PTY child bridge
-    // which has its own handshake. From this bridge's perspective the
-    // controller is "ready" the instant it's started.
-    this.markReady();
-    return {
-      capabilities: this._capabilities,
-      interrupt: async () => {},
-      steer: async () => {},
-      promise: this._promise,
-    };
-  }
-
-  async injectMessage(_opts) { /* delegated to wrapper child bridge */ }
-  async interrupt(_opts) { /* delegated to wrapper child bridge */ }
-  async steer(_opts) { /* delegated to wrapper child bridge */ }
-}
 
 // channel/resident hermes delivery is owned by the per-agent
 // `hermes-managed-host.js run <agent>` delivery loop (visible-TUI model,

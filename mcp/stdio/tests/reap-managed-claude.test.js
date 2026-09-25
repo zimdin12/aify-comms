@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import {
-  pidsForResumeHandle,
   procsForResumeHandle,
   parentBelongsToAgent,
   reapPriorManagedClaude,
-  parseProcLines,
 } from "../reap-managed-claude.js";
 
 const HANDLE = "f9d6f5a4-343d-43a7-9329-bae1694cba06";
@@ -32,11 +30,12 @@ const WRAPPERS = {
 };
 const getCmdline = (pid) => WRAPPERS[pid] || "";
 
-// 1. procsForResumeHandle / pidsForResumeHandle match by handle (unchanged).
+// 1. procsForResumeHandle matches by handle.
 {
-  assert.deepEqual(pidsForResumeHandle(PROCS, HANDLE).sort((a, b) => a - b), [100, 200]);
-  assert.deepEqual(pidsForResumeHandle(PROCS, SHARED).sort((a, b) => a - b), [400, 500]);
-  assert.deepEqual(pidsForResumeHandle(PROCS, ""), []);
+  const pids = (handle) => procsForResumeHandle(PROCS, handle).map((p) => p.pid).sort((a, b) => a - b);
+  assert.deepEqual(pids(HANDLE), [100, 200]);
+  assert.deepEqual(pids(SHARED), [400, 500]);
+  assert.deepEqual(pids(""), []);
 }
 
 // 2. parentBelongsToAgent matches --aify-agent (space + = forms), with boundary.
@@ -97,15 +96,6 @@ const getCmdline = (pid) => WRAPPERS[pid] || "";
 {
   const res = reapPriorManagedClaude(HANDLE, { agentId: "sc-coder", list: () => { throw new Error("ps fail"); }, getCmdline, kill: () => true });
   assert.deepEqual(res.killed, []);
-}
-
-// 8. parseProcLines: PID\tPPID\tCMDLINE.
-{
-  const parsed = parseProcLines(`1234\t11\tclaude.exe --resume ${HANDLE}\n\nbad\n5\t6\tclaude.exe x`);
-  assert.deepEqual(parsed, [
-    { pid: 1234, ppid: 11, commandLine: `claude.exe --resume ${HANDLE}` },
-    { pid: 5, ppid: 6, commandLine: "claude.exe x" },
-  ]);
 }
 
 console.log("reap-managed-claude.test.js: all assertions passed");

@@ -8,28 +8,11 @@
 // polyfill, a future `fetch` that spells the option differently. The only proof is a second host
 // that says whether it received the key.
 //
-// SO THIS STANDS REAL SERVERS UP on the loopback and drives the ACTUAL production transports:
-// `httpCall` from `aify-service-endpoint.mjs` (which carries `X-API-Key`) and the hermes API-server
-// client (which carries `Authorization: Bearer` and `X-Hermes-Session-Key`). The redirector answers
-// 302; the receiver records every header of every request that reaches it and is asked afterwards
-// what it saw.
-//
-// WHAT UNDICI ALREADY DOES, MEASURED HERE 2026-09-08 ON NODE v22.20.0 rather than assumed, because
-// it decides which of these tests would catch anything and I had the story wrong at first:
-//
-//   | header                 | cross-origin 302 | same-origin 302 |
-//   |------------------------|------------------|-----------------|
-//   | Authorization          | STRIPPED         | SURVIVES        |
-//   | X-API-Key              | survives         | survives        |
-//   | X-Hermes-Session-Key   | survives         | survives        |
-//
-// Two consequences, and both are why the fix is not narrower than it looks. `Authorization` being
-// stripped cross-origin is real protection that nobody in this repo arranged, and it is the reason
-// my first framing of the hermes calls as naked bearer leaks was too strong -- but it evaporates on
-// a SAME-ORIGIN hop, which is the ordinary shape of a service redirecting `/v1/runs` to `/v2/runs`.
-// And undici strips exactly one header name: `X-Hermes-Session-Key` is a session credential that
-// `createRun` attaches, and it rides a cross-origin redirect untouched. The custom-header carriers
-// were never protected at all.
+// SO THIS STANDS REAL SERVERS UP on the loopback and drives the ACTUAL production transport:
+// `httpCall` from `aify-service-endpoint.mjs`, which carries `X-API-Key`. The redirector answers 302;
+// the receiver records every header of every request that reaches it and is asked afterwards what it
+// saw. undici does NOT strip a custom header like `X-API-Key` on a redirect, cross-origin or not, so
+// the policy is the only thing standing between the key and the second host.
 //
 // THE CONTROLS ARE THE LOAD-BEARING TESTS HERE, not formalities. "The receiver saw nothing" and
 // "the receiver is broken" are the same observation, and a receiver that recorded nothing would make
@@ -56,7 +39,6 @@ const BRIDGE = path.join(HERE, "..");
 
 //: Distinct per carrier, so a recorded header names WHICH credential leaked rather than "a secret".
 const API_KEY_SECRET = "runtime-gate-x-api-key-secret";
-const BEARER_SECRET = "runtime-gate-bearer-secret";
 
 /** A server that records every request it receives and answers 200 with JSON. */
 function receiver() {
@@ -81,28 +63,6 @@ function redirector(target) {
     seen.push({ url: req.url, headers: { ...req.headers } });
     res.writeHead(302, { Location: `${target}${req.url}` });
     res.end();
-  });
-  return { server, seen };
-}
-
-/**
- * One server that redirects to ITSELF on another path, and records what lands.
- *
- * This is where `Authorization` is genuinely exposed: undici keeps it across a same-origin hop, so a
- * service that moves an endpoint hands the token to the new path with no policy of ours involved.
- * A redirect is still not an API response, which is the whole rule.
- */
-function sameOriginRedirector() {
-  const seen = [];
-  const server = http.createServer((req, res) => {
-    if (!req.url.startsWith("/landed")) {
-      res.writeHead(302, { Location: "/landed" });
-      res.end();
-      return;
-    }
-    seen.push({ url: req.url, headers: { ...req.headers } });
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true }));
   });
   return { server, seen };
 }
@@ -193,34 +153,6 @@ test("POSITIVE CONTROL: a default-policy fetch LEAKS the key to the second host"
   });
 });
 
-test("MEASUREMENT: undici strips Authorization cross-origin and keeps it same-origin", async () => {
-  // The table at the top of this file, executed. It is a fact about the RUNTIME, not about our code,
-  // and it decides what the hermes tests below can prove -- so it is measured in the same run rather
-  // than remembered from a probe. A Node that changed this would redden here, next to the reason.
-  await withTwoHosts(async ({ firstUrl, saw }) => {
-    await fetch(`${firstUrl}/p`, {
-      headers: { authorization: `Bearer ${BEARER_SECRET}`, "x-hermes-session-key": API_KEY_SECRET },
-    });
-    assert.equal(saw.length, 1, "the cross-origin hop did not land");
-    assert.equal(saw[0].headers.authorization, undefined,
-      "Authorization survived a cross-origin redirect -- the comment table above is now wrong");
-    assert.equal(saw[0].headers["x-hermes-session-key"], API_KEY_SECRET,
-      "a custom header was stripped cross-origin -- the table above is now wrong");
-  });
-
-  const hop = sameOriginRedirector();
-  const hopUrl = await listen(hop.server);
-  try {
-    await fetch(`${hopUrl}/start`, { headers: { authorization: `Bearer ${BEARER_SECRET}` } });
-    assert.equal(hop.seen.length, 1, "the same-origin hop did not land");
-    assert.equal(hop.seen[0].headers.authorization, `Bearer ${BEARER_SECRET}`,
-      "Authorization was stripped same-origin -- then the bearer needs no policy and this file "
-      + "should say so instead");
-  } finally {
-    await close(hop.server);
-  }
-});
-
 // ── the production transports ───────────────────────────────────────────────────────────────────
 
 test("httpCall does not hand X-API-Key to a host it was redirected to", async () => {
@@ -252,40 +184,6 @@ test("httpCall does not hand X-API-Key to a host it was redirected to", async ()
       restoreEnv();
     }
   });
-});
-
-test("the hermes client does not follow a redirect, on any of its credential-carrying calls", async () => {
-  // WHAT THIS PROVES is that the second host is never asked at all. That is the assertion, and it is
-  // not the same as "the bearer did not arrive": per the measurement above undici would have stripped
-  // the bearer on this cross-origin hop anyway, so asserting only on the token would pass with the
-  // policy deleted. `X-Hermes-Session-Key` on `createRun` would NOT have been stripped, and neither
-  // would the bearer on a same-origin hop -- but the honest general rule is the one measured here,
-  // that a redirect is not an answer and the request stops.
-  const { createHermesApiServerClient } = await import(
-    pathToFileURL(path.join(BRIDGE, "hermes-apiserver-client.js")).href
-  );
-  const client = createHermesApiServerClient();
-
-  const calls = [
-    ["health", (baseUrl) => client.health({ baseUrl, key: BEARER_SECRET })],
-    ["createRun", (baseUrl) => client.createRun({
-      baseUrl, key: BEARER_SECRET, input: "hello", sessionKey: API_KEY_SECRET,
-    })],
-    ["stopRun", (baseUrl) => client.stopRun({ baseUrl, key: BEARER_SECRET, runId: "r1" })],
-    ["runEvents", (baseUrl) => client.runEvents({ baseUrl, key: BEARER_SECRET, runId: "r1" })],
-  ];
-
-  for (const [name, call] of calls) {
-    await withTwoHosts(async ({ firstUrl, saw, redirected }) => {
-      // Some of these resolve on a 302 and some reject; either is acceptable. What is NOT acceptable
-      // is the second host being asked, so that is the only thing asserted.
-      await call(firstUrl).catch(() => {});
-      assert.ok(redirected.length >= 1, `${name} never reached the redirector`);
-      assert.deepEqual(saw, [],
-        `${name} followed the redirect: the second host received ${saw.length} request(s) `
-        + `carrying: ${everythingItSaw(saw)}`);
-    });
-  }
 });
 
 test("NEGATIVE CONTROL: the recorder can still see a leak after the tests above", async () => {

@@ -1,8 +1,8 @@
 """Where the comments are, in character offsets, for Python and for JavaScript.
 
-WHY IT IS ITS OWN FILE. `deleted-import-census.py` asks whether a deleted module is still named from
-CODE, and answering that means knowing which parts of a file are commentary. Those are two
-responsibilities, and the census had grown past 400 lines holding both.
+WHY IT IS ITS OWN FILE. Knowing which parts of a file are commentary is a question several scanners
+ask (whether a deleted module is still named from CODE, whether a host path is baked into source), and
+it is one responsibility, not a side job of each scanner.
 
 OFFSETS, NOT LINES, and that distinction is a defect this replaced. A line holding an import AND a
 note about it holds both; a classifier keyed on lines answered PROSE for the import too.

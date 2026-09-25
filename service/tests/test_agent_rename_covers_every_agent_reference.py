@@ -112,9 +112,6 @@ CASCADES = {
     ("agent_turn_state", "agent_id"),
     ("agent_console_signal", "agent_id"),
     ("claimer_leases", "agent_id"),
-    #: Vestigial: retained for schema compatibility, read and written by nothing since the live-status
-    #: cache became an in-memory dict. See CLAUDE.md.
-    ("agent_live_state", "agent_id"),
 }
 
 LEFT_BEHIND = {

@@ -58,3 +58,36 @@ export class BaseController {
     }
   }
 }
+
+// Lightweight delegated controller used for managed + managedViaWrapper: the
+// wrapper's child bridge owns the actual dispatch, so this controller resolves
+// immediately with a "delegated" status and exposes no-op control surfaces.
+export class DelegatedManagedController extends BaseController {
+  constructor(opts) {
+    super(opts);
+    this._capabilities = { interrupt: false, steer: false };
+    this._promise = Promise.resolve({
+      status: "delegated",
+      summary: "managed dispatch delegated to wrapper-PTY child bridge",
+      runtimeState: {},
+      externalRefs: {},
+    });
+  }
+
+  start() {
+    // Plan 4 ready: managed-via-wrapper delegates to wrapper PTY child bridge
+    // which has its own handshake. From this bridge's perspective the
+    // controller is "ready" the instant it's started.
+    this.markReady();
+    return {
+      capabilities: this._capabilities,
+      interrupt: async () => {},
+      steer: async () => {},
+      promise: this._promise,
+    };
+  }
+
+  async injectMessage(_opts) { /* delegated to wrapper child bridge */ }
+  async interrupt(_opts) { /* delegated to wrapper child bridge */ }
+  async steer(_opts) { /* delegated to wrapper child bridge */ }
+}

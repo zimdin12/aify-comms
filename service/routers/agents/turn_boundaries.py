@@ -17,8 +17,7 @@ that consult status stop routing work to it. Every bug of that shape in this rep
 resident stuck WORKING while idle, the managed turn-start flap — is a disagreement about one of
 these two events, not about the derivation that reads them.
 
-Bodies and route decorators are byte-identical to what stood in `liveness.py`. The router is built
-through `domain_router()`, which rejects a hand-passed `route_class`, so a new surface cannot opt out
+The router is built through `domain_router()`, which rejects a hand-passed `route_class`, so a new surface cannot opt out
 of the bounded SQLite write-lock retry.
 """
 
@@ -38,6 +37,28 @@ from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 router = domain_router()
+
+
+async def _posted_by_a_superseded_bridge(db, request: Request, agent_id: str) -> bool:
+    """Does this post come from a bridge that has been superseded for THIS agent?
+
+    A post carrying a `bridgeId` comes from a bridge-side turn DETECTOR; the harness hooks post no
+    body, so they can never be refused here and stay authoritative. A malformed body reads as no
+    body. Both `/turn-start` and `/turn-end` ask this, and must ask it the same way: a stale bridge
+    refused on one end and accepted on the other can only push an agent one way.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    posting_bridge = str((body or {}).get("bridgeId") or "").strip()
+    if not posting_bridge:
+        return False
+    row = await (await db.execute(
+        "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
+        (posting_bridge, agent_id),
+    )).fetchone()
+    return bool(row and str((row["superseded_by"] if "superseded_by" in row.keys() else "") or "").strip())
 
 
 
@@ -82,18 +103,8 @@ async def agent_turn_start(agent_id: str, request: Request):
         #
         # Returning BEFORE any write is the point: refusing the set but stamping the clock anyway would
         # postpone the same ceiling.
-        try:
-            _body = await request.json()
-        except Exception:
-            _body = {}
-        _posting_bridge = str((_body or {}).get("bridgeId") or "").strip()
-        if _posting_bridge:
-            _sup = await (await db.execute(
-                "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
-                (_posting_bridge, agent_id),
-            )).fetchone()
-            if _sup and str((_sup["superseded_by"] if "superseded_by" in _sup.keys() else "") or "").strip():
-                return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
+        if await _posted_by_a_superseded_bridge(db, request, agent_id):
+            return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
         now = _now()
         runtime = _normalize_runtime(agent_row["runtime"] or "claude-code")
         # If a managed dispatch is already in flight (turn_run_id set,
@@ -182,18 +193,8 @@ async def agent_turn_end(agent_id: str, request: Request):
         # detector from a replaced bridge must not false-clear the live successor's turn (the
         # F5 working→idle flap on bridge restart mid-turn). The heartbeat turnBusy=false path
         # already has this guard; this brings the dedicated endpoint in line for detector posts.
-        try:
-            _body = await request.json()
-        except Exception:
-            _body = {}
-        _posting_bridge = str((_body or {}).get("bridgeId") or "").strip()
-        if _posting_bridge:
-            _sup = await (await db.execute(
-                "SELECT superseded_by FROM bridge_instances WHERE id = ? AND agent_id = ?",
-                (_posting_bridge, agent_id),
-            )).fetchone()
-            if _sup and str((_sup["superseded_by"] if "superseded_by" in _sup.keys() else "") or "").strip():
-                return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
+        if await _posted_by_a_superseded_bridge(db, request, agent_id):
+            return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
         # No-op fast path (2026-07-19): a KEEP-CLEARED detector re-assert fires every ~45s for the
         # WHOLE idle life of every agent. When there is genuinely nothing to clear — turn_busy already 0
         # AND the engine's in_turn already 0 — the full write+commit+broadcast is pure waste (the

@@ -24,19 +24,10 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { isTuiDepsBuildFailure, tuiDepsBuildFailureMessage } from "./hermes-gateway-liveness.js";
 import { HERMES_CMD, MACHINE_ID, RUNTIME } from "./hermes-env.mjs";
-
-// `sleep` is exported and that deserves a word, because a generic 3-line helper on a gateway module's
-// public surface looks like carelessness. It has readers on BOTH sides — `waitForIndexToken` here, and four
-// call sites left in the host — and there is no neutral owner to put it in: `mcp/stdio` currently has FIVE
-// separate private `sleep` definitions (claude-channel, hermes-channel, hermes-daemon, server, and this
-// file's original), none of them exported. Adding a sixth copy would break the one-owner rule this series
-// runs on, and inventing a `hermes-shared.mjs` for it would be the junk drawer under a better name. So it
-// has one owner and the host imports it, which is the correct direction even if the name reads oddly here.
-// Unifying the five copies is a real task and it is not this slice.
-
 
 const GATEWAY_PROBE_TIMEOUT_MS = Math.max(
   500,
@@ -46,11 +37,6 @@ const READY_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_GATEWAY_R
 const RPC_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_RPC_TIMEOUT_MS || 60000));
 export const MAX_REENSURE_WITHOUT_RECOVERY = 3;
 const _teardownState = { done: false };
-
-
-export function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 
 async function scrapeToken(indexUrl, fetchImpl) {

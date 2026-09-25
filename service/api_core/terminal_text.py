@@ -8,18 +8,9 @@ reporting an agent blocked and reporting it busy. The `_CLAUDE_WORKING_FOOTER_RE
 a live spinner footer must never be read as a prompt — that misread is what made a working agent look
 stalled.
 
-`_ANSI_RE` came with them, and had to: both carrier readers are here, and a leaf may not import the
-carrier. `service/terminal_diagnostics.py` keeps its OWN copy for the same layering reason.
-
-THIS PARAGRAPH USED TO SAY that copy had "a broader pattern", and a reviewer ruling not to unify them
-was recorded on the strength of that sentence. It was FALSE, measured 2026-08-18: the diagnostics copy
-was NARROWER and left DCS, APC, PM and SOS payloads completely intact — in the one-line explanation of
-why a terminal died, which an operator reads. An external reviewer reported exactly that and it was
-filed as a Low, because the prose said otherwise and nothing in the suite compared them.
-
-Both copies now carry this pattern, and `service/tests/test_ansi_strippers_agree.py` keeps them equal
-— an agreement test rather than a shared import, since the layering forbids one. A claim about two
-copies is worth exactly as much as the test that checks it.
+`_ANSI_RE` and `_CTRL_RE` are imported from `service/terminal_diagnostics.py`, their one owner. They
+used to be copies held equal by an agreement test, because a leaf may not import api_core; api_core
+importing the leaf is the direction that is allowed, so the copies could simply go.
 
 `_terminal_prompt_hint_from_raw` was PULLED OUT of that first slice and arrived in v0.5.4, which is
 the slice its deferral asked for. It calls `_terminal_awaiting_input_hint`, so the call graph made it
@@ -43,26 +34,8 @@ import re
 import time
 from typing import Any
 
+from service.terminal_diagnostics import _ANSI_RE, _CTRL_RE
 from service.terminal_snapshot import render_snapshot as _render_terminal_snapshot
-
-
-_ANSI_RE = re.compile(
-    r"\x1b\][\s\S]*?(?:\x07|\x1b\\)|"
-    r"\x1b\[[0-?]*[ -/]*[@-~]|"
-    r"\x1b[PX^_][\s\S]*?\x1b\\|"
-    r"\x1b[()][A-Za-z0-9]|"
-    r"\x1b[=>]"
-)
-
-#: The control characters that must not reach a screen or a log, as a NAMED constant beside
-#: `_ANSI_RE` -- the other half of "make terminal output plain text". This class was written out
-#: inline at four sites and compared by nothing. `_ANSI_RE` has an agreement test
-#: (test_ansi_strippers_agree.py) precisely because prose claiming two copies matched turned out
-#: to be false; the same claim about this class was equally unchecked.
-#:
-#: TAB, LF and CR are deliberately absent from the class: they are the layout a terminal line
-#: depends on, and stripping them would join lines a reader needs kept apart.
-_CTRL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
 
 
 _CLAUDE_WORKING_FOOTER_RE = re.compile(

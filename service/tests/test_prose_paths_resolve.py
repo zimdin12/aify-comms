@@ -186,9 +186,9 @@ class ProsePathsResolveTests(unittest.TestCase):
             HERMES project's own tree (its gateway server, its approval tool), which this repo cannot
             resolve by construction, and one naming-convention comment using a literal X as a
             placeholder. The Python side needs zero exemptions; this would start with two and a parser.
-          * The load-bearing subset is ALREADY GATED. `mcp/stdio/tests/moved-names-resolve.test.js`
-            checks that every "moved to" marker's destination exists, and its destination half caught
-            a real wrong marker on its first run.
+          * The load-bearing subset was the "moved to" markers, and those are retired: the code
+            they pointed at is found by its import, and a name used without one is caught by the
+            missing-sibling-import gates on both the bridge and the dashboard.
 
         So the JS gap is narrower than it looks, and what remains of it is the part with no clean rule.
 

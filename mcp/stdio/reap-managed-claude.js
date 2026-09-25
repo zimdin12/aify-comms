@@ -28,6 +28,7 @@
 import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { PS_UTF8_PRELUDE } from "./win32-text.js";
 import { pidIsSelfProtected } from "./runtimes.js";
+import { parseProcLines } from "./proc-probes.js";
 
 // Enumerate running claude processes as [{ pid, ppid, commandLine }].
 //   - win32: PowerShell Get-CimInstance Win32_Process (ParentProcessId+CommandLine).
@@ -64,22 +65,6 @@ export function defaultListClaudeProcs(spawnSync = nodeSpawnSync) {
   } catch {
     return [];
   }
-}
-
-// Parse "PID\tPPID\tCOMMANDLINE" lines (win path). Exported for tests.
-export function parseProcLines(stdout) {
-  return String(stdout || "")
-    .split(/\r?\n/)
-    .map((line) => {
-      const parts = line.split("\t");
-      if (parts.length < 3) return null;
-      const pid = Number(parts[0].trim());
-      const ppid = Number(parts[1].trim());
-      const commandLine = parts.slice(2).join("\t");
-      if (!Number.isInteger(pid) || pid <= 0) return null;
-      return { pid, ppid: Number.isInteger(ppid) ? ppid : 0, commandLine };
-    })
-    .filter(Boolean);
 }
 
 // Get the command line of ANY pid (used to inspect a candidate's parent
@@ -142,13 +127,6 @@ export function procsForResumeHandle(procs, handle) {
   return (procs || []).filter(
     (p) => p && typeof p.commandLine === "string" && re.test(p.commandLine),
   );
-}
-
-// Back-compat: pids matching the handle (NOT agent-scoped; for tests/inspection).
-export function pidsForResumeHandle(procs, handle) {
-  return procsForResumeHandle(procs, handle)
-    .map((p) => Number(p.pid))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
 }
 
 // Does `parentCmdline` show this is THIS agent's managed claude wrapper?

@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import {
   cmdlineDeliveryLoopAgent,
   cmdlineResidentAgent,
+  defaultKillTree,
   defaultListProcesses,
   parseProcLines,
 } from "../proc-probes.js";
@@ -127,6 +128,19 @@ import {
     assert.throws(() => defaultListProcesses(spawnSync, { strict: true }), Error, `strict: a listing that ${label} read as a table`);
   }
   assert.deepEqual(defaultListProcesses(fakeSpawn, { strict: true }), [{ pid: 1, ppid: 2, commandLine: "node a.js" }], "control: strict still reads a good table");
+}
+
+// ── defaultKillTree: the guard that stops a tree-killer touching anything ─────────────────────
+{
+  // Every input here is REJECTED BY THE GUARD, so no process is signalled. That is the whole point:
+  // pid 0 on POSIX means "my entire process group". The real kill is exercised against a real tree
+  // by hermes-daemon-default-killtree.test.js.
+  for (const bad of [0, -1, -99, 1.5, NaN, Infinity, null, undefined, "", "abc", {}, []]) {
+    assert.equal(
+      defaultKillTree(bad), false,
+      `defaultKillTree(${JSON.stringify(bad)}) must refuse before touching a process`,
+    );
+  }
 }
 
 console.log("proc-probes.test.js: all assertions passed");

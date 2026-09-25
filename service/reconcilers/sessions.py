@@ -33,9 +33,6 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 
 logger = logging.getLogger(__name__)
 
-# LIVE_SESSION_STATUSES moved to service/api_core/tuning.py in v0.5.4. It is imported above and
-# still read here; it left because `api_core/liveness.py` needed it, and an api_core leaf importing
-# a reconciler is the inversion that forced `_agent_liveness` to be imported inside a function body.
 # ENDED `agent_sessions.status` values — the complement of LIVE_SESSION_STATUSES that
 # `_current_agent_session_row` filters on (R2c, 2026-07-26). A session in one of these is over and
 # can never become live again, so it must never answer "what is this agent's CURRENT session".
@@ -269,19 +266,10 @@ async def _reconcile_duplicate_resident_sessions(db, *, lease_seconds: int, limi
 
 # --- read-path consistency repairs ------------------------------------------------------------
 #
-# RELOCATED from `service/routers/sessions.py` in v0.5.4, byte-identical. They are SESSION
-# reconciliation and this module owns that; a router declaring them was the odd one out, since
-# their sibling `_repair_terminal_session_consistency` already lives in
+# `GET /sessions` awaits both inline rather than leaving them to the reconcile loop: they
+# correct the console/terminal binding shown in THAT response, so a 60s reconcile lag would surface
+# a dead terminal as still-attached. Their sibling `_repair_terminal_session_consistency` lives in
 # `service/reconcilers/terminal_consistency.py` and is called from the same read path.
-#
-# THE MODULE MOVED; THE CALL SITE DID NOT. `GET /sessions` still awaits both inline, and the note
-# there explaining why -- they correct the console/terminal binding shown in THAT response, so a
-# 60s reconcile lag would surface a dead terminal as still-attached -- is unchanged and still
-# true. "Not moved to reconcile" is a statement about the LOOP, not about which file declares
-# them, and this move does not touch it.
-
-# _reconcile_dead_session_status moved to service/reconcilers/dead_session_status.py in v0.5.4 —
-# it is its own responsibility, calls nothing in this module and reads none of its constants.
 
 
 async def _repair_current_session_freshness(db) -> int:

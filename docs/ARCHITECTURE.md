@@ -169,7 +169,7 @@ Each row is a rule you can break without any obvious symptom, followed by what w
 
 | Rule | Enforced by |
 |---|---|
-| No product source file reaches 1000 lines (its scope is in its docstring) | `service/tests/test_no_new_oversized_source_file.py` |
+| No product source file reaches 1000 lines (`.py`, `.js`, `.mjs`, repo-wide) | `service/tests/test_no_new_oversized_source_file.py` |
 | `service/api_core/` and `service/reconcilers/` never import a router | `service/tests/test_leaves_do_not_import_the_carrier.py` |
 | No module-level import cycle among service modules | `service/tests/test_no_import_cycles.py` |
 | No module imports a name nothing reaches | `service/tests/test_no_dead_imports.py` |

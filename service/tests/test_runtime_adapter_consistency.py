@@ -34,7 +34,7 @@ def test_js_to_py_key_conversion():
     """Smoke test the key converter so the main test failures are clear."""
     assert _js_to_py_key("supportsResident") == "supports_resident"
     assert _js_to_py_key("preferredDeliveryMode") == "preferred_delivery_mode"
-    assert _js_to_py_key("supportsMultiClient") == "supports_multi_client"
+    assert _js_to_py_key("supportsSteering") == "supports_steering"
 
 
 def test_js_and_python_adapters_agree_on_capabilities():

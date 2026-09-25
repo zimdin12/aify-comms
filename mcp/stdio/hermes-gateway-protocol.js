@@ -68,24 +68,6 @@ export function buildSessionListFrame({ id }) {
   };
 }
 
-// Plan 6 follow-up (2026-05-26): session.resume creates a NEW in-memory
-// `sid` bound to this WS connection for the given persisted `session_key`.
-// Without this dance prompt.submit returns 4001 "session not found" — the
-// gateway looks up by short in-memory sid, not by persisted session_key,
-// and external WS clients (like our aify-comms bridge) have no access to
-// the operator's TUI sid. Returns { session_id: <fresh sid>, resumed:
-// <session_key>, ... }; the bridge must use the new sid for all
-// subsequent prompt.submit / session.steer / session.interrupt calls on
-// this connection.
-export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "session.resume",
-    params: { session_id: String(sessionKey || ""), cols: Number(cols) || 80 },
-  };
-}
-
 // NOTE (2026-05-30 hermes-apiserver-delivery): the aify.session.bind_transport
 // frame builder was removed with the retired tui_gateway WS-bind path (it was
 // used ONLY by the deleted HermesResidentController). The aify.session.render_notice
@@ -95,33 +77,6 @@ export function buildSessionResumeFrame({ id, sessionKey, cols = 80 }) {
 // because hermes-managed-gateway-session.js (AIFY_HERMES_MANAGED_USE_GATEWAY=1)
 // and the managed-host loop use prompt.submit / session.steer / session.most_recent
 // over the gateway WS.
-
-// Plan 6 follow-up #2 (2026-05-26): when session.resume(session_key) fails
-// because the persisted key has been GC'd (or never existed), session.create
-// allocates a BRAND NEW session in hermes' DB + in-memory _sessions. Always
-// available regardless of the bridge's stored handle truth. Returns
-// { session_id: <fresh sid>, ... }. We then submit to that sid.
-export function buildSessionCreateFrame({ id, cwd = "", cols = 80, title = "" }) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "session.create",
-    params: {
-      cwd: String(cwd || ""),
-      cols: Number(cols) || 80,
-      title: String(title || ""),
-    },
-  };
-}
-
-export function buildSessionInterruptFrame({ id, sessionId }) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "session.interrupt",
-    params: { session_id: String(sessionId || "") },
-  };
-}
 
 // Plan "managed-hermes visible-TUI" (2026-05-31): list the gateway's currently
 // active sessions so a thin WS client (the per-agent managed-host) can discover
@@ -435,49 +390,4 @@ export function isSessionBusyError(error) {
   const code = Number(error.code);
   const message = String(error.message || "");
   return code === 4009 || /session busy/i.test(message);
-}
-
-// Plan 6 follow-up (2026-05-26): the gateway returns this when
-// prompt.submit / session.steer / session.interrupt is called against a
-// session_id that's no longer loaded in memory (operator killed the chat
-// TUI, hermes process restarted, etc.). Distinct from isSessionBusyError —
-// here the right recovery is to refresh the session list and retry against
-// whatever is currently active, NOT to steer into a "running" turn.
-export function isSessionNotFoundError(error) {
-  if (!error) return false;
-  const code = Number(error.code);
-  const message = String(error.message || "");
-  // tui_gateway/server.py uses 4010 for not-found per current convention;
-  // accept the textual signature as a safety net for older gateway builds.
-  return code === 4010 || /session not found|no such session|unknown session/i.test(message);
-}
-
-// Plan 6 follow-up (2026-05-26): pick the freshest session id from
-// session.list response. Tries `createdAt` / `created_at` / `started_at`
-// in order; falls back to the first entry's id when no timestamp field is
-// present. Returns null when the response shape isn't recognizable.
-export function pickFreshestSessionFromList(response) {
-  if (!response) return null;
-  const sessions = Array.isArray(response)
-    ? response
-    : Array.isArray(response.sessions)
-    ? response.sessions
-    : Array.isArray(response.items)
-    ? response.items
-    : [];
-  if (!sessions.length) return null;
-  const stamp = (s) =>
-    Number(Date.parse(s?.createdAt || s?.created_at || s?.startedAt || s?.started_at || 0)) || 0;
-  let best = null;
-  let bestStamp = -1;
-  for (const s of sessions) {
-    const id = String(s?.id || s?.session_id || s?.sessionId || "").trim();
-    if (!id) continue;
-    const t = stamp(s);
-    if (t > bestStamp) {
-      bestStamp = t;
-      best = id;
-    }
-  }
-  return best;
 }

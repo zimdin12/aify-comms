@@ -23,9 +23,6 @@ pydantic>=2.0.0
 # says so.
 mcp[cli]>=1.3.0,<2
 
-# Configuration
-python-dotenv>=1.0.0
-
 # HTTP client (for proxy and calling sub-services)
 httpx>=0.27.0
 

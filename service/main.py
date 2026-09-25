@@ -300,11 +300,8 @@ def _setup_logging(config):
 
 logger = logging.getLogger(__name__)
 
-# The 287-line reconcile sweep moved to service/reconcilers/sweep.py in v0.5.4 — it
-# orchestrates the reconcilers and starts nothing, so it belongs in that layer rather
-# than in the process entry point. Imported here because the periodic task below and
-# the startup path both call it, and because tests reach it as
-# `service.main._run_dispatch_reconcile_once`, which an import keeps resolving.
+# Imported because the periodic task below and the startup path both call it, and tests reach
+# it as `service.main._run_dispatch_reconcile_once`.
 from service.reconcilers.sweep import _run_dispatch_reconcile_once, reportable
 
 

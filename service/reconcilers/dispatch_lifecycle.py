@@ -40,14 +40,6 @@ from service.reconcilers.status_cache import invalidate_agent_live_state as _inv
 logger = logging.getLogger(__name__)
 
 
-
-
-
-
-
-
-# Was a borrow shim: the owner lived in the control plane, which a reconciler cannot import at
-# module level without a cycle. It moved to service/api_core/dispatch_sweeps.py in v0.5.4.
 from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff
 
 

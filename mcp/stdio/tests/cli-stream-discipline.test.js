@@ -73,17 +73,16 @@ test("the daemon CLI's usage goes to stderr, and stdout stays clean", async () =
   // Exit 2 with usage on stderr. Usage on stdout would reach the wrapper's JSON.parse instead.
   const { code, stdout, stderr } = await runChild([
     `import { runHermesDaemonCli } from ${moduleUrl("hermes-daemon-cli.js")};`,
-    // No writers injected: the defaults are the subject. `ensure`/`stop` are, so no daemon can start.
+    // No writers injected: the defaults are the subject. `stop` is, so nothing can be stopped.
     "const rc = await runHermesDaemonCli({",
     '  argv: ["node", "cli"],',
-    '  ensure: async () => { throw new Error("must not ensure a daemon"); },',
     '  stop: async () => { throw new Error("must not stop a daemon"); },',
     "});",
     "process.exit(rc);",
   ].join("\n"));
 
-  assert.equal(code, 2, "the missing-argument exit code changed");
-  assert.match(stderr, /missing <agentId>/);
+  assert.equal(code, 2, "the usage exit code changed");
+  assert.match(stderr, /usage: node hermes-daemon-cli\.js stop <agentId>/);
   assert.equal(stdout, "", `usage text reached stdout: ${JSON.stringify(stdout)}`);
 });
 
@@ -94,7 +93,6 @@ test("the daemon CLI's stop result goes to STDOUT as one JSON line", async () =>
     `import { runHermesDaemonCli } from ${moduleUrl("hermes-daemon-cli.js")};`,
     "const rc = await runHermesDaemonCli({",
     '  argv: ["node", "cli", "stop", "agent-x"],',
-    '  ensure: async () => { throw new Error("must not ensure a daemon"); },',
     "  stop: async () => ({ stopped: true, pid: 4242 }),",
     "});",
     "process.exit(rc);",
@@ -115,7 +113,6 @@ test("the daemon CLI's stop usage also goes to stderr", async () => {
     `import { runHermesDaemonCli } from ${moduleUrl("hermes-daemon-cli.js")};`,
     "const rc = await runHermesDaemonCli({",
     '  argv: ["node", "cli", "stop"],',
-    '  ensure: async () => { throw new Error("must not ensure a daemon"); },',
     '  stop: async () => { throw new Error("must not stop a daemon"); },',
     "});",
     "process.exit(rc);",

@@ -82,6 +82,7 @@ KNOWN_UNREAD = {
     "dispatch_runs_total",
     "failed_spawns_24h",
     "messages_by_agent",
+    "messages_by_type",
     "messages_today",
     "shared_size_bytes",
     "shared_size_mb",

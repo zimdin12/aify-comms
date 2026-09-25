@@ -20,9 +20,10 @@
 // so those readers keep mutating the same object — one owner, several readers, which is the arrangement
 // this series has converged on.
 //
-// Bodies are byte-identical to those in server.js; the only substitution is the added `export `.
+// Moved out of server.js; each body gained an `export `.
 
 
+import { setTimeout as sleep } from "node:timers/promises";
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { REMOTE_AGENT_STATE } from "./bridge-agent-state.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
@@ -135,7 +136,7 @@ export function createVirtualTerminalSink(terminalId) {
           return;
         }
         if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 250 * Math.pow(2, attempt)));
+          await sleep(250 * Math.pow(2, attempt));
         }
       }
     }
@@ -182,10 +183,10 @@ export async function handleVirtualTerminalControl(agentId, terminalId, control)
   throw new Error(`Unsupported virtual-terminal control action: ${action}`);
 }
 
-// Which agent owns a virtual terminal, moved out of server.js in v0.5.4. It belongs here because the
-// map it searches is this module's own, and the runtime allowlist travels with it: the pair is what
-// distinguishes an RPC-backed virtual terminal from a real PTY, and a lookup that ignored the runtime
-// would hand a PTY terminal's input to an agent that never had one.
+// Which agent owns a virtual terminal. The map it searches is this module's own, and the runtime
+// allowlist below travels with it: the pair is what distinguishes an RPC-backed virtual terminal
+// from a real PTY, and a lookup that ignored the runtime would hand a PTY terminal's input to an
+// agent that never had one.
 // Bridge-side runtimes that own a synthesized virtual rpc
 // terminal_session. Must stay aligned with the service-side
 // VIRTUAL_RPC_COMMANDS_BY_RUNTIME in service/api_core/virtual_rpc.py — when a new runtime

@@ -38,8 +38,8 @@ from service.change_feed import CHANGE_FEED
 # proxies in, it never opens the DB), so dict access between `await`s is atomic — no mutex
 # needed. Lost on restart = fine (recomputed in a single reconcile pass — that's what a cache
 # is). NOTE: if the service is ever run multi-worker, this must move to a shared store (Redis)
-# or the workers need sticky routing. The agent_live_state TABLE is retained only for schema
-# compatibility; it is no longer read or written on any path.
+# or the workers need sticky routing. The old agent_live_state TABLE is dropped at startup
+# (`_drop_retired_tables` in service/db.py).
 
 
 _LIVE_STATE_CACHE: dict[str, dict[str, Any]] = {}
