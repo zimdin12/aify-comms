@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 
 from service.api_core.routing import domain_router
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
-from service.api_core.validation import validate_name
+from service.api_core.validation import validate_name, validate_sender
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
@@ -75,8 +75,22 @@ async def share_artifact(
     file: UploadFile = File(None),
 ):
     validate_name(name, "artifact name")
+    validate_sender(from_agent)
     db = await get_db()
     try:
+        # A NAME ANOTHER AGENT HOLDS IS NOT OVERWRITTEN (v0.7, A2). Overwriting rewrote the owner, and
+        # the owner is what DELETE checks -- so any agent could take a name over and then delete it.
+        # Checked before anything reaches the disk. The operator may still replace any artifact.
+        held = await (await db.execute("SELECT from_agent FROM shared_artifacts WHERE name = ?", (name,))).fetchone()
+        owner = str(held["from_agent"] or "").strip() if held else ""
+        if owner and owner != from_agent and not authorize_operator(
+            from_agent, request, operator_key_from(request), action="replacing a shared artifact",
+        ):
+            raise HTTPException(
+                409,
+                f"'{name}' is already shared by '{owner}'. Share under another name, or ask '{owner}' to "
+                f"update it; only the sharer or an operator surface may replace it.",
+            )
         now = _now()
         size = 0
         is_binary = False

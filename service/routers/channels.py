@@ -29,6 +29,8 @@ Built with `domain_router()`, and declares NO tags: the parent applies `tags=["a
 
 from __future__ import annotations
 
+import sqlite3
+
 import json
 import logging
 import time
@@ -41,7 +43,7 @@ from fastapi import HTTPException, Query, Request
 # api_core/send_preflight.py — deciding whether a run is worth creating is not creating one.
 from service.api_core.message_view import CHANNEL_NOTICE_SENDER
 from service.api_core.routing import domain_router
-from service.api_core.validation import validate_name
+from service.api_core.validation import validate_name, validate_sender
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
@@ -166,6 +168,7 @@ async def list_channels(request: Request, agentId: Optional[str] = None):
 @router.post("/channels")
 async def create_channel(req: ChannelCreate, request: Request):
     validate_name(req.name, "channel name")
+    validate_sender(req.createdBy)
     db = await get_db()
     try:
         now = _now()
@@ -174,7 +177,9 @@ async def create_channel(req: ChannelCreate, request: Request):
                 "INSERT INTO channels (name, description, created_by, created_at) VALUES (?,?,?,?)",
                 (req.name, req.description or "", req.createdBy, now)
             )
-        except Exception:
+        except sqlite3.IntegrityError:
+            # ONLY a duplicate is "already exists" (v0.7, A15). Catching everything turned a
+            # `database is locked` into a false 409 that the route's lock retry never saw.
             raise HTTPException(409, f"Channel '{req.name}' already exists")
         await db.execute(
             "INSERT INTO channel_members (channel_name, agent_id, joined_at) VALUES (?,?,?)",
