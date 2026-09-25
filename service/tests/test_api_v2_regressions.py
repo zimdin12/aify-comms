@@ -3536,6 +3536,45 @@ class ApiV2RegressionTests(FastApiTestCase):
             "requeue must invalidate the agent's false-busy live_state cache entry",
         )
 
+    def test_requeue_does_not_overwrite_a_run_delivered_after_it_was_selected(self):
+        # The candidate is SELECTed, then requeued by a later UPDATE. A delivery that commits in
+        # between must win: before 0.7.0 the UPDATE matched on the id alone and put a delivered run
+        # back in the queue, so it was delivered twice (comms-senior-dev, v0.7 scan G1). The proxy
+        # makes the interleaving deterministic by delivering the run just before the UPDATE runs.
+        self._register("race-claim-hermes", runtime="hermes", sessionMode="managed")
+        self._seed_claimed_run("run_race_claim", "race-claim-hermes", claim_bridge_id="dead-bridge", claimed_minutes_ago=5)
+
+        class _DeliversFirst:
+            def __init__(self, db):
+                self._db = db
+
+            def __getattr__(self, name):
+                return getattr(self._db, name)
+
+            async def execute(self, sql, params=()):
+                if "SET status = 'queued'" in sql:
+                    await self._db.execute("UPDATE dispatch_runs SET status = 'delivered' WHERE id = ?", (params[-1],))
+                return await self._db.execute(sql, params)
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await _requeue_orphaned_claimed_runs(_DeliversFirst(db))
+            finally:
+                await db.commit()
+                await db.close()
+
+        requeued = asyncio.run(_run())
+        self.assertEqual(requeued, [], f"a run delivered after selection must not be requeued; got {requeued}")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_race_claim",))
+        self.assertEqual(row["status"], "delivered")
+        event = self._fetchone(
+            "SELECT 1 FROM dispatch_events WHERE run_id = ? AND event_type = 'requeued_orphaned_claim'",
+            ("run_race_claim",),
+        )
+        self.assertIsNone(event, "no requeue event for a run that was not requeued")
+
     def test_claimed_run_with_live_bridge_not_requeued(self):
         # GUARD: a claimed run whose claim bridge IS fresh/live is genuinely being
         # delivered right now — must NOT be requeued.

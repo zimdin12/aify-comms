@@ -253,7 +253,7 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
     stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
     cursor = await db.execute(
         """
-        SELECT id, target_agent, claim_bridge_id
+        SELECT id, target_agent, claim_bridge_id, claimed_at
         FROM dispatch_runs r
         WHERE r.status = 'claimed'
           AND COALESCE(r.claimed_at, '') != ''
@@ -283,17 +283,26 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
         dead_bridge = str(row["claim_bridge_id"] or "").strip() or "(none)"
         if not run_id:
             continue
-        await db.execute(
+        # COMPARE-AND-SET on the claim that was selected. The SELECT above and this UPDATE are
+        # separate statements with awaits between them, so a bridge can deliver (or a sweep settle)
+        # the run in that window; an UPDATE by id alone put such a run back in the queue and it was
+        # delivered twice. A run that is no longer this exact claim is left alone.
+        cursor = await db.execute(
             """
             UPDATE dispatch_runs
             SET status = 'queued',
                 claim_bridge_id = '',
                 claim_machine_id = '',
                 claimed_at = ''
-            WHERE id = ?
+            WHERE status = 'claimed'
+              AND COALESCE(claim_bridge_id, '') = ?
+              AND claimed_at = ?
+              AND id = ?
             """,
-            (run_id,),
+            (str(row["claim_bridge_id"] or ""), row["claimed_at"], run_id),
         )
+        if not cursor.rowcount:
+            continue
         await _append_dispatch_event(
             db,
             run_id,
