@@ -110,12 +110,18 @@ export class ChangeDrivenRefresh {
    * The full bundle that STARTED at `startedAt` finished, from here or anywhere else. Every slice is
    * current as of its start -- not its end: a change that arrived while it was fetching may postdate
    * the response that slice got, so it stays pending.
+   *
+   * `failed` names the slices whose fetch failed in that bundle. They are NOT current, and while the
+   * socket is up nothing else would fetch them until their tables next change -- a failed
+   * `/settings/schema` at boot left Settings on "Loading settings..." indefinitely. They are retried
+   * the way a failed partial refresh is.
    */
-  fullyRefreshed(startedAt) {
-    for (const slice of Object.keys(SLICE_TABLES)) this.loadedAt.set(slice, startedAt);
+  fullyRefreshed(startedAt, failed = []) {
+    for (const slice of Object.keys(SLICE_TABLES)) if (!failed.includes(slice)) this.loadedAt.set(slice, startedAt);
     for (const [slice, at] of [...this.wantedAt]) {
       if (at < startedAt) this.forget(slice);
     }
+    if (this.connected) for (const slice of failed) this.want(slice, this.now() + RETRY_AFTER_MS);
     this.cancelFlush();
     this.scheduleFlush();
   }

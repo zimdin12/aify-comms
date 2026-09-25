@@ -150,8 +150,8 @@ async function refresh() {
   _refreshInFlight = true;
   try {
     const startedAt = Date.now();
-    await _refreshImpl();
-    changeRefresh.fullyRefreshed(startedAt); // every slice is current as of the start (change-refresh.mjs)
+    const failed = await _refreshImpl();
+    changeRefresh.fullyRefreshed(startedAt, failed); // current as of the start, except what failed (change-refresh.mjs)
   } finally {
     _refreshInFlight = false;
     if (_refreshQueued) { _refreshQueued = false; refreshSoon(); }

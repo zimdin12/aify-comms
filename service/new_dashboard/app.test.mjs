@@ -441,3 +441,10 @@ test("chat controller notifies on every selection change", () => {
 // +1day and +1year, plus the age-0 and exact-bound boundaries, by CALLING the predicate with an
 // injected clock. Nothing was weakened to make this suite green — see also the arity-trap test
 // there, which caught a real false RED this file's regex could never have seen.
+
+test("the full refresh hands the slices that FAILED to the change-driven refresh, which retries them", () => {
+  // Wiring only app.js can do: refresh-cycle.mjs names the failures and change-refresh.mjs retries
+  // them, and both are tested. Dropping the value here leaves every failed slice recorded as loaded.
+  const source = read("app.js");
+  assert.match(source, /const failed = await _refreshImpl\(\);\s*\n\s*changeRefresh\.fullyRefreshed\(startedAt, failed\);/);
+});

@@ -110,8 +110,9 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmen
       ...seed,   // applied AFTER the reset: a test that needs a prior value cannot set it before,
   });
 
+  let failed;
   try {
-    await runRefreshCycle({
+    failed = await runRefreshCycle({
       armRefreshTimer: () => { calls.armRefreshTimer += 1; },
       chatController: { close() {}, render() {}, renderRail() {}, renderConversation() {} },
       evaluateFlowGates: () => { calls.evaluateFlowGates += 1; },
@@ -126,7 +127,7 @@ async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmen
   }
   // `state` is the module singleton the cycle writes; returned so a test can read what a cycle
   // RECORDED rather than only which URLs it asked for.
-  return { calls, requested, chip: els.get("api-status"), state };
+  return { calls, requested, chip: els.get("api-status"), state, failed };
 }
 
 test("a clean cycle fetches every slice it still needs, and renders", async () => {
@@ -412,4 +413,13 @@ test("the settings declarations are fetched until the page holds them, then neve
   const second = await cycle({ schemaHeld: true });
   assert.ok(!second.requested.some((r) => r.includes("/settings/schema")), "a page holding them must not ask again");
   assert.equal(second.requested.length, 11);
+});
+
+test("A FULL CYCLE NAMES THE SLICES WHOSE FETCH FAILED, so they can be retried", async () => {
+  // Every slice was recorded as loaded after a full cycle whatever it returned, so with the socket up
+  // a failed /settings/schema at boot left Settings on "Loading settings..." until the next reconnect.
+  const clean = await cycle();
+  assert.deepEqual(clean.failed, [], "CONTROL: a clean cycle fails nothing");
+  const broken = await cycle({ reject: ["/settings/schema", "/stats"] });
+  assert.deepEqual([...broken.failed].sort(), ["settings", "stats"]);
 });

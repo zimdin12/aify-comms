@@ -176,3 +176,11 @@ test('nothing is fetched on changes while disconnected', async () => {
   await advance(CHANGE_DEBOUNCE_MS);
   assert.deepEqual(log.slices, []);
 });
+
+test('a slice that failed during a FULL refresh is tried again while the socket stays up', async () => {
+  const { refresher, log, advance, getNow } = rig();
+  refresher.opened({ reconnected: false });
+  refresher.fullyRefreshed(getNow(), ['settings']);
+  await advance(RETRY_AFTER_MS);
+  assert.deepEqual(log.slices, [['settings']], 'the failed slice must be fetched again, and only it');
+});
