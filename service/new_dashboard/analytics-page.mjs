@@ -23,10 +23,9 @@ import { esc, usageResetLabel } from './util.js';
 // single-worker + lock-sensitive. Pass force=true on page-open / range-change / manual.
 export async function loadAnalytics(force = false) {
   if (state.analytics.loading) return;
-  if (!force && state.analytics.lastMs && (Date.now() - state.analytics.lastMs) < 12000) {
-    renderAnalyticsPage();
-    return;
-  }
+  // Throttled: nothing new to paint. Opening the page and changing the range force a fetch, which
+  // renders; repainting nine panels from the same data on every socket event only flickered them.
+  if (!force && state.analytics.lastMs && (Date.now() - state.analytics.lastMs) < 12000) return;
   const range = rangeDef(state.analytics.range).key;
   state.analytics.loading = true;
   try {

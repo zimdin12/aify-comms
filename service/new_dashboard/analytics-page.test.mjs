@@ -74,16 +74,24 @@ test("a first load fetches analytics, usage and consumption", async () => {
   } finally { h.restore(); }
 });
 
-test("A SECOND LOAD INSIDE THE CACHE WINDOW FETCHES NOTHING but still renders", async () => {
-  // This is what keeps the poll off the analytics endpoints. Rendering anyway matters: the page must
-  // still repaint from the cached data, or switching to Analytics between fetches shows an empty page.
+test("A SECOND LOAD INSIDE THE CACHE WINDOW FETCHES NOTHING AND REWRITES NOTHING", async () => {
+  // This is what keeps the poll off the analytics endpoints. It used to re-render all nine panels
+  // from the same data on every render, which on an active fleet is every socket event: hover titles
+  // flickered and the work was wasted. Opening the page and changing the range both force a fetch,
+  // which renders, so nothing is left for the throttled call to paint.
   const h = withAnalytics();
   try {
     await loadAnalytics();
     const afterFirst = h.asked.length;
+    const kpis = h.els.get("analytics-ops");
+    let writes = 0;
+    let html = kpis.innerHTML;
+    Object.defineProperty(kpis, "innerHTML", { get: () => html, set: (v) => { writes += 1; html = v; } });
     await loadAnalytics();
     assert.equal(h.asked.length, afterFirst, "a poll inside the window must not re-fetch");
-    assert.ok(h.els.get("analytics-page") || true);
+    assert.equal(writes, 0, "a poll inside the window re-rendered the page from the same data");
+    await loadAnalytics(true);
+    assert.equal(writes, 1, "CONTROL: a forced load renders");
   } finally { h.restore(); }
 });
 
