@@ -411,8 +411,9 @@ export function createChatController(deps) {
   function close() {
     state.chat.selected = '';
     state.chat.analytics = { agent: '', data: null };
-    state.chat.pulse.data = null; // force a fresh pulse fetch on return
+    state.chat.pulse.data = null; // a stale pulse must not greet the operator on return...
     render();
+    loadFleetPulse(true); // ...and the 12 s throttle must not refuse the refetch that replaces it
     onSelectionChange();
   }
 

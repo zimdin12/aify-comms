@@ -534,3 +534,20 @@ test("a FAILED older page is shown, not re-rendered in silence", async () => {
     globalThis.document = previousDocument;
   }
 });
+
+test("CLOSING A CONVERSATION WITHIN THE THROTTLE STILL REFETCHES THE PULSE", () => withStubDocument(async () => {
+  // close() drops the cached pulse so a stale one never greets the operator -- and the 12 s throttle
+  // then refused the refetch, leaving "Loading fleet pulse…" up until the next render after it expired
+  // (the 60 s liveness tick on a quiet fleet).
+  let calls = 0;
+  const h = pulseHarness({ loadPulse: async () => { calls += 1; return { ok: true, agents: [] }; } });
+  h.controller.refreshPulse(true);
+  await settle();
+  assert.equal(calls, 1, "CONTROL: the landing view fetched once");
+  h.controller.open("dm:alice");
+  h.controller.close();
+  h.controller.refreshPulse();
+  await settle();
+  assert.equal(calls, 2, "returning to the pulse fetches it again");
+  assert.doesNotMatch(h.els["chat-timeline"].innerHTML, /Loading fleet pulse/);
+}));
