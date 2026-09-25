@@ -553,3 +553,38 @@ test("A REFRESH OF THE DRAWER ALREADY OPEN ON THIS AGENT, WITH NOTHING CHANGED, 
     if (hadFetch) globalThis.fetch = realFetch; else delete globalThis.fetch;
   }
 });
+
+// ---- the action row: destructive last, and no button that addresses nothing (v0.7 C23) ---------------
+
+/** The drawer's buttons in order, as {attr, danger}. */
+function drawerButtons(html) {
+  return [...html.matchAll(/<button class="ghost( danger)?" (data-[a-z-]+)=/g)].map((m) => ({ attr: m[2], danger: Boolean(m[1]) }));
+}
+
+test("THE DESTRUCTIVE ACTIONS SIT TOGETHER AFTER THE REST, not between History and Open in Sessions", () => {
+  // Delete session and Remove agent sat mid-row in a 12-button wrap, one misclick from benign ones.
+  seed({ agents: [{ id: "coder", status: "working" }], sessions: [{ id: "s1", agentId: "coder", status: "running" }], inspector: {} });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    const buttons = drawerButtons(els["inspector-content"].innerHTML);
+    const firstDanger = buttons.findIndex((b) => b.danger);
+    assert.ok(firstDanger !== -1 && buttons.some((b) => !b.danger), "CONTROL: the drawer has both kinds to order");
+    const benignAfter = buttons.slice(firstDanger).filter((b) => !b.danger).map((b) => b.attr);
+    assert.deepEqual(benignAfter, [], "a benign action sits among the destructive ones");
+  });
+});
+
+test("OPEN IN SESSIONS IS OFFERED ONLY WHEN THERE IS A SESSION TO OPEN", () => {
+  // With no session it rendered `data-agent-open-sessions=""`, which switched to Sessions with the
+  // previously selected session -- often another agent's -- still showing.
+  seed({ agents: [{ id: "coder", status: "available" }], sessions: [], inspector: {} });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.doesNotMatch(els["inspector-content"].innerHTML, /data-agent-open-sessions/);
+  });
+  seed({ agents: [{ id: "coder" }], sessions: [{ id: "s1", agentId: "coder" }], inspector: {} });
+  withDom(drawerEls(), (els) => {
+    openAgentDrawer("coder");
+    assert.match(els["inspector-content"].innerHTML, /data-agent-open-sessions="s1"/, "CONTROL: with a session it is offered");
+  });
+});
