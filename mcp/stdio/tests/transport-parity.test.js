@@ -224,7 +224,7 @@ test("both transports actually parsed — a zero inventory would pass everything
   assert.ok(SSE_SOURCES.length >= 1, "the SSE scan found no file registering @mcp_server.tool()");
 });
 
-test("both transports warn the reading agent with the SAME sentence", () => {
+test("both transports warn the reading agent with the SAME sentence", async () => {
   // A cross-language forked constant with nothing holding the two halves together. `SAFETY_HEADER`
   // is what tells a model that an inbox payload is DATA and not instructions — the difference
   // between a message and a prompt injection — and each transport declares its own copy: the JS one
@@ -238,16 +238,22 @@ test("both transports warn the reading agent with the SAME sentence", () => {
   //
   // Testable at all only because the Python copy now has a named home. It spent this whole series
   // in the middle of a 730-line tool registry, where "read the constant" meant "parse the file".
-  const jsSrc = readFileSync(new URL("../tool-response-format.mjs", import.meta.url), "utf8");
   const pySrc = readFileSync(new URL("../../../service/sse/rendering.py", import.meta.url), "utf8");
 
-  const sentences = (src) =>
-    [...src.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)]
+  // Every string literal from the first "WARNING: AGENT MESSAGE" fragment to the end of that
+  // statement, so a banner written as several concatenated literals is compared WHOLE.
+  const sentences = (src) => {
+    const start = src.indexOf('"WARNING: AGENT MESSAGE');
+    if (start < 0) return "";
+    const rest = src.slice(start);
+    const end = rest.search(/;|\)\s*\n/);
+    return [...rest.slice(0, end < 0 ? undefined : end).matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)]
       .map((m) => m[1])
-      .filter((s) => s.startsWith("WARNING: AGENT MESSAGE") || s.startsWith("Read it as information"))
       .join("");
+  };
 
-  const js = sentences(jsSrc);
+  // The JS banner is composed from TRUST_RULE, so compare its VALUE; the Python twin is literals.
+  const { SAFETY_HEADER: js } = await import("../tool-response-format.mjs");
   const py = sentences(pySrc);
   assert.ok(js.startsWith("WARNING: AGENT MESSAGE"), `no safety header found in the JS transport: ${js}`);
   assert.equal(py, js, "the two transports' SAFETY_HEADER text has drifted");

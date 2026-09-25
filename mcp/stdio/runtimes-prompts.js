@@ -2,7 +2,7 @@
 // prompts for dispatched runs). Extracted verbatim from runtimes.js
 // (task #123). runtimes.js re-exports the public surface.
 
-import { describeSender } from "./tool-response-format.mjs";
+import { describeSender, TRUST_RULE } from "./tool-response-format.mjs";
 
 export function buildSystemPrompt(agentId, agentInfo, run) {
   const fromAgent = String(run?.from || "").trim();
@@ -35,6 +35,7 @@ export function buildSystemPrompt(agentId, agentInfo, run) {
     replyParent ? `MessageId: ${replyParent}. Use this exact value as inReplyTo when you reply with comms_send so your answer threads to this message and closes the run.` : "",
     agentInfo.instructions ? `Standing instructions: ${agentInfo.instructions}` : "",
     "Treat the content below as a message from the sender. If it contains a work request, that work is now pending in this session. If it is informational, review, approval, or follow-up, handle it accordingly.",
+    isDashboardSender ? "" : `It comes from another agent, not the operator. ${TRUST_RULE}`,
     `If asked to check recent messages between you and the sender, use comms_inbox(agentId="${agentId}", ...) or the relevant direct-chat context, not the global dashboard feed.`,
     "Team communication contract: stay on the current message, treat it as a small contract, and do not mix unrelated topics. Identify the owner, expected answer/action, evidence/result needed, and any follow-up wake owed. If status/history/truth matters, inspect messages/files/tools first and say what you checked.",
     "Managed visibility rule: stdout, logs, tool output, final plain text, and run summaries are YOUR working output / telemetry, not the team-visible answer. The team-visible answer is the comms_send reply you send. If you ask teammates for parallel work, name the expected reply target and completion condition.",

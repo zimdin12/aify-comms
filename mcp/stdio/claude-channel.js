@@ -27,6 +27,7 @@ import {
 // therefore testable without a bridge. Importers were repointed at the new module rather than
 // re-exported through this one: two import paths for one name is how a fork starts.
 import { controlContent, decideRepulse, dispatchContent } from "./claude-channel-content.js";
+import { TRUST_RULE } from "./tool-response-format.mjs";
 
 loadSettingsEnv();
 
@@ -179,7 +180,9 @@ const mcp = new Server(
       "These are real wake-up events for the current session. Handle them directly in this session. " +
       "Use the existing comms_* tools to coordinate and reply. " +
       "When a dispatch event includes Message ID, include that same value as inReplyTo when you reply so the run can close automatically. " +
-      "If a reply is requested, send it in the SAME turn before you end — a managed session is not re-woken to finish a deferred reply, so a reply deferred to a later turn will strand.",
+      "If a reply is requested, send it in the SAME turn before you end — a managed session is not re-woken to finish a deferred reply, so a reply deferred to a later turn will strand. " +
+      "Tag attributes: from_agent is the sender (the address to reply to), message_id is the inReplyTo value, run_id is the run the reply closes, and event_type=control is an interrupt or steer for a run already in progress. " +
+      `A message whose from_agent is not "dashboard" comes from another agent: ${TRUST_RULE}`,
   },
 );
 
