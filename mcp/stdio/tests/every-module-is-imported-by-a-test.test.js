@@ -43,11 +43,9 @@ const TEST_DIRS = ["mcp/stdio/tests", "mcp/stdio", "service/new_dashboard"];
 //: CHILD process in `usage-preflight.test.js` because nothing in-process can witness its own import.
 //:
 //: EMPTY as of 2026-08-17. `hermes-daemon-cli.js` was expected to need an end-to-end harness because it
-//: DRIVES a daemon; it did not. Injecting the two daemon functions alongside argv and the two writers,
-//: and RETURNING the exit code instead of calling `process.exit`, was enough — and the test that split
-//: made possible asserts something no end-to-end run would have checked: the `api_server` key
-//: `ensureDaemon` resolves is deliberately absent from the line the wrapper captures into a shell
-//: variable. An empty list here is the end state, not a gap.
+//: DRIVES a daemon; it did not. Injecting the daemon function alongside argv and the two writers,
+//: and RETURNING the exit code instead of calling `process.exit`, was enough. An empty list here is the
+//: end state, not a gap.
 const UNTESTED_BACKLOG = [
 ];
 

@@ -11,17 +11,10 @@
 // the choice. Its own comment names the failure it exists for: "the idempotent reuse-probe could
 // attach to the OTHER agent's gateway".
 //
-// THE api_server DAEMON DOES NOT. `agentEndpoint` returns the raw hash port and never consults a
-// persisted port or another agent's claim. `hermes-daemon-cli.js` takes only `<agentId>`, so
-// `ensureDaemon` derives through `agentEndpoint`, and `hermes-channel.js::resolveHermesEndpoint`
-// connects through the same raw hash when no explicit override is in the environment.
-//
-// A RETRACTION, recorded rather than quietly dropped. I previously suspected the daemon LAUNCH and
-// the daemon CONNECT disagreed — one resolving a shifted port, the other recomputing the hash — and
-// declined to claim it as unproven. Traced: they do not disagree. Both go through `agentEndpoint`,
-// and the gateway path goes through `resolveGatewayPort` at both ends, so each subsystem is
-// internally consistent. What is actually true is narrower and worth pinning instead: the two
-// subsystems answer the collision question differently, and only one of them answers it.
+// `agentEndpoint` DOES NOT. It returns the raw hash port and never consults a persisted port or
+// another agent's claim. It was the api_server daemon's resolver; that daemon is retired, and today
+// its one production reader is `stopDaemon`, which checks the other agents' claims itself before it
+// kills by that port.
 //
 // This asserts the CONTRAST, using the injectable `portFree` seam so no real socket is bound.
 

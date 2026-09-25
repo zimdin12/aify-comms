@@ -58,8 +58,6 @@ export class HermesAdapter extends RuntimeAdapter {
     // It was dropped from the diagnostic when the dead tui_gateway path was retired
     // (11ba0cd); the later gateway rework made it authoritative again. Surface it.
     env.AIFY_HERMES_GATEWAY_URL = String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim() || "(unset)";
-    env.AIFY_HERMES_APISERVER_URL = String(process.env.AIFY_HERMES_APISERVER_URL || "").trim() || "(unset)";
-    env.AIFY_HERMES_APISERVER_KEY = process.env.AIFY_HERMES_APISERVER_KEY ? "(set)" : "(unset)";
     return env;
   }
 

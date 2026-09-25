@@ -1,30 +1,20 @@
 #!/usr/bin/env node
-// ensureDaemon — guarantee a long-lived per-agent `hermes gateway run` daemon
-// is up with the api_server platform enabled, idempotently.
+// Stop a per-agent hermes gateway and collect what a previous generation left.
 //
-// ASYMMETRY(hermes): each hermes agent gets its OWN api_server daemon (own port
-// + own key, derived deterministically from agentId via hermes-endpoint.js) so
-// the aify-comms MCP tools loaded into that daemon carry the agent's
-// AIFY_AGENT_ID and comms_send attributes the reply to the right agent. A
-// single shared daemon is one process = one identity and cannot. This is
-// hermes's equivalent of claude's "one process per agent."
+// `stopDaemon` is the kill-prior step: the hermes-aify launcher runs `hermes-daemon-cli.js stop <agent>`
+// before it starts a new gateway, and the managed delivery loop tears its gateway down by port with
+// `defaultKillByPort`. Every kill here first confirms the target looks like hermes, because a stale port
+// or pid marker can name a process the OS has since handed to something unrelated.
 //
-// Managed hermes delivery POSTs to that agent's api_server platform (HTTP/SSE)
-// running in-process inside its `hermes gateway run` daemon. This helper is the
-// ensure-up step: probe first, and only spawn (DETACHED) if the daemon isn't
-// already answering — so calling it from every per-agent sidecar launch is safe.
-//
-// spawn + probe are injected so tests never launch a real process or touch a
-// real socket. Contract:
-// docs/superpowers/specs/2026-05-30-hermes-apiserver-contract.md.
+// The api_server `ensureDaemon` path that used to live here was retired on the wrapper side on
+// 2026-06-02: nothing starts an api_server daemon any more, so nothing here ensures one.
 
-import { spawn as nodeSpawn, execFile as nodeExecFile, spawnSync as nodeSpawnSync } from "node:child_process";
+import { execFile as nodeExecFile, spawnSync as nodeSpawnSync } from "node:child_process";
 import { PS_UTF8_PRELUDE } from "./win32-text.js";
 import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { probeApiServer } from "./hermes-version.js";
 import { agentEndpoint, claimedByOtherAgents, clearGatewayMarkers as defaultClearGatewayMarkers } from "./hermes-endpoint.js";
 import { terminateProcessTree } from "./runtimes.js";
 import { reapPriorHermes } from "./hermes-prior-reap.mjs";
@@ -33,7 +23,6 @@ import { reapPriorHermes } from "./hermes-prior-reap.mjs";
 // PATH is three chances for the same agent to get two different files.
 import { sanitizeAgentId } from "./hermes-endpoint.js";
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const execFile = promisify(nodeExecFile);
 
 // --- cmdline cross-check (anti-overkill under OS pid/port reuse) ------------
@@ -80,12 +69,10 @@ export function looksLikeHermesProcess(cmdline) {
 }
 
 // --- per-agent daemon pid tracking -----------------------------------------
-// Each hermes agent gets at most ONE `hermes gateway run` daemon. We persist the
-// daemon's pid in a file alongside the per-agent port/key files (same tempDir +
-// sanitizeAgentId convention from hermes-endpoint.js) so a later (re)spawn can
-// kill the PRIOR daemon — even if its port has since changed/been abandoned —
-// instead of leaking a stray hermes.exe. Mirrors the reuse-on-persist pattern of
-// resolveGatewayPort/loadOrCreateKey.
+// The retired api_server `ensureDaemon` persisted its daemon's pid in a file beside the per-agent
+// port/key files (same tempDir + sanitizeAgentId convention as hermes-endpoint.js). Nothing writes one
+// in production any more; `stopDaemon` still reads and clears a leftover so a stray daemon from that
+// era is collected, and `writeDaemonPid` is how the tests seed one.
 
 function daemonPidFile(agentId, tempDir, fsImpl) {
   return path.join(tempDir || os.tmpdir(), `aify-hermes-daemon-pid-${sanitizeAgentId(agentId)}`);
@@ -155,130 +142,6 @@ function defaultKillTree(pid) {
   } catch {
     return false;
   }
-}
-
-// Ensure one api_server-enabled hermes gateway daemon is up for an agent.
-//   - Resolve the per-agent endpoint: explicit `endpoint` wins; else derive via
-//     agentEndpoint(agentId). Explicit baseUrl/key/port/host still override
-//     (back-compat with callers that pass them directly).
-//   - First probe that endpoint; if available → { started:false, version }.
-//   - Else spawn `hermes gateway run --replace` detached with API_SERVER_* env,
-//     unref it, and poll probe until healthy or healthTimeoutMs elapses.
-//   - On success → { started:true, version, pid, endpoint }. On timeout → throw.
-export async function ensureDaemon({
-  agentId,
-  endpoint,
-  tempDir,
-  baseUrl,
-  key,
-  port,
-  host = "127.0.0.1",
-  hermesCmd = "hermes",
-  spawn = nodeSpawn,
-  probe = probeApiServer,
-  healthTimeoutMs = 15000,
-  pollMs = 300,
-  // Injectable pid-tracking + killer so tests assert kill-prior fires without
-  // touching real processes. Defaults are the real fs / tree-killer / alive-probe.
-  killTree = defaultKillTree,
-  isAlive = defaultIsAlive,
-  getCmdline = defaultGetCmdline,
-  readPid = readDaemonPid,
-  writePid = writeDaemonPid,
-} = {}) {
-  // Resolve the effective endpoint. Precedence: explicit fields > endpoint
-  // object > agentEndpoint(agentId) > legacy shared default.
-  let derived = endpoint;
-  if (!derived && agentId) {
-    derived = agentEndpoint(agentId, tempDir ? { tempDir } : undefined);
-  }
-  const effHost = host ?? derived?.host ?? "127.0.0.1";
-  const effPort = port ?? derived?.port ?? 8642;
-  const effKey = key ?? derived?.key;
-  const effBaseUrl = baseUrl ?? derived?.baseUrl ?? `http://${effHost}:${effPort}`;
-
-  // 1. Idempotent fast-path: already up → no spawn.
-  const initial = await probe({ baseUrl: effBaseUrl, key: effKey });
-  if (initial && initial.available) {
-    return {
-      started: false,
-      version: initial.version,
-      endpoint: { host: effHost, port: effPort, baseUrl: effBaseUrl, key: effKey },
-    };
-  }
-
-  // 2. KILL-PRIOR before spawning a fresh daemon. The probe said NOT up, so the
-  //    daemon we previously tracked (if any) is either dead or unhealthy — and
-  //    its port may have been re-resolved (collision/death), so killByPort on the
-  //    CURRENT port would miss it. Kill the prior pid's TREE to stop hermes.exe
-  //    proliferation. Stale-pid-safe: only kill a pid that is still alive, and
-  //    never the (already-confirmed-down) current daemon. Best-effort; never
-  //    blocks the spawn.
-  if (agentId) {
-    const priorPid = readPid(agentId, tempDir);
-    // PID-REUSE SAFETY (bughunt 2026-07-03): a crashed daemon leaves a stale pid
-    // marker; the OS can recycle that PID to an UNRELATED operator process, and
-    // killTree would then SIGKILL that innocent tree. Verify the pid is actually a
-    // hermes process before killing — same guard every other kill site in this file
-    // uses (stopDaemon, reapDaemonsForAgent). Missing here was the only unguarded kill.
-    if (priorPid && isAlive(priorPid) && looksLikeHermesProcess(getCmdline(priorPid))) {
-      killTree(priorPid);
-    }
-  }
-
-  // 3. Spawn the daemon DETACHED so it outlives this bridge process.
-  const child = spawn(hermesCmd, ["gateway", "run", "--replace"], {
-    env: {
-      ...process.env,
-      API_SERVER_ENABLED: "1",
-      API_SERVER_KEY: effKey,
-      API_SERVER_PORT: String(effPort),
-      API_SERVER_HOST: effHost,
-    },
-    detached: true,
-    stdio: "ignore",
-    // Windows: without this, a detached console app (hermes.exe) pops a visible
-    // empty cmd window. Hide it — the daemon is a background service.
-    windowsHide: true,
-  });
-  // A detached spawn emits 'error' ASYNCHRONOUSLY (e.g. ENOENT when hermes is
-  // missing/mis-resolved — which happened live 2026-07-03). With no listener Node
-  // re-throws it as an uncaught exception OUTSIDE the health-poll try/catch, killing
-  // the whole managed-host process. Swallow it here; the health poll below already
-  // handles "did not come up" by timing out and returning started:false.
-  if (child && typeof child.on === "function") {
-    child.on("error", (err) => {
-      try { console.error(`[hermes-daemon] spawn error for agent=${agentId || "?"}: ${err?.message || err}`); } catch {}
-    });
-  }
-  if (child && typeof child.unref === "function") child.unref();
-
-  // Persist the NEW daemon's pid so the next (re)spawn can kill-prior it.
-  if (agentId && child && Number.isInteger(Number(child.pid))) {
-    writePid(agentId, child.pid, tempDir);
-  }
-
-  // 4. Poll for health until the daemon answers or we time out.
-  const deadline = Date.now() + healthTimeoutMs;
-  for (;;) {
-    const res = await probe({ baseUrl: effBaseUrl, key: effKey });
-    if (res && res.available) {
-      return {
-        started: true,
-        version: res.version,
-        pid: child ? child.pid : undefined,
-        endpoint: { host: effHost, port: effPort, baseUrl: effBaseUrl, key: effKey },
-      };
-    }
-    if (Date.now() >= deadline) break;
-    await sleep(pollMs);
-  }
-
-  throw new Error(
-    `[hermes] hermes gateway daemon did not become healthy within ${healthTimeoutMs}ms — ` +
-      "check `hermes gateway run` / API_SERVER_* env (API_SERVER_ENABLED, " +
-      `API_SERVER_KEY, API_SERVER_PORT=${effPort}, API_SERVER_HOST=${effHost}).`,
-  );
 }
 
 // Resolve the PID(s) LISTENING on `port`. Platform-aware: Windows uses
@@ -382,8 +245,7 @@ export async function defaultKillByPort(
 }
 
 // Tear down the per-agent `hermes gateway run` daemon for an agent by killing
-// whatever process is LISTENING on its api_server port. Symmetric counterpart to
-// ensureDaemon: the sidecar that ensured the daemon tears it down on exit.
+// whatever process is LISTENING on its port.
 //   - Resolve the port: explicit endpoint.port/port wins; else agentEndpoint(agentId).
 //   - killByPort(port) is injectable (defaults to defaultKillByPort). Skipped when another agent's
 //     marker claims that port.
@@ -397,7 +259,6 @@ export async function stopDaemon({
   endpoint,
   tempDir,
   port,
-  probe = probeApiServer, // accepted for symmetry/future use; not required here
   killByPort = defaultKillByPort,
   // Injectable pid-tracking + killer (defaults to the real fs / tree-killer /
   // alive-probe) so tests assert the tracked-pid kill without real processes.

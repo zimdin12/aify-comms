@@ -45,8 +45,8 @@ import { ENDPOINT_ENV_NAMES } from "../aify-service-endpoint.mjs";
 const STDIO = fileURLToPath(new URL("..", import.meta.url));
 
 // The two modules that resolve which aify service this process talks to. Scoped deliberately: the
-// runtime adapters also read names ending in SERVER_URL (AIFY_CODEX_APP_SERVER_URL,
-// AIFY_HERMES_APISERVER_URL), and those select a RUNTIME's own server, not this service. A pattern
+// runtime adapters also read names ending in SERVER_URL (AIFY_CODEX_APP_SERVER_URL), and those
+// select a RUNTIME's own server, not this service. A pattern
 // wide enough to catch them would need an exclusion list, which is a list someone must remember to
 // update -- so the scope is the two files that build the URL set instead.
 const RESOLVERS = ["aify-service-endpoint.mjs", "claude-channel.js"];
