@@ -17,8 +17,8 @@ import { boundAgentId } from "./bound-agent-id.mjs";
 // three of them and the same code with a different comment for the fourth, which is what a fork
 // looks like right up until one copy gets a fix and the others do not.
 import {
-  apiKeyFrom,
   coerceLoopbackToIPv4,
+  destinationKeyResolver,
   defaultFallbackServerUrls,
   splitServerUrls,
   uniqueServerUrls,
@@ -40,7 +40,8 @@ const SERVER_URLS = uniqueServerUrls([
   ...defaultFallbackServerUrls(SERVER_URL),
 ]);
 let ACTIVE_SERVER_URL = SERVER_URLS[0] || "";
-const API_KEY = apiKeyFrom();
+// Per destination, and the registry credential as well as the environment (v0.7, B5).
+const keyFor = destinationKeyResolver(SERVER_URL);
 const MACHINE_ID = defaultMachineId();
 // Per-agent channel-sidecar bridge id. MUST be agent-scoped: bridge_instances.id
 // is the PRIMARY KEY, so a machine-global `channel-<machine>` id let only ONE
@@ -126,7 +127,6 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
   // opts.timeoutMs lets long-poll claim calls hold longer than the default without aborting.
   const callTimeoutMs = Math.max(1, Number(opts.timeoutMs) || HTTP_TIMEOUT_MS);
   const options = { method, headers: {} };
-  if (API_KEY) options.headers["X-API-Key"] = API_KEY;
   if (body) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
@@ -134,6 +134,9 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
   let lastError;
   for (const baseUrl of uniqueServerUrls([ACTIVE_SERVER_URL, ...SERVER_URLS])) {
     const url = `${baseUrl}/api/v1${endpoint}`;
+    // ONE DESTINATION, ONE KEY: a failover to another URL must not carry this endpoint's credential.
+    const key = keyFor(baseUrl);
+    if (key) options.headers["X-API-Key"] = key; else delete options.headers["X-API-Key"];
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), callTimeoutMs);
     try {

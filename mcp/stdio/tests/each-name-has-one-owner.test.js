@@ -109,7 +109,7 @@ test("NEGATIVE CONTROL: a duplicate, and an unnamed call, are both reported", ()
 // leftover in server.js, say) goes red, and removing a duplicate goes red until its entry is deleted.
 const KNOWN_FORKS = {
   ANSI: ["hermes-acp-protocol.js", "pi-terminal-frame.mjs"],
-  API_KEY: ["aify-service-endpoint.mjs", "claude-channel.js", "notify-check.js"],
+  API_KEY: ["aify-service-endpoint.mjs", "notify-check.js"],
   CHANNEL_BRIDGE_PREFIX: ["claude-channel.js", "hermes-run-reporting.mjs"],
   HTTP_TIMEOUT_MS: ["aify-http.mjs", "aify-service-endpoint.mjs", "claude-channel.js"],
   MACHINE_ID: ["agent-heartbeat.mjs", "agent-summary.mjs", "auto-registration.mjs", "claude-channel.js",

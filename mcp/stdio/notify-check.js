@@ -9,10 +9,8 @@
 
 import fs from "fs";
 import path from "path";
-import os from "os";
 import { createHash } from "crypto";
-import { apiKeyFrom } from "./aify-service-endpoint.mjs";
-import { keyForEndpoint } from "./registry-credential.mjs";
+import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
 import { hookOutput, inboxUrl, noticeText, rememberSeen, unseen } from "./notify-notice.mjs";
@@ -24,9 +22,7 @@ const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || proce
 if (!SERVER_URL) process.exit(0);
 // The same resolution every other bridge component uses: an exported key first, then the credential
 // the service registry names for THIS endpoint (and only this one).
-const API_KEY = apiKeyFrom() || keyForEndpoint({
-  env: process.env, readFile: (f) => fs.readFileSync(f), join: path.join, homeDir: os.homedir(), endpoint: SERVER_URL,
-}).key;
+const API_KEY = destinationKeyResolver(SERVER_URL)(SERVER_URL);
 const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
 const IS_CLAUDE = Boolean(process.env.CLAUDE_PROJECT_DIR);
 
