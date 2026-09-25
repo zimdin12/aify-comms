@@ -46,10 +46,11 @@ something is the way it is, never to find out **what** it currently does.
 
 **Moved history** — [`history/`](history/) holds the dated narrative moved out of the root documents,
 so those stay current: [`history/CLAUDE-history.md`](history/CLAUDE-history.md) (from `CLAUDE.md`),
-`history/DECISIONS-archive.md` (superseded `DECISIONS.md` entries) and
-`history/KNOWN_ISSUES-archive.md` (resolved `KNOWN_ISSUES.md` entries).
+[`history/DECISIONS-archive.md`](history/DECISIONS-archive.md) (superseded `DECISIONS.md` entries)
+and [`history/KNOWN_ISSUES-archive.md`](history/KNOWN_ISSUES-archive.md) (resolved `KNOWN_ISSUES.md`
+entries).
 
-**Release specs and plans** — `V0.2_ROADMAP`, `V0.3_SPEC`, `V0.5_SLICE1`, `V0.5_SLICE2`,
+**Release specs and plans** — `V0.2_ROADMAP`, `V0.2_SPEC`, `V0.2_PLAN`, `V0.3_SPEC`, `V0.5_SLICE1`, `V0.5_SLICE2`,
 `V0.5_SLICE3`, `V0.6_PLAN`, `V054_REMAINING_FIVE_PACKET`, `PHASE8_STATUS` (spawn delegation to
 aify-env; reduced to a banner, full text at tag `v0.6.22`).
 
@@ -82,7 +83,6 @@ wildcard:
 
 | file | why it is here |
 |---|---|
-| `V0.2_SPEC` · `V0.2_PLAN` | Their own headings say shipped ledger, which is history, but `KNOWN_ISSUES.md` links them as where the v0.2 backlog lives. |
 | `V0.4_SPEC` | Its heading says "design, awaiting review. Nothing is implemented", while `service/ntfy.py` ships the ntfy alerts it designs. |
 
 ## Where the rest of the writing lives
