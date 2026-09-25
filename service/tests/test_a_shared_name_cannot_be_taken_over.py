@@ -19,6 +19,7 @@ class ASharedNameCannotBeTakenOverTests(FastApiTestCase):
         taken = self._share("mallory", "replaced")
         self.assertEqual(taken.status_code, 409, taken.text)
         self.assertIn("alice", taken.text)
+        self.assertIn("' to update it; only the sharer or an operator surface may replace it", taken.text)
         listed = {row["name"]: row["from"] for row in self.client.get("/api/v1/shared").json()["files"]}
         self.assertEqual(listed["plan.md"], "alice", "the owner must not have changed")
         self.assertEqual(self.client.delete("/api/v1/shared/plan.md", params={"requestedBy": "mallory"}).status_code, 403)

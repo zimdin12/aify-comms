@@ -28,6 +28,14 @@ class ABodyThatIsNotAnObjectIsA400Tests(FastApiTestCase):
                 with self.subTest(path=path, body=body):
                     r = getattr(self.client, method)(path, content=body, headers={"content-type": "application/json"})
                     self.assertEqual(r.status_code, 400, r.text)
+                    expected = ("The request body is not valid JSON." if body == b"{not json"
+                                else "The request body must be a JSON object.")
+                    self.assertIn(expected, r.text)
+
+    def test_consumption_rows_must_be_a_list(self):
+        r = self.client.post("/api/v1/usage/consumption", json={"rows": "not a list"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("rows must be a list", r.text)
 
     def test_a_route_hooks_post_to_degrades_to_no_body_instead(self):
         """Heartbeats and turn boundaries are posted by shell hooks; a beat that errors never lands,
