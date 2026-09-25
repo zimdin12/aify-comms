@@ -13,22 +13,13 @@ import { test } from "node:test";
 
 import { checkEnvProcesses } from "../env-processes-check.mjs";
 
-// QUOTED, because `launcherDelegation` matches `^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"` --
-// the shape install.sh renders. An unquoted value in a fixture parses as NOT delegating, and the
-// check then SKIPS: nine of these tests read `s.added[0]` as undefined on the first run, which is
-// the fixture being wrong rather than the code.
+// A launcher in the shape install.sh renders: a bash body whose QUOTED `AIFY_ENV_ENDPOINT` names the
+// aify-env the doctor asks. (Until 0.7.0 the check also read a delegation switch and skipped when it
+// was off.)
 const DELEGATING = [
   "#!/usr/bin/env bash",
   '# HARNESS_WRAPPER_VERSION=0.6.0',
-  'export AIFY_COMMS_DELEGATE_SPAWNS="1"',
   'export AIFY_ENV_ENDPOINT="http://127.0.0.1:8802"',
-  'exec node "$HOME/.aify-comms/mcp/stdio/server.js" --environment-bridge',
-].join("\n");
-
-const LOCAL = [
-  "#!/usr/bin/env bash",
-  '# HARNESS_WRAPPER_VERSION=0.6.0',
-  'exec node "$HOME/.aify-comms/mcp/stdio/server.js" --environment-bridge',
 ].join("\n");
 
 /** A recorder for the two sinks doctor.js supplies. */
@@ -57,20 +48,6 @@ function serviceWith(terminals, { truncated = false } = {}) {
     return null;
   };
 }
-
-test("with spawns NOT delegated the question is skipped, not passed", () => {
-  // Answering `ok` would add a green row for work nobody did. There is no second list to compare
-  // against when the bridge hosts its own terminals.
-  const s = sink();
-  return checkEnvProcesses({
-    get: async () => null, add: s.add, skip: s.skip,
-    fetchJson: async () => { throw new Error("must not be called"); },
-    launcherText: LOCAL, machineId: "win32:host",
-  }).then(() => {
-    assert.equal(s.added.length, 0);
-    assert.deepEqual(s.skipped.map((x) => x.id), ["env-processes"]);
-  });
-});
 
 test("with no launcher at all the question is skipped", async () => {
   const s = sink();

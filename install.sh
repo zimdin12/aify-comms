@@ -16,13 +16,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
-# Empty means "this bridge hosts spawns", which is what every install does unless --delegate-spawns
-# asks otherwise. Baked into the launcher either way, so the setting is visible in the file rather
-# than depending on whatever environment happened to start it.
-DELEGATE_SPAWNS=""
-# Empty means the caller said neither way, and the installed launcher decides.
-DELEGATION_CHOSEN=""
-AIFY_ENV_ENDPOINT_BAKED=""
+# Which aify-env 'aify-comms doctor' asks. aify-env is the only spawner since v0.6.1; this names where
+# it answers, and it binds 127.0.0.1:8802 with no --host, so the default is the one right answer.
+AIFY_ENV_ENDPOINT_BAKED="http://127.0.0.1:8802"
 # Native client-install location for the host-side MCP bridge runtime. The repo
 # may sit on a slow filesystem (e.g. a WSL2 9p Docker bind-mount, where reading
 # the ~3900 node_modules files cold takes ~5s — which blows hermes' hardcoded
@@ -67,9 +63,9 @@ Examples:
   bash install.sh --client codex http://localhost:8800
   bash install.sh --client hermes http://localhost:8800 --with-hook
 
-  --delegate-spawns [url]       managed spawns go to aify-env instead of being hosted by the
-                                aify-comms bridge. Defaults to http://127.0.0.1:8802, which is
-                                where aify-env binds. aify-env becomes required for spawning.
+  --env-endpoint <url>          the aify-env 'aify-comms doctor' asks (default http://127.0.0.1:8802).
+                                aify-env hosts every managed spawn. --delegate-spawns [url] is
+                                accepted as its old name; --no-delegate-spawns does nothing.
 
   --mcp-transport <stdio|sse>   how the launcher reaches MCP. Default stdio: the launcher spawns
                                 the local bridge from ~/.aify-comms. With sse it talks to
@@ -81,6 +77,7 @@ EOF
 }
 
 while [ $# -gt 0 ]; do
+  case "$1" in --client|--mcp-transport|--emit-*wrappers) [ $# -ge 2 ] || { echo "install.sh: $1 needs a value" >&2; exit 1; } ;; esac
   case "$1" in
     --client)
       CLIENT="${2:-}"
@@ -94,26 +91,14 @@ while [ $# -gt 0 ]; do
       WITH_API_KEY=true
       shift
       ;;
-    --delegate-spawns)
-      # Managed spawns go to aify-env instead of being hosted by this bridge. OFF unless asked for:
-      # turning it on makes aify-env REQUIRED for spawning, and a host whose aify-env is not running
-      # would lose managed agents at the moment of an unrelated reinstall.
-      #
-      # The endpoint is optional and defaults to aify-env's fixed loopback address -- that daemon binds
-      # 127.0.0.1:8802 and deliberately has no --host, so there is one right answer and no reason to
-      # make an operator type it.
-      DELEGATE_SPAWNS=1
-      DELEGATION_CHOSEN=1
+    --env-endpoint|--delegate-spawns)
+      # --delegate-spawns is the pre-0.7 name, from when spawns could still run on this bridge.
       case "${2:-}" in
         http://*|https://*) AIFY_ENV_ENDPOINT_BAKED="$2"; shift 2 ;;
-        *) AIFY_ENV_ENDPOINT_BAKED="http://127.0.0.1:8802"; shift ;;
+        *) shift ;;
       esac
       ;;
     --no-delegate-spawns)
-      # The way back: a carried-forward setting with no off switch is its own trap.
-      DELEGATE_SPAWNS=""
-      AIFY_ENV_ENDPOINT_BAKED=""
-      DELEGATION_CHOSEN=1
       shift
       ;;
     --mcp-transport)
@@ -152,19 +137,6 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-
-# WHERE SPAWNS GO, READ BACK BEFORE THIS OVERWRITES IT. redeploy.sh has carried this since
-# 2026-08-25; install.sh did not, and install.sh is what the doctor tells you to run. Same reader,
-# never a second copy of the parse. Reads the directory this script is about to WRITE.
-# test_install_keeps_the_delegation_the_host_chose.py has the incident.
-if [ -z "$DELEGATION_CHOSEN" ]; then
-  _bridge_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
-  if _installed_endpoint="$(bash "$(dirname "${BASH_SOURCE[0]}")/scripts/installed-delegation.sh" "$_bridge_dir" 2>/dev/null)"; then
-    DELEGATE_SPAWNS=1
-    AIFY_ENV_ENDPOINT_BAKED="$_installed_endpoint"
-    echo "  spawns: keeping DELEGATED to aify-env at $_installed_endpoint (installed setting)"
-  fi
-fi
 
 # Default the server URL when none was passed positionally. Without this, a
 # documented invocation like `install.sh --client claude` (no URL) left
@@ -1389,7 +1361,7 @@ SERVER_URL="\${AIFY_SERVER_URL:-$default_server}"
 # so a first argument of "doctor" can never come from that path.
 if [ "\${1:-}" = "doctor" ]; then
   shift
-  exec node "$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")" "\$@"
+  AIFY_SERVER_URL="\$SERVER_URL" exec node "$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")" "\$@"
 fi
 # \`--check\` — validate the launcher WITHOUT registering anything.
 #
@@ -1474,20 +1446,9 @@ is serving this host: starting a second one stops the running one's agents.
 USAGE
   exit 0
 fi
-# THE INSTALL RECORD. Two lines, written by the installer and READ BACK by
-# scripts/installed-delegation.sh and by 'aify-comms doctor'. Nothing in this file consumes them
-# any more -- the exec they configured is gone -- and that is exactly why they are labelled rather
-# than quietly kept: an export nobody can name the reader of is how a line survives a rewrite it
-# should not have survived.
-#
-# They record WHERE SPAWNS RUN, which redeploy.sh must carry forward. install.sh bakes delegation
-# only when asked, so an update whose whole promise is "nothing changes but the code" moved managed
-# spawns off aify-env once already, minutes after the flip on 2026-08-25. The reader exists so that
-# cannot happen again, and it reads THIS FILE.
-#
-# THE QUOTES ARE NOT STYLE: this body is an UNQUOTED heredoc, so a backtick here runs a command while
-# the launcher is RENDERED. no-backtick-in-an-unquoted-heredoc.test.js has the incident and the rule.
-export AIFY_COMMS_DELEGATE_SPAWNS="$DELEGATE_SPAWNS"
+# THE INSTALL RECORD, read back by 'aify-comms doctor' (nothing in this file consumes it): which
+# aify-env the doctor asks. THE QUOTES ARE NOT STYLE: this body is an UNQUOTED heredoc, so a backtick
+# here runs a command while the launcher is RENDERED (no-backtick-in-an-unquoted-heredoc.test.js).
 export AIFY_ENV_ENDPOINT="$AIFY_ENV_ENDPOINT_BAKED"
 
 # NO BRIDGE STARTS HERE ANY MORE, and the refusal is the feature.
@@ -2872,9 +2833,10 @@ mkdir -p "$DOCTOR_BIN_DIR"
 DOCTOR_PATH="$DOCTOR_BIN_DIR/aify-doctor"
 {
   echo "#!/usr/bin/env bash"
-  echo "exec node \"$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")\" \"\$@\""
+  echo "AIFY_SERVER_URL=\"\${AIFY_SERVER_URL:-$SERVER_URL}\" exec node \"$(path_for_node "$AIFY_BRIDGE_DIR/doctor.js")\" \"\$@\""
 } > "$DOCTOR_PATH"
 chmod +x "$DOCTOR_PATH" 2>/dev/null || true
+install_windows_cmd_shim "aify-doctor" "$DOCTOR_BIN_DIR"
 echo ""
 echo "=== Installation complete ==="
 # ALL THREE COMPONENTS, because this installer only ever installed one of them, and a host with no

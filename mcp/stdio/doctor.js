@@ -87,8 +87,8 @@ import {
   readBoundAgentId,
   readProcEnv,
   managedOrphanVerdict,
-  launcherDelegation,
-  spawnDelegationVerdict,
+  installedHostTier,
+  spawnHostVerdict,
 } from "./doctor-predicates.js";
 
 const args = process.argv.slice(2);
@@ -101,7 +101,10 @@ const repoArg = (() => {
 
 const AIFY_HOME = process.env.AIFY_HOME || join(homedir(), ".aify-comms");
 const BRIDGE_DIR = join(AIFY_HOME, "mcp", "stdio");
-const SERVER_URL = (process.env.AIFY_COMMS_URL || process.env.AIFY_SERVER_URL || "http://localhost:8800").replace(/\/$/, "");
+// The launcher passes the endpoint this host was installed against (v0.7, B3); the literal is the last
+// resort, as 127.0.0.1 because Windows resolves `localhost` to ::1 first and Docker Desktop forwards
+// IPv6 unreliably.
+const SERVER_URL = (process.env.AIFY_COMMS_URL || process.env.AIFY_SERVER_URL || "http://127.0.0.1:8800").replace(/\/$/, "");
 
 const checks = [];
 const add = (id, ok, code, detail, fix = "") => checks.push({ id, ok, code, detail, ...(fix ? { fix } : {}) });
@@ -479,10 +482,10 @@ function checkSkillsInstalled() {
 // ── run ──────────────────────────────────────────────────────────────────────────────
 await checkService({ get, add, sh, repo, serverUrl: SERVER_URL, transportError: () => lastTransportError, portFate });
 // WHICH aify-env THE ENV ROWS ASK. The launcher bakes 8802, and a `herdr-aify env` daemon listens on
-// its own port -- so on 2026-09-13 three rows reported a healthy daemon as unreachable. Resolved once,
-// only when delegating, so a host that never uses aify-env is probed exactly as before.
-const envSetting = launcherDelegation(installedLauncherText());
-const servingEnv = envSetting.on
+// its own port -- so on 2026-09-13 three rows reported a healthy daemon as unreachable. Resolved once.
+// Every host asks: aify-env is the only spawner since v0.6.1 (v0.7, B4).
+const envSetting = installedHostTier(installedLauncherText());
+const servingEnv = envSetting.isLauncher
   ? await servingEnvEndpoint({
     installed: envSetting.endpoint,
     receipts: readyReceipts(join(homedir(), ".aify", "herdr")),
@@ -574,14 +577,6 @@ await checkApiExposure({
 // KEYS ISSUED TO OTHER MACHINES that restrict nothing: set with no API_KEY, or refused as malformed.
 await checkExternalKeys({ get, add });
 checkNativeBridge();
-// WHERE MANAGED SPAWNS RUN, and whether that place is answering.
-//
-// Delegation makes aify-env required for spawning: the bridge REFUSES rather than falling back, which
-// is right -- two spawners on one host is the collision the environment tier exists to end -- and it
-// is invisible, because what an operator sees is spawns failing rather than a daemon that is down.
-//
-// The launcher is READ, never run: a bare `aify-comms` starts an environment bridge and supersedes the
-// live one, which is how this fleet lost nine managed agents.
 // Managed delivery loops running for agents that belong to no live bridge. READ-ONLY: it enumerates
 // and names them, and never kills. See `managedOrphanVerdict` for why reporting is the whole job.
 /**
@@ -695,9 +690,7 @@ async function checkSpawnDelegation() {
   // copy there decides the ANSWER -- so fixing this one alone would have bought a real probe and then
   // handed it to a verdict that ignored it and reported ok:true. The probe is `servingEnv`'s, above;
   // with no endpoint baked and no daemon found it stays unasked, as it always was.
-  const { on: delegating, endpoint } = launcherDelegation(launcherText);
-  const endpointAnswered = delegating && (endpoint || servingEnv.answered) ? servingEnv.answered : null;
-  const verdict = spawnDelegationVerdict({ launcherText, endpointAnswered, answeredAt: servingEnv.endpoint });
+  const verdict = spawnHostVerdict({ launcherText, endpointAnswered: servingEnv.answered, answeredAt: servingEnv.endpoint });
   return add("spawn-delegation", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }
 

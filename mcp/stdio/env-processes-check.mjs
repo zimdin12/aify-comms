@@ -14,7 +14,7 @@
 
 import { envListing } from "./env-listing.mjs";
 import { envProcessVerdict, reconcileEnvProcesses } from "./env-process-reconciliation.mjs";
-import { launcherDelegation } from "./doctor-predicates.js";
+import { installedHostTier } from "./doctor-predicates.js";
 
 /**
  * @param deps.get          fetch a JSON path from the aify-comms service, or null when it does not answer
@@ -26,13 +26,12 @@ import { launcherDelegation } from "./doctor-predicates.js";
  * @param deps.endpoint     the aify-env found serving (`serving-env-endpoint.mjs`); the launcher's own when omitted
  */
 export async function checkEnvProcesses({ get, add, skip, fetchJson, launcherText, machineId, endpoint: serving }) {
-  const { on: delegating, endpoint: installed } = launcherDelegation(launcherText);
-  const endpoint = serving || installed;
-  if (!delegating || !endpoint) {
-    // NOT A PASS AND NOT A FAILURE. With spawns hosted by the bridge itself there is no second list
-    // to compare against, so the question does not apply -- and answering `ok` would add a green row
-    // for work nobody did.
-    return skip("env-processes", "spawns are not delegated, so there is no environment to compare");
+  const { isLauncher, endpoint: installed } = installedHostTier(launcherText);
+  const endpoint = serving || (isLauncher ? installed : "");
+  if (!endpoint) {
+    // NOT A PASS: with no launcher to say where aify-env answers, there is nothing to compare, and
+    // answering `ok` would add a green row for work nobody did.
+    return skip("env-processes", "no installed launcher names an aify-env, so there is no environment to compare");
   }
 
   const listing = await fetchJson(`${endpoint}/processes`);

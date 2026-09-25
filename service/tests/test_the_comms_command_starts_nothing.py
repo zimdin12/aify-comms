@@ -20,10 +20,8 @@ agent and roughly forty documents reach for, and `--check` and `--version` are t
 operator gets before reinstalling anything. A removal that took the verifier with it would pass a
 test written only about the removal.
 
-AND THE INSTALL RECORD SURVIVES. Two `export` lines nothing in the file consumes any more are read
-back by `scripts/installed-delegation.sh` and by doctor's `spawn-delegation`, so that a redeploy
-carries the host's own choice forward. Losing them moved managed spawns off aify-env once already,
-minutes after the flip on 2026-08-25.
+AND THE INSTALL RECORD SURVIVES: the `AIFY_ENV_ENDPOINT` export, which nothing in the file consumes,
+is read back by doctor's `spawn-delegation` row to know which aify-env to ask.
 """
 
 from __future__ import annotations
@@ -108,30 +106,23 @@ def test_check_and_help_still_answer(tmp_path):
     )
 
 
-def test_the_reader_actually_recovers_the_endpoint(tmp_path):
-    """END TO END, through the real script rather than through its shape: `scripts/installed-delegation.sh`
-    greps the two install-record lines out of THIS file so a redeploy carries the host's own choice
-    forward. A record that matches a regex in a test and not the one in the reader is a record nothing
-    reads."""
-    (tmp_path / COMMS).write_text(
-        launcher("claude", "--delegate-spawns", name=COMMS), encoding="utf-8", newline="\n",
-    )
-    done = subprocess.run(
-        [bash(), "scripts/installed-delegation.sh", tmp_path.as_posix()],
-        capture_output=True, text=True, timeout=120,
-        cwd=(__import__("pathlib").Path(__file__).resolve().parents[2]).as_posix(),
-    )
-    assert done.returncode == 0, f"the reader found no delegation: {done.stdout}{done.stderr}"
-    assert done.stdout.strip().startswith("http"), done.stdout
+def test_doctor_asks_the_service_this_host_was_installed_against(tmp_path):
+    """v0.7 (B3). The launcher computed the installed endpoint and never passed it on, so `doctor.js`
+    fell back to localhost:8800 and every service row on a host pointed at a LAN service asked the
+    wrong machine. EXECUTED: doctor.js is swapped for a probe that prints the endpoint it was given,
+    so nothing here reaches a real service."""
+    import os
+    import re
 
-
-def test_the_reader_says_no_when_delegation_is_off(tmp_path):
-    """NEGATIVE CONTROL for the pair above. Without it, a reader that printed an endpoint for every
-    input would satisfy the positive case and prove nothing."""
-    (tmp_path / COMMS).write_text(launcher("claude", name=COMMS), encoding="utf-8", newline="\n")
-    done = subprocess.run(
-        [bash(), "scripts/installed-delegation.sh", tmp_path.as_posix()],
-        capture_output=True, text=True, timeout=120,
-        cwd=(__import__("pathlib").Path(__file__).resolve().parents[2]).as_posix(),
-    )
-    assert done.returncode == 1, f"the reader invented a delegation: {done.stdout}"
+    text = launcher("claude", name=COMMS)
+    baked = re.search(r'^SERVER_URL="\$\{AIFY_SERVER_URL:-([^}]*)\}"', text, re.M)
+    assert baked, "control: the launcher bakes an endpoint"
+    doctor = re.search(r'exec node "([^"]*doctor\.js)"', text)
+    assert doctor, "control: the doctor branch names doctor.js"
+    probe = tmp_path / "probe.js"
+    probe.write_text("process.stdout.write(process.env.AIFY_SERVER_URL || '(none)');\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("AIFY_SERVER_URL", "AIFY_COMMS_URL")}
+    path = tmp_path / COMMS
+    path.write_text(text.replace(doctor.group(1), probe.as_posix()), encoding="utf-8", newline="\n")
+    done = subprocess.run([bash(), path.as_posix(), "doctor"], capture_output=True, text=True, timeout=120, env=env)
+    assert done.stdout == baked.group(1), f"doctor was given {done.stdout!r}, not {baked.group(1)!r}: {done.stderr}"

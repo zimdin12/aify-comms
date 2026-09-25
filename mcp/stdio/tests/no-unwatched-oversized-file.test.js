@@ -167,7 +167,11 @@ const CEILINGS = {
   // mcp/stdio/codex-hook-trust.mjs instead, and the tightening takes up the line the move freed.
   // 2950 -> 2948 on 2026-09-15: every launcher is now renamed into place, paid for by the hermes writer's
   // staging comments that the shared render made redundant and an omp alias rendered instead of copied.
-  "install.sh": 2948,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2948 -> 2910 on 2026-09-25, PAID DOWN: v0.7 retired the --delegate-spawns switch and its
+  // read-back, since aify-env is the only spawner and the switch chose nothing but which endpoint
+  // the doctor asked (B4). Paid out of it: the B6 wording (2 lines), a named refusal for a valued
+  // flag with no value (B15) and the aify-doctor .cmd shim (B14).
+  "install.sh": 2910,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

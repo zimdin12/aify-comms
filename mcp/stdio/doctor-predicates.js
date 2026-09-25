@@ -11,7 +11,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { delegationOptedIn } from "./delegation-setting.mjs";
 // SPAWN CLAIMING MOVED OUT, and is re-exported nowhere -- a stale import must fail loudly rather
 // than resolve. `comms_envs` needs the same answer and must not import the doctor to get it.
 import { envCanClaimASpawn } from "./spawn-claimer.mjs";
@@ -670,111 +669,60 @@ export function readProcEnv(pid, { procRoot = "/proc", readFile = readFileSync }
   return out;
 }
 
+//: Where aify-env answers unless the installed launcher names another address. It binds this with no
+//: --host, so it is the one right default.
+export const DEFAULT_ENV_ENDPOINT = "http://127.0.0.1:8802";
+
 /**
- * Where managed spawns run, and whether that place is answering.
+ * What the installed `aify-comms` launcher says about the host tier: which aify-env the doctor asks.
+ * THE ONE PARSER. READ FROM THE FILE, never by running it.
  *
- * Delegation makes aify-env REQUIRED for spawning: `startDelegated` refuses rather than falling back,
- * because a silent fallback would put two spawners on one host, which is the collision the environment
- * tier exists to end. Refusing is right and invisible -- an operator sees spawns failing, not a daemon
- * that is down -- so this check exists to name the cause before it is needed.
+ * Until 0.7.0 this read a DELEGATION switch too. Since v0.6.1 aify-env is the only spawner, so that
+ * switch chose nothing but which endpoint the doctor probed, while the row reported "hosted by the
+ * aify-comms bridge itself" -- false -- as ok, without probing anything (v0.7 scan B4). A launcher
+ * that still carries the old switch is read the same way; the switch is ignored.
  *
- * READ FROM THE LAUNCHER FILE, never by running it: a bare `aify-comms` starts an environment bridge
- * and supersedes the live one, which is how this fleet lost nine managed agents in August.
- *
- * @param {{launcherText: string|null, endpointAnswered: boolean|null}} input
- *   launcherText: the installed `aify-comms` launcher, or null if it could not be read.
- *   endpointAnswered: whether aify-env replied; null when it was not asked (delegation off).
+ * THE SHEBANG CHECK IS A CONTROL ON THE INSTRUMENT: on Windows the fallback read is the `.cmd` shim,
+ * which carries no settings, and a file that is not the launcher body cannot testify about it.
  */
-/**
- * Read the delegation settings out of an installed `aify-comms` launcher. THE ONE PARSER.
- *
- * This question had THREE implementations: this module, `doctor.js` (which re-ran both regexes to
- * decide whether to probe the endpoint), and `scripts/installed-delegation.sh`. The comment further
- * down this file says why that is a defect -- "a second implementation of one question does not agree
- * for free, it agrees until one of them is fixed" -- and it was written about four checks that left
- * this tool for exactly that reason.
- *
- * The asymmetry is what makes it worth fixing rather than noting. If the launcher's shape drifts and
- * only `doctor.js` is updated, it probes aify-env, gets a real answer, and hands it to a verdict whose
- * own stale regex reports `pre-contract` -- ok: TRUE. A false green, built from a probe it paid for
- * and discarded.
- *
- * THE SHEBANG CHECK IS A CONTROL ON THE INSTRUMENT, not a style rule. `doctor.js` reads
- * `~/.local/bin/aify-comms` and falls back to `aify-comms.cmd`, which on Windows is a six-line shim
- * that execs the bash file. It carries no settings at all, so parsing it yields "no delegation line
- * found" -- indistinguishable from a genuinely old launcher, and reported as `pre-contract`, ok:true.
- * A file that is not the launcher body cannot testify about the launcher: that is `unknown-all`.
- */
-export function launcherDelegation(launcherText) {
+export function installedHostTier(launcherText) {
   const text = typeof launcherText === "string" ? launcherText : "";
-  // A rendered launcher is a bash script. The .cmd shim starts `@echo off` and a pre-contract
-  // launcher still starts `#!`, so this separates "wrong file" from "old file" without reclassifying
-  // any real launcher.
-  const isLauncher = /^#!/.test(text);
-  const setting = /^export AIFY_COMMS_DELEGATE_SPAWNS="([^"]*)"/m.exec(text);
-  return {
-    isLauncher,
-    present: Boolean(setting),
-    // The DECIDER's rule, not a second one. Reporting "delegated" for a value the spawn path
-    // treats as off is how `spawn-delegation` came to contradict where spawns actually run.
-    on: Boolean(setting) && delegationOptedIn(setting[1]),
-    endpoint: (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(text) ?? [, ""])[1],
-  };
+  const baked = (/^export AIFY_ENV_ENDPOINT="([^"]*)"/m.exec(text) ?? [, ""])[1].trim();
+  return { isLauncher: /^#!/.test(text), endpoint: baked || DEFAULT_ENV_ENDPOINT };
 }
 
-
-export function spawnDelegationVerdict({ launcherText = null, endpointAnswered = null, answeredAt = "" } = {}) {
-  if (launcherText === null) {
+/**
+ * Is the aify-env serving this host answering? Every managed spawn runs there, and the service
+ * refuses rather than falling back -- so a down aify-env shows up as spawns failing with no cause
+ * attached. This row names the cause first. The row keeps its id, `spawn-delegation`, so a
+ * before/after comparison across the upgrade still pairs it.
+ *
+ * @param input.launcherText     the installed launcher, or null if it could not be read
+ * @param input.endpointAnswered whether aify-env replied; null when it was not asked
+ * @param input.answeredAt       the endpoint that answered, when found elsewhere (a herdr-aify env receipt)
+ */
+export function spawnHostVerdict({ launcherText = null, endpointAnswered = null, answeredAt = "" } = {}) {
+  if (launcherText === null || !installedHostTier(launcherText).isLauncher) {
     return {
       ok: false,
       code: "unknown-all",
-      detail: "Could not read the installed aify-comms launcher, so where spawns run is unknown. "
-        + "Nothing was verified.",
-      fix: "Run install.sh for any client; it writes the environment-bridge launcher.",
+      detail: launcherText === null
+        ? "Could not read the installed aify-comms launcher, so which aify-env serves this host is unknown. Nothing was verified."
+        : "The file read in place of the aify-comms launcher is not a launcher body (no shebang); on Windows this is the "
+          + ".cmd shim, which carries no settings. Nothing was verified.",
+      fix: launcherText === null ? "Run install.sh for any client; it writes the launcher." : "Check ~/.local/bin/aify-comms is readable, then re-run.",
     };
   }
-  const parsed = launcherDelegation(launcherText);
-  if (!parsed.isLauncher) {
-    return {
-      ok: false,
-      code: "unknown-all",
-      detail: "The file read in place of the aify-comms launcher is not a launcher body (no shebang), "
-        + "so it cannot say where spawns run. On Windows this is the .cmd shim, which carries no "
-        + "settings. Nothing was verified.",
-      fix: "Check ~/.local/bin/aify-comms is readable, then re-run.",
-    };
-  }
-  if (!parsed.present) {
-    // A launcher rendered before the setting existed. Not a failure: it hosts spawns itself, which is
-    // the behaviour every host had before v0.6 and still the default.
-    return {
-      ok: true,
-      code: "pre-contract",
-      detail: "This launcher predates the delegation setting, so the bridge hosts managed spawns "
-        + "itself — the default. Reinstall to make the setting explicit in the file.",
-      fix: "",
-    };
-  }
-  if (!parsed.on) {
-    return {
-      ok: true,
-      code: "local",
-      detail: "Managed spawns are hosted by the aify-comms bridge itself. aify-env is not in the "
-        + "spawn path, so its process list is empty by design.",
-      fix: "",
-    };
-  }
-  const endpoint = parsed.endpoint;
+  const { endpoint } = installedHostTier(launcherText);
   if (endpointAnswered === true) {
-    // A `herdr-aify env` daemon answers on its own port, found from its ready receipt.
     const elsewhere = answeredAt && answeredAt !== endpoint;
     return {
       ok: true,
-      code: "delegated",
+      code: "answering",
       detail: elsewhere
-        ? `Managed spawns are delegated to aify-env. The installed ${endpoint || "(no endpoint baked)"} does not `
-          + `answer; the herdr-aify env daemon at ${answeredAt} does, and spawns stop when it closes.`
-        : `Managed spawns are delegated to aify-env at ${endpoint || "(no endpoint baked)"}, which is answering.`,
+        ? `Managed spawns run on aify-env. The installed ${endpoint} does not answer; the herdr-aify env daemon at `
+          + `${answeredAt} does, and spawns stop when it closes.`
+        : `Managed spawns run on aify-env at ${endpoint}, which is answering.`,
       fix: "",
     };
   }
@@ -782,27 +730,20 @@ export function spawnDelegationVerdict({ launcherText = null, endpointAnswered =
     return {
       ok: false,
       code: "unknown-all",
-      detail: `Delegation is on, pointing at ${endpoint || "(no endpoint baked)"}, and it was not `
-        + "asked whether that is answering. Nothing was verified.",
+      detail: `aify-env at ${endpoint} was not asked whether it is answering. Nothing was verified.`,
       fix: "Re-run the doctor with network access to the endpoint.",
     };
   }
   return {
     ok: false,
     code: "unreachable",
-    detail: `Delegation is on but aify-env at ${endpoint || "(no endpoint baked)"} is not answering. `
-      + "Every managed spawn will FAIL until it is: the bridge refuses rather than silently hosting "
-      + "them itself, because two spawners on one host is the collision this tier exists to end.",
-    // `--no-delegate-spawns`, NOT "without --delegate-spawns". Omitting the flag CARRIES THE
-    // SETTING FORWARD -- install.sh reads the installed launcher and prints "keeping DELEGATED to
-    // aify-env at <endpoint> (installed setting)" -- which is deliberate, so that a reinstall for
-    // an unrelated reason never moves a host's spawns. This text said the opposite, in front of an
-    // operator whose every managed spawn is failing.
-    fix: "Start aify-env on this host, or reinstall with `--no-delegate-spawns` to host spawns "
-      + "locally. Omitting the flag does NOT turn delegation off: install.sh carries the installed "
-      + "setting forward.",
+    detail: `aify-env at ${endpoint} is not answering, and every managed spawn fails until it is: aify-env is the `
+      + "only spawner, and the service refuses rather than starting a second one.",
+    fix: "Check with `aify-env doctor`. Starting aify-env is the operator's call: start it only if none is serving "
+      + "this host, because a second one stops the first one's agents.",
   };
 }
+
 /**
  * Managed delivery loops running for agents that no longer belong to the live environment bridge.
  *
