@@ -68,7 +68,7 @@ const CEILINGS = {
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
   "aify-comms-debug/SKILL.md": 3_117,
   "aify-comms-debug/references/codex.md": 5_242,
-  "aify-comms-debug/references/dashboard-console.md": 18_013,
+  "aify-comms-debug/references/dashboard-console.md": 3_844,
   "aify-comms-debug/references/dispatch-bridges.md": 6_224,
   "aify-comms-debug/references/dispatch-delivery.md": 7_437,
   "aify-comms-debug/references/dispatch-launch.md": 5_167,
