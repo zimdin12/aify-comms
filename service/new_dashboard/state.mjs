@@ -37,6 +37,7 @@ export const state = {
   sessions: [],
   environments: [],
   spawnRequests: [], // GET /spawn-requests — queued/claimed/failed/done spawns, surfaced on Environments.
+  spawnRequestsTruncated: false, // that list is the newest page, and says so when older requests exist
   stats: {},
   files: [],
   // Plan 6 C3/C4/C5/C6: server settings snapshot (GET /api/v1/settings).

@@ -526,3 +526,26 @@ test("AN ONLINE ENVIRONMENT OFFERS NO 'Stop bridge': nothing claims that control
   const offline = runtimeHtmlFor({ id: "e2", label: "Gone", status: "offline" });
   assert.match(offline, /data-env-control="forget"/, "CONTROL: an offline environment can still be forgotten");
 });
+
+// --- a capped spawn table says it is capped (v0.7 C17) --------------------------------------------
+
+test("A CAPPED SPAWN-REQUEST TABLE SAYS SO, like every other capped list here", async () => {
+  // `/spawn-requests?limit=200` shows the newest 200 (about 1,215 existed when this was written), and
+  // the Sessions rail sends people here for "full history". Sessions, runs, contracts and messages
+  // all say when they are a page; this said nothing.
+  const realFetch = globalThis.fetch;
+  const saved = state.spawnRequests;
+  setApiBase("");
+  try {
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder" }], truncated: true }) });
+    const capped = await withDomAsync({ "spawn-requests-list": el() }, async (els) => { await loadSpawnRequests(); return els["spawn-requests-list"].innerHTML; });
+    assert.match(capped, /mb-warn/);
+    assert.match(capped, /Showing the newest 1 spawn request/);
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ spawnRequests: [{ id: "sr-1", agentId: "coder" }], truncated: false }) });
+    const whole = await withDomAsync({ "spawn-requests-list": el() }, async (els) => { await loadSpawnRequests(); return els["spawn-requests-list"].innerHTML; });
+    assert.doesNotMatch(whole, /Showing the newest/, "CONTROL: a complete list says nothing");
+  } finally {
+    globalThis.fetch = realFetch;
+    state.spawnRequests = saved;
+  }
+});

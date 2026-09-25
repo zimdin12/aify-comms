@@ -248,6 +248,7 @@ export async function loadSpawnRequests() {
   try {
     const res = await api('/spawn-requests?limit=200');
     state.spawnRequests = asArray(res, 'spawnRequests');
+    state.spawnRequestsTruncated = Boolean(res?.truncated);
   } catch (_) { /* keep the prior list */ }
   renderSpawnRequests();
 }
@@ -281,7 +282,12 @@ export function renderSpawnRequests() {
       <td class="clip spawn-detail" title="${esc(detail)}">${esc(detail)}</td>
     </tr>`;
   }).join('');
-  el.innerHTML = `<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>
+  // SAID WHEN IT IS A PAGE, as sessions, runs, contracts and messages already are. The Sessions rail
+  // sends people here for full history, and about 1,215 requests existed when this was measured.
+  const capped = state.spawnRequestsTruncated
+    ? `<div class="mb mb-warn">Showing the newest ${requests.length} spawn requests; older ones are not loaded.</div>`
+    : '';
+  el.innerHTML = `${capped}<div class="table-wrap"><table class="spawn-requests-table"><thead><tr>
       <th>Requested</th><th>Agent</th><th>Environment</th><th>Runtime</th><th>Status</th><th>Workspace</th><th>Bridge / error</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }

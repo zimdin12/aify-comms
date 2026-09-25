@@ -142,7 +142,10 @@ export async function runRefreshCycle({
   // Guarded on the REQUEST, not just the result: a skipped slice resolves to null, and assigning
   // asArray(null) would wipe the list rather than leave it alone. Nothing reads it while the page is
   // closed, but wiping it would make the first render after opening flash empty.
-  if (wantSpawnRequests && ok(7)) state.spawnRequests = asArray(val(7), 'spawnRequests');
+  if (wantSpawnRequests && ok(7)) {
+    state.spawnRequests = asArray(val(7), 'spawnRequests');
+    state.spawnRequestsTruncated = Boolean(val(7)?.truncated);
+  }
   if (ok(8)) state.stats = val(8) || {};
   if (ok(10) && val(10)) adoptSettingsSchema(val(10));
   if (ok(9) && val(9) && typeof val(9) === 'object') {

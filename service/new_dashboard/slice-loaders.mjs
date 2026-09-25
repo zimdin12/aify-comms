@@ -72,7 +72,9 @@ export const SLICE_LOADERS = Object.freeze({
     state.environments = asArray(await api('/environments'), 'environments');
   },
   async spawnRequests() {
-    state.spawnRequests = asArray(await api('/spawn-requests?limit=200'), 'spawnRequests');
+    const res = await api('/spawn-requests?limit=200');
+    state.spawnRequests = asArray(res, 'spawnRequests');
+    state.spawnRequestsTruncated = Boolean(res?.truncated);
   },
   async stats() {
     state.stats = (await api('/stats')) || {};
