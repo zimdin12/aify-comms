@@ -26,16 +26,8 @@ import { deadImportsIn } from "../../mcp/stdio/tests/dead-imports.mjs";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 
-//: `app.js` is FROZEN BY ITS RECONSTRUCTION PROOF and is measured, not exempted.
-//: `extraction-proof.mjs` declares each slice's `importLine` VERBATIM and splices it out to rebuild
-//: the pristine file, so an import line is executable text that proof depends on. Removing five
-//: unused names from ONE line fails four of its tests — measured, not assumed. Cleaning these means
-//: amending the EXTRACTIONS plan in the same change, which is a reviewer's call.
-//:
-//: So the count is PINNED rather than allowlisted: it may only SHRINK. That is what forces the
-//: exemption to be deleted rather than left to rot — the same mechanism that got
-//: `hermes-managed-host.js` swept on the bridge side.
-const APP_JS_FROZEN_DEAD = 183;
+//: app.js is measured like every other module. Its 183 dead imports were frozen by the
+//: reconstruction proof, which spliced its import lines verbatim; they went when it was retired.
 
 function dashboardSources() {
   return fs
@@ -54,28 +46,12 @@ test("the dashboard population is real", () => {
 
 test("no dashboard module imports a name it never uses", () => {
   const offenders = dashboardSources()
-    .filter(([name]) => name !== "app.js")
     .map(([name, text]) => [name, deadImportsIn(text)])
     .filter(([, dead]) => dead.length);
   assert.deepEqual(
     offenders,
     [],
     "dead imports: " + offenders.map(([f, d]) => `${f} (${d.join(", ")})`).join("; "),
-  );
-});
-
-test("app.js's frozen dead-import count may only shrink", () => {
-  const [, text] = dashboardSources().find(([name]) => name === "app.js");
-  const count = deadImportsIn(text).length;
-  assert.ok(
-    count <= APP_JS_FROZEN_DEAD,
-    `app.js dead imports grew from ${APP_JS_FROZEN_DEAD} to ${count}. A slice moved a declaration out `
-      + "and left its imports behind; clean them WITH the EXTRACTIONS plan, not after it.",
-  );
-  assert.equal(
-    count, APP_JS_FROZEN_DEAD,
-    `app.js is down to ${count} dead imports from ${APP_JS_FROZEN_DEAD}. Lower the constant — and if `
-      + "it reaches 0, delete this test and drop app.js's exclusion from the one above.",
   );
 });
 

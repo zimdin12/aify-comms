@@ -17,23 +17,13 @@ import { setTimeout as delay } from "node:timers/promises";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(__dirname, name), "utf8");
 
-test("app.js loads as an ES module (Phase 0.1) and imports the extracted pure cores", () => {
+test("app.js loads as an ES module (Phase 0.1) and does not redefine the extracted pure cores", () => {
   const html = read("index.html");
   assert.match(html, /<script type="module" src="\/assets\/app\.js">/, "index.html must load app.js as a module");
   const source = read("app.js");
-  // v0.5.4: pinned the EXACT import list, so every extraction that adds a name to util.js edited this
-  // line. What the test cares about is that app.js imports its pure cores from util.js rather than
-  // redefining them, not which names exist this week — so it asserts the source module and requires the
-  // long-standing three to be among the imported names.
-  const utilImport = source.match(/import \{([^}]*)\} from '\.\/util\.js'/);
-  assert.ok(utilImport, "app.js must import its pure cores from util.js");
-  const utilNames = utilImport[1].split(',').map((n) => n.trim());
-  for (const name of ['esc', 'relTime', 'tsMs']) {
-    assert.ok(utilNames.includes(name), `${name} must still come from util.js, not be redefined`);
-  }
-  assert.match(source, /from '\.\/terminal-input\.mjs'/);
-  assert.match(source, /from '\.\/status\.js'/);
-  assert.match(source, /from '\.\/console-chooser\.js'/);
+  // WHICH names app.js imports is not pinned: since v0.7 it imports only what it uses (the dead-import
+  // gate covers it like every other module), so a pin on util.js or terminal-input.mjs failed the day
+  // app.js stopped needing them. What matters is that nothing moved out is defined here again.
   // The extracted definitions must be GONE from app.js (no duplicate source of truth).
   assert.ok(!/\nconst STATUS_KINDS = \{/.test(source), "STATUS_KINDS must live only in status.js");
   assert.ok(!/\nfunction chooseSessionConsoleWidget\(/.test(source), "chooser must live only in console-chooser.js");

@@ -1,88 +1,48 @@
 // Dashboard Next SPA entry. ES module (DASHBOARD_REBUILD_PLAN §0.1): pure cores live in
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
-import { esc, fileSizeLabel, relTime, tsMs, usageFmtTokens, usageResetLabel } from './util.js';
-import { createTerminalInputPoster, createTerminalInputHandler, forceTerminalRepaint, waitForTerminalSize, wheelInputSequence } from './terminal-input.mjs';
-import { continueCliCommand, continueCliDetails, continueCliInfo, resumeMachineNote } from './cli-resume.mjs';
-import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
-import { AGENT_STATUSES, STATUS_KINDS, renderStatusChip, resolveStatus, runStatusContext, statusWhyContext } from './status.js';
-import { hermesGatewayUrlToHttp, chooseSessionConsoleWidget } from './console-chooser.js';
-import { byId, toast, uiConfirm, uiPrompt, installRejectionToast } from './ui.js';
+import { esc } from './util.js';
+import { STATUS_KINDS, renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
+import { byId, toast } from './ui.js';
 import { createChatController } from './chat.js';
 import { inspectorRefreshDecision } from './inspector-refresh.mjs';
-import { createNotifier, readEnabled, writeEnabled, requestPermission } from './notify.mjs';
-import { THEMES, applyTheme, applyCachedTheme, previewTheme, paletteFromSettings, settingUnchanged } from './theme.js';
-import { settingsFieldHtml } from './settings-fields.mjs';
-import {
-  asAgentArray,
-  asArray,
-  contractActionable,
-  contractCategory,
-  environmentRoots,
-  environmentRuntimes,
-  messageId,
-  messageIdOf,
-  messageRunId,
-  runPendingControlCount,
-  runTargetAgent,
-  sessionAgentId,
-  sessionEnvironmentId,
-  sessionId,
-  sessionRuntime,
-} from './record-fields.mjs';
-import { environmentStartCommand } from './environment-start-command.mjs';
-import { renderRunEvent } from './run-event.mjs';
-import { applyRenderedWidth } from './terminal-width.mjs';
-import { trafficChartHtml, statCardsHtml, healthGridHtml, runStatusMixHtml, rangeSelectorHtml, rangeDef, opsKpisHtml, dispatchOutcomesHtml, agentLeaderboardHtml, busiestChannelsHtml, failureReasonsHtml } from './analytics.js';
+import { applyTheme, settingUnchanged } from './theme.js';
+import { sessionAgentId, sessionId } from './record-fields.mjs';
 import { state } from './state.mjs';
-import { SESSION_FILTER_KINDS, agentForSession, agentForTerminal, ensureSelectedSession, renderModeSwitchChip, renderSessionModeLabel, renderSessionRail, selectedSession, selectedSessionIds, toggleSupersededSessions } from './session-rail.mjs';
-import { applyThemeChoice, previewAppearance, refreshActiveTerminalTheme, renderSettings, selectSettingsTab, terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
-import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from './agent-drawer.mjs';
-import { MAINTENANCE_ACTIONS, applyContractView, applyWorkView, contractCard, diagnosticKey, filtered, jumpFromDiagnostic, matchesGlobalFilter, pruneDiagnosticSelection, renderActivityFeed, renderAttention, renderContractBoard, toggleDiagnosticSelection } from './work-loop-panels.mjs';
-import { codexConsoleAppendLine, codexConsoleClose, codexConsoleConnect, codexConsoleConnections, codexConsoleSendTurn } from './codex-console.mjs';
+import { agentForSession, ensureSelectedSession, renderSessionRail } from './session-rail.mjs';
+import { refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
+import { openAgentDrawer, syncInspectorToSelection } from './agent-drawer.mjs';
+import { renderActivityFeed, renderAttention } from './work-loop-panels.mjs';
+import { codexConsoleConnections } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
-import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
-import { renderSessionActivity, runFrom } from './session-activity.mjs';
-import { controlEnvironment, createSpawnRequest, initEnvironmentActions, openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests, resetEnvironmentRoots, submitEnvironmentRoots } from './environments-panels.mjs';
-import { metric, renderDiagnosticsSummary, renderMetrics, renderUsageConsumption, selectedDiagnostics } from './summary-tiles.mjs';
-import { copyActiveConsole, copyText } from './clipboard.mjs';
-import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
-import { renderRunInspectorControls, runInspectorCapabilities, sessionForRun } from './run-inspector-controls.mjs';
-import { restoreChatDraft, persistChatDrafts, persistChatPrefs, syncChatChips, toggleChatCompact, toggleChatPeek } from './chat-prefs.mjs';
+import { renderSessionActivity } from './session-activity.mjs';
+import { createSpawnRequest, initEnvironmentActions, renderEnvironmentSpawnOptions, renderEnvironmentSummary, renderRuntime, renderSpawnRequests } from './environments-panels.mjs';
+import { renderDiagnosticsSummary, renderMetrics, selectedDiagnostics } from './summary-tiles.mjs';
+import { openCompactionHistory, openMessageDetail } from './inspector-forms.mjs';
+import { restoreChatDraft, persistChatDrafts } from './chat-prefs.mjs';
 import { createMessageHistory } from './message-history.mjs';
-import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
-import { runConsoleAction } from './console-click-handlers.mjs';
-import { consoleAwaitingInputHint, updateAwaitPill } from './console-await.mjs';
 import { mountXtermForTerminal as mountXtermForTerminalImpl } from './xterm-mount.mjs';
 import { renderSessionConsole as renderSessionConsoleImpl } from './session-console.mjs';
-import { handleGlobalKeydown } from './keyboard-shortcuts.mjs';
-import { renderInstallSnippet, updateStaticLinks } from './static-links.mjs';
+import { renderInstallSnippet } from './static-links.mjs';
 import { lookup } from './record-lookup.mjs';
 import { pages } from './page-titles.mjs';
 import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
-import { preferredNavCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
-import { RUN_INSPECTOR_EVENT_LIMIT, loadRunDetails, loadRunEvents, patchRun, runQueryPath, runSourceMessage, syncRunFilterOptions } from './run-helpers.mjs';
-import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
-import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
-import { applySessionStatusPreset, openAgentSessions, selectSessionRow, selectSessionTab, toggleSessionCheckbox, toggleSessionStatusFilter } from './session-click-handlers.mjs';
 import { resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
-import { attachChatFile, deleteSharedFileFromRow, loadFiles, renderFiles, uploadPastedImage, uploadSharedFile } from './shared-files.mjs';
-import { chatLoadChannels, chatLoadConversation, chatSendMessage, sendRunFollowup } from './message-transport.mjs';
+import { renderFiles } from './shared-files.mjs';
+import { chatLoadChannels, chatLoadConversation, chatSendMessage } from './message-transport.mjs';
 import { runRefreshCycle } from './refresh-cycle.mjs';
 import { connectRealtimeSocket, initRealtimeSocket, wireRealtimeResumeReconnect } from './realtime-socket.mjs';
-import { handleRunInspectorControl, initRunInspector, loadMoreRunEvents, loadRunsForStatus, openRunInspector, renderRunInspector, renderRuns, requestRunControl, toggleRunEventOrder } from './run-inspector.mjs';
-import { deleteSessionById, initAgentSessionActions, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';
-import { loadAnalytics, renderAnalyticsPage, renderUsagePools } from './analytics-page.mjs';
-import { closeWorkContract, initWorkLoopActions, loadContractsForState, remindWorkContract, renderContracts, renderDiagnosticsBulkToolbar, requestBulkDiagnosticAction, runMaintenance } from './work-loop-actions.mjs';
-import { addChannelMember, chatChannelAction, initMessageActions, markConversationRead, markMessageRead, markVisibleRead, mountChatConsole, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
-import { initConsoleActions, openRunConsole, resyncActiveConsole, startConsoleForSession, stopConsoleTerminal } from './console-actions.mjs';
+import { initRunInspector, openRunInspector, renderRuns } from './run-inspector.mjs';
+import { initAgentSessionActions } from './agent-session-actions.mjs';
+import { loadAnalytics } from './analytics-page.mjs';
+import { closeWorkContract, initWorkLoopActions, loadContractsForState, renderContracts, renderDiagnosticsBulkToolbar } from './work-loop-actions.mjs';
+import { initMessageActions, markConversationRead, markVisibleRead, mountChatConsole } from './message-actions.mjs';
+import { initConsoleActions, openRunConsole, resyncActiveConsole } from './console-actions.mjs';
 import { dispatchClick, initClickDispatch } from './click-dispatch.mjs';
-import { dashboardNotifier, notificationsEnabled, toggleNotifications } from './notifications.mjs';
+import { dashboardNotifier } from './notifications.mjs';
 import { restorePersistedPreferences, wireGlobalControls, wireInspectorGestures, wireSettingsControls } from './boot-wiring.mjs';
-import { loadVersionBadge } from './version-badge.mjs';
-import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
 import { createRefreshGate } from './refresh-visibility.mjs';
 import { ChangeDrivenRefresh } from './change-refresh.mjs';
 import { loadSlices } from './slice-loaders.mjs';
