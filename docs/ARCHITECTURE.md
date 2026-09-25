@@ -182,7 +182,7 @@ Each row is a rule you can break without any obvious symptom, followed by what w
 
 | Rule | Enforced by |
 |---|---|
-| No product source file reaches 1000 lines (`.py`, `.js`, `.mjs`, repo-wide) | `service/tests/test_no_new_oversized_source_file.py`, `mcp/stdio/tests/no-new-oversized-source-file.test.js` |
+| No product source file reaches 1000 lines (`.py`, `.js`, `.mjs`, repo-wide) | `service/tests/test_no_new_oversized_source_file.py` |
 | A leaf must never import `service.control_plane` | `service/tests/test_leaves_do_not_import_the_carrier.py` |
 | No module-level import cycle among service modules | `service/tests/test_no_import_cycles.py` |
 | No module imports a name nothing reaches | `service/tests/test_no_dead_imports.py`, `service/tests/test_no_orphaned_imports_in_control_plane.py` |
