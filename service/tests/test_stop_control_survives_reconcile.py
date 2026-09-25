@@ -27,7 +27,6 @@ orphan-pid fallback for precisely that case.
 import asyncio
 
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
 from service.api_core import terminal_ownership  # v0.5.4: patched on its OWNER, not the carrier

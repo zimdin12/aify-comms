@@ -16,7 +16,6 @@ import time
 import unittest
 
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.4: the constant moved on to a leaf — the control plane declared it and never read it.
 from service.api_core.tuning import _SESSION_DELETE_ALLOWED_STATUSES
 # v0.5.2i: the clean-history set moved with the sessions domain. The delete-allowed set it is

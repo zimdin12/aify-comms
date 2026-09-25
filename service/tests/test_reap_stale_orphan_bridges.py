@@ -9,7 +9,6 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
 from service.reconcilers.status_cache import _reap_stale_orphan_bridges

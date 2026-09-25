@@ -11,7 +11,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from service.db import get_db, init_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.routers.api_v2 import router
 
 

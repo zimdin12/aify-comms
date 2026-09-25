@@ -98,7 +98,7 @@ def is_exempt(rel_path: str, allowed=None) -> bool:
 
     Split out on the reviewer's request. The gate's whole correctness rests on this being path identity
     rather than name identity, and asserting that against the real tree cannot demonstrate it — the tree
-    happens to contain only one `control_plane.py`. A pure predicate can be shown two synthetic paths that
+    happens to contain only one `db.py`. A pure predicate can be shown two synthetic paths that
     share a basename and prove they are distinguished.
     """
     return rel_path in (ALLOWED if allowed is None else set(allowed))
@@ -154,7 +154,7 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
         predicate is exercised with synthetic paths that share a basename.
 
         IT USED TO DRIVE THE PREDICATE FROM THE REAL POLICY, and that failed twice for the same
-        reason: the list only ever shrinks. First it named `service/control_plane.py`, which went red
+        reason: the list only ever shrinks. First it named the control-plane module, which went red
         in v0.5.4 when that file dropped under the limit and was correctly removed. Then it read
         `_POLICY["allowed"][0]`, which went red when `app.js` — the LAST entry — dropped under the
         limit and the list became EMPTY. Both times a test failed because the work succeeded.
@@ -193,7 +193,7 @@ class NoNewOversizedSourceFileTests(unittest.TestCase):
     def test_the_scan_reaches_the_files_it_claims_to_cover(self):
         """A gate over an empty file list passes vacuously."""
         found = {_rel(p) for p in _source_files()}
-        self.assertIn("service/control_plane.py", found)
+        self.assertIn("service/api_core/status_inputs.py", found)
         self.assertIn("service/db.py", found)
         self.assertNotIn("service/tests/test_no_new_oversized_source_file.py", found, "tests are out of scope")
 

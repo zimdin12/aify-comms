@@ -68,7 +68,7 @@ class ImportBlocksStayReadableTests(unittest.TestCase):
     def test_the_detector_recognises_a_collapsed_import(self):
         """Asserting an absence means a green run and a broken detector look identical."""
         names = ", ".join(f"_some_helper_number_{i}" for i in range(12))
-        collapsed = f"from service.control_plane import {names}\n"
+        collapsed = f"from service.api_core.tuning import {names}\n"
         self.assertGreater(len(collapsed), MAX_LINE, "the synthetic sample must exceed the limit")
         node = ast.parse(collapsed).body[0]
         self.assertIsInstance(node, ast.ImportFrom)
@@ -100,8 +100,8 @@ class ImportBlocksStayReadableTests(unittest.TestCase):
             except SyntaxError:
                 continue
             # MODULE SCOPE ONLY — `tree.body`, not `ast.walk`. My first version walked the whole tree and
-            # flagged 8 legitimate cases: every borrow shim in this repo does
-            # `from service.control_plane import X as _impl` inside its OWN function body, so a walk sees
+            # flagged 8 legitimate cases: every borrow shim this repo had then did
+            # `from <the old helper module> import X as _impl` inside its OWN function body, so a walk sees
             # the same (module, alias) pair once per shim and calls it a duplicate. Those are separate
             # scopes and not the defect. The defect is two identical module-level imports in one file.
             seen: dict[tuple[str, str], int] = {}

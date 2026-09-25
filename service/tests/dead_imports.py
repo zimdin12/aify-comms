@@ -5,10 +5,9 @@ records why in its own comment: a sweep tool carrying its own regex deleted four
 copy had drifted from the gate's. Anything that removes dead imports in this repo must call
 `dead_bindings()`, never re-derive the rule.
 
-THE ALIAS TABLE IS COMPUTED, NOT LISTED, and that is the whole difference between this and
-`test_no_orphaned_imports_in_control_plane.py`. That gate is scoped to one file and says so: applied
-tree-wide, its hardcoded `("api_v2", "cp", ...)` alias list would need a per-module table, and getting
-one wrong deletes a live patch target. So here the aliases are derived from the source: for a target
+THE ALIAS TABLE IS COMPUTED, NOT LISTED. An earlier gate scoped to the control-plane module (deleted
+in v0.7.0 with that module) used a hardcoded `("api_v2", "cp", ...)` alias list; applied tree-wide that
+would need a per-module table, and getting one wrong deletes a live patch target. So here the aliases are derived from the source: for a target
 module, every `from <pkg> import <mod> as <alias>` and `import <dotted> as <alias>` in the tree
 contributes an alias, and `<alias>.name` counts as a reach. The repo really does bind routers this way —
 `dispatch_router`, `agents_shared`, `terminals_router`, `channels_router`, `health_router` are all live

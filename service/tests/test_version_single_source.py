@@ -41,7 +41,6 @@ class VersionSingleSourceTests(unittest.TestCase):
             SERVICE_DIR / "config.py",
             SERVICE_DIR / "main.py",
             SERVICE_DIR / "new_dashboard_app.py",
-            SERVICE_DIR / "control_plane.py",
         ]:
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if literal.search(line) and "0.0.0-dev" not in line:

@@ -23,7 +23,6 @@ import asyncio
 import unittest
 
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
 from service.api_core.managed_env import _has_pending_or_booting_spawn_request
 from service.api_core import terminal_status  # v0.5.4: call the OWNER

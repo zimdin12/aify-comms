@@ -27,26 +27,14 @@ from pathlib import Path
 
 from service.tests._source import code_only
 
-API = Path(__file__).resolve().parents[1] / "control_plane.py"
-
-
-def _source() -> str:
-    """CODE ONLY, and that is not a detail. The call sites carry comments explaining why the enqueue
-    sits outside `if ws:` and after the commit — so the ordering assertions below, run against the
-    raw text, match the explanation instead of the code. That happened four times on 2026-08-11
-    before the filter went into `_source.py`, once in this very file: `rfind("if ws:")` found the
-    words "if ws:` below" in a comment four lines above the real gate, and the test failed on
-    prose."""
-    return code_only(API.read_text(encoding="utf-8", errors="replace"))
-
-
-def _call_sites() -> list[int]:
-    src = _source()
-    return [m.start() for m in re.finditer(r"^\s*notify_operator\(", src, re.MULTILINE)]
-
-
 def _messages_source() -> str:
-    """v0.5.2l moved the DIRECT-message notify site into the dispatch+messages package."""
+    """v0.5.2l moved the DIRECT-message notify site into the dispatch+messages package.
+
+    CODE ONLY, here and below, and that is not a detail. The call sites carry comments explaining why
+    the enqueue sits outside `if ws:` and after the commit, so the ordering assertions, run against the
+    raw text, would match the explanation instead of the code. That happened four times on 2026-08-11
+    before the filter went into `_source.py`: `rfind("if ws:")` found the words "if ws:` below" in a
+    comment four lines above the real gate, and the test failed on prose."""
     path = Path(__file__).resolve().parents[1] / "routers" / "dispatch_messages" / "messages.py"
     return code_only(path.read_text(encoding="utf-8", errors="replace"))
 
@@ -65,11 +53,10 @@ def _channels_source() -> str:
 
 class SendPathWiringTests(unittest.TestCase):
     def setUp(self):
-        self.src = _source()
         self.channels_src = _channels_source()
-        # "Both send paths" now spans THREE modules: api_v2 kept none of them in the end -- the
+        # "Both send paths" span two modules: the old router kept none of them in the end -- the
         # direct-message site went to the dispatch+messages package (v0.5.2l) and the channel site
-        # to channels.py (v0.5.2h). Counting only api_v2 would have silently become "no path
+        # to channels.py (v0.5.2h). Counting only the old router would have silently become "no path
         # notifies" while still passing an is-it-awaited check, which is the half-fixed shape this
         # file exists to prevent.
         #
@@ -77,7 +64,7 @@ class SendPathWiringTests(unittest.TestCase):
         # lived in more than one file: an offset from one module indexed into another's text would
         # slice unrelated code and the ordering assertions would measure nothing while passing.
         self.messages_src = _messages_source()
-        self.sites = [(self.src, at) for at in _call_sites()] + [
+        self.sites = [
             (self.messages_src, m.start())
             for m in re.finditer(r"^\s*notify_operator\(", self.messages_src, re.MULTILINE)
         ] + [
@@ -93,7 +80,6 @@ class SendPathWiringTests(unittest.TestCase):
     def test_no_call_site_is_awaited(self):
         """C4b. An `await` here would put an HTTP call back on the message-send path and still
         appear to work, which is precisely why it needs a test rather than review attention."""
-        self.assertNotIn("await notify_operator", self.src)
         # Widened in v0.5.2h: the rule is about the CALL, so it must hold in every module that
         # makes one, not only the module that happened to hold them all originally.
         self.assertNotIn("await notify_operator", self.channels_src)

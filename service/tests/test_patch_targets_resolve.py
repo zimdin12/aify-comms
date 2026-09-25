@@ -1,6 +1,6 @@
 """A test that patches a moved name patches nothing, and still passes.
 
-THE FAILURE THIS PREVENTS. `mock.patch("service.control_plane._foo")` names its target as a
+THE FAILURE THIS PREVENTS. `mock.patch("service.some_module._foo")` names its target as a
 string, so it is not checked by the import system, by a linter, or by anything else until the line
 runs. The v0.5 refactor moved eighteen helpers out of `api_v2` into the modules that call them. When
 a helper moves, a patch aimed at the old location can fail in two ways, and only one of them is
@@ -101,7 +101,7 @@ class PatchTargetsResolveTests(unittest.TestCase):
         calls nothing**, so a patch installed in its namespace cannot be consulted by it, and any
         caller reached the real owner some other way. Every such patch is inert by construction.
 
-        `service/control_plane.py` became exactly that in v0.5.4 — 928 lines of constants, imports and
+        The control-plane module (deleted in v0.7.0) became exactly that in v0.5.4 — 928 lines of constants, imports and
         tombstones with zero `def`s — and three inert patches were found aimed at it: the agents
         cached-read guard, and both fakes in `test_status_taxonomy`. All three passed green for as
         long as they had been wrong.

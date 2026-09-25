@@ -104,23 +104,34 @@ class NameValidationTests(unittest.TestCase):
             validate_name("bad name", "channel")
         self.assertIn("channel", str(caught.exception.detail))
 
-    def test_the_router_uses_this_owner(self):
-        """The carrier must re-export the OWNER's object, not a second copy of it.
+    def test_every_module_that_binds_it_binds_the_owners_object(self):
+        """Every reader must hold the OWNER's object, not a second copy of it.
 
-        RESTORED in v0.5.4 after I broke it. This read `api_v2.validate_name` on purpose — the whole
-        assertion is that the control plane's binding and the owner's are the SAME object, which is
-        what makes a forked validator impossible. My mechanical repoint of stale owner consumers
-        rewrote `api_v2.validate_name` to `validate_name`, turning it into `assertIs(x, x)`: a
-        tautology that passes forever and proves nothing.
-
-        The lesson is narrow and worth stating: a test whose SUBJECT is the carrier's binding is not
-        a stale consumer. It is the test of exactly the relationship the census exists to police,
-        which is why the reads below are marked intentional rather than repointed.
+        This read the control plane's binding until v0.7.0 deleted that module. The property was
+        never about the control plane: it is that no module can hold a forked validator. So it is
+        asked of every service module that binds either name, by identity. A copy would pass `==`
+        and still be a fork. Comparing the owner with itself is a tautology, so the owner is left out
+        and at least one other reader is required.
         """
-        from service import control_plane as api_v2
+        import importlib
+        from pathlib import Path
 
-        self.assertIs(api_v2.validate_name, validate_name)  # census: intentional carrier reference
-        self.assertIs(api_v2.SAFE_NAME_RE, SAFE_NAME_RE)  # census: intentional carrier reference
+        service = Path(__file__).resolve().parent.parent
+        owner = service / "api_core" / "validation.py"
+        readers = []
+        for path in sorted(service.rglob("*.py")):
+            if "tests" in path.parts or "__pycache__" in path.parts or path == owner:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "validate_name" not in text and "SAFE_NAME_RE" not in text:
+                continue
+            dotted = ".".join(path.relative_to(service.parent).with_suffix("").parts)
+            module = importlib.import_module(dotted)
+            for name, expected in (("validate_name", validate_name), ("SAFE_NAME_RE", SAFE_NAME_RE)):
+                if hasattr(module, name):
+                    readers.append(f"{dotted}.{name}")
+                    self.assertIs(getattr(module, name), expected, f"{dotted}.{name} is not the owner's object")
+        self.assertTrue(readers, "no module outside the owner binds the validator; the scan is not reading the tree")
 
 
 if __name__ == "__main__":

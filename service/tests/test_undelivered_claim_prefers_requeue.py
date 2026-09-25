@@ -26,7 +26,6 @@ import unittest
 from pathlib import Path
 
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 from service.tests._base import FastApiTestCase
 from service.api_core.recovery_writes import UNDELIVERED_CLAIM_REQUEUE_LIMIT
 from service.api_core import active_run_discard  # v0.5.4: call the OWNER
@@ -35,7 +34,7 @@ from service.api_core import active_run_discard  # v0.5.4: call the OWNER
 def _owner_of(function_name: str) -> Path:
     """The single service module defining `function_name`, found by AST.
 
-    v0.5.4: the two probes below named `service/control_plane.py` and sliced its text. Both broke when
+    v0.5.4: the two probes below named the control-plane module and sliced its text. Both broke when
     `_discard_unclaimable_active_run` and `_fail_stale_active_run` moved to
     `service/api_core/active_run_discard.py` — loudly, which is the correct failure for a probe that
     asserts a PRESENCE, and better than the alternative: an absence-assertion pinned to a file that no

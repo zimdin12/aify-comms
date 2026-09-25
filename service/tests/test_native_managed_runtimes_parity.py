@@ -6,7 +6,7 @@ asserts they are equal, so the drift fails CI instead of in production.
 
 THERE ARE THREE COPIES, and until v0.5.4 this test guarded only two:
 
-  service/api_core/runtime.py    the service's set (was service/control_plane.py; before that api_v2.py)
+  service/api_core/runtime.py    the service's set (was the control-plane module; before that api_v2.py)
   mcp/stdio/dispatch-execution.js  the bridge's `new Set([...])`
   service/db.py                  its OWN tuple, unguarded until now
 

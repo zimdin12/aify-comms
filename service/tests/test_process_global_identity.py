@@ -4,7 +4,7 @@ THE v0.5 GATE, established BEFORE the extraction rather than after. The reconcil
 10-slice, 3,530-line refactor with an intentionally empty behaviour changelog, and the failure mode
 that would survive every other gate is a duplicated module-global:
 
-    from service.control_plane import _LIVE_STATE_CACHE     # binds the VALUE, not the module
+    from service.reconcilers.status_cache import _LIVE_STATE_CACHE   # binds the VALUE, not the module
     _LIVE_STATE_CACHE = {}                                   # or a fresh dict in the new module
 
 Either shape leaves two dicts. Reads and writes land in different ones, and NOTHING fails: the
@@ -103,7 +103,7 @@ GLOBALS = {
 #     if SOME_FLAG:                        # executes at import time, but the assignment is
 #         _LIVE_STATE_CACHE = {}           # INDENTED, so a column-0 regex sees nothing
 #
-#     from service.control_plane import ( # a by-value import, but the name is not on the
+#     from service.reconcilers.status_cache import (  # by value, but the name is not on the
 #         _LIVE_STATE_CACHE,               # same line as the word `import`
 #     )
 #
@@ -194,7 +194,7 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
         """`from x import _LIVE_STATE_CACHE` binds the dict OBJECT at import time. That is safe for
         mutation and fatal for rebinding: if the owner ever reassigns it (a clear, a swap, a
         test-time reset), the importer keeps the old dict forever. Import the module and reach
-        through it — `api_v2._LIVE_STATE_CACHE` — so there is one path to one object."""
+        through it — `status_cache._LIVE_STATE_CACHE` — so there is one path to one object."""
         for name in GLOBALS:
             for path in _python_files():
                 text = path.read_text(encoding="utf-8", errors="replace")
@@ -247,18 +247,6 @@ class ProcessGlobalIdentityTests(unittest.TestCase):
                 # Re-importing must not produce a second object.
                 self.assertIs(obj, getattr(importlib.import_module(module_path), name))
 
-    def test_the_moved_owner_left_no_alias_behind(self):
-        """v0.5 slice 1a. A `_LIVE_STATE_CACHE = status_cache._LIVE_STATE_CACHE` left in api_v2 for
-        convenience would create the exact second-owner class this file exists to catch, while
-        looking like a kindness to callers. The reviewer named it as a condition of the slice."""
-        import importlib
-
-        api_v2 = importlib.import_module("service.control_plane")
-        self.assertFalse(
-            hasattr(api_v2, "_LIVE_STATE_CACHE"),
-            "api_v2 must reach the cache through `status_cache._LIVE_STATE_CACHE`, not re-export it",
-        )
-
 
 
 
@@ -297,21 +285,21 @@ class GateCatchesTheFormsRegexMissedTests(unittest.TestCase):
     def test_a_MULTILINE_parenthesised_import_is_caught(self):
         """The reviewer's second shape: still a by-value import, but the name is not on the same
         line as the word `import`."""
-        src = "from service.control_plane import (\n    _live_state_get,\n    _LIVE_STATE_CACHE,\n)\n"
+        src = "from service.reconcilers.status_cache import (\n    _live_state_get,\n    _LIVE_STATE_CACHE,\n)\n"
         self.assertEqual(len(_by_value_imports(src, "_LIVE_STATE_CACHE")), 1)
 
     def test_a_single_line_import_is_still_caught(self):
-        src = "from service.control_plane import _LIVE_STATE_CACHE\n"
+        src = "from service.reconcilers.status_cache import _LIVE_STATE_CACHE\n"
         self.assertEqual(len(_by_value_imports(src, "_LIVE_STATE_CACHE")), 1)
 
     def test_a_FUNCTION_LOCAL_import_is_allowed(self):
         """Re-evaluated on every call, so it can never hold a stale object. Three existing tests do
         this correctly and my first AST pass wrongly failed them."""
-        src = "def f():\n    from service.control_plane import _LIVE_STATE_CACHE\n    return _LIVE_STATE_CACHE\n"
+        src = "def f():\n    from service.reconcilers.status_cache import _LIVE_STATE_CACHE\n    return _LIVE_STATE_CACHE\n"
         self.assertEqual(_by_value_imports(src, "_LIVE_STATE_CACHE"), [])
 
     def test_importing_the_MODULE_is_always_fine(self):
-        src = "from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now\nx = api_v2._LIVE_STATE_CACHE\n"
+        src = "from service.reconcilers import status_cache\nx = status_cache._LIVE_STATE_CACHE\n"
         self.assertEqual(_by_value_imports(src, "_LIVE_STATE_CACHE"), [])
         self.assertEqual(self._assign_count(src), 0)
 

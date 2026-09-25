@@ -232,20 +232,15 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         await self.db.commit()
 
     async def _starting(self):
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-
         return await _managed_spawn_is_starting(self.db, "a1")
 
     async def test_just_inside_the_window(self):
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-
         await self._add(age_seconds=SPAWN_STARTING_WINDOW_SECONDS - 30)
         self.assertTrue(await self._starting())
 
     async def test_past_the_window_it_stops_claiming_to_be_starting(self):
         """The safety property: a spawn that never produces a worker must stop looking hopeful and
         fall back to exactly what it reported before this state existed."""
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         await self._add(age_seconds=SPAWN_STARTING_WINDOW_SECONDS + 60)
         self.assertFalse(await self._starting())

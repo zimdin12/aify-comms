@@ -20,7 +20,6 @@ agent row is gone -- is a contract with aify-env's plugin rather than with a bri
 import asyncio
 
 from service.db import get_db
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # v0.5.2m: agents-owned helper. _now stays -- only the moved name follows the code.
 from service.routers.agents import shared as agents_shared
 
