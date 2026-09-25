@@ -8,12 +8,8 @@ Python remains the admission authority: enforcement happens at the API boundary,
 same `HTTPException` it always did. A structural move does not get to turn admission into a boolean
 or an error string.
 
-A DOCUMENTED QUIRK, PRESERVED DELIBERATELY. `re.$` matches before a trailing newline, so a name like
-`"agent
-"` is ACCEPTED today. That is almost certainly not intended, but changing it here would be
-a behaviour change in a series whose contract is an empty behaviour changelog. It is pinned by a test
-that says so out loud rather than quietly fixed or quietly ignored -- so the day someone decides to
-tighten it, the test names what changes and who might break.
+A name with a trailing newline is REFUSED: the regex ends in `\\Z`, not `$`, and the comment on
+`SAFE_NAME_RE` below says why.
 """
 
 from __future__ import annotations
