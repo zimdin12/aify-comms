@@ -228,7 +228,7 @@ The recurring `database is locked` 503s are RESOLVED (commit `97a497a`, verified
 
 **The root cause was that the live-status cache was a SQLite table written on the hot READ path.** `agent_live_state` held *derived* agent status — a pure cache, recomputed from scratch on restart — yet it was refresh-WRITTEN on every dashboard poll. With a connection-per-request, single-writer SQLite, those constant status-refresh writes were the write storm that produced the lock contention; worse, the constant status READS kept the WAL from ever checkpointing, so it bloated to 41–83MB → slow commits → more lock windows. It was a cache masquerading as durable state, on the busiest path in the service.
 
-**The fix: the live-status cache now lives in a process-global in-memory dict (`_LIVE_STATE_CACHE` in `service/reconcilers/status_cache.py`).** Reads serve from memory — ZERO DB writes on the hot read path, so a read can NEVER take SQLite's write lock — and with the read-path writes gone the WAL checkpoints normally and stays small (~5MB). The `agent_live_state` TABLE is RETAINED for schema compatibility but is no longer read or written on any path (vestigial).
+**The fix: the live-status cache now lives in a process-global in-memory dict (`_LIVE_STATE_CACHE` in `service/reconcilers/status_cache.py`).** Reads serve from memory — ZERO DB writes on the hot read path, so a read can NEVER take SQLite's write lock — and with the read-path writes gone the WAL checkpoints normally and stays small (~5MB). The `agent_live_state` table, vestigial from then on, was dropped in 0.7.0.
 
 **SINGLE-WORKER IS NOW A HARD REQUIREMENT.** The cache is PROCESS-GLOBAL and is only correct because the service runs as exactly ONE uvicorn process / one event loop. (The `aify-comms-dashboard-next` container only PROXIES to it — it never opens the DB.) If the service is EVER scaled to multiple workers, this in-memory cache MUST move to a shared store (Redis) or use sticky routing; otherwise different workers would serve divergent status. Do not add `--workers > 1` / multiple uvicorn processes without first relocating the cache.
 
@@ -631,8 +631,8 @@ Tests in `mcp/stdio/tests/codex-session.test.js` + `fixtures/fake-codex-app-serv
 
 | Capability | Claude Code | Codex | Hermes | OpenCode | Oh My Pi |
 |------------|-------------|-------|--------|----------|----------|
-| Managed workers | yes | yes | yes | yes | yes |
-| Default managed backing | `claude-aify` channel PTY | `codex-aify` wrapper PTY | `hermes-aify` wrapper PTY | native controller | native OMP RPC |
+| Managed workers | yes | yes | yes | unsupported: unverified since the environment bridge was deleted (v0.6.3) | deprecated (see "Pi is deprecated") |
+| Default managed backing | `claude-aify` PTY under aify-env, channel delivery | `codex-aify` wrapper PTY under aify-env | `hermes-aify` wrapper PTY under aify-env | native controller (unverified) | native OMP RPC |
 | Resident visible-wake | `claude-live` | `codex-live` | `hermes-live` | presence only | presence only |
 | Interrupt | yes | yes | yes | yes | yes |
 | In-flight steering | channel/resident | yes | gateway steer/follow-up | no | yes |
@@ -779,7 +779,7 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 ## The unread-notification hook is opt-in and fires after every tool call
 
-**Decision.** `install.sh --with-hook` installs `notify-check.js` as a post-tool hook: `PostToolUse` with matcher `.*` on Claude and Codex (`install_claude_hook`, `install_codex_hook`), and `post_tool_call` with matcher `.*` on Hermes (`install_hermes_hook`). Once installed, a later `install.sh` run refreshes it even without the flag (`scripts/hook-installed.sh`). OpenCode has no hook. The script rate-limits itself to one inbox check per agent every 10 seconds and sends a liveness-only heartbeat; it never sets `turn_busy`.
+**Decision.** `install.sh --with-hook` installs `notify-check.js` as a post-tool hook: `PostToolUse` with matcher `.*` on Claude and Codex (`install_claude_hook`, `install_codex_hook`), and `post_tool_call` with matcher `.*` on Hermes (`install_hermes_hook`). Once installed, a later `install.sh` run refreshes it even without the flag (`scripts/hook-installed.sh`). OpenCode has no hook. The script reads the inbox with `peek`, so it never marks a message read; it rate-limits itself to one inbox check per agent every 10 seconds and sends a liveness-only heartbeat; it never sets `turn_busy`.
 
 **Why every tool, not `Bash`.** The matcher was once `Bash`, so an agent working only through Edit/Read/Write never checked its inbox. The rate limit bounds the cost of firing on every tool.
 
@@ -843,13 +843,13 @@ The old bridge stays alive and keeps polling (that's fine — polling is cheap) 
 
 **Why.** These end up in URLs (`/agents/{id}/...`), filesystem paths (shared artifacts), and shell arguments. The strict regex prevents path traversal, URL escaping issues, and shell injection without having to sanitize at every call site.
 
-## Dashboard console is a PTY the bridge owns; the service only relays
+## Dashboard console is a PTY the host tier owns; the service only relays
 
-**Decision.** The dashboard "Console" runs a real PTY (`node-pty`) on the connected environment's bridge, not in the container. The service stores terminal rows and relays output/input/resize/stop as control records the bridge claims. `agent_sessions.owner_mode` flips to `console` while a console is attached and reverts to `managed` when the terminal reaches a terminal state.
+**Decision.** The dashboard "Console" is a real PTY on the host, owned by aify-env, not by the container and not by aify-comms, which no longer depends on `node-pty`. The service stores terminal rows, renders the screen, and relays input, resize and stop as terminal controls the host claims. `agent_sessions.owner_mode` flips to `console` while a console is attached and reverts to `managed` when the terminal reaches a terminal state.
 
-**Why.** Operators need direct interactive CLI access to managed agents (and to bypass `claude -p` subscription locks). A PTY must run where the runtime runs — the host — so the service is deliberately a relay, never a process owner. `node-pty` is the same battle-tested substrate VS Code uses (ConPTY on Windows); the console problems were never the PTY layer, they were the relay/render plumbing.
+**Why.** Operators need direct interactive CLI access to managed agents. A PTY must run where the runtime runs — the host — so the service is deliberately a relay, never a process owner. The console problems were never the PTY layer; they were the relay and render plumbing.
 
-**Consequence.** Bridge changes under `mcp/stdio/` do not need a container rebuild — they take effect on bridge restart. Console-only runtimes (e.g. Hermes) expose a terminal-delivery controller that rejects bridge active-dispatch claims with an actionable message instead of looking mysteriously "unsupported".
+**Consequence.** Console behaviour on the host changes with aify-env, not with a container rebuild; the service side (screen rendering, controls, replay) changes with the container.
 
 ## Terminal output sequence is server-owned, monotonic, and streamed as deltas
 
