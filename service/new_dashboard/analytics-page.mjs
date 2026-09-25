@@ -13,7 +13,7 @@ import { agentLeaderboardHtml, busiestChannelsHtml, dispatchOutcomesHtml, failur
 import { api } from './api-client.mjs';
 import { state } from './state.mjs';
 import { renderUsageConsumption } from './summary-tiles.mjs';
-import { byId, toast } from './ui.js';
+import { byId } from './ui.js';
 import { esc, usageResetLabel } from './util.js';
 
 
@@ -30,22 +30,30 @@ export async function loadAnalytics(force = false) {
   const range = rangeDef(state.analytics.range).key;
   state.analytics.loading = true;
   try {
-    const [data, usage, consumption] = await Promise.all([
-      api(`/analytics?range=${encodeURIComponent(range)}`).catch(() => null),
-      api('/usage').catch(() => null),
-      api('/usage/consumption').catch(() => null),
+    const [analytics, usageResult, consumptionResult] = await Promise.allSettled([
+      api(`/analytics?range=${encodeURIComponent(range)}`),
+      api('/usage'),
+      api('/usage/consumption'),
     ]);
-    if (data && typeof data === 'object') state.analytics.data = data;
-    else if (!state.analytics.data) state.analytics.data = {};
+    // AN ERROR IS NOT AN EMPTY DATA SET. A failed first load used to become `{}`, which rendered
+    // every KPI as 0 -- a failure that read as a quiet fleet. No data stays `null` and the reason is
+    // kept; a failure after a good load keeps those numbers and says they are stale.
+    const data = analytics.status === 'fulfilled' ? analytics.value : null;
+    if (data && typeof data === 'object') {
+      state.analytics.data = data;
+      state.analytics.error = '';
+    } else {
+      state.analytics.error = analytics.status === 'rejected'
+        ? String(analytics.reason?.message || analytics.reason || 'request failed')
+        : 'the service returned no analytics';
+    }
     // Keep last-good usage on a transient failure (never blank a live quota number);
     // flag it stale so the panel can say so.
+    const usage = usageResult.status === 'fulfilled' ? usageResult.value : null;
     if (usage) { state.analytics.usage = usage; state.analytics.usageStale = false; }
     else if (state.analytics.usage) state.analytics.usageStale = true;
-    if (consumption) state.analytics.consumption = consumption;
+    if (consumptionResult.status === 'fulfilled' && consumptionResult.value) state.analytics.consumption = consumptionResult.value;
     state.analytics.lastMs = Date.now();
-  } catch (error) {
-    if (!state.analytics.data) state.analytics.data = {};
-    toast(`Analytics failed: ${error?.message || error}`, 'error');
   } finally {
     state.analytics.loading = false;
     renderAnalyticsPage();
@@ -113,17 +121,21 @@ export function renderAnalyticsPage() {
   const data = state.analytics.data;
   const rangeHost = byId('analytics-range');
   if (rangeHost) rangeHost.innerHTML = rangeSelectorHtml(state.analytics.range);
+  const failed = state.analytics.error;
   if (!data) {
     // One coherent page-level empty state instead of a message + 6 stale/blank panels below it.
     kpiHost.innerHTML = '';
     const traffic = byId('analytics-traffic');
-    if (traffic) traffic.innerHTML = `<p class="em">${state.analytics.loading ? 'Loading analytics…' : 'No analytics yet — open the page to load fleet metrics.'}</p>`;
+    const note = failed ? `Could not load analytics (${esc(failed)}).`
+      : state.analytics.loading ? 'Loading analytics…' : 'No analytics yet — open the page to load fleet metrics.';
+    if (traffic) traffic.innerHTML = `<p class="em">${note}</p>`;
     ['analytics-outcomes', 'analytics-leaderboard', 'analytics-channels', 'analytics-health', 'analytics-runs', 'analytics-failures'].forEach((id) => { const el = byId(id); if (el) el.innerHTML = ''; });
     return;
   }
   kpiHost.innerHTML = opsKpisHtml(data) + statCardsHtml(data);
   const traffic = byId('analytics-traffic');
-  if (traffic) traffic.innerHTML = trafficChartHtml(data, state.analytics.range);
+  const staleNote = failed ? `<p class="subtle usage-stale-note">⚠ Last analytics refresh failed (${esc(failed)}) — showing the last loaded values.</p>` : '';
+  if (traffic) traffic.innerHTML = staleNote + trafficChartHtml(data, state.analytics.range);
   const outcomes = byId('analytics-outcomes');
   if (outcomes) outcomes.innerHTML = dispatchOutcomesHtml(data);
   const leaderboard = byId('analytics-leaderboard');

@@ -151,12 +151,29 @@ test("A FAILED /usage KEEPS THE LAST-GOOD NUMBER AND FLAGS IT STALE", async () =
   } finally { down.restore(); }
 });
 
-test("a failed /analytics still leaves an object, so the renderers have something to read", async () => {
+test("A FIRST LOAD THAT FAILS SAYS SO, rather than showing a quiet fleet of zeros", async () => {
+  // Every fetch was `.catch(() => null)`, the data became `{}`, and the KPI grid rendered 0 Messages,
+  // 0 Runs, 0 Overdue: a failure indistinguishable from an idle fleet. The toast meant to report it
+  // sat in a catch branch Promise.all could never reach.
   const h = withAnalytics({ fail: ["/analytics"] });
   try {
     await loadAnalytics();
-    assert.deepEqual(state.analytics.data, {}, "an empty object, not null");
+    assert.equal(state.analytics.data, null, "no data is not an empty data set");
     assert.equal(state.analytics.loading, false, "the in-flight flag must clear even on failure");
+    assert.equal(h.els.get("analytics-ops").innerHTML, "", "no KPI grid of zeros");
+    assert.match(h.els.get("analytics-traffic").innerHTML, /Could not load analytics \(Failed to fetch\)/);
+  } finally { h.restore(); }
+});
+
+test("A LATER FAILURE KEEPS THE LAST GOOD NUMBERS AND SAYS THEY ARE STALE", async () => {
+  const h = withAnalytics();
+  try {
+    await loadAnalytics(true);
+    assert.doesNotMatch(h.els.get("analytics-traffic").innerHTML, /stale|Could not load/i, "CONTROL: a good load says nothing");
+    globalThis.fetch = async () => { throw new TypeError("down"); };
+    await loadAnalytics(true);
+    assert.deepEqual(state.analytics.data, { traffic: [], health: {} }, "last-good data is kept");
+    assert.match(h.els.get("analytics-traffic").innerHTML, /Last analytics refresh failed \(down\)/);
   } finally { h.restore(); }
 });
 
