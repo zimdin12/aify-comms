@@ -75,7 +75,7 @@ const CEILINGS = {
   "aify-comms-debug/references/hermes-session.md": 4_798,
   "aify-comms-debug/references/hermes-turns.md": 4_224,
   "aify-comms-debug/references/lifecycle.md": 6_602,
-  "aify-comms-debug/references/pi.md": 7_316,
+  "aify-comms-debug/references/pi.md": 2_682,
   "aify-comms-debug/references/status-model.md": 5_298,
   "aify-comms-debug/references/status-symptoms.md": 5_207,
 };
