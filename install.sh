@@ -1469,7 +1469,8 @@ nothing — every invocation here reads.
                   and the backend for a behind-count (offline-safe).
 
 Managed agents are hosted by AIFY-ENV, which owns processes and PTYs on this
-host. Start it with 'aify-env' and ask about it with 'aify-env doctor'.
+host. Check it with 'aify-env doctor' first, and start 'aify-env' only if none
+is serving this host: starting a second one stops the running one's agents.
 USAGE
   exit 0
 fi
@@ -1503,7 +1504,8 @@ export AIFY_ENV_ENDPOINT="$AIFY_ENV_ENDPOINT_BAKED"
 # running at all. There is no longer a second spawner for this command to be, which is the whole
 # point of the environment tier.
 echo "aify-comms: this command starts nothing. The host tier is aify-env." >&2
-echo "  managed agents: run 'aify-env' (it owns processes and PTYs on this host)" >&2
+echo "  managed agents: aify-env hosts them. Check with 'aify-env doctor'; start 'aify-env'" >&2
+echo "                  only if none is serving this host (a second one stops the first's agents)" >&2
 echo "  verify:         aify-comms doctor    (or --check, --version, --help)" >&2
 exit 2
 EOF
@@ -2881,7 +2883,7 @@ echo "=== Installation complete ==="
 bash "$SCRIPT_DIR/scripts/components.sh" --render 2>/dev/null || true
 echo "Verifier: aify-comms doctor    verify this install against the RUNNING system (or aify-doctor)"
 echo "          aify-comms --check   validate the MCP bridge script (starts nothing)"
-echo "  Managed agents are hosted by aify-env. Run 'aify-env' for the host tier."
+echo "  Managed agents are hosted by aify-env. Check with 'aify-env doctor'; start 'aify-env' only if none is serving this host."
 if is_git_bash_windows; then
   echo "  Windows shim installed at %USERPROFILE%\\.local\\bin\\aify-comms.cmd"
 fi

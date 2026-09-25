@@ -156,7 +156,7 @@ export function registerCompactTool(server, z) {
     },
     async ({ from, targetAgentId, mode, newAgentId, role, environmentId, runtime, workspace, instructions, recentMessages, priority }) => {
       if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Managed compaction requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
+        return { content: [{ type: "text", text: "Managed compaction requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent." }], isError: true };
       }
       try {
         validateName(from, "from agent ID");

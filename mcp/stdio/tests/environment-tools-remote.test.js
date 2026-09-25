@@ -180,7 +180,10 @@ test("MISSING fields render as 'unknown' rather than as blanks", () => {
 test("NO environments says what to start, not just that there are none", () => {
   reset({ environments: [] });
   return tool("comms_envs").callback({}).then((result) => {
-    assert.match(text(result), /Start `aify-comms` in WSL\/Linux/);
+    // It names the host tier and the CHECK before the start: starting a second aify-env stops the
+    // first one's agents (v0.7, B7). `aify-comms` itself starts nothing since v0.6.1.
+    assert.match(text(result), /aify-env doctor/);
+    assert.doesNotMatch(text(result), /Start `aify-comms`/);
   });
 });
 

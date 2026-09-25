@@ -84,11 +84,11 @@ export function registerEnvironmentTools(server, z) {
     {},
     async () => {
       if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
+        return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent." }], isError: true };
       }
       const r = await httpCall("GET", "/environments");
       const envs = r.environments || [];
-      if (!envs.length) return { content: [{ type: "text", text: "No environment bridges are connected. Start `aify-comms` in WSL/Linux and/or `aify-comms.cmd` in Windows." }] };
+      if (!envs.length) return { content: [{ type: "text", text: "No host is connected. aify-env hosts managed agents on each machine: ask the operator to check it with `aify-env doctor` and start it if none is serving that host." }] };
       // ONE CLOCK FOR THE WHOLE LISTING, and passed EXPLICITLY. `envs.map(summarizeEnvironment)`
       // hands the renderer the ARRAY INDEX as its second argument, so every row was aged against
       // `now = 0` and read as a corrupt timestamp. It was written that way here and caught by the
@@ -119,7 +119,7 @@ export function registerEnvironmentTools(server, z) {
     },
     async ({ from, environmentId, agentId, role, runtime, workspace, name, model, instructions, initialMessage, subject, priority, envVars }) => {
       if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Start aify-comms against the dashboard service first." }], isError: true };
+        return { content: [{ type: "text", text: "Environment-backed spawn requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent." }], isError: true };
       }
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
       const resolvedRuntime = normalizeRuntime(runtime || "generic");
