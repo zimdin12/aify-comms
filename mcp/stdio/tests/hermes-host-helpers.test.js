@@ -1,8 +1,9 @@
-// The small helpers hermes-gateway.mjs and hermes-env.mjs export, executed.
+// The small helpers and tuning constants the hermes host modules export, executed.
 //
 // These assert things `hermes-managed-host.test.js` does not: the URL conversion, the connect-refusal
-// classifier, the re-ensure budget, the turn-end suppression rule, and that the two modules keep the
-// dependency direction they were split out to have (neither imports the host).
+// classifier, the re-ensure budget, the turn-end suppression rule, the /dispatch/claim error
+// classifier, the relations the delivery timings depend on, and that the gateway and env modules keep
+// the dependency direction they were split out to have (neither imports the host).
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -20,6 +21,11 @@ import {
   sleep,
 } from "../hermes-gateway.mjs";
 import { HERMES_CMD, MACHINE_ID, RUNTIME } from "../hermes-env.mjs";
+import { ATTACH_POLL_MS, ATTACH_WAIT_MS } from "../hermes-active-session.mjs";
+import { classifyClaimError } from "../hermes-delivery-run.mjs";
+import { isGatewaySessionWorking } from "../hermes-gateway-protocol.js";
+import { DEFAULT_IDLE_DEBOUNCE_TICKS, makeGatewayTurnDetector } from "../hermes-gateway-turn-detector.js";
+import { REPULSE_MS, REPULSE_WINDOW_MS } from "../hermes-inflight.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (rel) => fs.readFileSync(path.join(HERE, "..", rel), "utf-8");
@@ -122,4 +128,49 @@ test("hermes-gateway does not import the host it was extracted from", () => {
   const mods = importedModules(read(GATEWAY));
   assert.ok(!mods.some((m) => m.includes("hermes-managed-host")), `gateway imports the host: ${mods}`);
   assert.ok(mods.some((m) => m.includes("hermes-env")), "the gateway must take its identity constants from the neutral module");
+});
+
+// ---------------------------------------------------------------- delivery timings and classifiers
+
+test("classifyClaimError: a 410 is terminal at once, a 404 only past its grace, anything else resets", () => {
+  // A 410 means the agent was removed on purpose. A 404 is also seen while the service restarts, so
+  // it ends the loop only after a run of them; any other answer proves the agent exists again.
+  assert.deepEqual(classifyClaimError({ status: 410 }), { terminal: true, reason: "agent-removed" });
+  const counter = { count: 0 };
+  assert.deepEqual(classifyClaimError({ status: 404 }, counter, { grace: 2 }), { terminal: false });
+  assert.deepEqual(classifyClaimError({ status: 404 }, counter, { grace: 2 }),
+    { terminal: true, reason: "agent-removed" });
+  const reset = { count: 1 };
+  assert.deepEqual(classifyClaimError({ status: 503 }, reset, { grace: 2 }), { terminal: false });
+  assert.equal(reset.count, 0, "a non-404 answer must reset the 404 run");
+  assert.deepEqual(classifyClaimError(new Error("socket hang up")), { terminal: false });
+});
+
+test("the attach poll is shorter than the attach deadline, so a cold start gets more than one look", () => {
+  assert.ok(ATTACH_POLL_MS > 0 && ATTACH_WAIT_MS > 0);
+  assert.ok(ATTACH_POLL_MS < ATTACH_WAIT_MS, `poll ${ATTACH_POLL_MS}ms >= wait ${ATTACH_WAIT_MS}ms`);
+});
+
+test("the re-pulse window is bounded and never shorter than one re-pulse", () => {
+  // The window is what stops a missed completion from holding `working` for ever.
+  assert.ok(Number.isFinite(REPULSE_WINDOW_MS), "an unbounded window can latch working");
+  assert.ok(REPULSE_MS <= REPULSE_WINDOW_MS);
+});
+
+test("the turn detector ends a turn after exactly DEFAULT_IDLE_DEBOUNCE_TICKS idle reads", () => {
+  assert.ok(Number.isInteger(DEFAULT_IDLE_DEBOUNCE_TICKS) && DEFAULT_IDLE_DEBOUNCE_TICKS > 0);
+  const detector = makeGatewayTurnDetector();
+  assert.equal(detector.observe("working"), "start");
+  for (let i = 1; i < DEFAULT_IDLE_DEBOUNCE_TICKS; i += 1) {
+    assert.equal(detector.observe("idle"), null, `ended early, after ${i} idle read(s)`);
+  }
+  assert.equal(detector.observe("idle"), "end");
+});
+
+test("isGatewaySessionWorking reads only a working status as working", () => {
+  assert.equal(isGatewaySessionWorking("working"), true);
+  assert.equal(isGatewaySessionWorking("  Working "), true);
+  for (const status of ["idle", "starting", "", null, undefined]) {
+    assert.equal(isGatewaySessionWorking(status), false, String(status));
+  }
 });

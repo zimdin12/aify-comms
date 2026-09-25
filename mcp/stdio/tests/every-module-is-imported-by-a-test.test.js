@@ -2,8 +2,8 @@
 //
 // THE STANDING STANDARD, FINALLY ENFORCED FOR ALL MODULES. The reviewer's rule for this series is
 // "byte-identical bodies + the new module EXPORTS what it extracts + real unit tests that call it". The
-// third clause was gated only for modules named as a `moved to` DESTINATION
-// (`moved-names-resolve.test.js`). That misses everything extracted without a marker — which is every
+// third clause was gated only for modules named as a `moved to` DESTINATION, by a marker scan since
+// retired. That missed everything extracted without a marker — which is every
 // *-tools.mjs module, because a tool name is not a declaration and those slices correctly left only their
 // register call. `send-tools.mjs` was the most recent: it would have satisfied every gate in the repo with
 // no test at all.

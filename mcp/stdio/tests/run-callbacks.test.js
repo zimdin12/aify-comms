@@ -38,9 +38,8 @@ const PORT = await new Promise((r) => SERVER.listen(0, "127.0.0.2", () => r(SERV
 process.env.AIFY_SERVER_URL = `http://127.0.0.2:${PORT}`;
 process.env.CLAUDE_MCP_SERVER_URL = "";
 
-// A LITERAL specifier, not a computed path: `moved-names-resolve` scans for the module name and a
-// `pathToFileURL(join(...))` is invisible to it, so an extracted module would look untested.
-// Still dynamic, because aify-service-endpoint resolves the server URL at LOAD time and the env
+// A LITERAL specifier, not a computed path: `every-module-is-imported-by-a-test` scans for the module
+// name, and a `pathToFileURL(join(...))` would be invisible to it. Still dynamic, because aify-service-endpoint resolves the server URL at LOAD time and the env
 // above has to be set first — the same shape as the sibling dispatch-loop.test.js.
 const { buildRunCallbacks } = await import("../run-callbacks.mjs");
 
