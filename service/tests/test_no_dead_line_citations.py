@@ -84,7 +84,7 @@ def test_the_scan_covers_a_real_population():
     sources = _sources()
     assert len(sources) > 250, f"only {len(sources)} source files found — the walk is broken"
     names = {path.name for path in sources}
-    assert {"doctor.js", "claude-channel.js", "control_plane.py"} <= names
+    assert {"doctor.js", "claude-channel.js", "status_engine.py"} <= names
     assert not any("fixtures" in path.relative_to(REPO).parts for path in sources), (
         "a frozen fixture is a snapshot of an older tree — its comments must not be rewritten"
     )

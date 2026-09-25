@@ -2,7 +2,7 @@
 
 v0.5.4. It went to `service/db.py` first — the module that owns the connection, and the right subject —
 and the reviewer refused that: `db.py` was 995 lines and the move took it to 1006. Reducing
-`control_plane.py` by creating a NEW over-1000 file is a shell game, and the oversized-file goal does not
+the control-plane module by creating a NEW over-1000 file is a shell game, and the oversized-file goal does not
 care which file is oversized.
 
 So the subject is preserved without bloating the connection owner. This module imports nothing from this

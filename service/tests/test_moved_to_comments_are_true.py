@@ -57,8 +57,9 @@ _PATH = re.compile(r"([\w/]+\.py)")
 _RENAME = re.compile(r"\bas\s+[`'\"]([A-Za-z_]\w*)[`'\"]")
 _IDENT = re.compile(r"^[A-Za-z_]\w*$")
 
-#: Below this, assume the extractor broke rather than that the comments vanished.
-MIN_EXPECTED_CLAIMS = 100
+#: Below this, assume the extractor broke rather than that the comments vanished. It was 100 until
+#: v0.7.0 deleted the control-plane module, which carried 139 of the 178 markers; 39 remained.
+MIN_EXPECTED_CLAIMS = 30
 
 
 def _source_files():
@@ -183,9 +184,9 @@ class MovedToCommentsAreTrueTests(unittest.TestCase):
             "rather than the comments having genuinely gone" % len(claims),
         )
         self.assertIn(
-            "service/control_plane.py",
+            "service/routers/dispatch_messages/shared.py",
             {row[0] for row in claims},
-            "the control plane carries most of these markers and must be among the files scanned",
+            "that module carries the most remaining markers and must be among the files scanned",
         )
 
     def test_a_claim_pointing_at_the_wrong_module_is_caught(self):

@@ -45,10 +45,8 @@ from service.api_core.start_intent import start_intent_for_requester
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 import sqlite3
-from service.routers.agents.shared import (
-    _borrowed_live_session_statuses,
-    logger,
-)
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
+from service.routers.agents.shared import logger
 from service.api_core.dispatch_start import (
     _coldstart_spawn_request_for_dispatch,
 )
@@ -102,13 +100,13 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
             #
             # Use the canonical live sets instead, so a new session status can never silently
             # mean "live" here again. The union of both is deliberate: LIVE_SESSION_STATUSES is
-            # the session-row set the reconcilers use, _borrowed_live_session_statuses() the narrower
+            # the session-row set the reconcilers use, _LIVE_SESSION_STATUSES the narrower
             # status-engine set that also covers restarting/cli-takeover. A row must ALSO not be
             # marked ended — a live status with ended_at set is a stale row the reconcilers heal,
             # and trusting it would re-create exactly this permanent block.
             _start_live_statuses = sorted(
                 {s.lower() for s in LIVE_SESSION_STATUSES}
-                | {s.lower() for s in _borrowed_live_session_statuses()}
+                | {s.lower() for s in _LIVE_SESSION_STATUSES}
             )
             _live_ph = ",".join("?" for _ in _start_live_statuses)
             live = await (await db.execute(

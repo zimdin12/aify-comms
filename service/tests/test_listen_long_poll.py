@@ -44,9 +44,9 @@ class ListenLongPollTests(FastApiTestCase):
             self.assertEqual(response.status_code, 200, response.text)
         # The waiter registry is process-global; a stale event from another test would let this
         # one's poll return for a wake that was never meant for it.
-        from service.routers.agents.shared import _borrowed_listen_events
+        from service import longpoll
 
-        _borrowed_listen_events().pop(AGENT, None)
+        longpoll._listen_events.pop(AGENT, None)
 
     # ── seeding ──────────────────────────────────────────────────────────────────────────────
 

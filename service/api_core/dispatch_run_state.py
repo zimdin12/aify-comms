@@ -12,8 +12,7 @@ carrier in the same slice and deliberately did NOT come here — it composes MES
 DB ACCESS: `db` is passed in. No connection opened, no commit, no rollback — the caller owns the
 transaction. Verified for all three before the move, not assumed.
 
-A LEAF: imports api_core siblings and `service/clock.py`, never a router and never the control plane.
-The control plane is now a CALLER.
+A LEAF: imports api_core siblings and `service/clock.py`, never a router.
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ differ because the questions differ, and a shared helper would make each caller 
 requirements.
 
 A LEAF: imports `_get_dispatch_state_for_agent` (api_core/dispatch_state.py) and the standard library.
-It does not import the control plane; the control plane is a CALLER.
+It imports no router.
 """
 
 from __future__ import annotations

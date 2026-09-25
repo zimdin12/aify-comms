@@ -21,11 +21,10 @@ from service.api_core.live_process_probes import _has_live_channel_sidecar
 from service.api_core.turn_state import TURN_BUSY_STALE_SECONDS, _turn_busy_state
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.api_core.virtual_rpc import VIRTUAL_PI_RPC_COMMAND
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 # REPOINTED AT OWNERS in v0.5.4. Every name below used to be reached as `api_v2.X` through
-# `service.control_plane`, which declares no functions and merely re-exports them. That indirection
-# is what made three patches in this file silently inert, and it keeps pass-through imports alive in
-# a module that should not have any.
+# `service.control_plane`, which declared no functions and merely re-exported them. That indirection
+# is what made three patches in this file silently inert, and it kept pass-through imports alive in
+# a module that should not have had any. The module is gone since v0.7.0.
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.dispatch_sweeps import _run_contract_reminders_once
 from service.api_core.status_inputs import _compute_live_status_cache
@@ -12695,7 +12694,6 @@ class ApiV2RegressionTests(FastApiTestCase):
         # older ended rows — and NEVER a live one.
         import asyncio, datetime as _dt
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         from service import terminal_write_queue
         # Helper seeds env + sess_cruft-agent + 1 live terminal (t_live).
         self._seed_managed_claude_with_attached_terminal("cruft-agent", "t_live")

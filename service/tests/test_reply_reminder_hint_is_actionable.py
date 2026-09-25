@@ -17,7 +17,6 @@ import re
 import unittest
 
 from service.api_core.reply_contract import _contract_reminder_body
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 
 class _Row(dict):

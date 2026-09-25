@@ -36,7 +36,7 @@ import asyncio
 import aiosqlite
 
 from service.api_core.tuning import LIVE_SESSION_STATUSES
-from service.routers.agents.shared import _borrowed_live_session_statuses
+from service.api_core.liveness import _LIVE_SESSION_STATUSES
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
 
@@ -47,7 +47,7 @@ ENVIRONMENT_ID = "linux:test-host:default"
 #: was that a new session status must never silently mean "live" in one place and not the other.
 LIVE_STATUSES = sorted(
     {s.lower() for s in LIVE_SESSION_STATUSES}
-    | {s.lower() for s in _borrowed_live_session_statuses()}
+    | {s.lower() for s in _LIVE_SESSION_STATUSES}
 )
 
 #: `lost` is FIRST for a reason: it is the one the old blocklist let through as live.

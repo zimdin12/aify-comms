@@ -23,7 +23,6 @@ from datetime import datetime, timedelta, timezone
 
 from service.db import get_db
 from service.api_core.live_process_probes import _has_live_managed_wrapper_child
-from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
 from service.tests._base import FastApiTestCase
 from service.api_core.settings import _load_settings

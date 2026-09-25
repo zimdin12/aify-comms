@@ -19,7 +19,7 @@ is exactly finding N7, where two managed-worker sweeps disagreed about `degraded
 
 COINCIDENCE IS NOT IDENTITY, AND THIS GATE DOES NOT SAY MERGE. This repo has already ruled the other
 way once, in `service/routers/sessions.py`: `SESSION_CLEAN_HISTORY_STATUSES` is "deliberately NOT the
-same set as `_borrowed_session_delete_allowed_statuses()`, and the difference is load-bearing" —
+same set as `_SESSION_DELETE_ALLOWED_STATUSES`, and the difference is load-bearing" —
 "safe to eventually delete" is not "not worth showing". Collapsing sets because they happen to match
 today is how that regression happened. So a group here needs a RULING, not a merge: either these are
 one concept and should have one owner, or they are different questions with the same answer today and

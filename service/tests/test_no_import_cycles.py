@@ -6,9 +6,9 @@ half-initialised module or resolves cleanly, so a latent cycle can sit through a
 surface when a different entry point imports first — a container boot, a script, a test that happens
 to run alone. The failure lands far from the edit that caused it.
 
-THIS IS THE PROPERTY v0.5.x WAS BUYING. The whole decomposition is a claim about direction: the
-control plane calls leaves, leaves do not call back. `test_leaves_do_not_import_the_carrier.py`
-enforces that for one specific edge — api_core must not import the control plane. This asks the
+THIS IS THE PROPERTY v0.5.x WAS BUYING. The whole decomposition is a claim about direction:
+routers call leaves, leaves do not call back. `test_leaves_do_not_import_the_carrier.py`
+enforces that for one specific edge — api_core and reconcilers must not import a router. This asks the
 general question of all 171 modules and 844 module-level edges at once, and needs no list of which
 module may import which.
 
@@ -165,7 +165,7 @@ class NoImportCyclesTests(unittest.TestCase):
             sample.write_text(
                 "from service.api_core.tuning import LIVE_SESSION_STATUSES\n"
                 "def f():\n"
-                "    from service.control_plane import _deferred\n"
+                "    from service.routers.sessions import _deferred\n"
                 "    return _deferred\n",
                 encoding="utf-8",
             )

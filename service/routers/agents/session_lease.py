@@ -3,8 +3,8 @@
 Extracted from `service/routers/agents/session_ops.py` in v0.5.4. Closure measured before the move —
 `api_core` and `service` leaves only, nothing local, and notably NOTHING borrowed from
 `agents/shared.py`. That last part is why these three could leave and `control_agent` /
-`stop_agent_worker` could not: those still reach `_borrowed_live_session_statuses`, so moving them
-would create a shim rather than a route surface.
+`stop_agent_worker` could not: at the time they still reached a borrow accessor in `agents/shared.py`,
+so moving them would have created a shim rather than a route surface.
 
 AN AGENT IS ONE IDENTITY WITH MANY PROCESSES, and that is the whole subject here. `agent_sessions`
 rows are PROCESSES, not conversations — one long-lived conversation resumed by seventy-five boots is

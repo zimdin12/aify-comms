@@ -1,19 +1,20 @@
 """`service/routers/api_v2.py` composes routers and does nothing else — including no re-exports.
 
 This file was 20,545 lines at its peak and by the end of the domain extraction declared ZERO routes:
-a helper library living at a router's address. v0.5.3 moved the helpers to `service/control_plane.py`
-and left only the composition. CLAUDE.md records the deliberate part: there is NO compatibility
+a helper library living at a router's address. v0.5.3 moved the helpers out (first to a
+control-plane module that v0.7.0 deleted once it had emptied, then to their owners) and left only
+the composition. CLAUDE.md records the deliberate part: there is NO compatibility
 re-export, "so a stale `from service.routers.api_v2 import <helper>` fails loudly instead of
 resolving."
 
-NOTHING ENFORCED THAT. A single convenience re-export — one `from service.control_plane import *`, or
+NOTHING ENFORCED THAT. A single convenience re-export — one `from service.api_core.x import *`, or
 a handful of names added "so the old imports keep working" — would silently restore every stale
 import path the move existed to break, and it would look like a kindness while doing it. The failure
 is not a wrong answer, it is the loss of an alarm: stale imports resolve again, and the next
 relocation has no signal that anything was left behind.
 
 The rule is asserted three ways because each catches a different way of breaking it: no declarations
-here, no import of the carrier, and — the one that actually states the contract — a helper that used
+here, no import of anything but routers, and — the one that actually states the contract — a helper that used
 to live here must still raise ImportError.
 """
 from __future__ import annotations
@@ -31,17 +32,23 @@ def _tree() -> ast.Module:
     return ast.parse(API_V2.read_text(encoding="utf-8"))
 
 
-def test_it_does_not_import_the_control_plane():
-    """Importing the carrier here is how a re-export starts: the names become attributes of this
-    module, and `from service.routers.api_v2 import <helper>` resolves again."""
-    tree = _tree()
-    carrier = [
-        ast.unparse(node)
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        and "control_plane" in ast.unparse(node)
-    ]
-    assert carrier == [], f"api_v2.py imports the control plane: {carrier}"
+def test_it_imports_nothing_but_routers():
+    """Importing a helper here is how a re-export starts: the name becomes an attribute of this
+    module, and `from service.routers.api_v2 import <helper>` resolves again. So every import must
+    bind a domain's `router`, or the router factory this module builds its own router with."""
+    unexpected = []
+    for node in ast.walk(_tree()):
+        if isinstance(node, ast.Import):
+            unexpected.append(ast.unparse(node))
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "__future__":
+                continue
+            if node.module == "service.api_core.routing" and [a.name for a in node.names] == ["domain_router"]:
+                continue
+            if (node.module or "").startswith("service.routers.") and [a.name for a in node.names] == ["router"]:
+                continue
+            unexpected.append(ast.unparse(node))
+    assert unexpected == [], f"api_v2.py imports something other than a router: {unexpected}"
 
 
 def test_every_top_level_statement_is_composition():

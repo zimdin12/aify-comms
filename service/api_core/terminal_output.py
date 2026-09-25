@@ -1,6 +1,6 @@
 """Appending output to a terminal row: trim the stored tail, feed the live screen, write the row.
 
-WHY THIS IS A LEAF NOW. `TerminalOutputWriteQueue` in the control plane calls
+WHY THIS IS A LEAF NOW. `TerminalOutputWriteQueue`, then in the control plane, called
 `_append_terminal_output`, which lived in `routers/terminals.py` — so the queue depended UPWARD on a
 router and could not be extracted at all. That is the reason this slice comes before the queue's:
 the queue is not blocked by its own size, it is blocked by the direction of this one call. Moving a

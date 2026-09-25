@@ -152,7 +152,7 @@ TURN_BUSY_BACKSTOP_SECONDS = 30 * 60
 
 # v0.5.4: moved out of the control plane with `_has_live_worker_for`, its reader there. It is READ ON BOTH
 # SIDES — `_compute_live_status_cache` still uses it — so this is a deliberate owner chosen by subject
-# rather than by direction, and the control plane now imports it.
+# rather than by direction, and `api_core/status_inputs.py` imports it.
 #
 # IT SITS BESIDE `LIVE_SESSION_STATUSES` (imported above from api_core/tuning.py) ON PURPOSE, and the
 # two are NOT the same set. That one is the WIDER session-row liveness set the reconcilers use; this one is

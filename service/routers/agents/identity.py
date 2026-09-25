@@ -42,10 +42,8 @@ from service.reconcilers.managed_workers import _repair_unusable_active_runs
 from service.reconcilers.status_cache import _live_state_get
 from service.clock import now as _now
 import sqlite3
-from service.routers.agents.shared import (
-    _borrowed_list_agents_refresh_limit,
-    logger,
-)
+from service.api_core.tuning import LIST_AGENTS_REFRESH_LIMIT
+from service.routers.agents.shared import logger
 from service.api_core.registration_gates import (
     _enforce_env_reachable_gate,
     _enforce_live_worker_gate,
@@ -88,7 +86,7 @@ async def list_agents(request: Request):
         try:
             repaired_active_runs = await _repair_unusable_active_runs(db)
             refreshed_live_states = await _refresh_expired_agent_live_states(
-                db, settings=settings, limit=_borrowed_list_agents_refresh_limit(),
+                db, settings=settings, limit=LIST_AGENTS_REFRESH_LIMIT,
                 environments_by_machine=environments_by_machine,
                 session_environment_by_agent=session_environment_by_agent,
             )

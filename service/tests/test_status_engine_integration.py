@@ -96,7 +96,6 @@ class StatusEventIngestTests(FastApiTestCase):
         self.assertEqual(int(self._state("a-pe")["in_turn"]), 0)
         import asyncio
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         async def run():
             db = await get_db()
             try:
@@ -122,7 +121,6 @@ class StatusEventIngestTests(FastApiTestCase):
         import asyncio
         from service.db import get_db
         from service.api_core.turn_state import _clear_turn_busy_if_no_open_reply_owing_run
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         async def run():
             db = await get_db()
             try:
@@ -186,7 +184,6 @@ class StatusEventIngestTests(FastApiTestCase):
         # with a sentinel status and assert the hot read returns it verbatim.
         import asyncio, json
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         from service.reconcilers.status_cache import _LIVE_STATE_CACHE
         self._register("e1", mode="resident")
         self.client.post("/api/v1/agents/e1/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
@@ -291,7 +288,6 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
     def _refreshed_status(self, aid):
         """Run _refresh_agent_live_state and read back the status from the
         in-memory cache (refresh is in-memory now — no DB row to SELECT)."""
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def factory(db):
             settings = await _load_settings(db)
@@ -303,8 +299,6 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         return self._run(factory)
 
     def _engine_status(self, aid):
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
-
         async def factory(db):
             settings = await _load_settings(db)
             row = await (await db.execute("SELECT * FROM agents WHERE id=?", (aid,))).fetchone()
@@ -390,7 +384,6 @@ class StatusEngineHotRefreshParityTests(FastApiTestCase):
         # derive(cache byproduct) is used and the gather is never touched.
         from service.status_engine import VALID_STATUSES
         from service.api_core import status_inputs
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         self._register("p_nogather", mode="resident")
         self.client.post("/api/v1/agents/p_nogather/heartbeat", json={"bridgeId": "b1", "sessionMode": "resident"})
@@ -530,7 +523,6 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
                                "turnRunId": "run-3", "turnRuntime": "hermes"})
         import asyncio
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def run():
             db = await get_db()
@@ -571,7 +563,6 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
         )
         import asyncio
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
 
         async def run():
             db = await get_db()
@@ -588,7 +579,6 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
     # 4. in_turn staleness backstop ──────────────────────────────────────────
     def test_in_turn_backstop_treats_stale_turn_as_ended(self):
         from datetime import datetime, timezone, timedelta
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         self._heartbeat_environment("hermes")
         self._register("hb4", mode="managed", runtime="hermes")
         # Seed an in_turn=1 row whose last_event_at is older than the backstop.
@@ -626,7 +616,6 @@ class HeartbeatTurnBusyFeedsEngineTests(FastApiTestCase):
 
     def test_in_turn_backstop_keeps_fresh_turn(self):
         # Control: a FRESH in_turn (recent last_event_at) is NOT clamped.
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         self._heartbeat_environment("hermes")
         self._register("hb5", mode="managed", runtime="hermes")
         self.client.post("/api/v1/agents/hb5/heartbeat",
@@ -682,7 +671,6 @@ class ConsoleLeaseAndStalenessByproductTests(FastApiTestCase):
     def _byproduct_status(self, aid):
         import asyncio
         from service.db import get_db
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
         from service.status_engine import derive
 
         async def run():

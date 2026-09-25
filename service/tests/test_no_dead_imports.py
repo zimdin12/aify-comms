@@ -15,12 +15,10 @@ THE DETECTOR LIVES IN `service/tests/dead_imports.py` AND THE SWEEP CALLS IT.
 `mcp/stdio/tests/no-dead-imports.test.js` records why: a sweep tool carrying its own copy of the rule
 deleted four LIVE imports because the copy had drifted. There is one detector.
 
-THIS IS THE TREE-WIDE COUNTERPART to `test_no_orphaned_imports_in_control_plane.py`, which is scoped
-to one file and explains why: applied tree-wide, its HARDCODED module-alias list would need a
-per-module table, and getting one wrong deletes a live patch target. The alias table here is DERIVED
-from the source instead — `dispatch_router`, `agents_shared`, `terminals_router`, `channels_router`
-and `health_router` are all real bindings in this repo's tests, and guessing at them was never an
-option. Both gates stay: the control-plane one asks a narrower question of a file that earns it.
+THE ALIAS TABLE IS DERIVED FROM THE SOURCE — `dispatch_router`, `agents_shared`, `terminals_router`,
+`channels_router` and `health_router` are all real bindings in this repo's tests, and guessing at them
+was never an option. A narrower sibling gate for the control-plane module used a hardcoded alias list;
+it was deleted with that module in v0.7.0, and this gate already asked its question of every file.
 """
 
 from __future__ import annotations

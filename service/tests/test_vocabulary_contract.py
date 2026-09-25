@@ -89,20 +89,17 @@ class VocabularyContractTests(unittest.TestCase):
 
         The assertion follows the OWNER, not the file it used to live in: v0.5.1e moved the
         normalizers to `service/api_core/runtime.py`, so that is where the alias map must be read.
-        The router still owns the launchable set and session modes at its own call sites.
+        The session-mode router and the liveness leaf read the session modes and the launchable set
+        at their own call sites, so those bindings are asserted too.
         """
+        from service.api_core import liveness
         from service.api_core import runtime as runtime_core
-        from service import control_plane as api_v2  # v0.5.3: helpers live in the control plane now
+        from service.routers.agents import session_mode
 
         self.assertIs(runtime_core._RUNTIME_ALIASES, RUNTIME_ALIASES)
         self.assertIs(runtime_core._SESSION_MODES, SESSION_MODES)
-        self.assertIs(api_v2._SESSION_MODES, SESSION_MODES)
-        self.assertIs(api_v2._LAUNCHABLE_RUNTIMES, LAUNCHABLE_RUNTIMES)
-        self.assertFalse(
-            hasattr(api_v2, "_RUNTIME_ALIASES"),
-            "the router should no longer import the alias map -- its only consumer moved out, and "
-            "importing a name nobody reads makes a module look like an owner it is not",
-        )
+        self.assertIs(session_mode._SESSION_MODES, SESSION_MODES)
+        self.assertIs(liveness._LAUNCHABLE_RUNTIMES, LAUNCHABLE_RUNTIMES)
 
     def test_normalize_runtime_still_behaves_identically(self):
         """Structural change: the mapping moved, the answers must not."""

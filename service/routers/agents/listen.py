@@ -28,7 +28,9 @@ from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.clock import now as _now
 from service.db import get_db
-from service.routers.agents.shared import _borrowed_listen_events
+# Through the module, not by value: `_listen_events` is a process-global (see
+# test_process_global_identity.py), and a by-value import would go stale if its owner rebound it.
+from service import longpoll
 
 router = domain_router()
 
@@ -50,9 +52,9 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
         await db.close()
 
     # Create/get wake-up event for this agent
-    if agent_id not in _borrowed_listen_events():
-        _borrowed_listen_events()[agent_id] = asyncio.Event()
-    event = _borrowed_listen_events()[agent_id]
+    if agent_id not in longpoll._listen_events:
+        longpoll._listen_events[agent_id] = asyncio.Event()
+    event = longpoll._listen_events[agent_id]
     event.clear()
 
     # Poll for unread messages, waiting on the event

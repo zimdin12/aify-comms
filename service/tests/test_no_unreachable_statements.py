@@ -91,7 +91,7 @@ def test_the_scan_covers_a_real_population():
     assert len(sources) > 200, f"only {len(sources)} product .py files found — the walk is broken"
     names = {path.name for path in sources}
     assert "send_preflight.py" in names, "the file this gate was built from is not in scope"
-    assert "control_plane.py" in names
+    assert "status_engine.py" in names
     assert "sse_server.py" in names, (
         "mcp/sse_server.py ships in the container and must be governed — the oversized-source gate "
         "read service/** only until 2026-08-15 and left fifteen files ungoverned exactly this way"
