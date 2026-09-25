@@ -20,7 +20,6 @@ import { byId, toast, uiConfirm, uiPrompt } from './ui.js';
 
 let chatController = { close() {}, render() {} };
 let closeInspector = () => {};
-let inspect = () => {};
 let markConversationRead = async () => {};
 let refresh = async () => {};
 let refreshSoon = () => {};
@@ -29,11 +28,11 @@ let setPage = () => {};
 
 /** Supply the app.js-side dependencies. Throws on a partial bag rather than accepting no-ops. */
 export function initAgentSessionActions(deps) {
-  const REQUIRED = ['chatController', 'closeInspector', 'inspect', 'markConversationRead', 'refresh',
+  const REQUIRED = ['chatController', 'closeInspector', 'markConversationRead', 'refresh',
     'refreshSoon', 'renderSessionWorkspace', 'setPage'];
   const missing = REQUIRED.filter((k) => deps == null || deps[k] == null);
   if (missing.length) throw new TypeError(`initAgentSessionActions requires ${missing.join(', ')}`);
-  ({ chatController, closeInspector, inspect, markConversationRead, refresh, refreshSoon,
+  ({ chatController, closeInspector, markConversationRead, refresh, refreshSoon,
     renderSessionWorkspace, setPage } = deps);
 }
 
@@ -49,7 +48,7 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
       body: JSON.stringify({ mode: targetMode, force, requestedBy: 'dashboard' }),
     });
   } catch (err) {
-    inspect('Mode switch error', { agentId, targetMode, error: String(err?.message || err) });
+    toast(`Mode switch failed: ${err?.message || err}`, 'error');
     return null;
   }
   let body = null;
@@ -64,7 +63,6 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
       return null;
     }
     toast(`Mode switch failed: ${body?.detail || body?.error || res.status}`, 'error');
-    inspect('Mode switch failed', { agentId, targetMode, status: res.status, body });
     return null;
   }
   const updatedMode = String(body?.mode || targetMode);

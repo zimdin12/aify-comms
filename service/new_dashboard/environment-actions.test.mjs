@@ -76,10 +76,9 @@ function withEnvActions({ confirm = true, prompt = "typed", fields = {} } = {}) 
     return { ok: true, status: 200, statusText: "OK", json: async () => payload, text: async () => JSON.stringify(payload) };
   };
   setApiBase("");
-  const calls = { refresh: 0, refreshSoon: 0, closeInspector: 0, inspected: [] };
+  const calls = { refresh: 0, refreshSoon: 0, closeInspector: 0 };
   initEnvironmentActions({
     closeInspector: () => { calls.closeInspector += 1; },
-    inspect: (kind, payload) => { calls.inspected.push([kind, payload]); },
     refresh: async () => { calls.refresh += 1; },
     refreshSoon: () => { calls.refreshSoon += 1; },
   });
@@ -180,7 +179,19 @@ test("a successful spawn refreshes, so the queue shows the request that was just
   try {
     await createSpawnRequest();
     assert.equal(h.calls.refresh, 1);
-    assert.equal(h.calls.inspected.length, 1, "the created request must be shown, not just queued silently");
+  } finally { h.restore(); }
+});
+
+test("A SUCCESSFUL SPAWN SAYS SO IN A SENTENCE, not by taking over the drawer with its JSON", async () => {
+  // It opened the inspector as a <pre> dump of the spawn record and raised no toast, so the operator
+  // lost the drawer they were using and read an internal record shape instead of "queued".
+  const h = withEnvActions({ fields: COMPLETE });
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  try {
+    await createSpawnRequest();
+    assert.ok(created.some((el) => /Spawn queued for new-coder/.test(el.textContent)), "no toast named the spawn");
   } finally { h.restore(); }
 });
 
@@ -232,7 +243,7 @@ test("RESETTING ROOTS ASKS FOR THE BRIDGE-ADVERTISED SET, not an empty list", as
 });
 
 test("INIT REFUSES A PARTIAL BAG", () => {
-  const full = { closeInspector() {}, inspect() {}, refresh: async () => {}, refreshSoon() {} };
+  const full = { closeInspector() {}, refresh: async () => {}, refreshSoon() {} };
   for (const missing of Object.keys(full)) {
     const partial = { ...full };
     delete partial[missing];

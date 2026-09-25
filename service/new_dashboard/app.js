@@ -1,7 +1,6 @@
 // Dashboard Next SPA entry. ES module (DASHBOARD_REBUILD_PLAN §0.1): pure cores live in
 // sibling modules and are imported here; app.js remains the orchestrator (render + actions +
 // the single delegated event handler + init) until later Phase-0 slices split those too.
-import { esc } from './util.js';
 import { STATUS_KINDS, renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { byId, toast } from './ui.js';
 import { createChatController } from './chat.js';
@@ -24,7 +23,6 @@ import { messageHistory } from './message-store.mjs';
 import { mountXtermForTerminal as mountXtermForTerminalImpl } from './xterm-mount.mjs';
 import { renderSessionConsole as renderSessionConsoleImpl } from './session-console.mjs';
 import { renderInstallSnippet } from './static-links.mjs';
-import { lookup } from './record-lookup.mjs';
 import { pages } from './page-titles.mjs';
 import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
@@ -331,19 +329,6 @@ function renderSessionWorkspace() {
   renderSessionConsole(session);
 }
 
-async function inspect(kind, payload) {
-  if (kind === 'run') {
-    await openRunInspector({ runId: payload, source: 'generic' });
-    return;
-  }
-  const data = typeof payload === 'string'
-    ? lookup(kind, payload)
-    : payload;
-  state.inspector = { kind, runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
-  byId('inspector-content').innerHTML = `<pre>${esc(JSON.stringify(data || {}, null, 2))}</pre>`;
-  openInspector();
-}
-
 function openInspector(request) {
   if (request && request.kind === 'run' && request.runId && state.inspector.runId !== String(request.runId)) {
     openRunInspector(request);
@@ -401,7 +386,7 @@ document.addEventListener('click', dispatchClick);
 
 // The boot-time listener wiring moved to ./boot-wiring.mjs in v0.5.4. The CALL stays here so the
 // boot sequence is still readable in one place, in order.
-wireGlobalControls({ chatController, closeInspector, refresh, renderAll, renderSessionWorkspace, saveSettings, chatCreateChannel, inspect });
+wireGlobalControls({ chatController, closeInspector, refresh, renderAll, renderSessionWorkspace, saveSettings, chatCreateChannel });
 // The inspector's swipe-to-close gesture moved to ./boot-wiring.mjs in v0.5.4, with the
 // touch-start position it is the only reader of.
 wireInspectorGestures();
@@ -409,10 +394,10 @@ wireInspectorGestures();
 // Preference restore + landing paint moved to ./boot-wiring.mjs in v0.5.4.
 restorePersistedPreferences({ setPage });
 
-initAgentSessionActions({ chatController, closeInspector, inspect, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });
+initAgentSessionActions({ chatController, closeInspector, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });
 initMessageActions({ chatController, refreshSoon, renderSessionConsole });
 initConsoleActions({ closeInspector, refresh, refreshSoon, setPage });
-initEnvironmentActions({ closeInspector, inspect, refresh, refreshSoon });
+initEnvironmentActions({ closeInspector, refresh, refreshSoon });
 initClickDispatch({ chatController, closeInspector, refreshSoon, renderSessionWorkspace, setPage });
 initWorkLoopActions({ refresh });
 initRunInspector({ closeInspector, evaluateFlowGates, openInspector, openRunConsole, refresh, renderDiagnosticsBulkToolbar });

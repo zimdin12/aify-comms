@@ -91,7 +91,6 @@ function withActions({ confirm = true, prompt = "typed", fields = {}, deps = {} 
   initAgentSessionActions({
     chatController: { close: () => { calls.chatClosed += 1; }, open: (sel) => { state.chat.selected = sel; }, render() {}, renderRail() {}, renderConversation() {} },
     closeInspector: () => { calls.closeInspector += 1; },
-    inspect: () => {},
     markConversationRead: async (id) => { calls.read.push(id); },
     refresh: async () => { calls.refresh += 1; },
     refreshSoon: () => { calls.refreshSoon += 1; },
@@ -434,7 +433,7 @@ test("a typed environment and runtime are enough on their own", async () => {
 
 test("INIT REFUSES A PARTIAL BAG", () => {
   const full = {
-    chatController: { close() {}, open() {} }, closeInspector() {}, inspect() {}, markConversationRead: async () => {},
+    chatController: { close() {}, open() {} }, closeInspector() {}, markConversationRead: async () => {},
     refresh: async () => {}, refreshSoon() {}, renderSessionWorkspace() {}, setPage() {},
   };
   for (const missing of Object.keys(full)) {
@@ -461,4 +460,22 @@ test("submitAgentEdit sends only the fields that changed, and a declined rename 
     await submitAgentEdit("coder");
     assert.deepEqual(mutating(declined), [], "cancelling the rename prompt must leave every field alone");
   } finally { declined.restore(); }
+});
+
+// --- a failed mode switch is a toast, not a JSON drawer (v0.7 C16) ------------------------------------
+
+test("A MODE SWITCH THAT CANNOT REACH THE SERVICE SAYS SO IN A TOAST, not a JSON drawer", async () => {
+  const h = withActions();
+  const created = [];
+  const make = globalThis.document.createElement;
+  globalThis.document.createElement = (...a) => { const el = make(...a); created.push(el); return el; };
+  try {
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    await switchAgentSessionMode("coder", "managed");
+    globalThis.fetch = async () => ({ ok: false, status: 500, statusText: "err", json: async () => ({ detail: "boom" }), text: async () => "{}" });
+    await switchAgentSessionMode("coder", "managed");
+    const said = created.map((el) => el.textContent).filter(Boolean);
+    assert.ok(said.some((t) => /Mode switch failed: Failed to fetch/.test(t)), `no toast for the network error: ${said}`);
+    assert.ok(said.some((t) => /Mode switch failed: boom/.test(t)), "the refusal still names its reason");
+  } finally { h.restore(); }
 });

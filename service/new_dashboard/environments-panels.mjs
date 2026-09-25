@@ -378,16 +378,15 @@ export function openEnvironmentRootsEditor(environmentId) {
 // Three injected names, each of which reaches `refresh`.
 
 let closeInspector = () => {};
-let inspect = () => {};
 let refresh = async () => {};
 let refreshSoon = () => {};
 
 /** Supply the app.js-side dependencies for the actions above. Throws on a partial bag. */
 export function initEnvironmentActions(deps) {
-  const REQUIRED = ['closeInspector', 'inspect', 'refresh', 'refreshSoon'];
+  const REQUIRED = ['closeInspector', 'refresh', 'refreshSoon'];
   const missing = REQUIRED.filter((k) => typeof deps?.[k] !== 'function');
   if (missing.length) throw new TypeError(`initEnvironmentActions requires ${missing.join(', ')}`);
-  ({ closeInspector, inspect, refresh, refreshSoon } = deps);
+  ({ closeInspector, refresh, refreshSoon } = deps);
 }
 
 
@@ -433,7 +432,7 @@ export async function createSpawnRequest() {
     toast('Need environment, runtime, agent ID, and workspace.', 'warn');
     return;
   }
-  const result = await api('/spawn-requests', {
+  await api('/spawn-requests', {
     method: 'POST',
     body: JSON.stringify({
       createdBy: 'dashboard',
@@ -449,6 +448,6 @@ export async function createSpawnRequest() {
   });
   byId('env-spawn-agent-id').value = '';
   byId('env-spawn-prompt').value = '';
-  inspect('spawn-request', result.spawnRequest || result);
+  toast(`Spawn queued for ${agentId}`, 'ok'); // a sentence, not the drawer taken over by the record's JSON
   await refresh();
 }

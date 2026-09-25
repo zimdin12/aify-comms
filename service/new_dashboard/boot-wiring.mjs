@@ -47,7 +47,6 @@ export function wireGlobalControls({
   renderSessionWorkspace,
   saveSettings,
   chatCreateChannel,
-  inspect,
 }) {
   document.addEventListener('keydown', (event) => {
     handleGlobalKeydown(event, closeInspector, toggleFavorite);
@@ -311,7 +310,8 @@ export function wireGlobalControls({
     const blob = imageItem.getAsFile();
     if (!blob) return;
     event.preventDefault();
-    uploadPastedImage(blob, target).catch((error) => inspect('paste-error', { message: error.message || 'Image upload failed' }));
+    // A toast, not the drawer: the operator is typing in the composer this would cover.
+    uploadPastedImage(blob, target).catch((error) => toast(`Image upload failed: ${error?.message || error}`, 'error'));
   });
   byId('close-inspector').addEventListener('click', closeInspector);
   byId('toggle-nav').addEventListener('click', () => {

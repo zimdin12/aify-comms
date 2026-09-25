@@ -101,7 +101,6 @@ const DEPS = {
   renderSessionWorkspace() {},
   saveSettings: async () => {},
   chatCreateChannel: async () => {},
-  inspect() {},
 };
 
 test("wiring binds listeners and never throws on a DOM missing every optional element", () => {
@@ -260,4 +259,28 @@ test("a failing save REPORTS rather than becoming an unhandled rejection", async
     assert.doesNotThrow(() => onSave());
     await new Promise((r) => setTimeout(r, 0));
   } finally { h.restore(); }
+});
+
+// --- a failed image paste is a toast, not a drawer over the chat (v0.7 C16) ---------------------------
+
+test("A PASTED IMAGE THAT FAILS TO UPLOAD SAYS SO IN A TOAST, and leaves the drawer alone", async () => {
+  // The operator is typing in the chat composer; a failed upload opened the inspector over it as a
+  // JSON dump of `{ message }`.
+  const dom = recordingDom();
+  const created = [];
+  globalThis.document.createElement = () => { const el = { textContent: "", className: "", classList: { add() {}, remove() {} }, setAttribute() {}, addEventListener() {}, remove() {}, appendChild: (c) => c, children: [], firstElementChild: null }; created.push(el); return el; };
+  globalThis.document.body.appendChild = (c) => c;
+  globalThis.fetch = async () => ({ ok: false, status: 500, statusText: "err", json: async () => ({ detail: "disk full" }), text: async () => "{}" });
+  try {
+    wireGlobalControls(DEPS);
+    const paste = dom.bound.find((b) => b.on === "document" && b.type === "paste").fn;
+    const blob = new Blob(["x"], { type: "image/png" });
+    paste({
+      target: { id: "chat-composer-body", value: "" },
+      clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => blob }] },
+      preventDefault() {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(created.some((el) => /Image upload failed: disk full/.test(el.textContent)), "no toast named the failure");
+  } finally { dom.restore(); }
 });
