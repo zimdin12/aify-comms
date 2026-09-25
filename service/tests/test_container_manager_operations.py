@@ -318,3 +318,48 @@ class ContainerManagerOperationsTests(unittest.TestCase):
 # Imported for the fake's container type; referenced so a future refactor of the shared harness
 # cannot drop it silently.
 assert FakeContainer is not None
+
+
+class TheDockerSdkNeverBlocksTheEventLoopTests(unittest.TestCase):
+    """The docker SDK is synchronous. Called inline, `container.stop(timeout=30)` froze the one event
+    loop -- claims, heartbeats, the dashboard -- for up to 30 s, and the idle reaper did that unprompted
+    (v0.7 scan A5). The loop must keep turning while docker works."""
+
+    def test_the_loop_keeps_turning_while_a_container_stops(self):
+        import time
+
+        class SlowContainer(FakeContainer):
+            def stop(self, timeout=None):
+                time.sleep(0.4)  # what a real stop does: block this thread
+                super().stop(timeout)
+
+        client = FakeDocker()
+        client.images = FakeImages()
+        with mock.patch("docker.from_env", return_value=client):
+            manager = ContainerManager({"a": definition()}, defaults={})
+
+        async def _healthy(*args, **kwargs):
+            return True
+
+        manager._wait_for_health = _healthy
+
+        async def scenario():
+            await manager.start_container("a")
+            slow = SlowContainer(client.created[0].name, client.created[0].id)
+            client.created[0] = slow
+            ticks = 0
+
+            async def ticker():
+                nonlocal ticks
+                while True:
+                    await asyncio.sleep(0.02)
+                    ticks += 1
+
+            task = asyncio.create_task(ticker())
+            await manager.stop_container("a")
+            task.cancel()
+            return ticks, slow
+
+        ticks, slow = run(scenario())
+        self.assertTrue(slow.stopped and slow.removed, "control: the container was really stopped")
+        self.assertGreaterEqual(ticks, 5, f"the event loop turned {ticks} times during a 0.4 s stop")

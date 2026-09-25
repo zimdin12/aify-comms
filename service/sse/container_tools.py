@@ -22,6 +22,8 @@ answers "No container manager configured" — the same behaviour as before, when
 
 from __future__ import annotations
 
+import asyncio
+
 _app = None
 
 
@@ -95,7 +97,7 @@ async def container_logs(name: str, tail: int = 50) -> str:
         return "No container manager configured"
     if name not in manager.definitions:
         return f"Unknown container: {name}"
-    return manager.get_container_logs(name, tail=tail)
+    return await asyncio.to_thread(manager.get_container_logs, name, tail=tail)  # docker SDK blocks
 
 
 #: The tools this module registers, in the order they were declared in the transport. Named

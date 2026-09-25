@@ -1,3 +1,4 @@
+import asyncio
 """
 Container management and routing endpoints.
 
@@ -88,7 +89,7 @@ async def get_logs(name: str, request: Request, tail: int = 100):
     manager = _get_manager(request)
     if name not in manager.definitions:
         raise HTTPException(404, f"Container '{name}' not defined")
-    logs = manager.get_container_logs(name, tail=tail)
+    logs = await asyncio.to_thread(manager.get_container_logs, name, tail=tail)  # docker SDK blocks
     return {"logs": logs}
 
 

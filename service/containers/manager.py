@@ -102,6 +102,63 @@ class ContainerManager:
         state = self.states.get(name)
         return state.internal_url if state else None
 
+    def _launch_sync(self, name: str, defn, container_name: str):
+        """Remove a stale container of this name, ensure the volumes, and run the new one. BLOCKING:
+        called only through asyncio.to_thread."""
+        # Remove existing stopped container with same name
+        try:
+            old = self.docker.containers.get(container_name)
+            old.remove(force=True)
+        except docker.errors.NotFound:
+            pass
+
+        # Ensure volumes exist
+        volumes = {}
+        for vol_name, mount_path in defn.volumes.items():
+            try:
+                self.docker.volumes.get(vol_name)
+            except docker.errors.NotFound:
+                self.docker.volumes.create(vol_name)
+            volumes[vol_name] = {"bind": mount_path, "mode": "rw"}
+
+        # GPU device requests
+        device_requests = []
+        if defn.gpu.device_ids:
+            device_requests.append(
+                docker.types.DeviceRequest(
+                    device_ids=defn.gpu.device_ids,
+                    capabilities=[["gpu"]],
+                )
+            )
+
+        labels = {
+            "aify.managed": "true",
+            "aify.name": name,
+            "aify.group": defn.group,
+            # Docker Desktop compose grouping
+            "com.docker.compose.project": self.project_name,
+            "com.docker.compose.service": name,
+            "com.docker.compose.container-number": "1",
+            "com.docker.compose.oneoff": "False",
+            **defn.labels,
+        }
+
+        container = self.docker.containers.run(
+            image=defn.image,
+            name=container_name,
+            command=defn.command if defn.command else None,
+            detach=True,
+            network=self.network_name,
+            volumes=volumes,
+            environment=dict(defn.environment),
+            labels=labels,
+            device_requests=device_requests if device_requests else None,
+            mem_limit=defn.resources.memory_limit,
+            nano_cpus=int(float(defn.resources.cpu_limit) * 1e9),
+            restart_policy={"Name": "no"},
+        )
+        return container
+
     async def start_container(self, name: str) -> ContainerState:
         """Start a container. Handles sharing, GPU allocation, Docker API, health checks."""
         if name not in self.definitions:
@@ -151,58 +208,9 @@ class ContainerManager:
             container_name = f"{self.project_name}-{name}"
 
             try:
-                # Remove existing stopped container with same name
-                try:
-                    old = self.docker.containers.get(container_name)
-                    old.remove(force=True)
-                except docker.errors.NotFound:
-                    pass
-
-                # Ensure volumes exist
-                volumes = {}
-                for vol_name, mount_path in defn.volumes.items():
-                    try:
-                        self.docker.volumes.get(vol_name)
-                    except docker.errors.NotFound:
-                        self.docker.volumes.create(vol_name)
-                    volumes[vol_name] = {"bind": mount_path, "mode": "rw"}
-
-                # GPU device requests
-                device_requests = []
-                if defn.gpu.device_ids:
-                    device_requests.append(
-                        docker.types.DeviceRequest(
-                            device_ids=defn.gpu.device_ids,
-                            capabilities=[["gpu"]],
-                        )
-                    )
-
-                labels = {
-                    "aify.managed": "true",
-                    "aify.name": name,
-                    "aify.group": defn.group,
-                    # Docker Desktop compose grouping
-                    "com.docker.compose.project": self.project_name,
-                    "com.docker.compose.service": name,
-                    "com.docker.compose.container-number": "1",
-                    "com.docker.compose.oneoff": "False",
-                    **defn.labels,
-                }
-
-                container = self.docker.containers.run(
-                    image=defn.image,
-                    name=container_name,
-                    command=defn.command if defn.command else None,
-                    detach=True,
-                    network=self.network_name,
-                    volumes=volumes,
-                    environment=dict(defn.environment),
-                    labels=labels,
-                    device_requests=device_requests if device_requests else None,
-                    mem_limit=defn.resources.memory_limit,
-                    nano_cpus=int(float(defn.resources.cpu_limit) * 1e9),
-                    restart_policy={"Name": "no"},
-                )
+                # THE DOCKER SDK IS SYNCHRONOUS, so its calls run on a worker thread (v0.7, A5):
+                # inline, a pull or a stop froze the service's one event loop for their duration.
+                container = await asyncio.to_thread(self._launch_sync, name, defn, container_name)
 
                 state.container_id = container.id
                 state.container_hostname = container_name
@@ -227,8 +235,7 @@ class ContainerManager:
                 else:
                     state.status = ContainerStatus.FAILED
                     state.error_message = "Health check timeout"
-                    container.stop(timeout=10)
-                    container.remove(force=True)
+                    await asyncio.to_thread(self._stop_and_remove_sync, container.id, 10)
                     self.gpu.release_with_fraction(name, defn.gpu)
                     raise RuntimeError(f"Container {name} failed health check within {defn.startup_timeout_seconds}s")
 
@@ -250,9 +257,7 @@ class ContainerManager:
                 self.gpu.release_with_fraction(name, defn.gpu)
                 if self.docker and state.container_id:
                     try:
-                        c = self.docker.containers.get(state.container_id)
-                        c.stop(timeout=5)
-                        c.remove(force=True)
+                        await asyncio.to_thread(self._stop_and_remove_sync, state.container_id, 5)
                     except Exception:
                         pass
                 raise
@@ -283,11 +288,7 @@ class ContainerManager:
 
             if self.docker and state.container_id:
                 try:
-                    container = self.docker.containers.get(state.container_id)
-                    container.stop(timeout=timeout)
-                    container.remove(force=True)
-                except docker.errors.NotFound:
-                    pass
+                    await asyncio.to_thread(self._stop_and_remove_sync, state.container_id, timeout)
                 except Exception as e:
                     logger.error(f"Error stopping {name}: {e}")
 
@@ -302,6 +303,15 @@ class ContainerManager:
                     self.states[other_name].status = ContainerStatus.STOPPED
 
             logger.info(f"Container stopped: {name}")
+
+    def _stop_and_remove_sync(self, container_id: str, timeout: int) -> None:
+        """BLOCKING: called only through asyncio.to_thread. A container already gone is not an error."""
+        try:
+            container = self.docker.containers.get(container_id)
+        except docker.errors.NotFound:
+            return
+        container.stop(timeout=timeout)
+        container.remove(force=True)
 
     async def restart_container(self, name: str):
         await self.stop_container(name)
