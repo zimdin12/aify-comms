@@ -934,17 +934,13 @@ Tests: regression suite's `setUp` opts the whole legacy suite into via-console m
 
 **Why.** Channel delivery is the architecturally-correct path for Claude — same protocol resident Claude already uses, no terminal-output parsing, no bracketed-paste injection, no operator-visible terminal pollution. Channel delivery has worked for >1 month for resident Claude; extending it to managed Claude was the natural unification.
 
-**Why a setting, default off.** Existing managed Claude wrappers were configured assuming PTY delivery. Flipping default-on without opt-in would change delivery semantics under operators' feet. Default-off lets operators flip live, smoke-test, and roll back instantly via `PUT /api/v1/settings`.
+**Why a setting (history).** It began opt-in so operators could flip it live and roll back. The current setting is `insert_messages_via_console`, default `false`, which makes channel delivery the default and PTY typing the opt-in.
 
 ## Wrapper-PTY pre-spawn at spawn-request running (managed_pty_eager_spawn)
 
-**Decision.** When `managed_pty_eager_spawn=true` AND `managed_terminal_backing_enabled=true` (both settings, both default false), `update_spawn_request`'s running-transition handler proactively launches the wrapper PTY for the newly-registered managed agent by calling `_ensure_managed_pty_for_dispatch`. The wrapper is alive by the time the first dispatch arrives; subsequent dispatches and manual Start Console clicks reuse the same terminal via `_active_terminal_for_agent` (dispatch path) and the slice-3 reuse check in `start_session_console` (manual path).
+**Both settings are internal, default ON, and must stay on.** `managed_pty_eager_spawn` and `managed_terminal_backing_enabled` are declared in `service/api_core/settings_spec.py` with `shown=False`, so the dashboard never draws them. Under aify-env every managed worker starts from its terminal row, so turning `managed_terminal_backing_enabled` off stops every managed worker. They remain settings only because the legacy regression suites switch them to exercise the pre-console delivery paths. `validate_update` still accepts both on `PUT /settings`, so the switch exists; do not use it on a live host.
 
-**Why.** Without it, the first dispatch to a managed agent spawned the wrapper PTY on demand — an operator-visible "console pops up when I send my first message" symptom across pi/codex/opencode/hermes. With it on, the console pre-exists and the dispatch slots into it. Both directions are regression-pinned (test_managed_pty_eager_spawn_creates_terminal_at_spawn_request_running + ..._default_off_preserves_prior_behavior).
-
-**Why best-effort.** A wrapper-launch failure here does NOT fail the spawn-request running transition. The dispatch path's lazy spawn remains the safety net so the agent is still usable even if the eager launch hits a transient issue.
-
-**Why default off.** Same rationale as channel-only: avoid changing established behavior for current operators. Flip on per-environment when ready.
+**What the eager spawn does.** With both on, the spawn request's running transition launches the console for the newly registered managed agent (`managed_pty_eager_spawn` in `service/api_core/running_spawn.py`), so the console exists before the first dispatch; later dispatches and a manual Start Console reuse that terminal. A launch failure here does not fail the spawn request's running transition; the dispatch path's lazy start is the safety net.
 
 ## Console-start reuses existing live wrapper terminal
 
