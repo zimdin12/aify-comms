@@ -173,8 +173,12 @@ also stops a message you send *as* an agent from counting as that agent being pr
 reads.
 
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
-`docker-compose.yml` and scope `cors_origins` in `config/service.json` if the LAN should not reach it.
-`/health`, `/version`, `/docs` and `/openapi.json` stay open. Details: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+`docker-compose.yml` if the LAN should not reach it, and set `CORS_ORIGINS` in `.env` to the
+dashboard origins you use (comma-separated, for example `http://localhost:8801`), then
+`docker compose up -d`. `.env` overrides `config/service.json`, and the default `.env` sets
+`CORS_ORIGINS=*`. With a key set, `/health`, `/ready`, `/version`, `/docs`, `/redoc` and
+`/openapi.json` still answer without one; `/ws` checks the key itself. Details:
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Notifications
 
