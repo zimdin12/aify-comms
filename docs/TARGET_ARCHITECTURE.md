@@ -2,7 +2,8 @@
 
 This is not a proposal and not a discussion. It is the operator's stated target, written down because it
 had to be repeated several times before anyone recorded it. Anything that disagrees with this document
-is the thing that is wrong.
+is the thing that is wrong. Where the system has not reached the target yet, the gap is named under
+"What is left".
 
 ## Three places, and what lives in each
 
@@ -27,187 +28,102 @@ They are separate installs for separate roles, and a machine may do either, both
 Nothing in the client path is aify-comms code. That is the test for whether the split is real: a host
 that runs agents installs aify-env and the launchers, and carries no copy of the service.
 
-**Today it fails that test.** `install.sh` is one script doing both halves, and the client half installs
-92 MB of aify-comms' own runtime into `~/.aify-comms`. Two paths means two installers, and the client
-one is aify-env's own `./install.sh` plus aify-wrapper's
-`install.sh --all --endpoint <url>` -- both of which already exist and already work.
+aify-env's installer (`./install.sh` in its repo) asks for a service credential the host is missing,
+which a bare `npm install -g` cannot notice: a host installed without one advertises, is refused with
+401, and reports healthy throughout.
 
-aify-env's installer arrived on 2026-09-02 and is not the same as `npm install -g`: it ASKS for a
-service credential this host is missing, which the bare npm command cannot notice. A host installed
-without one advertises, is refused with 401, and reports healthy throughout -- which cost a day.
-
-**The git form, not the bare name.** Neither package is published to npm: `npm install -g aify-env`
-returns a 404, and four documents carried it as the client-path instruction. It worked on the machine
-it was written on because aify-env is `npm link`ed there, which is the shape of this failure -- an
-install command verified by the one person who never has to run it. Publishing is the operator's
-call, since it leaves the machine; until then the `github:` form is the one that resolves, and it
-does: `npm view github:zimdin12/aify-env version` answers 0.6.0.
+**The git form, not the bare name.** Neither package is published to npm, so `npm install -g aify-env`
+returns a 404. The `github:zimdin12/aify-env` and `github:zimdin12/aify-wrapper` forms are the ones that
+resolve. Publishing is the operator's call, since it leaves the machine.
 
 ## Commands on PATH
 
 ```
-aify-env            the host tier, with its doctor as a SUBCOMMAND and a TUI
+aify-env            the host tier, with `doctor` and `tui` as subcommands
 claude-aify         launcher
 codex-aify          launcher
 hermes-aify         launcher
+herdr-aify          launcher for Herdr: a persistent Herdr for residents, or `herdr-aify env`
+                    for an isolated Herdr with its own aify-env
+aify-herdr-pane     the aify side of an ordinary Herdr (mostly invoked by the wrapper and Herdr's hook)
+aify-wrapper-check  asks each installed launcher whether it is current
+aify-wrapper-install
 ```
 
-Nothing else. No `aify-comms` command, no `aify-doctor`, no `aify-env-doctor` as a second binary.
-
-**Measured on this host, 2026-08-24, after installing all three layers at 0.6.0; RE-MEASURED
-2026-09-12 and it is now TEN.** The gap is worth naming rather than leaving a list the machine
-visibly contradicts:
-
-| on PATH | why | goes when |
-|---|---|---|
-| `aify-env`, `claude-aify`, `codex-aify`, `hermes-aify` | the target four | — |
-| `aify-comms` | **since v0.6.1, a VERIFIER and nothing else** -- `doctor`, `--check`, `--version`, `--help`; anything else exits 2 naming aify-env. It was the environment bridge, and the only thing that CLAIMED a spawn | the bridge half is GONE (2026-09-03), on the condition this table set: aify-env's comms plugin proven on real hardware. What is left is the doctor, and where the doctor should live is the open question below |
-| `aify-wrapper-check`, `aify-wrapper-install` | aify-wrapper's own commands, installed by the client path by construction. A launcher answering for itself needs a command to ask | they are the client path; the list above should include them |
-| `aify-doctor` | an alias for `aify-comms doctor`, kept for agent habits and older docs | **the only genuine leftover.** One line in install.sh, and the question is whether anything still reaches for the old name |
-| `herdr-aify` | **new 2026-09-12.** The integrated launcher, in the TWO modes the operator ruled on the same day: `herdr-aify` is this host's one PERSISTENT Herdr with wrapper support and no aify-env, for residents -- leaving it detaches; `herdr-aify env` is an isolated Herdr with a dedicated aify-env in its first space, which dies with the command. It is a LAUNCHER, so it belongs to aify-wrapper and to the client path by the same argument as the four | it is the client path; the list above should include it |
-| `aify-herdr-pane` | **new 2026-09-12.** The aify side of an ordinary Herdr -- links the plugin, claims a pane at launch, restores wrappers after a session restore. Mostly invoked BY the wrapper and by Herdr's plugin hook rather than by a person; the one operator-facing use is `aify-herdr-pane install`, once per machine | a candidate to become a `herdr-aify` subcommand, which would take this list back to nine |
-
-Five of the six extras are structural and one is a habit. `aify-env-doctor` is genuinely gone.
-
-**BOTH NEW ONES WERE INSTALLED AND INERT ON THE DAY THEY LANDED**, which is the failure this section
-exists to surface. They were declared in aify-wrapper's `package.json` but the package was already
-`npm link`ed, so no shim existed until it was re-linked -- and once it did, npm's shim reaches the
-script through a SYMLINK, which their entry guard compared against `import.meta.url` and never
-matched. `herdr-aify --help` was on PATH, ran, exited 0 and printed nothing. A command that fails by
-being silent is the hardest kind to notice, and the only thing that found it was asking every name in
-this table whether it was actually on PATH and then whether it actually did anything.
-
-**AND ASKING WHETHER IT RAN WAS STILL NOT ASKING WHETHER IT WORKED.** With the shims fixed, the
-operator ran `herdr-aify` as the first thing they tried and got `spawn herdr ENOENT`. FOUR defects
-stood between a green suite and a command that starts at all, and no test could have found one of
-them: `herdr` is on the PATH of the shells HERDR starts and nowhere else, so the bare name resolved
-for whoever built it and failed at the operator's prompt; the isolated socket was spelled as a
-Windows named pipe when Herdr wants a file path; the daemon's environment was handed to the `herdr`
-CLI, which TYPES into an existing shell rather than spawning one, so it never reached the daemon; and
-the second-launch refusal read a field its own helper has never returned, so it never once fired. All
-four are facts about this machine or about a CALL SITE, which is the class of defect this repo keeps
-meeting and the reason `aify-comms doctor` is built the way it is. The sequence is now proven end to
-end and recorded in aify-wrapper's `HERDR.md`.
+The last five are aify-wrapper's own commands, so they arrive with the client path by construction.
+No `aify-comms` command, no `aify-doctor`, no `aify-env-doctor` as a second binary. An unknown
+`aify-env` subcommand exits 64 rather than falling through to starting the daemon.
 
 ## Where each doctor lives
 
 - **aify-comms' doctor runs inside the container.** It answers about the container: its build, its
   registrations, its reachability, its quota. It is reached from a container terminal or over HTTP.
-- **aify-env's doctor is `aify-env doctor`**, plus the TUI. It answers about the host — PTYs,
-  processes, the registry — and it **relays** what each registered service said about itself.
-- **A launcher only REPORTS its state.** It does not host a doctor. Its version and the registry it was
-  built against travel to the service, and the service answers questions about them.
+- **aify-env's doctor is `aify-env doctor`**, plus the TUI. It answers about the host (PTYs,
+  processes, the registry) and it **relays** what each registered service said about itself.
+- **A launcher only REPORTS its state.** It does not host a doctor. Each launcher carries and exports
+  `HARNESS_WRAPPER_VERSION` and `HARNESS_REGISTRY_FINGERPRINT`; `aify-wrapper-check` reads them to
+  say whether a launcher is current, and aify-env reads the first to decide whether it may run the
+  file at all.
 
-Nothing inspects another component's internals. That rule is older than this document and is argued in
+Nothing inspects another component's internals. That rule is argued in
 [AIFY_ENV_BOUNDARY.md](AIFY_ENV_BOUNDARY.md); this file only records where the pieces end up.
 
-## What is in the way — re-measured 2026-08-24, after a day of work
+**Spawning is aify-env's alone.** Its `aify-comms` plugin claims spawn requests and terminal controls
+from this service, runs the launcher as a file with structured `argv`, and streams the console back.
+There is no second spawner and no fallback. Two spawners on one host is the collision the host tier
+exists to end, so a retired aify-comms environment bridge still running somewhere never takes the
+claimer role from aify-env. `aify-comms doctor`'s `spawn-delegation` says whether the aify-env serving
+this host is answering.
 
-Four of the five items below were closed. What remains is one flip and one deletion, both gated on the
-operator rather than on effort.
+## What is left
 
-**Closed:**
+Three gaps between the system and the target.
 
-- ~~A launcher does not report its version.~~ All four templates now export `HARNESS_WRAPPER_VERSION`
-  and `HARNESS_REGISTRY_FINGERPRINT`, and the bridge sends them at registration as `launcherVersion`
-  and `launcherRegistryFingerprint`. A launcher REPORTS its state; it does not host a doctor.
-- ~~`aify-comms doctor` answers other tiers' questions.~~ Twelve checks are eight. `wrappers`,
-  `wrapper-current` and `runtimes` went to aify-wrapper, where `aify-wrapper-check` already
-  implemented them; `bridge-terminal` went to `aify-env doctor`. Verified on a live host: both still
-  answer.
-- ~~Three binaries for one product.~~ `aify-env doctor` and `aify-env tui` are subcommands, and an
-  unknown one exits 64 rather than falling through to starting the daemon.
-- ~~The container's MCP transport does not load.~~ `mcp[cli]` was unbounded above, floated to 2.0.0
-  and lost the API `sse_server.py` imports; the failure logged at INFO so it read as "not configured".
-  Bounded to `<2`, logged as a WARNING, tested. `/mcp/sse` returns 200.
+1. **The client path still installs aify-comms code.** aify-comms' own `install.sh --client <runtime>`
+   is today the client installer: it writes the service's entry into `~/.aify/services.json` and copies
+   the MCP bridge into `~/.aify-comms`, which every launcher using the default stdio transport runs.
+   `--mcp-transport sse` renders a launcher that talks to `<endpoint>/mcp/sse` instead, and the
+   container serves the `comms_*` tools over it, so `~/.aify-comms` stops being load-bearing the
+   moment every launcher on a host uses it.
 
-**Left, and both are the operator's call, not a missing capability:**
+   It is not a free swap. The SSE surface is reduced by design and
+   `mcp/stdio/tests/transport-parity.test.js` requires every difference to be declared. Nine of the
+   fourteen missing tools are principled: `comms_spawn`, `comms_restart`, `comms_compact`,
+   `comms_interrupt`, `comms_delete_session`, `comms_remove_agent` need a local process;
+   `comms_usage`, `comms_envs`, `comms_listen` read host state a container cannot see. The other five
+   are absent only because nobody mirrored them: `comms_agent_info`, `comms_contracts`,
+   `comms_status`, `comms_describe`, `comms_unsend`. Mirroring those five is ordinary work, not a
+   decision.
 
-1. **The client path still installs aify-comms code.** `--mcp-transport sse` exists and renders a
-   launcher that talks to `<endpoint>/mcp/sse` instead of spawning a local bridge. Proven end to end
-   rather than by status code: the container completes the MCP handshake, issues a session id, and
-   serves 22 `comms_*` tools to a client that asks for them. `~/.aify-comms` stops being load-bearing
-   the moment every launcher on a host uses it.
+2. **The verifier is still a host command.** `aify-comms` on PATH is a verifier and nothing else:
+   `doctor`, `--check`, `--version`, `--help`; anything else exits 2 naming aify-env. `aify-doctor`
+   is the same script under its older name. The target puts aify-comms' doctor inside the container,
+   and moving it means giving the container a way to answer host questions it cannot see (the
+   installed bridge copy and skills, the aify-env serving the host, running processes), so it is not a rename. Both names stay on
+   PATH until that is answered.
 
-   **But it is not a free swap, and saying "one install flag" understated it.** The SSE surface is
-   REDUCED by design and `mcp/stdio/tests/transport-parity.test.js` requires every difference to be
-   declared. Nine of the fourteen missing tools are principled — `comms_spawn`, `comms_restart`,
-   `comms_compact`, `comms_interrupt`, `comms_delete_session`, `comms_remove_agent` need a local
-   process; `comms_usage`, `comms_envs`, `comms_listen` read host state a container cannot see. The
-   other five are absent only because nobody mirrored them: `comms_agent_info`, `comms_contracts`,
-   `comms_status`, `comms_describe`, `comms_unsend`. The parity gate already flags `comms_agent_info`
-   as the one worth revisiting, since it is where an agent's production is reported.
+3. **Launcher state does not reach the service.** The service accepts `launcherVersion` and
+   `launcherRegistryFingerprint` on an environment heartbeat and shows them on the environment row,
+   but the only sender was the environment bridge that v0.6.3 deleted, and aify-env does not send
+   them. Until it does, the service cannot answer questions about a host's launchers;
+   `aify-wrapper-check` on that host can.
 
-   So an agent moved to SSE today loses lifecycle control it could not have had anyway, and five tools
-   it could. Mirroring those five is the work that makes this flag a genuine equivalence rather than a
-   trade, and it is ordinary work, not a decision.
-
-2. **The `aify-comms` command still CLAIMS managed spawns.** Hosting moved on 2026-08-25; claiming
-   did not, and this entry read as finished for eight days because it recorded the half that moved.
-
-   **The correction, 2026-09-02.** `/spawn` requires `metadata.bridgeLastSeen`, written only for a
-   heartbeat carrying a `bridgeId`, and only the environment bridge sent one. So the command stayed
-   load-bearing while the table above said it "goes when Phase 8 flips" and this entry said Phase 8
-   had flipped. The operator ran everything they were told to and was refused six times; two agents
-   read this document and concluded the fleet was ready. **A document that claims completion is how a
-   thing stops being checked** -- and the claim here was true of execution and false of claiming.
-
-   **Where it now stands:** aify-env carries an `aify-comms` PLUGIN that heartbeats with a `bridgeId`
-   and claims spawn requests, proven end to end against a real socket, a real `Runner` and a real
-   process. Nothing in the DELIVERY path needs the command either -- the launcher spawns its own
-   delivery loop (`hermes-aify:562`), which the bridge never did. What remains before the command can
-   be deleted is proving it on real hardware: install, restart, and one spawn with no bridge running.
-
-   ~~**DONE 2026-08-25: delegation is ON.**~~ (Kept, struck through, because the wrong claim is the
-   point: it is what a reader believed for eight days.)
-   The operator took the call on an idle fleet, `install.sh --delegate-spawns` bakes it into the
-   environment-bridge launcher, and `aify-comms doctor`'s `spawn-delegation` reports the setting and
-   whether aify-env is answering.
-
-   **Proven end to end rather than by reading**, through the same code the bridge runs: a real
-   `claude-aify` launched by aify-env, exit 0, its output streamed back, and aify-env owning the
-   process while it lived. That proof found three defects nothing else had — argv never reaching the
-   spawn, Windows resolving the launcher to a `.cmd` shim aify-env refuses, and the launcher path
-   losing every backslash before bash. Each would have broken the first spawn with every component
-   looking healthy.
-
-   **DONE 2026-09-03, on this item's own terms.** It asked for "install, restart, and one spawn with
-   no bridge running", and what happened was six managed lanes up with no bridge at all: aify-env
-   claimed the spawns, registered the warm agents, resolved the launchers past a Windows `.cmd` shim,
-   ran the workers, streamed the consoles, and carried input, resize and stop. v0.6.1 then removed
-   the bridge from the command — the exec, the root parser, the env exports, the start-up banner and
-   the baked API key. A bare `aify-comms` exits 2 and names aify-env.
-
-   **What is left is the VERIFIER, which is a different question and still open.** `aify-comms
-   doctor` is what roughly forty documents and every agent habit reach for, and the section below
-   says aify-comms' doctor belongs inside the container. Moving it means giving the container a way
-   to answer host questions it cannot see, so it is not a rename. The PATH entry stays until that is
-   answered, and it no longer starts anything, which was the part that could hurt.
-
-   ~~What remains of this item is the command itself: `aify-comms` still exists as the environment
-   bridge, and deleting it is the last step rather than the flip.~~ (Struck rather than deleted, in
-   this document's own convention: it is what a reader believed until the bridge came out.)
-
-When both are on, PATH holds `aify-env` and the three launchers, and nothing else.
+When the first two are closed, PATH holds `aify-env`, the launchers and aify-wrapper's commands, and nothing
+from aify-comms.
 
 ## The client path, verified from a clean install
 
 Documented install commands rot in a particular way: they are written on the machine that already has
-the thing, and verified by the person who never has to run them. `npm install -g aify-env` sat in four
-documents returning 404 for everyone else, correct-looking because aify-env is `npm link`ed here.
-
-So this was run rather than reasoned about, into a throwaway npm prefix so the real install was never
-touched:
+the thing, and verified by the person who never has to run them. So verify the client path into a
+throwaway npm prefix, which never touches the real install:
 
 ```
 npm install -g --prefix <tmp> github:zimdin12/aify-wrapper
-  -> aify-wrapper-check, aify-wrapper-install (+ .cmd and .ps1 shims), VERSION 0.6.0
-<tmp>/aify-wrapper-check   -> ok claude-aify / ok codex-aify / ok hermes-aify, "3 current"
-<tmp>/aify-wrapper-install --help  -> usage, no install performed
+<tmp>/aify-wrapper-check            # one line per installed launcher, then a summary
+<tmp>/aify-wrapper-install --help   # usage, no install performed
+npm view github:zimdin12/aify-env version
 ```
 
-Both bins execute on Windows, where a `.sh` entry behind a generated `.cmd` shim is the thing most
-likely not to. `npm view github:zimdin12/aify-env version` answers 0.6.0 the same way.
-
-Re-run this the next time either package's packaging changes. It is cheap, and it is the only check
-that does not depend on this machine's own state.
+On Windows this is also the check that a `.sh` entry behind a generated `.cmd` shim runs at all. Re-run
+it whenever either package's packaging changes; it is the only check that does not depend on this
+machine's own state.

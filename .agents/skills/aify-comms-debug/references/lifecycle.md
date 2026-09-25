@@ -42,10 +42,9 @@ the operator to stop/relaunch the resident runtime.
 **Symptom:** Restart returns ok, the old backing dies, the agent settles at `available` instead of
 `online`, no new terminal is created, and the restart's own run reads `[FAILED]`.
 
-Both known causes are FIXED, so either is a regression (KNOWN_ISSUES.md). The failed run's
-`claimed_at` tells them apart: NULL, failed ~1s after the request, means the rotation adopted the
-terminal the restart was killing (compare `terminal_sessions.created_at` with
-`spawn_requests.created_at`); set, failed at 120s/300s, means the dying sidecar claimed the brief.
+Both known causes are fixed, so either is a regression. The failed run's `claimed_at` tells them
+apart: NULL (failed ~1s in) means the rotation adopted the terminal being killed; set (failed at
+120s/300s) means the dying sidecar claimed the brief.
 
 A new worker is not proof the restart worked: a cold start can produce one minutes later. Match
 the new terminal's `created_at` and `spawn_request_id` to your restart. A working restart can still
@@ -68,7 +67,7 @@ automatic ones (cold start, backstop, `comms_spawn`, a Herdr restore, an id from
 ## Managed ↔ resident ownership
 
 - Claude Code, Codex, and Hermes support managed and resident delivery.
-- Pi and OpenCode are managed-only for triggerable delivery; presence metadata is not a resident wake path.
+- Pi (deprecated) is managed-only for triggerable delivery; managed OpenCode is unsupported. Presence metadata is not a resident wake path.
 - Resident→managed carries the native handle so Restart resumes the same context.
 - Registration records a candidate owner; it must not silently kill or displace a live managed worker.
 - Active work blocks ownership changes unless the operator forces them after proving the target.
@@ -87,7 +86,7 @@ After switching, verify `sessionMode`, native handle, bridge identity, status, a
 | target already has queued work | ordering guard | inspect existing contract; do not duplicate it |
 
 Queued, claimed, and delivered are not execution proof. If delivery is unclear, move
-to `dispatch-bridges.md`.
+to `dispatch-delivery.md`.
 
 ## Registration and bridge ownership
 
@@ -101,10 +100,10 @@ handle, fresh wrapper bridge heartbeat, and runtime wake configuration.
 - A superseded bridge cannot claim new work or own new terminal controls.
 - Re-registering does not repair a dead process: relaunch the wrapper, then verify readback and delivery.
 
-## Restarting aify-env
+## After the operator restarts aify-env or the service
 
-A service/bridge restart can terminate managed backings. Identity, chat, spawn spec, and stored
-native handle remain. After restart:
+Restarting aify-env is the operator's action: it ends every managed worker on the host. Identity,
+chat, spawn spec, and stored native handle remain. Afterwards:
 
 1. Verify service health and that aify-env is answering.
 2. Read each affected agent; do not assume old console/session rows are live.

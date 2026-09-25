@@ -1,10 +1,8 @@
 # aify-env: what moves, what stays, and why the allowlist writes itself
 
-Design capture, 2026-08-19. **Built and published since:** <https://github.com/zimdin12/aify-env>.
-Where this document and the code disagree, the code is the answer — this records the reasoning,
-not the state. The operator's shape, my measurements, and the two consequences that
-follow from it rather than from me. Nothing here is built. It exists so the decisions survive the
-conversation they were made in.
+Design capture, 2026-08-19, since built: <https://github.com/zimdin12/aify-env>. Where this document
+and the code disagree, the code is the answer: this records the reasoning behind the boundary, so the
+decisions survive the conversation they were made in.
 
 Companion to [MULTI_SERVICE_STACK_TRACE.md](MULTI_SERVICE_STACK_TRACE.md), which established that
 per-service endpoints already work and that the real blocker is spawning living inside aify-comms.
@@ -18,7 +16,7 @@ This is the answer to that blocker.
 |---|---|---|
 | **aify-wrapper** | The four launchers. Installs one per harness present. | Harnesses. Not services. |
 | **aify-env** | Processes and PTYs on this host. One per host. Answers `aify-env doctor`. | Neither, in its HOST tier. Its service PLUGINS know their own service — see the carve-out below. |
-| **aify-comms** | Messaging, dispatch, channels, agent semantics. | Agents. Stops being a command. |
+| **aify-comms** | Messaging, dispatch, channels, agent semantics. | Agents. On a host it is only a verifier command that starts nothing. |
 | **aify-dashboard** | Agent-pushed HTML, liveness pages, tasks, docs, projects. | Reads the others. |
 
 Both aify-wrapper and aify-env read **the same config**, `~/.aify/services.json`, and connect to the
@@ -68,18 +66,15 @@ service's own screen code stays as it is for now: `console_prompts.py` answers d
 `console_working.py` footer lease is the fallback for an aify-env that sends no observation. The
 lease can be retired once every supported aify-env sends one.
 
-`aify-comms` as a BRIDGE is gone, v0.6.1. `install_bridge_launcher()` wrote `~/.local/bin/aify-comms`
-beside `claude-aify`, `codex-aify`, `hermes-aify` and `pi-aify` — four harness launchers and one
-environment bridge, same directory, same shape, entirely different job, and the BARE invocation was
-the destructive one. That is the exact mechanism of the 2026-08-11 incident: a four-second run meant
-only to confirm the launcher still started superseded the live environment bridge and reaped nine
-managed agents. Renaming it would not have been cosmetic; removing the collision beat renaming
-around it.
+### `aify-comms` on PATH is a verifier
 
-What that function writes now is a verifier — `doctor`, `--check`, `--version`, `--help` — and a bare
-run exits 2 naming aify-env. **The collision is what went, not the name**: the file is still in that
-directory and still shaped like a launcher, so the remaining question is where the DOCTOR belongs,
-not which process the string starts. Nothing it can do now is destructive.
+Until v0.6.1, `install_bridge_launcher()` wrote `~/.local/bin/aify-comms` beside the harness
+launchers, same directory, same shape, and a BARE run started an environment bridge that superseded
+the live one and reaped its managed agents (nine of them on 2026-08-11). What that function writes now
+is a verifier: `doctor`, `--check`, `--version`, `--help`; anything else exits 2 naming aify-env.
+**The collision is what went, not the name**: the remaining question is where the doctor belongs
+(see [TARGET_ARCHITECTURE.md](TARGET_ARCHITECTURE.md), "What is left"), and nothing the command can
+do is destructive.
 
 ## The cut, measured
 
@@ -139,10 +134,9 @@ a list — which is this repo's own rule, that a list you must remember to updat
 delay on it. Installing a wrapper enrols it, nobody edits a policy file, and a new harness is
 automatic.
 
-Doctor already proves the read is safe: it takes `HARNESS_WRAPPER_VERSION` out of the file rather than
-running `--check`, precisely because asking a pre-contract wrapper its version would LAUNCH CLAUDE.
-The same reasoning applies to an allowlist — inspect the artifact, never run it to decide whether to
-run it.
+This is what aify-env's allowlist does, and `aify-wrapper-check` reads the same marker out of the file
+rather than running `--check`, because asking a pre-contract wrapper its version would LAUNCH CLAUDE.
+Inspect the artifact; never run it to decide whether to run it.
 
 Open: whether the marker alone is enough, or whether the installed set should also be recorded at
 install time so that a hand-written file carrying the marker cannot enrol itself. For a local trust
@@ -188,12 +182,11 @@ Two constraints make a self-report trustworthy, and both come from failures this
   it is, and the comparison against HEAD lives in that service's own repo tooling, where a checkout
   exists.
 
-And the rule that survives everywhere: **unanswered is not a pass.** Today `skip()` pushes
-`ok: true`, and `--strict` exits on `failed.length`, so on Windows a green strict run means ten
-verified and two unanswerable rather than twelve verified. That is survivable at twelve checks on one
-host. Across four components where "service not installed" and "service silent" become ordinary, it
-stops being survivable. **passed / failed / unanswered**, with unanswered visible and carrying its own
-exit status, is a prerequisite of the split rather than a later polish.
+And the rule that survives everywhere: **unanswered is not a pass.** `aify-env doctor` reports
+**passed / failed / unanswered**, and its `--strict` exits non-zero on an unanswered row as well as a
+failed one. `aify-comms doctor` counts passed, failed and skipped separately and marks a skipped row
+`ok: false, skipped: true`, so a consumer keying on `.ok` cannot read it as a pass; its `--strict`
+exits on failures only, because on Windows `bridge-running` and `agent-identity` always skip.
 
 ## The TUI, and the limit on what it may claim
 
@@ -208,13 +201,12 @@ The limit: aify-env knows **processes**, not agents. Alive is not the same as wo
 list may show what aify-env owns, annotated with what aify-comms reports when asked, and must not
 derive status of its own — deriving it in two places is how two answers start disagreeing.
 
-## Open questions
+## Open question
 
-1. **Name.** `aify-env` names the tier; `aify-comms-bridge` names today's coupling and would need
-   renaming again once the tier is shared. Operator's call.
-2. **The request contract** between a service and aify-env. Not designed. It is the piece that decides
-   whether the 16.9k lines can stay put.
-3. **Shared-host trust**, per the allowlist note above.
-4. **aify-wrapper installs one launcher per `--client` and does not detect what is present.** The
-   operator's requirement is that installing it installs a launcher for every harness in the
-   environment. Small, and independent of everything else here.
+**Shared-host trust**, per the allowlist note above: whether the marker alone is enough, or whether
+the installed set should be recorded at install time.
+
+Answered since this was written: the tier kept the name `aify-env`; the request contract is aify-env's
+`aify-comms` plugin calling this service's HTTP API (it claims spawn requests and terminal controls,
+and runs the launcher file with structured `argv`), so aify-env's host core did not take on the turn-detection and steering code; and
+aify-wrapper's `install.sh --all` installs a launcher for every harness found on PATH.

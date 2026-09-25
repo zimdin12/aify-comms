@@ -1,0 +1,583 @@
+# KNOWN_ISSUES archive
+
+The record of resolved, superseded and condensed entries moved out of
+[KNOWN_ISSUES.md](../../KNOWN_ISSUES.md) on 2026-09-25. It is kept as evidence of what was found, how
+it was traced and how it was fixed, not as instruction: where an entry here disagrees with
+KNOWN_ISSUES.md or with the code, those are right. Relative links were rewritten for this location.
+Where an open item was condensed into KNOWN_ISSUES.md, its full original text is here.
+
+## The v0.2 backlog note that opened this file
+
+> **v0.2 backlog moved out of this file.** Non-urgent findings from the v0.1 release review now live in **[docs/V0.2_PLAN.md](../../docs/V0.2_PLAN.md)** with their traces attached — including a behaviour change awaiting an operator decision (managed codex auto-approves all command/file approvals). The compaction item there is superseded: the service answers no compaction dialog. This file stays the list of *known limitations*; that file is the *work queue*. What actually shipped in v0.2, and the findings that were **disproven or dropped**, are in **[docs/V0.2_SPEC.md](../../docs/V0.2_SPEC.md)**.
+
+## A hard kill of the host tier leaves every gateway host running, and the only reaper died with it (2026-09-05)
+
+Measured tonight, and it answers a question `gateway-orphans` has carried as "still unknown": an
+orphaned gateway host lived **2 days 18 hours** (spawned 09-03 05:58, still running 09-05 23:40 when
+it was killed by hand). Its lifetime was bounded by nothing.
+
+The operator killed aify-env and closed every agent, then found `hermes update` refusing to run. Six
+processes across two hermes trees were still up, holding ports 9545 and 9547 and locking the venv's
+`.pyd` files.
+
+**The chain, all three parts already in the source:**
+
+1. `hermes-gateway.mjs` spawns the gateway host with `detached: true` and then `unref()`s it. That is
+   deliberate, and it is what lets a gateway survive a bridge RESTART so agents keep working.
+2. `hermes-managed-host.js` says the wrapper SIGTERMs the delivery loop when the visible TUI closes,
+   and the loop's `installTeardown` reaps the gateway host it owns -- "but a SIGKILL'd terminal (or a
+   hard `kill -9` of the wrapper) BYPASSES that trap".
+3. The backstop for exactly that case is the loop self-detecting that no TUI is attached. It also
+   lives inside the delivery loop.
+
+So every reaper for a detached gateway host runs inside a process that dies at the same instant the
+gateway is orphaned. PTY-backed workers die correctly, because they are spawned `detached: false` and
+aify-env owns their ConPTY. The gateway hosts, which are deliberately not, survive.
+
+**What makes it accumulate rather than self-correct:** the only remaining collector is the boot
+survivor sweep, and `doctor-predicates.js` says so in its own fix text ("relaunch the environment
+bridge, whose boot survivor sweep collects them all"). That puts the operator in a bind worth naming.
+Not restarting aify-env means orphans accumulate with no upper bound. Restarting it runs the sweep,
+but supersession reaps whatever the incumbent was running -- the hazard
+[starting-aify-env-reaps-the-running-fleet] exists for. Neither choice is free, and today the escape
+is that a sweep is safe precisely when there is nothing left to lose.
+
+**Fixed in v0.6.8: a gateway ends with its agent, however the agent ends.** Three layers, each
+covering the one before:
+
+- **The gateway exits by itself.** It is spawned with `HERMES_PARENT_PID` set to the agent launcher's
+  lease pid (`gatewayOwnerEnv` in `hermes-gateway.mjs`), which arms hermes' own parent-death watchdog.
+  hermes' `update` also reads that pid as the gateway's spawner, so while the agent lives it refuses to
+  run, naming the gateway, instead of stopping it and relaunching it detached (read in
+  `hermes_cli/update_cmd_windows.py`, not yet observed).
+- **The lease's watch stops what is left.** Every claim starts a detached watch (aify-wrapper
+  `lib/agent-lease-watch.mjs`). When the launcher dies, killed or not, the watch stops everything the
+  instance attached and every process it left running.
+- **The next start collects the rest.** The claim stops a dead instance's leftovers, and kill-prior
+  (`hermes-prior-reap.mjs`) stops a previous generation's gateway on a port the agent owns.
+
+Two gaps remain. A gateway started by a launcher older than v0.6.8 carries no parent pid. And two
+markers naming one port make that gateway nobody's, so neither agent's relaunch collects it.
+
+**Found live on 2026-09-15, and fixed with it: an ELEVATED gateway was invisible.** `hermes update`,
+run four times from an Administrator terminal, relaunched mc-senior-dev's orphaned gateway on 9273. To
+a non-elevated process its command line read as empty. `gateway-orphans` reported "no hermes gateway
+host is running" in the same minute netstat showed the socket, and kill-prior could not see it either.
+Both now also read the socket table (`listening-ports.mjs`): a port an agent's marker claims, held by a
+process whose command line cannot be read, is reported (`unidentified`), and kill-prior keeps the marker
+and says what holds the port. Neither can stop an elevated process; that takes an Administrator
+terminal. The listener is known by its foreign port 0, so a translated state column (`ABHÖREN`) still
+reads, and the pid named for a tree kill is the top of the gateway's own `hermes`/`python` chain, never
+the elevated terminal above it (external review, 2026-09-15).
+
+**Meanwhile `gateway-orphans` reports it.** That row is the instrument; it named all six by pid and
+port, and read `none` immediately after they were killed.
+
+## The managed-claude console keepalive was deleted, and its lease is still tuned to it (2026-09-05)
+
+Found while reading the docs after v0.6.2, not from a report. Nobody has seen this misbehave yet.
+
+A managed claude only re-emits its spinner footer while its PTY is actively rendered. With the
+dashboard Console closed it goes quiet, the console-working lease expires, and the status dot drops
+from `working` to `online` while the agent is still working. That was fixed on 2026-06-05 by a
+repaint keepalive in `terminal-runtime._armConsoleKeepalive`, which SIGWINCHed the PTY every ~4s so
+the footer kept streaming whether or not anyone watched. The lease TTL was widened to 20s to span
+that cadence.
+
+**v0.6.2 deleted `terminal-runtime.js` with the environment-bridge tier, and the keepalive went with
+it.** Searched 2026-09-05: no `SIGWINCH` in aify-comms' or aify-env's live code, so nothing pokes a
+managed PTY any more. `service/api_core/liveness.py` still carries the 20s lease.
+
+**What is NOT established:** whether the flap returned. The console path moved to aify-env in the
+same release, so the PTY may now be driven differently, and no one has watched a managed claude with
+its Console closed since. Two facts are proven (the producer is gone, the constant that spanned it
+remains) and the consequence is not.
+
+To settle it: leave a managed claude working, close its Console, and watch the dot for a minute. If
+it falls to `online`, whatever replaces the keepalive has to solve the same problem, and the section
+in `aify-comms-debug/references/status-symptoms.md` records what the old one did and why a time-grace
+cannot substitute for it.
+
+## Managed workers inherit whatever started their host (2026-08-25; regressed in v0.6.2, closed 2026-09-14)
+
+A bridge started from inside a Claude Code session carried `CLAUDE_CODE_CHILD_SESSION`, spread it into
+every worker, and every managed agent ran with **transcript saving off**. That was fixed on 2026-08-25
+in `mcp/stdio/terminal-env.js`, with the list in `child-env-hygiene.mjs`.
+
+**It regressed silently when v0.6.2 deleted the environment bridge.** `terminal-env.js` lost its only
+production caller, and aify-env merges `{...process.env, ...launch.env}` without naming the marker, so
+a host started inside a Claude Code session launched managed claudes with their transcript off again.
+The launch-overlay agreement test compared only the `AIFY_` names the JS ASSIGNS, so it could not see
+a strip. Reported by graph-tech-lead on 2026-09-14 and confirmed by reading both tiers.
+
+**Now:** the service owns the list (`service/api_core/launch_env.py` `NEVER_INHERITED`) and sends it
+on `GET /terminals/{id}/launch` as `unsetEnv`; aify-env removes those names, in any case, before the
+overlay goes on top. The overlay also always writes `AIFY_COMMS_AGENT_ROLE`, so an older host that
+ignores `unsetEnv` still cannot hand a worker an inherited role. The seam is tested end to end in
+`test_the_env_plugin_can_run_what_the_launch_answers.py`, with a marked host environment.
+
+**Still open:** it is a denylist, so an as-yet-unknown harmful variable still gets through.
+`terminal-env.js` / `child-env-hygiene.mjs` were deleted on 2026-09-18; the property their tests
+held (every identity name `launch-identity.mjs` reads is written or stripped) is now derived
+against the service's list in `test_the_launch_environment_has_one_owner.py`.
+
+## Registration records `bridgeDir` as given, so its form depends on the shell (2026-08-21)
+
+**RESOLVED in `64cec065`:** `install.sh` now passes all three `register-service-cli.mjs` arguments, `bridgeDir` included, through `path_for_node`. The text below is the record.
+
+`install.sh` converts two of the three arguments it hands to `register-service-cli.mjs` through
+`path_for_node`; the third, `bridgeDir`, is passed raw. The registry then records whatever it received,
+and the launcher builds its MCP `args` by joining that with filenames.
+
+With MSYS path conversion ON — every shell on this fleet — the shell converts it and the registry holds
+`C:/...`, which is correct. With conversion disabled the registry holds `/c/...`, which native Node
+cannot open. Measured both ways; a first probe of mine appeared to disprove it because the shell had
+quietly converted the argument before Node saw it.
+
+**Not a deploy blocker under the measured premise**, and left alone deliberately rather than fixed on
+the eve of a deploy: `path_for_node` emits backslashes where the shell emits forward slashes, so
+"fixing" it would change the recorded payload on every host to a form nothing has exercised. Raised by
+comms-senior-dev in pre-deploy review; the failure mode he first reported — registration silently
+failing and leaving no entry at all — IS fixed.
+
+The related baked launcher paths (`install.sh` around the `aify-comms` and `aify-doctor` bodies) are the
+same class and equally unreachable here: nothing on this fleet exports `MSYS2_ARG_CONV_EXCL` or
+`MSYS_NO_PATHCONV` — not the installed launchers, not the operator's shell, not the four wrapper
+templates, whose only mentions are comments.
+
+## `bridge_instances` accumulation is BY DESIGN — a retraction (2026-08-07)
+
+Recorded because it looks like a leak every time someone new reads the table, and because
+I claimed it was one.
+
+**The claim I made and withdrew:** that leaked non-superseded `bridge_instances` rows
+defeat `_requeue_orphaned_claimed_runs` by keeping a dead claim bridge "fresh". They do
+not. That reconciler keys on `bi.id = r.claim_bridge_id` — one specific row — so sibling
+rows for the same agent cannot make the claim bridge read alive.
+
+**Why several unsuperseded rows per agent is correct.** `_record_bridge_registration`
+carves out same-terminal `managed-wrapper-child` siblings on purpose: bridge-spawned PTY
+siblings sharing a terminal must not supersede each other, and a `channel-sidecar` and a
+`managed-wrapper-child` for the same managed agent play *different* roles and must never
+kill each other. Rows age out once their heartbeat passes the 5-minute window. Measured
+live 2026-08-07: 26 rows total, max 4 for one agent, all superseded on schedule.
+
+**Do not "fix" this without a named symptom.** A related true observation, with no
+symptom attached: wrapper-child bridges mint a fresh UUID per re-registration while the
+sidecar uses a stable derived id, so a stable id there would make the write an UPSERT
+instead of a new row. That is why the table *looks* like it leaks.
+
+**RESOLVED since: `rename_agent` (`service/routers/agents/rename.py`) now computes `had_live_bridge` from the agent's liveness, not from any unsuperseded row.** **One consumer DOES use the fooled shape — carded, not fixed.** Found by
+`comms-senior-dev` reviewing the retraction, and confirmed: `rename_agent` computes
+`had_live_bridge` as `SELECT 1 FROM bridge_instances WHERE agent_id = ? AND
+COALESCE(superseded_by,'') = ''` (then in `api_v2.py`) with **no freshness predicate**,
+immediately after mass-retargeting every `bridge_instances` row to the new id. So a
+rename of an agent holding a long-dead-but-unsuperseded row can report a live session
+that isn't there.
+
+Consequence is an **advisory note only** — it tells the operator to relaunch an orphaned
+session — with no state damage, and `_reap_stale_orphan_bridges` ages the row out. So it
+is recorded rather than fixed: **card it if a rename ever emits a false "live session
+orphaned" note.** Fixing an unobserved defect found while writing a retraction about an
+unobserved defect is the reflex the v0.2 ledger exists to stop.
+
+## Restart leaves an agent with no worker — BOTH PATHS NOW FIXED (2026-08-03 and 2026-08-07)
+
+**Live-reproduced on `ef-manager` twice, and they were not the same bug.** Both times the operator
+hit Restart, the agent came back `available` (a wakeable identity with no live worker) instead of
+`online`, and no new terminal was created. Underneath were two independent mechanisms, distinguished
+by one field: whether the dead brief was ever `claimed`.
+
+### FIXED — the rotation adopted the terminal the restart was killing (`claimed_at` NULL)
+
+The deterministic one, and the one that fired on *every* restart. Traced end to end on
+`run_1785749311405_220effc1` (2026-08-03):
+
+```
+09:28:30  Restart -> spawn_request queued carrying the brief; 'stop' control enqueued for the OLD PTY
+09:28:31  spawn -> running: new session minted, initial-brief run created (queued),
+          and the rotation MIGRATED the OLD, about-to-die terminal onto that new session
+09:28:32  the stop lands; the old PTY reports 'stopped' -> the sweep, which keys on the CURRENT
+          session's terminal, sees the corpse it just inherited and fails the queued brief
+09:28:57  spawn_request failed: "Initial brief failed: Terminal stopped before ..."
+09:30:04  reaper: "live sidecar but no console PTY = headless orphan; worker killed host-side"
+```
+
+The restart killed its own brief one second after creating it. Root cause was the terminal migration
+added 2026-05-31 (adopt the terminal *this* respawn's bridge just created): it matched the agent's
+freshest live same-bridge terminal with **no lower bound on age**, and on a restart that is exactly
+the terminal being killed — ef-manager's was 10h16m old. Fixed by bounding the migration to
+terminals no older than the spawn request that ordered them. Fixed at the adoption, **not** at the
+sweep: the sweep was correct about what it saw, it was handed the wrong terminal.
+
+This is why the bug looked intermittent. It never worked; a *separate* manual cold-start produced
+the worker that showed up minutes later, and that was read as a slow restart.
+
+### FIXED 2026-08-07 (v0.2.0) — the orphaned claim was a DETERMINISTIC loss, not a race
+
+The slower, conditional path, seen on `run_1785537062959_4da30337` (2026-07-31T22:31). The stop
+completes correctly and kills the PTY — but one second earlier the NEW worker's initial-brief run is
+CLAIMED by the OLD worker's channel sidecar, which is being torn down as it claims. It dies holding
+the claim, the run is failed by the 300s turn-start backstop, and the spawn_request fails with it.
+
+**The mechanism is a RACE between two existing paths with the same trigger and opposite outcomes:**
+
+| path | outcome | eligible when |
+|---|---|---|
+| `_requeue_orphaned_claimed_runs` (`service/api_core/recovery_writes.py`, reconcile loop) | RECOVERS — requeues so a live bridge re-claims | claim >90s old AND claim bridge stale >120s |
+| `_discard_unclaimable_active_run` (`service/api_core/active_run_discard.py`) | FAILS the run, taking the spawn with it | owner bridge stale >120s |
+
+Both gate on the same `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, so the 90s grace is not the binding
+constraint and they become eligible together.
+
+**CORRECTED 2026-08-07: this was never a coin flip. Recovery lost every time, and the cause is
+ORDERING.** Inside one reconcile sweep the failing path is reached in `service/reconcilers/sweep.py`
+(`_repair_unusable_active_runs` → `_discard_unusable_active_run`) and recovery runs 58 steps later
+(`_requeue_orphaned_claimed_runs`), with a `_commit_step` between them. So the failing path always gets there first and
+recovery can never rescue a run it has already failed. Calling it a race understated it and pointed
+at the wrong remedy (tie-breaking by timing rather than by outcome).
+
+**A fix was written, shipped, and REVERTED (`0b948d2` → `70e03aa`).** It superseded a managed channel
+sidecar at terminal death (mirroring the Bug D wrapper-child fix). Self-review found it made things
+worse: the claim happens one second BEFORE the death, so the supersede cannot prevent it, and
+`_discard_superseded_active_run` fails a run the instant its claim bridge is superseded —
+no grace, no delivered-check. The change therefore DELETED the window in which the run could be
+rescued and made the failure faster and more certain. Do not re-attempt that shape.
+
+**Fixed as specified**, in `_fail_stale_active_run` — the single funnel EVERY failing branch
+passes through, so one seam covers them all. `_requeue_instead_of_failing_undelivered_claim` prefers
+recovery when the run is still `claimed`, has no `delivered` event, and has been rescued fewer than
+`UNDELIVERED_CLAIM_REQUEUE_LIMIT` (3) times. A run that reached the agent (`delivered` event, or
+status `running`) fails exactly as before; the rescue count comes from the run's own
+`requeued_orphaned_claim` events, so the bound needs no schema and survives a restart.
+
+It is the OPPOSITE of the reverted shape (`0b948d2` → `70e03aa`), which superseded the sidecar at
+terminal death: that could not work (the claim precedes the death by a second) and it CLOSED the
+rescue window. This widens it, and adds no new machinery — the requeue is the existing tested one.
+`test_undelivered_claim_prefers_requeue.py` pins both the fix and the two facts it rests on (the
+sweep ordering, and the shared staleness ceiling), so if either changes the analysis gets revisited
+instead of silently rotting.
+
+Adjacent: the Sessions list renders the BRIDGE INSTANCE id where the operator reads session
+identity, and a stop that succeeds is recorded `failed` when the PTY dies before the bridge acks
+it — both still open. The third item once listed here, `bridge_instances` leaks per agent, is
+**RETRACTED** — see the by-design section at the top of this file.
+
+## v0.1 release review (2026-07-26) — three service-breaking fixes
+
+Whole-series review of `6b3985c..5885eef` (125 files). All three fixed and deployed; kept here because each is a failure *class* worth recognising again.
+
+- **Queued work could strand forever; non-steer agents could go permanently deaf — FIXED (`b6601ac`).** The delivery gates read raw `turn_busy` with no bound, and the dead-bridge sweeper deliberately cannot reach hook-owned turns (`turn_bridge_id` in `('', 'user-prompt-submit')`) or turns on a live bridge. Past the 30-min ceiling status already reported the agent idle while delivery kept holding; for a target without `steer` the claim gate's early return made it deaf to *every* dispatch. Now bounded by the same ceiling status uses. See DECISIONS.md "Delivery gates read raw `turn_busy`, bounded by exactly one ceiling" and the debug skill's *"Agent reads idle but its queued work NEVER delivers"*.
+- **`aify-doctor` reported a dead fleet as healthy — FIXED (`756f3a5`).** `env-bridge` counted *registered* environment rows, so it printed "✓ 2 connected" while both rows read `status=offline` (stale 24h and ~7 weeks). The one check meant to prove managed spawns can run was structurally incapable of failing. **Lesson: a verifier that cannot go red is not a verifier.** (Doctor coverage has since been added: the doctor's checks are tested by their own files under `mcp/stdio/tests` and `service/tests`.)
+- **The test suite was permanently red on Windows — FIXED (`7086006`).** The installer-contract test shelled out to `bash <absolute host path>`; MSYS bash accepts neither the backslash form nor `C:/...`, so it failed 127 on a file that exists and its real assertion never ran. Suite is green on Windows too. **Watch-item: keep it that way — green on Linux alone is not green** (v0.2 E2).
+
+## Planned, not started (2026-07-14) — CLI status view + dashboard upgrades
+
+Plan: [docs/plans/2026-07-14-cli-status-view-and-dashboard-upgrades.md](../../docs/plans/2026-07-14-cli-status-view-and-dashboard-upgrades.md). Operator asked for it to be recorded, not built yet.
+
+- **`aify status` — a fleet CLI/TUI status view.** `aify-doctor` proves "is my install real?"; this answers "what is my fleet doing, and where?" — agent, runtime, status, machine/tty/pid/cwd, bridge staleness, identity, session. Every cell provable from the host, because today proved the DB reports what was *claimed*, not what is *true*.
+- **RESOLVED in `ad1afd9a`: the dashboard console cannot be scrolled.** The live screen is now a `pyte.HistoryScreen` whose snapshot ships its history, and the CSS clip is gone. The original finding: Two verified causes: the console is seeded with a *screen snapshot* (there is no history to scroll to — xterm's scrollback only fills after attach, and claude repaints in place rather than emitting lines), and `.console-wide-mirror { overflow-y: hidden }` (in `styles.css`) killed vertical scroll outright. Fix: switch the live screen to `pyte.HistoryScreen` (real server-side scrollback) and drop the CSS rule — in that order.
+- **The analytics range selector is coarse AND half the page ignores it.** Only `24h/30d/12m/All` exist (`service/new_dashboard/analytics-page.mjs`). `/analytics` honours the range; `/usage` and `/usage/consumption` take no range param at all (`service/new_dashboard/analytics-page.mjs`), so those blocks always show "now" under whatever label is selected.
+- **A cold managed agent offers no way to start it.** Hermes cold-start is NOT broken (spawn requests ran at 19:27 on 2026-07-14); the Console tab simply returns early at `if (!session)` (`service/new_dashboard/console-actions.mjs`), above the start buttons (`service/new_dashboard/console-actions.mjs`). An agent with no session row can never reach them — hence "why can't I start hermes models?".
+
+## Status identity (2026-07-14) — the "always working" class, ROOT-CAUSED + FIXED
+
+- **An agent launched without `--aify-agent` has NO working status, permanently — FIXED (`224d50e`, `0cba79a`).** `AIFY_AGENT_ID` gates *every* turn-state path (bridge turn detector, `Stop`/`UserPromptSubmit`/`PostToolUse` hooks, session-store capture). Launched without it, the agent still registers, messages and heartbeats — but only the channel sidecar can touch its turn state, and it only ever SETS `working` on a wake → latched `working` forever; after the backstop ages the flag out it reads `online` and can never show `working` again. **Our own resume command caused it:** `resume_command` emitted `claude-aify --resume <id>` with no `--aify-agent`, so copying the dashboard's takeover command produced an identity-less session. Fixed both ways: the resume command now carries `--aify-agent` for every runtime, and `claude-aify` now recovers the id from a bare `--resume <handle>` (service lookup → session-store fallback → loud warning). Live incident: `general-manager` ran this way for weeks and survived every bridge fix, because the detector carrying those fixes never armed. **Detection is process-level, not DB-level** — see *CHECK THIS FIRST* in the debug skill's `status.md`.
+- **RESOLVED: codex has no wrapper-side identity recovery.** `codex-aify` (aify-wrapper's `codex-aify.sh.in`) now asks the service which codex agent owns a bare `--resume <handle>` and warns loudly when none does. The original finding: Its operator path is covered by the fixed resume command, but a hand-typed `codex-aify --resume <id>` is still identity-less and will reproduce the whole class. Low urgency (no codex agents in the live fleet), cheap to mirror from the claude/hermes blocks.
+- **Not fixable at runtime.** Re-registering does not repair identity (`comms_register` writes DB rows; `AIFY_AGENT_ID` is read once at bridge boot), and Claude Code's in-app `/resume` picker swaps the conversation inside the same process, keeping its env. Only a relaunch works — and `--resume` preserves the conversation, so it costs a relaunch, not context.
+
+## Usage / quota (2026-07-13)
+
+- **Live ChatGPT quota was dead on Linux/WSL — FIXED (`d418ffd`).** `defaultHermesAuthPath()` used the Windows path (`%LOCALAPPDATA%\hermes\auth.json`) *unconditionally*, so on any non-Windows host it read a path that doesn't exist, the live fetch always failed, and the pool silently fell back to a stale codex rollout (quota that never refreshed). Now OS-aware: `~/.hermes/auth.json` on non-Windows, `%LOCALAPPDATA%` on Windows — matching what `install.hermes.md` already documented.
+- **Watch: `weekly` comes back `null` from the live `wham/usage` endpoint.** The 5-hour window populates correctly; the weekly one parses to null. The live path reads `rl.primary_window`/`rl.secondary_window`, while the codex-rollout path uses `rl.primary`/`rl.secondary` — the two sources have divergent shapes and the live names were reverse-engineered separately. Needs a captured `wham/usage` response body to resolve; cannot be settled from the code.
+
+## Test suite (2026-07-14) — watch
+
+- **RESOLVED: the suite is kept green.** CLAUDE.md requires all three suites green before a commit. The 2026-07-14 finding: **The service suite is substantially red on `main`, and it is NOT new.** Baseline on HEAD: 23 failures + 10 errors of 666. The 10 "errors" are collection failures (`import pytest` — pytest isn't installed in the service image). The failures cluster in dispatch/PTY/hermes-console/orphan/stranded-run tests and in `test_session_identity_sticky` (its "park pending" expectation no longer matches behaviour). Nobody has triaged whether these are stale expectations or real regressions — until someone does, the suite cannot gate a change, which is itself the risk worth recording.
+
+## Open watch-items (2026-07-01 — teams benchmark + live-DB analysis)
+
+Plan + full analysis: [docs/superpowers/plans/2026-07-01-team-guidance-and-infra.md](../../docs/superpowers/plans/2026-07-01-team-guidance-and-infra.md).
+
+- **Bug D — FIXED server-side 2026-07-02 (`ddda949`, regression suite `test_bugd_coldstart_selfheal.py`), pending one live team-restart verification.** Three fixes: `report_terminal_dead` supersedes the agent's fresh-but-dead `managed-wrapper-child` rows immediately (the row that suppressed the send-path coldstart for the stale window); cold-starts coalesce against queued/claimed AND recently-`running` spawn_requests (no duplicate spawn killing a booting worker); the queued-run backstop SELF-HEALS with a one-shot `coldstart_rescue` (spawns a worker + grants one fresh window) before failing. Related same-day fixes: the claude compaction-recommendation prompt auto-confirmed (`a4091bc`; superseded, the service now answers no compaction dialog and `console_auto_confirm_claude_compaction` is retired), and console snapshots render at the PTY's authoritative size recorded from completed resize controls (`270f97b`). Original repro kept below for history:
+  **(historical) LIVE REPRO 2026-07-02 13:43-13:48 UTC:** Fresh evidence from the sand-castle team restart, hermes targets only (sc-architect/sc-coder/sc-tester failed; claude target sc-claude auto-started fine at 13:42:57):
+  1. *Auto-start didn't fire on the first send*: sc-manager's 13:43:17 broadcast queued with NO spawn attempt; a spawn request for sc-architect only appeared at 13:46:30 (~3min later, kicked by a SECOND send that merged into the queue). 4s later the 180s queued-run backstop failed the original run ("up-but-deaf") — the auto-start raced its own backstop.
+  2. *The late-spawned worker then died* — CORRECTED (2026-07-02 17:0x): the boot deaths were **hermes itself failing to start**, not a kill-prior race. The operator's hermes install (1959 commits behind → partial `hermes update`) crashed at launch: first `TUI build failed / npm error Missing script: "build"`, later `hermes dashboard ... did not become ready within 60000ms` from `hermes-managed-host.js ensure-host`. After the operator's force-update, the exact managed launch (`hermes dashboard --port … --skip-build` + `HERMES_DASHBOARD_TUI=1`) boots clean (`HERMES_DASHBOARD_READY`), and all three workers restarted successfully via `POST /sessions/{id}/control {action:"restart"}`.
+  REMAINING REAL DEFECT (part 1 above): the FIRST send after an env-bridge restart creates no spawn attempt for a cold hermes target — the spawn only fired ~3min later, kicked by a second send, and then raced the 180s queued-run backstop. Also: concurrent spawn requests for the same agent aren't coalesced (two `running` rows). Evidence: dispatch_events ids 170824-170859, spawn_requests rows 13:46:30/13:47:11. Until fixed: after a bridge restart, explicitly Restart hermes team members (dashboard button or the sessions/control API), and treat a `[NOT DELIVERED] ... up-but-deaf` mirror as "restart its worker now". A hermes-runtime boot failure produces the SAME symptom — check `hermes` launches at all (e.g. `hermes dashboard --port 9199 --no-open --skip-build`) before blaming dispatch.
+- **Stranded reply-capture — ~50 require-reply runs finished with no `result_message_id` (PARTIALLY UNFIXED).** Live-DB: 50 `dispatch_runs` with `require_reply=1`, terminal status, empty `result_message_id`; split EXACTLY 25/25: (a) **25 LINKAGE** — a reply message with matching `in_reply_to` EXISTS but the run was never closed (a reconcile sweep that sets `result_message_id` from the matching reply fixes these + future ones); (b) **25 SILENT** — no reply at all (turn ended without `comms_send`; the `managed_reply_capture_fallback` should mirror these — verify it fires). Mostly hermes (33), spread 2026-06-02→06-30 (steady drip, not one incident).
+- **Hermes dying-turn strand + status flap (2026-07-10, sc-manager live repro).** A managed hermes turn that dies to a **model-429 / mid-turn interrupt / stall** leaves its `delivered, require_reply=1` run stuck forever (looks idle) AND flaps the derived status working↔online (the same missing/noisy hermes turn-end signal). PARTIAL FIX shipped: `_fail_stranded_delivered_reply_runs` now FAILS such a run after `stranded_reply_fail_minutes` (45) with a visible cause + sender mirror (see DECISIONS.md). **Still open:** the status FLAP itself — **root-caused + live-reproduced 2026-07-10** on a disposable `hermes-flaptest2` (managed, gpt-5.6-sol). Sequence: a dispatched turn completes cleanly (run→`completed`, reply sent, `turn_busy`→0, TUI shows `✓`), then ~80s later `turn_busy` flips back to 1 and holds ~48s before clearing — the agent shows `working` while idle-to-the-user. Confirmed only ONE dispatch existed (no real second turn), so the second "running" edge is **hermes-side POST-TURN background model activity** (self-improvement / memory update on gpt-5.6-sol) that the gateway marks `session["running"]=True`. The turn detector (`hermes-gateway-turn-detector.js`) faithfully reports that as `/turn-start`→`turn_busy=1`, and `derive()` deliberately trusts `turn_busy=1` as "runtime executing a turn" (`_fail_stranded_delivered_reply_runs` in `service/control_plane.py`) → `working`. So NEITHER the detector NOR derive() is wrong in isolation — the gap is **semantic**: post-turn background housekeeping is a real gateway "turn" but not user-facing work. A start-debounce won't filter it (the background run is sustained ~48s, not a blip). NOT caused by the console-keepalive (reverted `d34eb40`, verified never active). **FIX SHIPPED 2026-07-10 (it was first staged and deployed at a later restart).** `startHermesGatewayTurnDetector` gained an optional `shouldFireTurnStart` predicate (default always-fire → resident/back-compat unchanged) gating BOTH the edge `/turn-start` and the working-refresh keep-alive; turn-END is never gated. The managed host (`hermes-managed-host.js`) passes `() => inFlight.dispatchTurnOpen === true`, a credit set on a successful delivery and revoked by the detector's OWN turn-end. Chosen over gating on the pre-existing `submittedAt`/`completed` fields because those are maintained by the re-pulse probe, which STOPS at `REPULSE_WINDOW_MS` (~15min) and would leave a >15min turn's fields frozen (flap would return for long turns); the detector's turn-end fires regardless of turn length, so the credit is accurate for any duration. Real dispatched turns still show `working` INSTANTLY via the independent claim-time `reportTurnBusy` (`mcp/stdio/hermes-managed-host.js`) + the `makeInFlightPulse` beat — the detector start is only a redundant backstop, now scoped to dispatched turns. The credit is also revoked on the probe's gateway-idle latch and every delivery-failure/requeue path (defense-in-depth, 2026-07-10 review). **Round-2 completion (2026-07-10 deep review):** the deep trace found the fix was INCOMPLETE — the SEPARATE re-pulse beat (`makeInFlightProbe`/`makeInFlightPulse`) is NOT gated on the credit and, per its own contract, keeps re-pulsing `turn_busy` for a `delivered`+`require_reply=1` run whose reply STRANDED (at its slow 45s×3=135s idle cadence), so post-turn background re-flapped `working` via that path even with the detector gated. Fixed: the detector's turn-end now also sets `inFlight.completed=true`, which makes `shouldManagedHostRepulse` skip (the re-pulse beat stops) on the fast (~9s) detector turn-end; a new delivery re-arms `completed=false`. Also fixed a latent clobber the gating exposed: the detector's `/turn-start` beat posted `turnRunId=''`, racing the pulse's real run id and blanking `agent_turn_state.turn_run_id` (→ the reply-reminder deadlock where a run skips its OWN reminder); it now threads `inFlight.runId` (safe because the gate guarantees a dispatched turn is open when it fires). Tests: 6 new gate tests in `hermes-gateway-turn-detector.test.js` (20 total green) + a `terminateProcessTree` self-protect test. **Two accepted residuals** (both benign UNDER-reports — `working`→`online` — never a hang, wrong-dispatch, or over-report; surfaced by the adversarial review of the fix): (1) an operator TYPING into a managed hermes's visible console, or any autonomous non-dispatch turn, has no delivery credit → shows `online` while actually working (background housekeeping and human-typed work are indistinguishable to the bridge — both are gateway-`running` with no `deliverRun`; the fix necessarily narrows #172's "covers typed/autonomous turns" claim for managed). (2) a dispatched turn longer than `REPULSE_WINDOW_MS` (~15min) that has a ≥9s SUSTAINED gateway-idle gap mid-turn: the detector latches turn-END (revoking the credit) during the gap, the probe has already stopped re-stamping past 15min, so the resumed tail under-reports `online` until the next turn. Both are strictly better than the constant flap they replace; gating in `derive()` on an in-flight run was rejected because it would REINTRODUCE the flap for >15min turns and break resident/console-typed work. A RESIDENT hermes keeps always-fire (no local delivery signal), so its post-turn background can still flap — acceptable (the operator's fleet is managed). **Deploy:** re-run `install.sh --client hermes` (re-copies the bridge to `~/.aify-comms/`) + restart the env wrapper. Do NOT "fix" this in `derive()` by gating `turn_busy` on an in-flight run — that would break legit resident/console-typed work (turn_busy=1 with no dispatch run is real there). The upstream turn deaths (429 per-session/per-key limits distinct from the pool number; model stalls) are hermes/model-side, not aify-comms.
+- **Kill-path safety on dashboard Stop of a bridge-restarted agent — FIXED 2026-07-10 (two layers).** (1) The HIGH win32 self-protect gap in `terminateProcessTree` (`runtimes-process.js`) now calls `pidIsSelfProtected` on BOTH platforms → can never taskkill the bridge/operator-shell/init. (2) The sibling-agent gap is now closed too: the orphan kill-by-pid fallback (`server.js` Stop path) runs `orphanPidReapAllowed(pid, control, {getCmdline})` (`terminal-control.js`) before `killByPid` — it REFUSES the kill when the pid's command line positively names a DIFFERENT agent's `--aify-agent <other>` wrapper (a pid Windows recycled onto a sibling worker after the owning bridge died). It FAILS OPEN on every uncertainty (no agentId, unreadable/empty cmdline, no marker, this-agent match) so a legitimate orphan Stop is never dropped. Tested (`terminal-control.test.js`). **Both `terminal-control.js` and that test were deleted with the environment bridge on 2026-09-04** -- the orphan kill-by-pid fallback was the bridge's Stop path, and aify-env owns stopping now. The entry stays because the RULE it establishes outlived its code: a reaper must refuse a pid whose command line positively names a different agent, and fail open on every uncertainty. Residual (accepted, narrow): a pid recycled onto an unrelated NON-agent process (no `--aify-agent` marker) is still reapable — but that is far rarer than the sibling case and `pidIsSelfProtected` covers the critical bridge/shell/init.
+- **WATCH — `httpCall` does not retry HTTP 429 (bridge, latent).** `server.js` `httpCall` retries only `5xx` for idempotent methods; a `429` throws immediately. Not currently triggered (the loopback aify service never emits 429), so latent only. If any upstream/proxy ever rate-limits, idempotent GET/heartbeat calls would fail instead of backing off. Cheap optional fix: treat 429 like 5xx for `retriable` methods, honoring `Retry-After`. (Distinct from the hermes MODEL 429s that kill gateway turns — those are hermes/model-side, not aify httpCall.)
+- **Channels underused (process, not a bug).** Live-DB: channels were ~2% of traffic (31 channel vs 1624 DM in 7d); shared decisions fragment into DMs. Addressed in guidance (`references/building-software.md` + teamwork.md "freeze the seams on a channel").
+- **BACKLOG — crossed-message races during fast bilateral rulings (sc-manager field report 2026-07-10).** When two active agents message each other in rapid succession (a ruling + adjudications landing within seconds), messages cross: each replies to a now-stale state → an ordering race (3 today, all resolved by the team's application-level "declare-and-tiebreak" protocol). **Honest assessment before building:** strict platform-level *delivery ordering* has limited benefit for LLM agents — they process text and don't mechanically reorder/serialize, so total-order delivery wouldn't prevent the *semantic* race; the app-level tiebreak protocol is arguably the correct layer. What the platform COULD add cheaply: a monotonic per-conversation-pair sequence number surfaced IN the delivered message + on the reply, so an agent can SEE it's answering a superseded state (and a `supersededBy` hint when a newer message from the same peer arrived before this one was handled). That's a design conversation (where the seq lives, how steer/queue/merge interact with it), not a clear-cut fix — brainstorm with the operator first. Lower priority: the workaround works and it's a coordination-protocol concern more than a delivery bug. Related: over-ack token burn (#3 in the same report) is process, covered by teamwork.md "close the loop once" + explicit "no further acks" boundaries.
+- **REJECTED — per-runtime model allowlist.** What shipped is a SHAPE check, deliberately not an allowlist (`validate_model_shape` in `service/models.py`, `service/tests/test_spawn_model_shape.py`): model names change constantly, and a stale list would refuse legitimate spawns. A name no provider serves is reported from the other end, by the runtime's own first fatal line when the worker exits. The 2026-07-10 request, as recorded then: **BACKLOG — per-runtime model allowlist + validation (operator-requested 2026-07-10, deferred: works today, no time to test).** Today there is a per-runtime *default* model in Settings→Runtime (`managed_claude_model` / `managed_codex_model` / `managed_pi_model`) but (a) **no `managed_hermes_model`** — hermes's default lives only in hermes's own config, invisible to aify-comms — and (b) **zero validation**: `comms_spawn`/model-set pass any string through, so a wrong-family model (claude agent + `gpt-5.5`) boots a silent zombie that errors every turn and strands work (see memory `spawn-no-model-validation.md`, 2026-07-01). **Agreed design (operator decided 2026-07-10):** add a per-runtime `allowed_models` LIST, **config default in `config/service.json` overridable live in Settings→Runtime** (settings wins); **HARD-REJECT** at spawn AND model-change when the model isn't in that runtime's list (empty list = allow anything, backward-compatible); also add `managed_hermes_model`/effort for parity. Ship as one MR + a DECISIONS.md entry. Touches settings + config + spawn/model-set validation + both dashboards + tests. NOTE: this does NOT fix the resumed-context-bloat restart-crash (separate) — a bad model isn't the crash cause.
+
+- **Deep bughunt round 2 (2026-07-10) — status-correctness backend fixes (FIXED) + two deferred minors.** Three parallel deep-trace audits (kill-path, turn-lifecycle, status/reconcile). FIXED: (a) the flap-fix probe-path gap + turn_run_id clobber (see the flap entry above); (b) the win32 kill self-protect + orphan-pid identity guard (see the kill-path entry above); (c) **WS push/poll note parity** — `_broadcast_agent_status` now blanks the legacy-cascade `statusNote` when `derive()` disagrees with it (mirrors the polled read `_refresh_agent_live_state`), so a torn-down worker no longer pushes `available` + "Active run: X"; (d) **`_clear_turn_busy_for_dead_bridges` is now a compare-and-swap** — the clear is scoped `WHERE turn_busy=1 AND turn_bridge_id=<the stale id it selected>`, so a `POST /heartbeat {turnBusy:true}` from a newly-live bridge landing mid-reconcile is no longer clobbered (would have flapped a just-resumed agent to `online` for a pulse); on a CAS miss the downstream in_turn/cache clears are skipped. DEFERRED (both LOW, self-healing): (1) `_invalidate_agent_live_state` is called just BEFORE `db.commit()` at the turn-flip/stop/reconcile sites, so a concurrent `GET /agents` can repopulate the cache from the pre-commit WAL snapshot → a transient (~3-5s) poll-only staleness that self-heals on the next pulse and is masked by the WS `turn_flip` push; a systemic reorder-after-commit was judged not worth the churn on live-bound code. (2) `deliverRun` marks the run delivered (`markRunDelivered`) after the irreversible `prompt.submit` but before the `inFlight` success-stamp, so a local HTTP failure there marks a genuinely-live turn `failed` and under-reports `working` — rare, no clean fix (either ordering mis-reports one field).
+
+### From the full MCP-tool test (2026-07-01, all runtimes)
+
+- **RESOLVED in `a12b6914`: managed agents always registered as `role: coder`.** The launch answer now always writes `AIFY_AGENT_ROLE` and `AIFY_COMMS_AGENT_ROLE` (`ALWAYS_SET` in `service/api_core/launch_env.py`). The original finding: `comms_spawn(..., role="tester")` writes the role correctly to the `agents` row, but when the managed worker boots its inner MCP self-registers with `role: AIFY_AGENT_ROLE || "coder"` (`mcp/stdio/auto-registration.mjs`) and `/register` does `role = excluded.role`, clobbering it. The env-bridge that launches the wrapper never injects `AIFY_AGENT_ROLE` from the spawn request. Confirmed across the roster (`sc-tester`/`sc-architect`/`gov-tui` all show `coder`). Fix: inject `AIFY_AGENT_ROLE=<spawn role>` into the worker launch env, OR make managed self-register omit `role` so the DB value survives. (Needs `install.sh` re-run + wrapper restart → schedule around live teams.)
+- **RESOLVED (shape only, by design): no model validation at spawn.** `validate_model_shape` (`service/models.py`) refuses strings that cannot be a model name; a well-formed name no provider serves surfaces as the worker's own first fatal line. The original finding: `comms_spawn(..., model=X)` passes any string straight to the runtime CLI with no family check. A wrong-family/typo model (e.g. `gpt-5.5` on claude-code, or a nonsense name) spawns fine, shows **online**, holds a session/console — but fails **every** turn (`"There's an issue with the selected model … Run /model"`) and strands every dispatch. Fix: validate `model` against the runtime's allowed family at `/spawn-requests` (covers dashboard + `comms_spawn`); this is the intended consumer of the planned Harnesses model-registry. Interim: this is what the Harnesses config page hard-block is for.
+- **hermes GLM-5.2 has no API balance (OPERATOR ACTION).** GLM-5.2 is wired correctly (banner `glm-5.2 · Nous Research`) but the Nous account returns `HTTP 429: Insufficient balance or no resource package. Please recharge.` — so managed hermes turns error and never complete (they pile up "reply overdue" reminders and show stuck `working`). Not a code bug: recharge the account or point hermes at a funded model. Sonnet 5 on claude-code works normally.
+
+## Whole-project deep audit (2026-06-28, 8 adversarial subagents — status/dispatch/persistence/bridges/usage/security/API/docs)
+
+**Fixed this round (all traced + confirmed, tests green):**
+- **Liveness recovery lag:** a plain liveness heartbeat didn't invalidate the in-memory live-status cache, so an agent recovering from `offline` stayed cached `offline` for ~180–240s. Now the offline-cached case invalidates on the liveness beat (`api_v2.py` `agent_heartbeat`).
+- **Channel fan-out drop:** a channel post was dropped entirely (nothing stored) if ANY member couldn't start live work. Now it always stores the canonical + inbox copies and wakes only the launchable members; unreachable ones surface in `notStarted` (mirrors direct-send semantics).
+- **PUT /settings had no server-side validation:** accepted any value for a known key (a raw caller could set `max_shared_size_mb=0` and zero out uploads). Now numeric settings are type-checked + clamped to per-key floors server-side.
+- **Batch-merged dispatch runs stranded:** the native-managed bridge merged extra batched messages' text into run[0] but left their `dispatch_runs` at `claimed` → false-busy ~5min + spurious `[FAILED]` handoff mirrors for content that was actually delivered. Now each extra run is finalized `completed` (response lives on run[0]).
+- **Env-bridge self-registration:** added an in-code `IS_ENVIRONMENT_BRIDGE` guard so the env bridge can never auto-register as an agent even if it inherits a parent's `AIFY_AGENT_ID`.
+- **Cache leak:** `_LIVE_STATE_CACHE` now evicts on agent removal.
+
+**Deferred (low severity, cost/benefit):**
+- **Steer-contract closer bypassed by reaper paths:** a steered parent run reaped (not PATCH-finalized) leaves its rr=1 steer contract showing "reply pending" for up to ~24h before the orphan rule auto-closes it. Bounded, cosmetic; fix = call `_close_steered_contracts_for_parent_run` from the reaper paths.
+- **`comms_status` raw-column vs derived:** `PATCH /agents/{id}` writes the `agents.status` column, but the dashboard status is derived from the event cache, so an operator/agent self-set status may not surface. Working as designed (pure-event model); doc note candidate or push a status-event on set.
+- **Per-agent usage fields drop the pool `stale` flag:** `comms_usage`'s personal "You" line can show a stale % unmarked (advisory only, never gates). Fix = merge `poolStale` + render "(stale)".
+- **RESOLVED (noted 2026-09-18): `workspaceWithinRoots` was prefix-based and failed open** on empty roots. The JS check left with `server.js`'s spawn code; the service's check (`service/api_core/workspace.py`) now normalises `..` lexically before comparing. Still open there, by design: symlinks are not followed, because the service runs in a container and cannot resolve host paths.
+
+**Performance (audit 2026-06-28 — verdict: well-optimized for target scale of tens of agents):** the lock-storm history drove a thorough hardening pass (in-memory hot-state cache, batched roster maps, settings cache, per-step reconcile commits, WAL checkpoint, recompute cap on the hottest endpoint). Applied now: batched the `GET /dispatch/runs` source-controls lookup (was ~80 sub-queries/poll → 1) and added `idx_terminal_sessions_agent`. Deferred (sub-ms at current scale, would matter at 5–10×; refactor under supervision): `GET /sessions` per-row liveness derivation (~3–5 queries/session → batch the terminal/bridge lookups), the `GET /analytics` 66 bucketed COUNTs (→ one grouped query; on-demand only) + its unbounded full-history scan, and the absence of a `messages` retention reaper (table grows unbounded; only consumer is on-demand analytics).
+
+**OPERATOR DECISION — security defaults (NOT auto-changed; could break LAN access):** auth is OFF by default (`api_key=""`), CORS defaults to `*`, and the service binds `0.0.0.0`. On a loopback-only host this is benign, but on a LAN-reachable deploy every mutating endpoint — including `POST /agents/{id}/console/input` (types into a live PTY) — is reachable unauthenticated, and CORS `*` + DNS-rebinding means a malicious web page in the operator's browser could drive it even on loopback. Code-level hygiene is otherwise strong (no SQLi/cmd-injection/path-traversal/secret-leak — all agent input is gated by `SAFE_NAME_RE`, arg-array spawns, parametrized SQL, loopback allowlists). **Recommended:** generate a random `API_KEY` in `setup.sh`, default the published port to `127.0.0.1:8800`, and scope `cors_origins` to the dashboard origin. Left for the operator because changing the bind/auth could break an intentional LAN setup.
+
+**PARTLY CLOSED 2026-08-30, and the half that shipped is the half that needed no decision.** The browser leg of this finding -- "a malicious web page in the operator's browser could drive it even on loopback" -- is now refused outright: `CrossSiteBrowserMiddleware` rejects any request a browser made from a page on another site, keyed on `Sec-Fetch-Site`, which the browser attaches and page script cannot remove. It is ALWAYS ON because it costs nothing: no program sends that header, the classic dashboard is same-origin and Dashboard Next on :8801 is same-site. An origin named in `cors_origins` is honoured; `*` grants no exemption, since a wildcard is the absence of a decision rather than a decision to trust every page.
+
+The key itself is now PAINLESS rather than automatic: `install.sh --with-api-key` generates one, writes it to `.env` where the service reads it, and passes the same value into every wrapper and MCP config -- reusing an existing key rather than rotating, since a fresh one would 401 every already-installed bridge. Two things had to be fixed before that could work at all: the installer never read `.env` (so setting a key by hand configured every client keyless against a service that had just started demanding one, and re-running the installer made no difference), and the dashboard 401'd because a browser cannot send `X-API-Key` -- it now exchanges `?api_key=` for an HttpOnly, SameSite=Lax cookie.
+
+**Still open, still operator decisions:** the published port is `0.0.0.0` and `cors_origins` is `*`.
+
+## Cross-harness status audit (2026-06-11) — verdicts + small backlog
+
+No occlusion analogs of the claude footer-scrape exist (hermes/codex/pi/opencode all use process-truth signals). Fixed same-day: pi **Gap A** (operator-typed pi console turns now arm the turn-busy heartbeat via `__markControllerStart`). Remaining, low severity:
+- **pi Gap B:** an omp `bg_task` background task can wake pi into an autonomous turn between dispatches with no tracker (`_onAgentEnd` early-returns without `_activeTurn`). Fix shape: session-level edge-triggered turn-start/end POSTs on `agent_start`/`agent_end` — the pi mirror of the hermes continuous detector.
+- **codex hooks are version-fragile:** on a codex CLI without the hook events, resident typed turns silently show `online`; install-time warning would help. **Mitigated (no longer silent):** the bridge runs a hook-independent **rollout-tail turn detector** for resident codex (in `mcp/stdio/server.js`) that reads the codex rollout/transcript tail and drives `turn_busy` in both directions, so resident codex typed turns now show `working` even on a codex CLI whose hook events are missing. The install-time warning would still help surface the degraded hook path, but the symptom (typed turns reading `online`) is covered by the detector.
+- **hermes watch-item:** delegation (`delegate_task`) currently blocks the parent turn (tracked); if a future hermes makes it async, the 3-tick idle debounce would false-end — recheck on hermes upgrades.
+- **hermes upstream drift (2026-07-02 study of 30e947e0a — task #237):** modernization subset **a/b/c/e SHIPPED 2026-07-08** (commit `195357d`). (a) DONE — `hermes update`/`dashboard --stop` SIGTERM every gateway host; a dead host now self-heals on the periodic delivery cycle (`maybeReEnsureGatewayHost`) instead of waiting for a bridge restart. (b) DONE — `HERMES_DASHBOARD_TUI` documented inert-but-retained (crash-safe lever for pinned-older 0.15.x). (c) DONE — audited; no `dashboard --tui` remains (env-var path only). (d) **CORRECTED 2026-07-20:** ordinary busy sends use Hermes' native non-interrupting `session.steer`; explicit `queueIfBusy` holds on raw `turn_busy=1` until turn-end, then delivers with `prompt.submit` (no heartbeat-age release). (e) DONE — the boot-time "Installing TUI dependencies" npm step (outside `--skip-build`, `Missing script: "build"` on drift) now **fails FAST with a distinct, triageable error** (`detectBootFailure` / `isTuiDepsBuildFailure`) instead of an opaque 60s readiness timeout; the per-spawn stderr log is truncated (`"w"`) so a prior failure never false-aborts a fixed relaunch. Debug skill `hermes.md` has the triage.
+- **opencode resident is presence-only by design** (documented); revisit via the OpenCode SDK event stream if it ever matters.
+
+### Pure-event status branch watch-items (2026-06-19, `feature/status-pure-event-no-flicker`)
+The working→online→working flicker root cause was a shared server-side premature clear (`_clear_turn_busy_if_no_open_reply_owing_run` cleared the status `in_turn` when a dispatched reply landed mid-turn). Fixed by decoupling: reply-landed clears only `turn_busy` (queue gate), not `in_turn` (status); `in_turn` clears only on a real turn-end. Two low watch-items from the 4-reviewer audit:
+- **codex chained-sub-turn (theoretical, low):** managed-codex `onTurnEnd` (TERTIARY) clears on each app-server `turn/completed`. One `runTurn` = one `turn/start` RPC = one turn/started+completed pair, so within a single dispatch there is no clear-then-set flap. Risk only if the codex app-server ever emits multiple turn pairs per `turn/start` (current protocol does not). Recheck on codex app-server upgrades; the 5s rollout detector + dispatch-boundary clear are the backstops.
+- **deploy sequencing (OBSOLETE: names the deleted environment bridge):** PRIMARY (server `in_turn` decouple) is server-only (container rebuild). SECONDARY (claude Stop-gate) + TERTIARY (codex turn events) are host bridge changes that only take effect after `install.sh` re-run + `*-aify` wrapper / env-bridge restart. PRIMARY-alone is strictly an improvement (removes one flap source, adds none), so the split state is safe.
+
+## Backlog from the 2026-06-10 project-wide review (should-fix, deferred)
+
+The 11 must-fix findings were fixed same-day (see the `fix(review): project-wide bug-hunt` commit). These remain, prioritized:
+
+- **`derive()` parity gaps — RESOLVED 2026-06-17; the dual-engine flag was then removed 2026-06-18.** All blockers closed in `_gather_status_inputs`/the byproduct: (a) env resolution falls back to the agent's live session binding + an unresolvable env is treated as reachable while the agent heartbeats (unbound → `available`, not `offline`); (b) the public idle-live state is `online`; (c) `blocked` comes from the console-awaiting-input hint (in-turn + live worker); (d) `working` is the liveness-gated `in_turn` flag; (e) a resident missing a usable handle derives `offline`. Booting-console→`online` is also part of the sole `derive()` path. See docs/superpowers/plans/2026-06-17-status-accuracy-remediation.md.
+- **PATCH /dispatch/runs/{id} has no ownership/transition guard:** any caller can set any status; a superseded sidecar waking late can clobber the new owner's state or resurrect a failed run to `running`. Add an optional bridgeId match + reject terminal→non-terminal.
+- **`_reap_undeliverable_queued_runs` claimer check is not execution-mode aware:** a channel run whose wrapper died sits `queued` forever while the env bridge heartbeats; runtime-mismatched queued runs are silently skipped by claim and invisible to the backstop. Also: the backstop can fail a queued run whose coldstart spawn is still in flight (skip targets with a pending spawn_request).
+- **Steered messages lose their reply anchor** (no Message ID in the steer body), so a steered rr=1 contract can strand at `delivered` until the 24h rule; include inReplyTo guidance in the steer body + let delivered-reconciler class 4 cover steer runs.
+- **B1 ghost reap doesn't invalidate the live-state cache** (cached `online` lingers); resurrect doesn't restore `runtime_state.consoleTerminal` (Console endpoints can't resolve the healed console until re-register).
+- **`/ready` refreshes `turn_updated_at` on a busy row it doesn't own** — re-arms the 30-min backstop for a stuck turn. **Sharper as of 2026-07-26:** that same timestamp is now what bounds the delivery gates (`_turn_busy_holds_delivery`), so a spurious `/ready` refresh also postpones the anti-strand release for a latched `turn_busy`. Still bounded (each refresh buys 30 min, not forever), but it makes this row worth fixing rather than tolerating.
+- **Bridge (OBSOLETE: the environment bridge was deleted, first released in v0.6.3):** shutdown ordering lets the env heartbeat re-mark the env online after the `offline` POST (clear all timers first); dropped PTY output frames are unlogged/unretried (reuse the pi sink's retry pattern); a bare Enter on a claude console stalls the single-flight terminal-control loop ~10.5s (prompt-settle only when the prompt was seen); duplicate hermes turn detectors for a managed agent whose MCP child carries the gateway URL.
+- **Dashboard:** per-output-chunk full refetch for never-opened terminals (track last status outside the details cache); N+1 sequential inbox fetches per refresh (Promise.all); console label/widget disagreement siblings (dead-session set not applied to the start-console branch; env-offline keeps input enabled); seq gaps in the console stream are not detected (force-resync on gap).
+
+## Status / liveness / worker-hygiene
+
+### Canonical status labels (operator reference)
+
+**Superseded as a reference: the vocabulary has grown past these six (see `VALID_STATUSES` in `service/status_engine.py`), and the one table of what each state means is "Status Meanings" in [`.claude/skills/aify-comms/references/operations.md`](../../.claude/skills/aify-comms/references/operations.md).** The table below is the 2026-06-18 snapshot.
+
+Proof-based 6-state model (2026-06-18). Status is PROVEN, not time-assumed — no minute thresholds, no time-decay states.
+
+| Label | Meaning |
+|-------|---------|
+| `working` | Wrapper reported a turn in progress (active run or fresh `turn_busy`). **Liveness-gated:** a dead managed worker / expired resident bridge no longer reads `working` — it falls to `available`/`offline` within the liveness window (`agent_liveness_seconds`, default 90s). (`blocked` is the in-turn awaiting-input sub-state — produced when the live console tail looks like it needs operator input.) |
+| `online` | Live worker, no turn in progress. The ready/idle state — a long-quiet live agent stays `online` (operators rely on it as "ready for queued work"). |
+| `available` | Managed, env reachable, NO live worker yet; auto-starts a worker on the next send. |
+| `blocked` | In-turn agent whose live console tail looks like it needs operator input/a decision. Liveness-gated like `working`. |
+| `offline` | Heartbeat gone — instant on a clean wrapper disconnect, else within the no-heartbeat window (`agent_liveness_seconds`, 90s). Covers managed (env bridge down) and resident (bridge lease lapsed / no usable wake handle). `offline` ≠ `stopped`. |
+| `stopped` | Operator hard-disabled — wake-disabled (`launch_mode='none'`), or set by `resident-lost` on clean close. |
+
+Managed lifecycle: `available` → `working` ⇄ `online` (+ `blocked`, `offline`, `stopped`). Resident lifecycle: `working` ⇄ `online` (+ `blocked`, `offline` when the bridge lease lapses, `stopped` on clean close). The old time-decay states `idle` and `stale` were removed 2026-06-18 (see DECISIONS.md, "Status is proof-based").
+
+### Open limitations (not cleanly fixable yet)
+
+- **Managed claude could read a transient `online` while actually working (#224, 2026-06-18) — PRIMARY CAUSE FIXED (`44073de`); only the cosmetic console-keepalive branch is deferred.** *(2026-09-18: that keepalive lived in `terminal-runtime.js`, deleted in v0.6.2; the open question it leaves is the lease entry near the top of this file.)* A managed-claude turn signals `working` via (a) claude-channel.js `turn_busy` re-pulse and (b) the console-working spinner lease (kept fresh by the terminal-runtime.js `consoleKeepalive` SIGWINCH). During a long mid-turn quiet — classically the visible "API Error: Rate limited" backoff — the signal could drop two ways: (1) a premature Stop hook firing between phases (claude #54360) → `turn_busy` cleared → `online`, including on channel-woken turns; and/or (2) the keepalive idle-grace gate (`terminal-runtime.js`, ~120s of `consoleClass==='idle'`) pausing nudging while a quiet rendered PTY never repaints → stale lease → `online`. **Fix shipped (`44073de`): `/turn-start` is now wired to BOTH `UserPromptSubmit` AND `PostToolUse`,** which closes the premature-Stop-hook (#54360) path and the channel-woken-turn path; the bidirectional transcript turn-state detector backstops long tool-free / rate-limit windows by keeping `working` set off the transcript tail. So the PRIMARY cause of the transient `online` is fixed. **SECONDARY mechanism — ALSO FIXED (`cf6ef25`, 2026-06-18; staged via `install.sh`, pending an env-bridge restart + live-validation):** the console-keepalive SIGWINCH idle-grace gate in `terminal-runtime.js` `_armConsoleKeepalive` no longer STOPS nudging after sustained idle — past the grace it drops to a slow RE-PROBE cadence (`consoleKeepaliveIdleReprobeTicks`, ~16s, kept below the 20s `CONSOLE_WORKING_LEASE_SECONDS`) so work that resumes after a long idle is re-discovered within the lease window. (A full stop could never re-discover resumed work: an unwatched claude stays quiet on its PTY, so with no nudge it never re-emits a working footer. Churn stays negligible — a genuinely idle console only re-emits its idle residue on each probe, so no working pulse fires.) Defense-in-depth: `decideConsolePulse` now treats a transient `consoleClass==='unknown'` footer frame as a lease refresh when a turn is known in-flight (never on `idle`, never at rest). NOTE the audit's proposed "fresh-output gate" was rejected — it had a catch-22 (once stopped, no nudge → no output → never un-sticks). Deploy: bridge change → re-run `install.sh` (re-copies into `~/.aify-comms`) + restart the env bridge; NO container rebuild. Tracked in #224 (+ related #173).
+- **Resident hermes turn-end relies on the 30-min ceiling only when no gateway URL is set (#172 residual, narrowed).** STATUS is pure event-driven as of 2026-06-02 (see "Resolved 2026-06-02 (pure-event + leak)"): a turn-START event sets `working`, a turn-END event clears it, and no seconds-window decides `working`. **Correction (2026-06-18 audit): resident hermes DOES arm a gateway turn detector.** `mcp/stdio/server.js` calls `startHermesGatewayTurnDetector` for resident hermes whenever `AIFY_HERMES_GATEWAY_URL` is set (`mcp/stdio/server.js`) — the same continuous, bidirectional gateway-status state machine that managed hermes uses. So a resident `hermes-aify` launched with its gateway URL exported (the normal wrapper path) gets BOTH a turn-START signal AND a continuous turn-END detector off the gateway's own `running` truth, just like managed. The 30-min `TURN_BUSY_BACKSTOP_SECONDS` ceiling is now ONLY the fallback for a **gateway-less** resident hermes (no `AIFY_HERMES_GATEWAY_URL` — e.g. a `*-missing-handle` resident), which has no usable wake handle and therefore derives `offline` anyway. Hermes still exposes no upstream turn-END *hook* and the bridge's transcript turn-END detector keys on the *claude* transcript only, so the gateway detector is the resident hermes turn-end mechanism; without a gateway URL there is none and the long ceiling backstops a dropped end-event. The short 120s claim-gate (`TURN_BUSY_STALE_SECONDS`) keeps a queued send from being stranded behind it. Tracked in task #172 / #171.
+
+  > **Note (status consistency, `4611588`):** the residual above is the gateway-less fallback only — it is **no longer** a false-`available`. A resident hermes with **no usable wake handle** (wake-mode `*-missing-handle` — e.g. just-registered before the bridge captured the `gatewayUrl`, or a remote resident whose gateway isn't usable) now computes **`offline`** (the proof-based rewrite removed `stale`), not `available`. The status LABEL and the sidebar DOT now share one live-state source, so they agree (previously the label read `available` while the dot rendered red/`unreachable` — inconsistent). A genuinely-live resident (fresh bridge + usable `gatewayUrl` → `hermes-live`) reads `available`/`online` AND gets the gateway turn detector (so it reports `working`/turn-end like managed).
+
+> **Note (gateway-liveness, 2026-06-02):** managed-hermes `online` no longer derives from gateway presence at all — it now requires a live delivery-loop CLAIMER lease (see "Resolved 2026-06-02 (managed-hermes lifecycle ...)"). The older `gatewayOk = !!gatewayUrl` presence check + reactive/proactive probes (`hermes-gateway-liveness.js`) still backstop the resident `available` capability, but the managed false-`online`-from-presence path is closed. (Status liveness is separate from the pure-event `working` signal in "Resolved 2026-06-02 (pure-event + leak)".)
+
+### Deferred (cost/benefit)
+
+- **`agent_status_state.status` is a vestigial column** (2026-06-12 audit): written and
+  read by nothing — `_apply_status_event` maintains only `in_turn` / `awaiting_input` /
+  `turn_run_id` / `last_event*`. Its stale values (often `offline`) mislead anyone
+  debugging by table dump. Drop the column in a future schema pass; until then, ignore it.
+- ~~**Engine vs legacy: long-dead remote RESIDENTS read `stale` (engine) where legacy said
+  `offline`.**~~ RESOLVED 2026-06-18 by the proof-based rewrite: there is no legacy engine to
+  disagree with, and `stale` was removed — a long-dead resident reads `offline` unambiguously.
+  The dual-engine `status-disagreement` logging was removed with the `status_engine` flag.
+- **The 60s reconcile sweep doesn't push status deltas over WebSocket.** When the periodic self-heal corrects a stale status, dashboards see it on their next poll rather than instantly. Event-driven push (C1) already covers operator-driven transitions; the reconcile loop has no WS handle, so wiring a broadcast there is awkward for modest benefit. Tracked in task #171.
+- **The OLD status cascade in `_compute_live_status_cache` is retained as the `reason` producer (2026-06-18).** The proof-based rewrite made `derive(status_inputs)` the sole STATUS authority — every authoritative caller overrides the cascade's `effective_status` with `derive()`. But the cascade's if/elif chain also produces the human-readable `reason` string (consumed by the dashboard, the WS-push `statusNote`, and the reply-reminder skip logic) and the `StatusInputs` byproduct that feeds `derive()`. Status and reason are computed together per branch, so the cascade cannot be deleted without first moving reason-production into the engine — a larger, NOT-behavior-neutral refactor on the delivery path. The dead time-decay junk WAS removed (idle/offline minute thresholds; `stale` byproduct → `offline`); the cascade's residual `effective_status` is now only read raw at one border (the terminal reply-reminder `blocked` check), where it agrees with `derive()`. Full reason-into-engine extraction is deferred.
+
+### Watch (revisit only if the symptom recurs)
+
+- **Managed-claude console churn / sidecar self-exit guard misfire.** The channel-sidecar self-exit guard reads `process.ppid` (`ORIGINAL_PPID`) to detect a dead controlling parent (`mcp/stdio/claude-channel.js`). In the managed-claude process tree (`cmd → bash → claude.exe → node`), the immediate parent can be a transient `cmd`/`bash` that exits while `claude.exe` lives — which could make the guard skip liveness beats or self-exit a healthy worker, producing ghost-console reaps + console re-spawn churn. Observed once on sc-claude (2026-06-01), healthy afterward. Do NOT harden preemptively; if console drops become frequent, walk to the real `claude.exe` ancestor (or use a more robust parent signal than the immediate ppid). Tracked in task #173.
+
+## Resolved 2026-06-18 (`database is locked` 503s — live-status cache moved in-memory)
+
+- **The recurring `database is locked` 503s are RESOLVED (`97a497a`; verified live: 0 locks, down from ~18/min steady-state and 137/min in the post-restart storm).** Root cause: `agent_live_state` was a CACHE (derived agent status, recomputed on restart) stored in a SQLite table and refresh-WRITTEN on every dashboard poll — that read-path write storm saturated SQLite's single writer, and the constant status READS kept the WAL from checkpointing (it bloated to 41–83MB → slow commits → more lock windows). **Fix:** the live-status cache now lives in a process-global in-memory dict (`_LIVE_STATE_CACHE`, `service/reconcilers/status_cache.py`). Reads serve from memory (zero DB writes on the hot read path, so a read can NEVER take the write lock); the WAL now checkpoints and stays small (~5MB). The `agent_live_state` table is RETAINED for schema compatibility but is no longer read or written on any path (vestigial). The cache is lost on restart — fine, the startup reconcile warms it before serving. **Constraint:** the cache is process-global and only correct because the service runs as ONE uvicorn process / one event loop (the dashboard-next container only PROXIES; it never opens the DB) — **single-worker is now a hard requirement**; scaling to multiple workers requires moving the cache to a shared store (Redis) or sticky routing. In-process write-serialization was tried twice and abandoned (it broke the post-restart read path); the in-memory cache is the durable fix. Belt-and-suspenders (`581341d`): `GET /agents`, `/agents/{id}`, `/sessions` now catch a transient lock and serve cached data instead of 503ing. See DECISIONS.md, "Live-status cache is in-memory, not SQLite".
+
+  **Remaining headroom (NOT yet done):** heartbeat `last_seen` and turn-state still write SQLite at low frequency (they did not lock in testing). Stages 2–3 of `docs/superpowers/plans/2026-06-18-in-memory-hot-state.md` move those to memory too for much-higher agent counts.
+
+## Resolved 2026-06-04 (hermes 0.15.1 gateway `--tui` breakage + managed-worker boot-race reaping)
+
+Two managed-worker launch failures, both surfacing as `reconciled_managed_ghost_console_dead_worker`:
+
+- **EVERY managed-hermes dispatch failed "Queued >180s … up-but-deaf" — gateway host rejected `--tui` (`a363822`).** Hermes 0.15.1 (2026.5.29) moved `--tui` to a TOP-LEVEL flag, so the `dashboard` subcommand now rejects it (`error: unrecognized arguments: --tui`). The bridge's `ensureGatewayHost` (`mcp/stdio/hermes-managed-host.js`) launched `hermes dashboard --tui --port <P> --host 127.0.0.1 --no-open --skip-build`, which arg-errored and died instantly → `ensure-host` 60s readiness timeout → wrapper `exit 1` → PTY closes → no channel-sidecar claimer → run reaped. The gateway child's stderr was `stdio:"ignore"`, which silently hid the arg error. **Fix (`a363822`):** dropped `--tui` from the gateway-host args (it is rejected). The gateway child's stderr now logs to `~/.local/state/aify-comms/hermes-gateway-host-<port>.log`. The visible `hermes --tui` TUI flag is UNCHANGED — only the hidden gateway-host launch dropped `--tui`.
+
+  **⚠ FOLLOW-UP CORRECTION (`34bca11` + `b591a28`, 2026-06-04):** the `a363822` claim that *"plain `hermes dashboard` serves a working `/api/ws`"* was WRONG — it only verified the index TOKEN, not the socket. `--tui` ALSO enabled the dashboard EMBEDDED-CHAT feature that gates `/api/ws`: `web_server.py` closes `/api/ws` with code 4403 when `_DASHBOARD_EMBEDDED_CHAT_ENABLED` is false, and that flag is set ONLY by `--tui` OR the `HERMES_DASHBOARD_TUI=1` env. So after the `--tui` drop the gateway served the index (readiness probe passed) but its `/api/ws` CLOSED → "gateway websocket connection failed" across ALL managed hermes agents → TUI never attached → headless orphans (the operator's 2026-06-04 incident). **Real fix:** set `HERMES_DASHBOARD_TUI=1` in the gateway-host spawn env (crash-safe env equivalent of the rejected `--tui` flag — empirically verified: `/api/ws` OPENs with it, CLOSEs without). **⚠ BINARY-DEPENDENT — CORRECTED 2026-06-05 (peer review):** that OPEN/CLOSE result held on the *pre-patch* 0.15.1 binary. A later hermes 0.15.1 patch (upstream `cae6b5486`, same version string — shipped by the same update that wiped `web_dist`) hardcodes `_DASHBOARD_EMBEDDED_CHAT_ENABLED = True` and drops the `--tui`/`HERMES_DASHBOARD_TUI` gate, so on the **current** binary plain `hermes dashboard` serves `/api/ws` and `HERMES_DASHBOARD_TUI=1` is a harmless no-op — KEPT only as a fallback for older/pinned hermes. The durable, binary-agnostic guard is the `b591a28` `/api/ws` readiness probe (re-verified 2026-06-05: plain `hermes dashboard` AND `+HERMES_DASHBOARD_TUI=1` both → `/api/ws` OPEN). **Hardening (`b591a28`):** `ensureGatewayHost` now actually opens `/api/ws` (not just the index) before declaring ready on the CLI `ensure-host` path, so a future regression of this class fails FAST at spawn instead of becoming a headless orphan. **Deploy:** `git pull`, `./install.sh --client hermes`, relaunch the agent's `hermes-aify` (or re-send — the env bridge invokes the fixed managed-host.js fresh per spawn).
+- **Managed worker reaped MID-BOOT during a slow SessionStart hook ("launches then dies", stuck `available`) (`6664022`).** The ghost-console reaper (`_reconcile_managed_worker_hygiene`, B1) declared a managed worker dead purely from `_has_live_channel_sidecar` being false. But the claimer bridges (`claude-channel.js` sidecar / managed-wrapper-child MCP) register only AFTER claude finishes init, including SessionStart hooks that can run for MINUTES (observed: a 1m28s one-time operator-plugin dep install, e.g. an `observability` plugin's `install-deps.js`). During that boot the PTY is alive and STREAMING the hook spinner but no claimer exists yet, so the sidecar-only check reaped the live worker mid-boot (rapid operator restarts compounded it). Console's last visible line was `Running SessionStart hooks…… (Nm Ns)`; once the one-time setup completed, hooks dropped to ~3s and the worker stayed up — hence the intermittency. **Fix (deterministic, not a timer):** the reaper declares a worker dead only when ALL real process-liveness signals are absent — no live channel-sidecar AND no live managed-wrapper-child AND no fresh terminal output activity (`terminal_sessions.updated_at`, bumped by every bridge output frame via `_append_terminal_output`). A booting/streaming PTY is provably alive → never reaped; a genuinely dead worker (output stopped) still is. Reuses `MANAGED_ORPHAN_GRACE_SECONDS`. Operator note: a managed worker's FIRST launch can be slow if an operator plugin runs a one-time SessionStart setup — tolerate it; don't rapid-restart a fresh worker (give it ~30–60s); episodic-memory SessionStart hooks remain the WSL-crash risk and should stay disabled.
+
+## Resolved 2026-06-04 (managed hermes session-id resume + no-prompt YOLO + placeholder poison-guard)
+
+- **Recurring managed-hermes "session not found" on resume — ROOT-CAUSED + FIXED (`9a71b72`).** Hermes has TWO ids per session: a **durable `session_key`** (timestamp `20260604_215845_395891`, in the SessionDB, what `--resume`/`session.resume` need) and an **ephemeral `sid`** (`uuid4().hex[:8]`, e.g. `8b821120`, the gateway's in-memory key, regenerated on every gateway restart). The bridge was capturing/persisting the **ephemeral** id as the agent→session marker/handle (`rowRealId` read `r.id`; the TUI also writes the ephemeral id to the active-session file on a FRESH session), so the next launch resumed a dead id → gateway **4007 "session not found"**, with no resume-or-fresh fallback. Regressed ~2026-06-03 with the native-session-id rework (retired the always-resumable `aify-<id>` pre-seed, replaced it with capturing the wrong id). **Fix:** `resolve-session` now persists/resumes the **durable `session_key`** (new `rowResumeKey()`; delivery `prompt.submit`/`steer` still target the ephemeral sid — split intentionally), and on **no resumable session returns "" (fresh) + clears the dead marker** so a stale id stops being replayed by send-driven spawns. A poisoned marker self-heals to fresh instead of erroring. 160/160 node tests. **Deploy:** `./install.sh --client hermes` + relaunch.
+- **"Fresh session / lost history on EVERY restart" — ROOT-CAUSED + FIXED (`3a38d30`).** `resolve-session` decided what to resume from the gateway's live `active_list`, which is EMPTY after any gateway/aify-comms restart (sessions live in the SessionDB but aren't loaded), so the marker's real session was never found "live" → fresh + cleared marker → the agent minted a new session each launch. Verified live: fresh gateway `active_list`=0 while `session.list`=69 incl. the real session. **Fix:** resolve-session now also queries `session.list` (the DB) and PREFERS a marker that is resumable-from-DB (stable across restarts); the dead-marker clear fires ONLY when the DB positively confirms it's gone (`dbConsulted` guard — a transient `session.list` failure never clears a still-resumable marker). +3 regression tests; 163 node tests. Restore a prior conversation by seeding its durable `session_key` (`hermes sessions list`) into the marker / dashboard Set handle.
+- **Managed agents prompted for `execute_code`/tool approval despite `--yolo` — FIXED (`276db74`).** Managed hermes runs the agent in a hidden `hermes dashboard` gateway HOST; the wrapper's `--yolo` only reaches the visible TUI *client*, not the host that runs the dispatch turn. hermes freezes YOLO at import from the `HERMES_YOLO_MODE` env (`tools/approval.py`), and `hermes dashboard` rejects a `--yolo` flag — so set `HERMES_YOLO_MODE=1` in the gateway-host spawn env. Managed-only by construction (resident uses the TUI `--yolo`).
+- **`${...}` placeholder session ids poisoned the binding — GUARDED (`122ec05`).** An unexpanded `${HERMES_SESSION_ID}` (config.yaml/env template unset) was written as the session id → resume of a nonexistent id → silent fresh-start. New `isUsableSessionId()` guard: `writeSessionIdMarker` refuses to persist a `${...}`/garbage id; `readSessionIdMarker` treats a pre-existing poison marker as absent; `resolve-session` + `server.js` register strip placeholder handles.
+
+## Resolved 2026-06-04 (managed-available status fix, cross-platform install, PowerShell hermes wrapper, agent-centric Sessions)
+
+- **Managed agent with a reachable env + dead worker showed `offline` instead of `available` (`ed44b60`).** Status policy: a managed agent is `offline` ONLY when disabled/stopped or its owning environment is unreachable. When a managed agent's previous worker dies it leaves an orphaned, non-live session row whose owner bridge != the current env bridge; the "env bridge no longer owns the active session" branch in `_compute_live_status_cache` was not gated by `session_mode`, so it demoted a still-reachable, lazy-autostartable managed agent to `offline` (sc-coder regression). That branch is now gated to **non-managed** sessions — managed `offline` is already fully decided by the env-reachability branches above it, so a reachable-env managed agent correctly rests at the base `available` derivation. (This is the live-session-ownership path; it does NOT change the separate env-bridge-offline gate from `3ca464a`, which still forces a managed agent `offline` the moment its OWNING env bridge is down.)
+- **Cross-platform install hardening (`0466722`, `b0f89ca`).** `copy_bridge_to_native_dir` mirrors `mcp/stdio` + `node_modules` into the native dir. Linux/WSL/macOS keep `rsync -a`; the non-rsync (Windows Git-Bash/MSYS) fallback now prunes only dangling symlinks first (so a leftover npm temp `.bin` link can't abort the run under `set -euo pipefail`) and copies with `cp -RL` (dereference) so no POSIX symlink is created on a filesystem that can't make them. Plus macOS portability nits in the hermes bash wrapper. Install now completes on Windows where it previously aborted at `[1/4]`.
+- **PowerShell hermes wrapper bugs (`b9f80d5`, `fdf1607`).** The PS1 branch (the wrapper Windows actually runs) had been left on the retired synthetic-session model and had two fatal bugs: (1) it set only `HERMES_TUI_GATEWAY_URL` and never re-exported `AIFY_HERMES_GATEWAY_URL` (+token), so the in-session bridge registered with an empty `gatewayUrl` → `hermes-missing-handle` (lost live delivery; available + red dot); and (2) under `$ErrorActionPreference='Stop'`, PowerShell 5.1 escalates a native command's stderr to a TERMINATING `NativeCommandError` (even with `2>$null`), so `resolve-session`'s progress logging killed the wrapper right after the gateway started. Fixes: port the native-session-id model into PS1 (re-export the gateway URL+token, resume the REAL native session id, drop the synthetic `aify-<agentId>` pin) and relax `ErrorActionPreference` to `Continue` around the best-effort `resolve-session` calls and inside `Invoke-HermesRuntime` (function-scoped, so the TUI's own stderr can't kill the wrapper mid-session either). Verified live on Windows.
+- **Sessions page is agent-centric; Chat + Sessions gained a Statuses multiselect (`327931c`, `5203bc1`, `edfda1b`, `3e990bf`).** The Sessions page listed raw session rows, so offline/available agents (whose sessions are quiet stopped/ended rows) never appeared; it is now **one row per registered agent** showing the agent's live status + its current/most-recent session (or "no active session"), grouped by environment, with all session actions preserved on the agent's primary session. Both Chat and Sessions now use a **Statuses ▾ multiselect** (per-status checklist with All / None / Live-only presets, separate localStorage keys) that replaces the old binary "Hide offline" / "Show deleted" / "Show ended/debug sessions" toggles. Chat default = the live set (working/online/idle/available/blocked) ON; Sessions default = all statuses except Deleted — so offline + available agents are visible. `dashboard.html` is COPY'd into the image — needs a container rebuild to deploy.
+
+## Resolved 2026-06-03 (round 2: codex auto-approve, prompt available→online, resident clean-exit teardown, PS loop reap)
+
+Commit `5070c84` (`fix(autonomy,status,lifecycle)`). Four operator-facing autonomy/liveness fixes:
+
+- **Codex per-tool approval gate prompted a resident `codex-aify` even in bypass mode (config, not repo code).** Every `*-aify` wrapper already launches its harness no-prompt by default (claude `--dangerously-skip-permissions`, codex `--dangerously-bypass-approvals-and-sandbox`, hermes `--yolo`, pi/opencode `--auto-approve`, managed-codex `approvalPolicy:never`), all behind a uniform `--safe`/`--no-auto` opt-out. BUT per-tool `[mcp_servers.X.tools.Y] approval_mode = "approve"` gates in `~/.codex/config.toml` fire INDEPENDENTLY of codex's global bypass flag and still prompt. **Fix is config-side:** set those to `approval_mode = "auto"` (the docs-correct "no prompt" per-tool value — `never` is NOT valid per-tool). Managed codex is unaffected (it uses a clean generated CODEX_HOME without the operator's per-tool overrides).
+- **`available→online` is now PROMPT (no more "spontaneous" flip).** The agent live-status cache is invalidated the moment a channel sidecar's bridge row is first inserted (worker just came alive), so the `available→online` transition surfaces on the next read instead of waiting out `agent_live_state.refresh_after` (keyed on heartbeat freshness, not worker presence). Confirmed UNRELATED to auto-close (auto-close only does the opposite, online→available, and only when enabled).
+- **Resident clean-exit teardown.** The resident MCP bridge (`mcp/stdio/server.js`) now POSTs `/agents/{id}/resident-lost` on clean exit (best-effort, resident-only, idempotent, bounded ~1.5s). The server's resident-lost handler sets the agent `status=stopped` (or auto-returns to managed if a managed backing exists), so a cleanly-closed resident drops off `online` within ~1.5s instead of lingering the full ~150s heartbeat lease. (Crash-closed residents still rely on the lease aging out.)
+- **`resident-lost` no longer strands a MANAGED worker at `stopped` (2026-07-07).** The hermes managed-host reuses `resident-lost` (`reportGatewayDead`) when a managed agent's gateway port dies. The old handler stopped it (`status='stopped'`, `launch_mode='none'`), which the send-gate rejects outright ("agent status is stopped") — so a dead-gateway managed hermes could never wake and needed a manual `hermes-aify` restart (whole hermes team got stuck). Fixed: for `session_mode='managed'` the handler now rests it cold-startable (`status='active'` → derives `available`, `launch_mode='detached'`), so the next send auto-cold-starts a fresh managed worker (new gateway). Residents still go `stopped`. See DECISIONS.md ("`resident-lost` splits by `session_mode`").
+- **install.sh PowerShell loop-reap regression.** The PS resident/managed hermes branch captured the detached delivery-loop PID but never reaped it on TUI exit (bare `exit`), orphaning the loop + the hidden gateway host it owns → a Windows resident hermes stayed falsely `online`. Now wrapped in try/finally `Stop-Process`, parity with the bash EXIT/INT/TERM trap. (Bash branch was already correct.)
+
+**RESIDUAL (deferred design decision, not a bug):** a CRASH-closed presence-only (opencode/pi) or channel-stripped resident can still read `online` until its lease ages out. Forcing it `stale`/offline strictly conflicts with the deliberate persistent-worker taxonomy (a live `agent_session` ⇒ `online`), so it is left as-is. Clean closes are covered by the resident-lost teardown above; crash closes self-heal at the lease.
+
+## Resolved 2026-06-03 (lifecycle verbs + switch safety + derived session status)
+
+Phase 1-3 of the comprehensive-cleanup plan (`docs/superpowers/plans/2026-06-03-comprehensive-cleanup.md`; commits `13d3821` switch+lifecycle, `9896d5a` state-model). Three operator-facing confusions fixed at root:
+
+- **A — lifecycle verbs collapsed to a minimal, non-duplicate set.** The dead `recover` and `resume` actions on `POST /sessions/{id}/control` were **byte-identical to `restart`** and had no UI caller — they are GONE; only `restart`/`recreate`/`stop`/`cli_takeover` remain on that endpoint (`next_status` map collapsed to `restart→restarting`). The resident wake-resume (`POST /agents/{id}/control` action=`resume`) is **separate and kept** — it re-enables wake/dispatch for a stopped resident with no spawn. Dashboard relabels: `Recreate` → **Reset (fresh context)** (`resume_policy=fresh_context`, discards native handle/state), resident `Resume`/`Stop` → **Resume wake**/**Stop wake**; stale "Recover" guidance now says "Restart"; amber Reset tier is visually distinct from red Remove. Canonical verb set: Spawn (fresh backing, no resume), Stop (halt backing, keep spec/handle/identity; reversible via Restart), Restart (re-spawn + RESUME native context, `resume_policy=native_first`, carries `session_handle`), Reset/fresh-context, Resume wake, Pause for CLI (hand ownership to the terminal; return via Restart), Switch to managed/resident, Set handle (operator repair of the native resume target), Interrupt/Steer (run-level), Remove (tombstone the identity), Kill bridge/Forget (environment-level).
+- **B — resident↔managed switch is now safe (`switch_agent_session_mode`, `_coldstart_spawn_request_for_dispatch`).** Full-duplex (both modes) for claude-code, codex, hermes; **managed-only** for pi, opencode (resident there is presence/debug metadata, not live-wakeable). `managed→resident` is now **REJECTED** for pi/opencode (was a silent footgun creating an undeliverable presence-only agent; the dashboard also hides their "Switch to resident" button). `resident→managed` now **carries the native `session_handle`** into the managed-warm coldstart spawn, so the managed worker RESUMES the same codex thread / hermes gateway / claude transcript instead of starting fresh (the coldstart INSERT previously wrote an empty handle → lost context). Per-agent chat always carries over (keyed per agent, not per session). Advisory warning when binding a native handle already owned by another live agent.
+- **C — session display status is now DERIVED from live truth** (`_compute_session_display_status` / `_agent_session_dict_live`), exactly like agent status: managed keys on the live `terminal_sessions` row, resident on a fresh non-superseded bridge. The denormalized `agent_sessions.status`/`terminal_status` is a cache, NOT the display source — so the dashboard no longer shows "Stopped/Stale but running". One canonical `LIVE_SESSION_STATUSES` (server + dashboard aligned); one `_agent_liveness` predicate feeds the deriver; session mutators now invalidate the live-state cache so the dot refreshes same-pass; `_reconcile_dead_session_status` case (a) now JOINs live `terminal_sessions` (was reading the frozen `terminal_status` denorm the hygiene reaper left stale at `attached`). **Deferred:** ripping out the 6 legacy `*_is_fresh` helpers in favor of the single `_agent_liveness` is a separate migration (TODO).
+
+## Resolved 2026-06-03 (hermes inter-agent delivery determinism)
+
+Inter-agent messages to managed/resident hermes agents were queuing forever / running forever / showing a fabricated `channel/resident dispatch delegated…` reply and never rendering in the visible TUI. Root-caused and fixed end-to-end; **live-verified** by spawning a managed hermes agent and getting a real `ALIVE` reply (run `execution_mode=channel`, `delivered`, claimed by the `hermes-managed-host` channel-sidecar — no placeholder).
+
+- **Fabricated "delegated" reply (resident).** The resident wrapper's MAIN bridge claimed resident hermes runs and routed them through the dead `ChannelDelegatedController`, whose summary was auto-mirrored as the agent's reply. Fix: `supportedExecutionModes` (`mcp/stdio/dispatch-execution.js`) no longer lets a hermes MAIN bridge claim `resident` — only its channel-sidecar loop does.
+- **Queued forever, never claimed (resident).** `_bridge_claim_block_reason` (`service/routers/dispatch_messages/shared.py`) `bridge_not_current` guard blocked the channel-sidecar claim on the resident path (carve-out existed only for managed). Fix: exempt a declared channel-sidecar claim (`and not is_channel_sidecar_claim`).
+- **Never rendered in the TUI.** The visible `hermes --tui` ran its OWN tui_gateway instead of attaching to the loop's gateway host, because a STALE inherited `HERMES_TUI_GATEWAY_URL` was never cleared. Fix: the wrapper `unset`s the stale gateway env before the fresh export. Plus a bounded "no TUI attached" run-failure instead of infinite requeue.
+- **`--resume <id>` registered a stale-marker handle.** Fix: the wrapper seeds active-file+marker with the resumed id (`resolve-session --explicit`), and `discoverSessionId` treats `AIFY_EXPLICIT_SESSION_HANDLE` as authoritative over the marker.
+- **Spawn-initial message stuck `managed`.** Created before the sidecar/flag is up, so it stays `managed` and is never claimed. Fix: a reconcile (`_reroute_orphaned_managed_channel_runs`, 60s) re-routes a queued `managed` run to `channel` once the target has a live sidecar.
+- **Deletion didn't stick / duplicate resident sessions / stuck `working`.** Tombstone guard refuses to un-delete on a passive re-register (only `bridgeStartedAt > removed_at`); resident register retires the agent's other resident sessions; reconcile clears `turn_busy` when its owning bridge is dead.
+- **Latent spawn bug:** `workspaceWithinRoots` (`mcp/stdio/server.js`) treated `/` as empty and never expanded `~`, so spawns into `['/','~']` roots failed. Now `/` is match-all and `~` expands to `$HOME`.
+
+## Resolved 2026-06-02 (managed-hermes continuous gateway turn detector, #172)
+
+**#172 (managed hermes) — RESOLVED (`2216c44`).** Managed-hermes `working` is now driven by a **continuous, bidirectional gateway-status detector** (`mcp/stdio/hermes-gateway-turn-detector.js` — a pure `makeGatewayTurnDetector` state machine + `startHermesGatewayTurnDetector` loop wired into `runDeliveryLoop`), the hermes mirror of the claude transcript detector. It reads the gateway session status (`session.active_list` → `status`: `working`/`idle`) every ~3s for the **whole delivery-loop lifetime**, not only during a dispatch's in-flight window:
+
+- gateway `working` → edge-triggered `/turn-start` (SET `turn_busy`, once). This covers **long turns** (no more 15-min `REPULSE_WINDOW_MS` cap dropping a still-running turn to `online`) AND **autonomous / direct-typed-in-the-TUI** turns that never stamp `inFlight.submittedAt` (the old #172 "hermes working but shown online").
+- gateway `idle` **sustained** (≥3 consecutive ticks, ~9s; env-tunable via `AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE`) → `/turn-end` (CLEAR). The debounce stops the working↔online flap: a momentary mid-turn `running=False` gap (between tool calls / generation) no longer false-clears, and any `working` read resets the idle streak. The same debounce was applied to the in-flight re-pulse probe (`makeInFlightProbe`).
+- Submit-race guard preserved (idle observed before the first `working` never ends a turn). Decisions key ONLY on the gateway's own `session["running"]` process truth, never the aify server's derived status (anti-feedback-loop); `/turn-start` is edge-triggered so it cannot spam or self-reinforce. The dispatch delivery pulse + in-flight re-pulse remain the instant path; this is the continuous backstop in both directions.
+
+**Residual:** only a **gateway-less** resident hermes (no `AIFY_HERMES_GATEWAY_URL`) leans on the long 30-min ceiling. A resident hermes WITH its gateway URL set arms `startHermesGatewayTurnDetector` too (`server.js`), so it gets the same continuous detector as managed; a gateway-less resident has no usable wake handle and derives `offline`. See the #172 residual open-limitation above.
+
+## Resolved 2026-06-02 (pure-event + leak)
+
+Two batches landed after the managed-hermes lifecycle sync: **#4 pure-event status** and **#5 the hermes instance-leak fix**.
+
+**#4 — STATUS is pure event-driven (no seconds window decides `working`).**
+
+- **Status now flips on the EVENT, not a staleness window.** A turn-START event → `working`; a turn-END event → idle, INSTANTLY (the `/turn-end` POST invalidates the live-status cache, so the transition doesn't wait on any timer). The seconds window is no longer the deciding factor for STATUS.
+- **claude turn-state is detected STRUCTURALLY from the transcript tail, BIDIRECTIONALLY** (`1d2cff9`). `adapters/claude.js` `transcriptTail` returns `{lastRole, lastStopReason, pendingToolUse}` from a bounded 64KB tail of the session `.jsonl`. The turn has ENDED iff the last assistant message has a terminal `stop_reason` (`end_turn` / `stop_sequence` / `max_tokens`) with no pending `tool_use` → POSTs `/turn-end` (CLEAR). Anything else with a known last role is IN-FLIGHT (trailing assistant `stop_reason == 'tool_use'` / pending `tool_use`, a trailing user/tool_result, or no terminal `stop_reason`) → POSTs `/turn-start` (SET working). A long blocking tool call, a long generation, or a Task sub-agent dispatch shows a pending `tool_use` (sub-agents write a separate `subagents/*.jsonl`, so the parent transcript is static) → correctly STAYS `working`. A null/unreadable tail → no change. The structural read **replaces** the earlier growth-based detector that false-cleared `turn_busy` on exactly those cases (the ship-blocker fixed by `8efbbaf`). Detector: `mcp/stdio/turn-end-detector.js` + `claude-turn-end-detector.js`, started for resident AND managed claude in `server.js` (gated on `AIFY_AGENT_ID` + the `claude-code` adapter + `transcriptTail`, not session mode), edge-triggered + idempotent. It keys ONLY on transcript process truth (never the server's computed status — anti-feedback-loop), so it covers typed, channel-woken, AND scheduled turns.
+- **RESIDENT under-report (channel/scheduled turns showed idle-while-working) — RESOLVED by `1d2cff9`.** Removing the `PostToolUse` re-pulse left resident non-typed turns with nothing to SET `turn_busy` (`UserPromptSubmit` fires only for operator-TYPED prompts), so a channel-woken or scheduled claude turn under-reported as NOT working. Making the transcript detector bidirectional (it now SETs on an in-flight tail, not just CLEARs on an ended tail) is the robust replacement for the removed re-pulse across ALL turn types. Latency: ≤ ~30s on the detector path; typed and managed turns are instant via the hooks/dispatch.
+- **(SUPERSEDED 2026-06-18: `install.sh` wires claude's `PostToolUse` to turn-start again; `notify-check.js` stays liveness-only. See DECISIONS.md "Turn hooks use each runtime's own events, and claude's PostToolUse re-asserts turn-start".)** **The PostToolUse turn_busy re-pulse was REMOVED** (`notify-check.js` + the `install.sh` claude hook wiring). Claude turn hooks are `UserPromptSubmit` (start) + `Stop` (end) ONLY; the installer also removes any `PostToolUse` `/turn-start` hook a prior install left behind. `turn_busy` persists start→end with no re-pulse. The heartbeat is now liveness-only (refreshes `last_seen`, never touches `turn_updated_at` / `turn_busy`).
+- **Backstops only:** liveness (a dead/stale bridge, or an offline owning env bridge for a managed agent, computes `offline` regardless of `turn_busy`) plus ONE long 30-min ceiling (`TURN_BUSY_BACKSTOP_SECONDS`, restored from the 120s collapse) that self-heals a MISSED end-event on a still-alive agent. The CLAIM-gate keeps the short 120s (`TURN_BUSY_STALE_SECONDS`) so a queued send is never stranded behind a possibly-finished turn.
+- **Send to a busy channel-capable target steers past the claim-gate** (`9aa74d5`). A channel/resident send to a steer-capable target (managed, or channel-enabled resident, claude) is injected immediately (claude queues injects safely + in order) instead of being deferred behind `turn_busy`; the wait-for-turn-end gate is preserved for non-steerable targets. And an `rr=0` channel/resident delivery marked completed now CLEARS the recipient's `turn_busy` (an info/response wake is not sustained work) — only when no other `require_reply=1` run is open.
+
+**KNOWN MINOR (gateway-less resident hermes only):** a resident hermes launched WITHOUT `AIFY_HERMES_GATEWAY_URL` has no gateway and no upstream turn-END hook, so it relies on the 30-min ceiling to self-heal off `working` (and, lacking a usable wake handle, derives `offline`) — see the #172 residual open-limitation item above. A resident hermes WITH its gateway URL set arms `startHermesGatewayTurnDetector` (`server.js`) and is covered by the same continuous gateway turn detector as **managed** hermes (see the #172 resolution below).
+
+**#5 — hermes one-process-set-per-agent, reaped reliably** (`99563af`, `167d5d8`, `f0bdaef`, `14cf5ed`).
+
+- **kill-prior reaps the prior visible resume-TUI** (`99563af`). kill-prior used to reap the prior delivery loop, gateway host, and daemon but NOT the prior `hermes --tui --resume aify-<agent>` visible TUI, so each relaunch leaked a duplicate resume-TUI. It now reaps that prior resume-TUI too, matched to the EXACT pinned handle (`aify-<sanitized agentId>`), never a broad `hermes --tui`. Gated **pre-spawn only** (so the post-spawn self-reap-race call can't kill the gateway/daemon/TUI the current launch just started — also the `14cf5ed` port-kill root cause behind "gateway websocket connection failed").
+- **Dashboard STOP reaps the whole triad** (`f0bdaef`). A managed-hermes Stop tears down the entire triad (gateway host + delivery loop + daemon), agent-scoped, not just the console PTY. The stop control surfaces the target's `agentId` + runtime + sessionMode so the bridge runs an agent-scoped teardown; a resident / claude / other-runtime stop is never touched and another agent's processes are never enumerated.
+- **Resident hermes daemon torn down on TUI exit** (`99563af`). The resident path starts a per-agent api_server daemon but bare-`exec`'d the TUI, leaking a `hermes gateway run` daemon on exit. The wrapper now runs the TUI as a child (no `exec`) and stops the daemon on every exit path (bash `trap EXIT`; PowerShell `finally`) via `stopDaemon` (kill-by-port + tracked-pid + clearGatewayMarkers).
+- **Marker hygiene** (`167d5d8`, `f0bdaef`). Gateway port/key markers are cleared on the agent-removed teardown loop; a boot tombstoned-marker sweep deletes `aify-hermes-{port,daemon-pid,key}-<agent>` for any agent absent from the live `/agents` keyset. Fail-safe: a still-known agent (incl. a co-located other-env's live agent) is never swept; an unknown keyset sweeps nothing.
+
+**KNOWN MINOR (REMOVE is not synchronously reaped):** Relaunch and dashboard STOP reap the triad **instantly**. A dashboard **REMOVE** does not: deleting the agent FK-cascades `agents → agent_sessions → terminal_sessions → terminal_controls`, which wipes the emitted triad-reap stop control before the bridge claims it. The triad is instead cleaned on the **next bridge boot** (the tombstoned-marker + survivor sweeps), not the same instant. So a removed managed-hermes agent's procs may linger until the next env-bridge boot/sweep.
+
+## Resolved 2026-06-02 (managed-hermes lifecycle + restart-teardown batch)
+
+Branch `feature/managed-hermes-lifecycle` made managed runtimes bridge-owned with a single lifecycle owner. The mechanism for each:
+
+- **Daemon/delivery-loop split + `hermes.exe` proliferation — RESOLVED.** The delivery loop is the supervisor of its own lifecycle and self-exits on any terminal condition (410 / dead gateway / gone console / release). It does NOT, however, kill the **shared** gateway host: in the managed flow the wrapper's ensure-host spawns the gateway for the visible TUI and the loop REUSES it, so the loop kills a gateway only if it spawned that host itself (owned child handle) and never port-kills a reused/shared gateway (see the shared-gateway fix below). The gateway's lifetime ties to the TUI/console instead — reaped by kill-prior on relaunch and the env-bridge survivor sweep on restart. Combined with the per-agent daemon kill-prior (`8fd3da9`), one process set per agent. No more accumulation across restarts/churn.
+- **Managed loop port-killed the shared TUI gateway → "gateway websocket connection failed" — RESOLVED (`774fb07`).** An earlier teardown branch port-killed the gateway whenever the loop exited (e.g. a transient 410), but the visible TUI shares that same gateway, so killing it dropped the TUI's WebSocket. The loop now port-kills a gateway only when it owns the child handle, never a reused/shared one, and no longer clears the gateway port/key markers (kill-prior needs the persisted port marker to reap the gateway on relaunch). The TUI's WebSocket stays up across loop restarts.
+- **"Team stranded after restart / runs stuck `claimed`" — RESOLVED.** Restarting `aify-comms` is now a guaranteed **clean slate**: the env bridge tears down all managed sessions it owns on shutdown and boot-sweeps survivors of a crashed predecessor (both scoped to owned agents via `cwdRoots`, never resident/other-env). No dead claimer survives a restart holding a busy agent. The 60s requeue (`a76afb5`) + the new queued-run backstop reaper (`queued_run_backstop_seconds`, 180s) recover/close any in-flight stragglers.
+- **Managed status now gated on the owning env bridge — RESOLVED (`3ca464a`).** A managed agent computes `offline` the moment its owning environment bridge is offline/stale, regardless of any surviving delivery-loop heartbeat, because a managed agent can only be hosted by its owning env bridge. The status path resolves the STORED owning environment (resolved id → `runtime_config.environmentId` → `machine_id`+runtime match) and judges it with the same env-effective-status signal, so killing `aify-comms` makes its managed agents show `offline` immediately instead of a stale `available`/`online`. Resident agents are excluded — their liveness is the resident bridge, not the env bridge.
+- **"Online but no live worker" / "online but deaf" — RESOLVED.** `online` now means *deliverable*: managed hermes joined the channel-sidecar-delivery gate, so `online` requires a live, non-superseded claimer (not gateway/console presence). An explicit delivery-loop **claimer lease** (acquired when the loop becomes a live claimer, released on clean teardown) is the positive signal; a cleanly-exited loop is immediately non-deliverable.
+- **Send to a managed agent with no live claimer — ALWAYS QUEUES (`a89a0d2`, operator-reversed).** The earlier "deaf-target fail-fast" (hard-reject a send when the loop's claimer lease was released/stale, write no run) was **reversed**: in live use it lost messages to agents merely mid-restart (lease released then re-acquired moments later). A send to a managed agent now **always queues a dispatch run**; the `queued_run_backstop_seconds` (180s) **queued-run backstop reaper is the sole safety net**, failing a queued run only after it has been genuinely undeliverable for the backstop window (then mirroring the failure to the sender). Lazy-autostart-on-send and all live-agent delivery are preserved. The lease helpers and deaf-detection are retained for status/deliverability use only, no longer as a send gate.
+- **Wrapper loop health-gate — REMOVED (`5e85ee9`, after non-fatal hotfix `0199471`).** The managed `hermes-aify` wrapper no longer gates the visible TUI on the delivery loop becoming a live claimer. It first FATAL-exited (a transient loop hiccup killed the agent + TUI), was demoted to non-fatal WARN, then removed entirely because even non-fatal it dumped wrapper chatter into the dashboard PTY ahead of the TUI and could stall the console up to 30s. The managed flow is now ensure-gateway → spawn background loop → exec `hermes --tui` directly; deliverability is reflected server-side by the claimer-lease gate, so nothing is lost by not blocking the TUI. The WS connect to the gateway also gained a connect timeout (`0199471`) so a gateway that accepts the socket but never completes the WS upgrade can't hang the loop forever.
+- **Queued-run pileups (`buffer_full`) — RESOLVED.** The queued-run backstop reaper fails any never-claimed queued run past its window and mirrors the failure to the sender, so a genuinely undeliverable target no longer accumulates queued runs toward `buffer_full`. (This is now the sole backstop, since deaf sends queue rather than fail fast — see above.)
+- **Managed hermes false-`working` / never-`working` (Bug A/B) — RESOLVED.** Turn-end is event-driven: the loop clears `turn_busy` the moment the gateway session goes idle, so `working` flips off immediately (no wait) and a queued run delivers on the next claim. The second-based windows are demoted to backstops. (Superseded by the pure-event batch above: STATUS no longer uses a window as the decider at all; `TURN_BUSY_BACKSTOP_SECONDS` is the 30-min dropped-event ceiling and the CLAIM-gate keeps the short `TURN_BUSY_STALE_SECONDS` (120s) so a queued run is never stranded.)
+- **Channel completed-without-reply strand — MITIGATED.** A managed/channel agent that deferred its `require_reply` reply to a second turn stranded it (idle session not re-woken). The channel wake text now directs a same-turn `comms_send(inReplyTo=...)` reply and warns the session won't be re-woken (`claude-channel.js`).
+- **Cruft GC — RESOLVED.** Port/key gateway markers cleared on terminal teardown; dead-PTY console rows reaped (host-reported `process_id` liveness); orphaned `dispatch_runs` for tombstoned agents pruned. **Retention sweep now also covers `terminal_controls` (`d0a9b35`, 2026-06-07):** the periodic reconcile prunes completed/stale control rows older than 24h, alongside the existing superseded-`bridge_instances` 24h prune — so the control table (every Stop/Restart/Reset/steer/interrupt enqueues a row) no longer grows unbounded.
+- **Orphan worker on `stopped` — RESOLVED (status v2 Phase H1).** A managed agent the operator DISABLED (`status=stopped`) previously left its worker + polling bridge running forever (orphan terminal + wasted poll CPU). `/dispatch/claim` now returns a terminal `{stopped:true}` for a stopped agent; the hermes delivery loop tears down its gateway child and self-exits (preserving the session binding — `stopped` is reversible, unlike `410` agent-removed which clears it), and the claude channel sidecar `process.exit(0)`s. It takes effect on **deploy** (container rebuild + wrapper relaunch). **One-time sweep for EXISTING orphans** (workers started before this deploy): restart the owning `aify-comms` env bridge (its boot survivor-sweep reaps owned managed survivors) or `comms_remove_agent` the agent. (Phase H2.)
+
+## Design notes carried forward
+
+- **The three compensating carve-outs were evaluated and KEPT (not removed).** Sidecar claim-path self-heal, complementary-pair protection in `_record_bridge_registration`, and idle-resident-accepts-sidecar in `_resident_bridge_is_fresh`. The unconditional liveness beat only refreshes `last_seen` and short-circuits superseded rows — it never un-supersedes a row nor prevents register-time supersession — so each carve-out still does real work (each removal probe broke its behaviour test). See DECISIONS.md. Tracked in task #154.
+
+## Pre-existing backlog (separate from the 2026-06-01 status work)
+
+OBSOLETE as a list: pi is deprecated, and the managed codex/pi consoles it describes ran under the deleted environment bridge.
+
+- **#123** — split `mcp/stdio/runtimes.js` into per-concern modules.
+- ~~**#134** — PostToolUse hook isn't refreshing the turn_busy heartbeat (claude).~~ **OBSOLETE** (2026-06-02, pure-event #4): the PostToolUse `turn_busy` re-pulse it asked for was added, then REMOVED (and on 2026-06-18 claude's `PostToolUse` was wired to turn-start again, for the reasons in DECISIONS.md). With pure-event status there is no short window to outlast — `turn_busy` is set once at turn-start and cleared by the turn-END event (the `Stop` hook, or the bridge transcript turn-END detector). A long multi-tool claude turn stays `working` simply because `turn_busy` stays set until the end-event; re-pulsing would defeat that event. See "Resolved 2026-06-02 (pure-event + leak)".
+- **#136** — codex managed stored `session_handle` goes stale; `no_rollout` on resume.
+- **#137** — pi managed Console PTY empty (omp not running in a foreground TTY).
+
+## Watch-items (2026-06-05 — hermes resume + claude console work)
+
+- **Hermes gateway-host resolve-session logging doesn't reliably land on disk.** The fresh-session-on-restart root cause (durable vs ephemeral marker, fixed 2026-06-05) would have been a one-grep diagnosis if `~/.local/state/aify-comms/hermes-gateway-host-*.log` captured the `resolve-session` `err(...)` lines, but those files were absent. The resolve path logs to stderr; the gateway-host stderr isn't consistently redirected to that file. Low priority but worth wiring so the next resume regression is observable.
+- **The claude console rules are TUI-version-dependent.** The spinner rule (`service/api_core/terminal_text.py`) and the one boot-prompt rule (`dev-channels-accept` in `service/api_core/console_prompts.py`) match claude's current TUI text. The prompt rule needs the dialog's question line under the cursor, so a claude UI change that rewords it stops the answer rather than misfiring, and the dev-channels acknowledgement then parks a new worker again.
+
+## The codex console input is named only by a placeholder
+
+**RESOLVED in `5b9dafee`:** the input now carries `aria-label="Send a turn to this codex thread"`. The text below is the record.
+
+`service/new_dashboard/session-console.mjs` renders, inside the form marked
+`data-action="codex-console-send"`,
+
+```
+<input type="text" placeholder="${codexThreadId ? 'Type to send turn/start into this thread...'
+                                               : 'No threadId — read-only.'}" ...>
+```
+
+with no `aria-label` and no wrapping label. A placeholder is erased once the field has content, so a
+screen-reader user who tabs back into a half-typed console line hears nothing. Worse here than
+usual: the placeholder is doing double duty as a STATE message, so the field's announced name
+changes depending on whether a thread exists.
+
+Grep for that `data-action` rather than a line: this file's own gate refuses line numbers,
+because a line is the thing that does not survive the next refactor.
+
+Found 2026-08-25 by reading the modules after fixing the four static cases in `index.html`. It did
+not appear in the live-page audit because the codex console only renders while a console is
+attached.
+
+**Not fixed, and the reason is cost rather than doubt.** `session-console.mjs` is an extraction-
+tracked module with four references in `extraction-proof.test.mjs`, so a one-attribute edit requires
+a declared `editedSince` entry attached to the owning item and de-indented by its wrapper — a cycle
+that took roughly fifteen steps the last time. Worth doing alongside the next intentional change to
+that module, not on its own.
+
+The fix is one attribute: `aria-label="Console input"` on that input, leaving the placeholder as the
+state hint it already is. `index-controls-are-named.test.mjs` explains why its own scan stops at
+`index.html` and cannot gate this.

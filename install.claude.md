@@ -1,279 +1,140 @@
 # Install For Claude Code
 
-Use aify-comms when you want dashboard-driven coordination for coding agents: live direct messages, channels, shared artifacts, active dispatch, managed agent spawn, and environment control.
+Connects Claude Code to an aify-comms service: the `claude-aify` launcher, the two MCP servers, turn
+hooks and skills. The service must already be running (see [README.md](README.md#quick-start), which
+also lists the prerequisites).
 
-## Two installs, and you may only need one
-
-aify-comms has a **backend** and a **client** side, and they are separate installs.
-
-| you want | install | how |
-|---|---|---|
-| **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
-| **to run agents on this machine** | `aify-env` + the launchers | clone [aify-env](https://github.com/zimdin12/aify-env) and run `./install.sh` (it ASKS for the service key this host is missing -- `npm install -g` installs the command and cannot notice one), then `aify-wrapper-install --all --endpoint <url>` |
-
-A machine may do either, both, or neither. The service can live on another host entirely — point the
-client install at its address instead of `localhost`.
-
-**The steps below are the client side**, and they currently also install this repo's own bridge
-runtime onto the host. That is being unwound: see
-[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) for where it lands and what is left.
-
-## Before you install: the service has to be running
-
-The steps below install a CLIENT and point it at a service. Something has to be serving that address,
-and on a fresh machine nothing is. Clone once and bring the service up first — the same checkout is
-what the client install uses:
+## Install
 
 ```bash
-git clone https://github.com/zimdin12/aify-comms.git ~/.claude/plugins/aify-comms
-cd ~/.claude/plugins/aify-comms
-./setup.sh                          # generates .env + config from the examples
-docker compose up -d --build        # API on :8800, Dashboard Next on :8801
-curl http://localhost:8800/health   # {"status":"healthy", ...} before going further
+git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
+cd ~/aify-comms
+bash install.sh --client claude http://<service-host>:8800 --with-hook
 ```
 
-If the service already runs somewhere else, skip this, clone anyway (the installer runs from the
-checkout), and use that address below instead of `localhost`. Full setup detail is in
-[README.md](README.md).
+- With no URL, `install.sh` asks for one when run in a terminal and otherwise uses
+  `http://127.0.0.1:8800`.
+- It writes the service into `~/.aify/services.json`, which is how aify-env learns the service exists.
+- Running it again is how you update. `install.sh --help` lists the flags.
 
-## Copy-Paste Install
+Restart Claude Code afterwards: a running session keeps the MCP servers it loaded.
 
-```bash
-cd ~/.claude/plugins/aify-comms    # the checkout from the step above
-bash install.sh --client claude http://localhost:8800 --with-hook
-```
+## Run agents on this host
 
-You do **not** need any other package. `install.sh` builds `claude-aify` from templates that come from
-[zimdin12/aify-wrapper](https://github.com/zimdin12/aify-wrapper), which arrives as a normal npm
-dependency of the bridge during the install you just ran. Installing that package yourself points a
-coding-agent CLI at some OTHER coordinating service; doing it alongside this gives you a second copy
-of the same launcher, not more harnesses.
-
-If you are using local-only mode with no shared server:
+Managed agents are started by [aify-env](https://github.com/zimdin12/aify-env), a separate repo. After
+the install above, clone it, run its `./install.sh` (it asks for the service key this host is
+missing; `npm install -g` installs the command and cannot notice one), then start it in the directory
+that holds your workspaces:
 
 ```bash
-cd ~/.claude/plugins/aify-comms
-bash install.sh --client claude --with-hook
-```
-
-Restart Claude Code after install.
-
-## Confirm it took effect
-
-Every deploy path in this repo can fail silently: no error, everything looks installed, and what you
-changed is not what is running. Do not read the absence of an error as success.
-
-```bash
-aify-comms doctor          # human-readable; --json for scripts, --strict to exit non-zero
-```
-
-On a fresh install `service`, `bridge-installed` and `skills-installed` should all be green. The
-launcher's own currency is `aify-wrapper-check`'s question, not this tool's — v0.6 moved it there
-rather than keep a second implementation of it. `bridge-running` and `agent-identity` SKIP on
-Windows — they read `/proc` — so on Windows
-`bridge-current` is what tells you a running bridge is on the current build. A check that could not
-gather evidence reports `unknown-all` and fails; that is the tool working, not a bug to quieten.
-
-Resident Claude wakeups require a shared aify server URL, and `install.sh` makes sure there always is
-one: with no URL given it PROMPTS, pre-filled with an already-installed wrapper's URL or loopback, and
-falls back to `http://127.0.0.1:8800`. **There is no "local-only mode" in which `claude-aify` is not
-installed** -- this line described one until 2026-09-12. The code path that removed the wrapper on an
-empty URL is now unreachable by construction, and the installer says why in its own comment: leaving it
-reachable deleted `~/.local/bin/claude-aify` on a run that printed "Installation complete".
-
-For dashboard-managed spawns, also start the HOST TIER on the machine that should run Claude Code. That
-is [aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms:
-
-```bash
-cd /path/to/workspace-or-workspace-parent
+cd /path/to/workspaces
 aify-env
 ```
 
-**One host per environment, and starting a second replaces the first.** Run it where you want agents
-to run, once. Starting it again supersedes the instance already serving that environment, and the
-older one exits taking its managed workers with it -- which is why starting one is the operator's
-action and never a check. To ask instead, use `aify-env doctor`, or `aify-comms doctor` for the same
-host from the service's side.
+It spawns only into workspaces under that directory, and offers Claude when the `claude-aify` launcher
+this install wrote is on the PATH it was started with. Starting a second `aify-env` for the same environment replaces the first,
+and the one replaced stops its managed agents, so starting it is the operator's call. Ask a running
+one with `aify-env doctor`. More in [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
 
-**`aify-comms` no longer starts anything.** Until v0.6.1 the bare command WAS the environment bridge,
-and a four-second run meant only to check the launcher still worked took down nine agents on
-2026-08-11. It is now a verifier -- `doctor`, `--check`, `--version`, `--help` -- and anything else
-exits 2 naming aify-env.
-
-The service URL defaults to `http://localhost:8800`; the current directory is always an allowed
-workspace root; extra root arguments are optional safety boundaries, not the per-agent project
-choice. See [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
-
-After every update:
-
-1. Restart Claude Code.
-2. Start the live session with `claude-aify`.
-3. Re-register from that exact live session.
-4. Confirm with `comms_agent_info(agentId="...")`.
-
-For resident-session wakeups, start Claude with:
+## Confirm it took effect
 
 ```bash
-claude-aify
+aify-comms doctor          # --json for scripts, --strict to exit non-zero on a failure
 ```
 
-### Session-mode flag
+`service`, `bridge-installed` and `skills-installed` should be green. Then relaunch every agent that
+was running before the install, because a running agent keeps the bridge code it loaded.
+`bridge-current` names any registered agent still reporting an older build, and reads `unknown` until
+agents report one. A row that gathered no evidence reports that as a failure, not a pass.
 
-`claude-aify` accepts `--resident` and `--managed` to declare session mode. Precedence: inherited `AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`); else the flag; else TTY auto-detect (`[ -t 0 ]` — interactive defaults to `resident`, non-TTY to `managed`). `claude-aify` always exports `AIFY_CHANNELS_ENABLED=1` so its `mcp/stdio/server.js` child registers with `runtime_config.channelEnabled=true` — that's the precondition for resident-run/interrupt/steer caps to survive `_row_capabilities` strip.
+`aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything else exits 2.
 
-### Session rediscover (added 2026-05-26, Plan 6 B4)
-
-Unlike hermes/codex/pi (which query a live runtime), Claude has no probe endpoint — but its session id maps 1:1 to a JSONL transcript at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`. `claude-aify` now validates `CLAUDE_SESSION_ID` against the on-disk transcript: if no `<id>.jsonl` exists anywhere under `~/.claude/projects/`, the env value is stale (prior session GC'd, operator cd'd into a different project, etc.) and the wrapper unsets both `CLAUDE_SESSION_ID` and `CLAUDE_RESUME_ID` so Claude creates a fresh session — the bridge's discover (Plan 4) picks up the truthful id on the first heartbeat (Plan 6 A1). The scan is filename-based, so the Windows-native vs git-bash cwd-encoding mismatch doesn't trip the validator. Failures are non-fatal: a missing transcript triggers a single `[claude-aify] CLAUDE_SESSION_ID '<id>' has no transcript ... clearing` log line and the wrapper continues normally.
-
-### Agent identity is MANDATORY for status — and now self-recovering (2026-07-14)
-
-**Always launch a registered agent with its id** (`claude-aify --aify-agent <agent-id> …`, or `AIFY_AGENT_ID` exported). `AIFY_AGENT_ID` gates EVERY turn-state path — the bridge's turn detector, the `Stop`/`UserPromptSubmit`/`PostToolUse` hooks, and the session-store capture hook. Launched without it, the agent still registers, sends/receives messages and heartbeats perfectly, but its status is structurally broken: only the channel sidecar can touch turn state, and it only ever SETS `working` on an inbound wake — so the agent latches `working` forever, then (once the backstop ages that flag out) reads `online` and can never show `working` again. Nothing errors; it just silently has no working status.
-
-Two guards now make this hard to hit:
-
-- **Handle → agent recovery.** On `claude-aify --resume <session-handle>` with no agent id, the wrapper asks the service which agent owns that handle (authoritative; survives a `/tmp` wipe), falling back to the local session store (`/tmp/aify-claude-session-<agent>.json`). It logs `resolved aify agent '<id>' from session handle '<handle>'` when it recovers. Same design hermes has had since 2026-06-03.
-- **Loud refusal to degrade silently.** If the id is still unknown, the wrapper prints `NO AGENT ID: aify turn/status detection is DISABLED for this session (status will latch)`. Anonymous sessions remain legal (a plain claude + comms session is a real use case) — they just aren't silent.
-
-The dashboard's resume/takeover command now carries `--aify-agent` too; it previously did not, which is how identity got dropped in the first place. **A running session cannot be repaired** — re-registering only writes DB rows, and Claude Code's in-app `/resume` picker swaps the conversation inside the same process (same env). Relaunch with `--resume <handle>`; the conversation is preserved.
-
-**One live instance per agent (v0.6.8).** Running `claude-aify --aify-agent <id>` in a terminal stops that agent's running instance on this host first, a managed worker included. An automatic start (a message cold-starting the agent, the queued-run backstop, an agent's `comms_spawn`) is refused with exit 75 instead; to replace a running agent on purpose, start or restart it from the dashboard.
-
-### Wrapper MCP isolation (opt-in strict-mcp-config)
-
-By default `claude-aify` loads your FULL `~/.claude.json` MCP server list (browsermcp, github, aify-project-graph, etc.) — the installer merges `aify-comms` + `aify-comms-channel` into that list at install time, so they are present without isolation. Setting `AIFY_CLAUDE_STRICT_MCP=1` in the launching shell opts into strict mode: the wrapper then launches Claude with `--strict-mcp-config` and a minimal MCP config containing ONLY `aify-comms` + `aify-comms-channel`, and your other MCP servers are NOT loaded inside that wrapper session (they still work in plain `claude` sessions outside the wrapper).
-
-**Why the escape hatch**: a known Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)) silently fails to initialize MCP servers when many stdio servers compete at startup. `aify-comms-channel` can lose the init race against a large operator config, leaving the channel listener unregistered and every channel-routed dispatch silently dropped despite the bridge reporting `delivered`. When that race bites, set `AIFY_CLAUDE_STRICT_MCP=1` and relaunch — the strict 2-server config restores guaranteed channel wake at the cost of the other MCP servers.
-
-On Git Bash Windows, the wrapper uses `cygpath -m` to convert `/c/Docker/aify-comms` → `C:/Docker/aify-comms` so the MCP server paths are Windows-native (otherwise the MCP child processes fail to start).
-
-### Managed-channel routing
-
-`insert_messages_via_console=false (the default channel-route mode; earlier name claude_managed_channel_only=false)` (settings, default false) routes dispatches to managed Claude agents via channel events (claimed by `claude-channel.js`, emitted as `<channel source="aify-comms-channel" ...>` MCP notifications) instead of typing into the wrapper PTY. Same protocol resident Claude already uses. Flip via `PUT /api/v1/settings` and roll back instantly if anything regresses.
-
-> **Precondition.** Channel routing still requires a `claude-aify` wrapper PTY to be alive — `claude-channel.js` runs INSIDE that wrapper as an MCP child of Claude and is the actor that claims the dispatch. The bridge spawns the wrapper on managed dispatch (or eagerly with `managed_pty_eager_spawn=true`); a resident `claude-aify --aify-agent <id>` works equivalently. If the env doesn't advertise terminal+claude-code support (check via `Get-Command claude` and `Get-Command claude-aify.cmd` from the bridge's user/shell — set `AIFY_CLAUDE_COMMAND` to the absolute path if missing; reinstall to repair node-pty if the bridge reports `terminal=false`/`pty=false`), the wrapper cannot be spawned, no claim happens, and the dispatch sits in `queued` indefinitely. "Channel route doesn't need a PTY" is wrong — channel route is "PTY exists but delivery goes via MCP notification instead of typing into stdin", not "no PTY at all". For managed claude, a live wrapper PTY ALONE is not enough to report `online`: `online` requires BOTH the live console PTY AND a live, non-superseded channel-sidecar (`claude-channel.js`, the actual claimer). A live PTY with no live sidecar — or a live sidecar with no console ("headless orphan", which is reaped) — reads `available`, not `online`.
-
-That wrapper enables the local aify channel bridge, adds Claude's current development-channel flag automatically, and records the live resident-session binding so `comms_register` can advertise `claude-live` reliably.
-If Claude says `server:aify-comms-channel · no MCP server configured with that name`, rerun the installer with a real server URL and restart Claude Code.
-
-The visible resident Claude session now skips permission prompts **by default**:
+## Start a Claude agent
 
 ```bash
-claude-aify
+claude-aify --aify-agent <agent-id>                         # a resident agent in this terminal
+claude-aify --aify-agent <agent-id> --resume <session-id>   # continue its conversation
+claude-aify --shared --aify-agent <agent-id>                # aify-env owns the terminal
 ```
 
-The wrapper adds `--dangerously-skip-permissions` by default. Pass `--safe` (or `--no-auto`) to opt OUT and keep normal visible CLI permission prompts.
+- **Pass `--aify-agent` for a registered agent.** The agent registers under that id at startup, and
+  the id reaches the turn hooks and the transcript detector only through the launch environment. Started
+  without it, the agent still messages, but its status stops tracking its turns, and nothing inside
+  the running session can fix that: relaunch. The launcher prints `NO AGENT ID` when it has none.
+- `--resume <session-id>` without `--aify-agent` looks the agent up by that handle: first from the
+  service, which works only while the service has no API key because the launcher sends none, then
+  from `${TMPDIR:-/tmp}/aify-claude-session-<agent>.json`.
+- Starting `claude-aify --aify-agent <id>` in a terminal replaces that agent's live instance on this
+  host, a managed worker included. An automatic start (a message waking the agent, `comms_spawn`) is
+  refused with exit 75 instead. The rules are in aify-wrapper's README, "One live instance per agent".
+- `--shared` hands the terminal to aify-env, so closing the window does not end the session. It needs
+  `aify-env` on PATH; `aify-env attach <agent>` reattaches and `Ctrl+]` detaches.
+- `claude-aify` passes `--dangerously-skip-permissions` by default; `--safe` (or `--no-auto`) keeps
+  Claude's permission prompts.
+- `--resident` / `--managed` set the session mode; without them `AIFY_SESSION_MODE` decides, then
+  whether stdin is a terminal.
 
-Windows note:
-- If you run the installer from Git Bash on Windows, it installs Bash wrappers plus `.cmd` shims in `%USERPROFILE%\.local\bin`, including `aify-comms.cmd` and `claude-aify.cmd`, and adds that directory to your user `PATH`.
-- Open a new PowerShell after install. If `aify-comms.cmd` is still not recognized, run `$env:Path += ";$env:USERPROFILE\.local\bin"` for the current window or launch it directly with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd"`.
-- The hook/config writer is Git Bash aware. It converts hook script paths for native Windows Node and disables MSYS path rewriting for that step, so `--with-hook` should not require manual `settings.json` edits.
-- If you install from WSL instead, the wrapper stays WSL-local. That is still fine for WSL Claude sessions, but it does not create a native Windows launcher.
+`comms_agent_info(agentId="<agent-id>")` from inside the session shows its status and session handle.
+Agents answer a message with `comms_send(type="response", inReplyTo="<message id>", to="<sender>")`;
+final text, stdout and run summaries are not the reply. The `aify-comms` skill has the rest.
 
-Important:
-- Active dispatch works only when the agent is installed through the local `stdio` MCP server.
-- `comms_register` creates a resident session for messaging/presence. When the current Claude process was started with `claude-aify`, that resident session becomes wakeable and steerable through its own local aify channel bridge. This uses Claude Code Channels (`notifications/claude/channel`), not the Codex `turn/steer` API.
-- `claude-aify` adds `--dangerously-skip-permissions` by default. Pass `--safe` (or `--no-auto`) to keep normal visible CLI permission behavior.
-- `comms_send` is the normal teamwork and reply path. It is live-delivery gated for offline/stopped/no-wake targets; those sends are not stored. Busy steer-capable targets receive ordinary sends as current-run steer. Busy live targets that cannot steer queue/merge as next-turn work. Use `queueIfBusy=true` only when you intentionally want next-turn delivery even if steering is available. Agent-reported blocked/completed states are status notes, not delivery blockers.
-- `comms_dispatch` is the explicit tracked-run/debug path. When you dispatch, it still arrives as a sender message and also opens tracked run state with reply handoff by default.
-- Every aify-comms message is answered with a `comms_send` tool call: delivered dashboard-managed runs AND resident/live CLI sessions reply with `comms_send(type="response", inReplyTo="<message id>", to="<sender|dashboard>")`. That tool call is the team/chat-visible reply and closes the run; stdout/logs/tool output/run summaries/final plain text are the agent's own working output, not the reply. Treat each message as a small contract. Safety net: the `managed_reply_capture_fallback` setting (default on) auto-mirrors a delivered run's summary when it ends with no explicit reply; set it off for strict comms_send-only delivery — but always send the explicit `comms_send`.
-- Keep team messages focused: one ask/result/blocker/status per message. When truth or history matters, check inbox/run/files first and say what was checked. Split unrelated topics instead of carrying them in one thread.
-- `comms_spawn` creates a persistent environment-backed agent session. Use `comms_envs` first when you need to choose a host/workspace.
-- Normal `comms_send` does not store messages for unreachable targets. Busy live targets may steer or queue/merge; stale queued/running work should still be cleared from Runs/Sessions before using chat.
-- Short-lived nested subagents should normally report through their parent/coordinator instead of calling `comms_register(...)`, joining channels, or messaging the wider team directly.
-- If the host tier is killed, managed agents backed by it become offline/detached and active sessions become lost; chats, identities, spawn specs, and session records remain. Start aify-env again (the operator's action), or assign the agent to another online environment from **Agents**, then restart from **Sessions**. If a resident `claude-aify` wrapper is closed, that resident session is no longer live-wakeable until it is restarted and re-registered.
-- **Restarting the host tier is a clean slate for managed sessions.** aify-env ends the process trees of the worker PTYs it owns, and on the next start reaps only what a dead predecessor recorded. Detached hermes gateway hosts escape a hard kill: since v0.6.8 the agent's next launch collects its own, and `aify-comms doctor`'s `gateway-orphans` row reports the rest. Managed sessions are re-spawned fresh from their spec, not inherited.
-- SSE-only installs can message and inspect, but they cannot host triggerable resident sessions or environment-backed agents, and they cannot launch local work themselves.
-- Managed Claude Code model is blank by default, which lets the installed Claude Code runtime choose its default/latest model. Managed Claude Code defaults to `high` effort. Configure global defaults in Dashboard **Settings -> Runtime**. The bridge passes `--model` only when a model override is set, and always passes the configured effort. The normal dashboard does not tune model/effort per agent.
-- Managed runtime hard timeout is **12 hours** by default (per-agent override via `runtimeConfig.timeoutMs`). Managed Claude Code adds `--dangerously-skip-permissions` for dashboard-managed unattended runs and uses `--max-turns 50` by default (`runtimeConfig.maxTurns` can override). Managed Codex separately uses Codex's unattended bypass sandbox profile by default (`danger-full-access`, equivalent to `--dangerously-bypass-approvals-and-sandbox`) and has Codex-specific quiet/MCP watchdogs: 30 minutes without Codex runtime notifications (`runtimeConfig.quietTimeoutMs` or `runtimeConfig.silenceTimeoutMs`) and 90 seconds for stuck `mcpToolCall aify-comms` turns (`runtimeConfig.mcpToolTimeoutMs` or `runtimeConfig.commsToolTimeoutMs`; set to `0` only for debugging). Current bridge builds terminate the whole managed runtime process tree on timeout/interrupt/stop so stale child processes do not keep false liveness.
-- If another agent says you are not wakeable, the usual fix is: restart with `claude-aify`, then re-register from that exact live session with `runtime="claude-code"`.
-- On Windows, always register with forward-slash `cwd` (`C:/path/to/project`). The stdio bridge normalizes automatically, but you must restart `claude-aify` after updating aify-comms for the fix to load.
+## How messages reach Claude
 
-## Delivery path
+`claude-aify` starts Claude with `--dangerously-load-development-channels server:aify-comms-channel`.
+The `aify-comms-channel` MCP server (`claude-channel.js`) claims the agent's messages and delivers
+each one into the live session as a `<channel source="aify-comms-channel" ...>` event. If Claude says
+`no MCP server configured with that name`, re-run the installer and restart Claude Code.
 
-Resident `claude-aify` sessions are woken via the **channel** path: `claude-channel.js` runs as an MCP child of Claude (loaded via `--dangerously-load-development-channels server:aify-comms-channel`), polls the service for queued dispatches, and emits each one as a `notifications/claude/channel` event that lands in the live session as `<channel source="aify-comms-channel" ...>`.
+By default the launcher loads your whole `~/.claude.json` MCP list, where the installer adds the two
+aify servers. A Claude Code bug ([#38462](https://github.com/anthropics/claude-code/issues/38462),
+[#21341](https://github.com/anthropics/claude-code/issues/21341)) can fail to start MCP servers when
+many start at once, leaving the channel server unregistered and messages undelivered. Set
+`AIFY_CLAUDE_STRICT_MCP=1` in the launching shell and the launcher loads only the two aify servers.
 
-By default the wrapper loads the operator's full `~/.claude.json` MCP list (which already contains `aify-comms` + `aify-comms-channel`). Setting `AIFY_CLAUDE_STRICT_MCP=1` opts into `--strict-mcp-config` so only `aify-comms` and `aify-comms-channel` load inside the wrapper session — the escape hatch for the Claude Code stdio MCP init race ([anthropics/claude-code#38462](https://github.com/anthropics/claude-code/issues/38462), [#21341](https://github.com/anthropics/claude-code/issues/21341)). Operator's other MCP servers always work in plain `claude` sessions outside the wrapper.
+## What the install writes
 
-**Windows-specific note.** The wrapper emits `http://127.0.0.1:8800` (not `http://localhost:8800`) in the generated MCP env block, and both `claude-channel.js` and `server.js` defensively coerce `http://localhost` to `http://127.0.0.1` at fetch time. Reason: Docker Desktop's IPv6 port forwarding is unreliable on Windows, and `localhost` resolves to IPv6 `::1` first — connections hang silently and no channel dispatches get claimed. The coercion is a no-op on Linux/macOS where loopback is IPv4 by default.
+- MCP servers `aify-comms` and `aify-comms-channel`, in Claude's user scope.
+- Skills in `~/.claude/skills` and slash commands in `~/.claude/commands/aify-comms`.
+- `claude-aify` and the `aify-comms` verifier in `~/.local/bin`.
+- The bridge runtime, copied to `~/.aify-comms` (`AIFY_HOME` overrides). Launchers and MCP config
+  point at that copy, so an edit under `mcp/stdio/` reaches agents only after `install.sh` re-runs and
+  the agents relaunch.
+- Turn hooks in `~/.claude/settings.json`, always: `UserPromptSubmit` and `PostToolUse` (turn start),
+  `Stop` through `claude-stop-gate.js`, `SessionStart` on compact and `StopFailure` (turn end), and
+  `PermissionRequest` (blocked). They post through `agent-state-event.mjs`, which carries the API key,
+  and do nothing in a session without `AIFY_AGENT_ID`. The bridge also reads the transcript to set and
+  clear `working` when a hook does not fire.
+- With `--with-hook`, a `PostToolUse` hook running `notify-check.js`, which tells the agent about
+  unread messages without marking them read. Once installed, re-runs keep it.
 
-### OpenAI/ChatGPT quota panel needs the `codex` CLI signed in
+A malformed `~/.claude/settings.json` is backed up to `<path>.aify-bak-<timestamp>` before the
+installer rewrites it.
 
-The dashboard's *OpenAI · ChatGPT (Codex + Hermes)* card reads an OpenAI token from the **codex CLI's**
-store (`codex login`). Hermes does not hold one — on a default install its `auth.json` is only a pointer
-(`{"active_provider": "openai-codex"}`) that delegates to codex. Without codex installed and signed in,
-that one card cannot show live usage; nothing else is affected. `install.sh` prints a `[usage] OK` /
-`[usage] WARNING` verdict (it proves the connection, so an expired token is reported too), and
-`node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` gives an installing agent a machine-readable
-`{ok, code}` where `code` is `ok` / `no-token` / `rejected` / `unreachable`.
+## Windows
 
-## Two flags this guide used to omit, and one new behaviour
+- Install from Git Bash. The installer writes `.cmd` shims (`claude-aify.cmd`, `aify-comms.cmd`) to
+  `%USERPROFILE%\.local\bin` and adds that directory to your user PATH; open a new PowerShell
+  afterwards. In a window that was already open: `$env:Path += ";$env:USERPROFILE\.local\bin"`, then
+  `aify-comms.cmd doctor`.
+- Register with forward-slash paths (`C:/path/to/project`).
+- The bridge rewrites `http://localhost` to `http://127.0.0.1`: `localhost` can resolve to IPv6
+  `::1`, which Docker Desktop forwards unreliably.
+- Installing from WSL gives a WSL-only launcher, not a Windows one.
 
-`install.sh --help` is the authority; these are the two whose CONSEQUENCES are discussed above while
-the flags themselves were never named.
+## Managed Claude defaults
 
-| flag | what it does |
-|---|---|
-| `--mcp-transport <stdio\|sse>` | how the launcher reaches MCP. Default `stdio`. An "SSE-only install" is what this flag produces; an unknown value exits 78. |
-| `--delegate-spawns [url]` | managed spawns go to aify-env (default `http://127.0.0.1:8802`) instead of being hosted by the aify-comms bridge. **Delegation is OFF by default**, and with it off `aify-comms doctor` reports `spawn-delegation: local` — naming a bridge that v0.6.2 removed. Re-running the installer carries the setting the host already chose, so this is a one-time decision per host. |
+Model blank (Claude's own default) and effort `high`. Change them in the dashboard under
+**Settings → Managed workers**; they apply at the next worker start.
 
-**Herdr (new 2026-09-12).** The rendered launchers now claim their Herdr pane, so an agent started in
-a Herdr pane comes back as `claude-aify` rather than as a bare `claude` after a reboot. It is gated on
-`HERDR_ENV`, so an ordinary terminal launch does nothing extra, it can never fail a launch, and its
-diagnostics go to `~/.aify/herdr/claim.log`. Nothing restores until the plugin is linked once with
-`aify-herdr-pane install`. Design and limits: aify-wrapper's `HERDR.md`.
+## Herdr
 
-## What This Installs
+The launchers claim their Herdr pane, so an agent started in a Herdr pane comes back as `claude-aify`
+after a reboot. It only acts when `HERDR_ENV` is set, can never fail a launch, and logs to
+`~/.aify/herdr/claim.log`. Nothing restores until the plugin is linked once with
+`aify-herdr-pane install`. That command, `herdr-aify` and `aify-wrapper-check` come from
+[aify-wrapper](https://github.com/zimdin12/aify-wrapper), which this install uses internally but does
+not put on PATH: run `npm link` once in an aify-wrapper checkout. Design and limits: its `HERDR.md`.
 
-- The `aify-comms` stdio MCP server, registered in Claude user scope (tool namespace retained for compatibility)
-- The `aify-comms-channel` MCP server used for resident Claude wakeups, also registered in Claude user scope
-- The aify skill in `~/.claude/skills/aify-comms`
-- Slash commands in `~/.claude/commands/aify-comms`
-- Optional unread-message hook notifications
-- A `UserPromptSubmit` hook in `~/.claude/settings.json` that runs `agent-state-event.mjs turn-start` (in the native bridge dir) on prompt submit. Every turn hook posts through that script, which resolves the endpoint and API key the way the bridge does; the raw `curl` hooks it replaced sent no key, so a service with `API_KEY` set refused all of them. Flips the dashboard to `working` the moment the operator submits a prompt — even when the prompt didn't come through aify-comms's dispatch path (i.e., direct CLI typing). This is the turn-**START** event.
-- A `Stop` hook in `~/.claude/settings.json` that signals turn-**END** when the assistant is done. **As of 2026-06-19 it routes through `claude-stop-gate.js`** (in the native bridge dir) instead of a raw `curl`: the managed claude wrapper fires premature/duplicate `Stop` hooks BETWEEN the tool-bursts of one logical turn, which used to clear the turn mid-work and flap the status `working`→`online`→`working`. The gate reads the transcript tail and **suppresses** the `/turn-end` only when the turn is *confirmed still in-flight*; on a real end, an unreadable tail, or ANY error it posts `/turn-end` exactly as before (fail-safe — it can never cause a stuck `working`). **Turn hooks: `UserPromptSubmit` and `PostToolUse` (start), `Stop` (end)**, plus a `SessionStart` turn-end on compact, `StopFailure` (turn-end on an API error) and `PermissionRequest` (`blocked` while an approval waits; the next `PostToolUse` turn-start clears it). Esc-interrupt fires no Claude hook, so it is not covered. STATUS is pure-event: no timer window; the turn clears on the turn-end event (or the 30-min dropped-event backstop).
-- **`PostToolUse` re-pulse is BACK, and this guide said the opposite until 2026-09-12.** It was
-  removed on 2026-06-02 (pure-event change #4) on the premise that `turn_busy` stays set until the
-  turn-END event, making a mid-turn re-assert redundant. Two findings invalidated that premise, and
-  `install.sh` now wires it again (`wireTurnStart('UserPromptSubmit')` **and**
-  `wireTurnStart('PostToolUse')`): (1) `UserPromptSubmit` does NOT fire for an MCP/channel-WOKEN
-  managed turn; (2) the `Stop` hook is not a clean once-per-turn signal — it fires prematurely and
-  repeatedly inside one logical turn (Claude Code issue 54360) and around rate-limit retries,
-  clearing `turn_busy` mid-work. Without the re-assert a still-working managed claude fell to
-  `online` until someone opened the Console. **It cannot re-pin an idle agent:** `PostToolUse` fires
-  only on a real tool call, so an idle agent fires nothing; a tool call arriving after a `Stop` means
-  the turn was not actually over, and re-asserting there is correct. No time window is introduced and
-  the wiring is idempotent, filtered by the turn-start marker.
+## Troubleshooting
 
-  **Do not delete this hook.** The text here previously said the installer "actively removes" it,
-  which would lead an agent debugging a status flap to remove a hook `install.sh` had just written.
-- **Hook-independent BIDIRECTIONAL turn-state detector (in the bridge, no settings entry).** The fast-path hooks (`UserPromptSubmit` → `/turn-start`, `Stop` → `/turn-end`) only fire for operator-TYPED turns, and neither is a guaranteed terminator (`Stop` misses on interrupt/ESC, MCP-continuations, a crash, or a failed curl). So the `claude-channel.js`/`server.js` bridge runs a transcript turn-state detector for claude agents (resident AND managed; gated on `AIFY_AGENT_ID` + the `claude-code` adapter + `transcriptTail`, not session mode). It reads the session transcript TAIL structure (`adapters/claude.js` `transcriptTail` → `{lastRole, lastStopReason, pendingToolUse}`) every ~30s and drives `turn_busy` in BOTH directions, edge-triggered and idempotent:
-  - **Tail IN-FLIGHT** (last assistant `stop_reason == 'tool_use'` / pending `tool_use`, a trailing user/tool_result, or no terminal `stop_reason`) → POSTs `/turn-start` (**SET** `working`). This is the resident under-report fix: a channel-woken or scheduled-task turn never fires `UserPromptSubmit`, so without this the agent showed NOT working while it was. A long blocking tool call or a Task sub-agent dispatch shows a pending `tool_use` (sub-agents write a separate `subagents/*.jsonl`, so the parent transcript is static) and correctly STAYS `working`.
-  - **Tail ENDED** (terminal `stop_reason` ∈ `{end_turn, stop_sequence, max_tokens}`, no pending `tool_use`) → POSTs `/turn-end` (**CLEAR**).
-  - **Unreadable/null tail** → no change (never false-sets, never false-clears).
-  This detector keys ONLY on transcript process truth (the harness's own `.jsonl`), never on the server's computed status (anti-feedback-loop), so it covers typed, channel-woken, AND scheduled turns. It is the robust **replacement for the removed `PostToolUse` re-pulse** for all turn types. The hooks stay the instant path (typed/managed are instant); this is the hook-independent backstop now covering BOTH directions, at ≤ ~30s latency on the detector path.
-- An `aify-comms` verifier in `~/.local/bin` (`doctor`, `--check`, `--version`; it starts nothing)
-- A `claude-aify` wrapper in `~/.local/bin` that exports `AIFY_COMMS_URL` using the form `${AIFY_COMMS_URL:-<install-time-url>}` — caller env wins, so a bridge-spawned managed PTY can override the install-time default if it needs to talk to a different aify-comms service.
-
-**Installer safety:** If `~/.claude/settings.json` is malformed (operator hand-edit, prior crash, BOM), the installer backs up the existing file to `<path>.aify-bak-<timestamp>` and logs a `WARN` to stderr before rewriting. The pre-2026-05-22 behavior silently overwrote the file with an aify-only fresh copy, losing every operator setting/hook. Same protection now applies to all hook/config files the installer touches.
-
-## Quick Start
-
-```text
-comms_register(agentId="my-agent", role="coder", runtime="claude-code")
-comms_agents()
-comms_agent_info(agentId="my-agent")
-comms_send(from="my-agent", to="other-agent", type="info", subject="Hello", body="Hi there")
-comms_inbox(agentId="my-agent", mode="headers")
-comms_inbox(agentId="my-agent", messageId="<message id>")
-```
-
-## Keeping the session when you close the terminal
-
-Add `--shared` to the launcher: `claude-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
-HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
-needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
-`aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
-
-## How the install works (and updating)
-
-`install.sh` copies the bridge runtime (`mcp/stdio` + its `node_modules`) into a native folder at `~/.aify-comms` (override with `AIFY_HOME`) and points the wrappers and MCP config at that copy — not at this repo checkout. This keeps bridge startup fast on slow/bind-mounted filesystems. Consequence: after `git pull`, changes under `mcp/stdio/` only take effect once you **re-run `install.sh`** (refreshes the copy) and restart the wrapper/bridge. Updating the runtime CLI itself (e.g. a hermes or claude update) does not require reinstalling aify-comms — the two write disjoint files.
+The `aify-comms-debug` skill, installed above, covers delivery, status and console problems.

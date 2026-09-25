@@ -61,32 +61,26 @@ After every install/update:
 3. For resident/operator-open sessions only, re-register from the exact live session you want other agents to trigger, or launch with `--aify-agent <agentId>` so the wrapper registers it automatically. Dashboard-managed agents are registered by aify-env's aify-comms plugin and should not call `comms_register` from delivered runs.
 4. Confirm with `comms_agent_info(agentId="...")`.
 
-Never replace `comms_register` with raw `curl`/Node `POST /api/v1/agents` for
-resident agents. That endpoint can update metadata, but it cannot create the
-wrapper's bridge heartbeat or dispatch claim loop. A resident record without a
-fresh bridge is `offline` and live sends are rejected.
-
 Wrapper auto mode:
 
-- `codex-aify` adds Codex's supported bypass flag by default; use `--safe`, `--no-auto`, or `--no-dangerous-permissions` to opt out for permission debugging.
-- `claude-aify -auto` adds `--dangerously-skip-permissions`.
-- `omp-aify` / `pi-aify` has no special `-auto` permission mode; model/thinking defaults come from Oh My Pi unless Dashboard Runtime settings or runtime config supplies model/effort.
-- `claude-aify --aify-agent <agentId> --resume <session-id>`, `codex-aify --aify-agent <agentId> ...`, and `hermes-aify --aify-agent <agentId> --resume <session-id>` auto-register live resident sessions. `omp-aify` / `pi-aify` can auto-register presence/metadata for a human-open or standalone Pi terminal, but triggerable Pi delivery uses managed RPC.
+- Every `*-aify` wrapper bypasses its runtime's permission prompts by default (`claude --dangerously-skip-permissions`, Codex's bypass flag, `hermes --yolo`). `--safe` or `--no-auto` opts out for one launch.
+- `claude-aify --aify-agent <agentId> --resume <session-id>`, `codex-aify --aify-agent <agentId> ...`, and `hermes-aify --aify-agent <agentId> --resume <session-id>` auto-register live resident sessions.
+- Pi (`pi-aify`, `omp-aify`) is deprecated and `install.sh` no longer installs its wrapper.
 
 ## Managed Runtime Policy
 
 - Dashboard-managed identities are registered by aify-env, which claims the spawn and runs the worker. Delivered managed runs must not call `comms_register`.
 - aify-env owns managed backings, including the PTY. Browser Console attaches to that backing and is not another owner.
 - Branch on advertised capabilities, not runtime names. Unsupported resident mode or interrupt must fail visibly rather than create an undeliverable session.
-- Use Dashboard Settings for operator policy. Runtime flags and controller internals belong in [the architecture plan](../../../../docs/ARCHITECTURE_PLAN.md), not in an agent's routine context.
+- Use Dashboard Settings for operator policy. Runtime settings are described in [OPERATING_MODES.md](../../../../docs/OPERATING_MODES.md), and the internals in [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 | Runtime | Normal managed delivery | Resident delivery |
 |---|---|---|
 | Claude Code | wrapper PTY plus channel | supported through `claude-aify` |
 | Codex | wrapper PTY plus app-server | supported through `codex-aify` |
 | Hermes | wrapper PTY plus gateway sidecar | supported through `hermes-aify` |
-| Pi | persistent managed RPC | presence/debug only |
-| OpenCode | native managed controller when enabled | unsupported |
+| Pi (deprecated) | persistent managed RPC | presence/debug only |
+| OpenCode | unsupported and unverified since v0.6.2 | unsupported |
 
 A wrapper-backed runtime still needs its wrapper/sidecar alive to claim work. A console can
 exist while its delivery owner is dead; prove both before calling the agent `online`.
@@ -102,15 +96,14 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 - A queued, claimed, or delivered run is transport evidence only. Read `comms_run_status`, the linked reply, runtime events, or console before claiming execution.
 - Browser Console is an attachment to the managed backing. Do not use console input as a second messaging path.
 
-## Environment Bridges
+## Host tier (aify-env)
 
 - **`aify-comms` verifies and starts nothing.** `doctor`, `--check`, `--version`, `--help`; anything
-  else exits 2 and names aify-env. Before v0.6.1 a bare run started a bridge that superseded the live
-  one and reaped its workers, taking down a fleet twice. Enforced now, not remembered.
-- **Starting aify-env is the operator's action**, and it carries that same hazard: a second one
-  supersedes the first and reaps its workers. Ask `aify-env doctor` instead of starting one.
-- After install/update: `aify-comms doctor --json` for the bridge, `aify-env doctor` for whether `node-pty` loads here. Package presence proves neither.
-- A newer bridge instance supersedes the older instance for its environment. Current bridge identity owns new terminal controls; stale controls must not cross that boundary.
+  else exits 2 and names aify-env.
+- **Starting aify-env is the operator's action**: a second one supersedes the first and reaps its
+  workers. Ask `aify-env doctor` instead of starting one.
+- After install/update: `aify-comms doctor --json` for the bridge, `aify-env doctor` for whether this host can open a terminal.
+- Only the current aify-env for an environment owns new terminal controls; a superseded one's controls must not cross that boundary.
 - The current directory is an allowed workspace root; extra roots are optional boundaries.
 - Killing or forgetting an environment does not delete agent identities, chat, spawn specs, or historical sessions.
 - Never terminate a process from a stale bridge/session row. Confirm current process ancestry and activity first.
@@ -123,8 +116,7 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 4. Switch managed/resident explicitly. Registration records a candidate; it must not silently displace a live managed owner.
 5. Use **Set handle** only to repair a known native ID. Use **Reset** only when fresh context is intentional.
 
-Pi and OpenCode are managed-only for triggerable work. A plain presence registration does not
-create a resident delivery path. A resident agent has no aify-owned console.
+Pi and OpenCode have no resident delivery path; a plain presence registration does not create one. A resident agent has no aify-owned console.
 
 ## Multi-Instance Rules
 

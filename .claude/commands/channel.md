@@ -15,6 +15,6 @@ Parse the first word as the action (create/join/send/read/list).
 Call the corresponding comms_channel_* tool.
 For "create": second word = name, rest = description.
 For "join": second word = channel name.
-For "send": second word = channel, rest = message body. By default `comms_channel_send` wakes channel members other than the sender; if the user clearly wants a background-only FYI, call it with `silent=true`.
+For "send": second word = channel, rest = message body. `comms_channel_send` always wakes channel members other than the sender. For a background FYI, pass `type="info"` and `queueIfBusy=true`, so busy members get it as next-turn work instead of a steer.
 For "read": second word = channel name.
 Use your registered agent ID as "from".

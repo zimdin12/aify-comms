@@ -43,7 +43,7 @@ spawn agents into workspaces, and give them work by messaging them.
 
 | command | what it does |
 |---|---|
-| `docker compose up -d --build` | start or update the service (API `:8800`, dashboard `:8801`) |
+| `bash scripts/stamp.sh && docker compose up -d --build` | start or update the service (API `:8800`, dashboard `:8801`); the stamp is how `/version` and the doctor know which build is running |
 | `bash install.sh --client <claude\|codex\|hermes> http://<host>:8800 --with-hook` | install a client on this machine: launcher, MCP servers, notification hook, skills |
 | `aify-env` | run the host tier in the current directory (the directory is the allowed workspace root) |
 | `aify-env attach <agent>` | take over an agent's terminal; `Ctrl+]` detaches and leaves it running |
@@ -53,7 +53,7 @@ spawn agents into workspaces, and give them work by messaging them.
 
 `aify-comms` itself only verifies (`doctor`, `--check`, `--version`, `--help`); any other invocation
 exits 2 and points at aify-env. Inside an agent, the everyday tools are `comms_send`, `comms_inbox`,
-`comms_read`, `comms_agents`, `comms_dispatch` and `comms_console_tail`; the full list is in
+`comms_read`, `comms_agents` and `comms_console_tail`; the full list is in
 [`.claude/skills/aify-comms/SKILL.md`](.claude/skills/aify-comms/SKILL.md).
 
 ## Quick start
@@ -64,6 +64,13 @@ missing/outdated/unknown items and ask only about the gaps, plus whether you wan
 Follow [agent-led onboarding](docs/INSTALL_ONBOARDING.md) for the install/update, verify-only and
 plan-only workflows. Each repository owns its own installer; nothing silently installs another product.
 
+**Prerequisites.**
+
+- Service host: git, and Docker with Compose v2 (`docker compose`).
+- Agent host: git, bash (Git Bash on native Windows), Node.js and npm (`install.sh` stops without
+  them), network access for npm, and the runtime you install for (`claude`, `codex` or `hermes`) on
+  PATH. Hermes needs Node 22 or newer; see [install.hermes.md](install.hermes.md).
+
 By hand:
 
 ```bash
@@ -71,21 +78,24 @@ git clone <this repo> && cd aify-comms
 bash scripts/install-state.sh     # what this machine already has; run it first
 
 ./setup.sh                        # service host only: generates .env + config
-docker compose up -d --build      # service :8800 (API), dashboard :8801
+bash scripts/stamp.sh && docker compose up -d --build   # service :8800 (API), dashboard :8801
 curl http://localhost:8800/health # {"status":"healthy"}
 
 bash install.sh --client claude http://localhost:8800 --with-hook   # once per coding-agent client
-git clone https://github.com/zimdin12/aify-env  # agent hosts only; use its own install.sh
+git clone https://github.com/zimdin12/aify-env  # agent hosts only; then its own ./install.sh
 ```
 
 Then, on each agent host, start `aify-env` from the directory that contains your workspaces, open
-`http://localhost:8801`, click **Spawn Agent**, pick runtime, environment and workspace, and message
-the new agent.
+`http://localhost:8801`, go to **Environments**, fill in **Spawn Session** (environment, runtime,
+agent id, workspace), click **Spawn**, and message the new agent.
 
-**Order matters once:** the service first, then aify-env on each machine, then the clients. Each
-installer asks for what it cannot find (endpoint, API key) and refuses to finish without it; running
-it again is how you update. Use aify-env's own `install.sh` rather than `npm install -g`, which cannot
-check the service credential.
+**Order: service, then `install.sh --client` on each agent host, then aify-env's `install.sh`, then
+start `aify-env`.** The client install writes this service into `~/.aify/services.json`, and aify-env
+reads that registry once, when it starts: an aify-env started before the entry existed claims no
+spawns until it is restarted, and restarting it stops its managed agents. `install.sh` asks for the
+service URL when run in a terminal and otherwise uses `http://127.0.0.1:8800`; aify-env's installer
+asks for the service key it is missing. Running either again is how you update. Use aify-env's own
+`install.sh` rather than `npm install -g`, which cannot check the service credential.
 
 **Starting or restarting aify-env is a deliberate action.** A second instance supersedes the first,
 and the one it replaces stops its managed agents. Ask a running host with `aify-env doctor` instead of
@@ -99,9 +109,13 @@ has no status. So a flow is done when `aify-comms doctor` says `ok: true`, not w
 
 | flow | do | done when |
 |---|---|---|
-| install a client | `bash install.sh --client <runtime> http://<service>:8800 --with-hook` | doctor `bridge-installed` green; restart the client |
+| install a client | `bash install.sh --client <runtime> http://<service>:8800 --with-hook` | doctor `bridge-installed` green, then every agent that was running before the install relaunched |
 | install / update the service | `git pull && bash scripts/stamp.sh && docker compose up -d --build` | doctor `service` reads `build <sha> == repo HEAD` (`/health` alone does not say which build) |
-| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client) | `bridge-installed` green, and `bridge-current` (Windows) / `bridge-running` (Linux) names no agent still on old code |
+| update clients after `git pull` | `./redeploy.sh` (or `install.sh` per client) | `bridge-installed` green, then every agent that was running before the install relaunched |
+
+`bridge-current` names any registered agent still reporting an older bridge build, and reads
+`unknown` until agents report one; on Linux `bridge-running` also names running bridges started
+before the install.
 
 Rules that cost real hours:
 
@@ -113,10 +127,11 @@ Rules that cost real hours:
 4. **After updating Hermes itself**, re-run `install.sh --client hermes`: a hermes update deletes the
    prebuilt web bundle its console needs.
 
-Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day. Each
-one reports and never acts, and carries its own `fix`: `tier-version`, `spawn-queue`,
-`session-handles`, `context-window`, `managed-orphans`, `gateway-orphans`, `env-processes`,
-`claude-login`, `usage-openai`, `api-exposure`. What each catches is in [CLAUDE.md](CLAUDE.md).
+Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day:
+`tier-version`, `env-code-currency`, `spawn-queue`, `session-handles`, `context-window`,
+`managed-orphans`, `gateway-orphans`, `env-processes`, `claude-login`, `usage-openai`,
+`api-exposure`, `external-keys`, `client-api-key`. Each one reports and never acts; its `detail`
+says what it found and its `fix` what to do (`aify-comms doctor --json` prints both).
 
 ## Security
 
@@ -158,8 +173,12 @@ also stops a message you send *as* an agent from counting as that agent being pr
 reads.
 
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
-`docker-compose.yml` and scope `cors_origins` in `config/service.json` if the LAN should not reach it.
-`/health`, `/version`, `/docs` and `/openapi.json` stay open. Details: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+`docker-compose.yml` if the LAN should not reach it, and set `CORS_ORIGINS` in `.env` to the
+dashboard origins you use (comma-separated, for example `http://localhost:8801`), then
+`docker compose up -d`. `.env` overrides `config/service.json`, and the default `.env` sets
+`CORS_ORIGINS=*`. With a key set, `/health`, `/ready`, `/version`, `/docs`, `/redoc` and
+`/openapi.json` still answer without one; `/ws` checks the key itself. Details:
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Notifications
 
@@ -167,7 +186,8 @@ Both are off by default, and only messages addressed to you (`to: dashboard`) or
 notify; repeats from one sender on one subject coalesce to one alert per 90 seconds.
 
 - **Desktop:** enable notifications in the dashboard and grant browser permission. `localhost` works
-  over plain HTTP; a LAN address needs the HTTPS proxy (`docker compose --profile https up -d`).
+  over plain HTTP; a LAN address needs the HTTPS proxy (`docker compose --profile https up -d`),
+  which serves `https://<host>:8443` (`HTTPS_PORT` in `.env`).
 - **Phone:** set `AIFY_NTFY_URL=https://ntfy.sh/<private-topic>` in `.env`, run
   `docker compose up -d`, and subscribe to the topic in the ntfy app. The topic URL is a credential;
   keep it in `.env`. `curl -s localhost:8800/health | jq .ntfy` shows whether alerts are going out.
@@ -198,7 +218,8 @@ it there and restart the proxy.
 - **Resident**: a terminal you opened with `claude-aify --aify-agent <id>` (or `codex-aify` /
   `hermes-aify`). Add `--shared` so aify-env owns the terminal and it survives closing the window.
   One instance of an agent runs per host; starting one by hand replaces the running instance.
-- Switch an agent between the two from **Sessions → Actions** or the chat details panel.
+- Switch an agent between the two with **Switch to managed** / **Switch to resident**, in its details
+  drawer or on its row in **Sessions**.
 
 Agent statuses, delivery paths per runtime, compaction, handle repair and the runtime settings are
 described in [docs/OPERATING_MODES.md](docs/OPERATING_MODES.md). Setup for remote hosts and workspace
@@ -209,7 +230,8 @@ roots is in [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md); Hermes specifics in
 
 `VERSION` is the single release version. The dashboard header shows the running build and turns into
 a warning when the checkout is behind `origin/main`; `GET /version` and `aify-comms --version` report
-the same. Updating is always manual: `git pull`, rebuild the container, `./redeploy.sh`.
+the same. Updating is always manual: `git pull`, `bash scripts/stamp.sh && docker compose up -d --build`,
+`./redeploy.sh`, then relaunch the agents that were running.
 
 ## Repository
 

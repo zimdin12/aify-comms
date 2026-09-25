@@ -20,10 +20,10 @@ server and a server tested against a fake client are both green while the pair i
 | 6 | aify-comms → aify-env | the credential reference we write is the one it resolves | `the-credential-ref-we-write-is-one-aify-env-resolves.test.js`, against a real aify-env |
 | 7 | aify-env doctor → aify-comms | `/health` | **verified live** — see below |
 
-**Link 6 reversed in v0.6.2, and the row above is its second version.** It used to read "aify-comms
+**Link 6 reversed in v0.6.3, and the row above is its second version.** It used to read "aify-comms
 client to aify-env server", proved by `env-client-against-real-aify-env.test.js` over a real socket.
-That client was `mcp/stdio/env-client.mjs`, part of the environment-bridge tier v0.6.2 retired, and
-it was deleted along with five of the six tests that drove a real aify-env. Traffic now runs the
+That client was `mcp/stdio/env-client.mjs`, part of the environment-bridge tier v0.6.3 deleted, and
+it went along with five of the six tests that drove a real aify-env. Traffic now runs the
 other way. aify-env's own plugin calls this service's HTTP API, claims spawns and streams consoles.
 
 The row was left standing for a day after the deletion, citing a test file that was no longer in the
@@ -85,12 +85,12 @@ test now asserts the fingerprint is **not** the empty one before believing anyth
 **Link 6 did not exist as a test at all** until this pass. Both sides had thorough suites and had never
 met.
 
-## What is still NOT connected, and deliberately
+## Since this trace: spawning crossed the seam
 
-**aify-comms does not delegate spawns to aify-env.** The seam is wired and refuses when enabled; see
-[PHASE8_STATUS.md](PHASE8_STATUS.md). The blocker is not effort: aify-comms composes a shell command
-STRING and aify-env allowlists a launcher FILE, and bridging those is a decision about the
-service-to-bridge contract rather than an edit.
+When this was traced, spawning still lived in aify-comms. It no longer does: aify-env's `aify-comms`
+plugin claims spawn requests and terminal controls over this service's HTTP API, and runs the
+launcher as a file with structured `argv` (recorded in [DECISIONS.md](../DECISIONS.md)). The tests
+that hold that seam are named in CLAUDE.md under "Cross-repo tests".
 
 ## Re-running this
 
@@ -98,5 +98,5 @@ Links 1–6 are tests; run the suites. Link 7 needs a running aify-comms and is 
 
 ```bash
 node -e "require('fs').writeFileSync('/tmp/r.json',JSON.stringify({version:1,services:{'aify-comms':{endpoint:'http://localhost:8800',endpointEnv:['AIFY_SERVER_URL'],mcp:[]}}}))"
-AIFY_SERVICE_REGISTRY=/tmp/r.json aify-doctor
+AIFY_SERVICE_REGISTRY=/tmp/r.json aify-env doctor
 ```

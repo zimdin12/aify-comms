@@ -1,97 +1,64 @@
 # aify-comms troubleshooting: Dashboard console-mode & Console UX
 
-## Dashboard console-mode: lock storm, flicker, statuses, parsing, env-not-found
+Symptoms here that persist after a hard browser reload mostly mean the running container predates
+the fix: compare `aify-comms doctor` `service` against the checkout before anything else.
 
-All fixes are in current builds; symptoms below mean the running container or host bridge predates them — rebuild the service (`docker compose up -d --build`) and/or restart the host bridge.
+## `database is locked` (503) in the dashboard
 
-**`Database temporarily unavailable: database is locked` (503 in dashboard). RESOLVED 2026-06-18 (`97a497a`): 0 locks verified, down from ~18/min steady and 137/min after a restart.** The cause was not the flickering console. The live-status cache was a SQLite table rewritten on every dashboard poll, so reads took the single writer's lock and the constant reads kept the WAL from checkpointing (it reached 41-83MB, which made commits slow). It now lives in a process-global dict (`_LIVE_STATE_CACHE`, `service/reconcilers/status_cache.py`), so the hot read path writes nothing and the WAL stays near 5MB. `GET /agents`, `/agents/{id}` and `/sessions` also serve cached data on a transient lock rather than 503ing (`581341d`).
+The live-status cache is an in-memory dict (`reconcilers/status_cache.py`), so the poll path writes
+nothing, and `GET` list endpoints are pure reads (their repairs run on the 60s reconcile loop). A
+lock now means real write contention: `service/main.py` logs `SLOW-REQ` / `DB-LOCK` lines that name
+the request. The cache is process-global, so the service must stay single-worker: more uvicorn
+workers bring this class of failure back.
 
-**If you still see it:** an HTML 500 instead of a JSON 503 means the container predates the fix, so rebuild. Terminal-output load has a separate, older fix that still applies: `service/db.py` sets `busy_timeout` and `synchronous=NORMAL` per connection, and the write queue coalesces terminal output.
+## Console text scrambled, flickering, or garbage on attach
 
-**The constraint it bought:** the cache is process-global, so the service must stay single-worker. Adding uvicorn workers brings this whole class of failure back, and no test here catches it. See DECISIONS.md, "Live-status cache is in-memory, not SQLite".
+- **Live stream:** the service alone numbers output (`outputSeq`). Numbered output goes through
+  `TERMINAL_OUTPUT_WRITES` as one ordered broadcast; `append_outside_the_queue` writes unnumbered
+  output and clears the sequence, so the browser replays rather than trusting a stale number. New
+  output paths must do one or the other.
+- **Attach/refresh:** the dashboard paints a server-rendered screen, not the raw log:
+  `GET /terminals/{id}?cols=&rows=` returns a `snapshot` rendered by `service/terminal_snapshot.py`
+  at the viewer's size. A console that still scrambles after a hard reload is on a stale service.
 
-> **Second cause, fixed 2026-06-29 (read-path repair-WRITES on GET list endpoints).** Even after the cache moved in-memory, a few `GET` list endpoints still ran maintenance repairs that WROTE on every poll — under a connected fleet (~40+ req/s) those write txns serialized behind terminal output and showed up as the top `SLOW-REQ` offenders. Fix: `GET /spawn-requests`, `GET /dispatch/runs`, and `GET /stats` are now pure reads (their repairs run in the 60s reconcile loop / already run on the `GET /agents` poll). `GET /agents` and `GET /sessions` deliberately KEEP their read-path repairs (they correct the roster/console-binding state in that response; a 60s lag would show a dead terminal as attached). If you add a repair to a GET handler, it must affect the correctness of THAT response — otherwise put it in the reconcile loop. Diagnostic middleware in `service/main.py` logs `SLOW-REQ`/`DB-LOCK`/5xx if you need to re-confirm. The residual idle CPU is inherent fleet load (req volume × live-bridge count), not a lock. See DECISIONS.md, "Read GET endpoints must not run repair-WRITES on the poll path".
+## Environment does not advertise terminal support
 
-**Console text scrambled / flickering / "can't see what's happening".** Causes + fixes (all in current builds; symptom means stale container/bridge — rebuild): (1) the dashboard rebuilt the whole console DOM per `terminal_output` frame — fixed by streaming each delta into the live xterm, deduped/ordered by monotonic `outputSeq`, skipping full refresh for non-visible terminals; (2) the live broadcast was per-POST and reordered vs seq under concurrency, so the `seq <= lastSeq` dedupe dropped a frame → ANSI desync → scrambled — fixed by emitting one ordered, coalesced, post-commit broadcast from the write-queue flush (flushes are serialized per terminal); (3) the default xterm DOM renderer janks under heavy output — current builds load the WebGL renderer with DOM fallback. Contract: the service is the sole source of `outputSeq` (bridge sends none). NUMBERED output routes through `TERMINAL_OUTPUT_WRITES` -- monotonic sequence, one ordered broadcast. A SECOND path exists: `append_outside_the_queue` (control completions) writes UNNUMBERED, which CLEARS the screen's sequence, so the GET answers `null` and the browser replays instead of trusting a stale number. A new path must do one or the other.
+**Symptom.** `/api/v1/environments` shows `terminal=false` / `pty=false`, or Start Console says
+*"Environment <id> does not advertise terminal support for claude-code"*, and channel dispatches to
+a managed claude sit `queued`.
 
-> **Full-screen-TUI scramble on attach/refresh — FIXED 2026-06-30 (server-rendered snapshot).** The deeper cause (separate from the live-stream items above): on attach/refresh the client replayed the RAW PTY byte log into a fresh xterm. A full-screen TUI's log is meant to drive a live screen at a fixed size; replaying it (mid-screen after the 64KB trim, at a possibly-different width) overlaps every historical draw into garbage, and refresh re-replayed the same log so it never recovered. Fix: `service/terminal_snapshot.py` replays the log through a headless VT emulator (`pyte`) sized to the viewer's cols/rows; `GET /terminals/{id}?cols=&rows=` returns a clean current-screen `snapshot` that the dashboard paints (after `term.reset()`) instead of the raw log. Live deltas still stream raw. Lazy/one-shot/executor-offloaded; `pyte` is optional (falls back to the raw log). If a console still scrambles after a hard-reload, the new-dashboard bundle is stale (rebuild `new-dashboard`) or the service predates the fix (`pyte` not installed → rebuild `service`). See DECISIONS.md, "Console replay uses a server-rendered screen snapshot".
+aify-env owns every PTY and advertises the host. It lists a runtime in `terminalRuntimes` only when
+that runtime's binary resolves on the PATH aify-env was started with, and sets `terminal` from its
+own PTY check. Ask `aify-env doctor` on that host: its terminal row and the runtime's
+`not found on PATH` reason say which. Report what it says; repairing the host and restarting
+aify-env are the operator's (a restart reaps its managed workers).
 
-**Environment does not advertise terminal support / WSL Codex Console is unavailable.** First check `/api/v1/environments`: if the runtime is available but the environment says `terminal=false` / `pty=false`, this is not a Codex problem. Nothing on that host can load `node-pty`, so Console is off for every runtime there. Ask `aify-env doctor` on that host: its `terminal` row answers this directly, because aify-env owns processes and PTYs. A `false` row usually means a missing `pty.node`, fixed by rebuilding node-pty in the aify-env checkout. Heartbeats leave `terminalRuntimes` empty when PTY support is missing, so the UI does not imply per-runtime support.
+Channel delivery still needs a PTY: `claude-channel.js` runs inside the `claude-aify` wrapper, so
+with no wrapper PTY nothing claims. Workaround meanwhile: launch a resident
+`claude-aify --aify-agent <id>` on any machine where claude resolves; its channel sidecar polls the
+service over HTTP and claims directly.
 
-**Restarting aify-env to apply that rebuild is the operator's action, not yours.** A second aify-env supersedes the first and reaps the predecessor's workers, so starting one to see what happens kills the running fleet. Report what the doctor said and let them restart it. (This step used to import the old terminal-runtime module and restart the `aify-comms` environment bridge. v0.6.2 deleted that module and v0.6.1 removed that command, so both now fail.)
+## Console shows the wrong terminal, or none
 
-**"Environment does not advertise terminal support for claude-code" + dispatch sits queued forever.**
+- **Old managed xterm after switching to resident:** the Console uses a managed terminal only while
+  the identity is not `resident` and the terminal is live. Switch back to managed before expecting
+  dashboard-typed turns to reach the managed PTY.
+- **Start Console opens a second wrapper:** `start_session_console` (`routers/session_console.py`)
+  reuses a live terminal and answers `reused: true`; a sibling PTY means a stale service.
+- **`session does not exist` on open:** the browser held a session id from before a rebuild or
+  re-register. Reload the page and start the Console again.
+- **Statuses look wrong everywhere:** see status-model.md; every badge comes from `derive()`.
 
-**Symptom.** Dashboard chat to a managed claude agent. The dispatch_run row stays `status='queued'`, `execution_mode='channel'`, no controls recorded. Clicking Start Console for the same agent shows the literal error *"Environment <id> does not advertise terminal support for claude-code"* with a `terminalRuntimes` list that omits `claude-code`.
+## Can't copy text out of a Console
 
-**Cause.** Channel-route delivery (the `insert_messages_via_console=false` default) is NOT "no PTY at all" — it's "wrapper PTY exists, but delivery flows through MCP notifications instead of typing into stdin". `claude-channel.js` runs INSIDE a `claude-aify` wrapper as an MCP child of Claude and is the actor that claims the channel dispatch and emits the `<channel source="aify-comms-channel" ...>` event. If the bridge can't spawn a `claude-aify` wrapper PTY for the agent, the channel dispatch has nothing to claim it → `queued` forever. `terminalRuntimes` comes from whichever tier describes this host -- aify-env when its `/health` reports `advertising`, the bridge otherwise -- and both list a runtime only when its `<client>-aify` wrapper resolves. So the two symptoms have the same root cause: the bridge can't find `claude`.
+Over plain `http://`, `navigator.clipboard` is undefined, and a TUI that captures the mouse eats
+plain drags. Three ways that work:
+- the **Copy** button on the Console toolbar (the selection, or the whole buffer when none),
+- **Ctrl+Shift+C** for the current selection,
+- **Shift+drag** to select while the TUI captures the mouse.
 
-**Fix.** From the same user/shell that runs `aify-comms` on the bridge host:
-```powershell
-Get-Command claude
-Get-Command claude-aify.cmd
-```
-If either is missing, set `AIFY_CLAUDE_COMMAND` to the absolute path of the real `claude` binary BEFORE starting the bridge (system-wide PATH leaks between WSL and Windows make this common). Then have the operator restart `aify-env` (it reaps its workers). Re-check `/api/v1/environments` — `terminalRuntimes` should now include `claude-code`. Re-dispatch; the queued run should claim within the dispatch-poll cycle (~3s) and the channel notification land in the wrapper.
+## Before rebuilding the service
 
-**Workaround if you can't fix the bridge host right now.** Launch a resident `claude-aify --aify-agent <id>` on any machine where claude resolves; the resident wrapper claims the channel dispatch directly (same machine isn't required for channel route — the wrapper's `claude-channel.js` polls the service over HTTP).
-
-**Broken agent statuses (everything "active", idle consoles shown "working", live Claude shown "active", old stopped terminal shown as current Console, or live agents shown "offline").** Cause: status was derived in multiple places that disagreed, and stale terminal/session bindings survived after bridge or runtime exits. Fix: every public status is derived by the proof-based `status_engine.derive()` path; live cache refreshes feed that engine rather than inventing labels. A bridge-id mismatch only forces offline when the session is not live and has no active run; `starting` counts as a live session; stopped/failed Console terminals are cleared as current session bindings and remain historical only. Current builds classify `working` from a real active run or a fresh bridge-reported `turnBusy` heartbeat, not from attached console bytes or stale delivered runs. Managed Claude PTY turns stay as running active runs until the reply closes them; if their terminal tail clearly asks for operator input or a decision, the agent is `blocked` instead of healthy `working`, but the normal Claude prompt/footer chrome alone is not blocked (and the auto-answered claude/hermes session-resume picker — Resume full session as-is / Don't ask me again — is suppressed too; only genuine y/n or password prompts flag). Completion-style unthreaded `info` messages can close active terminal runs during send/reconcile, and Claude PTY runs that visibly return to an idle prompt after output are completed-without-reply instead of pinning `working`. Stale unowned active runs are reconciled periodically, and recent overdue reply-contract reminders are sent by the periodic service loop; busy or blocked targets are deferred by the automatic reminder pass and retried after the agent returns online. An attached-but-runless console is reachable/`online`, not `working`. While a working agent's terminal receives output, its yellow dot briefly pulses orange as a live-output hint, not a separate status. If an idle agent still shows `working` or statuses look wrong, the container or host bridge predates these fixes — rebuild the service and restart the host bridge.
-
-**Dashboard Next normal chat sends queue instead of delivering live.** Cause (historic): the composer had a `Queue if busy` checkbox that was STICKY — never reset after a send — and it sat inside the collapsed Options disclosure, so one tick made every later Send and every later Enter post `queueIfBusy=true` invisibly. "Unchecked by default" only ever constrained the FIRST send. Fix shipped 2026-07-27: the checkbox is GONE. Queueing is an explicit per-message act — the `Queue` half of the split Send button — so Enter and Send are always an ordinary steer-if-possible send. If normal sends still create queued-only rows, rebuild the service and hard-refresh the dashboard (a cached `index.html`/`chat.js` can still carry the old checkbox).
-
-**Dashboard Next shows an old managed xterm after switching the identity to resident.** Cause: the UI treated any cached terminal id as current, even when the agent's `sessionMode` was `resident` or the terminal row was stopping/stopped/failed. Fix shipped: the Session Console selector only uses managed xterm/cache when the identity is not `resident` and the terminal status is live. Resident agents show their resident attach surface or an explicit unavailable state; switch back to managed before expecting the managed PTY to receive dashboard-typed turns.
-
-**`Dashboard parsing error` / `Unexpected token <`.** Cause: a non-JSON error body (proxy 502, gateway, unwrapped 5xx) was fed to `response.json()`. Fix: `apiFetch` degrades any non-JSON body to a structured `{ok:false,error}` toast.
-
-**Continue/Compact says `environment does not exist`, no dropdowns, Regenerate does nothing.** Cause: free-text environment/runtime inputs and a Regenerate that rebuilt from the stale original session. Fix: Environment and Runtime are dropdowns scoped to live environments (source env kept as a flagged option if offline), workspace has a datalist, and Regenerate rebuilds from the current form selections.
-
-**Open terminal for a managed/Pi agent: `session does not exist`.** Cause: the dashboard held a client-cached session id that went stale after a rebuild/re-register, so `/sessions/{id}/console/start` 404'd before any bridge code ran. Fix: console start refreshes sessions and retries once against the freshly resolved session; the bridge separately heals dead Pi/Hermes handles (see Pi sections above).
-
-**Pi managed run hangs forever on missing/expired auth.** Cause: the Pi RPC adapter waited silently when Oh My Pi could not authenticate. Fix: Pi RPC classifies auth/provider failures and startup silence and fails fast with an actionable message (run `omp` manually in that environment to re-auth); dead saved Pi session IDs heal to a fresh session and the stale server `sessionHandle` is cleared via `PATCH /agents/{id}/session-handle`. Resident Pi does not auto-heal — it fails with a clear "clear the saved handle / start fresh" message by design.
-
-**Operational note: never rebuild while service files are mid-edit.** The Docker image COPYs the working tree, not git HEAD. Running `docker compose up -d --build` while `service/` has an uncommitted syntax error bakes a broken image and the container crash-loops on `SyntaxError`. Before any rebuild: AST-check (`python -c "import ast; ast.parse(open('service/control_plane.py').read())"`), run `python -m unittest service.tests.test_api_v2_regressions`, and commit. Recover by rebuilding from a known-green commit.
-
-## Each keystroke in the dashboard Console submits as a command
-
-**Symptom.** Operator types into the dashboard Console; every individual letter behaves like a separate Enter — the wrapper sees `c`, then `cd`, then `cd<space>`, etc. as distinct submissions.
-
-**Cause.** The bridge's `terminal-input` control handler used to auto-append `\r` to every input body. Combined with the dashboard sending keystrokes individually, that meant each letter arrived as a submitted line.
-
-**Fix.** Already fixed in commit `c1a1da1` — bridge does raw passthrough now (`TERMINAL_MANAGER.input(terminalId, rawBody)` with no auto-`\r`). The dashboard sends `\r` explicitly when the operator presses Enter. If you still see this, restart the bridge (the change is in `mcp/stdio/server.js` and loads at bridge start).
-
-## Can't copy text out of a Console terminal
-
-**Symptom.** Selecting text in a dashboard Console (xterm.js) and trying to copy does nothing — no clipboard contents, or only a "use browser copy/menu" toast. Plain click-drag may not even select, because the attached TUI is capturing the mouse (mouse tracking).
-
-**Cause.** The dashboard is usually served over plain `http://192.168.x:8800` (a non-secure origin), where `navigator.clipboard` is `undefined`, so the async Clipboard API silently fails. And an interactive TUI grabs the mouse, so a plain drag is sent to the app instead of selecting text.
-
-**Fix / how to copy (`69711d6`, in the `99cdada` merge).** Three ways, all working on the http origin via a `document.execCommand('copy')` textarea fallback:
-- **Copy button** on the Console toolbar (next to Refresh/Stop) — copies the current selection, or selects + copies the whole scrollback buffer if nothing is selected.
-- **Ctrl+Shift+C** — copies the current xterm selection (now routed through the same robust copy path, not the old "use browser menu" dead end).
-- **Shift+drag** — hold Shift while dragging to select text even while the TUI captures the mouse, then use the Copy button or Ctrl+Shift+C.
-
-Paste and interactive input are unchanged. If copy still fails after updating, the running Dashboard Next container predates the fix — rebuild with `docker compose up -d --build`.
-
-## Console opens a second time for an already-running wrapper
-
-**Symptom.** Operator clicks Start Console (or the dashboard auto-attaches) on an agent that already has a live wrapper PTY. A new sibling `terminal_sessions` row is created and a second wrapper PTY spawns instead of attaching to the existing one.
-
-**Cause.** Pre-`fd00c85`, `start_session_console` always created a fresh terminal_session, even when the agent_session already had a live `terminal_id` in `{starting, attached, running, active, idle, recovering}`.
-
-**Fix.** Already fixed in `fd00c85` — the endpoint now checks the existing terminal_id first and returns `{reused:true, terminal:{...}}` without spawning a sibling. Audit event `console_attach_reused_existing` confirms it in the audit log.
-
-## Fresh Console seed starts with garbage / a broken ANSI escape
-
-**Symptom.** Opening a Console (a fresh xterm attach) sometimes renders a line or two of on-screen
-garbage at the very top of the scrollback — stray characters or a half-applied color/format — before
-the live stream looks normal.
-
-**Cause.** The seed sent to a freshly-attached xterm is the tail of the server-side terminal-output
-buffer (capped at ~64KB). The buffer used to be trimmed to that cap at a raw BYTE boundary, so the
-seed could begin in the MIDDLE of an ANSI escape sequence (`ESC[...m`). xterm then interpreted the
-truncated escape's leftover bytes as literal output → the garbage at the top of the seed.
-
-**Fix (`4a0bfb8`, 2026-06-07).** The 64KB buffer now trims at a clean LINE boundary (it drops to the
-next newline rather than cutting mid-byte), so the seed always starts at the beginning of a line and
-never mid-escape — a fresh xterm seed no longer renders broken-ANSI garbage. Cosmetic only (it never
-affected delivery or the live stream).
+The image copies the working tree, not git HEAD, so a syntax error mid-edit bakes a crash-looping
+container. Byte-compile what you changed (`python -m py_compile <files>`) and run the suites first;
+recover by rebuilding from a known-green commit.
