@@ -1,0 +1,125 @@
+// The small helpers hermes-gateway.mjs and hermes-env.mjs export, executed.
+//
+// These assert things `hermes-managed-host.test.js` does not: the URL conversion, the connect-refusal
+// classifier, the re-ensure budget, the turn-end suppression rule, and that the two modules keep the
+// dependency direction they were split out to have (neither imports the host).
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+
+import {
+  MAX_REENSURE_WITHOUT_RECOVERY,
+  gatewayIndexUrlFromWs,
+  gatewayUnreachableMessage,
+  isGatewayConnectRefused,
+  nextReEnsureBudget,
+  shouldApplyGatewayTurnEnd,
+  sleep,
+} from "../hermes-gateway.mjs";
+import { HERMES_CMD, MACHINE_ID, RUNTIME } from "../hermes-env.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const read = (rel) => fs.readFileSync(path.join(HERE, "..", rel), "utf-8");
+
+const GATEWAY = "hermes-gateway.mjs";
+const ENV = "hermes-env.mjs";
+
+test("gatewayIndexUrlFromWs converts a ws URL to the http index it scrapes", () => {
+  assert.equal(gatewayIndexUrlFromWs("ws://127.0.0.1:8123/ws"), "http://127.0.0.1:8123/");
+  assert.equal(gatewayIndexUrlFromWs("wss://host:9/ws"), "https://host:9/");
+});
+
+test("gatewayIndexUrlFromWs returns empty for input it cannot convert", () => {
+  // The caller uses the result as a URL; '' is checked, a malformed string would be fetched.
+  for (const value of ["", null, undefined, "not a url"]) {
+    assert.equal(gatewayIndexUrlFromWs(value), "", `unexpected for ${String(value)}`);
+  }
+});
+
+test("isGatewayConnectRefused recognises the refusal shapes a dead gateway produces", () => {
+  assert.equal(isGatewayConnectRefused(new Error("connect ECONNREFUSED 127.0.0.1:8123")), true);
+  assert.equal(isGatewayConnectRefused({ code: "ECONNREFUSED" }), true);
+});
+
+test("isGatewayConnectRefused does NOT claim an unrelated error is a refusal", () => {
+  // A false positive here reports a live gateway dead and tears it down.
+  assert.equal(isGatewayConnectRefused(new Error("socket hang up")), false);
+  assert.equal(isGatewayConnectRefused(null), false);
+  assert.equal(isGatewayConnectRefused(undefined), false);
+});
+
+test("nextReEnsureBudget spends on a re-ensure and refills on a recovery", () => {
+  assert.equal(nextReEnsureBudget(3, { reEnsured: true }), 2, "a re-ensure costs one");
+  assert.equal(nextReEnsureBudget(1, { recovered: true }), MAX_REENSURE_WITHOUT_RECOVERY, "recovery refills");
+  assert.equal(nextReEnsureBudget(2, {}), 2, "neither event leaves it alone");
+});
+
+test("nextReEnsureBudget never goes below zero", () => {
+  // The budget gates a relaunch loop; a negative would keep comparing as truthy-negative and relaunch forever.
+  assert.equal(nextReEnsureBudget(0, { reEnsured: true }), 0);
+  assert.equal(nextReEnsureBudget(-5, { reEnsured: true }), 0);
+});
+
+test("gatewayUnreachableMessage names the gateway URL so the operator can check it", () => {
+  const msg = gatewayUnreachableMessage("ws://127.0.0.1:8123/ws");
+  assert.match(msg, /8123/, "the message must carry the port that failed");
+  assert.equal(typeof msg, "string");
+});
+
+test("shouldApplyGatewayTurnEnd suppresses a turn-end only while a dispatch turn is open and unobserved", () => {
+  // I guessed a (sessionA, sessionB) signature and wrote a passing-looking test for a function that takes
+  // ONE object. Reading it was the fix. The real rule: a gateway turn-end applies unless a dispatch turn is
+  // open and no working state has been observed yet — that window is where an early turn-end would close a
+  // run the agent has not actually started.
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: true, observedWorking: false }), false,
+    "an open dispatch turn with nothing observed must NOT be ended by the gateway");
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: true, observedWorking: true }), true,
+    "once working has been observed the turn-end is real");
+  assert.equal(shouldApplyGatewayTurnEnd({ dispatchTurnOpen: false }), true,
+    "with no dispatch turn open there is nothing to protect");
+  assert.equal(shouldApplyGatewayTurnEnd(), true, "the default argument must not suppress a turn-end");
+  assert.equal(shouldApplyGatewayTurnEnd({}), true);
+});
+
+test("sleep resolves after roughly the requested delay", async () => {
+  const started = Date.now();
+  await sleep(20);
+  assert.ok(Date.now() - started >= 15, "sleep must actually wait");
+});
+
+// ---------------------------------------------------------------- the neutral env module
+
+test("hermes-env exposes the identity constants both sides read", () => {
+  assert.equal(RUNTIME, "hermes", "the runtime name is what agents are registered under");
+  assert.equal(typeof HERMES_CMD, "string");
+  assert.ok(HERMES_CMD.length > 0, "an empty hermes command would spawn nothing");
+  assert.equal(typeof MACHINE_ID, "string");
+  assert.ok(MACHINE_ID.length > 0, "an empty machine id breaks same-host claim matching");
+});
+
+/** The modules a file IMPORTS — parsed, not grepped. */
+function importedModules(source) {
+  return [...source.matchAll(/^import\s[\s\S]*?from\s*"([^"]+)"\s*;/gm)].map((m) => m[1]);
+}
+
+test("hermes-env imports neither the gateway nor the host", () => {
+  // The whole reason this module exists: a constant with readers on both sides must live in neither.
+  //
+  // Asserted on parsed IMPORTS, not on the file text. My first version grepped for the substring and failed
+  // against correct code, because both new modules NAME hermes-managed-host.js in their header comments
+  // explaining what they were extracted from. Substring-versus-structure, for the umpteenth time in this
+  // series: a mention is not a dependency.
+  const mods = importedModules(read(ENV));
+  assert.ok(!mods.some((m) => m.includes("hermes-gateway")), `env imports the gateway: ${mods}`);
+  assert.ok(!mods.some((m) => m.includes("hermes-managed-host")), `env imports the host: ${mods}`);
+});
+
+test("hermes-gateway does not import the host it was extracted from", () => {
+  // The dependency inversion this series exists to prevent, asserted rather than assumed.
+  const mods = importedModules(read(GATEWAY));
+  assert.ok(!mods.some((m) => m.includes("hermes-managed-host")), `gateway imports the host: ${mods}`);
+  assert.ok(mods.some((m) => m.includes("hermes-env")), "the gateway must take its identity constants from the neutral module");
+});

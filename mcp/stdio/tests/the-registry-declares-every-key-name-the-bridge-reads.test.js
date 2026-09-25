@@ -14,9 +14,6 @@
 // neither name. Five copies of a rule is five chances for one of them to get a fix the others do not,
 // which is what the comment above this file's sibling import in claude-channel.js already says about
 // the URL helpers it forked the same way.
-//
-// A SIXTH COPY IS DELIBERATE AND MUST STAY: `fixtures/hermes-managed-host.before-gateway.js` is a
-// frozen "before" snapshot. A test that swept it up would be rewriting history to satisfy itself.
 
 import test from "node:test";
 import assert from "node:assert/strict";

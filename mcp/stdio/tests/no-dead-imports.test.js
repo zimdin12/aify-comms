@@ -26,16 +26,6 @@ import test from "node:test";
 import { bridgeSources } from "./bridge-sources.mjs";
 import { deadImportsIn } from "./dead-imports.mjs";
 
-// SWEPT, AND THE CARVE-OUT IS GONE. `hermes-managed-host.js` was exempted here while it carried first 21
-// and then 74 dead names, because the reconstruction proof in `hermes-gateway-extraction.test.js`
-// byte-compares that file against a pristine fixture: its import-block format is load-bearing, and deleting
-// the names breaks the proof unless the proof is updated in the same change. It now is — the proof declares
-// the 74 removed names and checks that the surviving region is the pristine one minus exactly those. So the
-// exemption was deleted rather than left to rot, which is what the count test below existed to force.
-//
-// The coupling still holds for the NEXT slice that strands imports in that file: clean them together with
-// the proof, or not at all. Sweeping them as a side effect is what cost a whole attempt once.
-
 // THE DETECTOR NOW LIVES IN `dead-imports.mjs`, imported below. It moved when
 // `service/new_dashboard/no-dead-imports.test.mjs` began borrowing it: a test file's top-level
 // `test()` calls RUN on import, so the dashboard suite was executing these four tests as a side
@@ -47,16 +37,6 @@ test("no bridge module imports a name it never uses", () => {
     .filter(([, dead]) => dead.length);
   assert.deepEqual(offenders, [],
     "dead imports: " + offenders.map(([f, d]) => `${f} (${d.join(", ")})`).join("; "));
-});
-
-test("hermes-managed-host.js stays clean — the swept file does not re-accumulate", () => {
-  // This replaces the carve-out counter. That test pinned the debt so it could not grow silently and so
-  // cleaning the file would fail it and force the exemption's deletion; both have now happened. What is
-  // worth keeping is the file-specific guard, because this is the file the decomposition kept stranding
-  // imports in — five moved functions took 53 names' usages with them in one slice.
-  const [, text] = bridgeSources().find(([file]) => file === "hermes-managed-host.js");
-  assert.deepEqual(deadImportsIn(text), [],
-    "hermes-managed-host.js has dead imports again — sweep them WITH the reconstruction proof, not after it");
 });
 
 test("the detector really detects — it finds a dead import in a synthetic module", () => {
