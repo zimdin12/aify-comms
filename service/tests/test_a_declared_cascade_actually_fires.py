@@ -27,8 +27,8 @@ that it is now CHECKED rather than assumed.
 
 SCOPE. The declared population is derived from `service/schema.py` and its size is pinned, so a
 cascade added or lost is visible. The EFFECT is executed for `dispatch_controls` -- the relationship
-with 574 real orphans -- rather than for all 21, because seeding a valid parent and child for each
-means twenty-one fixtures against NOT NULL columns and their own foreign keys, and a generic seeder
+with 574 real orphans -- rather than for all 20, because seeding a valid parent and child for each
+means twenty fixtures against NOT NULL columns and their own foreign keys, and a generic seeder
 that got one wrong would prove less than this does.
 """
 from __future__ import annotations
@@ -48,8 +48,9 @@ CREATE_TABLE = re.compile(r"CREATE TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\);", re
 CASCADE = re.compile(r"FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\) ON DELETE CASCADE")
 
 #: MEASURED 2026-08-29 by the scan below. A ratchet in both directions: a cascade that disappears is
-#: as interesting as one that arrives, and either should be a deliberate line in a diff.
-DECLARED_CASCADES = 21
+#: as interesting as one that arrives, and either should be a deliberate line in a diff. 21 -> 20 in v0.7
+#: when the retired `agent_live_state` table, and its cascade from `agents`, left the schema.
+DECLARED_CASCADES = 20
 
 
 def declared_cascades() -> list[tuple[str, str, str, str]]:
