@@ -8,9 +8,11 @@ wrapper contract, a bridge census, dashboard tests, a bughunt and an e2e baselin
 but nothing an operator receives. The separation is the thing v0.6 was for, so it carries the same
 number and the tag waits for it.
 
-**Status.** Roadmap only. Phase 6 has a full plan beside this file. Phases 7 and 8 are sized, gated
-and sequenced here, and get their own plans when the phase before them lands — writing them now would
-be fabricating detail nobody has earned yet.
+**Status.** Finished; kept as the record of the separation. Phases 6 and 7 met their gates, and Phase 8
+moved both the execution and the claiming of spawns to aify-env (proven on real hardware 2026-09-03;
+v0.6.1 made the `aify-comms` command a verifier, and v0.6.3 deleted the environment-bridge code). The
+one gate clause still open is where the verifier lives; see
+[TARGET_ARCHITECTURE.md](../../TARGET_ARCHITECTURE.md), "What is left".
 
 **Does it all connect?** [CONNECTION_TRACE.md](../../CONNECTION_TRACE.md) — every link between the
 three repos and what proves it, including the one verified against the running service.
@@ -132,12 +134,13 @@ and is reaped when it dies. A file without `HARNESS_WRAPPER_VERSION` is refused.
 reports `passed / failed / unanswered` and a silent registered service reads `unanswered`, never `ok`.
 The TUI shows registered services, owned processes and its own I/O, and claims no agent status.
 
-**Phase 8 — aify-comms. UNBLOCKED, and stopped where it was told to stop. See docs/PHASE8_STATUS.md.**
+**Phase 8 — aify-comms. EXECUTION AND CLAIMING DONE; open clause: where the verifier lives.** The
+full Phase 8 status record is `docs/PHASE8_STATUS.md` at tag `v0.6.22`.
 
-> **Historical below, noted 2026-09-18.** `TerminalProcessManager`, `startDelegated()` and `isEnabled()`
-> were deleted with the environment-bridge tier in v0.6.2. Delegation is not a switch any more: since
-> v0.6.1 aify-env hosts every spawn and aify-comms starts nothing. The paragraph is kept as the record
-> of how the seam was proven.
+> **Historical below.** `TerminalProcessManager`, `startDelegated()` and `isEnabled()` were deleted
+> with the environment-bridge tier in v0.6.3. Delegation is not a switch any more: aify-env claims and
+> hosts every spawn and aify-comms starts nothing. The paragraph is kept as the record of how the seam
+> was proven.
 
 The stream aify-env was missing now exists, so delegation can carry a console as well as a spawn.
 **This paragraph said the seam was "deliberately unwired". That is out of date and was left standing
@@ -149,8 +152,8 @@ a REAL aify-env, not a fixture -- output through `onOutput`, exit code 5 through
 echoed back -- and it is still OFF, because `isEnabled()` needs both `AIFY_COMMS_DELEGATE_SPAWNS` and
 `AIFY_ENV_ENDPOINT` and nothing in this repo sets either. Flipping is the operator's, on an idle
 fleet.
-Original gate, unchanged, for when it resumes: aify-comms spawns nothing itself; every spawn goes through aify-env. The
-`aify-comms` command does not exist. `/health` self-reports build sha, branch and built-at, all from
+Original gate: aify-comms spawns nothing itself; every spawn goes through aify-env (met). The
+`aify-comms` command does not exist (unmet: it remains on PATH as a verifier that starts nothing). `/health` self-reports build sha, branch and built-at, all from
 the stamp, and the repo ships the tooling that compares that report against a checkout. A live
 two-session round-trip passes: two agents registered, `comms_send` between them, the target wakes or
 queues per capability, and the response threads back.
@@ -168,7 +171,7 @@ warned about growing is closed, so the section below is now a record rather than
 |---|---|---|---|
 | 1 | ~~The published git identity in aify-wrapper.~~ **DECIDED 2026-08-20: leave it.** Both addresses are the operator's own and already public. | — | this table |
 | 2 | ~~Task 6b — how aify-comms locates the wrapper package.~~ **DECIDED 2026-08-20: consume the package.** Done — pinned npm dependency, `wrappers/` deleted, both drift gates retired. | — | `2026-08-20-aify-wrapper-completion.md`, Task 6b |
-| 3 | ~~Shell string versus structural argv.~~ **DECIDED 2026-08-20: carry `argv`, additively.** Built end to end and proven against a real aify-env; the seam delegates and is still flag-off. | — | `docs/PHASE8_STATUS.md` |
+| 3 | ~~Shell string versus structural argv.~~ **DECIDED 2026-08-20: carry `argv`, additively.** Built, and aify-env runs every spawn from it. | — | `DECISIONS.md` |
 | 4 | ~~The deploy window.~~ **DECIDED 2026-08-24: go.** v0.6.0 deployed end to end. `/health` reports `0.6.0`, `aify-wrapper-check` reports `3 current`, and `service` is green against HEAD. | — | `aify-comms doctor` |
 | 5 | ~~The `aify-env` name.~~ **DECIDED 2026-08-20: keep it.** It names the tier rather than the coupling, which was the point. | — | `docs/AIFY_ENV_BOUNDARY.md` |
 
@@ -195,7 +198,7 @@ between an edit and that reinstall by design.
 
 ## What this program deliberately does not do
 
-- **It does not move agent status.** `derive()`, the six states and dispatch turns stay in aify-comms.
+- **It does not move agent status.** `derive()`, the status states and dispatch turns stay in aify-comms.
   Deriving status in two places is how two answers start disagreeing.
 - **It does not design aify-dashboard.** It only stops aify-comms from being the thing a dashboard has
   to depend on for liveness.
