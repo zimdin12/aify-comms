@@ -14,6 +14,16 @@ refusal is deliberate: the menu's default summarises the session, and a wrong ke
 be undone. `resume_policy` is already read for these screens and passed to the rule, so an answer that
 follows the agent's policy has a place to go; none is written.
 
+## Nothing collects the usage pools
+
+`comms_usage` and the dashboard's Pools band read a per-pool quota cache the service fills from
+`POST /usage`. The only production caller of the collectors (`collectOnce` and
+`collectConsumptionOnce` in `mcp/stdio/usage-collector.js`) was the environment bridge, deleted in
+the release first tagged v0.6.3, so nothing posts. The code is parked, not dead: the operator chose
+on 2026-09-04 to keep it for a caller in another tier (aify-dashboard or an aify-env plugin,
+undecided), and its tests still run. Until a caller exists, `comms_usage` shows `?` or a stale figure
+rather than 0%, so routing work by pool headroom has nothing current to go on.
+
 ## Found by the test-duplicate cleanup, not yet acted on (2026-09-19)
 
 The v0.6.15 cleanup mutated product code to prove which tests cover what. These came out of that
