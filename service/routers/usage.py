@@ -71,13 +71,15 @@ async def get_usage():
         now = time.monotonic()
         if now - float(_OPENAI_POOL_CACHE["at"] or 0) > _OPENAI_POOL_TTL_SECONDS:
             fresh = await collect_openai_pool()
+            if fresh:
+                # Stamped when READ FROM OPENAI, not when served: stamping on every GET made a
+                # reading up to two minutes old report an age of zero (v0.7 scan A14).
+                fresh = dict(fresh, updated_at=_now(), stale=False)
             _OPENAI_POOL_CACHE["at"] = now
             _OPENAI_POOL_CACHE["pool"] = fresh
         fresh = _OPENAI_POOL_CACHE["pool"]
         if fresh:
             fresh = dict(fresh)
-            fresh["updated_at"] = _now()
-            fresh["stale"] = False
             pools = [p for p in pools if p.get("source_id") != fresh["source_id"]] + [fresh]
     except Exception:
         logger.debug("service-side OpenAI usage collection failed; keeping bridge-posted pool", exc_info=True)
