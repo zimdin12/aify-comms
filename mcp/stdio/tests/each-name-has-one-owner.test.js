@@ -127,7 +127,6 @@ const KNOWN_FORKS = {
   idleTimeoutFor: ["codex-session.js", "hermes-session.js", "pi-session-timeouts.mjs"],
   main: ["bridge-main.mjs", "claude-session-hook.js", "claude-stop-gate.js", "codex-hook-trust.mjs"],
   normalizeRuntime: ["runtime-markers.js", "runtimes.js"],
-  parseProcLines: ["proc-probes.js", "reap-managed-claude.js"],
   readBoundAgentId: ["claude-channel.js", "doctor-predicates.js", "hermes-managed-host.js"],
   reportResidentRuntimeLost: ["resident-runtime-lost.mjs", "server.js"],
   reportTurnBusy: ["agent-heartbeat.mjs", "claude-channel.js", "hermes-run-reporting.mjs"],
