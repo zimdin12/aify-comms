@@ -335,6 +335,7 @@ test("load-more APPENDS from the last event as cursor, rather than replacing the
   const h = withInspector(RUNNING);
   let asked = null;
   try {
+    state.inspector.kind = "run"; // what an open run drawer carries; a page for any other drawer is dropped
     state.inspector.runId = "run-1";
     state.inspector.events = [{ id: "e1" }, { id: "e2" }];
     globalThis.fetch = async (url) => {
@@ -353,6 +354,7 @@ test("a SECOND load-more while one is in flight does nothing", async () => {
   const h = withInspector(RUNNING);
   let fetches = 0;
   try {
+    state.inspector.kind = "run"; // what an open run drawer carries; a page for any other drawer is dropped
     state.inspector.runId = "run-1";
     state.inspector.events = [{ id: "e1" }];
     let release;
@@ -541,5 +543,49 @@ test("A RUN THAT CANNOT BE LOADED says so in a sentence, and a refresh keeps tha
     assert.deepEqual(paints, ["LOADING", "ERROR", "ERROR", "ERROR"],
       "a fresh open says Loading once; after that the error stays, and it is never a JSON dump");
     assert.match(h.els.get("inspector-content").innerHTML, /Could not load run run-gone: service went away/);
+  } finally { h.restore(); }
+});
+
+// ---- Load more survives a refresh, and never lands in another run (v0.7 C4) ------------------------
+
+const page = (events, hasMore) => ({ ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ run: RUNNING, events, hasMore }) });
+
+test("A REFRESH KEEPS THE OLDER EVENTS THE OPERATOR LOADED", async () => {
+  // A refresh fetches page one again. Replacing the list with it truncated the timeline back to one
+  // page and reset the scroll every time anything in the fleet changed.
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: [{ id: "e3" }, { id: "e2" }, { id: "e1" }], hasMore: false, eventOrder: "desc", source: "runs" };
+    globalThis.fetch = async () => page([{ id: "e4" }, { id: "e3" }], true);
+    await openRunInspector({ runId: "run-1", source: "refresh" });
+    assert.deepEqual(state.inspector.events.map((e) => e.id), ["e4", "e3", "e2", "e1"],
+      "the new first page leads, and what was loaded below it stays");
+    assert.equal(state.inspector.hasMore, false, "the tail is the one already loaded, so its end still holds");
+  } finally { h.restore(); }
+});
+
+test("A LOAD MORE THAT LANDS AFTER ANOTHER RUN WAS OPENED IS DROPPED", async () => {
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-A", run: RUNNING, events: [{ id: "A-1" }], hasMore: true, eventOrder: "desc" };
+    let release;
+    globalThis.fetch = () => new Promise((resolve) => { release = () => resolve(page([{ id: "A-old" }], false)); });
+    const more = loadMoreRunEvents();
+    state.inspector = { kind: "run", runId: "run-B", run: COMPLETED, events: [{ id: "B-1" }], hasMore: false, eventOrder: "desc" };
+    release();
+    await more;
+    assert.deepEqual(state.inspector.events.map((e) => e.id), ["B-1"], "run A's page must not be appended under run B");
+  } finally { h.restore(); }
+});
+
+test("A FAILED Load more or order toggle is handled, not left to the generic rejection toast", async () => {
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: [{ id: "e1" }], hasMore: true, eventOrder: "desc" };
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    await assert.doesNotReject(loadMoreRunEvents());
+    assert.equal(state.inspector.loadingMore, false);
+    assert.deepEqual(state.inspector.events.map((e) => e.id), ["e1"], "a failed page leaves what was loaded");
+    await assert.doesNotReject(toggleRunEventOrder());
   } finally { h.restore(); }
 });
