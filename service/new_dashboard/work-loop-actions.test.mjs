@@ -402,10 +402,65 @@ test("a failed load leaves the previous contracts alone rather than blanking the
   const savedRaf = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = (cb) => cb();
   try {
-    await withContractsApi(async () => { await loadContractsForState("all", false); }, { fail: true });
+    // The poll path hands the failure back (v0.7 C20) so the cycle can retry; the rows stay either way.
+    await withContractsApi(async () => { await assert.rejects(loadContractsForState("all", false)); }, { fail: true });
     assert.deepEqual(state.contracts, [{ id: "c-1" }], "an error must not be rendered as an empty list");
   } finally {
     globalThis.document = savedDoc;
     globalThis.requestAnimationFrame = savedRaf;
+  }
+});
+
+// --- the State filter's poll path and its races (v0.7 C20) -------------------------------------------
+
+/** A document whose contract-state select reads `value`, recording every toast raised. */
+function filterDom(value) {
+  const savedDoc = globalThis.document;
+  const savedRaf = globalThis.requestAnimationFrame;
+  const toasts = [];
+  const node = () => {
+    const n = { className: "", innerHTML: "", hidden: false, children: [], firstElementChild: null, classList: { add() {}, remove() {}, toggle() {} }, style: {}, setAttribute() {}, appendChild() {}, addEventListener() {}, remove() {}, querySelector: () => null, querySelectorAll: () => [] };
+    Object.defineProperty(n, "textContent", { get: () => "", set: (v) => { if (v) toasts.push(v); } });
+    return n;
+  };
+  const select = { value };
+  globalThis.document = {
+    getElementById: (id) => (id === "contract-state" ? select : node()),
+    querySelector: () => null, querySelectorAll: () => [], createElement: node, body: { appendChild() {} },
+  };
+  globalThis.requestAnimationFrame = (cb) => cb();
+  return { select, toasts, restore: () => { globalThis.document = savedDoc; globalThis.requestAnimationFrame = savedRaf; } };
+}
+
+test("A POLL-PATH FAILURE RAISES NO TOAST, and is handed back so the cycle can retry it", async () => {
+  // The poll re-applies a non-open filter every cycle, and a failing fetch toasted "Load contracts
+  // failed" on every one of them. A user's own change still toasts.
+  const dom = filterDom("failed");
+  try {
+    await withContractsApi(async () => {
+      await assert.rejects(loadContractsForState("failed", false), "the poll caller must see the failure");
+    }, { fail: true });
+    assert.deepEqual(dom.toasts, [], "the poll toasted");
+    await withContractsApi(async () => { await loadContractsForState("failed", true); }, { fail: true });
+    assert.equal(dom.toasts.length, 1, "CONTROL: the operator's own change still says it failed");
+  } finally { dom.restore(); }
+});
+
+test("AN ANSWER FOR A STATE NO LONGER SELECTED IS DROPPED, so quick changes cannot land out of order", async () => {
+  const dom = filterDom("failed");
+  const savedFetch = globalThis.fetch;
+  let release;
+  globalThis.fetch = () => new Promise((resolve) => { release = () => resolve({ ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify({ contracts: [{ id: "for-failed" }] }) }); });
+  setApiBase("");
+  try {
+    state.contracts = [{ id: "for-answered" }];
+    const loading = loadContractsForState("failed", false);
+    dom.select.value = "answered";
+    release();
+    await loading;
+    assert.deepEqual(state.contracts, [{ id: "for-answered" }], "a stale answer replaced the current filter's rows");
+  } finally {
+    globalThis.fetch = savedFetch;
+    dom.restore();
   }
 });

@@ -77,13 +77,19 @@ export async function runRefreshCycle({
   }
 
   if (ok(0)) state.agents = asAgentArray(val(0));
-  if (ok(1)) { state.contracts = val(1).contracts || []; state.contractsBase = state.contracts; }
   // Keep a non-default Work-loop State filter alive across polls: the base fetch is
   // open-scope, so a terminal selection (Answered/Failed/Missing reply/…) emptied ~15s
   // after choosing it when the poll overwrote state.contracts (review finding #4).
-  // contractsBase keeps the open set for the metrics; state.contracts follows the filter.
+  // contractsBase keeps the open set for the metrics; state.contracts follows the filter, and is
+  // NOT handed the open set in between -- a render during the filtered fetch showed open contracts
+  // under the other filter's name.
   const contractStateSel = byId('contract-state')?.value || '';
-  if (ok(1) && contractStateSel && contractStateSel !== 'open') {
+  const filteredContracts = contractStateSel && contractStateSel !== 'open';
+  if (ok(1)) {
+    state.contractsBase = val(1).contracts || [];
+    if (!filteredContracts) state.contracts = state.contractsBase;
+  }
+  if (ok(1) && filteredContracts) {
     try { await loadContractsForState(contractStateSel, false); } catch (_) { noteSliceFailure('contract filter'); failed.push('contracts'); /* keep base */ }
   }
   // messages: prefer recent, fall back to inbox, then keep prior — only touch if either succeeded.

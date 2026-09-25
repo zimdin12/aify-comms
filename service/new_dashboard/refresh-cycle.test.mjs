@@ -50,10 +50,11 @@ function makeElements() {
  * Returns the recorded calls plus the status-chip element.
  */
 async function cycle({ reject = [], extraDeps = {}, filesPage = null, environmentsPage = null,
-  seed = {}, recentBody = null, inboxBody = null, schemaHeld = false } = {}) {
+  seed = {}, recentBody = null, inboxBody = null, schemaHeld = false, contractState = "" } = {}) {
   // The schema is module state that outlives a cycle; each test says whether the page already holds it.
   if (!schemaHeld) SETTINGS_SCHEMA.splice(0, SETTINGS_SCHEMA.length);
   const els = makeElements();
+  els.get("contract-state").value = contractState;
   const saved = {
     document: globalThis.document,
     fetch: globalThis.fetch,
@@ -422,4 +423,16 @@ test("A FULL CYCLE NAMES THE SLICES WHOSE FETCH FAILED, so they can be retried",
   assert.deepEqual(clean.failed, [], "CONTROL: a clean cycle fails nothing");
   const broken = await cycle({ reject: ["/settings/schema", "/stats"] });
   assert.deepEqual([...broken.failed].sort(), ["settings", "stats"]);
+});
+
+test("WHILE A NON-OPEN WORK FILTER IS RE-FETCHED, the rows on screen are never the open set", async () => {
+  // The cycle assigned the open-scope base to state.contracts and THEN awaited the filtered set, so a
+  // render in that gap painted open contracts under "Failed" or "Answered".
+  let seenDuringFilter = null;
+  await cycle({
+    seed: { contracts: [{ id: "failed-row" }] },
+    extraDeps: { loadContractsForState: async () => { seenDuringFilter = state.contracts.map((c) => c.id); } },
+    contractState: "failed",
+  });
+  assert.deepEqual(seenDuringFilter, ["failed-row"], "the open base was on screen while the filter reloaded");
 });
