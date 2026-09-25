@@ -1,550 +1,155 @@
 # Install For Hermes
 
-Use aify-comms when you want dashboard-driven coordination for Hermes Agent:
-live direct messages, channels, shared artifacts, active dispatch, managed
-agent spawn, browser Console, and environment control.
+Connects Hermes Agent to an aify-comms service: the `hermes-aify` launcher, the MCP server, the aify
+Hermes plugin, turn hooks and skills. The service must already be running (see
+[README.md](README.md#quick-start), which also lists the prerequisites).
 
-## Two installs, and you may only need one
+## Prerequisites beyond the README's
 
-aify-comms has a **backend** and a **client** side, and they are separate installs.
+- **Hermes Agent**, with `hermes` on PATH. If it lives elsewhere, set `AIFY_HERMES_COMMAND` to the
+  executable before installing; the installer and `hermes-aify` both read it.
+- **Node.js 22 or newer** where `hermes-aify` runs: the Hermes TUI's gateway client uses the global
+  `WebSocket`, which older Node lacks, and fails as `gateway exited`.
 
-| you want | install | how |
-|---|---|---|
-| **the service** — database, dashboard, the API agents talk to | the container | `./setup.sh` then `docker compose up -d --build` |
-| **to run agents on this machine** | `aify-env` + the launchers | clone [aify-env](https://github.com/zimdin12/aify-env) and run `./install.sh` (it ASKS for the service key this host is missing -- `npm install -g` installs the command and cannot notice one), then `aify-wrapper-install --all --endpoint <url>` |
-
-A machine may do either, both, or neither. The service can live on another host entirely — point the
-client install at its address instead of `localhost`.
-
-**The steps below are the client side**, and they currently also install this repo's own bridge
-runtime onto the host. That is being unwound: see
-[docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) for where it lands and what is left.
-
-## Prerequisites
-
-- **The aify-comms service must be running** before these steps mean anything: they install a CLIENT
-  and point it at an address. On a fresh machine, in the checkout you cloned, run `./setup.sh`, then
-  `docker compose up -d --build`, then confirm `curl http://localhost:8800/health` answers before
-  going further. Clone this repo first — the client install runs from the same checkout. If the service
-  already runs elsewhere, use that address instead of `localhost`.
-  Detail in [README.md](README.md).
-- **Node.js 22 or newer** is required on the runtime that launches `hermes-aify`.
-  The Hermes TUI's gateway client uses the global `WebSocket` constructor, which
-  is only available in Node 22+. Earlier Node versions surface as
-  `gateway exited` in the TUI when launching through `hermes-aify`. Plain
-  `hermes` still works on older Node because it spawns a stdio gateway instead
-  of attaching to a WebSocket.
-  - WSL/Linux: install via [nvm](https://github.com/nvm-sh/nvm) (`nvm install --lts`)
-    or NodeSource (`curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs`).
-  - Native Windows: install from [nodejs.org](https://nodejs.org/) or via `winget install OpenJS.NodeJS.LTS`.
-- **Hermes Agent** itself, installed and on `PATH` as `hermes`.
-- **The `codex` CLI, signed in — REQUIRED for the OpenAI/ChatGPT quota panel** (optional for everything else).
-  Hermes does **not** hold its own OpenAI token: on a default install its `auth.json` is a *pointer*
-  (`{"active_provider": "openai-codex"}`, no tokens) because it **delegates OpenAI auth to the codex CLI's
-  store**. So without codex installed and logged in (`codex login`), there is no token to read anywhere and
-  the dashboard's *OpenAI · ChatGPT (Codex + Hermes)* card cannot show live usage. Messaging, dispatch and
-  status are unaffected.
-
-  `install.sh` now checks this for you and prints a verdict — it does not just look for the file, it
-  **proves the connection** (an expired token passes a file check and fails for real):
-
-  ```
-  [usage] OK — OpenAI/ChatGPT usage is connected.
-  ```
-  ```
-  [usage] WARNING — OpenAI/ChatGPT usage will NOT appear in the dashboard: no OpenAI token found.
-  [usage] Install the codex CLI and sign in (`codex login`). Hermes delegates its OpenAI auth to the
-          codex store, so codex is what actually holds the token — a hermes-only install has none.
-  [usage] Everything else works; only the OpenAI quota panel is affected.
-  ```
-
-  A found-but-expired token reports `WARNING … the ChatGPT usage API rejected it (HTTP 401) … re-authenticate
-  with codex login`. The check never fails the install (usage is advisory). For scripted/agent installs, run
-  `node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` for a machine-readable
-  `{ok, code, message, detail}` — `code` is one of `ok` / `no-token` / `rejected` / `unreachable`.
-
-  Token discovery is **not** OS- or layout-dependent: every known codex/hermes store is searched
-  (`~/.codex`, `~/.hermes`, `%LOCALAPPDATA%\…`, `~/.config/…`, macOS *Application Support*), and
-  `CODEX_HOME` / `HERMES_HOME` win if you use a non-default location.
-
-> **Path style is decided at install time.** `install.sh` detects whether the
-> `hermes` it wraps is a Linux binary (WSL/native Linux) or a native Windows
-> binary, and bakes the matching path style for the plugin `PYTHONPATH` and the
-> MCP `server.js` arg. If you later switch which Hermes `hermes-aify` should wrap
-> (e.g. change `AIFY_HERMES_COMMAND`/`HERMES_COMMAND`/`PATH` from Linux Hermes to
-> native Windows Hermes or vice versa), **re-run `install.sh --client hermes`**
-> so the wrapper and config paths match the new runtime.
-
-> **Re-run `./install.sh --client hermes` after EVERY Hermes update.** A Hermes
-> upgrade wipes the prebuilt `hermes_cli/web_dist` UI bundle, and the managed
-> gateway host runs `hermes dashboard --skip-build`, which then dies with
-> `FileNotFoundError: .../web_dist/index.html` (operator-visible as the gateway
-> "installs deps then closes"). The installer's web_dist prebuild (see "web_dist
-> prebuild" below) restores the bundle, so reinstalling after each Hermes update
-> is required to keep managed/resident hermes dispatch working.
-
-## Copy-Paste Install
-
-Install Hermes first:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-```
-
-Then install aify-comms into Hermes:
+## Install
 
 ```bash
 git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
 cd ~/aify-comms
-bash install.sh --client hermes http://localhost:8800 --with-hook
+bash install.sh --client hermes http://<service-host>:8800 --with-hook
 ```
 
-If you are using local-only mode with no shared server:
+- With no URL, `install.sh` asks for one when run in a terminal and otherwise uses
+  `http://127.0.0.1:8800`.
+- It writes the service into `~/.aify/services.json`, which is how aify-env learns the service exists.
+- It writes into Hermes' active config home, which on native Windows is often
+  `%LOCALAPPDATA%\hermes` rather than `~/.hermes`. `hermes config path` and `hermes mcp list` show
+  where. Re-running replaces the `aify-comms` block in `config.yaml` in place.
+- It decides at install time whether the wrapped `hermes` is a Linux or a native Windows binary and
+  bakes the matching path style. Re-run it if you switch which Hermes `hermes-aify` wraps.
+
+**Re-run `install.sh --client hermes` after every Hermes update.** An update deletes the prebuilt
+`hermes_cli/web_dist` bundle, the gateway host runs `hermes dashboard --skip-build` and dies without
+it, and the installer rebuilds it (`npm install && npm run build` in Hermes' `web/`). Set
+`AIFY_HERMES_INSTALL_ROOT` if the installer cannot find the Hermes install root. Run `hermes update`
+from an ordinary terminal: from an Administrator one it can relaunch a gateway elevated, where no aify
+cleanup can stop it.
+
+Restart Hermes afterwards: a running session keeps the MCP server it loaded.
+
+## Run agents on this host
+
+Managed agents are started by [aify-env](https://github.com/zimdin12/aify-env), a separate repo. After
+the install above, clone it, run its `./install.sh` (it asks for the service key this host is
+missing; `npm install -g` installs the command and cannot notice one), then start it in the directory
+that holds your workspaces:
 
 ```bash
-git clone https://github.com/zimdin12/aify-comms.git ~/aify-comms
-cd ~/aify-comms
-bash install.sh --client hermes --with-hook
-```
-
-Restart Hermes after install.
-
-The installer verifies that the copied `node-pty` package can load its native binary and automatically rebuilds it when the package exists but the binary is missing or unloadable. Use `aify-comms doctor --json` after installation; checking only `node_modules/node-pty` is not sufficient proof that managed Console PTYs can start.
-
-The installer writes the MCP entry and optional hook to Hermes' active config
-home. On native Windows this is often `%LOCALAPPDATA%\\hermes` (for example
-`C:\\Users\\dev\\AppData\\Local\\hermes\\config.yaml`), not
-`~/.hermes`. To confirm the target before or after install:
-
-```bash
-hermes config path
-hermes mcp list
-```
-
-For dashboard-managed spawns, also start the HOST TIER on the machine that should run Hermes:
-[aify-env](https://github.com/zimdin12/aify-env), a separate repo -- not aify-comms.
-
-```bash
-cd /path/to/workspace-or-workspace-parent
+cd /path/to/workspaces
 aify-env
 ```
 
-Get it by cloning [aify-env](https://github.com/zimdin12/aify-env) and running its `./install.sh`,
-which ASKS for the service key this host is missing -- `npm install -g` installs the command and
-cannot notice one.
-
-One host per environment, and starting a second supersedes the first and reaps its managed workers,
-so starting one is the operator's action. Ask with `aify-env doctor` instead. The service URL
-defaults to `http://localhost:8800`; the current directory is always an allowed workspace root;
-extra root arguments are optional safety boundaries, not the per-agent project choice.
-
-**`aify-comms` no longer starts anything** -- since v0.6.1 it is a verifier (`doctor`, `--check`,
-`--version`, `--help`) and anything else exits 2 naming aify-env. See
+It spawns only into workspaces under that directory, and offers Hermes when the `hermes-aify`
+launcher this install wrote is on the PATH it was started with. Starting a second `aify-env` for the
+same environment replaces the first, and the one replaced stops its managed agents, so starting it is
+the operator's call. Ask a running one with `aify-env doctor`. More in
 [docs/BRIDGE_SETUP.md](docs/BRIDGE_SETUP.md).
-
-If the dashboard says Hermes is unavailable even though `hermes-aify` exists,
-check the underlying runtime command from the same Windows user/shell that runs
-the bridge:
-
-```powershell
-Get-Command hermes
-Get-Command hermes-aify.cmd
-```
-
-`hermes-aify` is only the aify wrapper; the host tier still needs the real
-`hermes` executable. If Hermes is installed under another path, set it and
-restart `aify-env`:
-
-```powershell
-[Environment]::SetEnvironmentVariable('AIFY_HERMES_COMMAND','C:\path\to\hermes.exe','User')
-```
 
 ## Confirm it took effect
 
-Every deploy path in this repo can fail silently: no error, everything looks installed, and what you
-changed is not what is running. Do not read the absence of an error as success.
+```bash
+aify-comms doctor          # --json for scripts, --strict to exit non-zero on a failure
+```
+
+`service`, `bridge-installed` and `skills-installed` should be green. Then relaunch every agent that
+was running before the install, because a running agent keeps the bridge code it loaded.
+`bridge-current` names any registered agent still reporting an older build, and reads `unknown` until
+agents report one. `aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything
+else exits 2.
+
+## Start a Hermes agent
 
 ```bash
-aify-comms doctor          # human-readable; --json for scripts, --strict to exit non-zero
+hermes-aify --aify-agent <agent-id>                          # resumes the agent's stored session
+hermes-aify --aify-agent <agent-id> --resume <session-id>    # a specific session
+hermes-aify --shared --aify-agent <agent-id>                 # aify-env owns the terminal
 ```
 
-On a fresh install `service`, `bridge-installed` and `skills-installed` should all be green. The
-launcher's own currency is `aify-wrapper-check`'s question, not this tool's — v0.6 moved it there
-rather than keep a second implementation of it. `bridge-running` and `agent-identity` SKIP on
-Windows — they read `/proc` — so on Windows
-`bridge-current` is what tells you a running bridge is on the current build. A check that could not
-gather evidence reports `unknown-all` and fails; that is the tool working, not a bug to quieten.
-
-## Auto / bypass flag
-
-`hermes-aify` now adds Hermes' `--yolo` flag (`HERMES_YOLO_MODE=1`) to the
-interactive TUI launch **by default**, bypassing all dangerous-command approval
-prompts. Pass `--safe` (or `--no-auto`) to opt OUT and KEEP normal visible
-approval prompts. This mirrors `claude-aify`
-(`--dangerously-skip-permissions` by default) and `codex-aify`
-(`--dangerously-bypass-approvals-and-sandbox` by default). The flag is consumed
-by the wrapper and applied only to the default chat/TUI launch, not to explicit
-passthrough subcommands like `hermes-aify model list`.
-
-Note: the wrapper's `--yolo` reaches only the visible TUI *client*. For MANAGED
-agents the turn actually runs on the hidden gateway HOST, which does NOT inherit
-the client flag — so the gateway host is spawned with `HERMES_YOLO_MODE=1` in its
-env (hermes freezes YOLO at import from that var via `tools/approval.py`). That
-env is what lets an unattended managed dispatch run without prompting, since no
-operator is at the wheel to answer a tool-approval prompt.
-
-## Session-mode flag
-
-`hermes-aify` accepts `--resident` and `--managed`. Precedence: inherited
-`AIFY_SESSION_MODE` env wins (bridge-spawned managed PTYs set it to `managed`);
-else the flag; else TTY auto-detect via `[ -t 0 ]` — interactive defaults to
-`resident`, non-TTY to `managed`. Use the explicit flag only when TTY detection
-might be wrong for your shell context.
-
-## Delivery path
-
-Managed hermes uses the visible-TUI model: a hidden `hermes dashboard --port
-<P>` gateway host (spawned with `HERMES_DASHBOARD_TUI=1` + `HERMES_YOLO_MODE=1`
-in its env — hermes 0.15.1 REJECTS `--tui` and `--yolo` on the `dashboard`
-subcommand, so the embedded-chat `/api/ws` socket and no-prompt YOLO are enabled
-via env instead) plus a `hermes-managed-host.js run <agent>` delivery
-loop (runs as a `channel-sidecar` bridge; discovers the TUI's live session by
-the agent's stored **real session id** via WS `session.active_list`, and
-uses WS `prompt.submit` while idle and native `session.steer` while busy; rejected or racing busy delivery requeues without falling through to `prompt.submit`), plus a VISIBLE
-`hermes --tui --resume <real-session-id>` rendered in the dashboard Console via
-xterm.js. The agent self-replies via `comms_send`. Session continuity uses the
-agent's **native hermes session id** — a normal timestamp id, symmetric with
-claude (UUID) / codex (thread). There is no synthetic `aify-<agentId>` session.
-
-Resident and managed now share one delivery model: the RESIDENT branch uses the
-SAME hidden `hermes dashboard` gateway host (spawned with `HERMES_DASHBOARD_TUI=1`)
-+ background delivery loop as managed (injected messages render in the visible TUI
-via gateway-WS
-`prompt.submit` while idle and native `session.steer` while busy; rejected or racing busy delivery requeues without falling through to `prompt.submit`). The old per-agent `hermes gateway run`
-api_server daemon resident path was DELETED — resident no longer starts or tears
-down any api_server daemon. Both branches resume the agent's stored real session
-id, so continuity is consistent regardless. The retired managed-delivery pieces
-(the per-agent `hermes gateway run` api_server daemon AS the delivery path,
-`aify.session.bind_transport` / `HermesResidentController`, and api_server `chat`
-wake) should not be treated as live. The agent→real-session binding is the
-per-agent marker `aify-hermes-session-<agentId>`; the bridge reads the visible
-session's real id from the active-session file (env
-`HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`), which is
-now the PRIMARY id source.
-
-If wrapper-backed delivery is disabled or unavailable, the bridge can fall
-back to native Hermes controllers (`HermesController` /
-`HermesManagedGatewaySession`) and synthesized `aify://virtual-rpc/hermes`
-terminal output for operator visibility. That fallback does not provide the
-same live TUI symmetry as wrapper mode.
-
-### Managed launch flow (no loop health-gate; the TUI launches directly)
-
-The managed-hermes triad is the gateway host, the background delivery loop, and
-the visible TUI. The `hermes-aify` wrapper's managed flow is: **claim the agent
-lease (refused with exit 75 if a live instance of this agent is running and the
-start is not a replace; see "One live instance per agent" below) → pre-spawn
-kill-prior, which also stops a previous generation's gateway host on a port this
-agent owns and hermes' session-lease holder for its session → ensure the gateway
-host is up → spawn the background delivery loop (capture its PID, attach it to the
-lease, then kill-prior excluding that PID — the self-reap-race guard) →
-exec/Invoke the visible `hermes --tui` directly.** The wrapper does NOT block the TUI on the
-loop becoming a live claimer.
-
-There is **no loop health-gate** (removed 2026-06-02). An earlier build inserted
-a "health-gate" between the loop spawn and the TUI launch that polled an
-`aify-hermes-loop-ready-<agent>` marker for up to 30s and could (a) fatal-exit
-and refuse to start the TUI, or (b) even when demoted to non-fatal, dump wrapper
-chatter into the dashboard PTY ahead of the TUI and stall the console for up to
-30s. Both turned a transient loop hiccup (agent not yet registered, service
-mid-restart, gateway warming up) into a dead or wrapper-spammed console, so the
-gate was removed entirely from both generated wrappers (`hermes-aify` and
-`hermes-aify.ps1`).
-
-Nothing is lost by not gating: the loop keeps retrying the gateway and
-`/dispatch/claim` on its own in the background, and **deliverability is reflected
-server-side by the claimer-lease gate** — a managed-hermes agent reads `online`
-only when the loop has actually acquired its claimer lease, and a send while the
-loop is not yet a live claimer simply queues (the queued-run backstop reaper is
-the safety net). The visible TUI therefore launches clean and immediately, while
-status accurately reflects whether the loop is delivering.
-
-The gateway host is **shared between the loop and the visible TUI**: the
-wrapper's ensure-host spawns it for the TUI, and the loop REUSES it. The loop
-never kills a reused/shared gateway — see "What collects a managed-hermes
-triad" below for how the gateway's lifetime ties to the TUI/console.
-
-### What collects a managed-hermes triad
-
-This section used to describe the environment bridge's shutdown teardown, its
-stop-control triad reap and its boot survivor sweep over `bridge_instances`. That
-bridge was deleted in v0.6.2; aify-env is the host tier. aify-env ends the process
-trees of the worker PTYs it started, and on start reaps what a dead predecessor
-recorded. Starting it is the operator's call, because supersession reaps the
-workers the running instance holds.
-
-The gateway host is detached on purpose, and since v0.6.8 it still ends with its
-agent:
-
-- It carries the launcher's lease pid as `HERMES_PARENT_PID`, so hermes' own watchdog
-  exits it when the launcher dies. While the agent lives, `hermes update` refuses
-  to run and names the gateway, rather than relaunching it detached.
-- The lease's watch stops everything the instance attached, and what it left
-  running, once the launcher is gone.
-- The next `hermes-aify` start stops what is still left: kill-prior stops a gateway
-  on a port the agent owns, and hermes' session-lease holder.
-
-Run `hermes update` from an ordinary terminal. Run from an Administrator terminal,
-it relaunches any orphaned gateway elevated, where no aify reap can stop it;
-`gateway-orphans` reports that as `unidentified`.
-
-The shared gateway's lifetime ties to the TUI/console, NOT to the delivery loop.
-The loop kills the gateway host **only if it spawned that host itself** (an owned
-child handle); it **never port-kills a reused/shared gateway** and never clears
-the gateway port/key markers — those tie to the gateway and kill-prior needs the
-persisted port marker to reap it on relaunch. So the gateway a managed agent
-shares with its visible TUI is reaped by **kill-prior on relaunch** (above),
-not by a transient loop exit.
-This is what fixed the "gateway websocket connection failed" incident where a
-loop exit (e.g. a transient 410) port-killed the gateway out from under the live
-TUI and dropped the TUI's WebSocket.
-
-**kill-prior also reaps the prior visible resume-TUI (2026-06-02).** On a silent
-relaunch, kill-prior previously reaped the prior delivery loop, gateway host, and
-daemon but NOT the prior `hermes --tui --resume aify-<agent>` visible TUI, so each
-relaunch leaked a duplicate resume-TUI. kill-prior now also reaps that prior
-resume-TUI, matched to the EXACT pinned handle (`aify-<sanitized agentId>`), never a
-broad `hermes --tui`. This reap (and the gateway port-kill + daemon stop) is gated to
-the **pre-spawn call only**, so the post-spawn self-reap-race call can never kill the
-gateway/daemon/TUI the current launch just brought up (the 2026-06-02 port-kill root
-cause behind "gateway websocket connection failed").
-
-A managed agent whose **owning host tier is offline computes `offline`**
-immediately — regardless of any surviving delivery-loop heartbeat — because a
-managed agent can only be hosted by its owning env bridge. So killing
-`aify-comms` makes its managed agents show `offline` right away, not a stale
-`available`/`online`. (Resident agents are excluded: their liveness is the
-resident wrapper bridge, not the env bridge.)
-
-`hermes-aify` does NOT require the `--strict-mcp-config` + minimal-MCP
-isolation that `claude-aify` needs to work around the Claude Code stdio MCP
-race bug.
-
-### Resident dispatch delivery (operator-launched `hermes-aify`)
-
-`hermes-aify` runs the operator's real Ink terminal TUI for `hermes chat`, and it exposes a local gateway the aify-comms bridge can use for live resident dispatch. Session continuity uses the agent's **native hermes session id** (a normal timestamp id), stored as the `sessionHandle` — symmetric with claude (UUID) / codex (thread). `hermes-aify --aify-agent <id>` brings up the gateway-host and resumes the agent's stored real session (or starts fresh the first time); `hermes-aify --resume <real-session-id>` recovers the agent from the stored handle and resumes that real session. There is no synthetic `aify-<agentId>` session — the operator never types one, and `HERMES_TUI_RESUME` is no longer pinned to a derived name. The aify-comms bridge attaches to the same `/api/ws` gateway, reads the visible session's real id from the active-session file (env `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`, the PRIMARY id source) and discovers it via WS `session.active_list`, then delivers via WS `prompt.submit` when idle or native `session.steer` while busy; rejected or racing busy delivery requeues without interrupting the active turn. MCP discovery still runs before the TUI gateway builds its `AIAgent`; this matters because `hermes mcp test aify-comms` runs in a separate CLI process and can succeed while the already-running TUI gateway still has no `mcp_aify_comms_*` tools.
-
-1. The wrapper's `ensure-host` (in `hermes-managed-host.js`) spawns `hermes dashboard --port <P> --host 127.0.0.1 --no-open --skip-build` as a hidden background child, with `HERMES_DASHBOARD_TUI=1` (and `HERMES_YOLO_MODE=1`) in its env. The env sets `_DASHBOARD_EMBEDDED_CHAT_ENABLED=True` in `hermes_cli/web_server.py`, which mounts the `/api/ws` JSON-RPC endpoint at the `tui_gateway/server.py` dispatcher. (hermes 0.15.1 moved `--tui` to a top-level flag and the `dashboard` subcommand now rejects it — `HERMES_DASHBOARD_TUI=1` is the crash-safe equivalent; `ensure-host` additionally WS-verifies `/api/ws` actually OPENs before declaring the host ready.)
-2. The wrapper fetches `http://127.0.0.1:<P>/` and parses the ephemeral `__HERMES_SESSION_TOKEN__` from the injected `<script>` tag (hermes' own `web_server.py`, not ours).
-3. It exports `HERMES_TUI_GATEWAY_URL=ws://127.0.0.1:<P>/api/ws?token=<T>` in the env passed to `hermes --tui`, and resumes the agent's stored real session id (`--resume <real-session-id>`) when one exists, else starts fresh. The Ink TUI's `gatewayClient.ts:startAttachedGateway` opens a WebSocket to that URL instead of spawning its own stdio sidecar — operator sees their normal terminal TUI experience, resumed on the agent's native session. On native Windows, `hermes-aify.cmd` runs a generated PowerShell shim instead of Git Bash so the final `hermes.exe --tui` process keeps the real console TTY.
-4. The aify-comms bridge (loaded inside `hermes chat` as an MCP server) ALSO opens a WebSocket to the same `/api/ws` (it reads `AIFY_HERMES_GATEWAY_URL` from env, written into the hermes runtime marker by `server.js`). For inbound aify-comms messages the bridge reads the visible session's real id from the active-session file (env `HERMES_TUI_ACTIVE_SESSION_FILE` / `AIFY_HERMES_ACTIVE_SESSION_FILE`, the PRIMARY id source) and confirms it via WS `session.active_list`, then issues JSON-RPC `prompt.submit` while idle or `session.steer` while busy; rejected or racing busy delivery requeues without falling through to interrupting submit. The session id is the agent's native real id (bound by the `aify-hermes-session-<agentId>` marker), so no `bind_transport` / `session.most_recent` negotiation is needed. Hermes emits real gateway events as `event` frames such as `message.delta`, `message.complete`, `tool.start`, and `tool.complete`; aify-comms translates those into run output and chat replies.
-
-This is the Hermes equivalent to Claude Code channel delivery for the harness-console feature: the prompt and reply should render in the open `hermes-aify` terminal, while the same streamed events complete the aify-comms run/chat accounting.
-
-Resident Hermes registration must come from the wrapper's MCP bridge. Do not
-repair or create resident Hermes agents with raw `POST /api/v1/agents` scripts:
-those can write `runtimeConfig.gatewayUrl`, but they cannot create the live
-`bridgeInstanceId` heartbeat or the dispatch claim loop. A record in that state
-is reported as `offline` and dashboard/chat sends are rejected until you restart
-`hermes-aify` and run `comms_register` from the visible session, or switch the
-identity back to managed.
-
-Hermes exposes MCP tools with server-prefixed callable names. For the
-aify-comms MCP server, use `mcp_aify_comms_comms_register`,
-`mcp_aify_comms_comms_agent_info`, and `mcp_aify_comms_comms_send` in Hermes
-turns; unprefixed names such as `comms_register` are shorthand used by generic
-docs and other clients. `hermes mcp test aify-comms` listing
-`comms_register` means the live callable name will be the prefixed Hermes tool
-name when that toolset is exposed to the turn.
-
-If a live `hermes-aify` turn can run `hermes mcp test aify-comms` but still
-does not expose `mcp_aify_comms_comms_register` /
-`mcp_aify_comms_comms_agent_info`, the active TUI gateway has not loaded MCP
-tools. On current installs, restart `hermes-aify`; for an already-open gateway,
-the gateway `reload.mcp` method (or the wrapper's reload-MCP control if
-available) repairs the live registry without direct HTTP registration.
-
-Hermes dashboard turns execute MCP tools inside the dashboard-gateway process,
-not the later `hermes chat` child. Current wrappers export the selected
-dashboard port before launching that process, and the runtime plugin derives
-`AIFY_HERMES_GATEWAY_URL` inside `hermes_cli.web_server` from that port plus
-Hermes' own session token. Without that dashboard-side env injection,
-`mcp_aify_comms_comms_register` may be callable but still register as
-`hermes-missing-handle` because no `runtimeConfig.gatewayUrl` reached
-aify-comms.
-
-**Ordinary busy sends use native `session.steer` without interrupting the active turn.** Explicit `queueIfBusy` waits for turn-end. If steer rejects or errors after the gateway was observed working, the run is requeued; it never falls through to interrupting `prompt.submit`.
-
-**There is no gateway bypass.** This guide documented `AIFY_HERMES_SKIP_GATEWAY=1` until 2026-09-12;
-that variable appears in no executable code anywhere in the three repos -- only in this guide and
-two 2026-05 plan documents. Setting it changes nothing. If the dashboard probe is breaking a
-launch, the wrapper already falls back to plain `hermes` on its own, and
-`AIFY_HERMES_DISABLE_PLUGIN=1` (which does exist) is the switch for launching without the aify
-runtime shim.
-
-**Plugin A/B test:** set `AIFY_HERMES_DISABLE_PLUGIN=1` to launch
-`hermes-aify` without the aify runtime shim. This is useful for comparing
-upstream Hermes behavior after a Hermes update. With the plugin disabled,
-resident visible-session binding and the guarded Codex stream fallback are not
-provided by aify-comms. The old in-place source edit path is legacy/debug only:
-set `AIFY_HERMES_LEGACY_SOURCE_PATCH=1` before running `install.sh --client
-hermes` if you explicitly want that behavior.
-
-**Cleanup:** `trap _aify_hermes_on_exit EXIT INT TERM` in the wrapper kills the dashboard child on wrapper exit, so `hermes-aify`'s lifecycle owns the dashboard process. Background gateway logs go to `$XDG_STATE_HOME/aify-comms/hermes-gateway-host-<port>.log` (or `~/.local/state/aify-comms/...` without XDG_STATE_HOME). **Both names were wrong here until 2026-09-12** -- the guide named a trap function that exists nowhere and a log file last written in May, so an operator diagnosing a gateway failure opened an empty file. `mcp/stdio/hermes-gateway.mjs` is the writer and owns the real name.
-
-**Known limitations.** The dashboard binds to 127.0.0.1 only and uses ephemeral per-process tokens — it's safe to leave running. The `--skip-build` flag relies on hermes having already built the web UI dist once; **`install.sh --client hermes` now pre-builds this automatically** (see "web_dist prebuild" below). If you skip install.sh's prebuild (e.g. install hermes after running install.sh), you can prime it manually with `hermes dashboard --no-open` once.
-
-### web_dist prebuild (added 2026-05-25)
-
-`install.sh --client hermes` detects whether `<hermes-install-root>/hermes_cli/web_dist/index.html` exists and, if not, runs `npm install && npm run build` once in `<hermes-install-root>/web/`. Without this, fresh hermes installs hit the failure described in the section above: `hermes dashboard --skip-build` dies with `✗ --skip-build was passed but no web dist found at: ...`, the wrapper falls through to plain `hermes`, and every resident-channel wake for the session reports `hermes-missing-handle`.
-
-Detection order for the hermes install root:
-
-1. `AIFY_HERMES_INSTALL_ROOT` env (overrides everything; useful when `hermes` is symlinked to a non-canonical location)
-2. `hermes config path` parsed up to `/hermes_cli/...` (the canonical Windows path is `~/AppData/Local/hermes/hermes-agent/hermes_cli/config.yaml`, so the install root is `~/AppData/Local/hermes/hermes-agent`)
-3. Skip with a log line if neither resolves
-
-The prebuild is idempotent — re-running `install.sh --client hermes` after web_dist exists logs `hermes web_dist already present at ...` and skips. **Re-run is required after every Hermes upgrade**, because the upgrade wipes `web_dist` and the gateway host then crashes with `FileNotFoundError: .../web_dist/index.html` ("installs deps then closes") until the prebuild restores it.
-
-### Fallback warning (added 2026-05-25)
-
-**The banner below is NOT what ships.** Neither the `AIFY_HERMES_GATEWAY_URL was NOT exported` text nor its reason codes exist in any wrapper; this block describes a 2026-05 design that was never built that way. It is kept only so nobody hunts for output that cannot appear. What IS true: when `hermes-aify` cannot start the dashboard gateway it falls back to plain `hermes`, and comms wake/dispatch to that agent then reports `hermes-missing-handle`. Check `hermes-gateway-host-<port>.log` for the underlying error.
-
-```text
-[hermes-aify] WARNING: AIFY_HERMES_GATEWAY_URL was NOT exported to this hermes session.
-[hermes-aify]   Reason: <one of port_alloc_failed / dashboard_unreachable / token_capture_failed / gateway_disabled>
-[hermes-aify]   Log:    ~/.local/state/aify-comms/hermes-aify-dashboard-<port>.log
-[hermes-aify]   Effect: comms wake/dispatch to this agent will report 'hermes-missing-handle'.
-[hermes-aify]   Fix:    re-run install.sh --client hermes to prebuild hermes web_dist, or
-[hermes-aify]           inspect the dashboard log above for the underlying error.
-```
-
-Without this banner the fallback was silent and operators had no signal that their resident hermes wake-mode would never work. Current fallback still preserves an explicit `hermes-aify --resume <session-id>` by launching plain `hermes --tui --resume <session-id>` when the gateway path cannot start.
-
-### Session continuity (native session id)
-
-Session continuity uses the agent's **native hermes session id** — a normal
-timestamp id stored as the `sessionHandle`, symmetric with claude (UUID) /
-codex (thread). There is no synthetic `aify-<agentId>` session. `hermes-aify
---aify-agent <id>` resumes the agent's stored real session (or starts fresh the
-first time); `hermes-aify --resume <real-session-id>` resumes that specific
-session. The launch-side `resolve-session` step (in `hermes-managed-host.js`,
-run by the wrapper before the visible TUI launches) resolves which session to
-`--resume`: as of the 2026-06-04 `session_key` fix the resumed id is the
-**durable `session_key`** (looked up against the SessionDB / `session.list`, so
-it survives gateway and bridge restarts), NOT the ephemeral runtime sid — the
-ephemeral id is dead on the next attach and would fail gateway 4007 "session not
-found". (Delivery itself — `prompt.submit` — still targets the
-ephemeral live sid the loop discovers via `session.active_list`; only the resume
-key is the durable one.) The agent→real-session binding is the per-agent marker
-`aify-hermes-session-<agentId>`, and the bridge reads the visible session's real
-id from the active-session file (`HERMES_TUI_ACTIVE_SESSION_FILE` /
-`AIFY_HERMES_ACTIVE_SESSION_FILE`) — this active-session-file discovery is now
-the PRIMARY id source. The `session.most_recent` binding path is not used: it
-reported historical Hermes DB state and could bind to a session that could not
-visibly receive delivery. The aify-comms bridge confirms the live session via
-WS `session.active_list`.
-
-**One live instance per agent (v0.6.8).** Running `hermes-aify --aify-agent <id>` in a terminal stops
-that agent's running instance on this host first, a managed worker included, along with its gateway
-host and delivery loop. An automatic start (a message cold-starting the agent, the queued-run
-backstop, an agent's `comms_spawn`) is refused with exit 75 instead; to replace a running agent on
-purpose, start or restart it from the dashboard.
-
-If dispatch says `visible session not found`, the open terminal was started
-with an old wrapper, with `AIFY_HERMES_DISABLE_PLUGIN=1`, or before the visible
-TUI attached to its real session. Re-run `install.sh --client hermes`, restart
-that `hermes-aify` terminal, and re-register from inside the same visible
-session.
-
-## Keeping the session when you close the terminal
-
-Add `--shared` to the launcher: `hermes-aify --shared --aify-agent <id>`. It execs `aify-env run`, so the
-HOST TIER owns the PTY instead of your shell, and closing the window does not end the session. It
-needs `aify-env` on PATH and refuses with a reason rather than falling back. Get back to it with
-`aify-env attach <agent>` — `Ctrl+]` lets go and leaves it running. `aify-env --help` lists the rest.
-
-## Two flags this guide used to omit, and one new behaviour
-
-`install.sh --help` is the authority; these are the two whose CONSEQUENCES are discussed above while
-the flags themselves were never named.
-
-| flag | what it does |
-|---|---|
-| `--mcp-transport <stdio\|sse>` | how the launcher reaches MCP. Default `stdio`. An "SSE-only install" is what this flag produces; an unknown value exits 78. |
-| `--delegate-spawns [url]` | managed spawns go to aify-env (default `http://127.0.0.1:8802`) instead of being hosted by the aify-comms bridge. **Delegation is OFF by default**, and with it off `aify-comms doctor` reports `spawn-delegation: local` — naming a bridge that v0.6.2 removed. Re-running the installer carries the setting the host already chose, so this is a one-time decision per host. |
-
-**Herdr (new 2026-09-12).** The rendered launchers now claim their Herdr pane, so an agent started in
-a Herdr pane comes back as `claude-aify` rather than as a bare `claude` after a reboot. It is gated on
-`HERDR_ENV`, so an ordinary terminal launch does nothing extra, it can never fail a launch, and its
-diagnostics go to `~/.aify/herdr/claim.log`. Nothing restores until the plugin is linked once with
-`aify-herdr-pane install`. Design and limits: aify-wrapper's `HERDR.md`.
-
-## What This Installs
-
-- The shared `aify-comms` local MCP server for Hermes.
-- A Hermes MCP config entry in the active Hermes config file (`hermes config path`).
-- The resident wrapper `hermes-aify`, which exports `AIFY_COMMS_URL` so shell hooks know which aify service to call and loads `integrations/hermes-aify-plugin` for Hermes runtime compatibility.
-- A `pre_llm_call` shell hook, written under hermes' OWN config root -- on this host
-  `%LOCALAPPDATA%/hermes/agent-hooks/aify-turn-start.sh`, not `~/.hermes/`, which this line named
-  until 2026-09-12 and where only a May 2026 legacy copy sits. `install.sh` resolves it with
-  `hermes_config_root`, so read that rather than assuming a path. It posts turn-start before each LLM call through `agent-state-event.mjs`, which carries the API key. Beside it, `aify-turn-end.sh` on `on_session_end` (hermes fires it when a turn finalizes, when a CLI turn is interrupted, and when a session closes) and `aify-blocked.sh` / `aify-unblocked.sh` on `pre_approval_request` / `post_approval_response`. Hermes runs a shell hook only once its exact command is approved, so those three need approving once (`hermes hooks list`). Managed Hermes and gateway-bound resident Hermes also use the continuous bidirectional gateway-status detector: gateway `working` sets turn-start and sustained gateway `idle` clears it. Explicit `queueIfBusy` holds on raw `turn_busy=1` until that authoritative end-event; the 30-minute status ceiling only backstops a dropped end-event. A turn that ends on an API error (a non-retryable client error, or retries exhausted) returns before hermes finalizes the turn and fires no `on_session_end`, so it stays in-turn until the gateway detector or that ceiling clears it.
-- With `--with-hook`, a non-blocking Hermes `post_tool_call` notification hook (separate from the turn-start hook above; this one is for incoming-message notifications).
-
-Resident Hermes is terminal-first — `hermes-aify` opens an interactive Hermes
-TUI for human use. Managed Hermes defaults to the same wrapper shape, but the
-the host tier owns the `hermes-aify` PTY and the dashboard Console renders
-that real TUI. Native `HermesController` / ACP fallback remains available when
-wrapper-backed delivery is disabled or unavailable.
-
-## Native fallback ACP session (managed dispatches)
-
-**Re-running `install.sh --client hermes` REPLACES the existing `aify-comms` block in `config.yaml` in place.** The config patcher (`_patch_hermes_config_at` in install.sh) locates the existing `aify-comms:` entry under `mcp_servers:`, splices it out, and re-inserts the freshly generated block — so new `env:` entries (e.g. env-var propagation like `AIFY_HERMES_GATEWAY_URL`) flow on reinstall, no manual edit needed. (This is a change from older builds, which exited early and left a stale block.) If the block is ever hand-corrupted you can still delete it entirely and rerun `bash install.sh --client hermes` to regenerate it.
-
-Current managed Hermes defaults to wrapper-backed `hermes-aify` PTY delivery
-(`managed_via_wrapper=["codex","hermes"]`). The bridge owns the wrapper PTY, the
-wrapper starts the local dashboard gateway, and the delivery loop delivers into
-the agent's real session via gateway WS. Ordinary busy sends use `session.steer`;
-explicit `queueIfBusy` waits for turn-end before `prompt.submit` (a submit-time
-busy race requeues). See the "Delivery path" section above — the old `aify.session.bind_transport`
-negotiation is retired. The rest of this section describes the native
-controller fallback used only when wrapper-backed delivery is disabled or
-unavailable.
-
-On the fallback path, the bridge spawns a single `hermes acp --accept-hooks`
-per agentId on first dispatch, runs the ACP handshake (`initialize` →
-`session/new`), and reuses the same `sessionId` for every subsequent
-`session/prompt`. This gives native conversation continuity and token-level
-streaming in a synthesized dashboard terminal, but it does not provide the
-same visible TUI symmetry as wrapper-backed delivery.
-
-- Default launcher: `hermes acp --accept-hooks` (looked up on PATH).
-- Override: `AIFY_HERMES_ACP_COMMAND="/abs/path/to/hermes acp --accept-hooks"` (quote-aware, so `AIFY_HERMES_ACP_COMMAND='"C:\Program Files\hermes\hermes.exe" acp --accept-hooks'` works for paths-with-spaces)
-  (or per-agent via `runtimeConfig.hermesAcpCommand`).
-- Idle reaper: 24h by default. Override globally via
-  `AIFY_HERMES_IDLE_TIMEOUT_MS` or per-agent via
-  `runtimeConfig.hermesIdleTimeoutMs`.
-- Handshake-startup window: 45s default; tune via
-  `AIFY_HERMES_STARTUP_TIMEOUT_MS` or `runtimeConfig.startupTimeoutMs`.
-- Resident hermes is unaffected — the operator-typed hermes still launches
-  interactively under PTY.
-
-**Filesystem callbacks are sandboxed to the agent's `cwd`.** When hermes requests `fs/read_text_file` or `fs/write_text_file`, the bridge resolves the path against the registered session `cwd` and refuses anything outside that tree with JSON-RPC error -32602. This prevents a compromised agent from reading `~/.ssh/id_rsa` or writing arbitrary host files through the ACP callback channel. Operators who genuinely need unrestricted access can set `AIFY_HERMES_FS_UNSAFE=1` to disable the containment check (explicit opt-out, not recommended).
-
-**Permission auto-approve uses an allow-list.** The bridge auto-selects only options whose `kind` is `allow_once` or `allow_always`. If hermes presents only escalation-kind options, the bridge returns `outcome.cancelled` instead of picking option[0]. The hook lives in `_handleClientRequest` in `mcp/stdio/hermes-session.js` if you need a different policy.
-
-To verify this fallback child is alive: open the agent's Console after a
-managed dispatch whose command is `aify://virtual-rpc/hermes` — status should
-go `available → working → available` while the same `hermes acp` PID stays up
-between turns (`tasklist | findstr hermes` on Windows, `pgrep -f "hermes acp"`
-on POSIX). A second dispatch reuses the same PID. The bridge declines
-hermes's `terminal/*` callbacks (no in-bridge sandbox), so configure hermes
-itself to use its own sandbox if you need tool-driven child processes.
-
-See [docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) for the full
-integration guide, hooks details, MCP config shape, resident mode, and current
-limits.
-
-## How the install works (and updating)
-
-`install.sh` copies the bridge runtime (`mcp/stdio` + its `node_modules`) into a native folder at `~/.aify-comms` (override with `AIFY_HOME`) and points the wrappers and MCP config at that copy — not at this repo checkout. This keeps bridge startup fast on slow/bind-mounted filesystems. Consequence: after `git pull`, changes under `mcp/stdio/` only take effect once you **re-run `install.sh`** (refreshes the copy) and restart the wrapper/bridge. Updating the runtime CLI itself (e.g. a hermes or claude update) does not require reinstalling aify-comms — the two write disjoint files.
+- **Pass `--aify-agent` for a registered agent.** The agent registers under that id at startup, and
+  the id reaches the turn hooks only through the launch environment; started without it, its status
+  stops tracking its turns.
+- `--resume <session-id>` without `--aify-agent` recovers the agent from the handle: `aify-<id>` maps
+  to `<id>` directly, and any other handle is looked up on the service, which works only while the
+  service has no API key, because the launcher sends none.
+- Starting `hermes-aify --aify-agent <id>` in a terminal replaces that agent's live instance on this
+  host, a managed worker included, with its gateway host and delivery loop. An automatic start (a
+  message waking the agent, `comms_spawn`) is refused with exit 75 instead. The rules are in
+  aify-wrapper's README, "One live instance per agent".
+- `--shared` hands the terminal to aify-env; `aify-env attach <agent>` reattaches and `Ctrl+]`
+  detaches.
+- `hermes-aify` passes `--yolo` by default, and the gateway host runs with `HERMES_YOLO_MODE=1`, so
+  approval prompts are skipped; `--safe` (or `--no-auto`) keeps them in the visible TUI.
+- `AIFY_HERMES_DISABLE_PLUGIN=1` launches without the aify Hermes plugin, for comparing against
+  upstream Hermes. The plugin is what binds the visible session for delivery, so leave it on otherwise.
+
+Hermes names MCP tools with a server prefix: in a Hermes turn they are `mcp_aify_comms_comms_send`,
+`mcp_aify_comms_comms_agent_info` and so on. Agents answer a message with
+`comms_send(type="response", inReplyTo="<message id>", to="<sender>")`; final text, stdout and run
+summaries are not the reply. The `aify-comms` skill has the rest.
+
+Register a Hermes agent only from inside `hermes-aify`. A record written by hand with
+`POST /api/v1/agents` has no live bridge behind it, reads `offline`, and refuses sends until
+`hermes-aify` is restarted.
+
+## How messages reach Hermes
+
+Resident and managed agents work the same way. `hermes-aify` starts three processes:
+
+1. A hidden gateway host, `hermes dashboard --port <P> --host 127.0.0.1 --no-open --skip-build`,
+   with `HERMES_DASHBOARD_TUI=1` so it serves the `/api/ws` gateway.
+2. A delivery loop, `hermes-managed-host.js run <agent>`, which claims the agent's messages and sends
+   each to the live session over that gateway: `prompt.submit` while idle, `session.steer` while a
+   turn runs. A rejected or racing busy delivery is requeued rather than interrupting the turn.
+3. The visible `hermes --tui`, attached to the same gateway and resumed on the agent's native Hermes
+   session id, which is the agent's `sessionHandle`.
+
+The gateway host carries the launcher's lease pid as `HERMES_PARENT_PID`, so Hermes' own watchdog
+ends it with the agent, and the next start of the agent stops anything a hard kill left behind. After
+a hard kill of aify-env, `aify-comms doctor` `gateway-orphans` names gateways nothing owns.
+
+**When a live Hermes turn has no `mcp_aify_comms_*` tools**, its gateway loaded before the MCP server:
+restart `hermes-aify`. **When a send fails with `visible session not found`**, the terminal was started
+by an older launcher, with the plugin disabled, or before the TUI attached: re-run the installer,
+restart that `hermes-aify`, and register again from inside it. Gateway host logs are in
+`~/.local/state/aify-comms/hermes-gateway-host-<port>.log` (`$XDG_STATE_HOME/aify-comms/` when set).
+
+## What the install writes
+
+- The `aify-comms` MCP entry in Hermes' active config file.
+- `hermes-aify` and the `aify-comms` verifier in `~/.local/bin`, plus `.cmd` shims on Git Bash as in
+  [install.claude.md](install.claude.md#windows). `hermes-aify` exports `AIFY_COMMS_URL` and loads
+  `integrations/hermes-aify-plugin`.
+- Skills in the Hermes skills tree.
+- The bridge runtime, copied to `~/.aify-comms` (`AIFY_HOME` overrides). An edit under `mcp/stdio/`
+  reaches agents only after `install.sh` re-runs and the agents relaunch.
+- Shell hooks under Hermes' own config root, in `agent-hooks/`: `aify-turn-start.sh` on
+  `pre_llm_call`, `aify-turn-end.sh` on `on_session_end`, and `aify-blocked.sh` / `aify-unblocked.sh`
+  on `pre_approval_request` / `post_approval_response`, posting through `agent-state-event.mjs`, which
+  carries the API key. Hermes runs a shell hook only after its exact command is approved once
+  (`hermes hooks list`). The bridge also sets and clears `working` from the gateway's own state,
+  which covers a turn that ended without `on_session_end`, such as one ended by an API error.
+- With `--with-hook`, a `post_tool_call` hook running `notify-check.js`, which tells the agent about
+  unread messages without marking them read. Once installed, re-runs keep it.
+
+## OpenAI usage check
+
+At the end of every install, `install.sh` prints a `[usage]` line saying whether an OpenAI token
+works. Hermes delegates OpenAI auth to the codex CLI's store, so the token comes from `codex login`.
+Nothing collects subscription quota at the moment (`mcp/stdio/usage-collector.js` has no caller), so
+the dashboard's quota figures are not live.
+
+## More
+
+[docs/HERMES_INTEGRATION.md](docs/HERMES_INTEGRATION.md) covers the integration in depth. Herdr pane
+restore and the aify-wrapper commands work as in [install.claude.md](install.claude.md#herdr). The
+`aify-comms-debug` skill, installed above, covers delivery, status and console problems.
