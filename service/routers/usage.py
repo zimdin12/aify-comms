@@ -28,6 +28,7 @@ from service.api_core.routing import domain_router
 from service.clock import now as _now
 from service.usage_cache import consumption_set, consumption_summary, usage_all, usage_set
 from service.usage_openai import collect_openai_pool
+from service.api_core.request_body import json_object_body
 
 logger = logging.getLogger("aify_comms.routers.usage")
 
@@ -40,8 +41,8 @@ router = domain_router()
 
 @router.post("/usage")
 async def post_usage(request: Request):
-    body = await request.json()
-    source_id = str((body or {}).get("source_id") or "").strip()
+    body = await json_object_body(request)
+    source_id = str(body.get("source_id") or "").strip()
     if not source_id:
         raise HTTPException(400, "source_id is required")
     payload = dict(body)
@@ -85,8 +86,9 @@ async def get_usage():
 
 @router.post("/usage/consumption")
 async def post_usage_consumption(request: Request):
-    body = await request.json()
-    rows = (body or {}).get("rows") or []
+    rows = (await json_object_body(request)).get("rows") or []
+    if not isinstance(rows, list):
+        raise HTTPException(400, "rows must be a list")
     consumption_set(rows)
     return {"ok": True, "count": len(rows)}
 

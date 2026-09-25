@@ -33,6 +33,7 @@ from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
+from service.api_core.request_body import json_object_body
 
 router = domain_router()
 
@@ -336,7 +337,7 @@ async def search_messages(
 
 @router.post("/messages/{message_id}/read")
 async def set_message_read_state(message_id: str, request: Request):
-    body = await request.json()
+    body = await json_object_body(request)
     agent_id = str(body.get("agentId") or "").strip()
     read = bool(body.get("read", True))
     if not agent_id:

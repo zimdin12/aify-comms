@@ -28,6 +28,7 @@ from service.db import get_db
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
 from service.models import ChannelJoin
+from service.api_core.request_body import json_object_body
 
 router = domain_router()
 
@@ -96,7 +97,7 @@ async def leave_channel(name: str, req: ChannelJoin, request: Request):
 @router.post("/channels/{name}/read")
 async def mark_channel_read(name: str, request: Request):
     validate_name(name, "channel name")
-    body = await request.json()
+    body = await json_object_body(request)
     agent_id = str(body.get("agentId") or "").strip()
     if not agent_id:
         raise HTTPException(400, "Need agentId")

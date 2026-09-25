@@ -36,6 +36,7 @@ from service.db import get_db
 from service.clock import now as _now
 import sqlite3
 from service.routers.agents.shared import logger
+from service.api_core.request_body import json_object_body
 
 router = domain_router()
 
@@ -44,8 +45,7 @@ router = domain_router()
 async def patch_usage_source(agent_id: str, request: Request):
     """Operator override of an agent's quota-pool binding. Empty value clears the
     override, reverting to the runtime-derived source."""
-    body = await request.json()
-    source = str((body or {}).get("usageSource") or "").strip()
+    source = str((await json_object_body(request)).get("usageSource") or "").strip()
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")

@@ -12,6 +12,7 @@ import time
 
 from fastapi import HTTPException, Request
 
+from service.api_core.request_body import json_object_body
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
 from service.api_core.agent_terminal_ops import _request_stop_agent_terminals
@@ -222,10 +223,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
     """
     db = await get_db()
     try:
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
+        body = await json_object_body(request)
         requested_by = str(body.get("requestedBy") or "dashboard").strip() or "dashboard"
         agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
