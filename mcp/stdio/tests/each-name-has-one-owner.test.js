@@ -121,7 +121,6 @@ const KNOWN_FORKS = {
   channelBridgeId: ["claude-channel.js", "hermes-run-reporting.mjs"],
   coerceLoopbackToIPv4: ["aify-http.mjs", "aify-service-endpoint.mjs"],
   colorize: ["hermes-acp-protocol.js", "pi-terminal-frame.mjs"],
-  createDeferred: ["codex-session.js", "hermes-managed-gateway-session.js", "hermes-session.js", "pi-session-timeouts.mjs"],
   defaultGetCmdline: ["hermes-daemon.js", "reap-managed-claude.js"],
   defaultKillTree: ["hermes-daemon.js", "proc-probes.js"],
   httpCall: ["aify-service-endpoint.mjs", "claude-channel.js"],

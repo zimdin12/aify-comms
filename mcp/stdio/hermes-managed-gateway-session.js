@@ -23,6 +23,7 @@ import {
   translateGatewayEvent,
 } from "./hermes-gateway-protocol.js";
 import { terminateProcessTree } from "./runtimes.js";
+import { createDeferred } from "./session-timing.mjs";
 import {
   isTuiDepsBuildFailure,
   tuiDepsBuildFailureMessage,
@@ -85,13 +86,6 @@ function waitForReady(url, deadlineMs, isDead) {
     };
     tryOnce();
   });
-}
-
-function createDeferred() {
-  let resolve, reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-  promise.catch(() => {});
-  return { promise, resolve, reject };
 }
 
 export class HermesManagedGatewaySession {

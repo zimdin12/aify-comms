@@ -1,9 +1,5 @@
 // deprecated-runtime: pi
-// The pi timing helpers, CALLED — not just compared against their three siblings.
-//
-// `deferred-agreement.test.js` proves these four agree (or deliberately differ) with the codex and hermes
-// copies by reading source. That is a comparison, not an exercise: it would pass just as happily if
-// `idleTimeoutFor` returned the wrong number in every one of the four. This file calls them.
+// The pi timeout helpers, CALLED. `createDeferred` is shared and is tested in session-timing.test.js.
 //
 // WHY THE NUMBERS MATTER. `idleTimeoutFor` decides when a live pi child is reaped for inactivity. Too
 // small and a working agent is killed mid-task; too large and dead children accumulate. The precedence —
@@ -22,7 +18,7 @@ for (const name of SEALED) {
   delete process.env[name];
 }
 
-const { createDeferred, idleTimeoutFor, startupTimeoutFor, timeoutFor } =
+const { idleTimeoutFor, startupTimeoutFor, timeoutFor } =
   await import("../pi-session-timeouts.mjs");
 
 function assertSealed() {
@@ -80,44 +76,6 @@ test("timeoutFor falls back to 12h and reads no env at all", () => {
   assert.equal(timeoutFor({ runtimeConfig: { timeoutMs: 60000 } }), 60000);
   process.env.AIFY_PI_IDLE_TIMEOUT_MS = "1";
   assert.equal(timeoutFor({}), 12 * 60 * 60 * 1000, "timeoutFor is config-only by design");
-});
-
-test("createDeferred resolves through the promise it hands back", async () => {
-  const d = createDeferred();
-  d.resolve("value");
-  assert.equal(await d.promise, "value");
-});
-
-test("createDeferred's rejection reaches a REAL awaiter — the guard must not swallow", async () => {
-  const d = createDeferred();
-  d.reject(new Error("boom"));
-  await assert.rejects(() => d.promise, /boom/);
-});
-
-test("a rejected Deferred with NO awaiter does not kill the process", async () => {
-  // The guard this file's sibling agreement test exists for. pi was the only one of the four session
-  // modules missing `promise.catch(() => {})`, so a rejection nobody awaited became an unhandled
-  // rejection — a warning by default and a PROCESS KILL under --unhandled-rejections=strict.
-  const seen = [];
-  const onUnhandled = (reason) => seen.push(reason);
-  process.on("unhandledRejection", onUnhandled);
-  try {
-    createDeferred().reject(new Error("nobody is listening"));
-    // Two turns: the rejection is reported after the microtask queue drains.
-    await new Promise((r) => setTimeout(r, 20));
-  } finally {
-    process.off("unhandledRejection", onUnhandled);
-  }
-  assert.deepEqual(seen, [], "an unawaited rejection must be absorbed by the no-op catch");
-});
-
-test("each Deferred is independent", () => {
-  // Anti-vacuity for the settle cases: a `createDeferred` returning one shared promise would satisfy
-  // every assertion above.
-  const a = createDeferred();
-  const b = createDeferred();
-  assert.notEqual(a.promise, b.promise);
-  assert.notEqual(a.resolve, b.resolve);
 });
 
 console.log("pi-session-timeouts.test.js: all assertions passed");

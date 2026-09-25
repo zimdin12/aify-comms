@@ -22,19 +22,9 @@ import {
 } from "./hermes-acp-protocol.js";
 import { terminateProcessTree, getRuntimeConfig, quoteForDisplay } from "./runtimes.js";
 import { AIFY_VERSION } from "./version.js";
+import { createDeferred, positiveMsFrom } from "./session-timing.mjs";
 
 const hermesSessionPool = new Map();
-
-function createDeferred() {
-  let resolve, reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-  // Attach a no-op .catch so a rejection on a Deferred that ends up with
-  // no real awaiter (e.g. ensureStarted called once with no concurrent
-  // callers) doesn't become an unhandled-rejection. Real awaiters that
-  // share `promise` still see their own .catch handlers fire.
-  promise.catch(() => {});
-  return { promise, resolve, reject };
-}
 
 const DEFAULT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const STARTUP_TIMEOUT_DEFAULT_MS = 45000;
@@ -57,21 +47,15 @@ function defaultHermesAcpLauncher() {
 }
 
 function idleTimeoutFor(agentInfo) {
-  const cfg = getRuntimeConfig(agentInfo);
-  const fromConfig = Number(cfg.hermesIdleTimeoutMs);
-  if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
-  const fromEnv = Number(process.env.AIFY_HERMES_IDLE_TIMEOUT_MS);
-  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  return DEFAULT_IDLE_TIMEOUT_MS;
+  return positiveMsFrom(
+    getRuntimeConfig(agentInfo).hermesIdleTimeoutMs, process.env.AIFY_HERMES_IDLE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS,
+  );
 }
 
 function startupTimeoutFor(agentInfo) {
-  const cfg = getRuntimeConfig(agentInfo);
-  const fromConfig = Number(cfg.startupTimeoutMs);
-  if (Number.isFinite(fromConfig) && fromConfig > 0) return fromConfig;
-  const fromEnv = Number(process.env.AIFY_HERMES_STARTUP_TIMEOUT_MS);
-  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  return STARTUP_TIMEOUT_DEFAULT_MS;
+  return positiveMsFrom(
+    getRuntimeConfig(agentInfo).startupTimeoutMs, process.env.AIFY_HERMES_STARTUP_TIMEOUT_MS, STARTUP_TIMEOUT_DEFAULT_MS,
+  );
 }
 
 function promptTimeoutFor(agentInfo) {
