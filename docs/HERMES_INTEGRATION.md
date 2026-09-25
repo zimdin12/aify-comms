@@ -48,7 +48,7 @@ Primary upstream references:
 ## What Is Integrated
 
 - Runtime name: `hermes`
-- Managed dashboard spawns through environment bridges.
+- Managed dashboard spawns, run by aify-env.
 - Browser Console attaches to the wrapper TUI as a second gateway client.
 - Messenger delivery through the per-agent gateway-host delivery loop, whether the Console is open or closed.
 - Resident wrapper: `hermes-aify`.
@@ -79,7 +79,7 @@ inside the visible `hermes-aify` session; otherwise the server reports the
 resident identity as `offline` and refuses dashboard/chat sends.
 
 Resident registration also creates or refreshes a dashboard `agent_sessions`
-row tied to the current environment bridge. That row is what lets Sessions and
+row tied to the current environment. That row is what lets Sessions and
 Chat details show the resident identity as a concrete running session even
 though the native `hermes-aify` terminal remains the primary console. If two
 resident Hermes agents can exchange boxed `aify-comms message`
@@ -127,13 +127,13 @@ bash install.sh --client hermes http://192.0.2.10:8800 --with-hook
 
 The installer:
 
-- installs/updates the shared `aify-comms` environment bridge launcher
+- installs/updates the `aify-comms` verifier (`aify-comms doctor`)
 - registers `aify-comms` as a Hermes MCP server in `~/.hermes/config.yaml`
 - installs `hermes-aify`
 - loads the durable Hermes shim from `integrations/hermes-aify-plugin`
 - with `--with-hook`, installs `~/.hermes/agent-hooks/aify-notify.sh` and adds a `post_tool_call` shell hook
 
-Restart any running Hermes terminals and any long-running `aify-comms` bridge after updating.
+Relaunch any running Hermes terminals after updating.
 
 `hermes-aify` is a wrapper around the real Hermes Agent executable. The bridge
 advertises Hermes as available only when it can resolve `hermes` from its own
@@ -165,17 +165,15 @@ AIFY_HERMES_LEGACY_SOURCE_PATCH=1 bash install.sh --client hermes http://192.0.2
 ## Start The Environment Tier
 
 **`aify-comms` starts nothing.** It is a verifier -- `doctor`, `--check`, `--version`,
-`--help` -- and anything else exits 2 naming aify-env. Until v0.6.1 the words below started an
-environment bridge that SUPERSEDED the one already serving the host, so its managed workers
-were reaped; that took a whole fleet down twice. The host tier is `aify-env` now.
+`--help` -- and anything else exits 2 naming aify-env. The host tier is `aify-env`.
 
 ```bash
 cd /path/to/workspace-or-parent
 aify-env                       # serves this host: processes, PTYs, spawn claims
 ```
 
-**Starting it is the operator's action, not an agent's**, and for the same reason as above:
-a second instance supersedes the first and reaps its workers. To find out whether one is
+**Starting it is the operator's action, not an agent's**: a second instance supersedes the first
+and reaps its workers. To find out whether one is
 already running, ASK rather than start one:
 
 ```bash

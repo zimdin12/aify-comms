@@ -67,11 +67,9 @@ cd /path/to/workspace-or-workspace-parent
 aify-env
 ```
 
-**`aify-comms` is not that command and has not been since v0.6.1** -- it starts nothing and exits 2.
-The words above used to start an environment bridge that SUPERSEDED the one already serving the host,
-so its managed workers were reaped; that took a whole fleet down twice. **Starting the tier is the
-operator's action** for the same reason: ask with `aify-env doctor` rather than starting one to find
-out whether one is already running.
+**`aify-comms` is not that command**: it is a verifier, starts nothing, and exits 2. **Starting the
+tier is the operator's action**: a new aify-env supersedes the running one and reaps its managed
+workers, so ask with `aify-env doctor` rather than starting one to find out whether one is running.
 
 On native Windows:
 

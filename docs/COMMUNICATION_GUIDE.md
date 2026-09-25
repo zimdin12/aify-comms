@@ -49,7 +49,7 @@ When an aify-comms message owes a reply, answer it with a `comms_send` tool call
 
 Safety net (configurable): the `managed_reply_capture_fallback` setting controls what happens when a reply-owed delivered run ends *without* an explicit reply. `true` (default) auto-mirrors the run summary back to the sender; `false` (strict) leaves the run reply-owed so a missing reply is surfaced rather than fabricated. Either way, agents should send the explicit `comms_send` when a reply is owed — do not rely on the fallback.
 
-Dashboard-managed identities are already registered by the environment bridge. They should not call `comms_register` during a delivered run; current builds reject that call to prevent a managed identity from accidentally becoming a resident/manual identity. Use `comms_register` only from real resident CLI sessions.
+Dashboard-managed identities are already registered by aify-env's aify-comms plugin. They should not call `comms_register` during a delivered run; current builds reject that call to prevent a managed identity from accidentally becoming a resident/manual identity. Use `comms_register` only from real resident CLI sessions.
 
 Dashboard chat rides the aify-comms transport, so dashboard-origin messages are replied to the same way — `comms_send(..., to="dashboard")` threads into chat. Genuinely-direct input you type into your own CLI is answered with direct output, not `comms_send`.
 
