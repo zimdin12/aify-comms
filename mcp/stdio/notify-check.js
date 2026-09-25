@@ -1,169 +1,111 @@
 #!/usr/bin/env node
-import { apiKeyFrom } from "./aify-service-endpoint.mjs";
-
 /**
- * aify-comms inbox notification checker + heartbeat.
+ * aify-comms inbox notification + liveness heartbeat, run as a PostToolUse hook.
  *
- * Claude Code hooks tolerate plain stdout notices.
- * Codex PostToolUse hooks expect JSON when anything is emitted.
+ * It surfaces new messages to the agent WITHOUT consuming them: the inbox is read with peek, and the
+ * ids already shown are remembered so each message is surfaced once. What it prints, and why, is in
+ * notify-notice.mjs.
  */
 
 import fs from "fs";
 import path from "path";
+import os from "os";
+import { createHash } from "crypto";
+import { apiKeyFrom } from "./aify-service-endpoint.mjs";
+import { keyForEndpoint } from "./registry-credential.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
+import { hookOutput, inboxUrl, noticeText, rememberSeen, unseen } from "./notify-notice.mjs";
+
+// Settings env first: the endpoint and the key may only be named in ~/.claude/settings.local.json.
 loadSettingsEnv();
 
 const SERVER_URL = process.argv[2] || process.env.CLAUDE_MCP_SERVER_URL || process.env.AIFY_SERVER_URL || "";
-const API_KEY = apiKeyFrom();
+if (!SERVER_URL) process.exit(0);
+// The same resolution every other bridge component uses: an exported key first, then the credential
+// the service registry names for THIS endpoint (and only this one).
+const API_KEY = apiKeyFrom() || keyForEndpoint({
+  env: process.env, readFile: (f) => fs.readFileSync(f), join: path.join, homeDir: os.homedir(), endpoint: SERVER_URL,
+}).key;
 const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
+const IS_CLAUDE = Boolean(process.env.CLAUDE_PROJECT_DIR);
+
+// If THIS server was unreachable in the last minute, skip. Keyed by server, so one service being
+// down does not mute the hook for another.
+const serverKey = createHash("sha256").update(SERVER_URL).digest("hex").slice(0, 12);
+const DOWN_FILE = path.join(tmpDir, `aify-server-down-${serverKey}.ts`);
+try {
+  if (Date.now() - parseInt(fs.readFileSync(DOWN_FILE, "utf-8"), 10) < 60_000) process.exit(0);
+} catch { /* no file: never failed */ }
 
 async function readHookPayload() {
   if (process.stdin.isTTY) return null;
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
-  const text = Buffer.concat(chunks).toString("utf8").trim();
-  if (!text) return null;
   try {
-    return JSON.parse(text);
+    return JSON.parse(Buffer.concat(chunks).toString("utf8").trim() || "null");
   } catch {
     return null;
   }
 }
-
-function fileAgeMs(filePath) {
-  try {
-    return Date.now() - fs.statSync(filePath).mtimeMs;
-  } catch {
-    return Number.POSITIVE_INFINITY;
-  }
-}
-
-function emitNotice(message, hookPayload) {
-  if (!message) return;
-  if (hookPayload?.hook_event_name === "PostToolUse") {
-    process.stdout.write(JSON.stringify({ systemMessage: message }) + "\n");
-    return;
-  }
-  console.log(message);
-}
-
-if (!SERVER_URL) process.exit(0);
-
-// If server was unreachable recently, skip entirely (check every 60s)
-const DOWN_FILE = path.join(tmpDir, "aify-server-down.ts");
-try {
-  const lastDown = parseInt(fs.readFileSync(DOWN_FILE, "utf-8"), 10);
-  if (Date.now() - lastDown < 60_000) process.exit(0);
-} catch { /* no file = never failed */ }
-
 const hookPayload = await readHookPayload();
 
-// Find agent ID from the PID-keyed temp file written by server.js.
-// Both this hook and server.js are children of the same Claude/Codex
-// process, so process.ppid is the shared key.
-let agentId = "";
-let heartbeatAllowed = false;
-try {
-  const binding = readAgentBindingFile({ pid: process.ppid || "", dir: tmpDir });
-  if (binding.agentId) { agentId = binding.agentId; heartbeatAllowed = true; }
-} catch { /* file not written yet — agent hasn't registered */ }
+// The agent id comes from the binding file server.js wrote, keyed by the pid this hook and that
+// bridge share as a parent.
+const agentId = readAgentBindingFile({ pid: process.ppid || "", dir: tmpDir }).agentId;
 if (!agentId) process.exit(0);
 
-// Rate limit: only check every 10 seconds
-const RATE_FILE = path.join(process.env.TEMP || "/tmp", `aify-notify-${agentId}.ts`);
+// At most one check every 10 seconds per agent.
+const RATE_FILE = path.join(tmpDir, `aify-notify-${agentId}.ts`);
 try {
-  const lastCheck = parseInt(fs.readFileSync(RATE_FILE, "utf-8"), 10);
-  if (Date.now() - lastCheck < 10_000) process.exit(0);
+  if (Date.now() - parseInt(fs.readFileSync(RATE_FILE, "utf-8"), 10) < 10_000) process.exit(0);
 } catch { /* first check */ }
 fs.writeFileSync(RATE_FILE, String(Date.now()));
 
-const headers = { "Accept": "application/json" };
+const SEEN_FILE = path.join(tmpDir, `aify-notify-seen-${agentId}.json`);
+function readSeen() {
+  try {
+    const ids = JSON.parse(fs.readFileSync(SEEN_FILE, "utf-8"));
+    return Array.isArray(ids) ? ids : [];
+  } catch {
+    return [];
+  }
+}
+
+const headers = { Accept: "application/json" };
 if (API_KEY) headers["X-API-Key"] = API_KEY;
 
+let data;
 try {
-  // Check inbox. Fetch with bodies (no peek=true) so the hook can surface
-  // the full message text inline — hermes/claude reading the system
-  // notice can react immediately without an extra comms_inbox tool call
-  // (operator-reported 2026-05-24: surface body content so agents auto-
-  // process incoming comms_send messages without the extra round trip).
-  const url = `${SERVER_URL}/api/v1/messages/inbox/${agentId}?filter=unread&limit=3`;
-  // NEVER FOLLOWED: `fetch` re-sends headers on a redirect, so a 302 hands the key to whatever it
-  // points at. A 3xx fails `res.ok` like any other non-2xx. See aify-service-endpoint.mjs.
-  const resp = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(3000) });
+  // NEVER FOLLOWED: `fetch` re-sends headers on a redirect, so a 302 would hand the key to whatever
+  // it points at. A 3xx fails `res.ok` like any other non-2xx.
+  const resp = await fetch(inboxUrl(SERVER_URL, agentId), { headers, redirect: "manual", signal: AbortSignal.timeout(3000) });
   if (!resp.ok) process.exit(0);
-  // Server is up — clear any previous down marker
   try { fs.unlinkSync(DOWN_FILE); } catch {}
-  const data = await resp.json();
-
-  if (heartbeatAllowed) {
-    // LIVENESS-ONLY heartbeat (pure-event-status change #4, 2026-06-02).
-    //
-    // The PostToolUse turn_busy RE-PULSE was REMOVED here. It used to re-assert
-    // turn_busy=1 on every tool call to keep status='working' alive past the old
-    // short status window. With STATUS now PURE-EVENT (the short status window is
-    // gone — change #3), re-arming turn_busy on every tool call would defeat the
-    // event model: the turn-START event sets working and the turn-END event
-    // (claude Stop hook, or the bridge transcript turn-END detector — change #1)
-    // clears it; nothing else may set turn_busy. The transcript-growth signal that
-    // formerly fed this re-pulse is now repurposed as the #1 turn-END DETECTOR
-    // (server.js), never a turn_busy re-arm.
-    //
-    // What remains is a LIVENESS-ONLY heartbeat (no turnBusy field): it refreshes
-    // agents.last_seen so an active resident is not reaped as dead, but it does NOT
-    // touch turn_updated_at / turn_busy and so cannot influence derived status.
-    fetch(`${SERVER_URL}/api/v1/agents/${agentId}/heartbeat`, {
-      method: "POST",
-      headers,
-      redirect: "manual",   // a 302 would hand the key to whatever it points at
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => {});
-  }
-
-  if (data.total > 0) {
-    const msgs = data.messages || [];
-    const urgent = msgs.filter(m => m.priority === "urgent");
-    const high = msgs.filter(m => m.priority === "high");
-
-    // Build a full-body preview block for inline processing — agents can
-    // act on the messages without an extra comms_inbox tool-call round-trip
-    // (operator-reported 2026-05-24: surface body inline). Cap each
-    // message body at 800 chars so the hook output stays readable in TUI;
-    // longer messages are truncated with a marker pointing to comms_inbox.
-    const MAX_BODY = 800;
-    const formatMsg = (m) => {
-      const p = (m.priority && m.priority !== "normal") ? ` [${m.priority.toUpperCase()}]` : "";
-      const subject = m.subject ? `Subject: ${m.subject}` : "";
-      const body = String(m.body || "").trim();
-      const truncated = body.length > MAX_BODY
-        ? body.slice(0, MAX_BODY) + `\n…[truncated; call comms_inbox(agentId="${agentId}", messageId="${m.id}") for the full body]`
-        : body;
-      const lines = [
-        `=== Message from ${m.from}${p} ===`,
-        subject,
-        `MessageId: ${m.id}`,
-        "",
-        truncated,
-      ].filter(Boolean);
-      return lines.join("\n");
-    };
-    const previewBlock = msgs.map(formatMsg).join("\n\n");
-    const more = data.total > msgs.length ? `\n\n…and ${data.total - msgs.length} more (call comms_inbox to see them).` : "";
-
-    let header;
-    if (urgent.length) {
-      header = `INCOMING — ${urgent.length} URGENT message(s). Process now before continuing.`;
-    } else if (high.length) {
-      header = `INCOMING — ${high.length} high-priority message(s). Read and address now.`;
-    } else {
-      header = `INCOMING — ${data.total} unread message(s). Process these as part of your current work.`;
-    }
-    const reminderTail = `\n\nReply via comms_send(from="${agentId}", to="<from-agent>", type="response", inReplyTo="<message-id>", ...) so the originator's run threads correctly.`;
-    const notice = `${header}\n\n${previewBlock}${more}${reminderTail}`;
-    emitNotice(notice, hookPayload);
-  }
+  data = await resp.json();
 } catch {
-  // Server unreachable — cache the failure so we skip quickly next time
+  // Only a transport failure marks the server down.
   try { fs.writeFileSync(DOWN_FILE, String(Date.now())); } catch {}
   process.exit(0);
+}
+
+// LIVENESS ONLY: refreshes last_seen so an active resident is not reaped as dead. It carries no
+// turnBusy field, because status is event-driven (turn start/end), and re-asserting busy on every
+// tool call would defeat that.
+fetch(`${SERVER_URL}/api/v1/agents/${encodeURIComponent(agentId)}/heartbeat`, {
+  method: "POST",
+  headers,
+  redirect: "manual",
+  signal: AbortSignal.timeout(2000),
+}).catch(() => {});
+
+const seenIds = readSeen();
+const fresh = unseen(data?.messages, seenIds);
+if (fresh.length) {
+  const notice = noticeText({ messages: fresh, total: Number(data.total) || fresh.length, agentId });
+  const output = hookPayload?.hook_event_name === "PostToolUse"
+    ? JSON.stringify(hookOutput(notice, { claude: IS_CLAUDE, count: fresh.length }))
+    : notice;
+  process.stdout.write(output + "\n");
+  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(rememberSeen(seenIds, fresh))); } catch {}
 }
