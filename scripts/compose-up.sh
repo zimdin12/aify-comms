@@ -1,8 +1,7 @@
 #!/bin/bash
 # =============================================================================
-# Start the service with all configured sub-services
+# Start the service, with docker-compose.override.yml when one exists
 # =============================================================================
-# Reads SUB_SERVICES from .env and includes their docker-compose files.
 
 set -e
 
@@ -28,21 +27,6 @@ COMPOSE_FILES="-f docker-compose.yml"
 # Add override if exists
 if [ -f docker-compose.override.yml ]; then
     COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose.override.yml"
-fi
-
-# Add sub-services
-if [ -n "${SUB_SERVICES}" ]; then
-    IFS=',' read -ra SERVICES <<< "$SUB_SERVICES"
-    for svc in "${SERVICES[@]}"; do
-        svc=$(echo "$svc" | xargs)  # trim whitespace
-        COMPOSE_FILE="services/${svc}/docker-compose.yml"
-        if [ -f "$COMPOSE_FILE" ]; then
-            COMPOSE_FILES="${COMPOSE_FILES} -f ${COMPOSE_FILE}"
-            echo "Including sub-service: ${svc}"
-        else
-            echo "Warning: Sub-service compose file not found: ${COMPOSE_FILE}"
-        fi
-    done
 fi
 
 echo "Running: docker compose ${COMPOSE_FILES} up $@"

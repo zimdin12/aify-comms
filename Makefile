@@ -1,10 +1,10 @@
 .PHONY: help setup build up down restart logs test dev clean mcp-install
 
 help:
-	@echo "Agentify Container Commands:"
+	@echo "aify-comms commands:"
 	@echo "  make setup      - Copy config templates (.env, service.json)"
 	@echo "  make build      - Build Docker image"
-	@echo "  make up         - Start service with all sub-services"
+	@echo "  make up         - Build and start the service"
 	@echo "  make down       - Stop service"
 	@echo "  make restart    - Rebuild and restart"
 	@echo "  make logs       - Tail service logs"
