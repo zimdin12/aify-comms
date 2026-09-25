@@ -508,3 +508,48 @@ test("AND IT CLEARS THE WARNING when the next agent's session is its own", () =>
       "a previous agent's sharing warning survived into another agent's drawer");
   });
 });
+
+// ---- the processes read is made on open and on change, not on every refresh (v0.7 C9) ------------
+
+/** An element whose innerHTML replaces its first child, which is what the drawer memo keys on. */
+function paintableEl(classes = []) {
+  const el = fakeEl(classes);
+  let html = "";
+  Object.defineProperty(el, "innerHTML", {
+    get: () => html,
+    set: (value) => { html = value; el.firstElementChild = value ? { token: Symbol("root") } : null; },
+  });
+  el.querySelector = () => null;
+  return el;
+}
+
+test("A REFRESH OF THE DRAWER ALREADY OPEN ON THIS AGENT, WITH NOTHING CHANGED, MAKES NO READ", async () => {
+  // `/terminals?status=all` was fetched on every data-change flush while a drawer was open, and the
+  // route read every replay buffer to answer it.
+  const hadFetch = "fetch" in globalThis;
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url) => { asked.push(String(url)); return { ok: true, status: 200, text: async () => JSON.stringify({ terminals: [] }) }; };
+  const els = { inspector: paintableEl(), "inspector-content": paintableEl(), [AGENT_PROCESSES_ID]: { innerHTML: "" } };
+  try {
+    seed({ agents: [{ id: "coder", status: "online" }], inspector: {} });
+    globalThis.document = { getElementById: (id) => els[id] || null };
+    openAgentDrawer("coder");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(asked.length, 1, "CONTROL: opening the drawer reads the processes");
+    openAgentDrawer("coder");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(asked.length, 1, "an unchanged refresh read them again");
+    state.agents = [{ id: "coder", status: "working" }];
+    openAgentDrawer("coder");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(asked.length, 2, "a real change to the agent reads them again");
+    els.inspector.classList.remove("open");
+    openAgentDrawer("coder");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(asked.length, 3, "re-opening a closed drawer is an open, and reads");
+  } finally {
+    delete globalThis.document;
+    if (hadFetch) globalThis.fetch = realFetch; else delete globalThis.fetch;
+  }
+});

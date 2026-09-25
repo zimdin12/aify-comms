@@ -189,8 +189,10 @@ async def list_terminals(
     try:
         # ORDER BY is not decoration on a LIMIT: without it SQLite may return any N rows, so a
         # truncated listing would be an arbitrary sample presented as the most recent.
+        # EXPLICIT COLUMNS, and `output` is not one of them. Popping it from the answer was not enough:
+        # `SELECT *` still read every replay buffer out of SQLite first, on the single worker.
         rows = await (await db.execute(
-            f"SELECT * FROM terminal_sessions{clause} ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+            f"SELECT {_LISTING_COLUMNS} FROM terminal_sessions{clause} ORDER BY updated_at DESC, rowid DESC LIMIT ?",
             (*params, capped + 1),
         )).fetchall()
     finally:
@@ -207,6 +209,15 @@ async def list_terminals(
     # which is the failure mode a reconciliation check cannot survive: it would report the missing
     # rows as orphans.
     return {"ok": True, "terminals": terminals, "count": len(terminals), "truncated": truncated}
+
+
+#: Every column a listing row needs, which is every column but the replay buffer (`output`, and
+#: `output_at`, which only describes it). `_terminal_session_to_dict` guards each optional column.
+_LISTING_COLUMNS = (
+    "id, session_id, agent_id, environment_id, bridge_id, runtime, workspace, command, argv, "
+    "output_seq, cols, rows, status, requested_by, process_id, created_at, updated_at, stopped_at, "
+    "error, exit_code, exit_signal"
+)
 
 
 @router.get("/terminals/{terminal_id}/launch")

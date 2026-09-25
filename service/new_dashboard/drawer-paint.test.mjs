@@ -65,3 +65,14 @@ test('a panel is written only when its content changes', () => {
   assert.equal(paintIfChanged(panel, '<p>y</p>'), true, 'a foreign write was not repaired');
   assert.equal(paintIfChanged(null, 'x'), false);
 });
+
+test('a render that differs only in a relative-time label writes nothing: the ticker owns that label', () => {
+  // The drawer carries "last seen Ns ago". Comparing the rendered label made every refresh of a
+  // recently seen agent a "change", so the memo that exists to stop repaints almost never held.
+  const host = fakeElement();
+  const seen = (label) => `<div class="agent-drawer"><span class="rel-time" data-rel-ts="1700000000000">${label}</span><div id="procs">x</div></div>`;
+  assert.equal(paintAgentDrawer(host, 'a1', seen('5s'), 'procs'), true);
+  assert.equal(paintAgentDrawer(host, 'a1', seen('6s'), 'procs'), false, 'a ticking label repainted the drawer');
+  const moved = seen('6s').replace('1700000000000', '1700000009000');
+  assert.equal(paintAgentDrawer(host, 'a1', moved, 'procs'), true, 'CONTROL: a new instant is a real change');
+});

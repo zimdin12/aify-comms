@@ -142,7 +142,11 @@ export function openAgentDrawer(agentId) {
       </div>
       <div class="agent-drawer-actions">${actions}</div>
     </div>`;
-  paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)
+  // A REFRESH is this drawer already open on this agent. It re-reads the processes only when the
+  // drawer actually changed: `/terminals?status=all` on every data change was the cost (v0.7 C9).
+  const refreshing = state.inspector?.kind === 'agent' && state.inspector.agentId === id
+    && !!byId('inspector')?.classList.contains('open');
+  const changed = paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)
   // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
   // (see syncInspectorToSelection) instead of leaving a stale panel open on the previous agent.
   state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
@@ -152,7 +156,7 @@ export function openAgentDrawer(agentId) {
   // polled with the other nine endpoints -- "browse" is a deliberate act, so the read is too. Fire
   // and forget: `loadAgentProcesses` renders its own failure into its own panel, and everything
   // else in this drawer stays true whether that read succeeds or not.
-  loadAgentProcesses(id, { api, byId });
+  if (!refreshing || changed) loadAgentProcesses(id, { api, byId });
   fillAgentRuns(id, { byId });
   fillSessionSharing(id, { byId, agents: state.agents });
 }
