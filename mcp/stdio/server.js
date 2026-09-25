@@ -488,7 +488,6 @@ process.on("SIGHUP", () => { shutdownWithStatus(129); });
 
 // findAgentIdForVirtualTerminal moved to ./virtual-terminals.mjs in v0.5.4.
 // DISPATCH_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
-// TERMINAL_CONTROL_POLL_MS moved to ./poll-intervals.mjs in v0.5.4.
 let dispatchLoopTimer = null;
 const AUTO_REREGISTER_AFTER_FAILURES = 4;
 // RESIDENT_BINDING_FAILURES moved to ./resident-binding-health.mjs in v0.5.4.

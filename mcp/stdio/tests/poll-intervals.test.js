@@ -1,7 +1,7 @@
 // The bridge's poll intervals, and the floors under them.
 //
 // Extracted from server.js in v0.5.4, where they were only ever exercised by starting a bridge. What
-// they encode is a SAFETY property: `Math.max(floor, …)` is what stops `AIFY_TERMINAL_CONTROL_POLL_MS=1`
+// they encode is a SAFETY property: `Math.max(floor, …)` is what stops `AIFY_HERMES_GATEWAY_TURN_POLL_MS=1`
 // turning a poll loop into a denial of service against the operator's own service.
 //
 // RE-IMPORTED PER CASE. Each constant reads `process.env` once, at module load, so the only way to test
@@ -20,7 +20,6 @@ const SEALED = [
   "AIFY_HERMES_GATEWAY_TURN_POLL_MS",
   "AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE",
   "AIFY_DISPATCH_POLL_MS",
-  "AIFY_TERMINAL_CONTROL_POLL_MS",
 ];
 
 let seq = 0;
@@ -55,7 +54,6 @@ test("the DEFAULTS are what an unconfigured bridge runs with", async () => {
   assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 3000);
   assert.equal(m.__RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE, 3);
   assert.equal(m.DISPATCH_POLL_MS, 3000);
-  assert.equal(m.TERMINAL_CONTROL_POLL_MS, 800);
 });
 
 test("an operator's override is honoured when it is sane", async () => {
@@ -64,35 +62,29 @@ test("an operator's override is honoured when it is sane", async () => {
     AIFY_HERMES_GATEWAY_TURN_POLL_MS: "5000",
     AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE: "10",
     AIFY_DISPATCH_POLL_MS: "1500",
-    AIFY_TERMINAL_CONTROL_POLL_MS: "400",
   });
   assert.equal(m.__HEARTBEAT_MS, 30000);
   assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 5000);
   assert.equal(m.__RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE, 10);
   assert.equal(m.DISPATCH_POLL_MS, 1500);
-  assert.equal(m.TERMINAL_CONTROL_POLL_MS, 400);
 });
 
 test("THE FLOORS HOLD against a value that would hammer the service", async () => {
-  // The safety property. A terminal-control loop at 1ms is thousands of requests a second from a single
-  // bridge, against the operator's own machine.
+  // The safety property. A poll loop at 1ms is thousands of requests a second from a single bridge,
+  // against the operator's own machine.
   const m = await withEnv({
     AIFY_HERMES_GATEWAY_TURN_POLL_MS: "1",
     AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE: "0",
-    AIFY_TERMINAL_CONTROL_POLL_MS: "1",
   });
   assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 250);
   assert.equal(m.__RESIDENT_GATEWAY_TURN_IDLE_DEBOUNCE, 1);
-  assert.equal(m.TERMINAL_CONTROL_POLL_MS, 200);
 });
 
 test("a NEGATIVE value is clamped too, not passed through as an immediate timer", async () => {
   const m = await withEnv({
     AIFY_HERMES_GATEWAY_TURN_POLL_MS: "-5000",
-    AIFY_TERMINAL_CONTROL_POLL_MS: "-1",
   });
   assert.equal(m.__RESIDENT_GATEWAY_TURN_POLL_MS, 250);
-  assert.equal(m.TERMINAL_CONTROL_POLL_MS, 200);
 });
 
 test("the heartbeat rejects a JUNK value and falls back, because of its trailing `|| 60000`", async () => {
@@ -105,7 +97,7 @@ test("the heartbeat rejects a JUNK value and falls back, because of its trailing
 });
 
 test("DISPATCH_POLL_MS HAS NO FLOOR AND NO NaN GUARD — pinned as an asymmetry, not endorsed", async () => {
-  // The other four are protected and this one is not. `Number("abc")` reaches `setInterval` as NaN,
+  // The others are protected and this one is not. `Number("abc")` reaches `setInterval` as NaN,
   // which browsers and Node both treat as ~0 — a dispatch loop with no delay at all. A tiny positive
   // value passes through just as freely.
   //
@@ -123,6 +115,6 @@ test("DISPATCH_POLL_MS HAS NO FLOOR AND NO NaN GUARD — pinned as an asymmetry,
 
   // …while its neighbour with the same shape of input is protected, which is the contrast that makes
   // this an asymmetry rather than a house style.
-  const neighbour = await withEnv({ AIFY_TERMINAL_CONTROL_POLL_MS: "-1" });
-  assert.equal(neighbour.TERMINAL_CONTROL_POLL_MS, 200);
+  const neighbour = await withEnv({ AIFY_HERMES_GATEWAY_TURN_POLL_MS: "-1" });
+  assert.equal(neighbour.__RESIDENT_GATEWAY_TURN_POLL_MS, 250);
 });
