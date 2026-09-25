@@ -231,20 +231,32 @@ export function registerInboxTools(server, z) {
           return { content: [{ type: "text", text: `Failed to delete: ${e.message}` }], isError: true };
         }
       }
-      // Local mode: find and delete the file
+      // Local mode. The id is matched EXACTLY against the stored message and the sender must be the
+      // caller: this matched a two-segment filename prefix in ANY inbox until 0.7.0, so an agent could
+      // delete another agent's message (v0.7 scan B18). A message sent to several recipients has one
+      // copy per inbox, and unsending takes back every copy.
       const inbox = path.join(MESSAGES_DIR, "inbox");
+      let deleted = 0;
+      let notYours = 0;
       try {
         for (const agentDir of fs.readdirSync(inbox)) {
           const dir = path.join(inbox, agentDir);
           if (!fs.statSync(dir).isDirectory()) continue;
           for (const f of fs.readdirSync(dir)) {
-            if (f.includes(messageId.split("-").slice(0, 2).join("-"))) {
-              fs.unlinkSync(path.join(dir, f));
-              return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
-            }
+            if (!f.endsWith(".json")) continue;
+            let stored;
+            try { stored = JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8")); } catch { continue; }
+            if (stored?.id !== messageId) continue;
+            if (stored.from !== from) { notYours += 1; continue; }
+            fs.unlinkSync(path.join(dir, f));
+            deleted += 1;
           }
         }
       } catch { /* best effort */ }
+      if (deleted) return { content: [{ type: "text", text: `Deleted message ${messageId}.` }] };
+      if (notYours) {
+        return { content: [{ type: "text", text: `Message ${messageId} was not sent by ${from}; only its sender may unsend it.` }], isError: true };
+      }
       return { content: [{ type: "text", text: `Message ${messageId} not found.` }], isError: true };
     }
   );

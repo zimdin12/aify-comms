@@ -96,29 +96,28 @@ test("comms_inbox refuses a traversal-shaped agent id", async () => {
   assert.ok(!tools.get("comms_unsend").schema.agentId, "comms_unsend does not take an agentId");
 });
 
-test("DEFECT, PINNED NOT FIXED: comms_unsend matches by SUBSTRING across every agent's inbox", async () => {
-  // Found while narrowing the test above. In local mode `comms_unsend` validates nothing and locates
-  // the file with:
-  //
-  //     f.includes(messageId.split("-").slice(0, 2).join("-"))
-  //
-  // Filenames are `${Date.now()}-${uuid8}.json`, so it matches on a PREFIX of the id, and it walks
-  // every directory under the inbox root — not just the caller's. Two consequences, neither of which
-  // anything currently asserts: a truncated or shared-prefix id can delete a DIFFERENT message, and it
-  // can delete one out of ANOTHER agent's inbox. There is no caller identity in the tool's schema at
-  // all, so there is nothing for it to scope to.
-  //
-  // Structural slice, so this pins the behaviour rather than changing it. Reported as its own packet.
+// comms_unsend in local mode matched a two-segment filename PREFIX in every agent's inbox, so a
+// truncated id deleted a stranger's message (pinned here as a defect, fixed in 0.7.0: v0.7 scan B18).
+test("comms_unsend deletes only the exact message, and only for its sender", async () => {
   deliverMessage("victim", { id: "v1", from: "agent-a", subject: "keep me", body: "important" });
   const [file] = readdirSync(path.join(STORE, "inbox", "victim"));
-  const prefix = file.split("-").slice(0, 2).join("-");
+  const inbox = () => readdirSync(path.join(STORE, "inbox", "victim")).length;
 
-  const res = await tools.get("comms_unsend").handler({ messageId: prefix });
-  assert.ok(!res.isError, `expected today's behaviour to delete a stranger's message, got: ${text(res)}`);
-  assert.equal(
-    readdirSync(path.join(STORE, "inbox", "victim")).length, 0,
-    "current behaviour: an id prefix deletes another agent's message. When scoping lands, this changes.",
-  );
+  const byPrefix = await tools.get("comms_unsend").handler({ messageId: file.split("-").slice(0, 2).join("-"), from: "agent-a" });
+  assert.equal(byPrefix.isError, true, "a filename prefix is not a message id");
+  assert.equal(inbox(), 1);
+
+  const byStranger = await tools.get("comms_unsend").handler({ messageId: "v1", from: "someone-else" });
+  assert.equal(byStranger.isError, true);
+  assert.match(text(byStranger), /only its sender may unsend it/);
+  assert.equal(inbox(), 1, "a stranger deleted the message");
+
+  // Control: the sender can, from every inbox the message reached.
+  deliverMessage("second", { id: "v1", from: "agent-a", subject: "keep me", body: "important" });
+  const bySender = await tools.get("comms_unsend").handler({ messageId: "v1", from: "agent-a" });
+  assert.ok(!bySender.isError, text(bySender));
+  assert.equal(inbox(), 0);
+  assert.equal(readdirSync(path.join(STORE, "inbox", "second")).length, 0, "one copy survived an unsend");
 });
 
 test("the module exports only its owner surface, and kept no state", () => {
