@@ -142,7 +142,8 @@ test("POSITIVE CONTROL: the walk reaches subdirectories and finds the real calls
   const dirs = new Set(sources.map((f) => path.dirname(f.name)));
   assert.ok(dirs.size > 1, `the walk saw only ${[...dirs]} -- it is not recursive`);
   const calls = sources.reduce((n, f) => n + fetchCallArguments(f.text).length, 0);
-  assert.ok(calls >= 20, `only ${calls} fetch calls found; the scan is looking in the wrong place`);
+  // 18 on 2026-09-25, after the retired hermes api_server client took its calls with it.
+  assert.ok(calls >= 15, `only ${calls} fetch calls found; the scan is looking in the wrong place`);
 });
 
 // ── the three defeats, each as a test ───────────────────────────────────────────────────────────

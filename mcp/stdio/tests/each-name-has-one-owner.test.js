@@ -134,7 +134,7 @@ const KNOWN_FORKS = {
   reportTurnBusy: ["agent-heartbeat.mjs", "claude-channel.js", "hermes-run-reporting.mjs"],
   runCli: ["hermes-managed-host.js", "reap-managed-claude.js"],
   sanitizeAgentId: ["claude-session-store.js", "hermes-endpoint.js"],
-  sleep: ["claude-channel.js", "hermes-daemon.js", "hermes-gateway.mjs", "server.js"],
+  sleep: ["claude-channel.js", "hermes-gateway.mjs", "server.js"],
   startupTimeoutFor: ["codex-session.js", "hermes-session.js", "pi-session-timeouts.mjs"],
 };
 
