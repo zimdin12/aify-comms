@@ -138,8 +138,24 @@ test("the module kept no state and reaches only owned leaves", () => {
   assert.deepEqual(imports, [
     // Sorted: "agent-" precedes "aify-" because 'g' < 'i'. Written the other way round first, which is a
     // reminder that a deepEqual against a hand-written sorted list tests my sorting as much as the code's.
-    "./agent-summary.mjs", "./aify-service-endpoint.mjs", "./local-store.mjs", "./tool-response-format.mjs",
+    "./agent-summary.mjs", "./aify-service-endpoint.mjs", "./bound-agent-id.mjs", "./local-store.mjs",
+    "./tool-response-format.mjs",
   ]);
 });
 
 process.on("exit", () => { try { rmSync(STORE, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+test("the caller's own row is marked, so the id to address and the id you are never get confused", async () => {
+  // v0.7 (H-A7). The bridge knows its own agent from AIFY_AGENT_ID when no binding file exists.
+  const before = process.env.AIFY_AGENT_ID;
+  process.env.AIFY_AGENT_ID = "agent-a";
+  try {
+    writeAgents({ agents: { "agent-a": { role: "coder" }, "agent-b": { role: "tester" } } });
+    const listed = text(await tools.get("comms_agents").handler({}));
+    assert.match(listed, /^- agent-a \(you\) \(coder\)/m);
+    assert.match(listed, /^- agent-b \(tester\)/m, "control: another agent's row is not marked");
+    assert.match(listed, /^Address an agent by the id/);
+  } finally {
+    if (before === undefined) delete process.env.AIFY_AGENT_ID; else process.env.AIFY_AGENT_ID = before;
+  }
+});

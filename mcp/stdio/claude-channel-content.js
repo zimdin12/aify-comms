@@ -17,6 +17,7 @@
 
 import { claudeAifyReceiptLine } from "./aify-console-markers.js";
 import { describeSender } from "./tool-response-format.mjs";
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
 export function dispatchContent(agentId, run) {
   const body = String(run.body || "").replace(/```/g, "'''");
@@ -44,10 +45,10 @@ export function dispatchContent(agentId, run) {
     : "Reply through aify when the task is done.";
   return [
     claudeAifyReceiptLine(),
-    `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject || "(no subject)"}`,
+    `[${priorityLabel}] ${run.from || "unknown"} → ${agentId}: ${run.subject ? quoteUntrustedSubject(run.subject, 240) : "(no subject)"}`,
     actionLine,
     `From: ${describeSender(run)}`,
-    `Subject: ${run.subject}`,
+    `Subject: ${run.subject ? quoteUntrustedSubject(run.subject, 240) : "(no subject)"}`,
     priority !== "normal" ? `Priority: ${priority.toUpperCase()}` : "",
     run.messageId ? `Message ID: ${run.messageId}` : "",
     "",

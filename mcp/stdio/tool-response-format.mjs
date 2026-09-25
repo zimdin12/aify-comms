@@ -123,7 +123,7 @@ export function formatInboxHeaders(m, registry) {
   return (
     `--- ${m.id}${readTag} ---\n` +
     `From: ${describeSender(m)}${rolePart}\n` +
-    `Type: ${m.type} | Subject: ${m.subject}\n` +
+    `Type: ${m.type} | Subject: ${quoteUntrustedSubject(m.subject, 240)}\n` +
     `Time: ${m.timestamp ? new Date(m.timestamp).toISOString() : "?"}` +
     (m.inReplyTo ? `\nReply to: ${m.inReplyTo}` : "") +
     (preview ? `\nPreview: ${preview}` : "")
@@ -138,7 +138,7 @@ export function formatInboxMessage(m, registry) {
   return (
     `--- ${m.id}${readTag} ---\n` +
     `From: ${describeSender(m)}${rolePart}\n` +
-    `Type: ${m.type} | Subject: ${m.subject}\n` +
+    `Type: ${m.type} | Subject: ${quoteUntrustedSubject(m.subject, 240)}\n` +
     `Time: ${m.timestamp ? new Date(m.timestamp).toISOString() : "?"}\n` +
     (m.inReplyTo ? `Reply to: ${m.inReplyTo}\n` : "") +
     `\n${safeBody}`
@@ -161,6 +161,16 @@ export function autoReplyBodyForRun(run = {}, terminalStatus = "completed", deta
       ? "The run failed before the agent sent a chat reply."
       : "The run was cancelled before the agent sent a chat reply.";
   return `${intro}\n\n${detail}`;
+}
+
+// WHAT THE SENDER KNOWS UNTIL THE REPLY ARRIVES (v0.7, H-A2, after Claude Code's own rule for a
+// delegated agent). "Created, not delivered" already stops one false report; this stops the next
+// one along: narrating a result not yet received, or doing the delegate's work in parallel. Said
+// only when a reply is owed, and never on a message to yourself, which IS your own next turn.
+export function awaitingReplyNote({ from, to, type, requireReply }) {
+  const owed = requireReply === true || ["request", "review", "error"].includes(type);
+  if (!owed || (to && to === from)) return "";
+  return " The reply arrives as a new message that wakes you; until it does you know nothing about its result, so do not report, predict or redo that work.";
 }
 
 export function replyExpectationSummary(run = {}) {

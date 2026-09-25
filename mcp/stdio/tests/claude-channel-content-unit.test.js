@@ -36,7 +36,7 @@ import {
     requireReply: true,
   });
 
-  assert.match(text, /\[URGENT\] manager-bot → sc-coder: Ship the thing/);
+  assert.match(text, /\[URGENT\] manager-bot → sc-coder: "Ship the thing"/);
   assert.match(text, /Drop current work and handle this immediately\./);
   assert.match(text, /Priority: URGENT/);
   assert.match(text, /Message ID: msg-1/);
@@ -97,12 +97,12 @@ import {
   // rather than endorsing it. The summary line has fallbacks — `unknown` and `(no subject)` — while
   // the `From:`/`Subject:` detail lines interpolate the raw value, so an agent reads the literal
   // string "undefined". Characterization only: this slice is a byte-identical relocation, and
-  // changing what a dispatch says is a behaviour change that belongs in its own commit. If someone
-  // gives the detail lines the same fallbacks, this assertion is the one to update.
+  // changing what a dispatch says is a behaviour change that belongs in its own commit. v0.7 gave the
+  // Subject line the summary line's fallback when it started quoting subjects; From: still has none.
   const bare = dispatchContent("a", {});
   assert.match(bare, /\[NORMAL\] unknown → a: \(no subject\)/, "the summary line has fallbacks");
   assert.match(bare, /^From: undefined$/m, "the detail line does NOT — recorded, not endorsed");
-  assert.match(bare, /^Subject: undefined$/m);
+  assert.match(bare, /^Subject: \(no subject\)$/m);
 
   // A non-string body is coerced, not concatenated blindly.
   assert.match(dispatchContent("a", { body: 42 }), /^42$/m);

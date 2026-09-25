@@ -3,6 +3,7 @@
 // (task #123). runtimes.js re-exports the public surface.
 
 import { describeSender, TRUST_RULE } from "./tool-response-format.mjs";
+import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
 export function buildSystemPrompt(agentId, agentInfo, run) {
   const fromAgent = String(run?.from || "").trim();
@@ -69,7 +70,7 @@ export function buildUserPrompt(run) {
     context,
     "[MESSAGE]",
     `Type: ${run.type || "request"}`,
-    `Subject: ${run.subject}`,
+    `Subject: ${quoteUntrustedSubject(run.subject, 240)}`,
     replyParent ? `MessageId: ${replyParent}` : "",
     "",
     run.body || "",
@@ -104,7 +105,7 @@ function formatConversationContext(messages = []) {
     const subject = String(message?.subject || "").trim();
     const body = String(message?.body || message?.preview || "").trim();
     const timestamp = String(message?.timestamp || "").trim();
-    lines.push(`- ${timestamp ? `${timestamp} ` : ""}${from} (${type})${subject ? `: ${subject}` : ""}`);
+    lines.push(`- ${timestamp ? `${timestamp} ` : ""}${from} (${type})${subject ? `: ${quoteUntrustedSubject(subject, 240)}` : ""}`);
     if (body) lines.push(body.length > maxBodyChars ? `${body.slice(0, maxBodyChars)}...` : body);
   }
   lines.push("[/RECENT DIRECT CONVERSATION]", "");

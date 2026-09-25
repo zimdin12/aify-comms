@@ -19,6 +19,7 @@
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { boundAgentId, envAgentId } from "./bound-agent-id.mjs";
 import { runtimeSummary, wakeModeSummary } from "./agent-summary.mjs";
 import { readAgents, readInbox } from "./local-store.mjs";
 import { formatDispatchState, formatOutboundActivity } from "./tool-response-format.mjs";
@@ -48,22 +49,28 @@ export function registerAgentReportingTools(server, z) {
         const r = await httpCall("GET", "/agents");
         const entries = Object.entries(r.agents || {});
         if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
+        // The id is the address (`to=` in comms_send), and the caller's own row says so: sending to
+        // yourself by accident, or hunting for your own id, are both avoidable (v0.7, H-A7).
+        const self = boundAgentId({ fallback: envAgentId() });
         const lines = entries.map(([id, info]) => {
           const status = info.status ? ` [${info.status}]` : "";
-          return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}${describeLine(info)}`;
+          const you = id === self ? " (you)" : "";
+          return `- ${id}${you} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${info.unread || 0} | last seen: ${info.lastSeen}${describeLine(info)}`;
         });
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return { content: [{ type: "text", text: `Address an agent by the id at the start of its line.\n${lines.join("\n")}` }] };
       }
 
       const registry = readAgents();
       const entries = Object.entries(registry.agents);
       if (!entries.length) return { content: [{ type: "text", text: "No agents registered." }] };
+      const self = boundAgentId({ fallback: envAgentId() });
       const lines = entries.map(([id, info]) => {
         const unread = readInbox(id, "unread").length;
         const status = info.status ? ` [${info.status}]` : "";
-        return `- ${id} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${unread} | last seen: ${info.lastSeen}${describeLine(info)}`;
+        const you = id === self ? " (you)" : "";
+        return `- ${id}${you} (${info.role})${status} -- "${info.name}" | ${runtimeSummary(info)} | wake: ${wakeModeSummary(info)} | unread: ${unread} | last seen: ${info.lastSeen}${describeLine(info)}`;
       });
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      return { content: [{ type: "text", text: `Address an agent by the id at the start of its line.\n${lines.join("\n")}` }] };
     }
   );
 

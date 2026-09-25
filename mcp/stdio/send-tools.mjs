@@ -25,7 +25,7 @@ import { canLaunchRuntime, normalizeRuntime } from "./runtimes.js";
 import { validateName } from "./safe-name.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 import { spawnTriggeredAgent } from "./spawn-triggered-agent.mjs";
-import { formatQueuedRun } from "./tool-response-format.mjs";
+import { awaitingReplyNote, formatQueuedRun } from "./tool-response-format.mjs";
 
 // EVERY AGENT PAYS THIS ON EVERY TURN. `tools/list` is always-loaded context, so a sentence here is
 // not written once -- it is re-read by every agent on every turn for the life of the fleet. It was
@@ -108,7 +108,8 @@ export function registerSendTools(server, z) {
             content: [{
               type: "text",
               text:
-                `Sent. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone. Requests, reviews, and errors should receive an explicit reply.` +
+                `Sent. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery to anyone.` +
+                awaitingReplyNote({ from, to, type, requireReply }) +
                 (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
             }],
           };

@@ -23,7 +23,7 @@ test("Claude channel dispatch content starts with a native aify-comms receipt ma
   });
 
   assert.match(text, /^aify-comms message received\n/);
-  assert.match(text, /\[NORMAL\] sender → claude-test: Hello/);
+  assert.match(text, /\[NORMAL\] sender → claude-test: "Hello"/);
   assert.doesNotMatch(text, /^\+-+\+$/m, "Claude should keep its own channel shape, not Hermes box styling");
 });
 
