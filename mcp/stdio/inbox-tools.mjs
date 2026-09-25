@@ -159,6 +159,11 @@ export function registerInboxTools(server, z) {
         try {
           // NEVER FOLLOWED: a redirect re-sends the headers, which carry the key.
           const res = await fetch(url, { ...options, redirect: "manual" });
+          // A refusal is not a timeout: a 401 or 404 body has no `messages` and read as "No messages
+          // received" until 0.7.0 (B17).
+          if (!res.ok) {
+            return { content: [{ type: "text", text: `comms_listen failed: HTTP ${res.status} ${await res.text().catch(() => "")}`.trim() }], isError: true };
+          }
           const r = await res.json();
           if (!r.messages || r.messages.length === 0) {
             return { content: [{ type: "text", text: "No messages received (timeout). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };
