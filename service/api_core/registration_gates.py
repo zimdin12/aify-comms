@@ -83,7 +83,7 @@ async def _enforce_env_reachable_gate(
     session_environment_by_agent=None,
 ) -> dict[str, Any]:
     """Read-boundary correction #2 (2026-06-12 status audit): a cached LIVE/available
-    status must not outlive its owning ENVIRONMENT. `agent_live_state.refresh_after` is
+    status must not outlive its owning ENVIRONMENT. The cached entry's `refresh_after` is
     keyed on heartbeat freshness, and nothing invalidates dependent agents when an env
     bridge dies (env death is computed-on-read from last_seen age — there is no
     transition event) — so a managed agent could keep serving cached `online`/`available`
@@ -166,7 +166,7 @@ async def _enforce_live_worker_gate(
 
     Why this lives at the read boundary (not in the cache):
     `_compute_live_status_cache` already consults `terminal_sessions` when it
-    runs, but `agent_live_state.refresh_after` is keyed on heartbeat
+    runs, but the cached entry's `refresh_after` is keyed on heartbeat
     freshness via `_status_refresh_after` — NOT worker presence. When the
     wrapper PTY exits but a parallel heartbeat keeps the agent alive (e.g.
     another bridge polling the same agent), `refresh_after` stays in the
