@@ -58,7 +58,7 @@ import { removeAgentBindingFile } from "./binding-file.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
   defaultMachineId,
-  normalizeRuntime,
+  detectRuntime,
   extractRuntimeSessionHandleFromCommand,
   terminateProcessTree,
 } from "./runtimes.js";
@@ -448,7 +448,9 @@ async function shutdownWithStatus(code) {
             // gateway-host wrapper owns the persistent resident lifecycle.
             // Infer this for already-open TUIs launched before the explicit
             // owner marker was added, so installing the fix needs no restart.
-            normalizeRuntime(process.env.AIFY_RUNTIME || AGENT_RUNTIME) === "hermes"
+            // detectRuntime(): `AGENT_RUNTIME` was never declared, so this threw inside the try below
+            // and silently skipped the resident-lost report for any launch without AIFY_RUNTIME (B13).
+            detectRuntime() === "hermes"
               && String(process.env.AIFY_HERMES_GATEWAY_URL || "").trim()
               ? "managed-host"
               : "bridge"
