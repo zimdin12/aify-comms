@@ -18,18 +18,22 @@ follows the agent's policy has a place to go; none is written.
 ## A `/listen` reader that disconnects at the last moment still marks its messages read (2026-09-26)
 
 The `/listen` long-poll marks what it returns as read. It asks whether the client is still connected
-after fetching and again just before committing the read receipts, and rolls back if not
-(`service/routers/agents/listen.py`). A disconnect after that second check and before the response
-reaches the socket still marks the messages read with no reader behind them. The window is the
-commit plus the response write. Closing it needs the client to acknowledge receipt; until then treat
-`/listen` as best-effort, and read with `comms_inbox(peek=true)`, which leaves messages unread, when a
-message must not be lost.
+before fetching, and again after inserting the read receipts but before committing them, and rolls
+back if not (`service/routers/agents/listen.py`). A disconnect after that second check and before the
+response reaches the socket still marks the messages read with no reader behind them. The window is
+the commit plus the response write. Closing it needs the client to acknowledge receipt; until then
+treat `/listen` as best-effort. When unread status must be relied on, read with
+`comms_inbox(peek=true)` INSTEAD of `/listen`, not alongside it: a concurrent `/listen` still marks
+what it returns.
 
 ## `scripts/stamp.sh` reads no checkout under a shell exporting `MSYS_NO_PATHCONV` (2026-09-26)
 
 A shell that exports `MSYS_NO_PATHCONV=1` or `MSYS2_ARG_CONV_EXCL=*` (hermes' tool shell does) hands
-native git a `/c/...` path it cannot use, so the stamp records sha `unknown` and dirty `false`, and the
-doctor's `service` row cannot match the build to a commit. Stamp and build from an ordinary shell.
+native git a `/c/...` path it cannot use. With `GIT_SHA` unset, the stamp records sha `unknown`, so the
+doctor's `service` row cannot match the build to a commit. With `GIT_SHA` set, the sha is that value
+and `sha_from_env` is true (the doctor reports it as an override), but dirty is still recorded as
+`false` whatever the tree holds, a falsely clean build. Either way, stamp and build from an ordinary
+shell.
 Running git from `cd "$REPO_ROOT"` instead of `git -C` would remove the dependence.
 
 ## Nothing collects the usage pools
