@@ -1,6 +1,6 @@
 #!/bin/bash
 # Unified installer for aify-comms on Claude Code, Codex, or Hermes.
-# Pi/OMP and OpenCode are not installable clients: managed agents on either run under aify-env.
+# Pi/OMP (deprecated) and OpenCode (unsupported, unverified) are not installable clients.
 # `--client pi --emit-wrappers <dir>` still RENDERS the pi wrapper, for its tests.
 #
 # Usage:
@@ -68,8 +68,8 @@ Examples:
                                 the local bridge from ~/.aify-comms. With sse it talks to
                                 <endpoint>/mcp/sse instead and needs no service code on this host.
 
-  --client pi is intentionally disabled (managed Pi runs under aify-env as `omp --mode rpc`);
-  --client opencode is intentionally disabled (managed OpenCode runs under aify-env too).
+  --client pi is disabled: Pi is deprecated.
+  --client opencode is disabled: OpenCode is not supported.
 EOF
 }
 
@@ -176,14 +176,14 @@ fi
 # below would be unreachable, i.e. dead code that reads as coverage.
 if [ "$CLIENT" = "pi" ] && [ -z "$EMIT_WRAPPERS_DIR" ]; then
   echo "Pi/OMP resident wrapper install is disabled."
-  echo "Managed Pi remains supported through aify-env using plain 'omp --mode rpc'."
+  echo "Pi is deprecated; this installer no longer sets it up."
   echo "Reason: OMP is single-client, so omp-aify/pi-aify cannot provide live resident wake into an open TUI."
   exit 1
 fi
 
 if [ "$CLIENT" = "opencode" ]; then
   echo "OpenCode client/resident install is disabled."
-  echo "Managed OpenCode remains available through aify-env."
+  echo "OpenCode is not supported."
   exit 1
 fi
 
