@@ -179,4 +179,3 @@ def _regex_may_start(text: str, index: int, previous: str) -> bool:
         word = before[-1] + word
         before = before[:-1]
     return word in REGEX_KEYWORDS
-

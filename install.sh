@@ -68,7 +68,7 @@ Examples:
                                 the local bridge from ~/.aify-comms. With sse it talks to
                                 <endpoint>/mcp/sse instead and needs no service code on this host.
 
-  --client pi is intentionally disabled: Pi is deprecated.
+  --client pi is intentionally disabled: Pi (`omp --mode rpc`) is deprecated.
   --client opencode is intentionally disabled: OpenCode is not supported.
 EOF
 }

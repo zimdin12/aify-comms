@@ -81,7 +81,7 @@ class AnOffsetNeedsAReadThatDoesNotShiftThePopulationTests(FastApiTestCase):
     def test_a_non_peek_unread_read_with_an_offset_is_refused(self):
         response = self.client.get("/api/v1/messages/inbox/reader?limit=2&offset=2")
         self.assertEqual(response.status_code, 400, response.text)
-        self.assertIn("peek", response.text)
+        self.assertIn("offset pages the unread inbox only with peek=true", response.text)
         self.assertEqual(self._status("limit=10&peek=true"), 200)
         unread = self.client.get("/api/v1/messages/inbox/reader?limit=10&peek=true").json()["total"]
         self.assertEqual(unread, 6, "the refused read marked something read")
