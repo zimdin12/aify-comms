@@ -111,7 +111,7 @@ Pi (deprecated) follows the codex column. Shrink the asymmetry column over time.
 | Resume wake | Re-enable wake/dispatch for a stopped RESIDENT agent — `POST /agents/{id}/control` action=`resume` (no spawn). |
 | Pause for CLI | Hand session ownership to the terminal (`cli_takeover`); return via Restart. |
 | Switch managed/resident | Ownership flip (see below). |
-| Set handle | Operator repair of the native resume target. |
+| Edit… → Native session handle | Operator repair of the native resume target. |
 | Interrupt / Steer | Run-level control. |
 | Remove | Tombstone the identity. |
 | Forget environment | Hide an offline environment; identities, chats and records remain. |

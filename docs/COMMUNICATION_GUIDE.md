@@ -2,7 +2,7 @@
 
 `aify-comms` should make AI agents behave like a focused working team, not like a message queue full of disconnected summaries.
 
-> Status labels referenced below (the 6 states `working`, `online`, `available`, `blocked`, `offline`, `stopped`) are defined in the canonical taxonomy in [AGENTS.md](../AGENTS.md#canonical-status-labels) / [KNOWN_ISSUES.md](../KNOWN_ISSUES.md). (`idle`/`stale` were removed 2026-06-18.)
+> Status labels referenced below (`working`, `online`, `available`, `blocked`, `offline`, `stopped` and the rest) are defined in "Status Meanings" in [the aify-comms skill's operations reference](../.claude/skills/aify-comms/references/operations.md#status-meanings). (`idle`/`stale` were removed 2026-06-18.)
 
 ## Desired Behavior
 

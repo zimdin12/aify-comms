@@ -70,7 +70,7 @@ Run `aify-comms doctor` and, on agent hosts, `aify-env doctor`. Compare installe
 with the selected source/version. Re-read registry/credential status without displaying keys.
 Report checks passed, missing/outdated/unknown items, declined options and pending restarts separately.
 
-Starting or restarting aify-env supersedes the current host and can reap managed workers. Treat it,
+Starting or restarting aify-env supersedes the running one and reaps its managed workers. Treat it,
 service rebuilds and wrapper relaunches as separate disruptive actions requiring approval. Installing
 a new package does not update an already-running process.
 

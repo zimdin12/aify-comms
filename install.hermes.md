@@ -63,8 +63,8 @@ aify-comms doctor          # --json for scripts, --strict to exit non-zero on a 
 
 `service`, `bridge-installed` and `skills-installed` should be green. Then relaunch every agent that
 was running before the install, because a running agent keeps the bridge code it loaded.
-`bridge-current` names any registered agent still reporting an older build, and reads `unknown` until
-agents report one. `aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything
+`bridge-current` names any live bridge still running an older build, and reads `unknown-all` until
+bridges started on 0.7.0 or later report one. `aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything
 else exits 2.
 
 ## Start a Hermes agent
@@ -79,16 +79,17 @@ hermes-aify --shared --aify-agent <agent-id>                 # aify-env owns the
   the id reaches the turn hooks only through the launch environment; started without it, its status
   stops tracking its turns.
 - `--resume <session-id>` without `--aify-agent` recovers the agent from the handle: `aify-<id>` maps
-  to `<id>` directly, and any other handle is looked up on the service, which works only while the
-  service has no API key, because the launcher sends none.
+  to `<id>` directly, and any other handle is looked up by that handle on the service, using this
+  host's API key; if the lookup finds nothing, the launch goes on without an agent id.
 - Starting `hermes-aify --aify-agent <id>` in a terminal replaces that agent's live instance on this
   host, a managed worker included, with its gateway host and delivery loop. An automatic start (a
   message waking the agent, `comms_spawn`) is refused with exit 75 instead. The rules are in
   aify-wrapper's README, "One live instance per agent".
 - `--shared` hands the terminal to aify-env; `aify-env attach <agent>` reattaches and `Ctrl+]`
   detaches.
-- `hermes-aify` passes `--yolo` by default, and the gateway host runs with `HERMES_YOLO_MODE=1`, so
-  approval prompts are skipped; `--safe` (or `--no-auto`) keeps them in the visible TUI.
+- `hermes-aify` passes `--yolo` by default, so approval prompts are skipped. The gateway host, which
+  runs every delivered turn, always has `HERMES_YOLO_MODE=1`, so `--safe` (or `--no-auto`) does not
+  restore approvals there; it only removes `--yolo` from the visible TUI client.
 - `AIFY_HERMES_DISABLE_PLUGIN=1` launches without the aify Hermes plugin, for comparing against
   upstream Hermes. The plugin is what binds the visible session for delivery, so leave it on otherwise.
 
@@ -121,7 +122,7 @@ a hard kill of aify-env, `aify-comms doctor` `gateway-orphans` names gateways no
 restart `hermes-aify`. **When a send fails with `visible session not found`**, the terminal was started
 by an older launcher, with the plugin disabled, or before the TUI attached: re-run the installer,
 restart that `hermes-aify`, and register again from inside it. Gateway host logs are in
-`~/.local/state/aify-comms/hermes-gateway-host-<port>.log` (`$XDG_STATE_HOME/aify-comms/` when set).
+`~/.local/state/aify-comms/hermes-gateway-host-<port>.log`.
 
 ## What the install writes
 
@@ -145,8 +146,9 @@ restart that `hermes-aify`, and register again from inside it. Gateway host logs
 
 At the end of every install, `install.sh` prints a `[usage]` line saying whether an OpenAI token
 works. Hermes delegates OpenAI auth to the codex CLI's store, so the token comes from `codex login`.
-Nothing collects subscription quota at the moment (`mcp/stdio/usage-collector.js` has no caller), so
-the dashboard's quota figures are not live.
+The service reads the OpenAI quota pool itself from that token (`GET /usage`, cached 120 s). Nothing
+collects the Anthropic pool (`mcp/stdio/usage-collector.js` has no caller), so it reads `?` or
+`stale`.
 
 ## More
 

@@ -43,13 +43,16 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 const CEILINGS = {
   // 15_053 -> 14_915 on 2026-09-25 (0.7.0): the trust rule and the "the reply wakes you" line were
   // paid for by shorter registration notes and dropping a pointer the file already makes below.
-  "aify-comms/SKILL.md": 14_915,
+  // 14_915 -> 14_055 on 2026-09-26 (0.7.1): the send gate and requireReply=false are described as the
+  // code behaves, and the interruption steps, the registration-warning note and the comms_listen line
+  // that repeated operations.md, register-identity.js and the tool text were cut to pointers.
+  "aify-comms/SKILL.md": 14_055,
   "aify-comms/references/building-software.md": 4_488,
-  "aify-comms/references/leading-a-team.md": 19_449,
+  "aify-comms/references/leading-a-team.md": 18_967,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
   // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
-  "aify-comms/references/operations.md": 10_810,
-  "aify-comms/references/teamwork.md": 15_981,
+  "aify-comms/references/operations.md": 10_731,
+  "aify-comms/references/teamwork.md": 15_950,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
   // to the machine in front of you. Most of that is a question about the HOST, and
@@ -59,18 +62,18 @@ const CEILINGS = {
   "aify-comms-install/SKILL.md": 4_821,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
-  "aify-comms-debug/SKILL.md": 3_056,
-  "aify-comms-debug/references/codex.md": 5_242,
-  "aify-comms-debug/references/dashboard-console.md": 3_844,
-  "aify-comms-debug/references/dispatch-bridges.md": 6_224,
-  "aify-comms-debug/references/dispatch-delivery.md": 7_437,
-  "aify-comms-debug/references/dispatch-launch.md": 5_167,
-  "aify-comms-debug/references/hermes-session.md": 4_798,
-  "aify-comms-debug/references/hermes-turns.md": 4_224,
-  "aify-comms-debug/references/lifecycle.md": 6_577,
-  "aify-comms-debug/references/pi.md": 2_682,
-  "aify-comms-debug/references/status-model.md": 5_298,
-  "aify-comms-debug/references/status-symptoms.md": 5_207,
+  "aify-comms-debug/SKILL.md": 2_934,
+  "aify-comms-debug/references/codex.md": 5_163,
+  "aify-comms-debug/references/dashboard-console.md": 3_593,
+  "aify-comms-debug/references/dispatch-bridges.md": 6_077,
+  "aify-comms-debug/references/dispatch-delivery.md": 6_944,
+  "aify-comms-debug/references/dispatch-launch.md": 5_148,
+  "aify-comms-debug/references/hermes-session.md": 4_770,
+  "aify-comms-debug/references/hermes-turns.md": 4_152,
+  "aify-comms-debug/references/lifecycle.md": 6_531,
+  "aify-comms-debug/references/pi.md": 2_152,
+  "aify-comms-debug/references/status-model.md": 5_231,
+  "aify-comms-debug/references/status-symptoms.md": 4_886,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

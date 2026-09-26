@@ -44,8 +44,8 @@ aify-comms doctor          # --json for scripts, --strict to exit non-zero on a 
 
 `service`, `bridge-installed` and `skills-installed` should be green. Then relaunch every agent that
 was running before the install, because a running agent keeps the bridge code it loaded.
-`bridge-current` names any registered agent still reporting an older build, and reads `unknown` until
-agents report one. A row that gathered no evidence reports that as a failure, not a pass.
+`bridge-current` names any live bridge still running an older build, and reads `unknown-all` until
+bridges started on 0.7.0 or later report one. A row that gathered no evidence reports that as a failure, not a pass.
 
 `aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything else exits 2.
 
@@ -61,9 +61,9 @@ claude-aify --shared --aify-agent <agent-id>                # aify-env owns the 
   the id reaches the turn hooks and the transcript detector only through the launch environment. Started
   without it, the agent still messages, but its status stops tracking its turns, and nothing inside
   the running session can fix that: relaunch. The launcher prints `NO AGENT ID` when it has none.
-- `--resume <session-id>` without `--aify-agent` looks the agent up by that handle: first from the
-  service, which works only while the service has no API key because the launcher sends none, then
-  from `${TMPDIR:-/tmp}/aify-claude-session-<agent>.json`.
+- `--resume <session-id>` without `--aify-agent` looks the agent up by that handle: first on the
+  service, using this host's API key, then, if the service is unreachable or names no agent, from
+  `${TMPDIR:-/tmp}/aify-claude-session-<agent>.json`.
 - Starting `claude-aify --aify-agent <id>` in a terminal replaces that agent's live instance on this
   host, a managed worker included. An automatic start (a message waking the agent, `comms_spawn`) is
   refused with exit 75 instead. The rules are in aify-wrapper's README, "One live instance per agent".
@@ -124,7 +124,8 @@ installer rewrites it.
 ## Managed Claude defaults
 
 Model blank (Claude's own default) and effort `high`. Change them in the dashboard under
-**Settings → Managed workers**; they apply at the next worker start.
+**Settings → Managed workers**. Saving changes new workers only; **Apply model and effort to existing
+workers** gives the saved values to the existing ones, each at its next start.
 
 ## Herdr
 

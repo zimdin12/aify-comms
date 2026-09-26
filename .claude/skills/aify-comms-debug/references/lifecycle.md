@@ -32,7 +32,7 @@ the operator to stop/relaunch the resident runtime.
 | Resume wake | Re-enable a stopped resident wake path without spawning managed backing. |
 | Pause for CLI | Hand ownership to an operator-open terminal. |
 | Switch managed/resident | Explicitly change the delivery owner while preserving the handle. |
-| Set handle | Repair a known native resume target without starting work. |
+| **Edit…** → *Native session handle* | Repair a known native resume target without starting work. |
 | Interrupt / Steer | Control one proven active turn. |
 | Remove | Tombstone the identity. |
 | Kill bridge / Forget | Remove an execution target, not agent history. |
@@ -62,7 +62,7 @@ automatic ones (cold start, backstop, `comms_spawn`, a Herdr restore, an id from
 | `[aify-agent-lease] <id> is already running (…)` | automatic start, live instance | stop it, or dashboard Restart |
 | `… runs inside <id>'s own live instance` | launched from that agent's own session | use another agent id |
 | `… could not read its process table … Try again` | live process, unverifiable | retry |
-| hermes `Session X already has a live owner (tui, pid N)` | an older generation's gateway holds it | relaunch it on 0.6.8+; kill-prior collects it |
+| hermes `Session X already has a live owner (tui, pid N)` | an older generation's gateway holds it | relaunch; kill-prior collects it |
 
 ## Managed ↔ resident ownership
 
@@ -83,7 +83,7 @@ After switching, verify `sessionMode`, native handle, bridge identity, status, a
 | `stopped` | operator-disabled | Restart or Resume wake intentionally |
 | queued with no claimant | delivery owner missing/unready | inspect bridge, wrapper/sidecar, and capabilities |
 | completed without linked reply | runtime ended but contract remains open | obtain the real threaded result |
-| target already has queued work | ordering guard | inspect existing contract; do not duplicate it |
+| `steer=false` send, target already has queued work | ordering guard | inspect the existing contract rather than duplicating it |
 
 Queued, claimed, and delivered are not execution proof. If delivery is unclear, move
 to `dispatch-delivery.md`.
@@ -102,8 +102,7 @@ handle, fresh wrapper bridge heartbeat, and runtime wake configuration.
 
 ## After the operator restarts aify-env or the service
 
-Restarting aify-env is the operator's action: it ends every managed worker on the host. Identity,
-chat, spawn spec, and stored native handle remain. Afterwards:
+Identity, chat, spawn spec, and stored native handle remain. Afterwards:
 
 1. Verify service health and that aify-env is answering.
 2. Read each affected agent; do not assume old console/session rows are live.

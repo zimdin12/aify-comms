@@ -16,7 +16,9 @@ to the server.
 from __future__ import annotations
 
 import asyncio
+import re
 import unittest
+from pathlib import Path
 
 from service.sse import agent_tools as ag
 from service.sse import send_tools as st
@@ -62,6 +64,27 @@ class SendTests(unittest.TestCase):
         )
         self.assertIn("Not started: b: offline", out)
         self.assertIn("a [queued] -> r1", out)
+
+    def test_an_owed_reply_tells_the_sender_it_knows_nothing_until_the_reply(self):
+        """H-A2 on this transport: the stdio ack said it and this one did not, so an SSE sender was
+        free to narrate a result it had not received. Info and a self-send owe nothing and stay quiet."""
+        payload = {"ok": True, "recipients": ["a"],
+                   "dispatchRuns": [{"targetAgentId": "a", "runId": "r1", "status": "queued"}]}
+        owed, _ = _with_api(st, st.comms_send, payload,
+                            from_agent="me", type="request", subject="s", body="b", to="a")
+        self.assertIn("until it does you know nothing about its result", owed)
+        for kwargs in ({"type": "info", "to": "a"}, {"type": "request", "to": "me"}):
+            quiet, _ = _with_api(st, st.comms_send, payload, from_agent="me", subject="s", body="b", **kwargs)
+            self.assertNotIn("know nothing", quiet, kwargs)
+
+    def test_the_awaiting_note_is_the_stdio_twin_word_for_word(self):
+        """Two transports telling one agent two different things is the drift this pins. Read from
+        the JS source, never retyped here."""
+        source = (Path(__file__).resolve().parents[2] / "mcp" / "stdio" / "tool-response-format.mjs").read_text(encoding="utf-8")
+        body = source[source.index("export function awaitingReplyNote"):]
+        match = re.search(r'return "( The reply arrives[^"]*)"', body)
+        self.assertIsNotNone(match, "the stdio note moved; this reader no longer finds it")
+        self.assertEqual(match.group(1), st.awaiting_reply_note("me", "peer", "request"))
 
     def test_a_send_that_launched_nothing_says_so(self):
         out, _ = _with_api(
@@ -232,6 +255,11 @@ class AgentToolTests(unittest.TestCase):
         self.assertIn("- b (tester)", out)
         self.assertIn("unread: 0", out)
         self.assertIn("last seen: ?", out)
+
+    def test_presence_says_the_id_is_the_address(self):
+        """H-A7 on this transport: the stdio listing leads with this line and this one did not."""
+        out, _ = _with_api(ag, ag.comms_agents, {"agents": {"a": {"role": "coder"}}})
+        self.assertTrue(out.startswith("Address an agent by the id at the start of its line.\n"), out)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ import sqlite3, glob
 c = sqlite3.connect(sorted(glob.glob('/data/*.db'))[-1])
 aid = 'YOUR-AGENT-ID'
 for r in c.execute(\"SELECT id, agent_id, bridge_kind, superseded_by, last_seen FROM bridge_instances WHERE agent_id=? ORDER BY last_seen DESC LIMIT 5\", (aid,)): print(r)
-for r in c.execute(\"SELECT id, status, execution_mode, claim_bridge_id, created_at FROM dispatch_runs WHERE target_agent=? ORDER BY created_at DESC LIMIT 5\", (aid,)): print(r)
+for r in c.execute(\"SELECT id, status, execution_mode, claim_bridge_id, requested_at FROM dispatch_runs WHERE target_agent=? ORDER BY requested_at DESC LIMIT 5\", (aid,)): print(r)
 "
 ```
 
@@ -56,14 +56,12 @@ curl -X PATCH -H "X-API-Key: $AIFY_API_KEY" -H "Content-Type: application/json" 
   -d '{"status":"cancelled","error":"Bridge died, orphaned run"}'
 ```
 
-Normal `comms_send` does not queue new work behind a blocked target; it returns a not-sent notice.
+A default `comms_send` (steer=true) still steers into or queues behind that run; cancel it first.
 
-## `require_reply` run FAILED: "turn is presumed dead (model 429 / interrupt / stall)"
+## `require_reply` run FAILED: "Turn ended without a reply — this RUN was closed"
 
-The worker's turn died without replying, so the run sat `delivered`. After
-`stranded_reply_fail_minutes` (default 45) `_fail_stranded_delivered_reply_runs` fails it with the
-cause and skips a run the agent is still working on. Re-send the ask; if the session is wedged,
-restart the agent. Setting the minutes to 0 disables the backstop.
+No reply within `stranded_reply_fail_minutes` (default 45). The worker may still be working: read
+`comms_console_tail` before re-sending or restarting. 0 disables it.
 
 ## Run failed: "provider rate-limiting, not your request — retry shortly"
 
@@ -98,10 +96,9 @@ comms_agent_info(agentId="my-agent")
 
 ## In-flight run cancelled: "bridge X is not the current agent bridge Y"
 
-A sibling registration superseded the owning bridge. `_record_bridge_registration` supersedes only
-on the full `(agent_id, machine_id, runtime, session_mode, session_handle)` tuple, and managed
-launches carry `AIFY_SESSION_MODE=managed` (`service/api_core/launch_env.py`). Rows that differ in
-`session_mode` or `session_handle` are the guard working.
+A newer registration of this agent on this machine superseded it (latest-wins, sparing only the
+sidecar↔wrapper-child pair, a channel sidecar when a resident registers, and a fresh
+same-terminal wrapper child; `_record_bridge_registration`). Find the second registrant.
 
 ## Managed claude run routed through the wrong path
 
@@ -131,6 +128,3 @@ the operator's call.
   and the `.cmd` shims put Git's Unix tools on PATH.
 - Check the install with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd" doctor`; add
   `$env:USERPROFILE\.local\bin` to PATH if the command is not found.
-- A runtime missing from the dashboard's launch list is one aify-env could not find:
-  `claude` / `codex` / `hermes` must resolve on the PATH aify-env was started with. `aify-env
-  doctor` shows it; fixing that PATH is the operator's step.

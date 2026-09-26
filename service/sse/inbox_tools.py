@@ -86,7 +86,7 @@ async def comms_inbox(
                 f"Subject: {_quote_untrusted_subject(m.get('subject', ''), 240)}\n"
                 f"{safe_body}"
             )
-    trunc = f"\n\n(Showing {r['showing']} of {r['total']})" if r.get("total", 0) > r.get("showing", 0) else ""
+    trunc = f"\n\n(Showing {r['showing']} of {r['total']}, newest first. Use limit param for more.)" if r.get("total", 0) > r.get("showing", 0) else ""
     return f"{SAFETY_HEADER}\n\n{r['total']} message(s):\n\n" + "\n\n".join(lines) + trunc
 
 

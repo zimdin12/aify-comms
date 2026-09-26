@@ -38,7 +38,7 @@ async def comms_register(
 
 
 async def comms_agents() -> str:
-    """List all registered agents, their roles, and unread message counts."""
+    """List registered agents with role, status and unread count. The id that starts each line is the address for comms_send `to`. A new send to an offline, stopped or misconfigured agent is refused; an available managed agent cold-starts on send."""
     r = await _api("GET", "/agents")
     # AN OUTAGE IS NOT AN ANSWER. `_api` returns `detail` on any error precisely so every caller
     # can branch on it, and that fix's own note says "every caller in this package checks" -- this
@@ -55,7 +55,9 @@ async def comms_agents() -> str:
             f"- {aid} ({info['role']}){status} -- \"{info.get('name', aid)}\" "
             f"| unread: {info.get('unread', 0)} | last seen: {info.get('lastSeen', '?')}"
         )
-    return "\n".join(lines)
+    # The id is the address, said the way the stdio twin says it (v0.7, H-A7). This transport has no
+    # bound caller identity, so it cannot mark the caller's own row with stdio's ` (you)`.
+    return "Address an agent by the id at the start of its line.\n" + "\n".join(lines)
 
 
 #: Registered in the order they were declared in the transport. Named explicitly rather than swept

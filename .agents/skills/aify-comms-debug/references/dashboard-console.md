@@ -24,8 +24,8 @@ workers bring this class of failure back.
 ## Environment does not advertise terminal support
 
 **Symptom.** `/api/v1/environments` shows `terminal=false` / `pty=false`, or Start Console says
-*"Environment <id> does not advertise terminal support for claude-code"*, and channel dispatches to
-a managed claude sit `queued`.
+*"Environment <id> has no PTY/terminal capability"* or *"… supports the Console but not for runtime
+…"*, and channel dispatches to a managed claude sit `queued`.
 
 aify-env owns every PTY and advertises the host. It lists a runtime in `terminalRuntimes` only when
 that runtime's binary resolves on the PATH aify-env was started with, and sets `terminal` from its
@@ -56,9 +56,3 @@ plain drags. Three ways that work:
 - the **Copy** button on the Console toolbar (the selection, or the whole buffer when none),
 - **Ctrl+Shift+C** for the current selection,
 - **Shift+drag** to select while the TUI captures the mouse.
-
-## Before rebuilding the service
-
-The image copies the working tree, not git HEAD, so a syntax error mid-edit bakes a crash-looping
-container. Byte-compile what you changed (`python -m py_compile <files>`) and run the suites first;
-recover by rebuilding from a known-green commit.

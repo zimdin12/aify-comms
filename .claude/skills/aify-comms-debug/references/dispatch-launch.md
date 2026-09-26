@@ -7,7 +7,7 @@
 
 **Do this first.** `comms_console_tail(agentId="<the agent>")`. It works without a live console:
 with the worker gone it returns the worker's last recorded output marked `NOT LIVE`, cause line
-first. Example: a hermes worker "no environment can host it" whose console held
+first. Example: a hermes worker whose console held
 `[hermes-managed-host] fatal: hermes dashboard ... did not become ready within 60000ms` — a hermes
 install with no built web UI.
 
@@ -42,15 +42,15 @@ last line is `Running SessionStart hooks…`.
 
 A worker registers its claimer only after Claude finishes init, and a one-time plugin setup (an
 `install-deps.js`, say) can hold SessionStart for minutes. The reaper treats streaming output as alive
-(`MANAGED_ORPHAN_GRACE_SECONDS`), so give a fresh worker 30-60s before restarting it. Each rapid
-restart kills the attempt still booting.
+(`MANAGED_ORPHAN_GRACE_SECONDS`), so leave a worker alone while its console still streams. Each
+rapid restart kills the attempt still booting.
 
 ## Managed Claude run fails: `Session ID ... is already in use`
 
 **Cause.** Another Claude process still holds that session: a duplicate tab, or a headless child
 left by a crash. Nothing clears this automatically.
 
-**Fix.** Close the holder, or use Dashboard **Sessions -> Actions -> Reset (fresh context)** when
+**Fix.** Close the holder, or use Dashboard **Sessions → Reset** (fresh context) when
 you accept losing that native Claude memory. To find the holder on Windows (replace the id):
 
 ```powershell
@@ -62,13 +62,13 @@ Get-CimInstance Win32_Process |
 Stop only a process you have identified as the stale holder, never a live agent's wrapper. A
 resident session is never swapped automatically: close the duplicate tab, relaunch with
 `claude-aify --aify-agent <id> --resume <session-id>`, and re-register from it. If you know the
-correct native handle, Dashboard **Set handle** repairs it without a fresh context.
+correct native handle, the agent's **Edit…** → *Native session handle* field repairs it without a
+fresh context.
 
 ## Run fails: `spawn "<path>/claude" ENOENT` although the launcher resolves
 
 Node's `spawn()` reports the same `ENOENT` when the **workspace** does not exist on that host; a runtime the
-bridge launches says so directly (`Workspace "..." does not exist on this bridge host`). Common after moving
-an agent between Windows, WSL and Linux. Repair the agent's workspace, or spawn it in the
+bridge launches says so directly (`Workspace "..." does not exist on this bridge host`). Repair the agent's workspace, or spawn it in the
 environment that owns that path. If the workspace is valid, check the launcher on the same host and
 user: `ls -l`, `readlink -f`, and `head -1` of it (a broken shebang also reads as ENOENT).
 
@@ -78,8 +78,9 @@ The tag comes from the code the running process loaded: the native copy's `.aify
 or `.git/HEAD` for a checkout. An old tag means that process started before the install, or runs
 from a different copy.
 
-1. `aify-comms doctor`. `bridge-installed` red → re-run `bash install.sh --client <runtime>`.
-2. Relaunch only the agents you own, keeping their conversations:
+1. `aify-comms doctor`: `bridge-installed` red → re-run `bash install.sh --client <runtime>`;
+   `bridge-current` names live bridges on old code.
+2. Relaunch only your own agents, keeping their conversations:
    `<runtime>-aify --aify-agent <id> --resume <handle>`.
 3. Managed agents are restarted from the dashboard (Sessions → Restart), one agent at a time.
 

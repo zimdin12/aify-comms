@@ -24,12 +24,11 @@ Managed Codex uses `~/.local/state/aify-comms/managed-codex-home`; a resident us
 - **Missing rollout (`no rollout found`):** managed Codex imports it from the other homes and
   retries once; the run log says `Resumed imported Codex thread ...`.
 - **Corrupt or oversized rollout** (`Message too long ... > 16777216`): restart fails loudly rather
-  than dropping memory. Only Dashboard **Sessions -> Reset (fresh context)** starts a new thread.
+  than dropping memory. Only Dashboard **Sessions → Reset** (fresh context) starts a new thread.
 
 If the raw error persists, the running bridge predates the classifier (`detectCodexResumeFailure`).
-Run `aify-comms doctor`; with `bridge-installed` red, re-run `bash install.sh --client codex`, then
-relaunch that agent. To verify the classifier from a checkout:
-`node --test tests/codex-cwd-transform.test.js` in `mcp/stdio`.
+Run `aify-comms doctor`; with `bridge-installed` red, re-run `bash install.sh --client codex`; with
+`bridge-current` naming it, relaunch that agent.
 
 ## Hard reset of one resident Codex agent
 

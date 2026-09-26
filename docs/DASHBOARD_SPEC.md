@@ -2,7 +2,8 @@
 
 > **CURRENT PRODUCT SEMANTICS, HISTORICAL SCREEN INVENTORY.** The replacement dashboard on
 > `8801` is now the only operator UI; `8800` serves the API and redirects dashboard entry
-> points. Use `AGENTS.md` for the canonical six-state status and lifecycle vocabulary, and
+> points. Use "Status Meanings" in `.claude/skills/aify-comms/references/operations.md` for the
+> canonical status and lifecycle vocabulary, and
 > `service/new_dashboard/` for the shipped screen structure.
 
 ## Navigation
@@ -210,9 +211,8 @@ Columns:
 Actions:
 
 - spawn here
-- stop bridge
 - edit workspace roots
-- reset to bridge-advertised roots
+- reset to host roots (the set the host advertises)
 - disable spawning
 - view bridge logs
 - unregister environment

@@ -4,6 +4,10 @@
 applied). Needs **operator adoption** before it touches the team's files — and after 2026-08-10,
 `sc-manager`'s custody to apply it.
 
+**The instrument was deleted in 0.7.0** (`6ad8ab13`, with the other one-off scripts). If the pilot is
+adopted, restore it first: `git show v0.6.22:scripts/comms_baseline.py > scripts/comms_baseline.py`.
+Every `scripts/comms_baseline.py` below means that file.
+
 > **2026-08-10 — I applied this to `sand_castle/AGENTS.md` + `CLAUDE.md` and it did not stick.**
 > The edit landed (verified at the time: block at `AGENTS.md:604`, 22 insertions each, staged after
 > the TH-4 hook rejected the commit) and was gone within the hour — `sc-manager` measured

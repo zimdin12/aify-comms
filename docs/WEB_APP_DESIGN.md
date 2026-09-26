@@ -1,7 +1,8 @@
 # Web App Design
 
 > **HISTORICAL DESIGN INPUT.** The rebuild shipped. Use `service/new_dashboard/` for the
-> current UI and `AGENTS.md` for the canonical six-state status/lifecycle contract. The
+> current UI and "Status Meanings" in `.claude/skills/aify-comms/references/operations.md` for the
+> canonical status/lifecycle contract. The
 > anti-patterns and frontend-state principles below remain useful; old IA/status examples do not.
 
 ## Goal

@@ -36,7 +36,8 @@ export function registerAgentReportingTools(server, z) {
 
   server.tool(
     "comms_agents",
-    "List all registered agents, their roles, and unread message counts.",
+    "List registered agents with role, status and unread count. The id that starts each line is the address for comms_send `to`. " +
+      "A new send to an offline, stopped or misconfigured agent is refused; an available managed agent cold-starts on send.",
     {},
     async () => {
       const describeLine = (info) => {

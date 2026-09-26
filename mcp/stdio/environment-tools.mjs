@@ -107,7 +107,7 @@ export function registerEnvironmentTools(server, z) {
       environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, the first environment able to claim a spawn for this runtime is used."),
       agentId: z.string().describe("Stable agent ID to create"),
       role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
-      runtime: z.string().describe("Runtime: codex, claude-code, hermes, opencode, or pi"),
+      runtime: z.string().describe("Runtime: claude-code, codex or hermes (pi deprecated)"),
       workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
       name: z.string().optional().describe("Friendly name"),
       model: z.string().optional().describe("Preferred model/profile value"),
