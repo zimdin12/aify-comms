@@ -5,9 +5,10 @@ Extracted from `service/routers/channels.py` in v0.5.4 as a PRIVATE CLUSTER: the
 else it reaches is an `api_core` or `service` leaf.
 
 A CHANNEL SEND IS N DELIVERIES, NOT ONE, and almost all of this file's length is the difference.
-Each member is preflighted separately — offline, stopped and no-wake members fail the send for
-themselves without storing — and the reply has to name who was skipped, or a caller reads "sent to
-#dev" as "the team has it" when half of them never will.
+The canonical post and every member's inbox copy are always stored; each member is preflighted
+separately only to decide who is woken now — offline, stopped, misconfigured and no-wake members are
+not — and the reply has to name who was skipped, or a caller reads "sent to #dev" as "the team was
+woken" when half of them will only find it in their inbox.
 
 THE DUPLICATE-SUPPRESSION HELPER IS THE SUBTLE PART. A member who was just sent the same content
 directly must not also be woken by the fanout: the run would deliver a second copy of something the

@@ -10,9 +10,10 @@
 // channel-tools has six imports and four read-only tools. Putting the sender there would have doubled that
 // module's import surface and split the delivery cluster across two files. Subject beat category.
 //
-// Both are LIVE-DELIVERY GATED: a send to an offline target is not written at all. That is the property
-// worth remembering when reading them — the tool's job is to decide deliverability and then either steer,
-// queue, or cold-start, not merely to append to an inbox.
+// Both are LIVE-DELIVERY GATED. A direct send to an offline target is not written at all; a channel post is
+// always stored and only the members that can start are woken. That is the property worth remembering when
+// reading them — the tool's job is to decide deliverability and then either steer, queue, or cold-start,
+// not merely to append to an inbox.
 
 import { randomUUID } from "crypto";
 import fs from "fs";
@@ -47,9 +48,9 @@ import { awaitingReplyNote, formatQueuedRun } from "./tool-response-format.mjs";
 // "set requireReply=true" and "set requireReply=false", because each mode has to be findable.
 export const COMMS_SEND_TOOL_DESCRIPTION =
   "Send a message to an agent by ID, or to all agents with a given role. The target `dashboard` stores it for the operator without starting a runtime. " +
-  "LIVE-DELIVERY GATED: a target that is offline, stopped, or has no live wake path is not written at all. `available` and `blocked` ARE deliverable, including a managed agent with no live worker yet (a hermes whose gateway died), which the send cold-starts; agent-reported blocked/completed are status notes, not delivery blockers. A busy target is steered into its active run between tool calls when it can steer, and queued as next-turn work when it cannot. queueIfBusy=true forces the queue and ignores steer. " +
+  "LIVE-DELIVERY GATED: a new message to an offline, stopped or misconfigured target, or one with no live wake path, is refused and not written; a reply is stored anyway. `available` and `blocked` ARE deliverable, including a managed agent with no live worker yet, which the send cold-starts. A busy target is steered into its active run between tool calls when it can steer, and queued as next-turn work when it cannot. queueIfBusy=true forces the queue and ignores steer. " +
   "REPLY WITH A TOOL CALL, in both live CLI sessions and dashboard-managed runs: comms_send(type=\"response\", inReplyTo=<the message id>). That call is the team-visible reply and closes the run; your final plain text is your own working output, not a delivered reply. Requests, reviews, errors, dashboard asks and explicit reply contracts owe one. A response, approval, info or acknowledgement carrying no new question or work is read context — leave it unanswered. Terminal input you typed yourself is answered in the terminal. " +
-  "Omit requireReply for type-based behaviour (`request`, `review` and `error` owe replies; `info`, `response` and `approval` do not). Set requireReply=true to track a normally optional message; set requireReply=false to drop the contract on `info`, `response` and `approval` — it does not stop the Work Loop, which enrols `request`, `review` and `error` by type whatever the flag says. requireReply changes the reply contract, not whether the target is woken. " +
+  "Omit requireReply for type-based behaviour (`request`, `review` and `error` owe replies; `info`, `response` and `approval` do not). Set requireReply=true to track a normally optional message; set requireReply=false only knowing that on `request`, `review` and `error` it tells the recipient no reply is tracked, yet the Work Loop still enrols them by type; on the others it does nothing. requireReply changes the reply contract, not whether the target is woken. " +
   "Keep each message on one topic and scoped to the recipient's own work, say what you checked when truth matters, and ask one clear question when blocked.";
 
 export function registerSendTools(server, z) {
@@ -70,7 +71,7 @@ export function registerSendTools(server, z) {
       inReplyTo: z.string().optional().describe("Message ID this replies to"),
       steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls when supported; otherwise queue/merge as next-turn work. Defaults to true. Ignored when queueIfBusy=true."),
       queueIfBusy: z.boolean().optional().describe("When true, force next-turn queue/merge behind the target's active/queued work instead of steering the active turn."),
-      requireReply: z.boolean().optional().describe("Reply-contract override. Omit for type defaults (request/review/error=true; info/response/approval=false). Set true only to track a response to a normally optional message; false drops the contract on info/response/approval and does NOT exempt request/review/error, which the Work Loop enrols by type."),
+      requireReply: z.boolean().optional().describe("Reply-contract override. Omit for type defaults (request/review/error=true; info/response/approval=false). Set true only to track a response to a normally optional message; false on request/review/error tells the recipient no reply is tracked, yet the Work Loop still enrols them by type; on info/response/approval it changes nothing."),
     },
     async ({ from, to, toRole, type, subject, body, priority, inReplyTo, steer, queueIfBusy, requireReply }) => {
       if (!to && !toRole) {
@@ -193,7 +194,7 @@ export function registerSendTools(server, z) {
 
   server.tool(
     "comms_channel_send",
-    "Send a message to a channel. This is live-delivery gated for channel members: if any recipient is offline, stale, stopped, or lacks a live wake path, the channel message is not written. Busy steer-capable members receive the channel update as steer into their active run; busy non-steer members queue or merge as next-turn work. Use queueIfBusy=true only to force next-turn delivery; when queueIfBusy=true, the steer option is ignored. Agent-reported blocked/completed states are status notes, not delivery blockers.",
+    "Send a message to a channel. The post and every member's inbox copy are always stored; members that cannot start now (offline, stopped, misconfigured, or no live wake path) are not woken and are named under Not started. Busy steer-capable members receive the channel update as steer into their active run; busy non-steer members queue or merge as next-turn work. Use queueIfBusy=true only to force next-turn delivery; when queueIfBusy=true, the steer option is ignored.",
     {
       channel: z.string().describe("Channel name"),
       from: z.string().describe("Your agent ID"),
@@ -234,6 +235,7 @@ export function registerSendTools(server, z) {
               type: "text",
               text:
                 `Sent to #${channel}. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.` +
+                awaitingReplyNote({ from, type: type || "info" }) +
                 (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
             }],
           };

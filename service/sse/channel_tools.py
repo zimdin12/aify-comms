@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from service.sse.api_client import api as _api
 from service.sse.rendering import SAFETY_HEADER, fence as _fence
+from service.sse.send_tools import awaiting_reply_note
 
 
 async def comms_channel_create(name: str, from_agent: str, description: str = "") -> str:
@@ -66,7 +67,7 @@ async def comms_channel_send(
     steer: bool | None = None,
     queueIfBusy: bool = False,
 ) -> str:
-    """Send a live-gated message to a channel. Offline/stale/stopped/no-wake members fail the send without storing. Busy steer-capable members receive ordinary sends as current-run steer; busy live non-steer members queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available."""
+    """Send a live-gated message to a channel. The post and every member's inbox copy are always stored; members that cannot start now (offline, stopped, misconfigured or no wake path) are not woken and are named under Not started. Busy steer-capable members receive ordinary sends as current-run steer; busy live non-steer members queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available."""
     should_trigger = not silent
     force_queue = bool(queueIfBusy)
     r = await _api("POST", f"/channels/{channel}/send", {
@@ -94,7 +95,7 @@ async def comms_channel_send(
         if skipped:
             note += f" Not started: {'; '.join(skipped)}."
         note += " Use comms_run_status(...) to inspect progress."
-        return note
+        return note + awaiting_reply_note(from_agent, "", type)
     return f"Sent to #{channel} ({r.get('members', {})  if isinstance(r.get('members'), int) else len(r.get('members', []))} members)."
 
 

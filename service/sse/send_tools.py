@@ -20,8 +20,22 @@ Patch `_api` HERE, not on the transport: these resolve it from this module.
 
 from __future__ import annotations
 
+from service.api_core.reply_expectation import _message_type_expects_reply
 from service.api_core.serialization import _quote_untrusted_subject
 from service.sse.api_client import api as _api
+
+
+def awaiting_reply_note(from_agent: str, to: str, type: str, requireReply: bool | None = None) -> str:
+    """What the sender knows until the reply arrives. The stdio twin is `awaitingReplyNote` in
+    `mcp/stdio/tool-response-format.mjs` (v0.7, H-A2); said only when a reply is owed, and never on
+    a message to yourself, which IS your own next turn."""
+    owed = requireReply is True or _message_type_expects_reply(type)
+    if not owed or (to and to == from_agent):
+        return ""
+    return (
+        " The reply arrives as a new message that wakes you; until it does you know nothing about its"
+        " result, so do not report, predict or redo that work."
+    )
 
 
 async def comms_send(
@@ -38,7 +52,7 @@ async def comms_send(
     queueIfBusy: bool = False,
     requireReply: bool | None = None,
 ) -> str:
-    """Send a live-gated message to an agent by ID or role. Offline/stopped/no-wake targets fail without storing. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Reply tracking: omit requireReply for type defaults (request/review/error=true; info/response/approval=false); set true only when a normally optional message needs a tracked response; false drops the contract on info/response/approval and does NOT exempt request/review/error, which the Work Loop enrols by type. requireReply does not control delivery or waking. Use silent=true only for legacy inbox-only delivery."""
+    """Send a live-gated message to an agent by ID or role. A new message to an offline, stopped, misconfigured or no-wake target fails without storing; a reply (inReplyTo or type=response) is stored anyway. Busy steer-capable targets receive ordinary sends as current-run steer; busy live non-steer targets queue/merge as next-turn work. Set queueIfBusy=true only when you intentionally want next-turn delivery even if steering is available. Reply tracking: omit requireReply for type defaults (request/review/error=true; info/response/approval=false); set true only when a normally optional message needs a tracked response; false on request/review/error tells the recipient no reply is tracked, yet the Work Loop still enrols them by type; on info/response/approval it changes nothing. requireReply does not control delivery or waking. Use silent=true only for legacy inbox-only delivery."""
     if not to and not toRole:
         return "Error: need 'to' or 'toRole'"
     should_trigger = not silent
@@ -85,8 +99,8 @@ async def comms_send(
         note = f"Sent + live delivery for {', '.join(queued) if queued else 'no launchable recipients'}."
         if skipped:
             note += f" Not started: {'; '.join(skipped)}."
-        note += " Use comms_run_status(...) to inspect progress. Request-type sends expect an explicit reply by default, and the bridge mirrors the result if none is sent."
-        return note
+        note += " This reports what was CREATED, not what was delivered: confirm with comms_run_status(...)."
+        return note + awaiting_reply_note(from_agent, to, type, requireReply)
     # The sender's OWN subject, read back to the sender — not the foreign-text case the quoter was
     # built for. Quoted anyway so the rule has no exceptions: an echo site that is safe "because of
     # who wrote the text" is one refactor away from being reached by text somebody else wrote, and a
