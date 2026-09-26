@@ -24,6 +24,7 @@ lives here, next to the class, for that reason.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from typing import Any, Optional
 
@@ -39,6 +40,8 @@ from service.api_core.terminal_status import TERMINAL_STOPPABLE_STATUSES
 from service.clock import now as _now
 from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+
+logger = logging.getLogger(__name__)
 
 
 def _new_pending_state(last_seq: int) -> dict[str, Any]:
@@ -84,6 +87,10 @@ class TerminalOutputWriteQueue:
         self._max_handles: dict[str, asyncio.Handle] = {}
         self._settle_handles: dict[str, asyncio.Handle] = {}
         self._flush_tasks: dict[str, asyncio.Task] = {}
+        # Batches taken off `_pending` and not yet written. `_pending` alone cannot say the queue is
+        # empty: `flush_terminal` pops a batch BEFORE it writes it, so a drain that watched only
+        # `_pending` returned while an acknowledged write was still in flight (v0.7.1 review, W01).
+        self._in_flight = 0
         # Highest seq ever issued per terminal. Guarantees strict monotonicity
         # across pending-state recreation even if a concurrent request reads a
         # stale output_seq from the DB while a prior flush hasn't committed yet
@@ -234,8 +241,16 @@ class TerminalOutputWriteQueue:
                 idle_handle.cancel()
             if max_handle:
                 max_handle.cancel()
+            if state:
+                self._in_flight += 1
         if not state:
             return
+        try:
+            await self._write_popped(terminal_id, state)
+        finally:
+            self._in_flight -= 1
+
+    async def _write_popped(self, terminal_id: str, state: dict) -> None:
         prefix = ""
         if state["dropped"]:
             prefix = f"[aify-comms dropped {state['dropped']} chars from terminal output backlog]\n"
@@ -562,13 +577,21 @@ class TerminalOutputWriteQueue:
                 pass
 
     async def flush_all(self) -> None:
+        """Return once nothing is pending AND nothing popped is still being written."""
         while True:
             async with self._lock:
                 ids = list(self._pending.keys())
-            if not ids:
+                in_flight = self._in_flight
+            if ids:
+                for terminal_id in ids:
+                    await self.flush_terminal(terminal_id)
+                continue
+            if not in_flight:
                 return
-            for terminal_id in ids:
-                await self.flush_terminal(terminal_id)
+            # A write another task popped is still running. Polled rather than awaited on an Event:
+            # this queue is a process-global built before any loop exists, and the test suite runs
+            # many loops, which a loop-bound primitive would refuse. The drain bounds the wait.
+            await asyncio.sleep(0.005)
 
 
 TERMINAL_OUTPUT_WRITES = TerminalOutputWriteQueue()
@@ -582,11 +605,18 @@ async def drain_terminal_output_writes(queue: TerminalOutputWriteQueue = None, t
     a bridge had been told was accepted was lost on every restart (v0.7 scan A6). BOUNDED, because
     `flush_all` loops until the queue is empty and a terminal whose writes keep failing would hold
     shutdown open for ever.
+
+    A FAILED WRITE ENDS THE DRAIN AS NOT DRAINED, never as an exception: the failed batch is handed
+    back to `_pending`, and raising here skipped the rest of shutdown (closing the pool and the change
+    feed; v0.7.1 review, S5).
     """
     try:
         await asyncio.wait_for((queue or TERMINAL_OUTPUT_WRITES).flush_all(), timeout)
         return True
     except asyncio.TimeoutError:
+        return False
+    except Exception as exc:  # noqa: BLE001 - shutdown must continue whatever the write raised
+        logger.warning("shutdown: a terminal output write failed during the drain: %s", exc)
         return False
 
 async def flush_terminal_output_writes_for_tests() -> None:
