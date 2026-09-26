@@ -26,8 +26,9 @@ import { renderInstallSnippet } from './static-links.mjs';
 import { pages } from './page-titles.mjs';
 import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
-import { resolveApiOrigin } from './api-origin.mjs';
+import { defaultApiOrigin, resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
+import { adoptLegacyApiKey } from './api-key.mjs';
 import { renderFiles } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage } from './message-transport.mjs';
 import { runRefreshCycle } from './refresh-cycle.mjs';
@@ -45,6 +46,7 @@ import { createRefreshGate } from './refresh-visibility.mjs';
 import { ChangeDrivenRefresh } from './change-refresh.mjs';
 import { loadSlices } from './slice-loaders.mjs';
 
+adoptLegacyApiKey(defaultApiOrigin()); // a key stored before keys were bound to an origin belongs to the default one (api-key.mjs)
 const apiOrigin = resolveApiOrigin();
 const apiBase = `${apiOrigin}/api/v1`;
 

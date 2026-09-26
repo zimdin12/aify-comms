@@ -12,7 +12,7 @@
 // fake document in a test -- the alternative is a module only a browser can execute, which is how a
 // login form goes untested until an operator finds it broken.
 
-import { writeApiKey, clearApiKey } from './api-key.mjs';
+import { writeApiKey, clearApiKey, credentialOrigin } from './api-key.mjs';
 
 export const PROMPT_ID = 'aify-api-key-prompt';
 
@@ -22,19 +22,24 @@ export function isMounted(doc) {
 }
 
 /**
- * Put the prompt on the page unless it is already there.
+ * Put the prompt for `origin`'s key on the page unless it is already there.
+ *
+ * `origin` is the service that refused the request. The key typed here is stored for it alone and
+ * the prompt says which one it is, so a dashboard repointed by a link asks for that host's key by
+ * name instead of borrowing another's (api-key.mjs). No origin, nowhere to bind a key: no prompt.
  *
  * `onAccepted` runs after a key is stored. The default reloads, which is the honest thing: the
  * dashboard has already rendered an unknown number of failed panels, and re-fetching just the one
  * request that happened to 401 would leave the rest empty with no way to tell.
  */
-export function ensureApiKeyPrompt(doc = globalThis.document, onAccepted = defaultAccept) {
-  if (!doc || !doc.createElement || isMounted(doc)) return null;
+export function ensureApiKeyPrompt(origin, doc = globalThis.document, onAccepted = defaultAccept) {
+  const bound = credentialOrigin(origin);
+  if (!bound || !doc || !doc.createElement || isMounted(doc)) return null;
 
   // A key that is present and REFUSED must not survive, or the prompt re-appears on every load
   // pre-filled with the value the service just rejected, and the operator cannot tell that their
   // typing did anything.
-  clearApiKey();
+  clearApiKey(bound);
 
   const overlay = doc.createElement('div');
   overlay.id = PROMPT_ID;
@@ -60,7 +65,7 @@ export function ensureApiKeyPrompt(doc = globalThis.document, onAccepted = defau
   title.style.cssText = 'margin:0;font-size:16px;font-weight:600';
 
   const hint = doc.createElement('p');
-  hint.textContent = 'Enter the API key for this aify-comms service. It is stored in this browser only.';
+  hint.textContent = `Enter the API key for the aify-comms service at ${bound}. It is stored in this browser, for that address only.`;
   hint.style.cssText = 'margin:0;font-size:13px;opacity:0.75;line-height:1.4';
 
   const input = doc.createElement('input');
@@ -91,7 +96,7 @@ export function ensureApiKeyPrompt(doc = globalThis.document, onAccepted = defau
     // Without this the form navigates and the typed key lands in the URL -- reintroducing, through
     // the fix, the exact leak the fix exists to remove.
     if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    if (writeApiKey(input.value)) onAccepted();
+    if (writeApiKey(input.value, bound)) onAccepted();
   });
 
   doc.body.appendChild(overlay);

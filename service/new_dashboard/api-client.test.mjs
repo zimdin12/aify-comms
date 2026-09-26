@@ -202,7 +202,7 @@ import { readApiKey as _readKey } from "./api-key.mjs";
 import { PROMPT_ID as _PROMPT_ID } from "./api-key-prompt.mjs";
 
 function _storeWith(value) {
-  const data = value ? { "aify.apiKey": value } : {};
+  const data = value ? { "aify.apiKey@http://127.0.0.2:1": value } : {};
   globalThis.localStorage = {
     getItem: (k) => (k in data ? data[k] : null),
     setItem: (k, v) => { data[k] = String(v); },
@@ -287,7 +287,7 @@ test("a 401 puts the key prompt on the page instead of only throwing", async () 
       "the error must still propagate -- callers render it");
     assert.notEqual(doc.getElementById(_PROMPT_ID), null,
       "a 401 did not mount the prompt, so the operator has no way to supply a key");
-    assert.equal(_readKey(), "",
+    assert.equal(_readKey("http://127.0.0.2:1"), "",
       "the refused key survived, so it would be retried on every future load");
   } finally {
     globalThis.fetch = realFetch;
@@ -310,7 +310,7 @@ test("a NON-401 failure does not mount the prompt", async () => {
     setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
     await assert.rejects(() => api("/whatever"));
     assert.equal(doc.getElementById(_PROMPT_ID), null, "a 500 mounted the key prompt");
-    assert.equal(_readKey(), "banana", "a 500 discarded a key that was never refused");
+    assert.equal(_readKey("http://127.0.0.2:1"), "banana", "a 500 discarded a key that was never refused");
   } finally {
     globalThis.fetch = realFetch;
     globalThis.document = realDoc;

@@ -41,7 +41,7 @@ function harness(t, replies, confirm = true) {
   setApiBase('https://synthetic.invalid/api/v1');
   setOperatorKey('synthetic-operator');
   resetAdoptionForTests();
-  writeApiKey('synthetic-service');
+  writeApiKey('synthetic-service', 'https://synthetic.invalid');
   globalThis.fetch = async (url, options) => {
     sent.push({ url, ...options });
     assert.ok(replies.length, 'unexpected request, never use a real network');
@@ -84,7 +84,7 @@ test('401 prompts for a key without forcing, retrying, or painting success', asy
   assert.equal(await switchAgentSessionMode('coder /one', 'managed'), null);
   assert.ok(h.nodes.some(n => n.id === PROMPT_ID), 'the real key prompt must mount');
   requestIsAuthenticated(h.sent[0]);
-  assert.equal(h.store.has('aify.apiKey'), false);
+  assert.equal(h.store.has('aify.apiKey@https://synthetic.invalid'), false);
   assert.equal(h.sent.length, 1);
   assert.equal(h.dialogs.length, 0);
   assert.equal(h.refreshes(), 0);

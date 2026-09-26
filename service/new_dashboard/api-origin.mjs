@@ -56,6 +56,15 @@ export function resolveApiOrigin() {
   const stored = asHttpOrigin(localStorage.getItem('aify.next.apiOrigin'));
   if (stored) return stored;
   localStorage.removeItem('aify.next.apiOrigin');
+  return defaultApiOrigin();
+}
+
+/**
+ * The service this page talks to when no override is in force. Separate from the resolver because
+ * a key stored before keys were bound to an origin is moved HERE (api-key.mjs `adoptLegacyApiKey`),
+ * never to an override a link may have supplied.
+ */
+export function defaultApiOrigin() {
   // AN HTTPS PAGE TALKS TO ITS OWN ORIGIN, because the only way this dashboard is served over HTTPS
   // is the Caddy proxy, which puts the page, `/api/*` and `/ws` on ONE origin for exactly this
   // reason. Falling through to the port below would send an https page to `https://host:8800`,

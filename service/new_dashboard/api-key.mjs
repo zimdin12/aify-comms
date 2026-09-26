@@ -21,35 +21,85 @@
 // rather than degrade it. Reads answer "" and writes answer false; the caller then behaves as though
 // no key is stored, which is a state the prompt already handles.
 
-const STORAGE_KEY = 'aify.apiKey';
+// BOUND TO AN ORIGIN (0.7.1). A key is stored under the origin it was entered for and read back only
+// for a request to that origin. It was one entry for every origin, so a link carrying
+// `?apiOrigin=<another host>` -- which repoints the dashboard and persists, by design -- made the page
+// send the operator's key to that host on its first request. A new origin has no key until the
+// operator enters one for it, and the prompt names the origin it is asking for.
+const STORAGE_PREFIX = 'aify.apiKey@';
+// Where every origin's key was kept before 0.7.1. Read once, by `adoptLegacyApiKey`, and removed.
+const LEGACY_STORAGE_KEY = 'aify.apiKey';
+// A socket is the same service as the http origin it was built from (realtime-socket.mjs).
+const HTTP_SCHEME = Object.freeze({ 'http:': 'http:', 'https:': 'https:', 'ws:': 'http:', 'wss:': 'https:' });
 
-/** The stored key, or "" when there is none, storage is unavailable, or it throws. */
-export function readApiKey() {
+/**
+ * The http(s) origin a credential for `url` is bound to, or "" when `url` has none (a relative path,
+ * junk, another scheme). "" binds nothing: no key is read for it and none can be stored under it.
+ */
+export function credentialOrigin(url) {
   try {
-    return String(globalThis.localStorage?.getItem(STORAGE_KEY) || '');
+    const parsed = new URL(String(url));
+    const scheme = HTTP_SCHEME[parsed.protocol];
+    return scheme && parsed.host ? `${scheme}//${parsed.host}` : '';
   } catch {
     return '';
   }
 }
 
-/** True when the key was stored. A false return is not an error to report -- see the header. */
-export function writeApiKey(value) {
-  const key = String(value || '').trim();
-  if (!key) return false;
+function storageKey(url) {
+  const origin = credentialOrigin(url);
+  return origin ? `${STORAGE_PREFIX}${origin}` : '';
+}
+
+/** The key stored for `url`'s origin, or "" when there is none, storage is unavailable, or it throws. */
+export function readApiKey(url) {
+  const name = storageKey(url);
+  if (!name) return '';
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, key);
+    return String(globalThis.localStorage?.getItem(name) || '');
+  } catch {
+    return '';
+  }
+}
+
+/** True when the key was stored for `url`'s origin. A false return is not an error to report -- see the header. */
+export function writeApiKey(value, url) {
+  const key = String(value || '').trim();
+  const name = storageKey(url);
+  if (!key || !name) return false;
+  try {
+    globalThis.localStorage?.setItem(name, key);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Forget the key. Called when the service rejects it, so a wrong key is not retried for ever. */
-export function clearApiKey() {
+/** Forget `url`'s key. Called when that service rejects it, so a wrong key is not retried for ever. */
+export function clearApiKey(url) {
+  const name = storageKey(url);
+  if (!name) return;
   try {
-    globalThis.localStorage?.removeItem(STORAGE_KEY);
+    globalThis.localStorage?.removeItem(name);
   } catch {
     // Nothing to do: a store that cannot delete cannot have stored anything either.
+  }
+}
+
+/**
+ * Move a key stored before keys were bound to `defaultOrigin` -- the service this page talks to when
+ * no override is in force -- and remove the unbound copy. Never to the origin in force: that one may
+ * have come from a link, which is the case the binding exists for. A key already stored for
+ * `defaultOrigin` wins over the old copy.
+ */
+export function adoptLegacyApiKey(defaultOrigin) {
+  try {
+    const legacy = globalThis.localStorage?.getItem(LEGACY_STORAGE_KEY);
+    if (legacy == null) return;
+    globalThis.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    if (!readApiKey(defaultOrigin)) writeApiKey(legacy, defaultOrigin);
+  } catch {
+    // Storage that throws holds nothing to move.
   }
 }
 
@@ -71,15 +121,18 @@ let adopted = false;
  * bar, in any bookmark made from the page, and in the `Referer` of every outbound link, which is the
  * leak the typed prompt exists to avoid; adopting it and leaving it there would keep the leak while
  * adding the fix.
+ *
+ * The key is stored for `target`, the origin the page is about to send it to: the operator opened
+ * this page with it, so it is for the service this page talks to.
  */
-export function adoptKeyFromLocation() {
-  if (adopted) return;
+export function adoptKeyFromLocation(target) {
+  if (adopted || !credentialOrigin(target)) return;
   adopted = true;
   try {
     const url = new URL(globalThis.location.href);
     const key = url.searchParams.get('api_key');
     if (!key) return;
-    writeApiKey(key);
+    writeApiKey(key, target);
     url.searchParams.delete('api_key');
     globalThis.history.replaceState({}, '', url.toString());
   } catch {
@@ -94,14 +147,14 @@ export function resetAdoptionForTests() {
 }
 
 /**
- * The header pair to attach, or null when there is no key.
+ * The header pair to attach to a request for `url`, or null when no key is stored for its origin.
  *
  * Returns the OBJECT rather than mutating a caller's headers, so `api()` keeps its rule that a
  * caller's own headers replace the defaults -- a rule two upload tests already pin.
  */
-export function apiKeyHeader() {
-  adoptKeyFromLocation();
-  const key = readApiKey();
+export function apiKeyHeader(url) {
+  adoptKeyFromLocation(url);
+  const key = readApiKey(url);
   return key ? { 'X-API-Key': key } : null;
 }
 
@@ -110,11 +163,11 @@ export function apiKeyHeader() {
  *
  * The browser WebSocket API takes no headers, so the query parameter is the only carrier a page has
  * (the service also reads its cookie, which a same-origin page would send). Returns the url
- * unchanged when no key is stored, so an unprotected service is unaffected.
+ * unchanged when no key is stored for its origin, so an unprotected service is unaffected.
  */
 export function withApiKey(url) {
-  adoptKeyFromLocation();
-  const key = readApiKey();
+  adoptKeyFromLocation(url);
+  const key = readApiKey(url);
   if (!key) return url;
   return `${url}${url.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(key)}`;
 }
