@@ -2,13 +2,17 @@
 
 DELIVERY AND STATUS ARE THE SAME QUESTION and were being answered by two bodies of code with
 different rules. Delivery (`claim_gating._turn_busy_holds_delivery`) implements the operator's
-"trust only verifiable renewals" ruling: a turn whose bridge row is independently observable may
-renew up to `TURN_LEASE_ABSOLUTE_MAX_SECONDS` (4 hours), while anything unverifiable is cut at the
-strict 30-minute anchor. The status clamp cut everything at 30 minutes.
+"trust only verifiable renewals" ruling: a turn whose bridge row is independently observable
+renews for as long as it keeps being renewed, while anything unverifiable is cut at the strict
+30-minute anchor. The status clamp cut everything at 30 minutes, so a working agent with a live,
+verifiable bridge kept its queued work while the dashboard said it had stopped working. Two answers
+to one question, and the operator sees the wrong one.
 
-So a genuinely working agent with a live, verifiable bridge kept its queued work for up to four
-hours -- correctly -- while the dashboard said it had stopped working after thirty minutes. Two
-answers to one question, and the operator sees the wrong one.
+NO CEILING ON A RENEWED TURN (v0.7.5, operator ruling: "agents can work for really long time, why
+even have a cap"). A verified turn used to be cut after four hours however recently it was renewed,
+so a real long task read as not working and had queued work delivered into it. A turn is now live
+while its renewals keep coming: a bridge that stops renewing still ages out at the strict window,
+which is the evidence, and the clock since the turn began is not.
 
 THIS IS A PURE FUNCTION AND IT TAKES THE VERDICT, NOT THE DATABASE. Whether a lease is renewable is
 an ownership question about `bridge_instances` and belongs to the caller that can ask it; what to do
@@ -28,7 +32,6 @@ def turn_is_still_live(
     renewable: bool,
     now_epoch: float,
     strict_seconds: float,
-    absolute_max_seconds: float,
 ) -> bool:
     """Should this turn still count as running?
 
@@ -36,13 +39,13 @@ def turn_is_still_live(
     reason the anchor columns exist. `touched_epoch` is when something last said it was still going,
     which a timer-driven poster refreshes and which therefore cannot bound anything on its own.
 
-    A VERIFIED CLAIM ages against the last renewal, bounded absolutely from the start. Nothing
+    A VERIFIED CLAIM ages against the last renewal, however long ago the turn began. Nothing
     checkable ages against the start alone, because re-stamps prove nothing when no independent
     observer is backing them.
 
     A FUTURE TIMESTAMP MUST NOT HOLD. `now - seen` goes negative for a clock-skewed or bad write,
-    which trivially satisfies `<= ceiling`, so the turn would be live for ever -- the exact permanent
-    strand the ceiling exists to bound. Requiring a non-negative age closes it.
+    which trivially satisfies `<= strict_seconds`, so the turn would be live for ever with nothing
+    renewing it. Requiring a non-negative age closes it.
 
     NO ANCHOR AT ALL IS NOT A LIVE TURN. Every writer stamps a timestamp, so a blank or unparseable
     pair is a corrupt row rather than a running turn. Both callers prefer the recoverable failure:
@@ -50,8 +53,6 @@ def turn_is_still_live(
     that never receives work again or shows `working` for ever.
     """
     if renewable:
-        if started_epoch and (now_epoch - started_epoch) > absolute_max_seconds:
-            return False
         # A FUTURE last-touch is not a renewal. Without this, verifying a lease could make a turn
         # LESS live than not verifying it -- a clock-skewed or bad `touched` write gives a negative
         # age, which the caller below rejects, while the unverified path would have aged the start

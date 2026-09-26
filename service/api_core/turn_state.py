@@ -35,7 +35,7 @@ from service.api_core.turn_liveness_policy import turn_is_still_live
 # rather than assumed, because a function-scope import here would hide the dependency from the
 # layering tests that read module imports.
 from service.api_core.claim_gating import (
-    TURN_LEASE_ABSOLUTE_MAX_SECONDS, _turn_lease_is_renewable,
+    _turn_lease_is_renewable,
 )
 from service.clock import iso_to_epoch as _iso_to_epoch
 from service.clock import now as _now
@@ -216,8 +216,7 @@ async def _status_turn_signals(db, agent_row, *, status_signals=None):
                 def _verdict(renewable):
                     return turn_is_still_live(
                         started_epoch=_started, touched_epoch=_touched, renewable=renewable,
-                        now_epoch=_now, strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
-                        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS)
+                        now_epoch=_now, strict_seconds=TURN_BUSY_BACKSTOP_SECONDS)
 
                 # STRICT FIRST, and pay for the ownership query ONLY when it would change the
                 # answer. This runs per agent on a batch status refresh, and the prefetch module

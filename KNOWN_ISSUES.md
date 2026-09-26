@@ -324,8 +324,8 @@ Each item below was read against the code on 2026-09-25; none has been seen misb
 
 - **`PATCH /agents/{id}/ready` refreshes `turn_updated_at` on a row it does not own**
   (`update_agent_ready` in `service/routers/agents/liveness.py`). The delivery and status ceiling
-  renews against that column only for a turn a live bridge owns, so this can extend such a lease, never
-  past `TURN_LEASE_ABSOLUTE_MAX_SECONDS`.
+  renews against that column only for a turn a live bridge owns, so each call can extend such a lease
+  by one 30-minute window. The bridge sends it once per run handshake, which is real work starting.
 - **Bridge HTTP calls never retry a 429.** `aify-service-endpoint.mjs` retries only 5xx responses, and
   only for its idempotent requests. Latent: the service never answers 429.
 - **`PATCH /dispatch/runs/{id}` checks no ownership** (`update_dispatch_run`). A terminal run can no

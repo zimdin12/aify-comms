@@ -47,15 +47,6 @@ from service.env_status import environment_effective_status as _environment_effe
 from service.models import DispatchClaimRequest
 
 
-#: The longest a turn may hold delivery even while a live bridge keeps renewing it.
-#:
-#: A renewable lease with no ceiling is the permanent strand again wearing a better hat: a bridge
-#: that heartbeats for ever would hold queued work for ever. Four hours is far clear of the longest
-#: turn actually observed on this fleet (47 minutes, a review), so it bounds the pathological case
-#: without touching a real one. It is deliberately NOT `TURN_BUSY_BACKSTOP_SECONDS`: that one bounds
-#: an UNVERIFIED claim and wants to be short, this one bounds a verified one and wants to be long.
-TURN_LEASE_ABSOLUTE_MAX_SECONDS = 4 * 60 * 60
-
 #: How far ahead of us a bridge's `last_seen` may be and still count as a live heartbeat.
 #:
 #: NOT ZERO, deliberately. `aify-comms doctor`'s `env-bridge` check once reported every environment
@@ -391,8 +382,7 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
       * `turn_bridge_id` names a bridge row that EXISTS, belongs to this agent, and is
         heartbeating -> the lease renews against `turn_updated_at`, exactly as it always
         did. Something independently observable is still claiming the turn, so a re-stamp
-        is evidence. `TURN_LEASE_ABSOLUTE_MAX_SECONDS` still bounds it, because a
-        renewable lease with no ceiling is the permanent strand again in a better hat.
+        is evidence, and the turn holds for as long as the renewals keep coming.
       * Anything else — the hook marker, an empty owner, a bridge that is gone or stale ->
         the strict anchor, measured from `turn_started_at`. Nothing checkable is claiming
         this turn, so re-stamps prove nothing.
@@ -433,8 +423,8 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
 
     # THE POLICY LIVES IN ONE PLACE NOW. The status clamp asked the same question with different
     # rules -- everything cut at 30 minutes, with no notion of a verified renewal -- so a working
-    # agent with a live bridge kept its work for four hours while the dashboard said it had stopped
-    # after thirty minutes. `turn_liveness_policy.turn_is_still_live` is the single answer; this
+    # agent with a live bridge kept its work while the dashboard said it had stopped after thirty
+    # minutes. `turn_liveness_policy.turn_is_still_live` is the single answer; this
     # function still owns the OWNERSHIP question, because that needs the database.
     _renewable = await _turn_lease_is_renewable(db, agent_id, _owner)
     return turn_is_still_live(
@@ -443,7 +433,6 @@ async def _turn_busy_holds_delivery(db, agent_id: str) -> bool:
         renewable=_renewable,
         now_epoch=datetime.now(timezone.utc).timestamp(),
         strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
-        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS,
     )
 # v0.5.4: `_mark_dispatch_source_messages_read` arrived from the control plane. It is the one WRITE in
 # this module, and it is here because `_dispatch_source_message_ids` — which decides what to mark — is

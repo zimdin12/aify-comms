@@ -45,8 +45,7 @@ the contract both tables follow.
   several consecutive reads before it clears, because hermes' running flag blinks off between tool
   calls. It runs for managed hermes and for any resident with `AIFY_HERMES_GATEWAY_URL` set.
 - **Backstop:** a turn with no end-event ages out 30 min after it began
-  (`TURN_BUSY_BACKSTOP_SECONDS`); one a live bridge owns renews, capped at 4 h
-  (`TURN_LEASE_ABSOLUTE_MAX_SECONDS`).
+  (`TURN_BUSY_BACKSTOP_SECONDS`); one a live bridge owns lasts while its renewals keep coming.
 - **Console lease:** `service/api_core/console_working.py` stamps a 20s lease when the rendered
   managed-claude screen shows the running footer. It holds a long turn at `working` when no fresh
   aify-env observation is available.

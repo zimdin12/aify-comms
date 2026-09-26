@@ -1,8 +1,8 @@
 """One policy, and the property that lets its callers take a shortcut.
 
 DELIVERY AND STATUS ANSWERED THE SAME QUESTION DIFFERENTLY. Delivery implemented the operator's
-"trust only verifiable renewals" ruling — a verifiable bridge renews to four hours, anything else is
-cut at the strict thirty-minute anchor. The status clamp cut everything at thirty minutes. So a
+"trust only verifiable renewals" ruling — a verifiable bridge renews while it keeps renewing,
+anything else is cut at the strict thirty-minute anchor. The status clamp cut everything at thirty minutes. So a
 working agent with a live bridge kept its queued work for hours, correctly, while the dashboard said
 it had stopped after half an hour. The reviewer caught it as a policy mismatch; this file is the
 single answer both now call.
@@ -22,7 +22,7 @@ import unittest
 from service.api_core.turn_liveness_policy import turn_is_still_live
 
 STRICT = 1800.0
-ABSOLUTE = 4 * 60 * 60.0
+FOUR_HOURS = 4 * 60 * 60.0  # the ceiling a renewed turn had until v0.7.5
 
 
 class TurnLivenessPolicyTests(unittest.TestCase):
@@ -36,7 +36,6 @@ class TurnLivenessPolicyTests(unittest.TestCase):
             renewable=renewable,
             now_epoch=self.now,
             strict_seconds=STRICT,
-            absolute_max_seconds=ABSOLUTE,
         )
 
     def test_an_unverified_turn_is_cut_at_the_strict_anchor(self):
@@ -50,10 +49,13 @@ class TurnLivenessPolicyTests(unittest.TestCase):
     def test_a_VERIFIED_turn_renews_against_the_last_renewal(self):
         self.assertTrue(self.live(started_ago=7200, touched_ago=1, renewable=True))
 
-    def test_but_a_verified_turn_is_still_bounded_absolutely(self):
-        """A renewable lease with no ceiling is the permanent strand again in a better hat."""
-        self.assertTrue(self.live(started_ago=ABSOLUTE - 60, touched_ago=1, renewable=True))
-        self.assertFalse(self.live(started_ago=ABSOLUTE + 60, touched_ago=1, renewable=True))
+    def test_a_verified_turn_that_keeps_renewing_is_live_however_long_it_runs(self):
+        """v0.7.5, operator ruling: agents may work as long as the work needs. A four-hour ceiling cut
+        a renewed turn off by the clock; the evidence is whether renewals keep coming."""
+        for hours in (4.1, 12, 72):
+            self.assertTrue(self.live(started_ago=hours * 3600, touched_ago=1, renewable=True), hours)
+        # ...and the renewals ARE the bound: a long turn nothing renews still ages out.
+        self.assertFalse(self.live(started_ago=12 * 3600, touched_ago=STRICT + 5, renewable=True))
 
     def test_no_timestamps_at_all_is_not_a_live_turn(self):
         """Every writer stamps something, so a blank pair is a corrupt row. Both callers prefer the
@@ -84,7 +86,7 @@ class TurnLivenessPolicyTests(unittest.TestCase):
         shortcut would silently disagree with delivery on those rows.
         """
         starts = (None, 1, 10, 100, STRICT - 1, STRICT, STRICT + 1, 3600, 7200,
-                  ABSOLUTE - 1, ABSOLUTE + 1)
+                  FOUR_HOURS - 1, FOUR_HOURS + 1)
         touches = (None, -600, -1, 1, 5, 100, STRICT - 1, STRICT + 1, 7200, 20000)
         inversions = []
         for started in starts:
@@ -97,6 +99,9 @@ class TurnLivenessPolicyTests(unittest.TestCase):
 
     def test_the_ceiling_SKIPPED_for_an_anchorless_row_grants_nothing(self):
         """DISP-L1, and it is a non-defect. Pinned so nobody "fixes" it again -- I tried twice.
+
+        SINCE v0.7.5 THERE IS NO CEILING to skip: a renewed turn is live while renewals keep coming. The
+        history below is kept because the parity it asserts still holds and still matters.
 
         The finding is accurate as written: `if started_epoch and (now - started) > absolute_max`
         does skip the 4-hour ceiling for a row with no start anchor. The inference that this leaves

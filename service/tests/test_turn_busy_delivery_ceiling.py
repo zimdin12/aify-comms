@@ -455,20 +455,12 @@ class OnlyAVerifiableRenewalMayExtendATurnTests(FastApiTestCase):
         self._turn("lease-wrong-owner", bridge_id="bridge-elsewhere", started_age=40 * 60, updated_age=5)
         self.assertFalse(self._holds("lease-wrong-owner"))
 
-    def test_an_ABSOLUTE_MAXIMUM_still_bounds_a_renewing_bridge(self):
-        """A renewable lease with no ceiling is the permanent strand again, wearing a better hat."""
-        self._bridge("bridge-forever", "lease-forever", last_seen_age=5)
-        self._turn("lease-forever", bridge_id="bridge-forever",
-                   started_age=claim_gating.TURN_LEASE_ABSOLUTE_MAX_SECONDS + 60, updated_age=5)
-        self.assertFalse(
-            self._holds("lease-forever"),
-            "a bridge that heartbeats for ever held delivery for ever",
-        )
-
-    def test_the_absolute_maximum_is_well_clear_of_a_real_long_turn(self):
-        """A bound below observed real work would re-create the problem it exists to avoid. The
-        longest turn actually seen on this fleet was 47 minutes."""
-        self.assertGreaterEqual(claim_gating.TURN_LEASE_ABSOLUTE_MAX_SECONDS, 4 * 3600)
+    def test_a_renewed_turn_holds_delivery_however_long_it_has_run(self):
+        """v0.7.5, operator ruling: no time cap on work. Twelve hours in, renewed five seconds ago by a
+        live bridge of its own: still working, so the queued message waits for the turn to end."""
+        self._bridge("bridge-long", "lease-long", last_seen_age=5)
+        self._turn("lease-long", bridge_id="bridge-long", started_age=12 * 60 * 60, updated_age=5)
+        self.assertTrue(self._holds("lease-long"), "a long, renewed turn was cut off by the clock")
 
     def test_a_live_bridge_that_STOPS_re_stamping_still_ages_out(self):
         """Renewable is not unconditional: the lease still expires if nothing renews it."""

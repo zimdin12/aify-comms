@@ -523,7 +523,9 @@ reads idle while delivery holds, and a target without `steer` goes deaf to every
 the delivery gate and the status `in_turn` clamp both call with the same two constants:
 
 - A turn whose `turn_bridge_id` names a live, heartbeating bridge of this agent is a renewable lease:
-  a re-stamp extends it, up to `TURN_LEASE_ABSOLUTE_MAX_SECONDS` (4 h).
+  a re-stamp extends it for as long as the re-stamps keep coming. Until v0.7.5 it was also capped at 4 h
+  from its start; the operator ruled that out ("agents can work for really long time, why even have a
+  cap"), so a long real task is no longer read as finished by the clock.
 - Any other turn (the hook marker, an empty owner, a bridge that is gone or stale) is measured from
   `turn_started_at`, which only the not-busy to busy transition writes, against
   `TURN_BUSY_BACKSTOP_SECONDS` (30 min).

@@ -38,7 +38,7 @@ from service.api_core.host_activity import HOST_ACTIVITY_FRESH_SECONDS, host_act
 from service.api_core.channel_delivery import _has_live_worker_for, _worker_liveness_for
 from service.api_core.turn_liveness_policy import turn_is_still_live
 from service.api_core.claim_gating import (
-    TURN_LEASE_ABSOLUTE_MAX_SECONDS, _turn_lease_is_renewable,
+    _turn_lease_is_renewable,
 )
 from service.api_core.liveness import (
     CONSOLE_WORKING_LEASE_SECONDS,
@@ -127,7 +127,6 @@ def _in_turn_survives_the_ceiling(state_row, *, renewable: bool = False) -> bool
         renewable=renewable,
         now_epoch=datetime.now(timezone.utc).timestamp(),
         strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
-        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS,
     )
 
 
@@ -187,7 +186,6 @@ async def _in_turn_survives(db, agent_id: str, state_row, *, status_signals=None
         renewable=True,
         now_epoch=datetime.now(timezone.utc).timestamp(),
         strict_seconds=TURN_BUSY_BACKSTOP_SECONDS,
-        absolute_max_seconds=TURN_LEASE_ABSOLUTE_MAX_SECONDS,
     )
 
 

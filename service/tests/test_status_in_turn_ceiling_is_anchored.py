@@ -346,13 +346,14 @@ class BothProductionBuildersRenewAVerifiedTurnTests(FastApiTestCase):
 
         return asyncio.run(_run())
 
-    def test_and_past_the_ABSOLUTE_bound_even_a_live_bridge_does_not_hold_it(self):
-        """A renewable lease with no ceiling is the permanent strand again in a better hat."""
-        self._seed("sb-forever", started_age=5 * 60 * 60, bridge_id="br-live2",
+    def test_a_renewed_turn_stays_working_however_long_it_has_run(self):
+        """v0.7.5, operator ruling: no time cap on work. Five hours in, still renewed by a live bridge
+        of its own, it reads `working` from both builders, as delivery holds it."""
+        self._seed("sb-long", started_age=5 * 60 * 60, bridge_id="br-live2",
                    bridge_last_seen_age=3)
-        gathered, served_status = self._both_builders("sb-forever")
-        self.assertFalse(gathered)
-        self.assertNotEqual(served_status, "working")
+        gathered, served_status = self._both_builders("sb-long")
+        self.assertTrue(gathered)
+        self.assertEqual(served_status, "working")
 
 
 class TheTwoTABLES_MUST_NOT_CARRY_DIFFERENT_ANSWERSTests(FastApiTestCase):
