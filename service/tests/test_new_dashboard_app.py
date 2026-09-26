@@ -281,7 +281,10 @@ class NewDashboardAppTest(unittest.TestCase):
         script = _dashboard_js()
         styles = (ROOT / "service" / "new_dashboard" / "styles.css").read_text(encoding="utf-8")
 
-        self.assertIn("inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false", script)
+        # The empty drawer state has one owner since v0.7.2 (state.mjs `emptyInspector`), which the
+        # shared state starts from and every closed or re-kinded drawer returns to.
+        self.assertIn("return { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false", script)
+        self.assertIn("inspector: emptyInspector(),", script)
         self.assertIn("runInspector: () => Boolean", script)
         self.assertIn("runInspector: { enabled: false, assertion: flowAssertions.runInspector }", script)
         self.assertIn("function openInspector(request)", script)
