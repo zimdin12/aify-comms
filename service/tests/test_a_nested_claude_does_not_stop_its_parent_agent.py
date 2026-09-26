@@ -159,3 +159,32 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._execute("UPDATE agents SET runtime_state = ? WHERE id = ?", (json.dumps(dict(state, bridgeInstanceId="elsewhere")), AGENT))
         self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
         self.assertEqual(json.loads(self._agent()["runtime_state"])["bridgeInstanceId"], "elsewhere")
+
+    def _operator_stop(self):
+        stopped = self.client.post(f"/api/v1/agents/{AGENT}/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+
+    def test_CONTROL_a_stop_before_the_loss_is_not_offered_back(self):
+        """The operator stopped the agent while the nested bridge owned it: the loss offers nothing, so no
+        beat can lift that stop (review of 17fd7b85)."""
+        self._nested_takes_over()
+        self._operator_stop()
+        self._lost("nested-bridge")
+        self.assertIsNone(self._fetchone("SELECT handback_offer FROM bridge_instances WHERE id = 'real-bridge'")["handback_offer"])
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual((self._agent()["status"], self._agent()["launch_mode"]), ("stopped", "none"))
+
+    def test_CONTROL_a_later_stop_that_writes_the_same_fields_still_ends_the_offer(self):
+        """The loss's reason is the caller's, and it can equal the dashboard's stop note; the offer's token is
+        the service's, so a later stop with otherwise identical fields still changes what the offer holds."""
+        dashboard_note = "Resident session stop requested from dashboard; live bridge should terminate the CLI host."
+        self._nested_takes_over()
+        lost = self.client.post(
+            f"/api/v1/agents/{AGENT}/resident-lost",
+            json={"bridgeId": "nested-bridge", "machineId": "win32:test-host", "reason": dashboard_note},
+        )
+        self.assertEqual(lost.status_code, 200, lost.text)
+        self._operator_stop()
+        self.assertEqual(self._fetchone("SELECT status_note FROM agents WHERE id = ?", (AGENT,))["status_note"], dashboard_note)
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual((self._agent()["status"], self._agent()["launch_mode"]), ("stopped", "none"))

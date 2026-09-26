@@ -15,11 +15,16 @@ relaunch never beats again, so a relaunched session that closes, however soon, l
 freshness window on the predecessor's older beats cannot tell those two apart and handed a quick relaunch
 to a dead bridge (0.7.4 review of d51472e3).
 
-THE OFFER HOLDS ONLY WHILE THE LOSS'S STOP DOES. The offer records the agent's status, launch mode and note
-as the loss left them, and a beat reclaims only while all three are unchanged. Any other writer -- an
-operator stop from either the agent or the session control, a CLI takeover, a Resume, a re-registration --
-changes them and the offer lapses, whichever route it came through. Withdrawing the offer route by route
-missed the session control's Stop (review of 486c8262); a state the offer checks cannot be missed that way.
+THE OFFER HOLDS ONLY WHILE THE LOSS'S OWN STOP DOES, and it is identified, not merely compared.
+  - No offer when the agent was already stopped before the loss: that stop is someone else's, and a beat
+    must never lift it (review of 17fd7b85).
+  - The offer appends a service-made token to the note the loss wrote, and records the agent's status,
+    launch mode, session mode and that note. Every writer that stops an agent writes its own note, and none
+    can write this one, so any later stop -- the agent control, the session control, a CLI takeover, even
+    one whose other fields match exactly -- changes the recorded state and the offer lapses. Comparing the
+    fields alone failed when the loss's caller-supplied reason equalled the dashboard's stop note, and
+    withdrawing route by route missed the session control's Stop (reviews of 17fd7b85 and 486c8262).
+  - A writer that moves ownership and leaves those fields alone is refused by the owner check.
 
 The cost is one heartbeat interval: from the nested bridge's exit to the real bridge's next beat, the agent
 reads stopped.
@@ -28,20 +33,40 @@ reads stopped.
 from __future__ import annotations
 
 import json
+import uuid
 
-_STATE = ("status", "launch_mode", "status_note")
+_STATE = ("status", "launch_mode", "session_mode", "status_note")
 
 
-async def offer_handback(db, *, agent_id: str, lost_bridge_id: str, now: str, stopped_agent) -> None:
-    """Offer the session back to the same-handle bridges `lost_bridge_id` superseded, for as long as
-    `stopped_agent`'s state (the agent row the loss just wrote) stands."""
+def was_stopped(agent) -> bool:
+    """The agent row before the loss: a stop already in place is not the loss's to offer back."""
+    return str(agent["status"] or "") == "stopped" or str(agent["launch_mode"] or "").strip().lower() == "none"
+
+
+async def offer_handback(db, *, agent_id: str, lost_bridge_id: str, now: str) -> None:
+    """Offer the session back to the same-handle bridges `lost_bridge_id` superseded, for as long as the
+    stop the loss just wrote stands. Call it after that stop is written."""
     lost = await (await db.execute(
         "SELECT session_handle FROM bridge_instances WHERE id = ? AND agent_id = ?", (lost_bridge_id, agent_id),
     )).fetchone()
     handle = str((lost["session_handle"] if lost else "") or "").strip()
     if not handle:
         return
-    offer = json.dumps({"at": now, **{key: stopped_agent[key] for key in _STATE}})
+    takers = await (await db.execute(
+        "SELECT 1 FROM bridge_instances WHERE agent_id = ? AND superseded_by = ? AND session_handle = ? LIMIT 1",
+        (agent_id, lost_bridge_id, handle),
+    )).fetchone()
+    if not takers:
+        return
+    token = uuid.uuid4().hex[:12]
+    await db.execute(
+        "UPDATE agents SET status_note = TRIM(COALESCE(status_note, '') || ?) WHERE id = ?",
+        (f" (its own bridge may reclaim it: offer {token})", agent_id),
+    )
+    agent = await (await db.execute(
+        "SELECT status, launch_mode, session_mode, status_note FROM agents WHERE id = ?", (agent_id,),
+    )).fetchone()
+    offer = json.dumps({"at": now, "token": token, **{key: agent[key] for key in _STATE}})
     await db.execute(
         "UPDATE bridge_instances SET handback_offer = ?"
         " WHERE agent_id = ? AND superseded_by = ? AND session_handle = ?",
@@ -63,7 +88,7 @@ async def reclaim_on_beat(db, *, agent_id: str, bridge_id: str) -> bool:
         return False
     taker = str(mine["superseded_by"] or "").strip()
     agent = await (await db.execute(
-        "SELECT status, launch_mode, status_note, runtime_state FROM agents WHERE id = ?", (agent_id,),
+        "SELECT status, launch_mode, session_mode, status_note, runtime_state FROM agents WHERE id = ?", (agent_id,),
     )).fetchone()
     if not agent or any(agent[key] != offer.get(key) for key in _STATE):
         return False  # something else has written the agent since the loss: its word stands

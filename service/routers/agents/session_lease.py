@@ -34,7 +34,7 @@ from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
-from service.api_core.nested_session_handback import offer_handback
+from service.api_core.nested_session_handback import offer_handback, was_stopped
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
 from service.api_core.routing import domain_router
@@ -245,8 +245,9 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
         )
         # If this bridge had taken the session over from a same-handle bridge (a nested `claude` run from
         # the agent's own shell does), that bridge may reclaim it by beating, while this stop stands.
-        if bridge_id and transition == "resident_to_stopped":
-            await offer_handback(db, agent_id=agent_id, lost_bridge_id=bridge_id, now=now, stopped_agent=returned)
+        if bridge_id and transition == "resident_to_stopped" and not was_stopped(row):
+            await offer_handback(db, agent_id=agent_id, lost_bridge_id=bridge_id, now=now)
+            returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
 
         await db.commit()
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
