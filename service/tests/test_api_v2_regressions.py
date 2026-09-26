@@ -3552,7 +3552,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
             async def execute(self, sql, params=()):
                 if "SET status = 'queued'" in sql:
-                    await self._db.execute("UPDATE dispatch_runs SET status = 'delivered' WHERE id = ?", (params[-1],))
+                    await self._db.execute("UPDATE dispatch_runs SET status = 'delivered' WHERE id = ?", (params[2],))
                 return await self._db.execute(sql, params)
 
         async def _run():
@@ -3573,6 +3573,42 @@ class ApiV2RegressionTests(FastApiTestCase):
             ("run_race_claim",),
         )
         self.assertIsNone(event, "no requeue event for a run that was not requeued")
+
+    def test_requeue_leaves_a_claim_whose_bridge_beat_after_it_was_selected(self):
+        # v0.7 review: the SELECT required a stale claim bridge, but the compare-and-set UPDATE did
+        # not ask again, so a claimer whose heartbeat resumed in between had its run requeued and a
+        # second claimer could deliver it too. The proxy refreshes the bridge just before the UPDATE.
+        self._register("race-beat-hermes", runtime="hermes", sessionMode="managed")
+        self._seed_claimed_run("run_race_beat", "race-beat-hermes", claim_bridge_id="resumed-bridge", claimed_minutes_ago=5)
+
+        class _BeatsFirst:
+            def __init__(self, db):
+                self._db = db
+
+            def __getattr__(self, name):
+                return getattr(self._db, name)
+
+            async def execute(self, sql, params=()):
+                if "SET status = 'queued'" in sql:
+                    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    await self._db.execute(
+                        "INSERT OR REPLACE INTO bridge_instances (id, agent_id, registered_at, last_seen) VALUES (?,?,?,?)",
+                        ("resumed-bridge", "race-beat-hermes", now, now),
+                    )
+                return await self._db.execute(sql, params)
+
+        async def _run():
+            from service.db import get_db as _get_db
+            db = await _get_db()
+            try:
+                return await _requeue_orphaned_claimed_runs(_BeatsFirst(db))
+            finally:
+                await db.commit()
+                await db.close()
+
+        self.assertEqual(asyncio.run(_run()), [], "a claim whose bridge came back was requeued")
+        row = self._fetchone("SELECT status FROM dispatch_runs WHERE id = ?", ("run_race_beat",))
+        self.assertEqual(row["status"], "claimed")
 
     def test_claimed_run_with_live_bridge_not_requeued(self):
         # GUARD: a claimed run whose claim bridge IS fresh/live is genuinely being

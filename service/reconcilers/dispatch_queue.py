@@ -286,7 +286,9 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
         # COMPARE-AND-SET on the claim that was selected. The SELECT above and this UPDATE are
         # separate statements with awaits between them, so a bridge can deliver (or a sweep settle)
         # the run in that window; an UPDATE by id alone put such a run back in the queue and it was
-        # delivered twice. A run that is no longer this exact claim is left alone.
+        # delivered twice. A run that is no longer this exact claim is left alone. The bridge's
+        # liveness is re-asked here too: a claimer whose heartbeat resumed after the SELECT is
+        # delivering, and requeueing its run would hand it to a second claimer (v0.7 review).
         cursor = await db.execute(
             """
             UPDATE dispatch_runs
@@ -298,8 +300,16 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
               AND COALESCE(claim_bridge_id, '') = ?
               AND claimed_at = ?
               AND id = ?
+              AND (
+                COALESCE(claim_bridge_id, '') = ''
+                OR NOT EXISTS (
+                  SELECT 1 FROM bridge_instances bi
+                  WHERE bi.id = dispatch_runs.claim_bridge_id
+                    AND datetime(bi.last_seen) > datetime('now', ?)
+                )
+              )
             """,
-            (str(row["claim_bridge_id"] or ""), row["claimed_at"], run_id),
+            (str(row["claim_bridge_id"] or ""), row["claimed_at"], run_id, stale_param),
         )
         if not cursor.rowcount:
             continue
