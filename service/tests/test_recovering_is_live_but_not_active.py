@@ -30,8 +30,8 @@ pair and be tempted to unify them. Unifying in either direction breaks something
 
 Measured context when written: eleven distinct "live-ish" status vocabularies are spelled out inline
 across the service, twelve sites carrying the six-value LIVE set alone. That fragmentation is real
-and is frozen elsewhere (`test_status_set_literal_twins_are_frozen.py`,
-`test_ended_status_sets_agree.py`). This file covers only the one difference that is deliberate.
+and is frozen elsewhere (`test_status_set_literal_twins_are_frozen.py`; the ended-status sets were
+merged into one in 0.7.0). This file covers only the one difference that is deliberate.
 """
 
 from __future__ import annotations

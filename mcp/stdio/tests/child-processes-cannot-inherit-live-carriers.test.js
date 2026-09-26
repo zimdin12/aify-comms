@@ -9,7 +9,8 @@
 //   3. a CHILD process inherited AIFY_HERMES_GATEWAY_URL and the active-session file, because its parent passed
 //      the env map into the wrong parameter and silently overrode nothing.
 //
-// The first two are guarded (hermes_carriers.py's source-derived list; env-carrier-pairs-are-sealed-together).
+// The second is guarded (env-carrier-pairs-are-sealed-together); the first went with the Python session
+// discovery that read carriers, deleted in 0.7.0, so no Python code reads one now.
 // This one guards the third: a child's environment is built by the parent, the parent's own seals do not reach
 // it, and the failure is invisible wherever the carrier is unset.
 //

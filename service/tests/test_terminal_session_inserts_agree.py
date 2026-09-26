@@ -8,8 +8,8 @@ WHY THIS IS PINNED RATHER THAN MERGED. The four differ in exactly the ways they 
 terminal is born `running` because the RPC session already exists, while a real PTY is born
 `starting` because a bridge still has to boot it; the command differs per path; the requester differs.
 Collapsing them would mean threading those through as parameters, which is a behaviour-shaped change,
-and v0.5.x is the refactor line. See `test_console_input_queueing_twins_agree.py`, which records the
-same judgement for the console-input loops.
+and v0.5.x is the refactor line. (The console-input loops had the same judgement until 0.7.0 merged
+them into one body in `service/api_core/console_input_queue.py`.)
 
 WHAT ACTUALLY FAILS WITHOUT THIS. Add a column to `terminal_sessions` and wire it into the path you
 happened to be working in. Nothing raises. Terminals created by the other three paths simply carry

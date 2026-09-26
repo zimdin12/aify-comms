@@ -580,9 +580,8 @@ const CLAIM_OPTS = CLAIM_WAIT_MS > 0 ? { timeoutMs: CLAIM_HTTP_TIMEOUT_MS } : {}
 // residentRuntimeBindingLost moved to ./resident-binding-health.mjs in v0.5.4.
 
 // The IMPLEMENTATION lives in ./resident-runtime-lost.mjs; this is the binding that supplies the two
-// names server.js owns — the shutdown chain and this machine's id. Deliberately NOT written as a
-// `moved to` marker: `moved-names-resolve` treats a marker plus a local declaration as a fork, and
-// it is right to — this is a borrow shim, and calling it a move would be a claim the file disproves.
+// names server.js owns — the shutdown chain and this machine's id. A borrow shim, not a move: the
+// local declaration is deliberate, so it is not marked as moved.
 const reportResidentRuntimeLost = (agentId, info, reason) =>
   reportResidentRuntimeLostImpl(agentId, info, reason, { MACHINE_ID, shutdownWithStatus });
 

@@ -88,8 +88,8 @@ const CEILINGS = {
   // launcher no test could render, which is exactly why a regression in it reached a live host.
   //
   // COMMENTS CUT TO WHAT A READER NEEDS, following this file's own precedent from 2026-08-25: the
-  // incident lives in the commit and in test_install_keeps_the_delegation_the_host_chose.py, where
-  // it does not cost a line on every read. Still unpaid by the Phase 8 deletion: this file loses
+  // incident lives in the commit (that test and the delegation switch went in 0.7.0), where it does
+  // not cost a line on every read. Still unpaid by the Phase 8 deletion: this file loses
   // roughly 139 lines when the `aify-comms` command goes, and this ceiling comes down then.
   // 3043 -> 3046 on 2026-08-29. THE SECOND UNSUBSTITUTED TEMPLATE PARAMETER. aify-wrapper
   // parameterised the service name; a pin bump inherited it; the rendered launcher wrote an MCP
@@ -145,7 +145,7 @@ const CEILINGS = {
   // command stopped being the environment bridge: the root parser, the workspace-root resolver,
   // the env exports, the start-up banner and the exec all went, because aify-env is the host tier
   // and there is no second spawner for that command to be. What is left is a verifier -- doctor,
-  // --check, --version, --help -- plus a two-line install record `scripts/installed-delegation.sh`
+  // --check, --version, --help -- plus the aify-env endpoint, which `scripts/installed-env-endpoint.sh`
   // reads back. The baked API key went with it: it existed because the BRIDGE could not reach its
   // own service, and every surviving branch reaches it on its own terms.
   // 2977 -> 2975 on 2026-09-04. NOT a change to this file: it measured 2975 and the ceiling had two

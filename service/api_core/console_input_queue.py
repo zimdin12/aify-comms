@@ -10,11 +10,10 @@ a contract saying an answer is expected back. `_record_terminal_delivery_contrac
 that contract, and it is 107 of these 277 lines because getting it wrong strands the send: the
 keystrokes land, nothing tracks them, and the sender waits forever on a run that was never created.
 
-THE TWO QUEUE FUNCTIONS ARE TWINS, deliberately not merged, and
-`test_console_input_queueing_twins_agree.py` pins them: fifty-one of their fifty-three body lines
-are character-for-character identical, and the two that differ are declared there. Putting them in
-one module is the point -- in `shared.py` they sat with 200 lines between them, and a fix applied to
-one and not the other was silent. Adjacent, the duplication is visible to anyone editing either.
+THE TWO QUEUE ENTRY POINTS SHARE ONE BODY since 0.7.0: they were twins, fifty-one of fifty-three
+lines identical, pinned by a test that compared them, and the dispatch one now delegates to the other
+with its `source`. In `shared.py` they had sat 200 lines apart, and a fix applied to one and not the
+other was silent.
 """
 from __future__ import annotations
 

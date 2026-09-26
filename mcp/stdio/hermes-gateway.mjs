@@ -240,7 +240,8 @@ export async function ensureGatewayHost({
     // gate, so on that build (and later) plain `hermes dashboard` already serves `/api/ws`
     // and this env is a harmless no-op. DO NOT REMOVE IT — it is retained as the crash-safe
     // lever for PINNED-OLDER hermes 0.15.x builds (pre-`cae6b5486`), where `/api/ws` still
-    // closes 4403 without it. (See KNOWN_ISSUES.md and DECISIONS.md.)
+    // closes 4403 without it. (The 4403 entries are in docs/history/, archived from KNOWN_ISSUES.md
+    // and DECISIONS.md.)
     //
     // HERMES_PARENT_PID ties the gateway to its agent's instance: see gatewayOwnerEnv.
     env: { ...env, HERMES_YOLO_MODE: "1", HERMES_DASHBOARD_TUI: "1", ...gatewayOwnerEnv(env) },

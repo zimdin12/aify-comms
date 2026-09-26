@@ -114,10 +114,9 @@ export class HermesAdapter extends RuntimeAdapter {
     return null;
   }
 
-  // Read the real session id from the TUI active-session file. Mirrors the
-  // service-side parser (service/runtimes/hermes.py `_read_active_session_file`):
-  // a JSON object with `session_id` / `sessionId` / `id`, falling back to the
-  // raw file contents. Best-effort: never throws (returns "" on any failure).
+  // Read the real session id from the TUI active-session file: a JSON object with
+  // `session_id` / `sessionId` / `id`, falling back to the raw file contents. The only
+  // reader since 0.7.0 deleted the service-side twin. Best-effort: never throws ("" on failure).
   _readActiveSessionFile(env = process.env) {
     const file = String(
       env.AIFY_HERMES_ACTIVE_SESSION_FILE ||
