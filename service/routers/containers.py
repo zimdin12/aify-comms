@@ -1,4 +1,3 @@
-import asyncio
 """
 Container management and routing endpoints.
 
@@ -6,6 +5,8 @@ Container management and routing endpoints.
 /route/{name}/*      - Proxy requests to running sub-containers
 /api/v1/gpu          - GPU allocation status
 """
+
+import asyncio
 
 from fastapi import APIRouter, Request, HTTPException
 

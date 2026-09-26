@@ -41,7 +41,7 @@ _ANSI_RE = re.compile(
 )
 #: TAB, LF and CR are deliberately absent from the class: they are the layout a terminal line depends
 #: on, and stripping them would join lines a reader needs kept apart.
-_CTRL_RE =re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
+_CTRL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
 
 # Substring markers, matched case-insensitively against each cleaned line. Ordered
 # by how specific they are only for readability — matching is a plain any().

@@ -184,10 +184,8 @@ def _environment_uses_windows_paths(environment: dict[str, Any]) -> bool:
 def _default_console_command(session, workspace: str, *, interactive: bool = False) -> str:
     """Build the dashboard Console launch command for an agent session.
 
-    Plan 3 (2026-05-25): per-runtime tail collapses to
-    `adapter.console_command(...)`. The adapter owns the per-runtime quirks
-    (claude interactive stays fresh, codex always resumes, pi interactive
-    avoids the 026H trap, opencode is plain CLI).
+    The argv comes from `_default_console_argv`, which asks the runtime adapter for its per-runtime
+    quirks (claude interactive stays fresh, codex always resumes, pi interactive avoids the 026H trap).
     """
     return " ".join(_default_console_argv(session, workspace, interactive=interactive))
 

@@ -35,11 +35,11 @@ def _refuse_console_without_terminal_capability(environment, session) -> None:
                 # issue. The bridge on that host reports no terminal/pty
                 # (usually node-pty is not installed/built there).
                 detail = (
-                    f'Environment "{env_id}" has no PTY/terminal capability — its bridge reports '
+                    f'Environment "{env_id}" has no PTY/terminal capability — its host tier (aify-env) reports '
                     f'terminal={bool(environment.get("terminal"))}, pty={bool(environment.get("pty"))}. '
                     f'This blocks the Console for ALL runtimes there (not just "{session["runtime"]}"). '
-                    f'Fix: install/build node-pty for the aify-comms bridge on that host '
-                    f'(reinstall via install.sh and restart the bridge), then retry. '
+                    f'Fix: install/build node-pty for aify-env on that host and check it with '
+                    f'`aify-env doctor` (restarting aify-env is for the operator to do), then retry. '
                     f'Use an environment that advertises terminal support in the meantime.'
                 )
             else:
@@ -49,6 +49,6 @@ def _refuse_console_without_terminal_capability(environment, session) -> None:
                 detail = (
                     f'Environment "{env_id}" supports the Console but not for runtime '
                     f'"{session["runtime"]}". It advertises terminal runtimes: {advertised}. '
-                    f'Spawn/select a supported runtime, or update that bridge.'
+                    f'Spawn/select a supported runtime, or update aify-env on that host.'
                 )
             raise HTTPException(409, detail)
