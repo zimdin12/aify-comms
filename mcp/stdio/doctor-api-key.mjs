@@ -93,6 +93,20 @@ export function apiKeyInEnvFile(text) {
  * @param {{env?: object, repoDir?: string, readFile?: (path: string) => string, join?: Function}} deps
  * @returns {{key: string, source: string}} source is "" when no key was found anywhere
  */
+/**
+ * Whether `endpoint` is this machine. The checkout's `.env` holds the key of the service the checkout
+ * runs, which answers on loopback; any other destination, or one that cannot be parsed, is not it.
+ */
+function isLoopbackEndpoint(endpoint) {
+  let host;
+  try {
+    host = new URL(String(endpoint)).hostname;
+  } catch {
+    return false;
+  }
+  return host === "localhost" || host === "[::1]" || /^127(\.\d{1,3}){3}$/.test(host);
+}
+
 export function resolveDoctorApiKey({
   env = {}, repoDir = "", readFile, join, homeDir = "", endpoint = "", realpath, custody,
 } = {}) {
@@ -100,7 +114,10 @@ export function resolveDoctorApiKey({
   if (exported) return { key: exported, source: "the environment" };
 
   const canRead = typeof readFile === "function" && typeof join === "function";
-  if (repoDir && canRead) {
+  // ONLY TOWARD LOOPBACK. 0.7.0 pointed the doctor at the installed endpoint, so on a host installed
+  // against a remote service a run from inside a checkout sent the checkout's key there (v0.7.1 review,
+  // B1/W11). Anywhere else, the endpoint-bound store below decides.
+  if (repoDir && canRead && isLoopbackEndpoint(endpoint)) {
     let text = "";
     try {
       text = readFile(join(repoDir, ".env"));

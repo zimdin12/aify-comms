@@ -91,7 +91,7 @@ test("and .env is used when the shell says nothing", () => {
   // POSITIVE CONTROL for the case that was actually broken: the operator's key is in the file and
   // this doctor's shell has never heard of it.
   const got = resolveDoctorApiKey({
-    env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=banana"), join,
+    env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=banana"), join, endpoint: "http://127.0.0.1:8800",
   });
   assert.deepEqual(got, { key: "banana", source: ".env" });
 });
@@ -147,8 +147,38 @@ test("no repo, no readers, no arguments at all", () => {
 test("source is reported so a refusal can name the file it came from", () => {
   // "the service refused the key from .env" and "refused the key you exported" send an operator to
   // different places. A bare boolean would send them to neither.
-  assert.equal(resolveDoctorApiKey({ env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=x"), join }).source, ".env");
+  assert.equal(resolveDoctorApiKey({
+    env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=x"), join, endpoint: "http://localhost:8800",
+  }).source, ".env");
   assert.equal(resolveDoctorApiKey({ env: { [API_KEY_ENV_NAMES[0]]: "x" }, repoDir: "", join }).source, "the environment");
+});
+
+// ── the checkout's key is for the checkout's service ────────────────────────────────────────────
+//
+// v0.7.1 review (B1/W11). `.env` holds the key of the service this checkout runs, which answers on
+// loopback. 0.7.0 pointed the doctor at the INSTALLED endpoint, so on a host installed against a remote
+// service, running the doctor from inside a checkout sent that checkout's key to the remote host.
+
+test("the checkout's .env key is not sent to a remote endpoint", () => {
+  const got = resolveDoctorApiKey({
+    env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=local-service-key"), join,
+    endpoint: "http://team-server.example:8800",
+  });
+  assert.notEqual(got.key, "local-service-key");
+});
+
+test("an endpoint that cannot be read is not loopback either", () => {
+  for (const endpoint of ["", "not a url", "http://127.0.0.1.evil.example:8800"]) {
+    const got = resolveDoctorApiKey({ env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=k"), join, endpoint });
+    assert.equal(got.source, "", `the .env key went to ${JSON.stringify(endpoint)}`);
+  }
+});
+
+test("control: every loopback spelling still gets the checkout's key", () => {
+  for (const endpoint of ["http://127.0.0.1:8800", "http://localhost:8800", "http://[::1]:8800", "http://127.0.0.2:9000"]) {
+    const got = resolveDoctorApiKey({ env: {}, repoDir: "/repo", readFile: fileSaying("API_KEY=k"), join, endpoint });
+    assert.equal(got.source, ".env", endpoint);
+  }
 });
 
 // ── the credential store: the only source that survives being run from the wrong folder (D11) ────
