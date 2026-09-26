@@ -154,12 +154,14 @@ export function createChatController(deps) {
     // Channel management actions (join/leave/read) reflect membership for the viewing identity.
     // PAINTED ONLY WHEN THEY CHANGE, like the rail (v0.7 C10): the chat re-renders on any status or
     // message anywhere in the fleet, and rebuilding this bar reset a half-chosen channel member.
+    // NOT WHILE THE add-member DROPDOWN HAS FOCUS, and otherwise a half-chosen member is put back after
+    // the repaint: skipping the whole bar while the select held a value froze Leave, the member count
+    // and the remove chips after the operator acted on them (0.7.1 C5).
     const actions = byId('chat-conv-actions');
-    const picking = isChannel && (() => {
-      const select = byId(`chat-add-member-${id}`);
-      return !!select && (!!select.value || document.activeElement === select);
-    })();
-    if (actions && !picking) {
+    const memberSelect = isChannel ? byId(`chat-add-member-${id}`) : null;
+    const halfChosen = memberSelect?.value || '';
+    const dropdownOpen = !!memberSelect && document.activeElement === memberSelect;
+    if (actions && !dropdownOpen) {
       if (isChannel) {
         const chan = (state.chat.channels || []).find((c) => c.name === id) || {};
         const members = chan.members || [];
@@ -181,7 +183,10 @@ export function createChatController(deps) {
         if (members.length) {
           actionsHtml += `<div class="chat-member-chips">${members.map((mbr) => `<span class="chat-member-chip">${esc(mbr)}${readOnly ? '' : `<button data-channel-remove-member="${esc(id)}" data-member="${esc(mbr)}" aria-label="Remove ${esc(mbr)}" title="Remove ${esc(mbr)}">✕</button>`}</span>`).join('')}</div>`;
         }
-        paintIfChanged(actions, actionsHtml);
+        if (paintIfChanged(actions, actionsHtml) && halfChosen && candidates.includes(halfChosen)) {
+          const rebuilt = byId(`chat-add-member-${id}`);
+          if (rebuilt) rebuilt.value = halfChosen;
+        }
       } else {
         // Messenger | Console segmented toggle — inline terminal access without leaving Chat.
         const view = !readOnly && state.chat.view === 'console' ? 'console' : 'messenger';
