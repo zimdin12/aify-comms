@@ -327,6 +327,11 @@ async def _migrate_dispatch_controls_table(db: aiosqlite.Connection):
     for column, statement in DISPATCH_CONTROL_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
+    # Here, after the column exists, and not in SCHEMA: SCHEMA runs first, and on a database older than
+    # the column it failed init_db with "no such column" (v0.7.1 review, S1).
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_controls_source_message ON dispatch_controls(source_message_id)"
+    )
 
 
 async def _migrate_environments_table(db: aiosqlite.Connection):

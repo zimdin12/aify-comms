@@ -237,7 +237,6 @@ CREATE INDEX IF NOT EXISTS idx_dispatch_controls_status_requested ON dispatch_co
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_message ON dispatch_runs(message_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_in_reply_to ON dispatch_runs(in_reply_to);
 CREATE INDEX IF NOT EXISTS idx_dispatch_runs_result_message ON dispatch_runs(result_message_id);
-CREATE INDEX IF NOT EXISTS idx_dispatch_controls_source_message ON dispatch_controls(source_message_id);
 
 CREATE TABLE IF NOT EXISTS bridge_instances (
     id TEXT PRIMARY KEY,
