@@ -30,7 +30,7 @@ import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
-import { AGENT_PROCESSES_ID, loadAgentProcesses } from './agent-processes.mjs';
+import { AGENT_PROCESSES_ID, loadAgentProcesses, processesReadFailed } from './agent-processes.mjs';
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
 import { paintAgentDrawer } from './drawer-paint.mjs';
@@ -162,7 +162,8 @@ export function openAgentDrawer(agentId) {
   // polled with the other nine endpoints -- "browse" is a deliberate act, so the read is too. Fire
   // and forget: `loadAgentProcesses` renders its own failure into its own panel, and everything
   // else in this drawer stays true whether that read succeeds or not.
-  if (!refreshing || changed) loadAgentProcesses(id, { api, byId });
+  // A panel showing a FAILED read is read again too: an offline agent's drawer never changes (0.7.1 C7).
+  if (!refreshing || changed || processesReadFailed(byId(AGENT_PROCESSES_ID))) loadAgentProcesses(id, { api, byId });
   fillAgentRuns(id, { byId });
   fillSessionSharing(id, { byId, agents: state.agents });
 }

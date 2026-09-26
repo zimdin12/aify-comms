@@ -554,6 +554,40 @@ test("A REFRESH OF THE DRAWER ALREADY OPEN ON THIS AGENT, WITH NOTHING CHANGED, 
   }
 });
 
+test("A FAILED PROCESSES READ IS TRIED AGAIN ON THE NEXT REFRESH, though nothing else changed (0.7.1 C7)", async () => {
+  // One transient /terminals failure painted "could not read" and the refresh then skipped the read
+  // because the drawer was unchanged: for an offline agent, whose drawer never changes, until reopened.
+  const hadFetch = "fetch" in globalThis;
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  let failing = true;
+  globalThis.fetch = async (url) => {
+    asked.push(String(url));
+    if (failing) throw new TypeError("Failed to fetch");
+    return { ok: true, status: 200, text: async () => JSON.stringify({ terminals: [] }) };
+  };
+  const els = { inspector: paintableEl(), "inspector-content": paintableEl(), [AGENT_PROCESSES_ID]: { innerHTML: "" } };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  try {
+    seed({ agents: [{ id: "coder", status: "offline" }], inspector: {} });
+    globalThis.document = { getElementById: (id) => els[id] || null };
+    openAgentDrawer("coder");
+    await settle();
+    assert.match(els[AGENT_PROCESSES_ID].innerHTML, /Could not read/, "CONTROL: the failure is shown");
+    failing = false;
+    openAgentDrawer("coder");
+    await settle();
+    assert.equal(asked.length, 2, "an unchanged refresh left the failed read on screen");
+    assert.match(els[AGENT_PROCESSES_ID].innerHTML, /No terminals/, "the retry's answer was not painted");
+    openAgentDrawer("coder");
+    await settle();
+    assert.equal(asked.length, 2, "CONTROL: once it has loaded, an unchanged refresh does not read again");
+  } finally {
+    delete globalThis.document;
+    if (hadFetch) globalThis.fetch = realFetch; else delete globalThis.fetch;
+  }
+});
+
 // ---- the action row: destructive last, and no button that addresses nothing (v0.7 C23) ---------------
 
 /** The drawer's buttons in order, as {attr, danger}. */
