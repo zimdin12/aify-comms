@@ -58,7 +58,7 @@ test('a change fetches only the slices that read its tables, once for a burst', 
 test('liveness refreshes only the slices that show an age, and at most once a minute', async () => {
   const { refresher, log, advance } = rig();
   refresher.opened({ reconnected: false });
-  refresher.fullyRefreshed(1_000_000);
+  refresher.fullyRefreshed(refresher.fullRefreshStarting());
   refresher.changed(change(1, [], ['agents']));
   await advance(LIVENESS_INTERVAL_MS - 1);
   assert.deepEqual(log.slices, [], 'a heartbeat refetched inside the liveness interval');
@@ -73,7 +73,7 @@ test('liveness refreshes only the slices that show an age, and at most once a mi
 test('a real change is not held behind a waiting liveness refresh', async () => {
   const { refresher, log, advance } = rig();
   refresher.opened({ reconnected: false });
-  refresher.fullyRefreshed(1_000_000);
+  refresher.fullyRefreshed(refresher.fullRefreshStarting());
   refresher.changed(change(1, [], ['agents']));
   refresher.changed(change(2, ['agents']));
   await advance(CHANGE_DEBOUNCE_MS);
@@ -128,7 +128,7 @@ test('the timed poll runs only while the socket is down', async () => {
 test('stats is held to its own floor', async () => {
   const { refresher, log, advance } = rig();
   refresher.opened({ reconnected: false });
-  refresher.fullyRefreshed(1_000_000);
+  refresher.fullyRefreshed(refresher.fullRefreshStarting());
   refresher.changed(change(1, ['channels']));
   await advance(CHANGE_DEBOUNCE_MS);
   assert.ok(!log.slices.flat().includes('stats'), 'stats refetched inside its floor');
@@ -152,10 +152,10 @@ test('a change that arrives while a full refresh is fetching is still fetched af
   refresher.opened({ reconnected: false });
   refresher.changed(change(1, []));
   setNow(2_000_000);
-  const startedAt = 2_000_000;
+  const started = refresher.fullRefreshStarting();
   setNow(2_000_100);
   refresher.changed(change(2, ['messages']));
-  refresher.fullyRefreshed(startedAt);
+  refresher.fullyRefreshed(started);
   await advance(CHANGE_DEBOUNCE_MS);
   assert.deepEqual(log.slices, [slicesReading(['messages'])], 'the full refresh swallowed a change newer than its start');
 });
@@ -164,8 +164,10 @@ test('a change older than a full refresh is not fetched again', async () => {
   const { refresher, log, advance, setNow } = rig();
   refresher.opened({ reconnected: false });
   refresher.changed(change(1, ['messages']));
+  setNow(1_000_050);
+  const started = refresher.fullRefreshStarting();
   setNow(1_000_100);
-  refresher.fullyRefreshed(1_000_050);
+  refresher.fullyRefreshed(started);
   await advance(CHANGE_DEBOUNCE_MS);
   assert.deepEqual(log.slices, [], 'a full refresh left an older change pending');
 });
@@ -180,7 +182,117 @@ test('nothing is fetched on changes while disconnected', async () => {
 test('a slice that failed during a FULL refresh is tried again while the socket stays up', async () => {
   const { refresher, log, advance, getNow } = rig();
   refresher.opened({ reconnected: false });
-  refresher.fullyRefreshed(getNow(), ['settings']);
+  refresher.fullyRefreshed(refresher.fullRefreshStarting(), ['settings']);
   await advance(RETRY_AFTER_MS);
   assert.deepEqual(log.slices, [['settings']], 'the failed slice must be fetched again, and only it');
+});
+
+// ── a full refresh and a partial one in flight together (0.7.1 review, W07-D1) ──────────────────
+// Each fetch reads the service's data when it STARTS and writes it to the screen when it COMPLETES,
+// which is what `runRefreshCycle` and `loadSlices` do. The test holds every fetch open and releases
+// them in the order under test, then lets the refresher do whatever it does next.
+
+function racingRig() {
+  let now = 1_000_000;
+  let nextId = 1;
+  const timers = new Map();
+  const service = { version: 1 };
+  const screen = {};
+  const held = [];
+  const partials = [];
+  const refresher = new ChangeDrivenRefresh({
+    fullRefresh: () => {
+      const started = refresher.fullRefreshStarting();
+      const version = service.version;
+      held.push({ kind: 'full', release: () => {
+        for (const slice of Object.keys(SLICE_TABLES)) screen[slice] = version;
+        refresher.fullyRefreshed(started);
+      } });
+    },
+    refreshSlices: (slices) => new Promise((resolve) => {
+      const version = service.version;
+      partials.push([...slices]);
+      held.push({ kind: 'partial', release: () => { for (const slice of slices) screen[slice] = version; resolve([]); } });
+    }),
+    pollSeconds: () => 15,
+    now: () => now,
+    timers: {
+      setTimeout: (fn, ms) => { const id = nextId++; timers.set(id, { fn, at: now + ms }); return id; },
+      clearTimeout: (id) => { timers.delete(id); },
+    },
+  });
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  async function advance(ms) {
+    const until = now + ms;
+    for (;;) {
+      const next = [...timers].filter(([, t]) => t.at <= until).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next) break;
+      timers.delete(next[0]);
+      now = next[1].at;
+      next[1].fn();
+      await tick();
+    }
+    now = until;
+  }
+  async function release(kind) {
+    const index = held.findIndex((h) => h.kind === kind);
+    assert.notEqual(index, -1, `no ${kind} fetch is in flight`);
+    held.splice(index, 1)[0].release();
+    await tick();
+  }
+  /** Let whatever the refresher schedules next run to completion. */
+  async function settle() {
+    for (let round = 0; round < 10; round += 1) {
+      await advance(RETRY_AFTER_MS);
+      if (!held.length) return;
+      while (held.length) await release(held[0].kind);
+    }
+  }
+  return { refresher, service, screen, partials, advance, release, settle };
+}
+
+test('A FULL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its older data on screen', async () => {
+  const r = racingRig();
+  r.refresher.opened({ reconnected: false });
+  r.refresher.changed(change(1, []));
+  r.refresher.fullRefresh();                 // reads version 1
+  r.service.version = 2;
+  r.refresher.changed(change(2, ['messages']));
+  await r.advance(CHANGE_DEBOUNCE_MS);       // the partial reads version 2
+  await r.release('partial');
+  assert.equal(r.screen.messages, 2, 'CONTROL: the partial refresh painted the newer data');
+  await r.release('full');                   // ...and the full one paints version 1 over it
+  await r.settle();
+  assert.equal(r.screen.messages, 2, 'the slower full refresh left older messages on screen, and nothing fetched them again');
+});
+
+test('A PARTIAL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its older data on screen', async () => {
+  const r = racingRig();
+  r.refresher.opened({ reconnected: false });
+  r.refresher.changed(change(1, ['messages']));
+  await r.advance(CHANGE_DEBOUNCE_MS);       // the partial reads version 1
+  r.service.version = 2;
+  r.refresher.changed(change(2, ['messages']));
+  await r.advance(10);
+  r.refresher.fullRefresh();                 // reads version 2, and covers the change above
+  await r.release('full');
+  assert.equal(r.screen.messages, 2, 'CONTROL: the full refresh painted the newer data');
+  await r.release('partial');                // ...and the partial one paints version 1 over it
+  await r.settle();
+  assert.equal(r.screen.messages, 2, 'the slower partial refresh left older messages on screen, and nothing fetched them again');
+});
+
+test('CONTROL: when the newer fetch also finishes last, nothing is fetched a second time', async () => {
+  const r = racingRig();
+  r.refresher.opened({ reconnected: false });
+  r.refresher.changed(change(1, []));
+  r.refresher.fullRefresh();
+  r.service.version = 2;
+  r.refresher.changed(change(2, ['messages']));
+  await r.advance(CHANGE_DEBOUNCE_MS);
+  await r.release('full');
+  await r.release('partial');
+  await r.settle();
+  assert.equal(r.screen.messages, 2);
+  assert.equal(r.partials.length, 1, 'an apply that overwrote nothing newer was fetched again');
 });

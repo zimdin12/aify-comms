@@ -149,9 +149,9 @@ async function refresh() {
   if (_refreshInFlight) { _refreshQueued = true; return; }
   _refreshInFlight = true;
   try {
-    const startedAt = Date.now();
+    const started = changeRefresh.fullRefreshStarting();
     const failed = await _refreshImpl();
-    changeRefresh.fullyRefreshed(startedAt, failed); // current as of the start, except what failed (change-refresh.mjs)
+    changeRefresh.fullyRefreshed(started, failed); // current as of the start, except what failed (change-refresh.mjs)
   } finally {
     _refreshInFlight = false;
     if (_refreshQueued) { _refreshQueued = false; refreshSoon(); }
