@@ -69,8 +69,10 @@ export function moduleBindings(source) {
       if (/^[A-Za-z_$][\w$]*$/.test(name)) bound.add(name);
     }
   }
+  // Only the names a parameter list BINDS (`patternNames`): reading every token made a default's value
+  // bound, so `({ listeners = listListeners } = {})` hid a missing import (v0.7.2 review).
   for (const m of code.matchAll(/\(([^()]{0,400})\)\s*(?:=>|\{)/g)) {
-    for (const token of m[1].matchAll(/[A-Za-z_$][\w$]*/g)) bound.add(token[0]);
+    for (const name of patternNames(m[1])) bound.add(name);
   }
   return { bound, specifiers };
 }
@@ -209,7 +211,7 @@ function arrowParameterNames(code) {
     for (let i = arrow.index; i >= 0; i -= 1) {
       if (code[i] === ")") depth += 1;
       else if (code[i] === "(" && --depth === 0) {
-        for (const token of code.slice(i + 1, arrow.index).matchAll(/[A-Za-z_$][\w$]*/g)) names.add(token[0]);
+        for (const name of patternNames(code.slice(i + 1, arrow.index))) names.add(name);
         break;
       }
     }

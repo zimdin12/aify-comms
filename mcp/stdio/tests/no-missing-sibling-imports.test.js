@@ -225,6 +225,16 @@ test("the wider scan finds a deleted import line, and not a parameter with neste
   // A use INSIDE a parameter's default is still a use: hermes-prior-reap.mjs's `listeners = () =>
   // listListeners(...)` with its import deleted is the mutation this gate was checked against.
   assert.deepEqual(at("export function f({ listeners = () => listListeners({}) } = {}) {\n  return listeners();\n}\n"), ["listListeners"]);
+  // comms-senior-dev's probe of v0.7.2: a default with NO nested parentheses, which the shared
+  // parameter pattern in `moduleBindings` matches and read whole, so `listListeners` counted as bound
+  // and both rules stayed silent while `f()` throws ReferenceError.
+  const probe = 'import { other } from "./sib.js";\nexport function f({listeners = listListeners} = {}) { return listeners + other; }\n';
+  const sib = new Map([["mcp/stdio/sib.js", new Set(["other", "listListeners"])]]);
+  assert.equal(moduleBindings(probe).bound.has("listListeners"), false, "a default's value was read as a bound name");
+  assert.deepEqual(missingSiblingImports("mcp/stdio/m.mjs", probe, sib).map((h) => h.name), ["listListeners"]);
+  assert.deepEqual(usedFromAnySiblingWithoutImport("mcp/stdio/m.mjs", probe, sib).map((h) => h.name), ["listListeners"]);
+  assert.deepEqual(at("export const g = ({ listeners = listListeners } = {}) => listeners;\n"), ["listListeners"], "the arrow form too");
+  assert.ok(moduleBindings(probe).bound.has("listeners"), "CONTROL: the parameter itself is bound");
   // A destructuring whose default holds a block (hermes-active-session.mjs).
   assert.deepEqual(at("const {\n  nextId = (() => { let n = 1; return () => n++; })(),\n  listListeners = 1,\n} = opts;\nlistListeners;\n"), []);
 });
