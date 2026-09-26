@@ -472,6 +472,13 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 
+-- The host time of the last runtime-hook event applied for the agent (api_core/hook_event_order.py).
+CREATE TABLE IF NOT EXISTS agent_hook_order (
+    agent_id TEXT PRIMARY KEY,
+    last_at INTEGER NOT NULL,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+
 -- Console-working lease (2026-06-05): the managed-claude PTY spinner footer
 -- ("esc to interrupt" / "<glyph> <verb> for <time>") refreshes working_at while
 -- claude is generating. A short TTL lease OR'd into derived `working` — additive,

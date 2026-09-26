@@ -27,6 +27,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.request_body import json_object_body
 from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_present
+from service.api_core.hook_event_order import accept_hook_event, hook_event_at
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
@@ -103,6 +104,9 @@ async def agent_turn_start(agent_id: str, request: Request):
         # postpone the same ceiling.
         if await _posted_by_a_superseded_bridge(db, request, agent_id):
             return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
+        # A background hook can arrive after its own turn's turn-end (api_core/hook_event_order.py).
+        if not await accept_hook_event(db, agent_id, hook_event_at(await json_object_body(request, lenient=True))):
+            return {"ok": True, "agentId": agent_id, "ignored": "older_than_last_hook_event"}
         now = _now()
         runtime = _normalize_runtime(agent_row["runtime"] or "claude-code")
         # If a managed dispatch is already in flight (turn_run_id set,
@@ -193,6 +197,10 @@ async def agent_turn_end(agent_id: str, request: Request):
         # already has this guard; this brings the dedicated endpoint in line for detector posts.
         if await _posted_by_a_superseded_bridge(db, request, agent_id):
             return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
+        # Recorded even when there is nothing to clear, so a turn-start that fired earlier and
+        # arrives later is refused (api_core/hook_event_order.py).
+        if not await accept_hook_event(db, agent_id, hook_event_at(await json_object_body(request, lenient=True))):
+            return {"ok": True, "agentId": agent_id, "ignored": "older_than_last_hook_event"}
         # No-op fast path (2026-07-19): a KEEP-CLEARED detector re-assert fires every ~45s for the
         # WHOLE idle life of every agent. When there is genuinely nothing to clear — turn_busy already 0
         # AND the engine's in_turn already 0 — the full write+commit+broadcast is pure waste (the
@@ -208,6 +216,7 @@ async def agent_turn_end(agent_id: str, request: Request):
         _turn_busy = int((_tb["turn_busy"] if _tb and "turn_busy" in _tb.keys() else 0) or 0)
         _in_turn = int((_st["in_turn"] if _st and "in_turn" in _st.keys() else 0) or 0)
         if _turn_busy == 0 and _in_turn == 0:
+            await db.commit()
             return {"ok": True, "agentId": agent_id, "noop": "already-cleared"}
         now = _now()
         await db.execute(

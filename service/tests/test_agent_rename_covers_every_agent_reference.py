@@ -112,6 +112,8 @@ CASCADES = {
     ("agent_turn_state", "agent_id"),
     ("agent_console_signal", "agent_id"),
     ("claimer_leases", "agent_id"),
+    #: The last hook event's host time: with no record under the new id, its next event simply applies.
+    ("agent_hook_order", "agent_id"),
 }
 
 LEFT_BEHIND = {

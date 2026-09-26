@@ -42,6 +42,7 @@ from service.api_core.agent_registration_writes import (
     _upsert_registered_agent_row,
 )
 from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_present
+from service.api_core.hook_event_order import forget_hook_order
 from service.api_core.away_briefing import brief_returning_agent
 from service.api_core.bridge_registration import _record_bridge_registration
 from service.api_core.capabilities import _default_capabilities_for
@@ -328,6 +329,7 @@ async def _register_agent(req: AgentRegister, request: Request):
                 now=now,
             )
         await _invalidate_agent_live_state(db, req.agentId)
+        await forget_hook_order(db, req.agentId)
         # Universal rule: when a *-aify wrapper registers an agent as
         # resident, the operator's real terminal owns it. ANY managed
         # wrapper PTY that exists for this agent must be torn down at

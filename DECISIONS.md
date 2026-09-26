@@ -125,6 +125,24 @@ retired rather than reused: any host whose settings page was saved holds 90 and 
 and scheduling rotation under those names would have started deleting messages there without anyone
 choosing it.
 
+## Turn-state hooks run in the background and apply in the order they fired (2026-09-26, v0.7.4)
+
+**Decision.** The hooks that report a resident's turn and approval state (turn-start, turn-end, blocked,
+unblocked) and the Herdr pane-state hooks run in the background: `async` in Claude Code and codex, a
+detached `node` or thread under hermes, whose hook runner has no background mode. Each event carries
+`at`, the host time its hook fired, and the service refuses one older than the last it applied for that
+agent (`service/api_core/hook_event_order.py`); `aify-herdr-state.sh` does the same for pane reports.
+
+**Why.** On a saturated host (2026-09-26, a game on 65% of 32 cores) starting `sh` took 0.4-1.9 s and one
+turn-start hook 1.5-2.6 s, past the 3 s and 5 s hook timeouts: every prompt and tool call waited on them,
+and the operator saw "hook timed out" on each prompt. In the background they cost the agent nothing, but
+can land out of order, and a turn-start landing after its own turn-end would leave the agent `working`.
+
+**What it costs.** Codex hashes `async` into a hook's trust, so the codex Herdr hooks need trusting once
+more. The installer re-records trust for the hooks it writes itself. Registration clears the ordering
+record, so a relaunch on a host whose clock is behind is not refused. An event with no `at` (a detector,
+an older hook) is outside the ordering and applies as before.
+
 ## No source decides where something is from a path typed into it
 
 The operator, 2026-09-16: "we should never have C:/ paths. we never know where user installs anything.

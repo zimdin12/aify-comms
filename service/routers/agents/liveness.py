@@ -19,6 +19,7 @@ from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
 from service.api_core.turn_busy_signal import _apply_turn_busy_signal
 from service.api_core.status_events import _apply_status_event
+from service.api_core.hook_event_order import accept_hook_event, hook_event_at
 from service.api_core.status_broadcast import _broadcast_engine_status
 from service.api_core.routing import domain_router
 
@@ -57,6 +58,7 @@ class AgentStatusEventRequest(BaseModel):
     runId: str | None = None
     bridgeId: str | None = None
     detail: str | None = None
+    at: int | None = None  # the hook's host time (api_core/hook_event_order.py)
 
 
 router = domain_router()
@@ -305,6 +307,9 @@ async def post_status_event(agent_id: str, req: AgentStatusEventRequest, request
         row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not row:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
+        if not await accept_hook_event(db, agent_id, hook_event_at(req.model_dump())):
+            return {"ok": True, "agentId": agent_id, "kind": req.kind, "applied": False,
+                    "ignored": "older_than_last_hook_event"}
         await _apply_status_event(db, agent_id, req.model_dump())
         await _invalidate_agent_live_state(db, agent_id)  # pops the in-memory live-status cache
         # The invalidate is an in-memory dict pop now (2026-06-18) — immediate, not tied to a

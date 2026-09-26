@@ -7,7 +7,7 @@
 // So the installer records trust for exactly the hooks it wrote, and for nothing else in the file.
 //
 // THE HASH is codex's own: sha256 over compact JSON with sorted keys of the hook's identity. For a plain
-// command hook that is {event_name, hooks:[{async:false, command, timeout, type:"command"}]}. It
+// command hook that is {event_name, hooks:[{async, command, timeout, type:"command"}]}. It
 // reproduced the values codex-cli 0.153.4 itself wrote on 2026-09-15 for this installer's earlier stop
 // and user_prompt_submit hooks. A hook with a matcher, a statusMessage or no explicit timeout hashes
 // differently or needs a default this module does not assume, so none of those is trusted here.
@@ -31,8 +31,8 @@ function snakeEvent(name) {
   return String(name).replace(/[A-Z]/g, (c, i) => (i ? "_" : "") + c.toLowerCase());
 }
 
-function codexHookHash(event, command, timeout) {
-  const identity = { event_name: event, hooks: [{ async: false, command, timeout, type: "command" }] };
+function codexHookHash(event, command, timeout, async = false) {
+  const identity = { event_name: event, hooks: [{ async, command, timeout, type: "command" }] };
   return `sha256:${crypto.createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
 }
 
@@ -45,10 +45,11 @@ function aifyHookTrust(hooksJson, hooksPath) {
       if (!group || group.matcher !== undefined || !Array.isArray(group.hooks)) return;
       group.hooks.forEach((hook, hookIndex) => {
         const plain = hook && hook.type === "command" && typeof hook.command === "string"
-          && Number.isInteger(hook.timeout) && Object.keys(hook).every((k) => ["type", "command", "timeout"].includes(k));
+          && Number.isInteger(hook.timeout) && (hook.async === undefined || typeof hook.async === "boolean")
+          && Object.keys(hook).every((k) => ["type", "command", "timeout", "async"].includes(k));
         if (!plain || !hook.command.includes(AIFY_HOOK_MARKER)) return;
         const event = snakeEvent(eventName);
-        entries.push({ key: `${hooksPath}:${event}:${groupIndex}:${hookIndex}`, hash: codexHookHash(event, hook.command, hook.timeout) });
+        entries.push({ key: `${hooksPath}:${event}:${groupIndex}:${hookIndex}`, hash: codexHookHash(event, hook.command, hook.timeout, hook.async === true) });
       });
     });
   }

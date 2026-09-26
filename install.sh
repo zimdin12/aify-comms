@@ -2002,10 +2002,10 @@ EOF
 }
 
 agent_state_hook_command() {
-  # One resident state change, posted with the endpoint and key the bridge resolves (the old curl hooks
-  # sent no key and a keyed service refused them). The guard keeps plain sessions from starting node.
+  # One resident state change, posted with the key the bridge resolves; the guard keeps plain sessions
+  # from starting node, and the fired time orders the background hooks (api_core/hook_event_order.py).
   local script="$AIFY_BRIDGE_DIR/agent-state-event.mjs"
-  printf '%s' 'if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then node "'"$script"'" '"$1"' >/dev/null 2>&1 || true; fi'
+  printf '%s' 'if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-}" node "'"$script"'" '"$1"' >/dev/null 2>&1 || true; fi'
 }
 
 install_codex_turn_hooks() {
@@ -2044,7 +2044,7 @@ install_codex_turn_hooks() {
       const groups = Array.isArray(data.hooks[eventKey]) ? data.hooks[eventKey] : [];
       const first = groups.findIndex(ours);
       const kept = groups.filter(group => !ours(group));
-      kept.splice(first < 0 ? kept.length : first, 0, { hooks: [{ type: 'command', command: cmd, timeout: 3 }] });
+      kept.splice(first < 0 ? kept.length : first, 0, { hooks: [{ type: 'command', command: cmd, timeout: 3, async: true }] });
       data.hooks[eventKey] = kept;
     };
     wire('UserPromptSubmit', startCmd);
@@ -2081,7 +2081,7 @@ install_hermes_turn_hooks() {
     cat > "$hook_dir/$script" <<EOF
 #!/usr/bin/env bash
 if [ -n "\${AIFY_AGENT_ID:-}" ] && [ -n "\${AIFY_COMMS_URL:-}" ]; then
-  node $(shell_quote "$node_state_script") $state >/dev/null 2>&1 || true
+  AIFY_HOOK_FIRED_AT="\${EPOCHREALTIME:-}" node $(shell_quote "$node_state_script") $state </dev/null >/dev/null 2>&1 &
 fi
 EOF
     chmod +x "$hook_dir/$script"
@@ -2202,7 +2202,7 @@ install_claude_turn_start_hook() {
         h => !OURS.some(marker => JSON.stringify(h).includes(marker))
       );
       settings.hooks[eventKey].push({
-        hooks: [{ type: 'command', command, timeout: 3 }]
+        hooks: [{ type: 'command', command, timeout: 3, async: true }]
       });
     };
     wireTurnStart('UserPromptSubmit');
@@ -2237,7 +2237,7 @@ install_claude_turn_end_hook() {
   # agent-state-event.mjs, so it carries the key.
   local gate_path="$AIFY_BRIDGE_DIR/claude-stop-gate.js"
   local gate_command
-  gate_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then node "'"$gate_path"'" >/dev/null 2>&1 || true; fi'
+  gate_command='if [ -n "${AIFY_AGENT_ID:-}" ] && [ -n "${AIFY_COMMS_URL:-}" ]; then AIFY_HOOK_FIRED_AT="${EPOCHREALTIME:-}" node "'"$gate_path"'" >/dev/null 2>&1 || true; fi'
   MSYS_NO_PATHCONV=1 node -e "
     const fs = require('fs');
     const [settingsPath, gateCommand, endCommand, blockedCommand] = process.argv.slice(1);
@@ -2265,7 +2265,7 @@ install_claude_turn_end_hook() {
         h => !OURS.some(marker => JSON.stringify(h).includes(marker))
       );
       const group = {
-        hooks: [{ type: 'command', command, timeout: 3 }]
+        hooks: [{ type: 'command', command, timeout: 3, async: true }]
       };
       if (matcher) group.matcher = matcher;
       settings.hooks[eventKey].push(group);

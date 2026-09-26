@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -81,9 +82,9 @@ def _other_separator(p) -> str:
     return _posix(p) if _git_bash() else _posix(p).replace("/", "\\")
 
 
-def _codex_hash(event: str, command: str) -> str:
+def _codex_hash(event: str, command: str, run_async: bool = False) -> str:
     """Codex's trusted_hash for a plain command hook: sha256 over sorted compact JSON of its identity."""
-    identity = {"event_name": event, "hooks": [{"async": False, "command": command, "timeout": 3, "type": "command"}]}
+    identity = {"event_name": event, "hooks": [{"async": run_async, "command": command, "timeout": 3, "type": "command"}]}
     return "sha256:" + hashlib.sha256(json.dumps(identity, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
 
 
@@ -199,18 +200,21 @@ def _hermes_hooks(config: str) -> dict:
 
 
 class _Stub:
-    def __init__(self):
+    def __init__(self, answer_after: float = 0.0):
         self.requests = []
+        self.answered = threading.Event()
         stub = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get("content-length") or 0)).decode()
                 stub.requests.append((self.path, body, self.headers.get("x-api-key")))
+                time.sleep(answer_after)
                 self.send_response(200)
                 self.send_header("content-type", "application/json")
                 self.end_headers()
                 self.wfile.write(b"{}")
+                stub.answered.set()
 
             def log_message(self, *args):
                 pass
@@ -225,7 +229,7 @@ class _Stub:
         self.server.server_close()
 
 
-def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-hook") -> None:
+def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-hook") -> float:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AIFY_", "CLAUDE_MCP_"))}
     env.update({
         "HOME": _posix(home),
@@ -235,9 +239,18 @@ def _run_hook(command: list | str, stub: _Stub, home: Path, agent_id="installed-
         "AIFY_API_KEY": "hook-key",
     })
     argv = [_bash(), "-c", command] if isinstance(command, str) else command
+    started = time.monotonic()
     result = subprocess.run(argv, input='{"hook_event_name":"x"}', capture_output=True, text=True, env=env, timeout=10)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "", "codex parses a hook's stdout; it must stay empty"
+    return time.monotonic() - started
+
+
+def _await_request(stub: _Stub, deadline: float = 10.0) -> None:
+    """A hermes hook leaves `node` posting after it returns, so its request can land later."""
+    end = time.monotonic() + deadline
+    while not stub.requests and time.monotonic() < end:
+        time.sleep(0.05)
 
 
 @pytest.fixture(scope="module")
@@ -276,10 +289,17 @@ CODEX_WIRING = {
 }
 
 
+def _aify_hook(groups) -> dict:
+    return next(h for g in groups for h in g.get("hooks", []) if "agent-state-event.mjs" in h.get("command", "")
+                or "claude-stop-gate.js" in h.get("command", ""))
+
+
 def test_claude_hooks_replace_the_curl_entries_once_and_keep_the_users(installed):
     hooks = json.loads((installed / ".claude" / "settings.json").read_text())["hooks"]
     for event, needle in CLAUDE_WIRING.items():
         _one_aify(_commands(hooks.get(event)), needle)
+        # In the background, so a prompt and a tool call never wait on the service (hook_event_order.py).
+        assert _aify_hook(hooks[event]).get("async") is True, event
     assert [g.get("matcher") for g in hooks["SessionStart"]] == ["compact"]
     assert "echo mine" in _commands(hooks["PostToolUse"])
     assert "echo mine" in _commands(hooks["PermissionRequest"])
@@ -289,6 +309,7 @@ def test_codex_hooks_replace_the_curl_entries_once_and_keep_the_users(installed)
     hooks = json.loads((installed / ".codex" / "hooks.json").read_text())["hooks"]
     for event, needle in CODEX_WIRING.items():
         _one_aify(_commands(hooks.get(event)), needle)
+        assert _aify_hook(hooks[event]).get("async") is True, event
     assert "echo mine" in _commands(hooks["Stop"])
 
 
@@ -366,7 +387,8 @@ def test_codex_trust_is_recorded_for_exactly_the_hooks_written_at_their_index(in
     for event, needle in CODEX_WIRING.items():
         index = next(i for i, g in enumerate(hooks[event]) if "agent-state-event.mjs" in json.dumps(g))
         snake = re.sub(r"(?<!^)([A-Z])", r"_\1", event).lower()
-        expected[f"{_native(hooks_file)}:{snake}:{index}:0"] = _codex_hash(snake, hooks[event][index]["hooks"][0]["command"])
+        hook = hooks[event][index]["hooks"][0]
+        expected[f"{_native(hooks_file)}:{snake}:{index}:0"] = _codex_hash(snake, hook["command"], hook.get("async", False))
     assert {k: found.get(k) for k in expected} == expected
     assert set(found) == set(expected) | {f"{_native(hooks_file)}:stop:1:0"}, found
     pytest.importorskip("tomllib").loads(config)
@@ -396,6 +418,21 @@ def test_codex_trust_leaves_a_key_the_config_defines_another_way():
         pytest.importorskip("tomllib").loads(config)
 
 
+def test_a_hermes_hook_returns_before_the_service_answers(installed):
+    """Hermes waits on each hook until it exits, so the hook leaves `node` posting and returns. The stub
+    answers a second after the request arrives, inside the poster's own 2 s limit: a hook that waited on
+    its post returns after the answer."""
+    hermes = _hermes_hooks((installed / ".hermes" / "config.yaml").read_text())
+    stub = _Stub(answer_after=1.0)
+    try:
+        _run_hook(hermes["pre_llm_call"][0], stub, installed)
+        assert not stub.answered.is_set(), "the hook returned only after the service answered"
+        _await_request(stub)
+        assert [path for path, _, _ in stub.requests] == ["/api/v1/agents/installed-hook/turn-start"]
+    finally:
+        stub.close()
+
+
 def test_the_written_commands_reach_the_service_with_the_key(installed):
     claude = json.loads((installed / ".claude" / "settings.json").read_text())["hooks"]
     codex = json.loads((installed / ".codex" / "hooks.json").read_text())["hooks"]
@@ -415,12 +452,18 @@ def test_the_written_commands_reach_the_service_with_the_key(installed):
     try:
         for command, route, body in cases:
             stub.requests.clear()
+            before = time.time() * 1000
             _run_hook(command, stub, installed)
+            _await_request(stub)
             assert len(stub.requests) == 1, (command, stub.requests)
             path, sent, key = stub.requests[0]
             assert path == f"/api/v1/agents/installed-hook{route}", (command, path)
             assert key == "hook-key", (command, "the hook request must authenticate")
-            assert (json.loads(sent) if sent else None) == body, (command, sent)
+            sent = json.loads(sent)
+            # When the hook fired, in host milliseconds, which orders the background hooks' events.
+            fired = sent.pop("at")
+            assert isinstance(fired, int) and before - 1000 <= fired <= time.time() * 1000, (command, fired)
+            assert sent == body, (command, sent)
         stub.requests.clear()
         _run_hook(_one_aify(_commands(claude["PermissionRequest"]), "blocked"), stub, installed, agent_id="")
         assert stub.requests == [], "a plain session with no aify identity must post nothing"

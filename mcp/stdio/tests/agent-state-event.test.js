@@ -17,7 +17,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sealedChildEnv } from "./_child-env.mjs";
 import { ENDPOINT_ENV_NAMES } from "../aify-service-endpoint.mjs";
-import { postAgentState } from "../agent-state-event.mjs";
+import { hookFiredAt, postAgentState } from "../agent-state-event.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "agent-state-event.mjs");
 
@@ -70,15 +70,16 @@ for (const [event, path, body] of [
   test(`${event} posts ${path} with the key, from a hook's environment`, async () => {
     const s = await stub();
     try {
-      const r = await run([event], hookEnv(s.url));
+      const r = await run([event], hookEnv(s.url, { AIFY_HOOK_FIRED_AT: "1790451762.694110" }));
       assert.equal(r.code, 0);
       assert.equal(s.requests.length, 1, JSON.stringify(s.requests));
       const [req] = s.requests;
       assert.equal(req.method, "POST");
       assert.equal(req.url, path);
       assert.equal(req.key, "test-key", "the request must authenticate");
-      // No bridgeId, so the service takes a turn signal as the authoritative harness one.
-      assert.deepEqual(JSON.parse(req.body), body);
+      // No bridgeId, so the service takes a turn signal as the authoritative harness one. `at` orders
+      // the background hooks' events; here it is the shell time the hook command passed.
+      assert.deepEqual(JSON.parse(req.body), { ...body, at: 1790451762694 });
       assert.equal(r.out, "", "a hook's stdout is parsed by codex; it must stay empty");
       assert.equal(r.err, "");
     } finally {
@@ -86,6 +87,14 @@ for (const [event, path, body] of [
     }
   });
 }
+
+test("the fired-at time is the shell's, in either decimal separator, else the process start", () => {
+  assert.equal(hookFiredAt({ AIFY_HOOK_FIRED_AT: "1790451762.694110" }, 7), 1790451762694);
+  assert.equal(hookFiredAt({ AIFY_HOOK_FIRED_AT: "1790451762,694110" }, 7), 1790451762694);
+  for (const unusable of [undefined, "", "   ", "soon", "0", "-5"]) {
+    assert.equal(hookFiredAt({ AIFY_HOOK_FIRED_AT: unusable }, 7), 7, String(unusable));
+  }
+});
 
 test("an endpoint the module reads itself wins over AIFY_COMMS_URL", async () => {
   const own = await stub();
