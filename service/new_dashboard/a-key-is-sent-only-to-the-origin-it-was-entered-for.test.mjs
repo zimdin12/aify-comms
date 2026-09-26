@@ -15,7 +15,7 @@ import test from "node:test";
 
 import { resolveApiOrigin, defaultApiOrigin } from "./api-origin.mjs";
 import { api, setApiBase } from "./api-client.mjs";
-import { adoptLegacyApiKey, readApiKey, resetAdoptionForTests, withApiKey, writeApiKey } from "./api-key.mjs";
+import { adoptKeyFromLocation, adoptLegacyApiKey, readApiKey, resetAdoptionForTests, withApiKey, writeApiKey } from "./api-key.mjs";
 import { PROMPT_ID } from "./api-key-prompt.mjs";
 
 const HOME = "http://localhost:8800";
@@ -113,4 +113,24 @@ test("A KEY STORED BEFORE KEYS WERE BOUND moves to the dashboard's own default o
   await api("/agents");
   assert.equal(h.sent[0].key, undefined, "the pre-0.7.1 key was sent to the linked origin");
   assert.equal(readApiKey(HOME), "operator-key", "CONTROL: it was kept, for the default origin");
+});
+
+test("A BOOKMARKED ?api_key= AFTER AN EARLIER ?apiOrigin= LINK IS NOT SENT TO THE STORED ORIGIN", async (t) => {
+  // v0.7.2 (external review, item 1). Visit one: a link repoints the dashboard, and the choice is
+  // stored. Visit two: the operator's ordinary bookmark carries the key. The stored origin is still in
+  // force, and the key went to it. It belongs to the service that served the page.
+  const h = browser(t, { search: `?apiOrigin=${encodeURIComponent(RECEIVER)}` });
+  assert.equal(boot(), RECEIVER);
+  globalThis.location = { search: "?api_key=bookmarked-key", protocol: "http:", hostname: "localhost", origin: "http://localhost:8801", href: "http://localhost:8801/?api_key=bookmarked-key" };
+  resetAdoptionForTests();
+  adoptKeyFromLocation(defaultApiOrigin()); // what app.js does at boot
+  assert.equal(boot(), RECEIVER, "the stored origin is still in force on the second visit");
+  await api("/agents");
+  assert.equal(h.sent[0].url, `${RECEIVER}/api/v1/agents`);
+  assert.equal(h.sent[0].key, undefined, "the bookmarked key was sent to the origin a link stored");
+  assert.doesNotMatch(withApiKey(`${RECEIVER.replace(/^http/, "ws")}/ws`), /api_key=/, "the socket carried it there");
+  assert.equal(readApiKey(HOME), "bookmarked-key", "CONTROL: the key was kept, for the page's own service");
+  setApiBase(`${HOME}/api/v1`, HOME);
+  await api("/agents");
+  assert.equal(h.sent[1].key, "bookmarked-key", "CONTROL: the page's own service still receives it");
 });

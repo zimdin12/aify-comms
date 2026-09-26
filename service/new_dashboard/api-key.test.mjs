@@ -184,16 +184,16 @@ test('no location at all is survivable, because this module also loads under Nod
   assert.doesNotThrow(() => adoptKeyFromLocation(SERVICE));
 });
 
-test('the per-request carriers adopt, so nothing has to call adoption explicitly', () => {
-  // THE CALL SITE. Adoption that only works when someone remembers to call it is adoption that does
-  // not work: every path into the dashboard goes through one of these two.
+test('the per-request carriers never adopt a URL key, because their target may be a link-chosen origin', () => {
+  // v0.7.2 (external review, item 1). The carriers adopted for the origin they were about to call, so
+  // a stored `?apiOrigin=` from an earlier link received the key of an ordinary `?api_key=` bookmark.
+  // The key in the URL belongs to the service that served the page; app.js adopts it for that origin
+  // at boot (app.test.mjs holds the call site).
   workingStore();
   resetAdoptionForTests();
-  fakeLocation('http://h:8801/?api_key=from-the-url');
-  assert.deepEqual(apiKeyHeader(SERVICE), { 'X-API-Key': 'from-the-url' });
-
-  workingStore();
-  resetAdoptionForTests();
-  fakeLocation('http://h:8801/?api_key=for-the-socket');
-  assert.equal(withApiKey('ws://h:8800/ws'), 'ws://h:8800/ws?api_key=for-the-socket');
+  const replaced = fakeLocation('http://h:8801/?api_key=from-the-url');
+  assert.equal(apiKeyHeader(SERVICE), null, 'the request carrier adopted the URL key for its own target');
+  assert.equal(withApiKey('ws://h:8800/ws'), 'ws://h:8800/ws', 'the socket carrier adopted the URL key for its own target');
+  assert.equal(readApiKey(SERVICE), '');
+  assert.equal(replaced.length, 0, 'a carrier rewrote the URL');
 });

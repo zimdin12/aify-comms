@@ -475,3 +475,14 @@ test("boot binds the injected operator key to the page's own service before any 
   assert.ok(bind < src.indexOf("setApiBase(apiBase, apiOrigin)"), "the key must be bound before the first request is possible");
   assert.ok(!/bindOperatorKeyTo\(\s*apiOrigin\s*\)/.test(src), "bound to the link-chosen origin");
 });
+
+test("boot adopts a bookmarked ?api_key= for the page's own service, never for the resolved origin", () => {
+  // v0.7.2 (external review, item 1): the carriers no longer adopt (api-key.test.mjs), so this call is
+  // the only route a URL key takes into storage, and its argument decides which service receives it.
+  // a-key-is-sent-only-to-the-origin-it-was-entered-for.test.mjs drives the two-visit sequence.
+  const src = read("app.js");
+  const adopt = src.indexOf("adoptKeyFromLocation(defaultApiOrigin())");
+  assert.ok(adopt > 0, "app.js no longer adopts the URL key for the default origin");
+  assert.ok(adopt < src.indexOf("setApiBase(apiBase, apiOrigin)"), "the key must be adopted before the first request is possible");
+  assert.ok(!/adoptKeyFromLocation\(\s*apiOrigin\s*\)/.test(src), "adopted for the link-chosen origin");
+});

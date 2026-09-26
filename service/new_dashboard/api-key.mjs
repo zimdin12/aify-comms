@@ -122,8 +122,10 @@ let adopted = false;
  * leak the typed prompt exists to avoid; adopting it and leaving it there would keep the leak while
  * adding the fix.
  *
- * The key is stored for `target`, the origin the page is about to send it to: the operator opened
- * this page with it, so it is for the service this page talks to.
+ * The key is stored for `target`, which app.js passes as the page's DEFAULT origin, the service that
+ * served it. Only boot calls this. The request carriers adopted for the origin they were about to
+ * call, so a `?apiOrigin=` stored by an earlier link received the key of an ordinary `?api_key=`
+ * bookmark (v0.7.2, external review item 1).
  */
 export function adoptKeyFromLocation(target) {
   if (adopted || !credentialOrigin(target)) return;
@@ -153,7 +155,6 @@ export function resetAdoptionForTests() {
  * caller's own headers replace the defaults -- a rule two upload tests already pin.
  */
 export function apiKeyHeader(url) {
-  adoptKeyFromLocation(url);
   const key = readApiKey(url);
   return key ? { 'X-API-Key': key } : null;
 }
@@ -166,7 +167,6 @@ export function apiKeyHeader(url) {
  * unchanged when no key is stored for its origin, so an unprotected service is unaffected.
  */
 export function withApiKey(url) {
-  adoptKeyFromLocation(url);
   const key = readApiKey(url);
   if (!key) return url;
   return `${url}${url.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(key)}`;
