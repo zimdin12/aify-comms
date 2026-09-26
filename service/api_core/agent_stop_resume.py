@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from service.api_core.agent_terminal_ops import _request_stop_agent_terminals
 from service.api_core.events import _append_dispatch_event
-from service.api_core.nested_session_handback import withdraw_handback
 from service.api_core.runtime import _normalize_session_mode
 
 
@@ -61,8 +60,6 @@ async def _apply_agent_stop_or_resume(db, agent_id, agent, req, action, now, can
                 """,
                 (stop_note, now, agent_id),
             )
-            # An operator stop is final: a superseded bridge's beat may not lift it (nested_session_handback.py).
-            await withdraw_handback(db, agent_id=agent_id)
             # Kill the managed console/TUI too — aify-comms is the lifecycle driver
             # for managed sessions, so Stop must tear down the running terminal
             # instead of leaving an abandoned TUI (operator-reported 2026-05-31).

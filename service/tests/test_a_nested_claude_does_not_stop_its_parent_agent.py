@@ -131,3 +131,31 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._register("relaunched-bridge")
         self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
         self.assertEqual(json.loads(self._agent()["runtime_state"])["bridgeInstanceId"], "relaunched-bridge")
+
+    def test_CONTROL_a_session_stop_is_not_lifted_by_a_beat(self):
+        """The dashboard's Session Stop is a second stop route (review of 486c8262): the offer lapses on the
+        state it changed, not on which route changed it."""
+        self._execute(
+            "INSERT INTO environments(id, machine_id, bridge_id, registered_at, last_seen) VALUES (?,?,?,?,?)",
+            ("env-test", "win32:test-host", "env-bridge", "2026-09-26T00:00:00Z", "2099-01-01T00:00:00Z"),
+        )
+        self._nested_takes_over()
+        session = self._fetchone("SELECT id FROM agent_sessions WHERE agent_id = ?", (AGENT,))
+        self.assertIsNotNone(session, "precondition: registration created a resident session")
+        self._lost("nested-bridge")
+        stopped = self.client.post(f"/api/v1/sessions/{session['id']}/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        agent = self._fetchone("SELECT status, launch_mode, status_note FROM agents WHERE id = ?", (AGENT,))
+        self.assertEqual((agent["status"], agent["launch_mode"]), ("stopped", "none"))
+        self.assertIn("from dashboard", agent["status_note"])
+
+    def test_CONTROL_ownership_moved_without_a_status_change_keeps_the_new_owner(self):
+        """A writer that moves the session (runtime_state) and leaves status, launch mode and note alone is
+        invisible to the state check; the owner check is what refuses the reclaim then."""
+        self._nested_takes_over()
+        self._lost("nested-bridge")
+        state = json.loads(self._agent()["runtime_state"])
+        self._execute("UPDATE agents SET runtime_state = ? WHERE id = ?", (json.dumps(dict(state, bridgeInstanceId="elsewhere")), AGENT))
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual(json.loads(self._agent()["runtime_state"])["bridgeInstanceId"], "elsewhere")

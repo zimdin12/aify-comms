@@ -232,10 +232,6 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
             )
 
         settings = await _load_settings(db)
-        # If this bridge had taken the session over from a same-handle bridge (a nested `claude` run from
-        # the agent's own shell does), that bridge may reclaim it by beating; the stop below stands until then.
-        if bridge_id and _normalize_session_mode(row["session_mode"] or "resident") == "resident":
-            await offer_handback(db, agent_id=agent_id, lost_bridge_id=bridge_id, now=now)
         returned, transition = await _auto_return_resident_to_managed_if_possible(
             db,
             row,
@@ -247,6 +243,10 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
         returned, transition = await _settle_lost_resident_when_no_transition(
             db, agent_id, row, req, now, returned, transition
         )
+        # If this bridge had taken the session over from a same-handle bridge (a nested `claude` run from
+        # the agent's own shell does), that bridge may reclaim it by beating, while this stop stands.
+        if bridge_id and transition == "resident_to_stopped":
+            await offer_handback(db, agent_id=agent_id, lost_bridge_id=bridge_id, now=now, stopped_agent=returned)
 
         await db.commit()
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
