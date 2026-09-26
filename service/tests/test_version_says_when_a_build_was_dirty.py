@@ -83,7 +83,11 @@ class AShaSuppliedToTheStampIsAnOverrideTests(unittest.TestCase):
             subprocess.run([*git, "add", "."], check=True)
             subprocess.run([*git, "commit", "-qm", "c"], check=True)
             (repo / "service" / "app.py").write_text("x = 2\n", encoding="utf-8")
-            env = {**os.environ, "GIT_SHA": "c" * 40}
+            # A shell that exports these (hermes' tool shell does) hands native git a `/c/...` path it
+            # cannot use, so the stamp reads no checkout at all. That is the caller's shell, not what
+            # this test is about.
+            env = {k: v for k, v in os.environ.items() if k not in ("MSYS_NO_PATHCONV", "MSYS2_ARG_CONV_EXCL")}
+            env["GIT_SHA"] = "c" * 40
             done = subprocess.run([bash(), (repo / "scripts" / "stamp.sh").as_posix()], capture_output=True, text=True, env=env)
             self.assertEqual(done.returncode, 0, done.stderr)
             stamp = json.loads((repo / "service" / "_build_stamp.json").read_text(encoding="utf-8"))
