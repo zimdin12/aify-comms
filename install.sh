@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AIFY_SERVICE_REGISTRY="${AIFY_SERVICE_REGISTRY:-$HOME/.aify/services.json}"
 # Which aify-env 'aify-comms doctor' asks. aify-env is the only spawner since v0.6.1; this names where
 # it answers, and it binds 127.0.0.1:8802 with no --host, so the default is the one right answer.
-AIFY_ENV_ENDPOINT_BAKED="http://127.0.0.1:8802"
+AIFY_ENV_ENDPOINT_BAKED="http://127.0.0.1:8802"; ENV_ENDPOINT_GIVEN=false
 # Native client-install location for the host-side MCP bridge runtime. The repo
 # may sit on a slow filesystem (e.g. a WSL2 9p Docker bind-mount, where reading
 # the ~3900 node_modules files cold takes ~5s — which blows hermes' hardcoded
@@ -91,8 +91,8 @@ while [ $# -gt 0 ]; do
     --env-endpoint|--delegate-spawns)
       # --delegate-spawns is the pre-0.7 name, from when spawns could still run on this bridge.
       case "${2:-}" in
-        http://*|https://*) AIFY_ENV_ENDPOINT_BAKED="$2"; shift 2 ;;
-        *) shift ;;
+        http://*|https://*) AIFY_ENV_ENDPOINT_BAKED="$2"; ENV_ENDPOINT_GIVEN=true; shift 2 ;;
+        *) echo "install.sh: $1 needs an http(s) URL" >&2; exit 1 ;;
       esac
       ;;
     --no-delegate-spawns)
@@ -166,6 +166,8 @@ fi
 if [ -z "$SERVER_URL" ]; then
   SERVER_URL="$DEFAULT_AIFY_SERVER_URL"
 fi
+# No --env-endpoint: keep the one this host's launcher already bakes, as redeploy.sh does (v0.7.1, B2).
+[ "$ENV_ENDPOINT_GIVEN" = true ] || AIFY_ENV_ENDPOINT_BAKED="$(bash "$SCRIPT_DIR/scripts/installed-env-endpoint.sh" "${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}" 2>/dev/null || echo "$AIFY_ENV_ENDPOINT_BAKED")"
 
 # The `-z "$EMIT_PI_WRAPPERS_DIR"` guard (v0.6 Phase 2) keeps RENDERING the pi wrapper possible while
 # INSTALLING it stays disabled. Those are different acts: emit writes text into a throwaway dir and
@@ -1033,18 +1035,12 @@ function Invoke-HermesRuntime {
   }
 }
 
-# Per-agent daemon + channel-sidecar model (Plan 1.4, 2026-05-30). Replaces the
-# old 'hermes dashboard --tui' + 'hermes --tui' dual-spawn. Bridges live in the
-# repo (never copied — security fixes flow automatically).
+# Per-agent daemon + channel-sidecar model; the bridge runs from the native copy under ~/.aify-comms.
 \$AifyHermesStdioDir = '$hermes_stdio_dir_win'
 \$AifyHermesDaemonCli = Join-Path \$AifyHermesStdioDir 'hermes-daemon-cli.js'
 # Managed visible-TUI model (Plan 2026-05-31): the per-agent hidden gateway host
 # (ensure-host) + background delivery loop (run) live here.
 \$AifyHermesManagedHostJs = Join-Path \$AifyHermesStdioDir 'hermes-managed-host.js'
-# Loop ready-marker helper (WS1 Task 1.5): the wrapper health-gates on
-# 'aify-hermes-loop-ready-<agent>' before launching the visible TUI so a TUI
-# that can't receive work never shows (visible-TUI HARD requirement).
-\$AifyHermesLoopReadyJs = Join-Path \$AifyHermesStdioDir 'hermes-loop-ready.js'
 # Prebuilt ui-tui bundle dir (baked at install time). When set + dist/entry.js
 # exists, the managed branch exports HERMES_TUI_DIR so 'hermes --tui' runs the
 # prebuilt bundle and skips the per-launch 'npm run build'. Empty → hermes
