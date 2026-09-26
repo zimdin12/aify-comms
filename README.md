@@ -146,9 +146,10 @@ bash install.sh --client claude http://localhost:8800 --with-api-key   # generat
 docker compose up -d                                                   # the service reads it at startup
 ```
 
-Re-run `install.sh` for every other client (it reads the key from `.env`), then open the dashboard
-once as `http://localhost:8800/?api_key=<key>`; the key becomes an `HttpOnly` cookie. An existing key
-is never rotated, because a new one would lock out every client already installed.
+Re-run `install.sh` for every other client (it reads the key from `.env`). The dashboard on `:8801`
+then asks for the key once per browser (or open `http://<host>:8801/?api_key=<key>`), and keeps it as
+an `HttpOnly` cookie holding a hash of the key; changing `API_KEY` signs every browser out. An existing
+key is never rotated, because a new one would lock out every client already installed.
 
 Always on: a request or WebSocket from a page on another site is refused, so a web page you visit
 cannot drive the fleet. aify-env binds `127.0.0.1` only and refuses browser requests.

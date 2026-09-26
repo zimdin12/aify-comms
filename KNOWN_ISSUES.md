@@ -13,11 +13,14 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
 (`docs/superpowers/plans/2026-09-26-v0.7.1.md`, "0.7.2") lists each. These remain:
 
 - **Sending as `dashboard` skips the trust rule, for any holder of the shared API key.** An external key
-  cannot send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`). Closing it is
-  H-A3, a service-verified operator flag, which needs a decision for hosts with no operator key.
-- **A message that owes no reply, handled straight from the notify hook's notice, stays unread** until
-  `comms_inbox` reads it, and a new session is shown it again. A reply marks the answered message read
-  since 0.7.2.
+  cannot send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`), and since
+  0.7.4 the dashboard page itself, which carries the operator key, needs the API key
+  (`service/dashboard_access.py`). A local agent holding the API key can still send as `dashboard`;
+  requiring the operator key on such a send would close it, and every test that sends as `dashboard`
+  would need the key.
+- **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
+  session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
+  the message it answers read (0.7.2); the skill says so (0.7.4).
 - **The claim long-polls cannot tell a caller has gone**, so a claimed run stays held while its sidecar
   heartbeats. Only `/listen` watches `http.disconnect`. Predates 0.7.
 - **The late-`turn_end` guard never fires**: every producer posts an empty run id (0.7.1 backlog S4).
@@ -334,6 +337,11 @@ Each item below was read against the code on 2026-09-25; none has been seen misb
   anyone debugging from a table dump.
 
 ## Watch
+
+- **A bridge started without a launcher reads `HERMES_HOME` as "I am hermes".** `detectRuntime`
+  (`mcp/stdio/runtimes.js`) checks `AIFY_RUNTIME` first, which every launcher and managed start sets,
+  so only a hand-configured MCP entry is affected; on this host `HERMES_HOME` is set machine-wide, so
+  such a claude would register as hermes.
 
 - **Hermes `delegate_task` blocks the parent turn today.** If a future hermes makes it asynchronous,
   the gateway turn detector's idle debounce (`AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE`, 3 ticks) would
