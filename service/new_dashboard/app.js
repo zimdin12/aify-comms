@@ -24,7 +24,7 @@ import { mountXtermForTerminal as mountXtermForTerminalImpl } from './xterm-moun
 import { renderSessionConsole as renderSessionConsoleImpl } from './session-console.mjs';
 import { renderInstallSnippet } from './static-links.mjs';
 import { pages } from './page-titles.mjs';
-import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
+import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _settingsSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
 import { defaultApiOrigin, resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
@@ -241,7 +241,7 @@ function renderAll() {
   renderSection('spawnRequests', [_spawnReqSig()], renderSpawnRequests);
   renderSection('runs', [_runSig(), f, state.runStatusFilter || '', state.runFromFilter, state.runToFilter, state.runRuntimeFilter, state.runSearch, [...state.selectedDiagnosticIds]], renderRuns);
   renderSection('files', [state.files.map((x) => [x.name, x.size, x.sharedAt]), f], renderFiles);
-  renderSection('settings', [state.settings], renderSettings);
+  renderSection('settings', _settingsSig(), renderSettings);
   // Keep the analytics page live while it's the active page (re-fetch on the poll cycle).
   if (byId('page-analytics')?.classList.contains('active')) loadAnalytics();
   // Keep the Fleet pulse live while it's the Chat landing view (no conversation open).

@@ -9,6 +9,7 @@
 const _sectionSig = Object.create(null);
 
 import { noteSliceFailure } from './refresh-status.mjs';
+import { SETTINGS_SCHEMA } from './settings-panel.mjs';
 import { state } from './state.mjs';
 /**
  * Render one section if its inputs moved, and never let it take the others with it.
@@ -97,3 +98,6 @@ export const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status
 export const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
 export const _chatChanSig = () => (state.chat.channels || []).map((c) => [c.name, c.unreadCount, c.memberCount]);
 export const _chatConvSig = () => Object.entries(state.chat.channelMessages || {}).map(([k, v]) => [k, (v || []).length]);
+// The page is drawn from the settings AND the served declarations. Keyed on the values alone, a
+// schema adopted by a retry after a failed boot fetch never repainted "Loading settings…" (0.7.1 C2).
+export const _settingsSig = () => [state.settings, SETTINGS_SCHEMA.length];

@@ -451,6 +451,12 @@ test("the full refresh hands the slices that FAILED to the change-driven refresh
   assert.match(source, /const started = changeRefresh\.fullRefreshStarting\(\);\s*\n\s*const failed = await _refreshImpl\(\);\s*\n\s*changeRefresh\.fullyRefreshed\(started, failed\);/);
 });
 
+test("the Settings section repaints on the signature that includes the served schema", () => {
+  // Wiring only app.js can do: settings-panel.test.mjs proves `_settingsSig` repaints a late schema
+  // through the real memo; keyed on `[state.settings]` here, the page stays on "Loading settings…".
+  assert.match(read("app.js"), /renderSection\('settings', _settingsSig\(\), renderSettings\);/);
+});
+
 test("the Settings button that discards unsaved edits says so, not 'Reset'", () => {
   // Elsewhere on this dashboard "Reset" is a fresh-context restart of a live session (the agent
   // drawer, the Sessions bulk bar); one word naming a harmless and a destructive action is a trap.
