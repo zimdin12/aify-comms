@@ -114,3 +114,27 @@ class ThePollIntervalIsTheSettingTests(unittest.TestCase):
 
         with mock.patch.object(usage, "get_db", db), mock.patch.object(usage, "_load_settings", settings):
             self.assertEqual(asyncio.run(usage._poll_seconds()), 420.0)
+
+
+class NoTestReadsARealLoginTests(unittest.TestCase):
+    """The suite-wide seal in conftest.py: without it, a test fetching /usage sent this host's real
+    Claude or Codex token to the provider (found in v0.7.4)."""
+
+    def test_neither_credential_search_finds_anything_under_test(self):
+        from service import usage_openai
+
+        self.assertEqual(usage_openai.read_openai_token()[0], "")
+        self.assertEqual(usage_anthropic.read_claude_oauth(), {})
+
+    def test_a_usage_read_under_test_makes_no_request(self):
+        for entry in usage._POOL_CACHE.values():
+            entry.update(at=0.0, pool=None)
+        asked = []
+
+        def client(*args, **kwargs):
+            asked.append(kwargs)  # the collectors swallow errors, so the attempt is what is recorded
+            raise RuntimeError("no network under test")
+
+        with mock.patch("httpx.AsyncClient", side_effect=client), mock.patch.object(usage, "usage_all", lambda: []):
+            asyncio.run(usage.get_usage())
+        self.assertEqual(asked, [], "a provider was asked for usage from a test")

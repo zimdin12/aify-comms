@@ -158,6 +158,23 @@ def _rebind_init_db_for_late_imports(_fast_init_db):
 _DEPRECATED_MARKER = re.compile(r"^\s*#\s*deprecated-runtime:\s*([a-z0-9_-]+)\s*$", re.MULTILINE)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_provider_login(monkeypatch):
+    """No test reads this host's real Claude or Codex login, so none asks a real provider for usage.
+
+    `GET /usage` collects both quota pools itself. Its credential searches looked in the real home
+    directories, so on a host signed in to Claude or Codex every test that fetched `/usage` sent this
+    machine's token to Anthropic or OpenAI, and a live reading replaced the one the test had posted
+    (found in v0.7.4: `test_usage_post_then_get` read the operator's real weekly figure). A test that
+    exercises the search replaces it itself.
+    """
+    import service.usage_anthropic as usage_anthropic
+    import service.usage_openai as usage_openai
+
+    monkeypatch.setattr(usage_openai, "_auth_candidates", lambda: [])
+    monkeypatch.setattr(usage_anthropic, "_credential_candidates", lambda: [])
+
+
 @pytest.fixture
 def real_app_data_dir(monkeypatch, tmp_path):
     """For a test that runs `service.main.app`'s real lifespan, which opens `<data_dir>/aify.db`.
