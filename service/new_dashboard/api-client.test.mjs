@@ -358,3 +358,39 @@ test("apiResponse hands back the untouched Response, so a caller can branch on a
   assert.equal(SEEN[0].url, "/api/v1/agents/a1/mode");
   assert.equal(SEEN[0].headers["content-type"], "application/json", "the default content type is still sent");
 });
+
+test("a redirect is never followed, so no credential reaches a second origin through one", async () => {
+  // v0.7.1 review (W03-R2). The first hop was bound to the page's service, but fetch follows a 302 by
+  // default and re-sends custom headers, so a redirecting proxy handed X-Aify-Operator-Key (and the
+  // service key) to whatever origin it named. Two real servers: the trusted one redirects to the other.
+  const received = [];
+  const foreign = http.createServer((req, res) => { received.push(req.headers); res.writeHead(200); res.end("{}"); });
+  const foreignPort = await new Promise((r) => foreign.listen(0, "127.0.0.1", () => r(foreign.address().port)));
+  foreign.unref();
+  const trusted = http.createServer((req, res) => {
+    if (req.url.endsWith("/redirects")) {
+      res.writeHead(302, { location: `http://127.0.0.1:${foreignPort}/api/v1/agents` });
+      res.end();
+    } else {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ reached: req.headers["x-aify-operator-key"] || "" }));
+    }
+  });
+  const trustedPort = await new Promise((r) => trusted.listen(0, "127.0.0.2", () => r(trusted.address().port)));
+  trusted.unref();
+  const origin = `http://127.0.0.2:${trustedPort}`;
+  try {
+    setApiBase(`${origin}/api/v1`, origin);
+    setOperatorKey("synthetic-operator", origin);
+    const control = await api("/agents");
+    assert.equal(control.reached, "synthetic-operator", "control: the trusted service still receives the key");
+    await assert.rejects(api("/redirects"), "a redirect was followed");
+    await assert.rejects(api("/redirects", { redirect: "follow" }), "a caller's options re-enabled following");
+    assert.deepEqual(received, [], "the second origin received a request carrying the page's credentials");
+  } finally {
+    setOperatorKey("");
+    setApiBase(BASE);
+    trusted.close();
+    foreign.close();
+  }
+});

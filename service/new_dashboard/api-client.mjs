@@ -83,7 +83,10 @@ export async function apiResponse(path, options = {}) {
   // the URL the request goes to, so it can only ever reach the origin it was entered for.
   const serviceKey = apiKeyHeader(url);
   if (serviceKey) Object.assign(headers, serviceKey);
-  const response = await fetch(url, { headers, ...rest });
+  // NEVER FOLLOWED, and last so no caller's options can turn it back on: fetch re-sends custom headers
+  // on a redirect, so a proxy answering 302 would collect the operator key and the service key for
+  // whatever origin it names (v0.7.1 review, W03-R2). No dashboard API call relies on a redirect.
+  const response = await fetch(url, { headers, ...rest, redirect: 'error' });
   if (response.status === 401) ensureApiKeyPrompt(url);
   return response;
 }
