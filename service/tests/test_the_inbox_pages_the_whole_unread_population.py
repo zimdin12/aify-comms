@@ -59,3 +59,34 @@ class TheInboxPagesTheWholeUnreadPopulationTests(FastApiTestCase):
 
     def test_past_the_end_is_an_empty_page(self):
         self.assertEqual(self._page(f"limit=10&offset={COUNT}")["messages"], [])
+
+
+class AnOffsetNeedsAReadThatDoesNotShiftThePopulationTests(FastApiTestCase):
+    """v0.7.1 review (W08). A NON-peek unread read marks its page read, which shifts the unread
+    population under the next page: 6,5 read at offset 0, then offset 2 returned 2,1 and skipped 4,3,
+    which stayed unread and unseen. Paging unread needs peek; a non-peek read pages by repeating offset 0."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        for agent_id in ("reader", "sender"):
+            self.client.post("/api/v1/agents", json={
+                "agentId": agent_id, "role": "coder", "runtime": "claude-code", "sessionMode": "resident"})
+        for index in range(6):
+            self.client.post("/api/v1/messages/send", json={
+                "from_agent": "sender", "to": "reader", "type": "info", "subject": f"s{index}", "body": "b"})
+
+    def _status(self, query: str) -> int:
+        return self.client.get(f"/api/v1/messages/inbox/reader?{query}").status_code
+
+    def test_a_non_peek_unread_read_with_an_offset_is_refused(self):
+        response = self.client.get("/api/v1/messages/inbox/reader?limit=2&offset=2")
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("peek", response.text)
+        self.assertEqual(self._status("limit=10&peek=true"), 200)
+        unread = self.client.get("/api/v1/messages/inbox/reader?limit=10&peek=true").json()["total"]
+        self.assertEqual(unread, 6, "the refused read marked something read")
+
+    def test_controls_the_reads_whose_population_does_not_shift_still_page(self):
+        self.assertEqual(self._status("limit=2&offset=2&peek=true"), 200)
+        self.assertEqual(self._status("limit=2&offset=2&filter=all"), 200)
+        self.assertEqual(self._status("limit=2&offset=0"), 200)

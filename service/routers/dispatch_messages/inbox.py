@@ -51,6 +51,12 @@ async def get_inbox(
     peek: Optional[str] = None,
 ):
     validate_name(agent_id, "agent ID")
+    # A non-peek unread read marks its page read, which shifts the unread population under the next
+    # page: offset 2 after reading 6,5 returned 2,1 and skipped 4,3 for good (v0.7.1 review, W08).
+    # `bool(peek)` is the same test `_settle_inbox_read` applies.
+    if offset and filter == "unread" and not messageId and not peek:
+        raise HTTPException(400, "offset pages the unread inbox only with peek=true: a read that marks "
+                                 "its page read shifts the next page. Without peek, read again at offset 0.")
     db = await get_db()
     try:
         include_body = mode != "headers"
