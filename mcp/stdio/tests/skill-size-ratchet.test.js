@@ -46,7 +46,11 @@ const CEILINGS = {
   // 14_915 -> 14_055 on 2026-09-26 (0.7.1): the send gate and requireReply=false are described as the
   // code behaves, and the interruption steps, the registration-warning note and the comms_listen line
   // that repeated operations.md, register-identity.js and the tool text were cut to pointers.
-  "aify-comms/SKILL.md": 14_055,
+  // 14_055 -> 14_132 on 2026-09-26 (0.7.4), a raise the operator asked for: the Responding steps say
+  // when a message becomes read (claimed run, comms_inbox, a reply with inReplyTo; a silent send
+  // stays unread), because agents treated the notice's unread list as unhandled work. Step 3's tail
+  // was shortened to pay for part of it.
+  "aify-comms/SKILL.md": 14_132,
   "aify-comms/references/building-software.md": 4_488,
   "aify-comms/references/leading-a-team.md": 18_967,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
