@@ -28,7 +28,9 @@ another is the most common way a change appears not to work.
 
 **The wrapper and the bridge reload in opposite ways.** A bridge is a running process, so new code on
 disk does nothing until the agent restarts; `aify-comms doctor`'s `bridge-current` compares the build
-each live bridge reported when it registered (`GET /bridges`), and reads `unknown-all` when none did. A wrapper is
+each live bridge last reported (`GET /bridges`), and reads `unknown-all` when none did. Every liveness
+beat carries the build, so channel sidecars and hermes delivery loops are read as well as foreground
+bridges. A wrapper is
 generated text, so restarting it does nothing until `install.sh` is re-run; `aify-wrapper-check`
 reports a stale one.
 
@@ -47,7 +49,7 @@ is a row, liveness is a process.
 **Editing the wrong tier is silent.** A container rebuild does nothing for `mcp/stdio/`, and
 `install.sh` does nothing for a bridge already running: it copies files into `~/.aify-comms/`, and
 every running agent keeps executing the copy it loaded at boot. `aify-comms doctor` exists because
-each of these paths fails without an error; see CLAUDE.md, "Verify a change actually took effect".
+each of these paths fails without an error; see CLAUDE.md, "Verify a change took effect".
 
 **`aify-comms` is a verifier and starts nothing.** `doctor`, `--check`, `--version` and `--help`
 answer; anything else exits 2 and names aify-env. aify-env is the host tier and the only spawner, so
@@ -98,8 +100,9 @@ Moving the cache to a shared store is the prerequisite, not a follow-up.
 
 ## How a message becomes work
 
-The path most defects live in, and the one `service/tests/e2e/test_message_to_work.py` drives
-against a real service over HTTP:
+The path most defects live in. `service/tests/e2e/test_message_to_work.py` drives its two ends
+against a real service over HTTP: the message is stored and readable, and the reply is threaded to it.
+The dispatch, claim and delivery steps between them are not in that test.
 
 ```text
 comms_send                     an agent, or the dashboard
@@ -175,7 +178,7 @@ Each row is a rule you can break without any obvious symptom, followed by what w
 | No module imports a name nothing reaches | `service/tests/test_no_dead_imports.py` |
 | Every reconciler has a production caller | `service/tests/test_no_reconciler_is_dead_code.py` |
 | Container runtime must not import host-side bridge code | `service/tests/test_service_runtime_boundary.py` |
-| One version, in the root `VERSION` file, and nowhere else | `service/tests/test_version_single_source.py`, `mcp/stdio/tests/version-consistency.test.js` |
+| One version, declared in the root `VERSION` file; `scripts/bump-version.sh` writes the four copies that must agree | `service/tests/test_version_single_source.py`, `mcp/stdio/tests/version-consistency.test.js` |
 | Every registered `comms_*` tool is documented, and every documented one exists | `mcp/stdio/tests/skill-consistency.test.js` |
 | The two skill trees are byte-identical | `service/tests/test_skill_mirror_parity.py` |
 | The Python and JS subject quoters agree byte-for-byte | `service/tests/test_subject_quoting_agrees_across_transports.py` |
