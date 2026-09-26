@@ -39,7 +39,7 @@ resolve. Publishing is the operator's call, since it leaves the machine.
 ## Commands on PATH
 
 ```
-aify-env            the host tier, with `doctor` and `tui` as subcommands
+aify-env            the host tier; subcommands doctor, tui, attach, run, credential, herdr
 claude-aify         launcher
 codex-aify          launcher
 hermes-aify         launcher
@@ -50,7 +50,8 @@ aify-wrapper-check  asks each installed launcher whether it is current
 aify-wrapper-install
 ```
 
-The last five are aify-wrapper's own commands, so they arrive with the client path by construction.
+The last four are aify-wrapper's own bins, so they arrive with the client path by construction; the
+three `*-aify` launchers are rendered from its templates by the client's installer.
 No `aify-comms` command, no `aify-doctor`, no `aify-env-doctor` as a second binary. An unknown
 `aify-env` subcommand exits 64 rather than falling through to starting the daemon.
 
