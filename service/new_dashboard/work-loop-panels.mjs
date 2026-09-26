@@ -16,11 +16,6 @@
 // module unimportable in Node and every module importing it too. Measured, that closure is 2,203 lines
 // rather than the 63 the board alone costs. `apiBase` needs a ruling, not a script; see
 // docs/APP_JS_APIBASE_PACKET.md.
-//
-// Every declaration is byte-identical to the one that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Leading comments stayed behind in
-// app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its comments
-// could not round-trip through the proof.
 
 
 import { contractActionable, messageId, runTargetAgent } from './record-fields.mjs';

@@ -15,17 +15,10 @@
 // characters of a body when the sender supplied none, so rendering both verbatim shows the same words
 // twice. `subjectIsEchoOfBody` suppresses the heading in that case and `DERIVED_SUBJECT_MAX` is the
 // server's slice length — the two must agree or the duplicate comes back.
-//
-// Bodies byte-identical to what stood in `chat.js`.
 import { esc, relTime } from './util.js';
 import { resolveStatus } from './status.js';
 import { richMessageHtml } from './message-format.mjs';
 
-// Chat overview shown when no conversation is open (re-click an open chat to return here).
-// EXPORTED, and it was not in `chat.js` — the one declared substitution in this move. It was
-// module-private there because its only caller was in the same file; now that caller imports it, so
-// the keyword is what makes the relocation legal rather than a change of behaviour. The body below
-// is byte-identical.
 /**
  * A sender this instance has never registered, and where it says it is.
  *

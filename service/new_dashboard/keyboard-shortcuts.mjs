@@ -1,16 +1,14 @@
 // The global keyboard shortcuts, moved out of app.js in v0.5.4.
 //
 // This was a whole top-level `document.addEventListener('keydown', …)` — not a branch of the click
-// handler — and it is the largest single statement extracted so far. Three of its four rules are
-// ACCESSIBILITY: Escape dismisses overlays, and Enter/Space operate every `role=button` span --
-// the status-why popover, the favourite star and the triage tiles -- which have no native key
-// handling at all. That list was TWO until 2026-09-01 and this comment enumerated it, which is
-// exactly how the third went missing; the gate now derives it from the markup instead. A
-// keyboard-only operator loses those controls entirely if any of this stops firing, and nothing on
+// handler. Most of its rules are ACCESSIBILITY: Escape dismisses overlays, and Enter/Space operate
+// the `role=button` controls that have no native key handling at all. Which controls those are is
+// not listed here: an enumeration in this comment is exactly how one went missing on 2026-09-01, and
+// `every-role-button-is-keyboard-operable.test.mjs` derives the population from the markup instead.
+// A keyboard-only operator loses those controls entirely if any of this stops firing, and nothing on
 // screen looks wrong.
 //
-// `closeInspector` and `toggleFavorite` are INJECTED — they stay in app.js. The body is byte-identical
-// to the listener it left, at the same indentation, so nothing about the rules changed.
+// `closeInspector` and `toggleFavorite` are INJECTED — they stay in app.js.
 
 import { copyActiveConsole } from './clipboard.mjs';
 import { applyConsoleFind, handleConsoleFindKey, toggleConsoleFind } from './console-find.mjs';

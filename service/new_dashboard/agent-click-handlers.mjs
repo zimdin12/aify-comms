@@ -6,7 +6,7 @@
 //
 // The callbacks are INJECTED — `refreshSoon` and `switchAgentSessionMode` stay in app.js — and
 // `switchModeFromChip` takes `event` for the same reason, since it suppresses the default and stops
-// propagation before doing anything. Parameters of the same names leave both bodies byte-identical.
+// propagation before doing anything.
 
 import { api } from './api-client.mjs';
 import { toast } from './ui.js';

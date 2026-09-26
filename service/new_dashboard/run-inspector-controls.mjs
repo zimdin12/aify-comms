@@ -11,10 +11,6 @@
 // half of app.js, and a slice that took that group was written, proven and reverted earlier in this series
 // (see docs/APP_JS_STATE_MODULE_PACKET.md, fifth correction). The controls separate cleanly from it; the
 // renderer does not.
-//
-// The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `. Their leading comments stayed behind — `declarationSpan` returns the declaration alone, so a
-// span carrying its comments could not round-trip through the reconstruction proof.
 
 
 import { sessionForAgent } from './agent-drawer.mjs';

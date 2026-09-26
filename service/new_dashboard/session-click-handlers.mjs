@@ -4,8 +4,7 @@
 // with the two helpers only they used — `SESSION_LIVE_KINDS` and `persistSessionStatusFilter`, which had
 // no other caller in app.js at all, so this is their whole population rather than a split one.
 //
-// `renderSessionWorkspace` is INJECTED. It stays in app.js (it reaches most of the render web), and a
-// parameter of the same name leaves each body byte-identical to the branch it left.
+// `renderSessionWorkspace` is INJECTED. It stays in app.js (it reaches most of the render web).
 
 import { sessionAgentId } from './record-fields.mjs';
 import { SESSION_FILTER_KINDS, selectedSession } from './session-rail.mjs';

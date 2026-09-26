@@ -5,7 +5,7 @@
 // so a renamed attribute in the template turns a toolbar button into a no-op that looks fine in review.
 //
 // `copyActiveConsole` and `toast` are imported because they already live in modules; the three that
-// still live in app.js are injected under their own names, which keeps the body byte-identical.
+// still live in app.js are injected under their own names.
 
 import { closeConsoleFind, stepConsoleFind, toggleConsoleFind } from './console-find.mjs';
 import { copyActiveConsole } from './clipboard.mjs';

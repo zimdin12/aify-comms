@@ -8,11 +8,6 @@
 // unless someone read the database. It also aliases `done`, the one spawn status the canonical resolver
 // does not know — an alias that silently stopped working would put every completed spawn back into the
 // unknown bucket, which is the failure this module's tests exist to catch.
-//
-// The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Their leading comments stayed behind
-// in app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its
-// comments could not round-trip through the proof.
 
 export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-environment')?.value || '') {
   const envSelect = byId('env-spawn-environment');
@@ -322,10 +317,7 @@ export function renderEnvironmentSummary() {
     metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
   ].join('');
 }
-/**
- * The hint shown in an empty roots box: an EXAMPLE of the shape this host writes, never a place this
- * service claims anything is installed. A Windows-only hint was the whole prompt on a Linux environment.
- */
+
 /**
  * What an operator runs on a host whose environment is missing or silent: the diagnostic, and only
  * that. It answers without changing anything.
@@ -337,6 +329,10 @@ export function renderEnvironmentSummary() {
  */
 const HOST_CHECK_COMMAND = 'aify-env doctor';
 
+/**
+ * The hint shown in an empty roots box: an EXAMPLE of the shape this host writes, never a place this
+ * service claims anything is installed. A Windows-only hint was the whole prompt on a Linux environment.
+ */
 export function rootsPlaceholder(env) {
   const os = String(env?.os || env?.kind || '').toLowerCase();
   if (os.includes('win')) return 'C:/work\nC:/projects';        // example path

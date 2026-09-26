@@ -16,11 +16,6 @@
 // got exactly this wrong — it took a `const` whose initializer reached half the file, because the closure
 // walk only expanded functions and never read a data declaration's own references. That slice was
 // reverted; see docs/APP_JS_STATE_MODULE_PACKET.md.
-//
-// Every declaration below is byte-identical to the one that stood in app.js; the only substitution is the
-// added `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Their leading comments stayed
-// behind in app.js deliberately: `declarationSpan` returns the declaration alone, so a span that took its
-// comments with it could not round-trip through the proof.
 
 
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';

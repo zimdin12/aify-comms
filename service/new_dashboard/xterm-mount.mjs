@@ -8,8 +8,6 @@
 //
 // `resyncActiveConsole` is INJECTED rather than imported because it reaches `refresh`, the render
 // orchestrator app.js still owns — importing it here would drag the whole render web across.
-//
-// The body is byte-identical to what left app.js; only the signature gained the injected parameter.
 
 import { api } from './api-client.mjs';
 import { copyText } from './clipboard.mjs';

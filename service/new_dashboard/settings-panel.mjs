@@ -125,12 +125,8 @@ export function refreshActiveTerminalTheme() {
   try { entry.webgl?.clearTextureAtlas?.(); } catch {}
 }
 
-// The theme-preset tile click, moved out of app.js's delegated click handler in v0.5.4 — the FIRST
-// extract-method this repo's reconstruction proof could express. It lives here because everything it
-// touches already did: THEMES, byId and previewAppearance are this module's own.
-//
-// The body is byte-identical to the branch it left, dedented by two. app.js keeps the guard and the
-// `return;`, so the handler's control flow is untouched — this is a relocation, not a redesign.
+// The theme-preset tile click, moved out of app.js's delegated click handler in v0.5.4. It lives here
+// because everything it touches already did: THEMES, byId and previewAppearance are this module's own.
 export function applyThemeChoice(themeChoice) {
   const key = themeChoice.dataset.themeChoice;
   const sel = byId('set-dashboard_theme');

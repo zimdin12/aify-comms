@@ -21,8 +21,6 @@
 // the symptom would be stale panels rather than an error. `state-identity.test.mjs` is the gate against
 // that, and it exists because the Python side of this series caught exactly that fork (`_listen_events`,
 // where two copies would have made `comms_listen` hang silently).
-//
-// The declaration below is byte-identical to the one that stood in app.js; only `export ` was added.
 
 export const state = {
   loaded: false, // false until the first successful refresh — lets the chat rail show

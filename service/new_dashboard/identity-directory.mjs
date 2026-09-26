@@ -11,11 +11,6 @@
 // function only becomes testable once it leaves app.js, which is reachable only by source regex. The
 // counts this renders — how many agents are managed versus resident, and the unread total — are summary
 // arithmetic over live fleet state, and nothing has ever checked them.
-//
-// The declaration is byte-identical to the one that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Its leading comments stayed behind in
-// app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its comments
-// could not round-trip through the proof.
 
 
 import { sessionForAgent } from './agent-drawer.mjs';
