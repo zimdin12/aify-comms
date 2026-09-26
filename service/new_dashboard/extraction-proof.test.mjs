@@ -105,6 +105,22 @@ test("every dashboard module except app.js IMPORTS in Node", async () => {
   }
 });
 
+test("app.js LINKS in Node: every name it imports is exported where it imports it from", async () => {
+  // app.js cannot finish loading in Node (it reads `location` at boot), so it was left out above, and a
+  // renamed export left app.js importing a name that no longer exists with every test green: a browser
+  // refuses to run such a module at all, which is a blank dashboard (v0.7.2, external review). Node LINKS
+  // every import before any line runs and reports a missing export as a SyntaxError, so anything else
+  // means the imports resolved.
+  const error = await import(pathToFileURL(path.join(HERE, "app.js")).href).then(() => null, (e) => e);
+  assert.ok(!(error instanceof SyntaxError), `app.js does not link: ${error?.message}`);
+});
+
+test("CONTROL: a module importing a name its source does not export fails to link with a SyntaxError", async () => {
+  const src = pathToFileURL(path.join(HERE, "state.mjs")).href;
+  const error = await import(`data:text/javascript,import { noSuchExport } from ${JSON.stringify(src)};`).then(() => null, (e) => e);
+  assert.ok(error instanceof SyntaxError, `expected a link error, got ${error}`);
+});
+
 test("CONTROL: the import check fails on a module that reads the browser at load", async () => {
   await assert.rejects(import("data:text/javascript,export const t = document.title;"));
 });
