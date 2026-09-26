@@ -83,10 +83,10 @@ fresh delivery owner registers.
 **Symptom.** A fresh or restarted managed claude sits at a TUI prompt (resume menu, compaction
 question, permissions accept) and never claims work: "up-but-deaf". `comms_console_tail` shows which.
 
-The service answers exactly one dialog, the development-channels acknowledgment
-(`service/api_core/console_prompts.py`, rule `dev-channels-accept`), matched on the rendered screen
-and answered once per terminal. It refuses resume menus wholesale, because a wrong key there is
-unrecoverable, and leaves compaction and permission dialogs for a person to answer.
+The service answers two dialogs (`service/api_core/console_prompts.py`), matched on the rendered
+screen, once per terminal: the development-channels acknowledgment (`dev-channels-accept`), and a
+resume menu with "Resume full session" (`resume-full-session`), only when it sees the cursor and that
+row. Permission and other dialogs are left for a person.
 
 ## Resident relaunch reads `offline` and deaf
 
