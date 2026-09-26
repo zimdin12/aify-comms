@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
+from service.api_core.request_body import json_object_body
 from service.api_core.agent_sessions import _agent_tombstone, _mark_agent_present
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -47,11 +48,8 @@ async def _posted_by_a_superseded_bridge(db, request: Request, agent_id: str) ->
     body. Both `/turn-start` and `/turn-end` ask this, and must ask it the same way: a stale bridge
     refused on one end and accepted on the other can only push an agent one way.
     """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    posting_bridge = str((body or {}).get("bridgeId") or "").strip()
+    body = await json_object_body(request, lenient=True)
+    posting_bridge = str(body.get("bridgeId") or "").strip()
     if not posting_bridge:
         return False
     row = await (await db.execute(

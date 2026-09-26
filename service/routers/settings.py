@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
+from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
@@ -103,9 +104,9 @@ async def get_settings_schema(request: Request):
 
 @router.put("/settings")
 async def update_settings(request: Request):
-    body = await request.json()
+    body = await json_object_body(request)
     try:
-        clean = validate_update(body if isinstance(body, dict) else {})
+        clean = validate_update(body)
     except SettingError as exc:
         raise HTTPException(400, str(exc)) from exc
     db = await get_db()
