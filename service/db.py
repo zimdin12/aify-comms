@@ -112,6 +112,9 @@ DISPATCH_CONTROL_MIGRATIONS = {
     # empty for rows that predate the column, which is honest: those settlements have no known actor
     # and must not be back-filled with a guess.
     "handled_by": "ALTER TABLE dispatch_controls ADD COLUMN handled_by TEXT DEFAULT ''",
+    # The stop note an interrupt produced (v0.7.4): a control that settles completed again, including
+    # after the stuck-controls reconciler failed it, is one stop and gets one note.
+    "notice_message_id": "ALTER TABLE dispatch_controls ADD COLUMN notice_message_id TEXT DEFAULT ''",
 }
 
 ENVIRONMENT_MIGRATIONS = {

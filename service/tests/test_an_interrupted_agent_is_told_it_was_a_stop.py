@@ -67,6 +67,16 @@ class AnInterruptedAgentIsToldItWasAStopTests(FastApiTestCase):
         self._settle(control_id, "completed")
         self.assertEqual(len(self._notes("claude-d")), 1)
 
+    def test_a_control_that_reenters_completed_adds_no_second_note(self):
+        """completed -> failed -> completed is one control and one stop. A late completion after the
+        stuck-controls reconciler failed it is legitimate, so the guard is per control, not a refusal
+        (review of 20aa4b6e)."""
+        self._seed("claude-f", "claude-code", "run-f")
+        control_id = self._interrupt("run-f", "completed")
+        self._settle(control_id, "failed")
+        self._settle(control_id, "completed")
+        self.assertEqual(len(self._notes("claude-f")), 1)
+
     def test_CONTROL_a_second_interrupt_is_a_second_stop(self):
         """The dedupe is per control, not per agent: two stops are two notes."""
         self._seed("claude-e", "claude-code", "run-e")

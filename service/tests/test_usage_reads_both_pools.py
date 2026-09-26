@@ -173,6 +173,16 @@ class SimultaneousReadersShareOnePollTests(unittest.TestCase):
         self._gather(failing, readers=1)
         self.assertEqual(self.calls, 2, "a failed poll must not be cached as a reading")
 
+    def test_a_provider_that_answers_nothing_is_asked_once_per_interval(self):
+        """How both collectors report a refused or unreachable provider: None, cached like a reading."""
+        async def refused():
+            self.calls += 1
+            return None
+
+        for response in self._gather(refused) + self._gather(refused, readers=1):
+            self.assertEqual(response["pools"], [{"source_id": "anthropic-claude-max", "posted": True}])
+        self.assertEqual(self.calls, 1)
+
 
 class ThePollIntervalIsTheSettingTests(unittest.TestCase):
     def test_the_setting_is_declared_in_minutes_with_a_five_minute_default(self):

@@ -84,7 +84,10 @@ async def _poll_seconds() -> float:
 async def _read_pool(name: str, collect, ttl: float):
     """The cached reading, or the one poll in flight for it: readers that arrive while a poll runs wait
     for that poll instead of starting their own (two simultaneous readers asked twice until the 0.7.4
-    review). A failed poll raises to every waiter and caches nothing, so the next reader retries."""
+    review). Two ways a poll comes back empty, handled differently: a collector that RAISES caches
+    nothing, so the next reader polls again; one that returns None (how both collectors report a refused
+    or unreachable provider) is a reading, cached for the interval like any other, so a provider that is
+    down is asked once per interval, not once per reader. Either way any posted pool is served."""
     cache = _POOL_CACHE[name]
     if time.monotonic() - float(cache["at"] or 0) <= ttl:
         return cache["pool"]

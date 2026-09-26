@@ -185,12 +185,18 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
                         "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
                         ((control["source_message_id"] or "").strip(), run["target_agent"], handled_at),
                     )
-        # On the TRANSITION into completed only: a retried or replayed settlement of the same control is
-        # one stop, and it left a second note until the 0.7.4 review.
-        if status == "completed" and control["action"] == "interrupt" and control["status"] != "completed":
+        # ONE NOTE PER CONTROL, however often it settles: a retried PATCH, or a late completion after the
+        # stuck-controls reconciler failed it, is the same stop. The claim is a conditional write in this
+        # request's transaction, so two settlements racing cannot both win it (0.7.4 review).
+        if status == "completed" and control["action"] == "interrupt":
+            claim = await db.execute(
+                "UPDATE dispatch_controls SET notice_message_id = 'claimed' WHERE id = ? AND COALESCE(notice_message_id, '') = ''",
+                (control_id,),
+            )
             run_row = await (await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (control["run_id"],))).fetchone()
-            if run_row and (run_row["target_agent"] or "").strip():
-                await note_the_interrupt(db, agent_id=run_row["target_agent"], stopped_by=control["from_agent"] or "", at=handled_at)
+            if claim.rowcount and run_row and (run_row["target_agent"] or "").strip():
+                note_id = await note_the_interrupt(db, agent_id=run_row["target_agent"], stopped_by=control["from_agent"] or "", at=handled_at)
+                await db.execute("UPDATE dispatch_controls SET notice_message_id = ? WHERE id = ?", (note_id or "none", control_id))
         # THE ACTOR GOES IN THE AUDIT TRAIL, not only in the control row. The run's event list is
         # where a stranded or wrongly-closed run is actually investigated, and a settlement whose
         # actor is only discoverable by joining another table is a settlement nobody will attribute.

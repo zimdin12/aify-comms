@@ -165,6 +165,8 @@ CREATE TABLE IF NOT EXISTS dispatch_controls (
     response_text TEXT DEFAULT '',
     -- Who settled it. Mandatory at the endpoint; empty only for rows predating the column.
     handled_by TEXT DEFAULT '',
+    -- The stop note an interrupt produced (interrupt_notice.py): one per control, however often it settles.
+    notice_message_id TEXT DEFAULT '',
     claim_machine_id TEXT DEFAULT '',
     requested_at TEXT NOT NULL,
     claimed_at TEXT,
