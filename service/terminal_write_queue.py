@@ -596,8 +596,12 @@ class TerminalOutputWriteQueue:
 
 TERMINAL_OUTPUT_WRITES = TerminalOutputWriteQueue()
 
+# How long shutdown gives the drain. docker-compose.yml's stop_grace_period covers it plus uvicorn's
+# bounded wait for open connections (test_shutdown_fits_inside_the_stop_grace_period.py).
+SHUTDOWN_DRAIN_SECONDS = 5.0
 
-async def drain_terminal_output_writes(queue: TerminalOutputWriteQueue = None, timeout: float = 5.0) -> bool:
+
+async def drain_terminal_output_writes(queue: TerminalOutputWriteQueue = None, timeout: float = SHUTDOWN_DRAIN_SECONDS) -> bool:
     """Write what the queue still holds, at shutdown. True when it drained, False when it ran out of time.
 
     `POST /terminals/{id}/output` answers once a chunk is QUEUED, and the queue holds it for up to a

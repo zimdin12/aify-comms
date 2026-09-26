@@ -14,6 +14,9 @@ services:
         SERVICE_PORT: ${SERVICE_PORT:-8800}
     container_name: ${COMPOSE_PROJECT_NAME:-aify-comms}-service
     restart: ${RESTART_POLICY:-unless-stopped}
+    # uvicorn's bounded connection wait (3 s, Dockerfile) + the terminal output drain (5 s) + closing
+    # the pool. Docker's default is 10 s, and SIGKILL before the drain loses acknowledged output.
+    stop_grace_period: 20s
     logging:
       driver: json-file
       options:

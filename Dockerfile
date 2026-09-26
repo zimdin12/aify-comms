@@ -57,4 +57,7 @@ USER service
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8800/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "service.main:app", "--host", "0.0.0.0", "--port", "8800", "--no-access-log"]
+# --timeout-graceful-shutdown: uvicorn waits for open connections before the lifespan shutdown, and a
+# long-poll holds one for 20-600 s, so without a bound Docker killed the process before the terminal
+# output drain ran. docker-compose.yml's stop_grace_period covers this wait plus the drain.
+CMD ["python", "-m", "uvicorn", "service.main:app", "--host", "0.0.0.0", "--port", "8800", "--no-access-log", "--timeout-graceful-shutdown", "3"]
