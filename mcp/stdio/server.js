@@ -237,6 +237,7 @@ const __stopLivenessHeartbeat = !__isEntrypoint ? () => {} : startLivenessHeartb
       bridgeId: BRIDGE_INSTANCE_ID,
       bridgeKind: "resident",
       liveness: true,
+      bridgeBuild: BRIDGE_BUILD_TAG,
     });
   },
 });

@@ -7,9 +7,10 @@ at all and reported green while every `claude-aify`, `codex-aify` and `hermes-ai
 register, and it is stored on their `bridge_instances` row.
 
 LIVE MEANS BEATING: not superseded, and seen within `ACTIVE_RUN_BRIDGE_STALE_SECONDS`, the window the
-service already uses to decide a bridge still owns its run. Channel sidecars are left out: they are
-registered by their heartbeat alone and never report a build, so listing them would make every
-Claude host read "did not report".
+service already uses to decide a bridge still owns its run. Channel sidecars ARE listed: the Claude
+channel and the hermes delivery loop run bridge code too, and leaving them out let a stale one hide
+behind a current foreground bridge (v0.7 review). A sidecar is registered by its heartbeat alone, so
+every liveness beat carries the build and `bridge_liveness_beat.py` stores it.
 """
 
 from __future__ import annotations
@@ -34,7 +35,6 @@ async def list_live_bridges():
             SELECT id, agent_id, machine_id, runtime, session_mode, bridge_kind, bridge_build, last_seen
             FROM bridge_instances
             WHERE COALESCE(superseded_by, '') = ''
-              AND COALESCE(bridge_kind, '') != 'channel-sidecar'
               AND last_seen >= ?
             ORDER BY agent_id, last_seen DESC
             """,

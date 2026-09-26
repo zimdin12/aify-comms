@@ -53,8 +53,22 @@ class LiveBridgesReportTheirBuildTests(FastApiTestCase):
         self._register("bc-live", "bridge-live", "aaaaaaaaaaaa")
         self._register("bc-quiet", "bridge-quiet", "bbbbbbbbbbbb")
         self._register("bc-gone", "bridge-gone", "cccccccccccc")
-        self._register("bc-side", "bridge-side", "dddddddddddd")
         self._write("UPDATE bridge_instances SET last_seen = '2020-01-01T00:00:00Z' WHERE id = 'bridge-quiet'")
         self._write("UPDATE bridge_instances SET superseded_by = 'x' WHERE id = 'bridge-gone'")
-        self._write("UPDATE bridge_instances SET bridge_kind = 'channel-sidecar' WHERE id = 'bridge-side'")
         self.assertEqual(set(self._bridges()), {"bridge-live"})
+
+    def test_a_channel_sidecar_is_listed_with_the_build_its_heartbeat_carries(self):
+        """v0.7 review: sidecars (the Claude channel, the hermes delivery loop) run bridge code too, and
+        were left out, so a stale one hid behind a current foreground bridge. A sidecar is registered by
+        its heartbeat alone, so the beat carries the build."""
+        self._register("bc-hermes", "bridge-foreground", "aaaaaaaaaaaa")
+        beat = {"bridgeId": "sidecar-bc-hermes", "bridgeKind": "channel-sidecar", "liveness": True,
+                "bridgeBuild": "0123456789ab"}
+        response = self.client.post("/api/v1/agents/bc-hermes/heartbeat", json=beat)
+        self.assertEqual(response.status_code, 200, response.text)
+        row = self._bridges().get("sidecar-bc-hermes")
+        self.assertIsNotNone(row, f"the sidecar is not listed: {sorted(self._bridges())}")
+        self.assertEqual((row["bridgeKind"], row["build"]), ("channel-sidecar", "0123456789ab"))
+        # A beat with an unusable build leaves the stored one alone rather than blanking it.
+        self.client.post("/api/v1/agents/bc-hermes/heartbeat", json={**beat, "bridgeBuild": "no; way"})
+        self.assertEqual(self._bridges()["sidecar-bc-hermes"]["build"], "0123456789ab")

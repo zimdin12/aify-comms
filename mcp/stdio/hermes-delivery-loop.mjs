@@ -65,6 +65,7 @@ import {
 } from "./hermes-run-reporting.mjs";
 import { startInFlightRepulse } from "./hermes-turn-repulse.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 
 // The per-agent delivery loop: one long-lived async function that owns a gateway child, a websocket,
 // a liveness heartbeat and a turn detector for the lifetime of one managed hermes agent.
@@ -182,6 +183,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         bridgeId: channelBridgeId(id),
         bridgeKind: "channel-sidecar",
         liveness: true,
+        bridgeBuild: BRIDGE_BUILD_TAG,
       });
     },
   });

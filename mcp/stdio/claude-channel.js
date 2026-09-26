@@ -10,6 +10,7 @@ import { loadSettingsEnv } from "./load-env.js";
 import { defaultMachineId } from "./runtimes.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
+import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
 import { AIFY_VERSION } from "./version.js";
 import { boundAgentId } from "./bound-agent-id.mjs";
 // The server-URL helpers have ONE owner: `aify-service-endpoint.mjs`, which imports nothing and so
@@ -323,6 +324,7 @@ async function pollLoop() {
         bridgeId: channelBridgeId(id),
         bridgeKind: "channel-sidecar",
         liveness: true,
+        bridgeBuild: BRIDGE_BUILD_TAG,
       });
     },
   });

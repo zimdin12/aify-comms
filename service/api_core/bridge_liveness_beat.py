@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from service.api_core.recovery_writes import _record_channel_sidecar_heartbeat
 from service.api_core.serialization import _normalize_machine_id
+from service.models import drop_unusable_build_tag
 
 
 async def _upsert_bridge_liveness_beat(db, agent_id, bridge_id, bridge_kind, body, now) -> None:
@@ -88,3 +89,14 @@ async def _upsert_bridge_liveness_beat(db, agent_id, bridge_id, bridge_kind, bod
                         "UPDATE bridge_instances SET last_seen = ? WHERE id = ? AND agent_id = ?",
                         (now, bridge_id, agent_id),
                     )
+            # THE BUILD RIDES EVERY BEAT. A channel sidecar is registered by its heartbeat alone, so
+            # this is the only place its build can arrive; for a registered bridge it restates what
+            # registration stored. Written only when it CHANGES, because an unchanged write is still a
+            # write on the hottest path there is.
+            build = drop_unusable_build_tag(body.get("bridgeBuild"))
+            if build:
+                await db.execute(
+                    "UPDATE bridge_instances SET bridge_build = ? "
+                    "WHERE id = ? AND agent_id = ? AND COALESCE(bridge_build, '') != ?",
+                    (build, bridge_id, agent_id, build),
+                )
