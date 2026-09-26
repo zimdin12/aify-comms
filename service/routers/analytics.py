@@ -343,7 +343,9 @@ async def get_analytics_pulse(request: Request, window_minutes: int = Query(60, 
                 continue
             s = _iso_to_epoch(r["started_at"] or r["claimed_at"], default=None)
             f = _iso_to_epoch(r["finished_at"], default=None) if r["finished_at"] else now_s
-            if s is None:
+            # A finish time SQLite reads and Python does not (e.g. 'now') is unknown, not a 500 for the
+            # whole board (v0.7.1 review, S11).
+            if s is None or f is None:
                 continue
             if f <= s:
                 continue  # negative/zero span (clock skew or late-backfilled claimed_at) → no work; parity with the per-agent MAX(0,...)
