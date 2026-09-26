@@ -517,6 +517,19 @@ test("THE PAGE TELLS THE OPERATOR TO RUN aify-env, never the retired bare aify-c
   assert.doesNotMatch(editor, /Reset to bridge roots/, "the reset names the host, not the retired bridge");
 });
 
+test("THE HELP TAB'S QUICK START NAMES aify-env, never the retired bare aify-comms or a bridge (0.7.1 C3)", async () => {
+  // The C6 fix above renders the Environments page only, and the same advice sat in Settings -> Help:
+  // "run a bridge", then a pasteable `aify-comms`, which exits 2 since v0.6.1 and before that reaped
+  // the fleet. The Help card is static markup, so it is read from index.html.
+  const { readFileSync } = await import("node:fs");
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const quickStart = /<h3>Quick start<\/h3>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? "";
+  assert.match(quickStart, /aify-env doctor/, "CONTROL: the Quick start card was found and names the check");
+  const pasted = html.split("\n").map((line) => line.replace(/<[^>]+>/g, "").trim());
+  assert.deepEqual(pasted.filter((line) => /^aify-comms(\s|$)/.test(line)), [], "the page still offers a bare aify-comms to paste");
+  assert.doesNotMatch(html, /run a bridge|run by a bridge|one bridge per host/, "the page still calls the host tier a bridge");
+});
+
 test("THE COPIED HOST COMMAND ONLY DIAGNOSES: starting aify-env is said in words, never pasted (0.7.1 T05)", async () => {
   // It copied `aify-env doctor` and then `aify-env`, and a bare `aify-env` STARTS the host tier: on a
   // host with an idle one running, the paste superseded it. Starting it is the operator's decision.

@@ -479,15 +479,15 @@
 
             <div class="help-card">
               <h3>Quick start</h3>
-              <p class="subtle">Install a client, then run a bridge.</p>
+              <p class="subtle">Install a client. Managed agents run under aify-env on each host.</p>
               <!-- Filled at runtime from the page's own origin (app.js renderInstallSnippet) so the
                    snippet is copy-pasteable on whatever host you opened the dashboard from, instead
                    of shipping one machine's LAN address to every reader. -->
               <pre class="help-pre" id="help-install-cmd">bash install.sh --client claude \
   $AIFY_SERVER_URL --with-hook</pre>
-              <p class="subtle">Managed (the normal team workflow — one bridge per host/runtime):</p>
-              <pre class="help-pre">cd /path/to/workspace-parent
-aify-comms              # aify-comms.cmd on native Windows</pre>
+              <p class="subtle">Managed (the normal team workflow — aify-env runs them on each host). Check a host with:</p>
+              <pre class="help-pre">aify-env doctor</pre>
+              <p class="subtle">Starting aify-env on a host is your action there: run <code>aify-env</code> if the check says none is running.</p>
               <p class="subtle">Resident (a terminal you drive directly):</p>
               <pre class="help-pre">claude-aify --aify-agent manager --aify-role manager</pre>
             </div>
@@ -504,7 +504,7 @@ aify-comms              # aify-comms.cmd on native Windows</pre>
               <li><span class="status-dot offline"></span><strong>offline</strong> — no live session and not auto-startable.</li>
               <li><span class="status-dot stopped"></span><strong>stopped</strong> — explicitly disabled / hard-blocked.</li>
             </ul>
-            <p class="subtle"><strong>Managed</strong> agents are run by a bridge (auto-start/stop, visible console). <strong>Resident</strong> agents are a terminal you drive directly.</p>
+            <p class="subtle"><strong>Managed</strong> agents are run by aify-env on their host (auto-start/stop, visible console). <strong>Resident</strong> agents are a terminal you drive directly.</p>
           </div>
 
           <div class="help-card help-daily">
