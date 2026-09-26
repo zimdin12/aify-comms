@@ -85,6 +85,24 @@ test("the hook reads the inbox with peek, so nothing is marked read by the hook"
   }
 });
 
+test("on Codex (no CLAUDE_PROJECT_DIR) the notice reaches the model as additionalContext too", async () => {
+  // v0.7.2 (external review, item 5): Codex puts PostToolUse `additionalContext` into the model's
+  // context and shows `systemMessage` in the UI only; the notice was sent as `systemMessage` alone.
+  const { server } = await standInService([MESSAGE]);
+  const scratch = scratchFor("codex-agent");
+  try {
+    const { port } = server.address();
+    const { out } = await runHook({ url: `http://127.0.0.1:${port}`, scratch, claude: false });
+    const payload = JSON.parse(out);
+    assert.equal(payload.hookSpecificOutput?.hookEventName, "PostToolUse");
+    assert.match(payload.hookSpecificOutput?.additionalContext || "", /please look at/, "the notice is not in the model's context");
+    assert.doesNotMatch(payload.systemMessage || "", /please look at/, "the message body belongs in the model's context, not the UI line");
+  } finally {
+    server.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 test("on Claude the notice reaches the model as additionalContext, fenced, with the subject quoted", async () => {
   const { server } = await standInService([MESSAGE]);
   const scratch = scratchFor("hooked-agent");
@@ -211,7 +229,13 @@ test("the pure pieces: seen ids are bounded, others' shape is unchanged, the ove
   assert.equal(remembered.length, 200, "the seen list is capped");
   assert.equal(remembered.at(-1), "m249", "and keeps the newest");
   assert.deepEqual(unseen([{ id: "a" }, { id: "b" }, {}], ["a"]).map((m) => m.id), ["b"]);
-  assert.deepEqual(Object.keys(hookOutput("n", { claude: false, count: 1 })), ["systemMessage"]);
+  // The MODEL reads `additionalContext` on both runtimes; `systemMessage` is the user-facing line. Codex
+  // got `{ systemMessage: notice }` alone, which its docs say is surfaced in the UI and never reaches
+  // the model, while the hook recorded the message as shown (v0.7.2, external review item 5).
+  assert.deepEqual(hookOutput("n", { count: 1 }), {
+    systemMessage: "aify-comms: 1 new message(s) added to the agent's context.",
+    hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "n" },
+  });
   assert.match(inboxUrl("http://x", "a/b"), /\/inbox\/a%2Fb\?.*peek=1/);
   const text = noticeText({ messages: [{ id: "m", from: "p", body: "b" }], total: 4, agentId: "me" });
   assert.match(text, /3 more unread/);

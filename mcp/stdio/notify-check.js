@@ -24,7 +24,6 @@ if (!SERVER_URL) process.exit(0);
 // the service registry names for THIS endpoint (and only this one).
 const API_KEY = destinationKeyResolver(SERVER_URL)(SERVER_URL);
 const tmpDir = process.env.TEMP || process.env.TMP || "/tmp";
-const IS_CLAUDE = Boolean(process.env.CLAUDE_PROJECT_DIR);
 
 // If THIS server was unreachable in the last minute, skip. Keyed by server, so one service being
 // down does not mute the hook for another.
@@ -106,7 +105,7 @@ const { fresh, total } = collected;
 if (fresh.length) {
   const notice = noticeText({ messages: fresh, total: total || fresh.length, agentId });
   const output = hookPayload?.hook_event_name === "PostToolUse"
-    ? JSON.stringify(hookOutput(notice, { claude: IS_CLAUDE, count: fresh.length }))
+    ? JSON.stringify(hookOutput(notice, { count: fresh.length }))
     : notice;
   process.stdout.write(output + "\n");
   try { fs.writeFileSync(SEEN_FILE, JSON.stringify(seenRecord(SESSION, rememberSeen(seenIds, fresh)))); } catch {}

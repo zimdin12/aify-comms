@@ -110,15 +110,13 @@ export function noticeText({ messages, total, agentId }) {
     `to="<from-agent>", type="response", inReplyTo="<message-id>", ...) so the originator's run threads correctly.`;
 }
 
-// Claude Code gives the MODEL `hookSpecificOutput.additionalContext`; `systemMessage` is shown to the
-// user only. Other clients (Codex) keep the shape they had, which this repo has not verified against
-// their documentation -- with peek, a notice they drop costs a delay, never a message.
-export function hookOutput(notice, { claude, count }) {
-  if (claude) {
-    return {
-      systemMessage: `aify-comms: ${count} new message(s) added to the agent's context.`,
-      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: notice },
-    };
-  }
-  return { systemMessage: notice };
+// Claude Code and Codex both give the MODEL `hookSpecificOutput.additionalContext` on PostToolUse, and
+// show `systemMessage` to the user only (Codex: learn.chatgpt.com/docs/hooks, "That additionalContext
+// text is added as extra developer context"). Codex was sent `{ systemMessage: notice }` alone, so the
+// notice never reached the model while the hook recorded it as shown (v0.7.2, external review item 5).
+export function hookOutput(notice, { count }) {
+  return {
+    systemMessage: `aify-comms: ${count} new message(s) added to the agent's context.`,
+    hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: notice },
+  };
 }
