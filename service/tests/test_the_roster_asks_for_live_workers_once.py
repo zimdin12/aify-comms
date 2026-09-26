@@ -70,3 +70,51 @@ class RosterLiveWorkerTests(unittest.TestCase):
         self.assertEqual(gate(payload("shell"), "gone")["status"], "available",
                          "a cached shell with no live terminal is not a worker at its prompt")
         self.assertEqual(gate(payload("working"), "gone")["status"], "working", "control: the gate's scope is unchanged")
+
+
+from unittest import mock
+
+from service.db import get_db as _get_db
+from service.tests._base import FastApiTestCase
+
+
+class TheRosterRouteAsksOnceTests(FastApiTestCase):
+    """v0.7.1 review (T02): the tests above call the helper and the gate, not `GET /agents`, so the
+    route could stop passing its one-query answer and every one of them would stay green. Here the
+    per-agent probe raises, and the route must answer without it."""
+
+    DB_NAME = "aify-roster-route.db"
+
+    def _seed_online_managed(self, *agent_ids):
+        async def seed():
+            db = await _get_db()
+            try:
+                for agent_id in agent_ids:
+                    await db.execute(
+                        "INSERT INTO agents (id, name, role, runtime, session_mode, status, registered_at, last_seen) "
+                        "VALUES (?, ?, 'coder', 'hermes', 'managed', 'online', ?, ?)",
+                        (agent_id, agent_id, "2099-01-01T00:00:00Z", "2099-01-01T00:00:00Z"))
+                await db.commit()
+            finally:
+                await db.close()
+        asyncio.run(seed())
+
+    def test_get_agents_answers_the_gate_from_its_one_query(self):
+        self._seed_online_managed("hermes-a", "hermes-b", "hermes-c")
+
+        async def asked_per_agent(*args, **kwargs):
+            raise AssertionError("GET /agents asked for one agent's live terminal")
+
+        # The live-status engine would derive `available` itself, and the gate returns early for that,
+        # which made this test's first draft pass with the route's batch removed. Cached `online` with a
+        # refresh far off is exactly the stale state the gate exists to correct.
+        from service.reconcilers.status_cache import _LIVE_STATE_CACHE
+        for agent_id in ("hermes-a", "hermes-b", "hermes-c"):
+            _LIVE_STATE_CACHE[agent_id] = {"status": "online", "refresh_after": "2999-01-01T00:00:00Z"}
+        with mock.patch("service.api_core.registration_gates._has_live_terminal_session", asked_per_agent):
+            response = self.client.get("/api/v1/agents")
+        self.assertEqual(response.status_code, 200, response.text[:300])
+        agents = response.json()["agents"]
+        self.assertEqual({agents[a].get("statusNote", "") for a in ("hermes-a", "hermes-b", "hermes-c")},
+                         {"no-live-worker (Plan 5 read-path gate)"},
+                         "control: the gate itself downgraded each cached online agent")
