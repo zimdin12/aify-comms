@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import unittest
 
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
@@ -90,6 +91,9 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._nested_takes_over()
         self._lost("nested-bridge")
         self.assertEqual(self._agent()["status"], "stopped", "until a beat proves the real bridge lives")
+        # A heartbeat with no bridge rewrites `status` to its current value, as every live beat does; the
+        # offer must survive it, which is why the write count leaves `status` out.
+        self.assertEqual(self.client.post(f"/api/v1/agents/{AGENT}/heartbeat", json={}).status_code, 200)
         self.assertNotIn("ignored", self._beat("real-bridge"), "the reclaiming beat is a beat like any other")
         self._assert_reclaimed()
 
@@ -188,3 +192,43 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self.assertEqual(self._fetchone("SELECT status_note FROM agents WHERE id = ?", (AGENT,))["status_note"], dashboard_note)
         self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
         self.assertEqual((self._agent()["status"], self._agent()["launch_mode"]), ("stopped", "none"))
+
+    def test_CONTROL_a_status_patch_repeating_the_stopped_state_still_ends_the_offer(self):
+        """A status PATCH that copies the loss's exact note and status is still a later write (review of
+        5dc23997): the offer is held against a write count, not against values anyone can reproduce."""
+        self._nested_takes_over()
+        self._lost("nested-bridge")
+        note = self._fetchone("SELECT status_note FROM agents WHERE id = ?", (AGENT,))["status_note"]
+        patched = self.client.patch(f"/api/v1/agents/{AGENT}", json={"status": "stopped", "note": note})
+        self.assertEqual(patched.status_code, 200, patched.text)
+        self.assertEqual(self._fetchone("SELECT status_note FROM agents WHERE id = ?", (AGENT,))["status_note"], note)
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual(self._agent()["status"], "stopped")
+
+
+class AnUpgradedDatabaseCountsNoteWritesTests(unittest.TestCase):
+    """A database from before 0.7.4 gains the column and the trigger at startup, in that order."""
+
+    def test_the_write_count_rises_on_a_same_value_write_after_upgrade(self):
+        import asyncio
+        import tempfile
+        from pathlib import Path
+
+        from service import db as service_db
+
+        path = Path(tempfile.mkdtemp()) / "old.db"
+        old = sqlite3.connect(path)
+        old.execute("CREATE TABLE agents (id TEXT PRIMARY KEY, role TEXT, name TEXT, status TEXT, status_note TEXT DEFAULT '',"
+                    " registered_at TEXT NOT NULL, last_seen TEXT NOT NULL)")
+        old.execute("INSERT INTO agents (id, role, name, status, status_note, registered_at, last_seen) VALUES ('a','r','a','stopped','n','t','t')")
+        old.commit()
+        old.close()
+        asyncio.run(getattr(service_db, "_real_init_db", service_db.init_db)(path))
+        db = sqlite3.connect(path)
+        try:
+            db.execute("UPDATE agents SET status_note = 'n' WHERE id = 'a'")
+            db.execute("UPDATE agents SET status = 'stopped' WHERE id = 'a'")
+            db.commit()
+            self.assertEqual(db.execute("SELECT note_generation FROM agents WHERE id = 'a'").fetchone()[0], 1)
+        finally:
+            db.close()

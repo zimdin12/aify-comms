@@ -247,7 +247,6 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
         # the agent's own shell does), that bridge may reclaim it by beating, while this stop stands.
         if bridge_id and transition == "resident_to_stopped" and not was_stopped(row):
             await offer_handback(db, agent_id=agent_id, lost_bridge_id=bridge_id, now=now)
-            returned = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
 
         await db.commit()
         dispatch_state = await _get_dispatch_state_for_agent(db, agent_id)
