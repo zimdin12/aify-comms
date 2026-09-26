@@ -44,6 +44,7 @@ from pathlib import Path
 
 from service.api_core.authored_failures import (
     SERVICE_AUTHORED_FAILURE_REASONS,
+    NO_WORKER_LEFT_TO_REPLY,
     TURN_ENDED_WITHOUT_REPLY,
     is_service_authored,
 )
@@ -177,6 +178,12 @@ class AuthoredFailureTextIsNotProviderEvidence(unittest.TestCase):
                     "to SERVICE_AUTHORED_FAILURE_REASONS, or stop authoring it here.",
                 )
 
+    def test_the_liveness_reaper_text_is_service_authored_and_names_no_provider(self):
+        """The reaper's text since v0.7.4 (it fails a run only when nothing alive can answer): recognised
+        as the service's own account, and never read as a provider throttle."""
+        self.assertTrue(is_service_authored(NO_WORKER_LEFT_TO_REPLY))
+        self.assertFalse(_is_provider_rate_limit_error(NO_WORKER_LEFT_TO_REPLY))
+
     def test_the_reconciler_does_not_carry_its_own_COPY_of_the_reason(self):
         """One source. Two copies is how the writer and the consumer that must recognise it drift, and
         `is_service_authored` compares against the constant — a divergent copy silently stops being
@@ -185,7 +192,7 @@ class AuthoredFailureTextIsNotProviderEvidence(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "TURN_ENDED_WITHOUT_REPLY", source,
+            "NO_WORKER_LEFT_TO_REPLY", source,
             "dispatch_lifecycle no longer imports the shared reason constant",
         )
         # THE SHAPE OF THE ASSIGNMENT, checked with the AST rather than by searching for the old text.

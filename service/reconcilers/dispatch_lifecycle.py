@@ -26,16 +26,16 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Optional
 
 from service.api_core.dispatch_run_state import _mark_dispatch_run_answered
-from service.api_core.authored_failures import TURN_ENDED_WITHOUT_REPLY, turn_interrupted
+from service.api_core.authored_failures import NO_WORKER_LEFT_TO_REPLY, turn_interrupted
 from service.api_core.settings import _load_settings, DEFAULT_SETTINGS  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS
 from service.api_core.turn_state import _clear_status_state_in_turn
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.reconcilers.undeliverable_queued_runs import _agent_has_live_claimer
 
 logger = logging.getLogger(__name__)
 
@@ -47,31 +47,29 @@ from service.api_core.dispatch_sweeps import _mirror_missing_dispatch_handoff
 
 
 
-async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int] = None, limit: int = 200) -> list[dict[str, str]]:
-    """Fail a delivered require_reply run whose worker turn died without replying.
+async def _fail_stranded_delivered_reply_runs(db, *, limit: int = 200) -> list[dict[str, str]]:
+    """Fail a delivered require_reply run that nothing left alive can answer.
 
-    A managed hermes turn that dies to a model-429, a mid-turn interrupt, or a stall leaves
-    its dispatch run at `delivered, require_reply=1, result_message_id=''` FOREVER — the
-    turn-end→auto-mirror close never fires (that's the same hermes turn-end signal that
-    flaps the status), so the run looks like the agent is idle/ignoring it (sc-manager live
-    repro 2026-07-10: architect's 3 runs, all model-429'd before any work). This reaper
-    closes that gap: past a staleness window WELL beyond the reminder cycle, a still-delivered
-    rr=1 run with no reply is presumed dead and FAILED with a clear cause. The existing
-    `_sweep_unmirrored_failed_handoffs` (next in the reconcile loop) then mirrors the failure
-    to the sender — so instead of a silent `delivered`, the sender sees a visible FAILED.
+    STATE, NOT TIME (operator ruling, v0.7.4). This used to fail any such run 45 minutes after it was
+    requested unless the agent's turn was marked as working on that exact run, so it failed real long
+    work: a message steered into a turn another run started, or a turn whose busy flag the 30-minute
+    backstop had cleared. Agents may work as long as the work needs. A run is failed only when:
 
-    Keyed on STALENESS (not turn_busy) so it is robust even while the hermes turn-status
-    flaps. SAFETY: a run the agent is CURRENTLY working (live turn on this exact run) is
-    skipped, and the UPDATE re-checks `status='delivered'` so a reply landing concurrently
-    wins the race. Idempotent (a failed run is never re-selected).
+      * the agent has NO live claimer (`_agent_has_live_claimer`, the deliberately generous predicate
+        the queued-run backstop uses): no worker, sidecar or resident bridge is left to reply; or
+      * its turn was INTERRUPTED, and we recorded who did it. That turn was stopped on purpose, and
+        leaving the run open would have the Work Loop re-wake an agent the operator had just stopped.
+
+    A live agent whose turn ended without a reply is not failed here: the Work Loop reminders ask it
+    for the reply, which a live agent can give. `queued_run_backstop_seconds` is the grace before the
+    first check, so a worker between restarts is not read as gone. The existing
+    `_sweep_unmirrored_failed_handoffs` then mirrors the failure to the sender. SAFETY: a run the agent is
+    CURRENTLY working is skipped, and the UPDATE re-checks `status='delivered'` so a reply landing
+    concurrently wins. Idempotent.
     """
     settings = await _load_settings(db)
-    if stale_minutes is None:
-        stale_minutes = int(settings.get("stranded_reply_fail_minutes", DEFAULT_SETTINGS["stranded_reply_fail_minutes"]) or 0)
-    if stale_minutes <= 0:
-        return []  # disabled
-    stale_minutes = max(10, int(stale_minutes))
-    cutoff = f"-{stale_minutes} minutes"
+    grace = int(settings.get("queued_run_backstop_seconds", DEFAULT_SETTINGS["queued_run_backstop_seconds"]) or 180)
+    cutoff = f"-{max(60, grace)} seconds"
     rows = await (await db.execute(
         """
         SELECT id, target_agent, from_agent, subject, requested_at
@@ -93,7 +91,7 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
     # "429" inside our own list of GUESSES and told the sender their target was being rate-limited as
     # a determined fact. The real cause was a provider safety refusal — a branch this list did not
     # even name. One source, so the writer and the consumer that must recognise it cannot drift.
-    reason = TURN_ENDED_WITHOUT_REPLY
+    reason = NO_WORKER_LEFT_TO_REPLY
     # ATTRIBUTED FROM WHERE THE EVIDENCE ACTUALLY IS, which is not where the first version of this
     # looked. It queried `terminal_controls WHERE action = 'interrupt'` -- a combination NOTHING
     # writes, so it could never fire. Two paths issue an interrupt and neither produces that row:
@@ -143,10 +141,14 @@ async def _fail_stranded_delivered_reply_runs(db, *, stale_minutes: Optional[int
         # interrupted while this run was open, say so: the undetermined text lists a throttle and a
         # policy refusal beside "a mid-turn interrupt", and sending a reader to investigate a provider
         # for something an operator did on purpose is the failure this lookup removes.
-        run_reason = reason
         interrupted = interrupts.get(run_id)
         if interrupted:
             run_reason = turn_interrupted(interrupted[0], interrupted[1])
+        else:
+            agent = await (await db.execute("SELECT * FROM agents WHERE id = ?", (target,))).fetchone()
+            if agent is not None and await _agent_has_live_claimer(db, agent, settings=settings):
+                continue  # something alive can still reply; the Work Loop asks it to
+            run_reason = reason
         cur = await db.execute(
             """
             UPDATE dispatch_runs

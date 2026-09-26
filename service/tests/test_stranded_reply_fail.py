@@ -1,8 +1,9 @@
-"""Reconcile backstop: a delivered require_reply run whose worker turn DIED without
-replying (model 429 / mid-turn interrupt / stall) must be FAILED past a staleness window
-so it doesn't strand as 'delivered' forever (sc-manager live repro 2026-07-10).
+"""Reconcile backstop: a delivered require_reply run that nothing alive can answer is FAILED, so it
+doesn't strand as 'delivered' forever, and the sender is told (via _sweep_unmirrored_failed_handoffs).
 
-The existing _sweep_unmirrored_failed_handoffs then mirrors the failure to the sender.
+STATE, NOT TIME (v0.7.4): it used to fail any such run 45 minutes after it was requested, which failed
+real long work. Now only a run whose agent has no live claimer, or whose turn was interrupted, is failed,
+however long the work takes.
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -79,71 +80,64 @@ class StrandedReplyFailTests(FastApiTestCase):
         self._register("sc-manager")
         self._register("sc-architect")
 
-    def test_stale_delivered_reply_run_is_failed_with_cause(self):
-        self._seed_run("run_stale", target="sc-architect", requested_at=_minutes_ago(60))
-        out = self._run_reaper()
-        self.assertEqual(len(out), 1, f"the stale stranded run should be failed: {out}")
-        r = self._fetchone("SELECT status, summary, error_text FROM dispatch_runs WHERE id='run_stale'")
-        self.assertEqual(r["status"], "failed")
-        # THE CAUSE MUST BE STATED AS UNDETERMINED, not asserted. This read "presumed dead" until
-        # 2026-08-18, when a confirmed incident showed why the wording is load-bearing: the reason
-        # listed "model 429" among three guesses, the notification layer's throttle classifier matched
-        # that token, and a sender was told as fact that their target's provider was rate-limiting.
-        # The real cause was a provider safety refusal. See
-        # test_authored_failure_text_is_not_provider_evidence.py for the mechanism.
-        summary = (r["summary"] or "").lower()
-        self.assertIn("not determined", summary,
-                      f"the reaper's reason no longer says the cause is undetermined: {summary!r}")
-        self.assertIn("refusal", summary,
-                      "the reason must enumerate a provider refusal — the branch the original "
-                      "three-way list missed, and the only one where retrying makes things worse")
-        # Idempotent: a second pass fails nothing new.
-        self.assertEqual(self._run_reaper(), [])
+    def _seed_interrupt(self, run_id):
+        self._execute(
+            "INSERT INTO dispatch_controls (id, run_id, from_agent, action, status, requested_at) VALUES (?,?,?,?,?,?)",
+            (f"ctl-{run_id}", run_id, "dashboard", "interrupt", "completed", _now()),
+        )
 
-    def test_fresh_delivered_run_not_failed(self):
-        self._seed_run("run_fresh", target="sc-architect", requested_at=_minutes_ago(5))
-        self.assertEqual(self._run_reaper(), [], "a recent delivered run is still in flight")
-        r = self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_fresh'")
-        self.assertEqual(r["status"], "delivered")
+    def test_a_run_nothing_alive_can_answer_is_failed_with_the_observed_cause(self):
+        self._seed_run("run_dead", target="sc-architect", requested_at=_minutes_ago(10))
+        out = self._run_reaper()
+        self.assertEqual(len(out), 1, f"a run with no live claimer should be failed: {out}")
+        r = self._fetchone("SELECT status, summary FROM dispatch_runs WHERE id='run_dead'")
+        self.assertEqual(r["status"], "failed")
+        self.assertIn("nothing is left that could send one", r["summary"])
+        self.assertEqual(self._run_reaper(), [], "idempotent: a second pass fails nothing new")
+
+    def test_a_live_agent_keeps_its_run_however_long_the_work_takes(self):
+        """The ruling this module now follows: agents may work as long as the work needs."""
+        self._register("sc-live", sessionMode="resident", runtime="claude-code", bridgeId="live-bridge",
+                       machineId="win32:test-host", capabilities=["resident-run"])
+        self._seed_run("run_long", target="sc-live", requested_at=_minutes_ago(600))
+        self.assertEqual(self._run_reaper(), [], "a live claimer can still reply, so the run stays open")
+        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_long'")["status"], "delivered")
+
+    def test_CONTROL_the_same_run_fails_once_its_agent_is_gone(self):
+        self._register("sc-live", sessionMode="resident", runtime="claude-code", bridgeId="live-bridge",
+                       machineId="win32:test-host", capabilities=["resident-run"])
+        self._seed_run("run_long", target="sc-live", requested_at=_minutes_ago(600))
+        self._execute("UPDATE bridge_instances SET last_seen = '2026-01-01T00:00:00Z' WHERE agent_id = 'sc-live'")
+        self._execute("UPDATE agents SET last_seen = '2026-01-01T00:00:00Z' WHERE id = 'sc-live'")
+        self.assertEqual(len(self._run_reaper()), 1)
+
+    def test_an_interrupted_run_is_failed_even_with_a_live_agent(self):
+        """Its turn was stopped on purpose; left open, the Work Loop would re-wake an agent the operator stopped."""
+        self._register("sc-live", sessionMode="resident", runtime="claude-code", bridgeId="live-bridge",
+                       machineId="win32:test-host", capabilities=["resident-run"])
+        self._seed_run("run_stopped", target="sc-live", requested_at=_minutes_ago(10))
+        self._seed_interrupt("run_stopped")
+        self.assertEqual(len(self._run_reaper()), 1)
+        self.assertIn("interrupt", self._fetchone("SELECT summary FROM dispatch_runs WHERE id='run_stopped'")["summary"].lower())
+
+    def test_a_run_inside_the_grace_is_not_failed(self):
+        self._seed_run("run_fresh", target="sc-architect", requested_at=_minutes_ago(1))
+        self.assertEqual(self._run_reaper(), [], "a worker between restarts must not read as gone")
+        self.assertEqual(self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_fresh'")["status"], "delivered")
 
     def test_run_with_reply_not_failed(self):
         self._seed_run("run_replied", target="sc-architect", requested_at=_minutes_ago(60),
                        result_message_id="msg-123")
         self.assertEqual(self._run_reaper(), [])
-        r = self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_replied'")
-        self.assertEqual(r["status"], "delivered")
 
     def test_non_reply_run_not_failed(self):
-        self._seed_run("run_norr", target="sc-architect", requested_at=_minutes_ago(60),
-                       require_reply=0)
+        self._seed_run("run_norr", target="sc-architect", requested_at=_minutes_ago(60), require_reply=0)
         self.assertEqual(self._run_reaper(), [])
 
     def test_actively_working_on_this_run_is_skipped(self):
-        # The agent is CURRENTLY in a live turn on this exact run → never fail it.
         self._seed_run("run_live", target="sc-architect", requested_at=_minutes_ago(60))
         self._execute(
             "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
             ("sc-architect", 1, "run_live", _now()),
         )
         self.assertEqual(self._run_reaper(), [], "a live turn on this run must be skipped")
-        r = self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_live'")
-        self.assertEqual(r["status"], "delivered")
-
-    def test_working_on_a_different_run_still_fails_the_stranded_one(self):
-        # turn_busy=1 but on a DIFFERENT run → the stranded one is not protected.
-        self._seed_run("run_orphan", target="sc-architect", requested_at=_minutes_ago(60))
-        self._execute(
-            "INSERT INTO agent_turn_state (agent_id, turn_busy, turn_run_id, turn_updated_at) VALUES (?,?,?,?)",
-            ("sc-architect", 1, "some_other_run", _now()),
-        )
-        out = self._run_reaper()
-        self.assertEqual(len(out), 1)
-        r = self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_orphan'")
-        self.assertEqual(r["status"], "failed")
-
-    def test_disabled_when_setting_zero(self):
-        self.client.put("/api/v1/settings", json={"stranded_reply_fail_minutes": 0})
-        self._seed_run("run_off", target="sc-architect", requested_at=_minutes_ago(120))
-        self.assertEqual(self._run_reaper(), [], "0 disables the reaper")
-        r = self._fetchone("SELECT status FROM dispatch_runs WHERE id='run_off'")
-        self.assertEqual(r["status"], "delivered")

@@ -74,6 +74,16 @@ TURN_ENDED_WITHOUT_REPLY = (
     "run, not evidence about the process."
 )
 
+#: Failed because nothing alive is left to reply (v0.7.4): the stranded-reply reaper fails a reply-owed run
+#: only then, never for its age. The cause is observed, not guessed, so this text names it and says what
+#: to do. TURN_ENDED_WITHOUT_REPLY above stays registered for the runs it already labelled.
+NO_WORKER_LEFT_TO_REPLY = (
+    "No reply, and nothing is left that could send one: the agent has no live worker or session to "
+    "finish this run (it stopped, crashed or was restarted). Failed by reconcile so the run isn't "
+    "stranded as 'delivered'. Resend when the agent is back; an available managed agent cold-starts "
+    "on send."
+)
+
 #: Failed because somebody INTERRUPTED the turn, and we know because we recorded doing it.
 #:
 #: The undetermined string above lists "a mid-turn interrupt" among four possibilities -- and for an
@@ -112,6 +122,7 @@ _INTERRUPTED_FRAGMENT = "Turn was INTERRUPTED by"
 #: whole point of the registry is to tell those two apart.
 SERVICE_AUTHORED_FAILURE_REASONS: tuple[str, ...] = (
     TURN_ENDED_WITHOUT_REPLY,
+    NO_WORKER_LEFT_TO_REPLY,
 )
 
 #: Enough of a reason to recognise it after a caller has wrapped or truncated it. Matching on a

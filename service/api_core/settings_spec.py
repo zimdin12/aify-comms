@@ -135,16 +135,6 @@ SETTINGS: tuple[Setting, ...] = (
             unit="h", min=1, max=720),
     Setting("managed_reply_capture_fallback", True, "bool", _R, "Send the agent's output when it forgets to reply",
             "Off: the reply stays owed and is shown as missing instead."),
-    # `0 = never` IS REAL and stays: `reconcilers/dispatch_lifecycle.py` returns early on `<= 0`,
-    # BEFORE the `max(10, ...)` below it. The external review read that floor as contradicting the
-    # declared min and it does not -- what the floor actually does is silently round 1..9 up to 10,
-    # which is the only part worth saying out loud here. Checked 2026-09-22 after a first pass
-    # raised the min to 10 and broke `test_disabled_when_setting_zero`, which is the test that
-    # already knew this.
-    Setting("stranded_reply_fail_minutes", 45, "int", _R, "Fail a delivered message with no reply after",
-            "Its turn is presumed dead (rate limit, crash) and the sender is told. "
-            "0 = never; anything from 1 to 9 is treated as 10.",
-            unit="min", min=0, max=1440),
     Setting("away_briefing_hours", 4, "int", _R, "Brief agents returning after",
             "An agent back after this long is sent what arrived while it was gone. 0 = off.",
             unit="h", min=0, max=720),
@@ -201,7 +191,7 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("active_managed_run_wall_ceiling_minutes", 30, "int", _X, "Fail a turn with no progress after",
             "Applies even while the bridge is alive, for a controller that died silently.",
             unit="min", min=5, max=1440),
-    Setting("queued_run_backstop_seconds", 180, "int", _X, "Fail a queued message nothing can claim after",
+    Setting("queued_run_backstop_seconds", 180, "int", _X, "Fail a message no live agent can take or answer after",
             unit="s", min=60, max=3600),
     # UNLIKE its neighbour above, this one has no early return: `api_core/status_inputs.py` applies
     # `max(60, ...)` to every value, so a declared min of 30 was a number the panel accepted and the

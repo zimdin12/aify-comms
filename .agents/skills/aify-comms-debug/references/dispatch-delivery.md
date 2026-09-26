@@ -58,10 +58,10 @@ curl -X PATCH -H "X-API-Key: $AIFY_API_KEY" -H "Content-Type: application/json" 
 
 A default `comms_send` (steer=true) still steers into or queues behind that run; cancel it first.
 
-## `require_reply` run FAILED: "Turn ended without a reply — this RUN was closed"
+## `require_reply` run FAILED: "No reply, and nothing is left that could send one"
 
-No reply within `stranded_reply_fail_minutes` (default 45). The worker may still be working: read
-`comms_console_tail` before re-sending or restarting. 0 disables it.
+No live worker was left to answer, or its turn was interrupted; a live agent's run never fails for
+its age. Resend once the agent is back.
 
 ## Run failed: "provider rate-limiting, not your request — retry shortly"
 

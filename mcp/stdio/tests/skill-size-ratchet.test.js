@@ -77,7 +77,7 @@ const CEILINGS = {
   "aify-comms-debug/references/codex.md": 5_259,
   "aify-comms-debug/references/dashboard-console.md": 3_555,
   "aify-comms-debug/references/dispatch-bridges.md": 5_892,
-  "aify-comms-debug/references/dispatch-delivery.md": 6_752,
+  "aify-comms-debug/references/dispatch-delivery.md": 6_725,
   "aify-comms-debug/references/dispatch-launch.md": 5_047,
   "aify-comms-debug/references/hermes-session.md": 4_770,
   "aify-comms-debug/references/hermes-turns.md": 4_161,
