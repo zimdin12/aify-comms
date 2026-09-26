@@ -5,6 +5,29 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-26.
 
+## Left open by the external review of 0.7.1 (2026-09-26)
+
+0.7.2 fixed the review's two security findings and items 3 to 6; the plan
+(`docs/superpowers/plans/2026-09-26-v0.7.1.md`, "0.7.2") lists them. These remain:
+
+- **Sending as `dashboard` skips the trust rule, for any holder of the shared API key.** An external key
+  cannot send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`). Closing it is
+  H-A3, a service-verified operator flag, which needs a decision for hosts with no operator key.
+- **A message that owes no reply, handled straight from the notify hook's notice, stays unread** until
+  `comms_inbox` reads it, and a new session is shown it again. A reply marks the answered message read
+  since 0.7.2.
+- **The claim long-polls cannot tell a caller has gone**, so a claimed run stays held while its sidecar
+  heartbeats. Only `/listen` watches `http.disconnect`. Predates 0.7.
+- **The late-`turn_end` guard never fires**: every producer posts an empty run id (0.7.1 backlog S4).
+- **aify-env splits a paste that pauses for half a second or more**, and submits the rest early.
+- **Codex's notify notice is proven against Codex's documentation only** (`additionalContext` "is added as
+  extra developer context"), not observed in a live Codex agent's context.
+- **The shutdown bound is proven by configuration only.** Whether `docker compose up -d --build` stops a
+  container that was started with a 1 s stop timeout using the new 20 s grace period is unverified; after
+  the deploy, the service log should not say "terminal output still queued after".
+- **`test_turn_end_event_flips_managed_hermes_off_working_immediately` failed some of the reviewer's
+  Linux runs.** It passed 30 of 30 serial runs here; the failure output was not available.
+
 ## A managed claude stops at a compaction or resume dialog
 
 The service answers one console dialog, the development-channels acknowledgement, and refuses every
