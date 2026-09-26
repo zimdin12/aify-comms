@@ -46,8 +46,8 @@ aify-comms doctor          # --json for scripts, --strict to exit non-zero on a 
 
 `service`, `bridge-installed` and `skills-installed` should be green. Then relaunch every agent that
 was running before the install, because a running agent keeps the bridge code it loaded.
-`bridge-current` names any registered agent still reporting an older build, and reads `unknown` until
-agents report one. `aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything
+`bridge-current` names any live bridge still running an older build, and reads `unknown-all` until
+bridges started on 0.7.0 or later report one. `aify-comms` only verifies (`doctor`, `--check`, `--version`, `--help`); anything
 else exits 2.
 
 ## Start a Codex agent
@@ -67,9 +67,9 @@ delivers messages by starting turns on that app-server, in the thread the TUI sh
 - **Pass `--aify-agent` for a registered agent.** The agent registers under that id at startup, and
   the id reaches the turn hooks and the rollout detector only through the launch environment. Started
   without it, the agent still messages, but its status stops tracking its turns; relaunch to fix it.
-- `--resume <thread-id>` without `--aify-agent` asks the service which Codex agent owns that thread.
-  That works only while the service has no API key, because the launcher sends none; otherwise it
-  prints `NO AGENT ID` and carries on anonymous.
+- `--resume <thread-id>` without `--aify-agent` asks the service which Codex agent owns that thread,
+  using this host's API key. If the service is unreachable or names no agent, it prints `NO AGENT ID`
+  and carries on anonymous.
 - A fresh launch binds no thread until Codex reports one. `--resume <id>` exports `CODEX_THREAD_ID`
   and `AIFY_SESSION_HANDLE`; if `~/.codex/sessions` has no such thread, Codex starts fresh.
 - Starting `codex-aify --aify-agent <id>` in a terminal replaces that agent's live instance on this
@@ -108,14 +108,16 @@ every run for that agent.
 ## Managed Codex defaults
 
 Model blank (Codex's own default) and effort `high`. Change them in the dashboard under
-**Settings → Managed workers**; they apply at the next worker start.
+**Settings → Managed workers**. Saving changes new workers only; **Apply model and effort to existing
+workers** gives the saved values to the existing ones, each at its next start.
 
 ## OpenAI usage check
 
 At the end of every install, `install.sh` prints a `[usage]` line saying whether the OpenAI token
 from `codex login` works; `node ~/.aify-comms/mcp/stdio/usage-preflight.js --json` gives the same
-answer as `{ok, code}`. Nothing collects subscription quota at the moment
-(`mcp/stdio/usage-collector.js` has no caller), so the dashboard's quota figures are not live.
+answer as `{ok, code}`. The service reads the OpenAI quota pool itself from that token (`GET /usage`,
+cached 120 s). Nothing collects the Anthropic pool (`mcp/stdio/usage-collector.js` has no caller), so
+it reads `?` or `stale`.
 
 ## Herdr and troubleshooting
 
