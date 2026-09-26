@@ -38,11 +38,10 @@ touch an earned one. It is also what makes this idempotent: after the first pass
 a message cannot be resurrected over and over into an agent's inbox.
 
 SCOPE, stated honestly rather than generously:
-  * TERMINAL runs only (`failed`/`cancelled`) that never started. A REQUEUED run also loses its
-    `claimed_at` (`recovery_writes.py` clears it), but a requeued run is still going to be delivered
-    — it has a live path — so it is not the loss case and is deliberately left alone.
-  * A run that was requeued and only LATER failed has no `claimed_at` left to match, so its receipt
-    is not recoverable this way. That residue is named here rather than papered over.
+  * TERMINAL runs only (`failed`/`cancelled`) that never started. A REQUEUED run loses its
+    `claimed_at`, so both requeue paths give its receipt back themselves, through the same
+    `api_core/claim_receipt_release.py` (v0.7.1 review, W02). Before that, a run that was requeued and
+    only LATER failed had no `claimed_at` left to match, and its message stayed read for good.
   * Historical rows ARE repaired, because the sweep does not filter on age — but only where the run
     still exists in `dispatch_runs` (pruning removes old ones) and its `claimed_at` still matches.
     This does NOT recover every message stranded before today, and must not be described as if it
@@ -53,7 +52,7 @@ from __future__ import annotations
 
 import logging
 
-from service.api_core.claim_gating import _dispatch_source_message_ids
+from service.api_core.claim_receipt_release import release_claim_receipts
 from service.api_core.dispatch_state import _DISPATCH_TERMINAL_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -120,22 +119,7 @@ async def _release_receipts_from_unstarted_runs(db, *, limit: int = 200) -> int:
     for row in rows:
         target = str(row["target_agent"] or "").strip()
         claimed_at = str(row["claimed_at"] or "").strip()
-        if not target or not claimed_at:
-            continue
-        message_ids = _dispatch_source_message_ids(row)
-        if not message_ids:
-            continue
-        ids_placeholders = ",".join("?" for _ in message_ids)
-        result = await db.execute(
-            f"""
-            DELETE FROM read_receipts
-            WHERE agent_id = ?
-              AND read_at = ?
-              AND message_id IN ({ids_placeholders})
-            """,
-            (target, claimed_at, *message_ids),
-        )
-        count = int(getattr(result, "rowcount", 0) or 0)
+        count = await release_claim_receipts(db, row)
         if count > 0:
             released += count
             logger.info(

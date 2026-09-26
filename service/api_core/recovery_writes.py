@@ -20,6 +20,7 @@ rolls back — each joins its caller's transaction.
 
 from __future__ import annotations
 
+from service.api_core.claim_receipt_release import release_claim_receipts
 from service.api_core.events import _append_dispatch_event
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.serialization import _normalize_machine_id
@@ -195,7 +196,7 @@ async def _requeue_instead_of_failing_undelivered_claim(db, run_id: str, *, reas
         genuinely undeliverable run still terminates instead of cycling forever.
     """
     row = await (await db.execute(
-        "SELECT status, target_agent FROM dispatch_runs WHERE id = ?", (run_id,)
+        "SELECT status, target_agent, claimed_at, message_id, body FROM dispatch_runs WHERE id = ?", (run_id,)
     )).fetchone()
     if not row or str(row["status"] or "").strip().lower() != "claimed":
         return False
@@ -213,7 +214,7 @@ async def _requeue_instead_of_failing_undelivered_claim(db, run_id: str, *, reas
         return False  # it reached the agent — failing it is the caller's correct behaviour
     if int((counts["requeues"] if counts else 0) or 0) >= UNDELIVERED_CLAIM_REQUEUE_LIMIT:
         return False  # rescued enough times; accept that it is undeliverable
-    await db.execute(
+    requeue = await db.execute(
         """
         UPDATE dispatch_runs
         SET status = 'queued', claim_bridge_id = '', claim_machine_id = '', claimed_at = ''
@@ -221,6 +222,10 @@ async def _requeue_instead_of_failing_undelivered_claim(db, run_id: str, *, reas
         """,
         (run_id,),
     )
+    if requeue.rowcount:
+        # The claim's read receipt goes with the claim (v0.7.1 review, W02); see
+        # `api_core/claim_receipt_release.py`.
+        await release_claim_receipts(db, row)
     await _append_dispatch_event(
         db,
         run_id,

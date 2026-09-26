@@ -42,6 +42,7 @@ from service.api_core.runtime import (
 )
 from service.api_core.settings import _load_settings  # v0.5.1g: the leaf owner
 from service.api_core.events import _append_dispatch_event  # v0.5.1i: the leaf owner
+from service.api_core.claim_receipt_release import release_claim_receipts
 from service.api_core.live_process_probes import ACTIVE_RUN_BRIDGE_STALE_SECONDS, _has_live_channel_sidecar
 from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
@@ -253,7 +254,7 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
     stale_param = f"-{ACTIVE_RUN_BRIDGE_STALE_SECONDS} seconds"
     cursor = await db.execute(
         """
-        SELECT id, target_agent, claim_bridge_id, claimed_at
+        SELECT id, target_agent, claim_bridge_id, claimed_at, message_id, body
         FROM dispatch_runs r
         WHERE r.status = 'claimed'
           AND COALESCE(r.claimed_at, '') != ''
@@ -313,6 +314,10 @@ async def _requeue_orphaned_claimed_runs(db, *, grace_seconds: int = 90, limit: 
         )
         if not cursor.rowcount:
             continue
+        # The claim's read receipt goes with the claim: the message was never delivered, and the
+        # re-claim's INSERT OR IGNORE would otherwise keep this receipt under a claim time nothing can
+        # match again (v0.7.1 review, W02).
+        await release_claim_receipts(db, row)
         await _append_dispatch_event(
             db,
             run_id,
