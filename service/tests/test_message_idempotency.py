@@ -122,6 +122,30 @@ class MessageIdempotencyTests(FastApiTestCase):
         self.assertEqual(again.status_code, 200, again.text)
         self.assertEqual(again.json().get("messageId"), first.json().get("messageId"))
 
+    def test_two_racing_sends_under_one_nonce_to_different_recipients_write_one(self):
+        # v0.7 review: the unique index is per recipient, so two sends under one nonce with DISJOINT
+        # recipients both passed the lookup and both inserted. The race is forced by making the second
+        # send's fast-path lookup miss, as it does when both requests read before either writes.
+        from unittest import mock
+
+        from service.routers.dispatch_messages import messages as route
+
+        self._register("third")
+        first = self._send(from_agent="sender", to="recipient", body="racing send", type="message", clientNonce="raced")
+        self.assertTrue(first.json().get("ok"), first.text)
+        real = route.prior_send_for_nonce
+        calls = []
+
+        async def misses_once(*args, **kwargs):
+            calls.append(1)
+            return None if len(calls) == 1 else await real(*args, **kwargs)
+
+        with mock.patch.object(route, "prior_send_for_nonce", misses_once):
+            second = self._send(from_agent="sender", to="third", body="racing send", type="message", clientNonce="raced")
+        self.assertEqual(second.status_code, 409, second.text)
+        self.assertEqual(self._count_messages("sender", "racing send"), 1, "both racing sends were written")
+        self.assertEqual(len(calls), 2, "control: the raced path was reached")
+
     def test_nonce_scoped_per_sender(self):
         # The same nonce string from a DIFFERENT sender is a different logical send.
         self._register("other")

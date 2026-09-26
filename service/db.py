@@ -102,6 +102,7 @@ MESSAGE_MIGRATIONS = {
     "origin": "ALTER TABLE messages ADD COLUMN origin TEXT DEFAULT ''",
     "external_machine": "ALTER TABLE messages ADD COLUMN external_machine TEXT DEFAULT ''",
     "send_fingerprint": "ALTER TABLE messages ADD COLUMN send_fingerprint TEXT DEFAULT ''",
+    "nonce_primary": "ALTER TABLE messages ADD COLUMN nonce_primary INTEGER NOT NULL DEFAULT 0",
 }
 
 DISPATCH_CONTROL_MIGRATIONS = {
@@ -309,6 +310,14 @@ async def _migrate_messages_table(db: aiosqlite.Connection):
     await db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_nonce "
         "ON messages(from_agent, client_nonce, to_agent) WHERE client_nonce != ''"
+    )
+    # ONE NONCE, ONE SEND, whatever its recipients. The index above is per recipient, so two
+    # concurrent sends under one nonce with DISJOINT recipients both inserted (v0.7 review). Each
+    # nonce'd send marks exactly one row `nonce_primary` and inserts it first; this index lets only
+    # one send hold it, and the loser writes nothing (routers/dispatch_messages/messages.py).
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_nonce_reservation "
+        "ON messages(from_agent, client_nonce) WHERE client_nonce != '' AND nonce_primary = 1"
     )
 
 

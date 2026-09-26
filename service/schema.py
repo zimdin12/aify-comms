@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS messages (
     client_nonce TEXT DEFAULT '',
     -- The identity of the send a clientNonce names, empty without one. See service/api_core/send_nonce.py.
     send_fingerprint TEXT DEFAULT '',
+    -- 1 on the ONE row that reserves its (from_agent, client_nonce), so a send with other recipients cannot take it.
+    nonce_primary INTEGER NOT NULL DEFAULT 0,
     -- WHERE THE SENDER SAYS IT IS. Declared by the sender, never measured: see service/models.py.
     origin TEXT DEFAULT '',
     -- WHICH OTHER MACHINE SENT IT, PROVEN: the label of the external key the request carried

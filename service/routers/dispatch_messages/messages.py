@@ -185,7 +185,7 @@ async def send_message(req: MessageSend, request: Request):
         linked_result_message_id = _primary_result_message_id(msg_id, recipients)
 
         inserted_rows = 0
-        for r in recipients:
+        for index, r in enumerate(recipients):
             recipient_message_id = f"{msg_id}-{r}" if len(recipients) > 1 else msg_id
             dispatch_requested = 1 if req.trigger and r != "dashboard" else 0
             # INSERT OR IGNORE is the ATOMIC half of idempotency (#240): the upfront SELECT
@@ -193,13 +193,19 @@ async def send_message(req: MessageSend, request: Request):
             # index on (from_agent, client_nonce, to_agent) rejects a duplicate here, and
             # rowcount tells us whether THIS request actually wrote the row. (Empty nonce =
             # not in the index, so nonce-less sends always insert, exactly as before.)
+            # The FIRST row reserves the nonce for the whole send (`nonce_primary`, its own partial
+            # unique index). A send that loses it has written nothing, and stops here: without the
+            # reservation, a concurrent send under the same nonce to OTHER recipients inserted too.
+            reserves = 1 if client_nonce and index == 0 else 0
             cursor = await db.execute(
-                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, send_fingerprint, origin, external_machine, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO messages (id, from_agent, to_agent, source, type, subject, body, priority, dispatch_requested, in_reply_to, client_nonce, send_fingerprint, nonce_primary, origin, external_machine, timestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (recipient_message_id,
-                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce, fingerprint,
+                 req.from_agent, r, "direct", req.type, req.subject, req.body, req.priority, dispatch_requested, resolved_in_reply_to, client_nonce, fingerprint, reserves,
                  req.origin, external_machine, ts)
             )
             inserted_rows += cursor.rowcount or 0
+            if reserves and not cursor.rowcount:
+                break
 
         # Lost the concurrent race (#240): a nonce was supplied but every row was ignored as
         # a duplicate → another (racing) request already committed this exact send. Return
