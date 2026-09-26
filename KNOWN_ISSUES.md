@@ -43,6 +43,21 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   dedicated Windows Job isolation test timed out. Not classified: the harness difference is ASSUMED
   to be the cause, not shown.
 
+## A `claude` run from an agent's own shell holds that agent's identity while it runs (2026-09-26)
+
+A child `claude` (`claude -p`, `claude mcp list`) inherits `AIFY_AGENT_ID` and the session id, so its
+aify-comms bridge registers as the parent agent with the same session handle and takes the session over.
+sc-manager did this four times on 2026-09-26, and each exit left it `stopped` for 2.5 hours. Since 0.7.4
+the exit hands the session back to the parent's bridge when that bridge is still beating
+(`service/api_core/nested_session_handback.py`), so the agent is no longer stopped. While the child runs,
+it still owns the identity: the parent's heartbeats are ignored, and a run for the agent can be claimed by
+the child's bridge. The fix is bridge-side: a bridge started under a nested `claude` should not register.
+The signal is not yet proven: Claude Code sets `CLAUDE_CODE_SESSION_ID` in its Bash tool's environment,
+but whether it sets it for MCP servers, and whether a nested `claude` overwrites it, was not measured.
+Until then an agent can run `env -u AIFY_AGENT_ID -u AIFY_COMMS_AGENT_ID claude ...`: with neither set, a
+bridge neither registers nor reports resident-lost (`auto-registration.mjs`, `server.js`
+`shutdownWithStatus`).
+
 ## The resume-menu answer is tested against hand-written screens only (0.7.4)
 
 Since 0.7.4 the service answers claude's resume menu with "Resume full session"

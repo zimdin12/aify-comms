@@ -44,6 +44,7 @@ from service.routers.agents.shared import (
     logger,
 )
 from service.api_core.agent_sessions import _adopt_live_resident_driver
+from service.api_core.nested_session_handback import record_beat_while_superseded
 from service.status_engine import (
     KNOWN_EVENT_KINDS as _KNOWN_STATUS_EVENT_KINDS,
     is_known_event_kind as _is_known_status_event_kind,
@@ -188,6 +189,8 @@ async def agent_heartbeat(agent_id: str, request: Request):
                 (bridge_id, agent_id),
             )).fetchone()
             if bridge_row and str(bridge_row["superseded_by"] or "").strip():
+                await record_beat_while_superseded(db, agent_id=agent_id, bridge_id=bridge_id, now=now)
+                await db.commit()
                 return {
                     "ok": False,
                     "ignored": True,

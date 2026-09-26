@@ -34,6 +34,7 @@ from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
+from service.api_core.nested_session_handback import hand_back, live_bridge_it_took_over
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
 from service.api_core.routing import domain_router
@@ -231,6 +232,17 @@ async def resident_lost(agent_id: str, req: AgentResidentLostRequest, request: R
             )
 
         settings = await _load_settings(db)
+        # A nested `claude` run from the agent's own shell took the session over and has now exited: the
+        # bridge it superseded is still beating, so the session is alive and goes back to it.
+        if bridge_id and _normalize_session_mode(row["session_mode"] or "resident") == "resident":
+            prior = await live_bridge_it_took_over(
+                db, agent_id=agent_id, lost_bridge_id=bridge_id,
+                lease_seconds=float(settings.get("resident_lease_seconds", 150) or 150),
+            )
+            if prior:
+                await hand_back(db, agent_id=agent_id, bridge_id=prior, runtime_state=runtime_state)
+                await db.commit()
+                return {"ok": True, "agentId": agent_id, "transition": "returned_to_live_bridge", "bridgeId": prior}
         returned, transition = await _auto_return_resident_to_managed_if_possible(
             db,
             row,
