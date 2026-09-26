@@ -104,7 +104,7 @@ class ListenLongPollTests(FastApiTestCase):
     def test_markRead_false_returns_the_messages_and_leaves_the_receipt_to_the_caller(self):
         """v0.7.4: a caller that disconnects after the commit cannot be helped by the route, so the
         bridge asks for its messages unmarked and marks each one read once it holds it. Until then they
-        stay unread and a later poll returns them again: at least once, never lost."""
+        stay unread and a later poll returns them again."""
         self._seed_message("m-1")
         first = self.client.get(f"/api/v1/agents/{AGENT}/listen", params={"timeout": 1, "markRead": "false"})
         self.assertEqual(first.json()["total"], 1)

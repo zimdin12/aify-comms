@@ -46,14 +46,33 @@ class AnInterruptedAgentIsToldItWasAStopTests(FastApiTestCase):
 
         return asyncio.run(read())
 
-    def _interrupt(self, run_id: str, status: str) -> None:
+    def _interrupt(self, run_id: str, status: str) -> str:
         made = self.client.post(f"/api/v1/dispatch/runs/{run_id}/control", json={"from_agent": "dashboard", "action": "interrupt"})
         self.assertEqual(made.status_code, 200, made.text)
+        control_id = made.json()["controlId"]
+        self._settle(control_id, status)
+        return control_id
+
+    def _settle(self, control_id: str, status: str) -> None:
         settled = self.client.patch(
-            f"/api/v1/dispatch/controls/{made.json()['controlId']}",
+            f"/api/v1/dispatch/controls/{control_id}",
             json={"status": status, "handledBy": "bridge-x", "machineId": "m"},
         )
         self.assertEqual(settled.status_code, 200, settled.text)
+
+    def test_settling_the_same_control_again_adds_no_second_note(self):
+        """A bridge that retries its PATCH, or a replayed request, is one stop (review of 28eb72a0)."""
+        self._seed("claude-d", "claude-code", "run-d")
+        control_id = self._interrupt("run-d", "completed")
+        self._settle(control_id, "completed")
+        self.assertEqual(len(self._notes("claude-d")), 1)
+
+    def test_CONTROL_a_second_interrupt_is_a_second_stop(self):
+        """The dedupe is per control, not per agent: two stops are two notes."""
+        self._seed("claude-e", "claude-code", "run-e")
+        self._interrupt("run-e", "completed")
+        self._interrupt("run-e", "completed")
+        self.assertEqual(len(self._notes("claude-e")), 2)
 
     def test_a_completed_interrupt_leaves_one_short_unread_note(self):
         self._seed("claude-a", "claude-code", "run-a")

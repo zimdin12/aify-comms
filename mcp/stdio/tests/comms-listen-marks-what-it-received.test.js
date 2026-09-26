@@ -23,4 +23,7 @@ test("every received message is marked read by id, after it is held", () => {
   assert.ok(mark > 0, "no mark-read call");
   assert.match(body, /r\.messages\.map\(\(m\) => httpCall\("POST", `\/messages\/\$\{encodeURIComponent\(m\.id\)\}\/read`/);
   assert.ok(mark > body.indexOf("const r = await res.json()"), "marked before the response was held");
+  const formatted = body.indexOf("formatInboxMessage(m, registry)");
+  assert.ok(formatted > 0, "the formatting step was not found; this reader is stale");
+  assert.ok(mark > formatted, "marked before the reply was formatted, so a formatting error would lose it");
 });

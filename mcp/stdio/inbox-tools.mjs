@@ -170,12 +170,14 @@ export function registerInboxTools(server, z) {
           if (!r.messages || r.messages.length === 0) {
             return { content: [{ type: "text", text: "No messages received (timeout). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };
           }
-          // Received, so now read. A mark that fails leaves the message unread, and a later read returns
-          // it again: at least once, never lost.
-          await Promise.all(r.messages.map((m) => httpCall("POST", `/messages/${encodeURIComponent(m.id)}/read`, { agentId }).catch(() => {})));
           const registry = {};
           try { const a = await httpCall("GET", "/agents"); registry.agents = a.agents; } catch {}
           const formatted = r.messages.map((m) => formatInboxMessage(m, registry));
+          // Marked once the bridge holds the messages and has formatted the reply, the last step before
+          // returning it. That proves the bridge got them, not that the agent read them: a bridge that
+          // dies between this mark and the reply leaves them marked read (comms_inbox filter=read still
+          // shows them). A mark that fails leaves the message unread, and a later read returns it again.
+          await Promise.all(r.messages.map((m) => httpCall("POST", `/messages/${encodeURIComponent(m.id)}/read`, { agentId }).catch(() => {})));
           return {
             content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s) received:\n\n${formatted.join("\n\n")}` }],
           };

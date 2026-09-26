@@ -185,7 +185,9 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
                         "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
                         ((control["source_message_id"] or "").strip(), run["target_agent"], handled_at),
                     )
-        if status == "completed" and control["action"] == "interrupt":
+        # On the TRANSITION into completed only: a retried or replayed settlement of the same control is
+        # one stop, and it left a second note until the 0.7.4 review.
+        if status == "completed" and control["action"] == "interrupt" and control["status"] != "completed":
             run_row = await (await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (control["run_id"],))).fetchone()
             if run_row and (run_row["target_agent"] or "").strip():
                 await note_the_interrupt(db, agent_id=run_row["target_agent"], stopped_by=control["from_agent"] or "", at=handled_at)

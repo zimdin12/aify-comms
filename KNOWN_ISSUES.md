@@ -55,7 +55,9 @@ choosing the summary. Any other claude dialog is still left to the console.
 ## A bridge older than 0.7.4 can have `/listen` mark messages read for a reader that left (2026-09-26)
 
 Since 0.7.4 `comms_listen` asks `/listen` with `markRead=false` and marks each message read once it holds
-it, so a disconnect leaves the messages unread and a later read returns them again. A bridge installed
+it and has formatted its reply, so a disconnect before that leaves the messages unread and a later read
+returns them again. The mark proves the bridge got them, not the agent: a bridge that dies between the
+mark and its reply still leaves them read (`comms_inbox filter=read` shows them). A bridge installed
 before 0.7.4 does not ask, and the route then marks what it returns inside its own commit, as before: a
 disconnect after that commit (the commit plus the response write) still marks messages read with no
 reader behind them. Re-running `install.sh` and relaunching the agent closes it.

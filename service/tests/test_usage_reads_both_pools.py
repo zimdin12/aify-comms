@@ -94,6 +94,86 @@ class BothPoolsAreReadOncePerIntervalTests(unittest.TestCase):
         self.assertEqual(self.calls["anthropic"], 2)
 
 
+class SimultaneousReadersShareOnePollTests(unittest.TestCase):
+    """Readers that arrive while a poll is in flight wait for it rather than starting their own
+    (review of 28eb72a0: two concurrent GETs after expiry asked the provider twice)."""
+
+    def setUp(self):
+        saved = {name: dict(entry) for name, entry in usage._POOL_CACHE.items()}
+        for entry in usage._POOL_CACHE.values():
+            entry.update(at=0.0, pool=None)
+        self.addCleanup(lambda: [usage._POOL_CACHE[n].update(e) for n, e in saved.items()])
+        self.calls = 0
+
+    def _gather(self, anthropic, readers=3):
+        async def openai():
+            return None
+
+        async def five_minutes():
+            return 300.0
+
+        async def run():
+            return await asyncio.gather(*(usage.get_usage() for _ in range(readers)))
+
+        with mock.patch.object(usage, "collect_openai_pool", openai), \
+                mock.patch.object(usage, "collect_anthropic_pool", anthropic), \
+                mock.patch.object(usage, "_poll_seconds", five_minutes), \
+                mock.patch.object(usage, "usage_all", lambda: [{"source_id": "anthropic-claude-max", "posted": True}]):
+            return asyncio.run(run())
+
+    def test_simultaneous_readers_ask_the_provider_once_and_all_get_the_reading(self):
+        async def slow():
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            return usage_anthropic.build_pool(PAYLOAD, {"subscriptionType": "max"})
+
+        responses = self._gather(slow)
+        self.assertEqual(self.calls, 1)
+        for response in responses:
+            pool = next(p for p in response["pools"] if p["source_id"] == "anthropic-claude-max")
+            self.assertEqual(pool["weekly"]["left_pct"], 19.0, "a waiting reader did not get the fresh reading")
+
+    def test_a_reader_that_goes_away_does_not_cancel_the_poll_the_others_wait_on(self):
+        async def slow():
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            return usage_anthropic.build_pool(PAYLOAD, {"subscriptionType": "max"})
+
+        async def openai():
+            return None
+
+        async def five_minutes():
+            return 300.0
+
+        async def run():
+            first = asyncio.ensure_future(usage.get_usage())
+            await asyncio.sleep(0.01)
+            second = asyncio.ensure_future(usage.get_usage())
+            await asyncio.sleep(0.01)
+            first.cancel()
+            return await second
+
+        with mock.patch.object(usage, "collect_openai_pool", openai), \
+                mock.patch.object(usage, "collect_anthropic_pool", slow), \
+                mock.patch.object(usage, "_poll_seconds", five_minutes), \
+                mock.patch.object(usage, "usage_all", lambda: []):
+            response = asyncio.run(run())
+        self.assertEqual([p["source_id"] for p in response["pools"]], ["anthropic-claude-max"])
+        self.assertEqual(self.calls, 1)
+
+    def test_a_failed_poll_keeps_the_posted_pool_for_every_waiter_and_is_retried(self):
+        async def failing():
+            self.calls += 1
+            await asyncio.sleep(0.05)
+            raise RuntimeError("provider down")
+
+        for response in self._gather(failing):
+            self.assertEqual(response["pools"], [{"source_id": "anthropic-claude-max", "posted": True}])
+        self.assertEqual(self.calls, 1)
+        self._gather(failing, readers=1)
+        self.assertEqual(self.calls, 2, "a failed poll must not be cached as a reading")
+
+
 class ThePollIntervalIsTheSettingTests(unittest.TestCase):
     def test_the_setting_is_declared_in_minutes_with_a_five_minute_default(self):
         from service.api_core.settings_spec import BY_KEY

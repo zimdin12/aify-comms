@@ -18,6 +18,7 @@ readings that disagree depending on which path served them.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -57,7 +58,10 @@ async def post_usage(request: Request):
 
 # ONE CACHE FOR BOTH POOLS, keyed by collector. Each pool is read at most once per
 # `usage_poll_minutes` (default 5) however many agents and dashboards ask: one read serves everyone.
-_POOL_CACHE: dict[str, dict[str, Any]] = {"openai": {"at": 0.0, "pool": None}, "anthropic": {"at": 0.0, "pool": None}}
+_POOL_CACHE: dict[str, dict[str, Any]] = {
+    "openai": {"at": 0.0, "pool": None, "inflight": None},
+    "anthropic": {"at": 0.0, "pool": None, "inflight": None},
+}
 
 
 def _collectors():
@@ -77,6 +81,37 @@ async def _poll_seconds() -> float:
         return float(BY_KEY["usage_poll_minutes"].default) * 60
 
 
+async def _read_pool(name: str, collect, ttl: float):
+    """The cached reading, or the one poll in flight for it: readers that arrive while a poll runs wait
+    for that poll instead of starting their own (two simultaneous readers asked twice until the 0.7.4
+    review). A failed poll raises to every waiter and caches nothing, so the next reader retries."""
+    cache = _POOL_CACHE[name]
+    if time.monotonic() - float(cache["at"] or 0) <= ttl:
+        return cache["pool"]
+    poll = cache.get("inflight")
+    if poll is None or poll.done():
+        poll = asyncio.ensure_future(_poll(name, collect))
+        cache["inflight"] = poll
+    # Shielded, so a reader that disconnects does not cancel the poll the others wait on.
+    return await asyncio.shield(poll)
+
+
+async def _poll(name: str, collect):
+    cache = _POOL_CACHE[name]
+    try:
+        started = time.monotonic()
+        fresh = await collect()
+        if fresh:
+            # Stamped when READ FROM THE PROVIDER, not when served: stamping on every GET made a cached
+            # reading report an age of zero (v0.7 scan A14).
+            fresh = dict(fresh, updated_at=_now(), stale=False)
+        cache["at"] = started
+        cache["pool"] = fresh
+        return fresh
+    finally:
+        cache["inflight"] = None
+
+
 @router.get("/usage")
 async def get_usage():
     """Usage pools, collected BY THE SERVICE for OpenAI and Anthropic, so a fix costs no agent restart.
@@ -89,18 +124,8 @@ async def get_usage():
     pools = usage_all()
     ttl = await _poll_seconds()
     for name, collect in _collectors():
-        cache = _POOL_CACHE[name]
         try:
-            now = time.monotonic()
-            if now - float(cache["at"] or 0) > ttl:
-                fresh = await collect()
-                if fresh:
-                    # Stamped when READ FROM THE PROVIDER, not when served: stamping on every GET made
-                    # a cached reading report an age of zero (v0.7 scan A14).
-                    fresh = dict(fresh, updated_at=_now(), stale=False)
-                cache["at"] = now
-                cache["pool"] = fresh
-            fresh = cache["pool"]
+            fresh = await _read_pool(name, collect, ttl)
             if fresh:
                 fresh = dict(fresh)
                 pools = [p for p in pools if p.get("source_id") != fresh["source_id"]] + [fresh]
