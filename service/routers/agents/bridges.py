@@ -36,6 +36,10 @@ async def list_live_bridges():
             FROM bridge_instances
             WHERE COALESCE(superseded_by, '') = ''
               AND last_seen >= ?
+              -- A spawn report writes a row keyed by the CLAIMER, which is aify-env's own bridge id,
+              -- with no build. It is the host tier, not a bridge an agent runs, and listing it made
+              -- the doctor call a freshly spawned agent a pre-0.7 bridge (v0.7.1 review, B7).
+              AND id NOT IN (SELECT bridge_id FROM environments WHERE COALESCE(bridge_id, '') != '')
             ORDER BY agent_id, last_seen DESC
             """,
             (cutoff,),

@@ -72,3 +72,17 @@ class LiveBridgesReportTheirBuildTests(FastApiTestCase):
         # A beat with an unusable build leaves the stored one alone rather than blanking it.
         self.client.post("/api/v1/agents/bc-hermes/heartbeat", json={**beat, "bridgeBuild": "no; way"})
         self.assertEqual(self._bridges()["sidecar-bc-hermes"]["build"], "0123456789ab")
+
+    def test_the_host_tiers_own_spawn_row_is_not_a_bridge(self):
+        """v0.7.1 review (B7). A spawn report writes a `bridge_instances` row keyed by the CLAIMER's id,
+        which is aify-env's, with no build. Until the worker's own bridge registered, `/bridges` listed
+        it and the doctor told the operator the new agent ran a pre-0.7 bridge and should restart."""
+        self._register("bc-coder", "bridge-1", "577c7ca1b2c3")
+        now = "2099-01-01T00:00:00Z"
+        self._write("INSERT INTO bridge_instances (id, agent_id, machine_id, runtime, session_mode, registered_at, "
+                    "last_seen, superseded_by) VALUES ('env-bridge', 'bc-coder', 'win:host', 'claude-code', "
+                    "'managed', ?, ?, '')", (now, now))
+        self.assertIn("env-bridge", self._bridges(), "control: the row is live and listed before it is known")
+        self._write("INSERT INTO environments (id, bridge_id, registered_at, last_seen) "
+                    "VALUES ('win:host:default', 'env-bridge', ?, ?)", (now, now))
+        self.assertEqual(set(self._bridges()), {"bridge-1"})
