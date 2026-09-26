@@ -7,9 +7,7 @@ the way this repo keeps meeting: an SSE client passing a parameter only stdio de
 with no hint that the other transport would have taken it.
 
 FOUND BY MEASURING, on 2026-08-29: 22 tools declared by both, and TEN of them disagreed. One was a
-capability an SSE client simply did not have -- `comms_dispatch` had no `priority`, so every SSE
-dispatch took the endpoint's "normal" default while a stdio client could mark one urgent.
-`DispatchRequest.priority` had accepted it all along. That one is closed in the same change; the
+capability an SSE client simply did not have (a missing `priority`, closed in the same change); the
 other nine are real and each has a reason, recorded below.
 
 THE POINT OF THE TABLE is not the nine entries. It is that the next divergence has to arrive as a
@@ -63,9 +61,8 @@ DECLARED_DIFFERENCES = {
     # SSE serves arbitrary clients and has no ambient identity, so it must be told.
     ("comms_console_input", "sse", "from_agent"): "SSE has no ambient identity; the bridge does",
 
-    # Local-machine capabilities. The SSE server is reached over the network, so there is no browser
-    # of the caller's to open and no path of the caller's to read.
-    ("comms_dashboard", "stdio", "open"): "opens a browser on the machine the bridge runs on",
+    # A local-machine capability. The SSE server is reached over the network, so there is no path of
+    # the caller's to read.
     ("comms_share", "stdio", "filePath"): "reads a file from the caller's own filesystem",
 
     # `comms_register`'s own SSE docstring is the record: "SSE clients can coordinate work, but
@@ -125,26 +122,6 @@ class BothTransportsDeclareTheSameToolSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(len(set(stdio) & set(sse)), 20, "the shared surface looks truncated")
         for side, schemas in (("stdio", stdio), ("sse", sse)):
             self.assertIn("body", schemas.get("comms_send", set()), f"{side} lost comms_send's body")
-
-    def test_comms_dispatch_carries_priority_on_BOTH_transports(self):
-        """PINNED BY NAME, deliberately, and restored after it was removed.
-
-        EXTERNAL REVIEW, 2026-09-21, finding 11. `test_an_sse_dispatch_can_set_a_priority` was
-        deleted by the duplicate-removal campaign (2e0d06f9). Its own docstring had said why it was
-        by-name -- "an accepted absence is how it lived for as long as it did" -- and after the
-        removal `priority` survived in this file only as PROSE.
-
-        WHY THE SURVIVING TESTS DO NOT COVER IT. They compare the two transports to EACH OTHER, so a
-        symmetric removal passes in silence, and a one-sided one passes the moment somebody adds any
-        non-blank string to DECLARED_DIFFERENCES. Neither asks whether the parameter is there at all.
-        """
-        stdio, sse = tool_parameters(), sse_tool_parameters()
-        for side, schemas in (("stdio", stdio), ("sse", sse)):
-            params = {ALIASES.get(n, n) for n in schemas.get("comms_dispatch", set())}
-            self.assertIn("priority", params, f"{side} lost comms_dispatch's `priority`")
-        # And it must not be excused as a declared difference, which is the other way it could go.
-        self.assertNotIn(("comms_dispatch", "sse", "priority"), DECLARED_DIFFERENCES)
-        self.assertNotIn(("comms_dispatch", "stdio", "priority"), DECLARED_DIFFERENCES)
 
     def test_every_parameter_difference_is_declared_with_a_reason(self):
         undeclared = sorted(differences(tool_parameters(), sse_tool_parameters())

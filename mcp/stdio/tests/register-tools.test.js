@@ -72,7 +72,6 @@ test("the tools agents actually depend on are present by NAME", () => {
     "comms_inbox",
     "comms_read",
     "comms_agents",
-    "comms_dispatch",
     "comms_status",
   ]) {
     assert.ok(names.includes(tool), `${tool} must be registered — agents call it by this exact name`);

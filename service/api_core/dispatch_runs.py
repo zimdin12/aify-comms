@@ -351,7 +351,7 @@ async def _create_dispatch_runs(
         # single dispatch stored the body verbatim, so a line-leading `MessageId: <victim-id>` was
         # read back at claim time and minted a read receipt for the claiming agent against a message
         # it never saw. Unread is the ABSENCE of a receipt, so that message silently disappeared from
-        # the recipient's `comms_listen` — the exact suppression 44986616 set out to close, reachable
+        # the recipient's unread inbox — the exact suppression 44986616 set out to close, reachable
         # by another road, and by accident as easily as on purpose (agents quote buffer excerpts).
         #
         # Doing it HERE makes the parser's assumption true instead of hoping for it: no stored

@@ -23,4 +23,4 @@ When you send architecture guidance:
 - use the team channel for decisions that affect multiple agents
 - if the rationale is long, attach the deeper write-up with `comms_share`
 
-**When you have no reviews or design requests pending, stay registered and triggerable.** Use `comms_listen` only if you intentionally want a waiting loop.
+**When you have no reviews or design requests pending, stay registered and triggerable.**

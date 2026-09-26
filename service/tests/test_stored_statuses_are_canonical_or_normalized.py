@@ -1,6 +1,6 @@
 """Every status a writer can store must be canonical, or normalized before it is published.
 
-THE RULING THIS ENFORCES. `service/routers/agents/listen.py` writes `status='idle'`, and `idle` is not
+THE RULING THIS ENFORCES. Registration stores `status='idle'` by default, and `idle` is not
 in `VALID_STATUSES` — it was removed when the proof-based engine replaced time-decay ("an
 alive-not-in-turn agent is `online`, never `idle`"). Reported as a finding on 2026-08-18. comms-senior-dev
 ruled: do NOT widen the public vocabulary to bless a stored legacy value; keep the writers, on the
@@ -106,10 +106,11 @@ class StoredStatusesAreCanonicalOrNormalized(unittest.TestCase):
         self.assertGreaterEqual(
             len(stored), 5,
             "the stored-status scan found fewer values than the five known when it was written "
-            f"(active, idle, offline, stopped, working); it found {sorted(stored)}. The writes were "
+            f"(active, idle, offline, online, stopped); it found {sorted(stored)}. The writes were "
             "probably reformatted or moved, and this gate is now measuring nothing.",
         )
-        for expected in ("idle", "stopped", "working"):
+        # `working` left this list in 0.7.5: its only writer was the removed agent long-poll.
+        for expected in ("idle", "stopped", "offline"):
             with self.subTest(expected=expected):
                 self.assertIn(expected, stored,
                               f"the scan no longer sees any writer storing '{expected}'")

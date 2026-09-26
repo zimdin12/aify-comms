@@ -39,7 +39,6 @@ from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import DEFAULT_SETTINGS, _load_settings, _managed_terminal_backing_enabled
-from service.longpoll import _wake_agent
 
 #: DELIBERATELY the ROUTER'S logger name, not this module's. The one warning in this block records an
 #: eager-PTY failure that must never be silent -- a bare `pass` there once hid an AttributeError for
@@ -337,8 +336,6 @@ async def _hand_settled_spawn_to_dispatch(db, row):
                 # execution_mode='managed' and claude-channel.js never
                 # claimed it.
                 await _apply_channel_routing_to_claude_runs(db, runs, settings_for_runs)
-                for run in runs:
-                    _wake_agent(run["targetAgentId"])
 
 
 async def _ensure_pty_for_settled_spawn(db, row, settings_for_pty):

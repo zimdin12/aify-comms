@@ -126,7 +126,6 @@ const INTENTIONALLY_STDIO_ONLY = {
   // Host-local reads the SSE server cannot perform.
   comms_usage: "reads host-side quota stores the SSE process cannot see",
   comms_envs: "environment/bridge inventory of the local host",
-  comms_listen: "stdio transport primitive",
   // Not yet mirrored. These are the ones worth revisiting — comms_agent_info especially, since
   // audit finding 1 made it the place production is reported and an SSE caller cannot see it.
   comms_agent_info: "health surface, not yet mirrored — REVISIT: carries outbound activity since v0.3.1",

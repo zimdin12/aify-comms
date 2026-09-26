@@ -2,8 +2,8 @@
 //
 // One MCP tool, `comms_search`. v0.5.4 layer 2 of the server.js decomposition.
 //
-// A ONE-TOOL MODULE, DELIBERATELY. This tool sits physically between `comms_inbox` and `comms_listen` in
-// server.js and was excluded from the inbox group when that moved: an inbox is the caller's own mailbox,
+// A ONE-TOOL MODULE, DELIBERATELY. This tool sat physically inside the inbox tools in server.js and was
+// excluded from the inbox group when that moved: an inbox is the caller's own mailbox,
 // and this searches the whole corpus — messages the agent SENT as well as received, plus every shared
 // artifact. Folding it in for the adjacency would have made that module "message-ish things". Its subject
 // is search, and search is what it is alone with.

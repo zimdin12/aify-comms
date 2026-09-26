@@ -1,7 +1,7 @@
 // The dispatch tool group, executed rather than scanned.
 //
-// Five tools — `comms_dispatch`, `comms_run_status`, `comms_contracts`, `comms_run_interrupt`,
-// `comms_interrupt` — and the two helpers only they use. Until v0.5.4 all of it was inside `server.js`,
+// Four tools — `comms_run_status`, `comms_contracts`, `comms_run_interrupt`, `comms_interrupt` — and
+// the two helpers only they use. Until v0.5.4 all of it was inside `server.js`,
 // the bin entry point, which nothing imports: the only way to check any of it was to regex the source,
 // and a regex cannot fail on wrong logic. This file registers the real tools on a fake MCP server and
 // calls the real handlers.
@@ -40,10 +40,10 @@ function register() {
 }
 
 const EXPECTED = [
-  "comms_dispatch", "comms_run_status", "comms_contracts", "comms_run_interrupt", "comms_interrupt",
+  "comms_run_status", "comms_contracts", "comms_run_interrupt", "comms_interrupt",
 ];
 
-test("the wrapper registers exactly the five dispatch tools", () => {
+test("the wrapper registers exactly the four dispatch tools", () => {
   assert.deepEqual([...register().keys()].sort(), [...EXPECTED].sort());
 });
 
@@ -53,9 +53,9 @@ test("registration is an effect of CALLING the wrapper, never of importing the m
   // produce two independent registrations — a shared or memoised server would couple callers.
   const a = register();
   const b = register();
-  assert.equal(a.size, 5);
-  assert.equal(b.size, 5);
-  assert.notEqual(a.get("comms_dispatch"), b.get("comms_dispatch"), "each call registers afresh");
+  assert.equal(a.size, 4);
+  assert.equal(b.size, 4);
+  assert.notEqual(a.get("comms_run_status"), b.get("comms_run_status"), "each call registers afresh");
 });
 
 test("every tool arrives with a description and a usable schema", () => {

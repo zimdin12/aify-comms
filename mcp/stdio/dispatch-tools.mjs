@@ -1,8 +1,8 @@
 // Dispatch: sending work to another agent and following what happens to it.
 //
-// Five MCP tools — `comms_dispatch`, `comms_run_status`, `comms_contracts`, `comms_run_interrupt`,
-// `comms_interrupt` — plus the two helpers only they use. v0.5.4 layer 2 of the server.js
-// decomposition, and the first tool group to move.
+// Four MCP tools — `comms_run_status`, `comms_contracts`, `comms_run_interrupt`, `comms_interrupt` —
+// plus the helper only they use. v0.5.4 layer 2 of the server.js decomposition, and the first tool
+// group to move. Handing work to an agent is `comms_send`'s job (DECISIONS.md, 0.7.5).
 //
 // WHY THIS GROUP WENT FIRST. It was measurable. Its closure is exactly two helpers, both
 // group-exclusive; it needs no module state; and neither `comms_register` nor `runDispatchLoop` is
@@ -29,7 +29,7 @@
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
-import { formatQueuedRun, replyExpectationSummary } from "./tool-response-format.mjs";
+import { replyExpectationSummary } from "./tool-response-format.mjs";
 
 // PRIVATE, and byte-identical to the server.js original including its lack of an export.
 //
@@ -70,7 +70,7 @@ export async function commsInterruptHandler({ agentId, from }, { httpCall: call 
   }
 }
 
-// Registers the five dispatch tools on an MCP server.
+// Registers the four dispatch tools on an MCP server.
 //
 // A FUNCTION AND NOT MODULE-SCOPE SIDE EFFECT, deliberately. Registration at import time would fire on
 // any import, including a test's — which is precisely how the tools become testable: a fake server
@@ -79,75 +79,9 @@ export async function commsInterruptHandler({ agentId, from }, { httpCall: call 
 //
 // `z` is the caller's zod; see the note at the top of this file for why it is not imported here.
 //
-// The five bodies below are the original server.js text, indented one level to sit inside this
+// The four bodies below are the original server.js text, indented one level to sit inside this
 // function. Nothing else about them changed.
 export function registerDispatchTools(server, z) {
-  server.tool(
-    "comms_dispatch",
-    "Lower-level run-control/debug API. Use comms_send for teamwork; use this only when you need explicit run-control fields while diagnosing delivery. It follows comms_send's reply contract.",
-    {
-      from: z.string().describe("Your agent ID"),
-      to: z.string().optional().describe("Target agent ID"),
-      toRole: z.string().optional().describe("Send to all agents with this role"),
-      type: z
-        .enum(["request", "response", "info", "error", "review", "approval"])
-        .describe("Message type"),
-      subject: z.string().describe("Short subject"),
-      body: z.string().describe("Task details"),
-      priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
-      inReplyTo: z.string().optional().describe("Message ID this replies to"),
-      requireStart: z.boolean().optional().describe("Legacy; leave unset."),
-      requireReply: z.boolean().optional().describe("As comms_send's requireReply."),
-    },
-    async ({ from, to, toRole, type, subject, body, priority, inReplyTo, requireStart, requireReply }) => {
-      if (!to && !toRole) {
-        return { content: [{ type: "text", text: "Error: need 'to' or 'toRole'" }], isError: true };
-      }
-
-      if (!IS_REMOTE) {
-        return {
-          content: [{ type: "text", text: "comms_dispatch currently requires remote server mode. Use comms_send(...) in local mode." }],
-          isError: true,
-        };
-      }
-
-      const r = await httpCall("POST", "/dispatch", {
-        from_agent: from,
-        to,
-        toRole,
-        type,
-        subject,
-        body,
-        priority: priority || "normal",
-        inReplyTo,
-        mode: requireStart ? "require_start" : "start_if_possible",
-        createMessage: true,
-        requireReply,
-      });
-
-      if (!r.ok) {
-        return { content: [{ type: "text", text: r.error || "Dispatch failed." }], isError: true };
-      }
-
-      const lines = (r.runs || []).map((run) => {
-        return `- ${formatQueuedRun(run)} [${run.status}]`;
-      });
-      const skipped = (r.notStarted || []).map((item) => `- ${item.targetAgentId}: ${item.reason}`);
-      const footer = requireStart
-        ? "\n\nUse comms_run_status(...) to inspect progress. For normal teamwork messages outside a delivered managed run, prefer comms_send(...); it already fails visibly when live delivery is not possible."
-        : "\n\nUse comms_run_status(...) to inspect progress. Explicit replies are expected by default for direct dispatch; if none is sent, the bridge mirrors the run result back.";
-      return {
-        content: [{
-          type: "text",
-          text:
-            `Dispatch handling:\n${lines.join("\n") || "- none"}` +
-            (skipped.length ? `\n\nNot started:\n${skipped.join("\n")}` : "") +
-            footer,
-        }],
-      };
-    }
-  );
-
   server.tool(
     "comms_run_status",
     "Inspect a dispatched run: its status, recent events, and any control requests against it.",

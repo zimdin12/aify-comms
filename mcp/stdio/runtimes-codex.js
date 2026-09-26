@@ -226,7 +226,6 @@ export function managedCodexConfigText({ workspace = "", serverUrl = "", model =
     "enabled = true",
     "startup_timeout_sec = 10",
     "tool_timeout_sec = 25",
-    'disabled_tools = ["comms_listen"]',
     `env_vars = [${envVarPassthrough.map((n) => tomlString(n)).join(", ")}]`,
     "",
     "[mcp_servers.aify-comms.env]",

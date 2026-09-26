@@ -108,7 +108,7 @@ class MessagingRefusalTests(FastApiTestCase):
         self.assertEqual(
             response.json()["detail"],
             "Dispatch no longer supports mode='message_only'. Use comms_send for normal live "
-            "messaging or comms_dispatch without message_only for tracked work.",
+            "messaging, or this endpoint without message_only for tracked work.",
         )
 
     # ── a body the sender already cut short ──────────────────────────────────────────────────

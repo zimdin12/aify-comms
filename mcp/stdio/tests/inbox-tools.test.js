@@ -1,7 +1,7 @@
 // The inbox tools, executed rather than scanned.
 //
-// `comms_inbox`, `comms_listen`, `comms_unsend` — an agent reading its own mailbox. Until v0.5.4 all
-// three lived in `server.js`, the bin entry point, which nothing imports, so none of it was reachable
+// `comms_inbox`, `comms_unsend` — an agent reading its own mailbox. Until v0.5.4 both
+// lived in `server.js`, the bin entry point, which nothing imports, so none of it was reachable
 // from a test.
 //
 // THE SAFETY BANNER IS THE ASSERTION THAT MATTERS HERE. Every message these render was written by
@@ -43,8 +43,8 @@ test("the scratch store is really in use", () => {
   assert.ok(MESSAGES_DIR.startsWith(STORE), `expected the scratch store, got ${MESSAGES_DIR}`);
 });
 
-test("the wrapper registers exactly the three inbox tools", () => {
-  assert.deepEqual([...tools.keys()].sort(), ["comms_inbox", "comms_listen", "comms_unsend"]);
+test("the wrapper registers exactly the two inbox tools", () => {
+  assert.deepEqual([...tools.keys()].sort(), ["comms_inbox", "comms_unsend"]);
   for (const [name, tool] of tools) {
     assert.equal(typeof tool.handler, "function", `${name} must have a handler`);
     assert.ok(tool.description.length > 10, `${name} must describe itself`);

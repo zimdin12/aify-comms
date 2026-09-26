@@ -88,10 +88,10 @@ Three gaps between the system and the target.
    moment every launcher on a host uses it.
 
    It is not a free swap. The SSE surface is reduced by design and
-   `mcp/stdio/tests/transport-parity.test.js` requires every difference to be declared. Nine of the
-   fourteen missing tools are principled: `comms_spawn`, `comms_restart`, `comms_compact`,
+   `mcp/stdio/tests/transport-parity.test.js` requires every difference to be declared. Eight of the
+   thirteen missing tools are principled: `comms_spawn`, `comms_restart`, `comms_compact`,
    `comms_interrupt`, `comms_delete_session`, `comms_remove_agent` need a local process;
-   `comms_usage`, `comms_envs`, `comms_listen` read host state a container cannot see. The other five
+   `comms_usage`, `comms_envs` read host state a container cannot see. The other five
    are absent only because nobody mirrored them: `comms_agent_info`, `comms_contracts`,
    `comms_status`, `comms_describe`, `comms_unsend`. Mirroring those five is ordinary work, not a
    decision.

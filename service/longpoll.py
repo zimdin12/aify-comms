@@ -193,27 +193,3 @@ async def longpoll(
         result = await _try()
         if not is_empty(result):
             return result
-
-# ─── comms_listen wake registry ───────────────────────────────────────────────
-#
-# A SECOND waiter registry, moved here from the control plane in v0.5.4 because this module already
-# owns the first one. `_waiters` above serves scope-based long polls; `_listen_events` serves the
-# per-agent `comms_listen` wait. They are not the same mechanism and unifying them would be a
-# behaviour change, not a move — but they are the same SUBJECT, and having them in one file is what
-# makes the difference visible instead of accidental.
-#
-# MUTABLE PROCESS-GLOBAL. `routers/agents/listen.py` INSERTS a waiter into it, reaching it as
-# `longpoll._listen_events`, and `_wake_agent` below sets it. Two copies would put a waiter in one
-# dict and the wake in the other: `comms_listen` would simply hang to its timeout, with no error and
-# nothing in the logs. `service/tests/test_process_global_identity.py` names this module as the
-# owner so a second module-level assignment fails the suite.
-
-# Per-agent wake-up events for comms_listen
-_listen_events: dict[str, asyncio.Event] = {}
-
-
-def _wake_agent(agent_id: str):
-    """Signal a listening agent that they have new messages."""
-    ev = _listen_events.get(agent_id)
-    if ev:
-        ev.set()

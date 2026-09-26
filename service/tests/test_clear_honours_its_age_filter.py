@@ -28,7 +28,7 @@ class ClearHonoursItsAgeFilterTests(FastApiTestCase):
 
     def test_a_cutoff_keeps_everything_newer_on_every_target(self):
         self._fresh_world()
-        for target in ("shared", "agents", "channels", "all"):
+        for target in ("shared", "agents", "channels"):
             with self.subTest(target):
                 r = self.client.post("/api/v1/clear", json={"target": target, "olderThanHours": 1})
                 self.assertEqual(r.status_code, 200, r.text)
@@ -44,5 +44,12 @@ class ClearHonoursItsAgeFilterTests(FastApiTestCase):
         self.assertIn("fresh-agent", agents, "and only that target")
 
     def test_an_unknown_target_is_refused(self):
-        r = self.client.post("/api/v1/clear", json={"target": "bogus"})
-        self.assertEqual(r.status_code, 422, r.text)
+        """`all`, the whole-hub wipe, was removed by operator ruling in 0.7.5 and is now unknown too."""
+        self._fresh_world()
+        for target in ("bogus", "all"):
+            with self.subTest(target):
+                r = self.client.post("/api/v1/clear", json={"target": target})
+                self.assertEqual(r.status_code, 422, r.text)
+                files, agents = self._names()
+                self.assertEqual((("fresh.txt" in files), ("fresh-agent" in agents)), (True, True),
+                                 f"clear({target}) was refused and still deleted something")

@@ -14,7 +14,6 @@ import { registerArtifactTools } from "./artifact-tools.mjs";
 import { registerChannelTools } from "./channel-tools.mjs";
 import { registerCompactTool } from "./compact-tool.mjs";
 import { registerConsoleTools } from "./console-tools.mjs";
-import { registerDashboardTool } from "./dashboard-tool.mjs";
 import { registerDispatchTools } from "./dispatch-tools.mjs";
 import { registerEnvironmentTools } from "./environment-tools.mjs";
 import { registerInboxTools } from "./inbox-tools.mjs";
@@ -40,5 +39,4 @@ export function registerAllTools(server, z, { ensureDispatchLoop }) {
   registerArtifactTools(server, z);
   registerChannelTools(server, z);
   registerLifecycleTools(server, z);
-  registerDashboardTool(server, z);
 }

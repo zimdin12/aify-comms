@@ -165,15 +165,13 @@ Dashboard is a store-only recipient: answer a dashboard message with `comms_send
 
 Identity/lifecycle: `comms_register`, `comms_envs`, `comms_spawn`, `comms_compact`, `comms_agents`, `comms_agent_info`, `comms_status`, `comms_describe`, `comms_remove_agent`, `comms_delete_session`.
 
-Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_clear`; `comms_listen` is a deprecated long-poll.
+Messaging: `comms_send`, `comms_inbox`, `comms_unsend`, `comms_search`, `comms_clear`.
 
-Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_interrupt`, `comms_restart`. Prefer `comms_send` over lower-level `comms_dispatch`.
+Runs/work: `comms_contracts`, `comms_run_status`, `comms_run_interrupt`, `comms_interrupt`, `comms_restart`.
 
 Consoles (managed only): `comms_console_tail` reads the live console, or a dead worker's last output with its fatal line first. `comms_console_input` is audited recovery input; its description gives the one-attempt rule.
 
 Channels/files: `comms_channel_create`, `comms_channel_join`, `comms_channel_leave`, `comms_channel_send`, `comms_channel_read`, `comms_channel_list`, `comms_channel_delete`, `comms_share`, `comms_read`, `comms_files`, `comms_unshare`. Leave stops delivery; the two deletes are owner-only, need your id, and end it for everyone. `comms_files` is bounded — narrow it.
-
-Dashboard: `comms_dashboard`.
 
 Usage/quota: `comms_usage` shows each pool's weekly and 5-hour quota left and the pool you draw on; `?` means unknown, not zero. Advisory only; it never gates sends.
 

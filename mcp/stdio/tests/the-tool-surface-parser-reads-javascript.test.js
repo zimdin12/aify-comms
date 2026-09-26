@@ -93,13 +93,13 @@ test("a regex holding an unbalanced paren does not either", () => {
 // for finding registrations, and a test asserting otherwise would have been green for no reason.
 
 test("A TEMPLATE LITERAL NESTED IN ANOTHER'S HOLE DOES NOT END THE OUTER ONE", () => {
-  // THE THIRD DEFECT, found while fixing the second. `dashboard-tool.mjs` builds HTML with
+  // THE THIRD DEFECT, found while fixing the second. The dashboard tool (removed in 0.7.5) built HTML with
   // `${rows.length ? `<table>…</table>` : "<p>None.</p>"}` five times over, and its templates carry
   // quotes (`<div class="stat">`). A backtick-to-backtick scan ends the outer template at the first
   // INNER backtick, which leaves the inner template's TEXT being read as code -- so a quote in it
   // opens a string that runs on. That file balanced anyway for a while because two later
   // misreadings cancelled, and correcting the regex handling changed which ones cancelled and lost
-  // `comms_dashboard`. Luck is not a property worth preserving.
+  // that tool. Luck is not a property worth preserving.
   assert.deepEqual(acrossBody('const html = `<div>${rows.length ? `<b>"${rows}</b>` : "none"}</div>`;'),
     ["comms_first", "comms_second"]);
 });

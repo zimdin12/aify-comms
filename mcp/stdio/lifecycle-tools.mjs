@@ -18,9 +18,9 @@
 //
 // THE BLAST RADII DIFFER BY ORDERS OF MAGNITUDE and the descriptions are the only thing that says so.
 // `comms_delete_session` drops one inactive record. `comms_remove_agent` tombstones one identity.
-// `comms_clear` with target="all" wipes every message, artifact and identity on the server — other teams
-// included, with no undo and no confirmation prompt. The tests below assert those warnings survive,
-// because for `comms_clear` the description IS the safety mechanism.
+// `comms_clear` without an agentId wipes every inbox, every shared artifact or every identity on the
+// server — other teams included, with no undo and no confirmation prompt. The tests below assert those
+// warnings survive, because for `comms_clear` the description IS the safety mechanism.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
@@ -177,19 +177,19 @@ export function registerLifecycleTools(server, z) {
   );
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // 16. comms_clear -- Clear inbox/shared/agents/all with optional age filter
+  // 16. comms_clear -- Clear inbox/shared/agents with optional age filter
   // ═══════════════════════════════════════════════════════════════════════════════
 
   server.tool(
     "comms_clear",
     "DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes data for the WHOLE hub, not just for you. " +
-      "target=\"all\" wipes every message, shared artifact and agent identity on the server — other teams included. " +
+      "Without agentId, inbox and agents reach every agent and shared every artifact — other teams included. " +
       "There is no undo and no confirmation prompt; the only safety is this sentence. " +
       "Do NOT use it to tidy your own inbox (reading them marks them read; just leave them) or to remove one agent (use comms_remove_agent). " +
       "Scope it as narrowly as the task allows: pass agentId, and prefer olderThanHours over a bare wipe. " +
       "If you did not explicitly decide to destroy shared history, you want a different tool.",
     {
-      target: z.enum(["inbox", "shared", "agents", "all"]).describe("What to clear"),
+      target: z.enum(["inbox", "shared", "agents"]).describe("What to clear"),
       agentId: z.string().optional().describe("Limit to one agent for target=inbox or target=agents"),
       olderThanHours: z.number().optional().describe("Only clear items older than N hours"),
     },
@@ -198,7 +198,7 @@ export function registerLifecycleTools(server, z) {
         const r = await httpCall("POST", "/clear", { target, agentId, olderThanHours });
         if (target === "agents" && agentId) {
           forgetRemoteAgent(agentId);
-        } else if (target === "agents" || target === "all") {
+        } else if (target === "agents") {
           REMOTE_AGENT_STATE.clear();
           ACTIVE_RUNS.clear();
           CONSECUTIVE_FAILURES.clear();
@@ -215,7 +215,7 @@ export function registerLifecycleTools(server, z) {
       const cleared = { messages: 0, files: 0, agents: 0 };
 
       // Clear inbox
-      if (target === "inbox" || target === "all") {
+      if (target === "inbox") {
         const dirs = agentId
           ? [agentId]
           : (() => { try { return fs.readdirSync(INBOX_DIR); } catch { return []; } })();
@@ -239,7 +239,7 @@ export function registerLifecycleTools(server, z) {
       }
 
       // Clear shared files
-      if (target === "shared" || target === "all") {
+      if (target === "shared") {
         try {
           for (const f of fs.readdirSync(SHARED_DIR)) {
             const filePath = path.join(SHARED_DIR, f);
@@ -255,9 +255,9 @@ export function registerLifecycleTools(server, z) {
       }
 
       // Clear agent registry
-      if (target === "agents" || target === "all") {
+      if (target === "agents") {
         const registry = readAgents();
-        if (agentId && target === "agents") {
+        if (agentId) {
           if (registry.agents?.[agentId]) {
             delete registry.agents[agentId];
             cleared.agents = 1;

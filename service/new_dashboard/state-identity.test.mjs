@@ -2,8 +2,8 @@
 //
 // This is the gate that makes the v0.5.4 `state` move safe, and it is the JS analogue of the Python
 // `test_process_global_identity.py` in this same series — which was not written speculatively either: it
-// caught a real fork, where a second copy of `_listen_events`' module-level queue would have made
-// `comms_listen` hang with no error anywhere.
+// caught a real fork, where a second copy of a module-level waiter registry (since removed) would have
+// made an agent's long-poll hang with no error anywhere.
 //
 // THE FAILURE THIS PREVENTS IS SILENT. `state` is mutated by 26 functions in `app.js`. If a second
 // declaration ever appears — a slice that copies the object instead of importing it, a module that

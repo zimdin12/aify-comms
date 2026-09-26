@@ -39,7 +39,6 @@ from service.api_core.status_refresh import _get_recipient_info
 from service.api_core.validation import _reject_sender_truncated_body, validate_name
 from service.api_core.ws import _get_ws
 from service.db import get_db
-from service.longpoll import _wake_agent
 from service.ntfy import notify_operator
 
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
@@ -222,10 +221,6 @@ async def send_channel_message(name: str, req: ChannelMessage, request: Request)
                 if run.get("steered"):
                     continue
                 await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
-        # Wake up any listening members
-        for member in members:
-            if member != req.from_agent:
-                _wake_agent(member)
         return {
             "ok": True,
             "messageId": msg_id,

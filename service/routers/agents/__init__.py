@@ -10,7 +10,6 @@ from service.api_core.routing import domain_router
 from service.routers.agents.config import router as _config_router
 from service.routers.agents.console import router as _console_router
 from service.routers.agents.environment_assignment import router as _environment_assignment_router
-from service.routers.agents.listen import router as _listen_router
 from service.routers.agents.attributes import router as _attributes_router
 from service.routers.agents.bridges import router as _bridges_router
 from service.routers.agents.identity import router as _identity_router
@@ -26,10 +25,9 @@ from service.routers.agents.virtual_terminal import router as _virtual_terminal_
 
 router = domain_router()
 router.include_router(_config_router)
-# Environment assignment and the listen long-poll left `config.py` in v0.5.4, still in
-# first-appearance order.
+# Environment assignment left `config.py` in v0.5.4, still in first-appearance order. The listen
+# long-poll that left with it was removed in 0.7.5 (DECISIONS.md).
 router.include_router(_environment_assignment_router)
-router.include_router(_listen_router)
 router.include_router(_console_router)
 # Virtual-terminal provisioning left `console.py` in v0.5.4, still in first-appearance order.
 router.include_router(_virtual_terminal_router)

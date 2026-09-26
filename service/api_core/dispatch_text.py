@@ -202,7 +202,7 @@ _ITEM_MARKER_RE = re.compile(r"^=== ITEM \d+ ===$", re.MULTILINE)
 #: The buffer's third structural field. `_dispatch_source_message_ids` recovers a merged buffer's
 #: source ids by reading whole `MessageId: <id>` lines, so a body able to write one is able to add
 #: an arbitrary id to that list — and every id there becomes a read receipt for the claiming agent,
-#: which is how a message goes missing from `comms_listen` (unread = no receipt).
+#: which is how a message goes missing from the unread inbox (unread = no receipt).
 _MESSAGE_ID_FIELD_RE = re.compile(r"^(MessageId:)", re.MULTILINE)
 
 

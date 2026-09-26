@@ -105,7 +105,7 @@ _register_agent_tools(mcp_server)
 
 
 # ---------------------------------------------------------------------------
-# Send + dispatch — declared in service/sse/send_tools.py, registered here so they land on this
+# Send — declared in service/sse/send_tools.py, registered here so it lands on this
 # server in the position they always occupied.
 # ---------------------------------------------------------------------------
 

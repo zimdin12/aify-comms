@@ -2,10 +2,10 @@
 
 The terminal-output drain runs in the lifespan shutdown, which uvicorn reaches only after every open
 connection has finished. With no `--timeout-graceful-shutdown` that wait is unbounded, and a claim
-long-poll holds a connection for 20-25 s while `/listen` can hold one for 600 s, so Docker's stop
-timeout (10 s by default, 1 s on the running container when measured) killed the process first and
-the drain never ran (v0.7.2, external review). uvicorn's wait is now bounded and the service's grace
-period covers that wait, the drain and a margin for closing the pool.
+long-poll holds a connection for 20-25 s (an agent long-poll, removed in 0.7.5, held one for 600 s),
+so Docker's stop timeout (10 s by default, 1 s on the running container when measured) killed the
+process first and the drain never ran (v0.7.2, external review). uvicorn's wait is now bounded and
+the service's grace period covers that wait, the drain and a margin for closing the pool.
 
 Read from the two files that decide it, so a change to either is judged against the other.
 """

@@ -25,7 +25,7 @@ WHY THE RAW ONES WERE REACHABLE, checked against the live database rather than a
     non-empty `message_id`. Terminal-coalesce rows are inserted `running` outright.
   * `_dispatch_source_message_ids` reads ids out of a body that starts with the buffer header, and
     `_mark_dispatch_source_messages_read` inserts a receipt for each against ANY message with that id.
-    Unread is the ABSENCE of a receipt, so a forged one makes a message vanish from `comms_listen`.
+    Unread is the ABSENCE of a receipt, so a forged one makes a message vanish from the unread inbox.
 
 So a sender whose body began with the buffer header and carried `MessageId:` lines could suppress
 another agent's messages -- through the steer path, or the terminal path, but not the one path the

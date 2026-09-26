@@ -1,9 +1,9 @@
-"""Send, dispatch, register and presence — driven for the first time.
+"""Send, register and presence — driven for the first time.
 
 The last four `comms_*` tools without a test. `comms_send` is the most-called tool on this transport
 and the one whose reply a caller most often acts on without re-checking.
 
-WHAT IS PINNED IS WHO DOES *NOT* GET THE MESSAGE. Both send and dispatch can partially succeed: some
+WHAT IS PINNED IS WHO DOES *NOT* GET THE MESSAGE. A send can partially succeed: some
 recipients launch, others are declined, and a reply naming only the launched ones lets a caller
 believe a team was reached when half of it was skipped. That is the same wrong-belief shape as the
 channel and search renderers, in the tool that carries the most traffic.
@@ -176,50 +176,6 @@ class SendTests(unittest.TestCase):
                                from_agent="me", type="request", subject="s", body="b", to="a",
                                requireReply=asked)
             self.assertIs(asked, api.calls[0]["json"]["requireReply"], f"requireReply={asked}")
-
-
-class DispatchTests(unittest.TestCase):
-    def test_no_addressee_is_refused_before_the_api_is_called(self):
-        api = _Api({})
-        original, st._api = st._api, api
-        try:
-            out = asyncio.run(st.comms_dispatch(from_agent="me", type="info", subject="s", body="b"))
-        finally:
-            st._api = original
-        self.assertEqual("Error: need 'to' or 'toRole'", out)
-        self.assertEqual([], api.calls)
-
-    def test_requireStart_selects_the_stricter_mode(self):
-        for require, mode in ((True, "require_start"), (False, "start_if_possible")):
-            _, api = _with_api(st, st.comms_dispatch, {"ok": True, "runs": [{"targetAgentId": "a",
-                               "runId": "r", "status": "queued"}]},
-                               from_agent="me", type="info", subject="s", body="b", to="a",
-                               requireStart=require)
-            self.assertEqual(mode, api.calls[0]["json"]["mode"], f"requireStart={require}")
-
-    def test_a_dispatch_that_created_nothing_says_so_rather_than_rendering_empty(self):
-        out, _ = _with_api(st, st.comms_dispatch, {"ok": True, "runs": [], "notStarted": []},
-                           from_agent="me", type="info", subject="s", body="b", to="a")
-        self.assertEqual("No dispatch runs were created.", out)
-
-    def test_declined_targets_are_listed_under_their_own_heading(self):
-        out, _ = _with_api(st, st.comms_dispatch,
-                           {"ok": True, "runs": [{"targetAgentId": "a", "runId": "r1", "status": "queued"}],
-                            "notStarted": [{"targetAgentId": "b", "reason": "no runtime"}]},
-                           from_agent="me", type="info", subject="s", body="b", toRole="coder")
-        self.assertIn("Not started:", out)
-        self.assertIn("- b: no runtime", out)
-
-    def test_the_two_modes_point_the_caller_somewhere_different(self):
-        """requireStart failed loudly already; the other mode has to say prefer comms_send."""
-        payload = {"ok": True, "runs": [{"targetAgentId": "a", "runId": "r", "status": "queued"}]}
-        strict, _ = _with_api(st, st.comms_dispatch, payload, from_agent="me", type="info",
-                              subject="s", body="b", to="a", requireStart=True)
-        loose, _ = _with_api(st, st.comms_dispatch, payload, from_agent="me", type="info",
-                             subject="s", body="b", to="a", requireStart=False)
-        self.assertIn("prefer comms_send", strict)
-        self.assertNotIn("prefer comms_send", loose)
-        self.assertIn("expects an explicit reply", loose)
 
 
 class AgentToolTests(unittest.TestCase):

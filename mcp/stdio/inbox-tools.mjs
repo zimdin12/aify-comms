@@ -1,7 +1,7 @@
-// An agent's own inbox: reading it, waiting on it, and retracting from it.
+// An agent's own inbox: reading it, and retracting from it.
 //
-// Three MCP tools — `comms_inbox`, `comms_listen`, `comms_unsend`. v0.5.4 layer 2 of the server.js
-// decomposition, the third tool group to move.
+// Two MCP tools — `comms_inbox`, `comms_unsend`. v0.5.4 layer 2 of the server.js decomposition, the
+// third tool group to move.
 //
 // THE SUBJECT IS DELIBERATELY NARROW. `comms_search` sits between two of these in server.js and did NOT
 // come along: it searches messages AND shared artifacts across the corpus, which is a different subject
@@ -11,14 +11,13 @@
 //
 // WHAT THESE ACTUALLY GUARD. Every message here is written by another agent, so every rendering path
 // prepends `SAFETY_HEADER` — the line that tells a reading model the content is data, not instructions.
-// That banner has one owner (`tool-response-format.mjs`) precisely so two of these three cannot come to
-// disagree about it. `comms_listen` is a deprecated long-poll kept for compatibility and behaves
-// differently under managed dispatch, which is why it reads `IS_MANAGED_DISPATCH`.
+// That banner has one owner (`tool-response-format.mjs`) precisely so these tools cannot come to
+// disagree about it.
 //
 // Nothing here was reachable from a test before the move: server.js is the bin entry point and nothing
 // imports it.
 //
-// The `// 4. // 5c. // 5d.` banners are the original text; their numbers refer to server.js's tool
+// The `// 4. // 5c.` banners are the original text; their numbers refer to server.js's tool
 // ordering, which is no longer one list. Kept rather than renumbered — inventing new ones here would
 // only make two files disagree about a navigation aid.
 //
@@ -27,20 +26,19 @@
 import fs from "fs";
 import path from "path";
 
-import { API_KEY, IS_REMOTE, SERVER_URL, httpCall } from "./aify-service-endpoint.mjs";
-import { IS_MANAGED_DISPATCH } from "./launch-identity.mjs";
+import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { MESSAGES_DIR, markAsRead, readAgents, readInbox, writeAgents } from "./local-store.mjs";
 import { validateName } from "./safe-name.mjs";
 import { SAFETY_HEADER, formatInboxHeaders, formatInboxMessage } from "./tool-response-format.mjs";
 
-// Registers the three inbox tools on an MCP server.
+// Registers the two inbox tools on an MCP server.
 //
 // A function, not a module-scope side effect: registration at import time would fire on any import,
 // including a test's, and a fake server is how these handlers become callable without an MCP transport.
 // `z` is the caller's zod — server.js loads it below its `AIFY_BRIDGE_DISABLED` early-exit so an RPC
 // child never pays for it, and a static import here would be hoisted above that guard.
 //
-// The three bodies below are the original server.js text, indented one level to sit inside this
+// The two bodies below are the original server.js text, indented one level to sit inside this
 // function. Nothing else about them changed.
 export function registerInboxTools(server, z) {
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -121,93 +119,6 @@ export function registerInboxTools(server, z) {
       return {
         content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${total} message(s):\n\n${formatted.join("\n\n")}${truncNote}` }],
       };
-    }
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // 5d. comms_listen -- Deprecated compatibility/debug long-poll
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  server.tool(
-    "comms_listen",
-    "Deprecated long-poll: blocks until a message arrives or the timeout, returning at once if you have unread messages. " +
-      "Messages normally wake you; read them with comms_inbox and reply with comms_send.",
-    {
-      agentId: z.string().describe("Your agent ID"),
-      timeout: z.number().optional().describe("Max seconds to wait (default: 300, max: 600)"),
-    },
-    async ({ agentId, timeout }) => {
-      try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
-      if (IS_MANAGED_DISPATCH) {
-        return {
-          content: [{
-            type: "text",
-            text:
-              "comms_listen is disabled during managed dispatch turns because it can block the active run. " +
-              "Use the message already delivered in the prompt, comms_inbox for a quick explicit check, or comms_send to reply.",
-          }],
-          isError: true,
-        };
-      }
-      const maxWait = Math.min(timeout || 300, 600);
-
-      if (IS_REMOTE) {
-        // markRead=false: this bridge marks each message read once it HOLDS it (below). The route
-        // marking them itself read them for a caller that could disconnect after its commit (v0.7.4).
-        const url = `${SERVER_URL}/api/v1/agents/${agentId}/listen?timeout=${maxWait}&markRead=false`;
-        const options = { headers: {}, signal: AbortSignal.timeout((maxWait + 10) * 1000) };
-        if (API_KEY) options.headers["X-API-Key"] = API_KEY;
-        try {
-          // NEVER FOLLOWED: a redirect re-sends the headers, which carry the key.
-          const res = await fetch(url, { ...options, redirect: "manual" });
-          // A refusal is not a timeout: a 401 or 404 body has no `messages` and read as "No messages
-          // received" until 0.7.0 (B17).
-          if (!res.ok) {
-            return { content: [{ type: "text", text: `comms_listen failed: HTTP ${res.status} ${await res.text().catch(() => "")}`.trim() }], isError: true };
-          }
-          const r = await res.json();
-          if (!r.messages || r.messages.length === 0) {
-            return { content: [{ type: "text", text: "No messages received (timeout). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };
-          }
-          const registry = {};
-          try { const a = await httpCall("GET", "/agents"); registry.agents = a.agents; } catch {}
-          const formatted = r.messages.map((m) => formatInboxMessage(m, registry));
-          // Marked once the bridge holds the messages and has formatted the reply, the last step before
-          // returning it. That proves the bridge got them, not that the agent read them: a bridge that
-          // dies between this mark and the reply leaves them marked read (comms_inbox filter=read still
-          // shows them). A mark that fails leaves the message unread, and a later read returns it again.
-          await Promise.all(r.messages.map((m) => httpCall("POST", `/messages/${encodeURIComponent(m.id)}/read`, { agentId }).catch(() => {})));
-          return {
-            content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s) received:\n\n${formatted.join("\n\n")}` }],
-          };
-        } catch (e) {
-          if (e.name === "TimeoutError" || e.name === "AbortError" || /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket/i.test(e.message)) {
-            return { content: [{ type: "text", text: "No messages received (connection interrupted). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };
-          }
-          return { content: [{ type: "text", text: `Listen error: ${e.message}` }], isError: true };
-        }
-      }
-
-      // Local mode — poll inbox
-      const deadline = Date.now() + maxWait * 1000;
-      while (Date.now() < deadline) {
-        const messages = readInbox(agentId, "unread");
-        if (messages.length > 0) {
-          markAsRead(agentId, messages);
-          const registry = readAgents();
-          if (registry.agents[agentId]) {
-            registry.agents[agentId].status = "working";
-            registry.agents[agentId].lastSeen = new Date().toISOString();
-            writeAgents(registry);
-          }
-          const formatted = messages.map((m) => formatInboxMessage(m, registry));
-          return {
-            content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${messages.length} message(s) received:\n\n${formatted.join("\n\n")}` }],
-          };
-        }
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-      return { content: [{ type: "text", text: "No messages received (timeout). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };
     }
   );
 

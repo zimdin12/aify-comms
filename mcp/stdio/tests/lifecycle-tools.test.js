@@ -6,8 +6,8 @@
 //
 // THE BLAST RADII DIFFER BY ORDERS OF MAGNITUDE and nothing but the descriptions says so:
 // `comms_delete_session` drops one inactive record, `comms_remove_agent` tombstones one identity, and
-// `comms_clear` with target="all" wipes every message, artifact and identity on the server — other teams
-// included, with no undo and no confirmation prompt. For that last one the description IS the safety
+// `comms_clear` without an agentId wipes every inbox, every artifact or every identity on the server —
+// other teams included, with no undo and no confirmation prompt. For that last one the description IS the safety
 // mechanism, which is why it is asserted here and in a-destructive-tool-keeps-its-warning.test.js.
 
 import assert from "node:assert/strict";
@@ -58,8 +58,8 @@ test("every one of them announces the destruction, and names the narrower altern
 });
 
 test("comms_clear states the blast radius, the absence of undo, and that it crosses teams", () => {
-  // The single most dangerous tool in the bridge. target="all" is hub-wide and reaches other teams'
-  // data. Every clause below is load-bearing: an agent that reads only "clears data" and not "other
+  // The single most dangerous tool in the bridge. Unscoped, each target is hub-wide and reaches other
+  // teams' data. Every clause below is load-bearing: an agent that reads only "clears data" and not "other
   // teams included, no undo" has been told the wrong thing.
   const d = tools.get("comms_clear").description;
   assert.match(d, /IRREVERSIBLE|no undo/i, "it must say the action cannot be reversed");

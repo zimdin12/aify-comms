@@ -71,8 +71,8 @@ async def _seed(db, *, run_id="run-1", status="failed", claimed_at=CLAIMED_AT, s
 
 
 async def _unread_for(db, agent_id: str) -> list[str]:
-    """The SAME shape the real surfaces use to decide unread — `listen.py` and the inbox both LEFT
-    JOIN receipts and keep the rows with none. Asserting through this rather than by counting
+    """The SAME shape the real surface uses to decide unread — the inbox LEFT JOINs receipts and
+    keeps the rows with none. Asserting through this rather than by counting
     receipt rows is the difference between proving the message is VISIBLE again and proving only
     that a DELETE ran."""
     cursor = await db.execute(

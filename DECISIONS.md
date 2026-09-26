@@ -6,6 +6,20 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## Four tool surfaces removed: fewer, clearer tools (2026-09-27, v0.7.5)
+
+**Decision (operator ruling).** Fewer, clearer tools. Removed on both transports: `comms_dispatch`
+(`comms_send` covers it), `comms_listen` (`comms_inbox` covers it) and `comms_dashboard` (the
+operator opens the dashboard), and `comms_clear`'s whole-hub `all` target. With `comms_listen` went the
+machinery that existed only for it: `GET /agents/{id}/listen`, the per-agent wake registry in
+`service/longpoll.py` and every call that fed it; with `all` went the `/clear` mode that also emptied
+sessions, spawn records, environments and read receipts. `POST /dispatch` stays: the dashboard uses it.
+
+**What a host sees until it updates.** A bridge installed before this change still lists the old tools
+until `install.sh` is re-run and the agent relaunched. There, `comms_dispatch` still works (the endpoint
+stays), `comms_listen` fails with HTTP 404, `comms_dashboard` still opens a browser, and
+`comms_clear(target="all")` is refused with 422 and deletes nothing.
+
 ## Three repos, and which concern each one owns (2026-08-20)
 
 **Decision.** aify-comms owns messaging, dispatch and sessions.
@@ -652,7 +666,7 @@ A retry is a replay only when it is the same message: since `33b26d24` a reused 
 
 ## Dispatch tracks handoff, with explicit replies preferred
 
-**Decision.** `comms_dispatch` requires a reply handoff by default, and `comms_send(type="request")` does too. `requireReply=false` does NOT release it for a `request`, `review` or `error`: `_contract_list_query` enrols those three by TYPE whatever the flag says, so the flag releases the handoff only for `info`, `response` and `approval`. (Corrected 2026-08-29. Whether the flag SHOULD be honoured for all six is an open question recorded in `reply_contract.py` and in the weak-points doc; this sentence describes what happens, not what should.) Agents are still expected to send their own explicit `comms_send(..., inReplyTo=...)` reply. A reply-dispatch back to the requester also satisfies the handoff. As a recovery path, a recent unthreaded direct `response`/`review`/`approval`/`error` from the worker to the requester satisfies the latest matching pending handoff for that pair. If a required reply is still missing when the run ends, the bridge mirrors the run result back to the requester as a fallback inbox handoff.
+**Decision.** A direct dispatch (`POST /dispatch`) requires a reply handoff by default, and `comms_send(type="request")` does too. `requireReply=false` does NOT release it for a `request`, `review` or `error`: `_contract_list_query` enrols those three by TYPE whatever the flag says, so the flag releases the handoff only for `info`, `response` and `approval`. (Corrected 2026-08-29. Whether the flag SHOULD be honoured for all six is an open question recorded in `reply_contract.py` and in the weak-points doc; this sentence describes what happens, not what should.) Agents are still expected to send their own explicit `comms_send(..., inReplyTo=...)` reply. A reply-dispatch back to the requester also satisfies the handoff. As a recovery path, a recent unthreaded direct `response`/`review`/`approval`/`error` from the worker to the requester satisfies the latest matching pending handoff for that pair. If a required reply is still missing when the run ends, the bridge mirrors the run result back to the requester as a fallback inbox handoff.
 
 **Why.** Pure run summaries were too easy to miss in real manager/worker loops: work finished, but the requester saw an empty inbox and the lane looked dead until someone manually polled `comms_run_status`. Fully automatic replies were also too blunt because the bridge cannot reliably decide what the agent meant to report. The compromise is: require a real reply for work handoff, prefer an intentional agent-authored message, accept reply-dispatches as real handoffs too, but refuse to let the lane silently stall if that handoff never happens.
 
@@ -970,7 +984,7 @@ pile up forever.
 The operator explicitly retired the legacy monolith. `service/new_dashboard/` on `:8801` is the
 only dashboard implementation; `service/dashboard.html` and its legacy-only tests are removed.
 The API root plus `/api/v1/dashboard{,/dispatches}` remain compatibility redirects so existing
-bookmarks and `comms_dashboard` calls converge on Dashboard Next rather than breaking. Shared
+bookmarks converge on Dashboard Next rather than breaking. Shared
 behavior still belongs server-side where appropriate, but client changes are made only in
 `service/new_dashboard/`.
 

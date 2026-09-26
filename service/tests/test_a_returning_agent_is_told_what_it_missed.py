@@ -253,7 +253,6 @@ class WhatTheAgentDoesIsPresenceAndWhatIsDoneToItIsNot(FastApiTestCase):
             "turn start": lambda: self.client.post(f"/api/v1/agents/{AGENT}/turn-start"),
             "turn end": mid_turn_end,
             "inbox read": lambda: self.client.get(f"/api/v1/messages/inbox/{AGENT}"),
-            "listen": lambda: self.client.get(f"/api/v1/agents/{AGENT}/listen?timeout=1"),
             "own status": lambda: self.client.patch(f"/api/v1/agents/{AGENT}", json={"status": "idle"}),
         }
         done_to_it = {

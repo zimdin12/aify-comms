@@ -29,7 +29,6 @@ JsonApiRoute GET /api/v1/agents name=list_agents status=- response_model=- tags=
 JsonApiRoute GET /api/v1/agents/{agent_id} name=get_agent status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/console name=get_agent_console status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/last-read name=agent_last_read status=- response_model=- tags=api deps=0 in_schema=True
-JsonApiRoute GET /api/v1/agents/{agent_id}/listen name=listen_for_messages status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/pi-session-state name=get_agent_pi_session_state status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/analytics name=get_analytics status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/analytics/agent/{agent_id} name=get_agent_analytics status=- response_model=- tags=api deps=0 in_schema=True

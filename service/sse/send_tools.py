@@ -1,21 +1,16 @@
-"""Sending work to another agent: the ordinary path, and the lower-level one.
+"""Sending work to another agent.
 
-Extracted from `mcp/sse_server.py` in v0.5.4 — bodies untouched.
+Extracted from `mcp/sse_server.py` in v0.5.4 — bodies untouched. `comms_send` is the one way to hand
+work to an agent (DECISIONS.md, 0.7.5); it already fails visibly when live delivery is impossible.
 
-TWO TOOLS THAT LOOK ALIKE AND ARE NOT, which is exactly why their descriptions carry the difference.
-`comms_send` is the ordinary teamwork verb and already fails visibly when live delivery is
-impossible. `comms_dispatch` is run-control and debug: it takes `requireStart`, it does not steer,
-and its reply tells the caller to prefer `comms_send` for normal messages. An agent choosing between
-them reads those sentences, so they are part of what moved.
-
-BOTH RENDER WHO WILL *NOT* RECEIVE THE MESSAGE. A reply that names only the launched recipients lets
+IT RENDERS WHO WILL *NOT* RECEIVE THE MESSAGE. A reply that names only the launched recipients lets
 a caller believe a team was reached when half of it was skipped — the same wrong-belief shape the
 channel and search renderers were audited for.
 
 `steer` and `queueIfBusy` are not independent: queueing and steering are opposite delivery choices,
 so `queueIfBusy=true` forces steer off in the request regardless of what was asked for.
 
-Patch `_api` HERE, not on the transport: these resolve it from this module.
+Patch `_api` HERE, not on the transport: the tool resolves it from this module.
 """
 
 from __future__ import annotations
@@ -112,62 +107,10 @@ async def comms_send(
     )
 
 
-async def comms_dispatch(
-    from_agent: str,
-    type: str,
-    subject: str,
-    body: str,
-    to: str = "",
-    toRole: str = "",
-    inReplyTo: str = "",
-    priority: str = "normal",
-    requireStart: bool = False,
-    requireReply: bool | None = None,
-) -> str:
-    """Lower-level tracked run-control/debug API. Normal teamwork should use comms_send, which already fails visibly when live delivery is unavailable. Direct dispatch expects a reply by default; requireReply=false drops that on info/response/approval only, and the Work Loop still enrols request/review/error by type."""
-    if not to and not toRole:
-        return "Error: need 'to' or 'toRole'"
-    data = {
-        "from_agent": from_agent,
-        "type": type,
-        "subject": subject,
-        "body": body,
-        "mode": "require_start" if requireStart else "start_if_possible",
-        "createMessage": True,
-        # An SSE client could not mark a dispatch high or urgent until 2026-08-29: the parameter was
-        # simply absent here while stdio had it, so every SSE dispatch took the endpoint's "normal"
-        # default. `DispatchRequest.priority` has accepted it all along.
-        "priority": priority or "normal",
-        "requireReply": requireReply,
-    }
-    if to:
-        data["to"] = to
-    if toRole:
-        data["toRole"] = toRole
-    if inReplyTo:
-        data["inReplyTo"] = inReplyTo
-    r = await _api("POST", "/dispatch", data)
-    if not r.get("ok"):
-        return r.get("error", "Dispatch failed.")
-    runs = r.get("runs", [])
-    not_started = r.get("notStarted", [])
-    lines = [f"- {run['targetAgentId']}: {run['runId']} [{run['status']}]" for run in runs]
-    if not_started:
-        lines.append("Not started:")
-        lines.extend([f"- {item['targetAgentId']}: {item['reason']}" for item in not_started])
-    if not lines:
-        return "No dispatch runs were created."
-    if requireStart:
-        lines.extend(["", "Use comms_run_status(...) to inspect progress. For normal teamwork messages, prefer comms_send(...); it already fails visibly when live delivery is not possible."])
-    else:
-        lines.extend(["", "Use comms_run_status(...) to inspect progress. Direct dispatch expects an explicit reply by default, and the bridge mirrors the result if none is sent."])
-    return "\n".join(lines)
-
-
 #: Registered in the order they were declared in the transport. Named explicitly rather than swept
 #: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
 #: agent-callable tool by accident.
-TOOLS = (comms_send, comms_dispatch)
+TOOLS = (comms_send,)
 
 
 def register(mcp_server) -> None:

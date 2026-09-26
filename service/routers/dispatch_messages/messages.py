@@ -51,7 +51,6 @@ from service.api_core.operator_authz import operator_is_acting
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.send_nonce import prior_send_for_nonce, send_fingerprint
 from service.api_core.status_refresh import _get_recipient_info
-from service.longpoll import _wake_agent
 from service.reconcilers.dispatch_queue import _close_reconcilable_delivered_runs
 from service.routers.dispatch_messages.shared import (
     _primary_result_message_id,
@@ -295,9 +294,6 @@ async def send_message(req: MessageSend, request: Request):
                 await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
             for delivery in console_deliveries:
                 await ws.broadcast("terminal_control_requested", {"terminalId": delivery["terminalId"], "action": "input"})
-        # Wake up any listening agents
-        for r in recipients:
-            _wake_agent(r)
         return {
             "ok": True,
             "messageId": msg_id,

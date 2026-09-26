@@ -19,8 +19,8 @@
 // mutations keep landing in one place. The failure mode to fear is a SECOND declaration somewhere, which
 // would not raise anything: the dashboard would render from one object while events updated another, and
 // the symptom would be stale panels rather than an error. `state-identity.test.mjs` is the gate against
-// that, and it exists because the Python side of this series caught exactly that fork (`_listen_events`,
-// where two copies would have made `comms_listen` hang silently).
+// that, and it exists because the Python side of this series caught exactly that fork (a per-agent
+// waiter registry, since removed, where two copies would have made its long-poll hang silently).
 
 export const state = {
   loaded: false, // false until the first successful refresh — lets the chat rail show

@@ -43,10 +43,10 @@ from service.api_core.message_store import _delete_messages_where  # noqa: E402
 
 @router.post("/clear")
 async def clear_data(req: ClearRequest, request: Request):
-    """Bulk delete. With `olderThanHours`, EVERY target keeps what is newer (v0.7, A1): until 0.7.0 the
-    cutoff reached inbox messages only, so `clear(all, olderThanHours=1)` wiped new files and agents.
-    The tables only `all` touches (sessions, spawn records, environments, read receipts) have no single
-    age to honour, so a cutoff leaves them alone rather than guessing."""
+    """Bulk delete of one target. With `olderThanHours`, EVERY target keeps what is newer (v0.7, A1):
+    until 0.7.0 the cutoff reached inbox messages only. There is no whole-hub target: `all` was removed
+    by operator ruling in 0.7.5 (DECISIONS.md), with the sessions, spawn records, environments and
+    read receipts that only it reached."""
     db = await get_db()
     try:
         cutoff_ms = cutoff_iso = None
@@ -60,7 +60,7 @@ async def clear_data(req: ClearRequest, request: Request):
         deleted_agents = 0
         files_to_unlink: list[Path] = []
 
-        if req.target in ("inbox", "all"):
+        if req.target == "inbox":
             where, params = ("to_agent IS NOT NULL", ())
             if req.agentId:
                 where, params = ("to_agent = ?", (req.agentId,))
@@ -68,16 +68,16 @@ async def clear_data(req: ClearRequest, request: Request):
                 where, params = (f"{where} AND timestamp < ?", (*params, cutoff_ms))
             deleted_messages += await _delete_messages_where(db, where, params)
 
-        if req.target in ("shared", "all"):
+        if req.target == "shared":
             where, params = ("1 = 1", ()) if not cutoff_iso else ("shared_at < ?", (cutoff_iso,))
             rows = await (await db.execute(f"SELECT file_path, is_binary FROM shared_artifacts WHERE {where}", params)).fetchall()
             files_to_unlink = [Path(row["file_path"]) for row in rows if row["is_binary"] and row["file_path"]]
             deleted_files = len(rows)
             await db.execute(f"DELETE FROM shared_artifacts WHERE {where}", params)
 
-        if req.target in ("agents", "all"):
+        if req.target == "agents":
             where, params = ("1 = 1", ())
-            if req.agentId and req.target == "agents":
+            if req.agentId:
                 where, params = ("id = ?", (req.agentId,))
             if cutoff_iso:
                 where, params = (f"{where} AND COALESCE(last_seen, '') < ?", (*params, cutoff_iso))
@@ -90,7 +90,7 @@ async def clear_data(req: ClearRequest, request: Request):
                     reason=f'clear(target="{req.target}")',
                 )
 
-        if req.target in ("channels", "all"):
+        if req.target == "channels":
             if cutoff_ms:
                 # Old channel messages go; the channels and their members stay.
                 deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL AND timestamp < ?", (cutoff_ms,))
@@ -98,13 +98,6 @@ async def clear_data(req: ClearRequest, request: Request):
                 await db.execute("DELETE FROM channel_members")
                 deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL")
                 await db.execute("DELETE FROM channels")
-
-        if req.target == "all" and not cutoff_ms:
-            await db.execute("DELETE FROM read_receipts")
-            await db.execute("DELETE FROM agent_sessions")
-            await db.execute("DELETE FROM spawn_requests")
-            await db.execute("DELETE FROM spawn_specs")
-            await db.execute("DELETE FROM environments")
 
         await db.commit()
         # Off the disk only once the rows are gone: unlinking first left rows naming missing files

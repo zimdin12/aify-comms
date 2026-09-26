@@ -6,7 +6,7 @@ exercised — and this endpoint is the only one in the channel router that takes
 JSON BODY rather than a validated model, so its gate is hand-rolled.
 
 WHY THE MEMBERSHIP CHECK MATTERS MORE THAN IT LOOKS. Unread is computed as the ABSENCE of a receipt,
-so writing receipts for an agent SUPPRESSES those messages from that agent's `comms_listen`. Without
+so writing receipts for an agent SUPPRESSES those messages from that agent's unread inbox. Without
 the membership check, one agent could mark another's channel mail read — the target simply stops
 being told about messages it never saw. That is a silencing primitive, not a bookkeeping one, which
 is why the refusal is a 403 rather than a shrug.
@@ -72,7 +72,7 @@ class ChannelReadMembershipGateTests(FastApiTestCase):
 
     def test_a_NON_MEMBER_is_refused_with_403(self):
         """The silencing primitive this gate exists to stop: unread is the ABSENCE of a receipt, so
-        writing receipts for another agent removes those messages from its `comms_listen`."""
+        writing receipts for another agent removes those messages from its unread inbox."""
         response = self._read("general", {"agentId": "outsider-agent"})
         self.assertEqual(response.status_code, 403, response.text)
         self.assertEqual(response.json()["detail"], 'Agent "outsider-agent" is not a member of #general')

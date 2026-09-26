@@ -671,8 +671,9 @@ class AgentConsoleInputRequest(BaseModel):
 
 
 class ClearRequest(BaseModel):
-    # A CLOSED SET: an unknown target answered 200 ok having deleted nothing (v0.7, A1).
-    target: Literal["inbox", "shared", "agents", "channels", "all"]
+    # A CLOSED SET: an unknown target answered 200 ok having deleted nothing (v0.7, A1). The whole-hub
+    # `all` target was removed by operator ruling in 0.7.5 (DECISIONS.md).
+    target: Literal["inbox", "shared", "agents", "channels"]
     agentId: Optional[str] = None
     olderThanHours: Optional[float] = None
 

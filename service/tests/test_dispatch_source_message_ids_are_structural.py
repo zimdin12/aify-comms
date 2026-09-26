@@ -11,9 +11,9 @@ WHAT THE IDS ARE USED FOR, which is what makes this more than untidy parsing:
   * `_mark_dispatch_source_messages_read` INSERTs a read receipt for the CLAIMING agent against
     every id that exists in `messages`. The lookup is `WHERE id IN (...)` — not scoped to the
     recipient, the sender, or the run.
-  * unread is the ABSENCE of a receipt (`routers/agents/listen.py`: `LEFT JOIN read_receipts r ...
-    WHERE r.message_id IS NULL`), so a receipt the agent never earned makes that message vanish from
-    `comms_listen`.
+  * unread is the ABSENCE of a receipt (`routers/dispatch_messages/inbox.py`: `LEFT JOIN read_receipts
+    r ... WHERE r.message_id IS NULL`), so a receipt the agent never earned makes that message vanish
+    from the agent's unread inbox.
   * the same ids are an exclusion set in `_dispatch_conversation_context`, dropping a real message
     out of the context window sent with the run.
 
@@ -143,6 +143,6 @@ class SourceMessageIdsAreStructuralTests(FastApiTestCase):
         self.assertEqual(
             asyncio.run(_run()), ["msg-a"],
             "a message the agent never read was marked read because its id appeared in another "
-            "message's body — it would then be invisible to comms_listen, which computes unread as "
+            "message's body — it would then be invisible to the unread inbox, which computes unread as "
             "the absence of a receipt",
         )

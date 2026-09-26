@@ -3,9 +3,9 @@
 THE LOSS, reported by an external review 2026-08-18 (H1) and ruled by comms-senior-dev the same day.
 `dispatch_claim.py` writes a read receipt for every source message of a run AT CLAIM TIME — before
 any turn starts — and nothing ever removed it. Unread is computed as the ABSENCE of a receipt
-(`routers/agents/listen.py` LEFT JOINs and keeps rows `WHERE r.message_id IS NULL`), so a run that
-was claimed and then FAILED without the target ever starting left its source message suppressed for
-that agent PERMANENTLY. Not marked read — invisible.
+(`routers/dispatch_messages/inbox.py` LEFT JOINs and keeps rows `WHERE r.message_id IS NULL`), so a
+run that was claimed and then FAILED without the target ever starting left its source message
+suppressed for that agent PERMANENTLY. Not marked read — invisible.
 
 That is the best available explanation for the field reports of agents that accept sends and never
 process them, because it is the only one that explains PERMANENCE: the turn-start-fail bug alone

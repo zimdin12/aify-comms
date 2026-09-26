@@ -83,10 +83,10 @@ function regexEnd(src, i) {
  * The template literal starting at `i`, whose `${…}` holes contain CODE and not text.
  *
  * A BACKTICK-TO-BACKTICK SCAN IS WRONG WHENEVER A HOLE HOLDS ANOTHER TEMPLATE, which
- * `dashboard-tool.mjs` does five times in one HTML builder: the outer template ends at the first
+ * the dashboard tool (removed in 0.7.5) did five times in one HTML builder: the outer template ends at the first
  * INNER backtick, and everything after it is read in the wrong phase. That file balanced anyway for
  * a while, by luck -- two later misreadings cancelled -- and fixing the regex handling changed the
- * luck and lost `comms_dashboard`. Luck is not a property to preserve, so the holes are parsed.
+ * luck and lost that tool. Luck is not a property to preserve, so the holes are parsed.
  *
  * `chars` counts the hole's source text, exactly as the old scan did, because no tool description
  * interpolates and changing it would move every ceiling for no reason.

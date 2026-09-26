@@ -18,7 +18,7 @@ When reporting back:
 - send the result as an explicit reply to the requester or acting manager, not only as a run summary
 - if the explanation is long, put the detailed notes/logs in `comms_share` and point to that artifact
 
-**When you finish a task, stay registered and triggerable.** Use `comms_listen` only if you intentionally want a waiting loop; otherwise rely on unread notifications and normal `comms_send(...)` wakeups.
+**When you finish a task, stay registered and triggerable.** Rely on unread notifications and normal `comms_send(...)` wakeups.
 
 ## When stuck
 

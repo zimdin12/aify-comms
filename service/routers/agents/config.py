@@ -1,4 +1,4 @@
-"""Per-agent configuration: environment assignment, runtime state, usage source, listen.
+"""Per-agent configuration: environment assignment, runtime state, usage source.
 
 v0.5.2m, one surface of the agents package. Built with `domain_router()`;
 declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes the package.

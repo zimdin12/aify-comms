@@ -9,10 +9,10 @@ THE CHAIN, all of it real code paths:
   2. Every claim calls it (`dispatch_claim.py`), feeding the ids to
      `_mark_dispatch_source_messages_read`, which INSERTs a read receipt for the CLAIMING agent
      against any matching row — the lookup is `WHERE id IN (...)`, unscoped by sender or recipient.
-  3. Unread is computed as the ABSENCE of a receipt (`routers/agents/listen.py` LEFT JOINs and keeps
-     rows `WHERE r.message_id IS NULL`).
+  3. Unread is computed as the ABSENCE of a receipt (`routers/dispatch_messages/inbox.py` LEFT JOINs
+     and keeps rows `WHERE r.message_id IS NULL`).
 
-So a receipt an agent never earned SUPPRESSES that message from `comms_listen` — it does not mark it
+So a receipt an agent never earned SUPPRESSES that message from the unread inbox — it does not mark it
 read-with-a-trace, it makes it invisible.
 
 `44986616` closed this for prose (`\bMessage\s*Id:` matched a mention mid-sentence) with two halves it
@@ -58,7 +58,7 @@ class TheForgedBodyCannotMintReceipts(unittest.TestCase):
         self.assertEqual(
             _dispatch_source_message_ids(row(body)), ["own-message-id"],
             "a plain dispatch body minted a source id — that becomes a read receipt for the claiming "
-            "agent against a message it never read, and the message vanishes from comms_listen",
+            "agent against a message it never read, and the message vanishes from the unread inbox",
         )
 
     def test_a_body_that_forges_the_BUFFER_HEADER_still_yields_nothing_once_stored(self):

@@ -6,7 +6,6 @@ General coordination pattern:
 - Use `comms_send` for direct conversation and handoffs
 - Use `comms_channel_send` for team-wide updates or group wakeups
 - Use `comms_send(...)` or `comms_channel_send(...)` as the default wake paths
-- Use `comms_dispatch` only when you need explicit run-control/debug state
 - Use `comms_spawn(...)` or dashboard **Environments -> Spawn Agent** when you need a separate persistent managed teammate
 - An `available` managed agent auto-starts on normal send. Busy steer-capable agents receive a mid-turn update; busy non-steer agents queue/merge for the next turn. Only offline/stopped/no-wake targets reject the send; inspect with `comms_agent_info` and recover those before retrying
 - Use `comms_describe(...)` to set a short team-facing description of what you're working on — visible to teammates in `comms_agents`
@@ -34,7 +33,7 @@ Register as an aify-comms agent:
 
 Join the "dev" channel. If it doesn't exist, create it with `comms_channel_create(...)` and description "Team coordination".
 
-After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
+After registration, confirm your live resident session with comms_agent_info. Rely on comms_send(...) and unread notifications.
 
 Read CLAUDE.MANAGER.md for your role details.
 
@@ -52,7 +51,7 @@ Register as an aify-comms agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
+After registration, confirm your live resident session with comms_agent_info. Rely on comms_send(...) and unread notifications.
 
 Read CLAUDE.CODER.md for your role details.
 
@@ -70,7 +69,7 @@ Register as an aify-comms agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
+After registration, confirm your live resident session with comms_agent_info. Rely on comms_send(...) and unread notifications.
 
 Read CLAUDE.TESTER.md for your role details.
 
@@ -88,7 +87,7 @@ Register as an aify-comms agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
+After registration, confirm your live resident session with comms_agent_info. Rely on comms_send(...) and unread notifications.
 
 Read CLAUDE.ARCHITECT.md for your role details.
 
@@ -106,7 +105,7 @@ Register as an aify-comms agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
+After registration, confirm your live resident session with comms_agent_info. Rely on comms_send(...) and unread notifications.
 
 Read CLAUDE.REVIEWER.md for your role details.
 
@@ -124,7 +123,7 @@ Register as an aify-comms agent:
 
 Join the "dev" channel.
 
-After registration, confirm your live resident session with comms_agent_info. Use comms_listen only if you intentionally want a waiting loop; otherwise rely on comms_send(...) and unread notifications.
+After registration, confirm your live resident session with comms_agent_info. Rely on comms_send(...) and unread notifications.
 
 Read CLAUDE.RESEARCHER.md for your role details.
 

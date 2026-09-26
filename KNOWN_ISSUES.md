@@ -3,7 +3,7 @@
 What is open now: known limitations, deferred work, and things to watch. Complements
 [DECISIONS.md](DECISIONS.md) (rationale) and the `aify-comms-debug` skill (troubleshooting). Resolved
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
-kept as evidence. Last reviewed 2026-09-26.
+kept as evidence. Last reviewed 2026-09-27.
 
 ## Left open by the external review of 0.7.1 (2026-09-26)
 
@@ -21,7 +21,7 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).
 - **The claim long-polls cannot tell a caller has gone**, so a claimed run stays held while its sidecar
-  heartbeats. Only `/listen` watches `http.disconnect`. Predates 0.7.
+  heartbeats. None of them watches `http.disconnect`. Predates 0.7.
 - **The late-`turn_end` guard never fires**: every producer posts an empty run id (0.7.1 backlog S4).
 - **aify-env splits a paste that pauses for half a second or more**, and submits the rest early.
 - **Codex's notify notice is proven against Codex's documentation only** (`additionalContext` "is added as
@@ -67,16 +67,6 @@ tested with are written from the layouts recorded on 2026-08-01, not captured fr
 menu has changed shape upstream before. It presses nothing unless it can see both the cursor and the
 full-session row, so a new layout leaves the worker waiting at the menu, as before 0.7.4, rather than
 choosing the summary. Any other claude dialog is still left to the console.
-
-## A bridge older than 0.7.4 can have `/listen` mark messages read for a reader that left (2026-09-26)
-
-Since 0.7.4 `comms_listen` asks `/listen` with `markRead=false` and marks each message read once it holds
-it and has formatted its reply, so a disconnect before that leaves the messages unread and a later read
-returns them again. The mark proves the bridge got them, not the agent: a bridge that dies between the
-mark and its reply still leaves them read (`comms_inbox filter=read` shows them). A bridge installed
-before 0.7.4 does not ask, and the route then marks what it returns inside its own commit, as before: a
-disconnect after that commit (the commit plus the response write) still marks messages read with no
-reader behind them. Re-running `install.sh` and relaunching the agent closes it.
 
 ## `scripts/stamp.sh` reads no checkout under a shell exporting `MSYS_NO_PATHCONV` (2026-09-26)
 

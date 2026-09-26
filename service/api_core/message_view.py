@@ -109,7 +109,7 @@ def _row_machine(row) -> str:
 
 
 def _serialize_message(row, *, include_body: bool, sender_registered: bool = True) -> dict[str, Any]:
-    """One message row as the API shows it -- `/messages/inbox`, `/messages/recent` and `/listen`.
+    """One message row as the API shows it -- `/messages/inbox` and `/messages/recent`.
 
     ONE SHAPE ON PURPOSE. `/messages/recent` used to build its own dict, and when `fromRegistered`
     and `origin` were added here they reached the inbox alone -- while the dashboard reads the inbox

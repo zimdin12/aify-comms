@@ -301,7 +301,9 @@ class BridgeWriteBodyTests(unittest.TestCase):
         self.assertGreater(len(self.sites), 70, f"only {len(self.sites)} write call sites found")
         self.assertGreater(len(self.routes), 50, f"only {len(self.routes)} write routes built")
         readable = [s for s in self.sites if s.keys is not None]
-        self.assertGreater(len(readable), 70, f"only {len(readable)} bodies parsed as literals")
+        # 70 -> 65 in 0.7.5: the removed dispatch and long-poll tools took two literal bodies with them
+        # (a POST /dispatch and a per-message POST /read), leaving exactly 70 parsed.
+        self.assertGreater(len(readable), 65, f"only {len(readable)} bodies parsed as literals")
         modelled = [
             s for s in readable if self.routes.get((s.method, s.path))
         ]

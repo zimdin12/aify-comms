@@ -61,7 +61,7 @@ async def _mark_agent_present(db, agent_id: str, now: Optional[str] = None) -> N
     briefing measures an absence from (see the column's note in service/db.py).
 
     Call it ONLY where the agent authored the request: its registration, heartbeat, sends, turn
-    signals, inbox reads, listen and its own status. Never where an operator or another agent acts
+    signals, inbox reads and its own status. Never where an operator or another agent acts
     ON it -- Stop, Resume, a favourite, a description edit -- which stamp `last_seen` only, because
     counting those as presence hid a real absence (external review 2026-09-21, finding 6). Counting
     only the heartbeat was the opposite mistake: an SSE client never heartbeats, and neither does a

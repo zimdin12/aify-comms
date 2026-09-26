@@ -79,8 +79,8 @@ def _dispatch_source_message_ids(row) -> list[str]:
     # What that bought: every id it returns is fed to `_mark_dispatch_source_messages_read`, which
     # INSERTs a read receipt for the CLAIMING agent against any matching row in `messages` (the
     # lookup is `WHERE id IN (...)`, unscoped). Unread is computed as the ABSENCE of a receipt
-    # (`routers/agents/listen.py`: LEFT JOIN ... WHERE r.message_id IS NULL), so a receipt the agent
-    # never earned SUPPRESSES that message from `comms_listen`. The same ids are also an exclusion
+    # (`routers/dispatch_messages/inbox.py`: LEFT JOIN ... WHERE r.message_id IS NULL), so a receipt the
+    # agent never earned SUPPRESSES that message from its unread inbox. The same ids are also an exclusion
     # set in `_dispatch_conversation_context`, dropping a real message from the context window.
     # Agents quote message ids in bodies routinely, so the accidental case needs no ill intent.
     #
@@ -94,7 +94,7 @@ def _dispatch_source_message_ids(row) -> list[str]:
     # the MERGED render path. A fresh SINGLE dispatch stores the sender's body verbatim, and this
     # scan then ran on it unconditionally, so a body with a line-leading `MessageId: <victim-id>`
     # minted a receipt for the claiming agent against a message it never read, and that message
-    # vanished from `comms_listen`. The anchor cannot save this: a sender can put the line at
+    # vanished from its unread inbox. The anchor cannot save this: a sender can put the line at
     # column 0 as easily as anywhere else.
     #
     # Two changes close it, and the storage-side one is the load-bearing half (see

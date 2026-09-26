@@ -117,7 +117,8 @@ not a relocation**, which is why it is a packet rather than a slice.
 * `state` is a plain object, not a closure variable. Per the standing design rule, module-scope state
   can have an owner; closure-captured state cannot. This one qualifies.
 * The identity discipline already exists on the Python side and has caught a real fork this series
-  (`_listen_events`, where two copies would have made `comms_listen` hang silently). The JS analogue is
+  (a per-agent waiter registry, removed in 0.7.5, where two copies would have made its long-poll hang
+  silently). The JS analogue is
   the same: exactly one module may declare `state`, and every reader must get that object by identity.
 * `service/new_dashboard/extraction-proof.mjs` already provides reconstruction equivalence — put the
   extracted spans back, delete the added import, require byte-identity with the pristine fixture. It
@@ -127,7 +128,7 @@ not a relocation**, which is why it is a packet rather than a slice.
 
 * **`state` is mutated from 26 functions.** A second copy would not raise; the dashboard would render
   from one object while events updated another, and the symptom would be stale panels rather than an
-  error. The `_listen_events` incident is the precedent for how invisible that is.
+  error. The waiter-registry incident is the precedent for how invisible that is.
 * **app.js is loaded as `<script type="module">` in the browser.** Import order and cycles behave
   differently from Node; the existing `.mjs` cores are pure, so none of them has exercised a shared
   mutable module yet.

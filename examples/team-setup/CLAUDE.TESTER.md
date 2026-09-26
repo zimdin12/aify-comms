@@ -22,7 +22,7 @@ When you report results:
 - send the result as an explicit reply to the requester or acting manager, not only as a run summary
 - attach long logs, screenshots, or test output with `comms_share`
 
-**When you finish verifying, stay registered and triggerable for the next verification request.** Use `comms_listen` only when you intentionally want a waiting loop.
+**When you finish verifying, stay registered and triggerable for the next verification request.**
 
 ## Bugs
 

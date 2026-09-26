@@ -152,7 +152,7 @@ both transports where I fixed one and believed I was done.
   claim we make: the CRLF repair covers the stdio `filePath` path only.
 - **`comms_send`/`comms_channel_send` differ on live delivery** — SSE exposes `silent`, stdio
   always triggers; stdio mints a `clientNonce` for retry safety and SSE does not.
-- **`comms_dispatch` has no `priority` in SSE**; **`comms_run_status` omits started/finished and
+- **`comms_run_status` omits started/finished and
   thread identity**; **`comms_console_tail` advertises the dead-worker fallback in stdio only.**
 
 **Non-finding:** `comms_search` is now parity-repaired in both renderers — the motivating bug is

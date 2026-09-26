@@ -19,10 +19,7 @@ rather than a confident empty, and its note explains the reasoning: "Returning a
 every caller without touching one, because they already branch on `detail`." That premise held for
 fifteen of the twenty call sites and not for these four. A shared fix that depends on how its callers
 are written needs the callers checked, and this is that check -- for all of them, not the four.
-
-`comms_dispatch` was the fifth site with no `detail` branch and is NOT a defect: it guards on
-`r.get("ok")` instead, which an error dict also fails. It is exercised below anyway, because the
-property is "does not lie", not "checks a particular key".
+The property is "does not lie", not "checks a particular key".
 """
 
 from __future__ import annotations

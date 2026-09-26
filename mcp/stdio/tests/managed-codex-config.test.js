@@ -24,7 +24,6 @@ assert.match(text, /\[mcp_servers\.aify-comms\]/);
 assert.match(text, /enabled = true/);
 assert.match(text, /startup_timeout_sec = 10/);
 assert.match(text, /tool_timeout_sec = 25/);
-assert.match(text, /disabled_tools = \["comms_listen"\]/);
 assert.match(text, /AIFY_SERVER_URL = "http:\/\/localhost:8800"/);
 // Plan 6 follow-up (2026-05-26): AIFY_MANAGED_DISPATCH is NO LONGER hard-set
 // to "1" — the wrapper PTY's terminal-env.js sets it to "0" for wrapper-backed

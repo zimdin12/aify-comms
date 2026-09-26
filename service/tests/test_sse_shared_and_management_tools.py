@@ -3,7 +3,7 @@
 Same gap as the channel tools: reachable over SSE since the transport shipped, never called by a
 test, because getting at them meant loading a 730-line module by path. Extracted, they are imports.
 
-WHAT IS WORTH PINNING HERE is narrower than "does it work". Three of these five say something a
+WHAT IS WORTH PINNING HERE is narrower than "does it work". Three of these tools say something a
 caller acts on and could be wrong about:
 
   * `comms_read` decides whether a payload has readable content or is a binary the server is only
@@ -195,7 +195,7 @@ class ManagementToolTests(unittest.TestCase):
         self.assertEqual("Nothing to clear.", out)
 
         out, _ = _with_api(mg, mg.comms_clear, {"ok": True, "cleared": {"messages": 4, "files": 0}},
-                           target="all")
+                           target="inbox")
         self.assertIn("messages: 4", out)
         self.assertNotIn("files: 0", out, "a zero count is not something that was cleared")
 
@@ -212,20 +212,6 @@ class ManagementToolTests(unittest.TestCase):
                            target="messages", agentId="a", olderThanHours=2.5)
         self.assertEqual({"target": "messages", "agentId": "a", "olderThanHours": 2.5},
                          api.calls[0]["json"])
-
-    def test_dashboard_reads_the_port_at_CALL_time(self):
-        """It calls get_config() rather than closing over the module-level config, so a port change
-        takes effect without a restart. Pinned because collapsing it to the module constant is a
-        tidy-looking edit that silently changes that."""
-        out = asyncio.run(mg.comms_dashboard())
-        self.assertIn("/api/v1/dashboard", out)
-
-        original = mg.get_config
-        mg.get_config = lambda: type("cfg", (), {"port": 9999})()
-        try:
-            self.assertIn("localhost:9999", asyncio.run(mg.comms_dashboard()))
-        finally:
-            mg.get_config = original
 
 
 if __name__ == "__main__":

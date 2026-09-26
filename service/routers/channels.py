@@ -15,7 +15,6 @@ BORROW TABLE with the retirement map, as required for any domain that carries de
     _preflight_live_send_recipients          retires with: messages
     _reject_sender_truncated_body            retires with: dispatch, messages
     _touch_agent                             retires with: dispatch, messages
-    _wake_agent                              retires with: dispatch, messages
 
 Read that as: nearly all of it retires with `messages` and `dispatch`. Channels genuinely sits on top
 of the send path, so it borrows rather than forking it — `_create_dispatch_runs` and

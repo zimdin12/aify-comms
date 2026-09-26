@@ -58,18 +58,11 @@ GLOBALS = {
     # screen reconstruction running on every poll instead of once per 5s per agent. Slower, never
     # wrong, and therefore invisible.
     "_PROMPT_HINT_CACHE": "service/api_core/terminal_text.py",
-    # Moved in v0.5.4 to the module that already owned the OTHER waiter registry. The listen route
-    # inserts a waiter into it and `_wake_agent` sets it, so two copies would register a waiter in one dict and fire the wake into the other: `comms_listen`
-    # would hang to its timeout, return empty, and log nothing. A hang is the hardest of these to
-    # trace back to a duplicated global, which is why it is worth a line here.
-    "_listen_events": "service/longpoll.py",
-    # THE SIBLING OF THE LINE ABOVE, and it was the one left out. `longpoll.py` holds two waiter
-    # registries and its own comment says so — "this module already owns the first one" — but only
-    # the second got a line here. `_waiters` is a `defaultdict(set)` of pending futures: `wait()`
+    # The long-poll waiter registry. `_waiters` is a `defaultdict(set)` of pending futures: `wait()`
     # registers into it and `notify()` resolves out of it, so two copies mean a waiter sits in one
     # dict while the wake fires into the other. The long poll then holds until MAX_WAIT_S and the
-    # caller sees a spurious claim timeout — the same silent-hang class as `_listen_events`, which is
-    # exactly why that one was judged worth a line.
+    # caller sees a spurious claim timeout, and nothing is logged. (Its per-agent sibling left with
+    # the listen route in 0.7.5.)
     #
     # Found by scanning `service/` for module-level mutable state absent from this table: of
     # everything not already here, `_waiters` was the only real omission.

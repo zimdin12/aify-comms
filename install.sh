@@ -397,7 +397,7 @@ install_skill_tree() {  # $1 = source skills dir, $2 = destination
 
 copy_claude_assets() {
   local commands_dst="$HOME/.claude/commands/aify-comms"
-  mkdir -p "$commands_dst"
+  rm -rf "$commands_dst" && mkdir -p "$commands_dst"  # a command removed here leaves no stale copy
   install_skill_tree "$SCRIPT_DIR/.claude/skills" "$HOME/.claude/skills"
   cp -R "$SCRIPT_DIR/.claude/commands/." "$commands_dst/"
   refresh_plugin_snapshot "$HOME/.claude/plugins/aify-comms" "claude"

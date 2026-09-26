@@ -26,10 +26,10 @@ import { countToolRegistrations, measureToolSurface } from "./tool-surface-size.
 /** Measured 2026-09-03, and RE-measured TWICE the same day, both times because the parser was
  *  blind and both times finding tools that had never had a ceiling while the "every tool HAS a
  *  ceiling" test below passed. First a code comment holding a quote hid four
- *  (`comms_channel_send`, `comms_dashboard`, `comms_register`, `comms_search`). Then a regex whose
+ *  (`comms_channel_send`, the dashboard tool, `comms_register`, `comms_search`). Then a regex whose
  *  pattern was backticks hid three more (`comms_channel_read`, `comms_channel_list`,
- *  `comms_channel_delete`) -- and correcting THAT changed which misreadings cancelled in
- *  `dashboard-tool.mjs`, briefly losing `comms_dashboard` again, which is what nested template
+ *  `comms_channel_delete`) -- and correcting THAT changed which misreadings cancelled in the
+ *  dashboard tool's HTML builder, briefly losing it again, which is what nested template
  *  literals cost. An unguarded population reports green exactly like a guarded one, which is why
  *  the count control below now exists rather than a third round of this.
  *  Characters of description + schema text, per tool. May only go DOWN. */
@@ -46,20 +46,19 @@ const CEILINGS = {
   comms_channel_list: 18,
   comms_channel_read: 94,
   comms_channel_send: 831,
-  comms_clear: 697,
+  // 697 -> 692 in 0.7.5: the whole-hub `all` target is gone; the sentence naming it now says what
+  // the three remaining targets reach without an agentId.
+  comms_clear: 692,
   comms_compact: 1006,
   comms_console_input: 771,
   comms_console_tail: 476,
   comms_contracts: 479,
-  comms_dashboard: 173,
   comms_delete_session: 176,
   comms_describe: 346,
-  comms_dispatch: 393,
   comms_envs: 191,
   comms_files: 194,
   comms_inbox: 552,
   comms_interrupt: 272,
-  comms_listen: 348,
   comms_read: 52,
   comms_register: 943,
   comms_remove_agent: 496,

@@ -1,4 +1,4 @@
-"""The two housekeeping tools: bulk clear, and where the dashboard is.
+"""The housekeeping tool: bulk clear.
 
 Extracted from `mcp/sse_server.py` in v0.5.4 — a whole subject, bodies untouched.
 
@@ -7,23 +7,19 @@ filter and reports what it removed, and its renderer carries a real distinction:
 and a list of counts are different claims, and an agent that reads a silent success as "cleared"
 when nothing matched will not run it again. That branch is what the tests pin.
 
-`comms_dashboard` reads `get_config()` at call time rather than closing over the module-level
-`config`, which is what lets a port change take effect without a restart.
-
-Patch `_api` HERE, not on the transport: these resolve it from this module.
+Patch `_api` HERE, not on the transport: the tool resolves it from this module.
 """
 
 from __future__ import annotations
 
-from service.config import get_config
 from service.sse.api_client import api as _api
 
 
 async def comms_clear(target: str, agentId: str = "", olderThanHours: float = 0) -> str:
     """DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes data for the WHOLE hub, not just for you.
 
-    target="all" wipes every message, shared artifact and agent identity on the server -- other
-    teams included. There is no undo and no confirmation prompt; the only safety is this sentence.
+    Without agentId, inbox and agents reach every agent and shared every artifact -- other teams
+    included. There is no undo and no confirmation prompt; the only safety is this sentence.
     Do NOT use it to tidy your own inbox (reading them marks them read; just leave them) or to
     remove one agent (use comms_remove_agent). Scope it as narrowly as the task allows: pass
     agentId, and prefer olderThanHours over a bare wipe. If you did not explicitly decide to
@@ -42,16 +38,10 @@ async def comms_clear(target: str, agentId: str = "", olderThanHours: float = 0)
     return f"Cleared: {', '.join(parts)}" if parts else "Nothing to clear."
 
 
-async def comms_dashboard() -> str:
-    """Get the dashboard URL."""
-    cfg = get_config()
-    return f"Dashboard: http://localhost:{cfg.port}/api/v1/dashboard"
-
-
 #: Registered in the order they were declared in the transport. Named explicitly rather than swept
 #: out of `globals()`, so a future helper that happens to be a coroutine cannot become an
 #: agent-callable tool by accident.
-TOOLS = (comms_clear, comms_dashboard)
+TOOLS = (comms_clear,)
 
 
 def register(mcp_server) -> None:

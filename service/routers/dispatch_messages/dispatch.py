@@ -57,7 +57,6 @@ from service.api_core.agent_sessions import _touch_agent
 from service.api_core.operator_authz import operator_is_acting
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.status_refresh import _get_recipient_info
-from service.longpoll import _wake_agent
 from service.status_engine import VALID_STATUSES
 from service.routers.dispatch_messages.shared import (
     _primary_result_message_id,
@@ -124,7 +123,7 @@ async def create_dispatch(req: DispatchRequest, request: Request):
     validate_sender(req.from_agent)
     _reject_sender_truncated_body(req.body)
     if req.mode == "message_only":
-        raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send for normal live messaging or comms_dispatch without message_only for tracked work.")
+        raise HTTPException(400, "Dispatch no longer supports mode='message_only'. Use comms_send for normal live messaging, or this endpoint without message_only for tracked work.")
 
     db = await get_db()
     try:
@@ -239,8 +238,6 @@ async def create_dispatch(req: DispatchRequest, request: Request):
                 await ws.broadcast("dispatch_queued", {"runId": run["runId"], "targetAgentId": run["targetAgentId"]})
             for delivery in console_deliveries:
                 await ws.broadcast("terminal_control_requested", {"terminalId": delivery["terminalId"], "action": "input"})
-        for recipient_id in recipients:
-            _wake_agent(recipient_id)
 
         return {
             "ok": True,

@@ -44,7 +44,7 @@ const CEILINGS = {
   // 15_053 -> 14_915 on 2026-09-25 (0.7.0): the trust rule and the "the reply wakes you" line were
   // paid for by shorter registration notes and dropping a pointer the file already makes below.
   // 14_915 -> 14_055 on 2026-09-26 (0.7.1): the send gate and requireReply=false are described as the
-  // code behaves, and the interruption steps, the registration-warning note and the comms_listen line
+  // code behaves, and the interruption steps, the registration-warning note and the long-poll line
   // that repeated operations.md, register-identity.js and the tool text were cut to pointers.
   // 14_055 -> 14_132 on 2026-09-26 (0.7.4), a raise the operator asked for: the Responding steps say
   // when a message becomes read (claimed run, comms_inbox, a reply with inReplyTo; a silent send
@@ -53,7 +53,8 @@ const CEILINGS = {
   // 14_132 -> 12_720 on 2026-09-26 (0.7.4 skills audit): stale facts corrected against the code, and
   // repeats of the tool descriptions and references cut to pointers; pays for the new line on running
   // a nested `claude` without your identity.
-  "aify-comms/SKILL.md": 12_720,
+  // 12_720 -> 12_592 on 2026-09-27 (0.7.5): the tool map lost the three tools the operator removed.
+  "aify-comms/SKILL.md": 12_592,
   "aify-comms/references/building-software.md": 3_948,
   "aify-comms/references/leading-a-team.md": 15_758,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
