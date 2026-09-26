@@ -17,11 +17,13 @@ follows the agent's policy has a place to go; none is written.
 
 ## A `/listen` reader that disconnects at the last moment still marks its messages read (2026-09-26)
 
-The `/listen` long-poll marks what it returns as read. It asks whether the client is still connected
-before fetching, and again after inserting the read receipts but before committing them, and rolls
-back if not (`service/routers/agents/listen.py`). A disconnect after that second check and before the
-response reaches the socket still marks the messages read with no reader behind them. The window is
-the commit plus the response write. Closing it needs the client to acknowledge receipt; until then
+The `/listen` long-poll marks what it returns as read. A watcher task reads the caller's
+`http.disconnect`; the route checks it before fetching and again after inserting the read receipts but
+before committing them, and rolls back if the caller has gone (`service/routers/agents/listen.py`). In
+0.7.0 both checks used `request.is_disconnected()`, which always answers False behind the app's
+`BaseHTTPMiddleware`, so they did nothing; 0.7.1 replaced them (proven through the production app).
+A disconnect after the second check and before the response reaches the socket still marks the
+messages read with no reader behind them. The window is the commit plus the response write. Closing it needs the client to acknowledge receipt; until then
 treat `/listen` as best-effort. When unread status must be relied on, read with
 `comms_inbox(peek=true)` INSTEAD of `/listen`, not alongside it: a concurrent `/listen` still marks
 what it returns.

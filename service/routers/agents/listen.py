@@ -35,6 +35,26 @@ from service import longpoll
 router = domain_router()
 
 
+def _watch_for_disconnect(request: Request) -> tuple[asyncio.Event, asyncio.Task]:
+    """An event set when the caller goes, and the task that sets it.
+
+    `request.is_disconnected()` cannot see it here: the app is wrapped in `BaseHTTPMiddleware`
+    subclasses, under which it always answers False, and 0.7.0's guard was tested by calling the handler
+    directly, around the middleware (v0.7.1 review, S2). Awaiting `receive()` does reach the
+    `http.disconnect`. The request has no body, so nothing else is waiting to read it.
+    """
+    gone = asyncio.Event()
+
+    async def watch() -> None:
+        while True:
+            message = await request.receive()
+            if message.get("type") == "http.disconnect":
+                gone.set()
+                return
+
+    return gone, asyncio.create_task(watch())
+
+
 
 @router.get("/agents/{agent_id}/listen")
 async def listen_for_messages(agent_id: str, request: Request, timeout: int = Query(300, ge=1, le=600)):
@@ -57,12 +77,20 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
     event = longpoll._listen_events[agent_id]
     event.clear()
 
+    gone, watcher = _watch_for_disconnect(request)
+    try:
+        return await _poll_until_work(agent_id, event, gone, timeout)
+    finally:
+        watcher.cancel()
+
+
+async def _poll_until_work(agent_id: str, event: asyncio.Event, gone: asyncio.Event, timeout: int) -> dict:
     # Poll for unread messages, waiting on the event
     deadline = time.time() + timeout
     while time.time() < deadline:
         # A caller that has gone must not have its messages marked read: returning them to nobody
         # drops the agent's unread count for messages it never saw (v0.7 scan A13).
-        if await request.is_disconnected():
+        if gone.is_set():
             return {"total": 0, "messages": []}
         db = await get_db()
         try:
@@ -100,7 +128,7 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
                 # ...and asked again at the last moment. The fetch and the receipts above took awaits, and a
                 # caller that went during them must not have them committed (v0.7 review). A caller
                 # that goes after the commit cannot be helped from here.
-                if await request.is_disconnected():
+                if gone.is_set():
                     await db.rollback()
                     return {"total": 0, "messages": []}
                 # Set status to working
@@ -110,12 +138,14 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
         finally:
             await db.close()
 
-        # Wait for wake-up signal or check every 2 seconds
-        try:
-            await asyncio.wait_for(event.wait(), timeout=2.0)
+        # Wait for a wake-up, the caller leaving, or 2 seconds, whichever comes first.
+        woken = asyncio.ensure_future(event.wait())
+        left = asyncio.ensure_future(gone.wait())
+        done, pending = await asyncio.wait({woken, left}, timeout=2.0, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        if woken in done:
             event.clear()
-        except asyncio.TimeoutError:
-            pass
 
     # Timeout — no messages arrived
     return {"total": 0, "messages": []}
