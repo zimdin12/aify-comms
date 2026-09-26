@@ -32,6 +32,20 @@ from service.api_core.tuning import _UNTHREADED_HANDOFF_WINDOW_MS
 from service.clock import now as _now
 
 
+async def _mark_answered_message_read(db, answered_message_id, replier: str) -> None:
+    """A reply marks the message it names read for the agent that replied, when it was addressed to
+    that agent. The notify hook shows unread messages with peek, so an agent that acted on one from
+    the notice and replied left it unread, and the next session was shown it again as new work
+    (v0.7.2, external review item 4). A message addressed to anyone else is left alone."""
+    if not answered_message_id or not replier:
+        return
+    await db.execute(
+        "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at)"
+        " SELECT id, to_agent, ? FROM messages WHERE id = ? AND to_agent = ?",
+        (_now(), answered_message_id, replier),
+    )
+
+
 def _is_replaceable_auto_handoff_message(existing_message, replied_run) -> bool:
     if not existing_message or not replied_run:
         return True

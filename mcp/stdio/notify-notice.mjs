@@ -106,7 +106,7 @@ export function noticeText({ messages, total, agentId }) {
     ? `\n\n...and ${total - messages.length} more unread (call comms_inbox to see them).`
     : "";
   return `${SAFETY_HEADER}\n\n${header}\n\n${messages.map((m) => formatMessage(m, agentId)).join("\n\n")}${more}` +
-    `\n\nThese stay unread until you read them with comms_inbox. When one owes a reply, reply via comms_send(from="${agentId}", ` +
+    `\n\nThese stay unread until you read them with comms_inbox or reply to them. When one owes a reply, reply via comms_send(from="${agentId}", ` +
     `to="<from-agent>", type="response", inReplyTo="<message-id>", ...) so the originator's run threads correctly.`;
 }
 

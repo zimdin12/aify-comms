@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from service.api_core.reply_linking import (
     _link_reply_message_to_dispatch_run,
+    _mark_answered_message_read,
     _link_unthreaded_reply_to_recent_dispatch_run,
 )
 
@@ -37,6 +38,7 @@ async def _thread_reply_onto_dispatch_runs(
         name differs from the parameter it fills.
         """
         if resolved_in_reply_to:
+            await _mark_answered_message_read(db, resolved_in_reply_to, req.from_agent)
             await _link_reply_message_to_dispatch_run(
                 db,
                 from_agent=req.from_agent,
