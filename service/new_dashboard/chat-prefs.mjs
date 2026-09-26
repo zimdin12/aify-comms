@@ -13,8 +13,7 @@
 // The aria-pressed mirroring in `syncChatChips` is an accessibility contract, not decoration: the status
 // dots carry no text, so without it their toggle state is conveyed by colour alone.
 //
-// Extracted from app.js in v0.5.4. The declarations are byte-identical to those that stood there; the only
-// substitution is the added `export `.
+// Extracted from app.js in v0.5.4.
 
 
 import { state } from './state.mjs';

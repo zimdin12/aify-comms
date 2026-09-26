@@ -9,10 +9,6 @@
 // load gets the site denied permanently. And the `toggle` listener for the session env-groups is
 // registered in the CAPTURE phase, because `toggle` does not bubble; moving it to the bubble phase
 // makes collapse state stop persisting, silently.
-//
-// The bodies are byte-identical to those that stood in app.js; the only change is two spaces of
-// indentation, which the reconstruction proof (retired in v0.7) stripped before comparing. The run contains no multi-line
-// template literal, so that re-indentation cannot alter a string.
 
 import { toggleFavorite } from './message-actions.mjs';
 import { api } from './api-client.mjs';

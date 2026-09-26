@@ -65,11 +65,13 @@ export async function apiResponse(path, options = {}) {
   // cross-origin -- and a cookie does not ride a cross-origin fetch unless credentialed CORS is on,
   // which `main.py` switches OFF whenever `CORS_ORIGINS` is `*`. See `api-key.mjs` for why leaving
   // it off is the right call. Attached AFTER the caller's headers for the same reason the operator
-  // key is: so it survives a caller that replaced the defaults wholesale.
-  const serviceKey = apiKeyHeader();
+  // key is: so it survives a caller that replaced the defaults wholesale. The key is looked up for
+  // the URL the request goes to, so it can only ever reach the origin it was entered for.
+  const url = `${apiBase}${path}`;
+  const serviceKey = apiKeyHeader(url);
   if (serviceKey) Object.assign(headers, serviceKey);
-  const response = await fetch(`${apiBase}${path}`, { headers, ...rest });
-  if (response.status === 401) ensureApiKeyPrompt();
+  const response = await fetch(url, { headers, ...rest });
+  if (response.status === 401) ensureApiKeyPrompt(url);
   return response;
 }
 

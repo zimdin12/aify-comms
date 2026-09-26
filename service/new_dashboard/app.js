@@ -24,10 +24,11 @@ import { mountXtermForTerminal as mountXtermForTerminalImpl } from './xterm-moun
 import { renderSessionConsole as renderSessionConsoleImpl } from './session-console.mjs';
 import { renderInstallSnippet } from './static-links.mjs';
 import { pages } from './page-titles.mjs';
-import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _spawnReqSig } from './render-memo.mjs';
+import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _settingsSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
-import { resolveApiOrigin } from './api-origin.mjs';
+import { defaultApiOrigin, resolveApiOrigin } from './api-origin.mjs';
 import { setApiBase, api } from './api-client.mjs';
+import { adoptLegacyApiKey } from './api-key.mjs';
 import { renderFiles } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage } from './message-transport.mjs';
 import { runRefreshCycle } from './refresh-cycle.mjs';
@@ -45,6 +46,7 @@ import { createRefreshGate } from './refresh-visibility.mjs';
 import { ChangeDrivenRefresh } from './change-refresh.mjs';
 import { loadSlices } from './slice-loaders.mjs';
 
+adoptLegacyApiKey(defaultApiOrigin()); // a key stored before keys were bound to an origin belongs to the default one (api-key.mjs)
 const apiOrigin = resolveApiOrigin();
 const apiBase = `${apiOrigin}/api/v1`;
 
@@ -147,9 +149,9 @@ async function refresh() {
   if (_refreshInFlight) { _refreshQueued = true; return; }
   _refreshInFlight = true;
   try {
-    const startedAt = Date.now();
+    const started = changeRefresh.fullRefreshStarting();
     const failed = await _refreshImpl();
-    changeRefresh.fullyRefreshed(startedAt, failed); // current as of the start, except what failed (change-refresh.mjs)
+    changeRefresh.fullyRefreshed(started, failed); // current as of the start, except what failed (change-refresh.mjs)
   } finally {
     _refreshInFlight = false;
     if (_refreshQueued) { _refreshQueued = false; refreshSoon(); }
@@ -239,7 +241,7 @@ function renderAll() {
   renderSection('spawnRequests', [_spawnReqSig()], renderSpawnRequests);
   renderSection('runs', [_runSig(), f, state.runStatusFilter || '', state.runFromFilter, state.runToFilter, state.runRuntimeFilter, state.runSearch, [...state.selectedDiagnosticIds]], renderRuns);
   renderSection('files', [state.files.map((x) => [x.name, x.size, x.sharedAt]), f], renderFiles);
-  renderSection('settings', [state.settings], renderSettings);
+  renderSection('settings', _settingsSig(), renderSettings);
   // Keep the analytics page live while it's the active page (re-fetch on the poll cycle).
   if (byId('page-analytics')?.classList.contains('active')) loadAnalytics();
   // Keep the Fleet pulse live while it's the Chat landing view (no conversation open).

@@ -66,6 +66,16 @@ test('a failed slice is reported and keeps its last-good value', async () => {
   });
 });
 
+test('a failed channels or files fetch is reported, though those loaders keep the last list (0.7.1 C4)', async () => {
+  await withStubs({ reject: ['/channels', '/shared'], pages: { files: 'open' } }, async ({ deps }) => {
+    assert.deepEqual((await loadSlices(['channels', 'files'], deps)).sort(), ['channels', 'files'],
+      'a failure the loader swallowed was reported as loaded, so it is never retried');
+  });
+  await withStubs({ pages: { files: 'open' } }, async ({ deps }) => {
+    assert.deepEqual(await loadSlices(['channels', 'files'], deps), [], 'CONTROL: both load cleanly');
+  });
+});
+
 test('nothing loaded, nothing repainted', async () => {
   await withStubs({ reject: ['/agents'] }, async ({ calls, deps }) => {
     assert.deepEqual(await loadSlices(['agents'], deps), ['agents']);

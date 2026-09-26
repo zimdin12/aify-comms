@@ -108,6 +108,7 @@ test("refreshActiveTerminalTheme is a no-op when no console is open", () => {
 
 import { HELP_TAB, SETTINGS_SCHEMA, adoptSettingsSchema, renderSettings, settingsItemFromDeclaration } from "./settings-panel.mjs";
 import { esc } from "./util.js";
+import { _settingsSig, renderSection } from "./render-memo.mjs";
 
 // THE SHAPE `GET /settings/schema` SERVES (service/api_core/settings_spec.py `describe()`), one of each
 // kind. The real declarations are checked end to end by the Python gates, which feed the served schema
@@ -166,6 +167,23 @@ function withSettingsDom({ activeElement = null, host = {} } = {}, run) {
     if (!hadDoc) delete globalThis.document;
   }
 }
+
+test("SETTINGS PAINTS ITS TABS WHEN A LATE SCHEMA ARRIVES, though no setting changed (0.7.1 C2)", () => {
+  // /settings/schema failed at boot and /settings did not, so the page read "Loading settings…". The
+  // retry adopted the schema, but the section's memo keyed on the settings VALUES alone, which the
+  // retry refetched unchanged, so the repaint was skipped and the page stayed on "Loading" for good.
+  // Driven through the memo and signature app.js's renderAll uses.
+  adoptSettingsSchema({ groups: [], settings: [] });
+  state.settings = { dashboard_theme: "default" };
+  withSettingsDom({}, (els) => {
+    renderSection("settings", _settingsSig(), renderSettings);
+    assert.match(els["settings-form"].innerHTML, /Loading settings/, "CONTROL: no schema yet");
+    adoptSettingsSchema(SERVED);
+    state.settings = { dashboard_theme: "default" };
+    renderSection("settings", _settingsSig(), renderSettings);
+    assert.match(els["settings-form"].innerHTML, /data-settings-tab=/, "the adopted schema was never painted");
+  });
+});
 
 test("renderSettings says it is loading until the schema has arrived", () => {
   adoptSettingsSchema({ groups: [], settings: [] });

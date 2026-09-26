@@ -560,7 +560,7 @@ test("connect carries the stored key, because a WebSocket cannot send a header",
   // handshake was refused, the backoff retried, and the dashboard reported "reconnecting" for ever
   // while its polls failed separately -- one cause presenting as two faults.
   const realStore = globalThis.localStorage;
-  globalThis.localStorage = { getItem: (k) => (k === "aify.apiKey" ? "banana" : null), setItem() {}, removeItem() {} };
+  globalThis.localStorage = { getItem: (k) => (k === "aify.apiKey@http://fake.invalid" ? "banana" : null), setItem() {}, removeItem() {} };
   try {
     withFakes(({ built }) => {
       harness();

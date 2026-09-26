@@ -19,9 +19,10 @@ import { esc, fileSizeLabel, relTime } from './util.js';
 import { filtered } from './work-loop-panels.mjs';
 
 export async function loadFiles() {
-  // REPORTED HERE, where the failure is actually seen. The poll cycle wraps this call in its own
-  // catch, but that catch can never run: this function swallows its own error, so `await loadFiles()`
-  // returns normally on failure and the caller has nothing to catch.
+  // REPORTED HERE, where the failure is actually seen. This function swallows its own error, so
+  // `await loadFiles()` returns normally on failure and a caller's catch has nothing to catch. It
+  // RESOLVES whether it loaded instead, which the refresh paths read so a failed load is retried
+  // rather than recorded as current (0.7.1 C4).
   //
   // The reason is KEPT (`state.filesError`) so an empty page can tell "the store is empty" from "the
   // store could not be read": a failed first load used to invite an upload into an empty store.
@@ -29,9 +30,11 @@ export async function loadFiles() {
     const res = await api('/shared');
     state.files = res.files || res || [];
     state.filesError = '';
+    return true;
   } catch (err) {
     noteSliceFailure('files');
     state.filesError = String(err?.message || err || 'request failed'); // keep the prior list
+    return false;
   }
 }
 export function renderFiles() {

@@ -104,7 +104,7 @@ export function renderAgentProcesses(terminals, { error = '', truncated = false 
   // AN ERROR IS NOT AN EMPTY LIST. Rendering "no processes" after a failed read tells the operator
   // something false about their fleet, which is worse than telling them the panel is broken.
   if (error) {
-    return `<p class="subtle">Could not read this agent's processes: ${esc(error)}</p>`;
+    return `<p class="subtle" ${FAILED_MARK}>Could not read this agent's processes: ${esc(error)}</p>`;
   }
   const list = Array.isArray(terminals) ? terminals.map(cells).filter((t) => t.id) : [];
   if (list.length === 0) {
@@ -158,6 +158,18 @@ export function renderAgentProcesses(terminals, { error = '', truncated = false 
 
 /** The container the drawer leaves for this panel, so both sides name it once. */
 export const AGENT_PROCESSES_ID = 'agent-drawer-processes';
+
+// Marks a panel that shows a failed read, so a refresh knows to read again (0.7.1 C7).
+const FAILED_MARK = 'data-processes-failed';
+
+/**
+ * Whether `host` is showing a failed read. The drawer re-reads the processes only when it changed,
+ * and an offline agent's drawer never changes, so without this one transient failure stayed on
+ * screen until the drawer was closed and reopened.
+ */
+export function processesReadFailed(host) {
+  return String(host?.innerHTML || '').includes(FAILED_MARK);
+}
 
 /**
  * Fill the panel for one agent.

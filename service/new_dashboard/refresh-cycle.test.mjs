@@ -425,6 +425,13 @@ test("A FULL CYCLE NAMES THE SLICES WHOSE FETCH FAILED, so they can be retried",
   assert.deepEqual([...broken.failed].sort(), ["settings", "stats"]);
 });
 
+test("A FAILED /channels OR /shared IS NAMED TOO, though their loaders keep the last list (0.7.1 C4)", async () => {
+  // Both loaders catch their own failure to keep the last-good list, so the cycle's catch around them
+  // could never run and the two slices were recorded as loaded: never retried while the socket stayed up.
+  const broken = await cycle({ reject: ["/channels", "/shared"] });
+  assert.deepEqual([...broken.failed].sort(), ["channels", "files"]);
+});
+
 test("WHILE A NON-OPEN WORK FILTER IS RE-FETCHED, the rows on screen are never the open set", async () => {
   // The cycle assigned the open-scope base to state.contracts and THEN awaited the filtered set, so a
   // render in that gap painted open contracts under "Failed" or "Answered".

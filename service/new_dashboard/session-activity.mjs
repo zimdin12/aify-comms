@@ -13,11 +13,6 @@
 // NOT the Work Loop activity feed (`work-loop-panels.mjs`), which merges runs, messages AND contracts
 // across the whole fleet and caps at 10. This one is per-session and per-agent. They look alike and are
 // different subjects; keeping them in separate modules is deliberate.
-//
-// The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Their leading comments stayed behind
-// in app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its
-// comments could not round-trip through the proof.
 
 export function messagesForSession(session) {
   const agentId = sessionAgentId(session);

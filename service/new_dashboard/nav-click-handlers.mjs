@@ -5,7 +5,6 @@
 // which is the part worth pinning, because half of one of these looks exactly like a working button.
 //
 // `setPage`, `loadAnalytics` and `renderEnvironmentSpawnOptions` are INJECTED: they stay in app.js.
-// Parameters of the same names leave every body byte-identical to the branch it left.
 
 import { loadFiles, renderFiles } from './shared-files.mjs';
 import { loadSpawnRequests } from './environments-panels.mjs';

@@ -8,11 +8,6 @@
 // unless someone read the database. It also aliases `done`, the one spawn status the canonical resolver
 // does not know — an alias that silently stopped working would put every completed spawn back into the
 // unknown bucket, which is the failure this module's tests exist to catch.
-//
-// The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `, which the reconstruction proof (retired in v0.7) stripped before comparing. Their leading comments stayed behind
-// in app.js deliberately — `declarationSpan` returns the declaration alone, so a span that took its
-// comments could not round-trip through the proof.
 
 export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-environment')?.value || '') {
   const envSelect = byId('env-spawn-environment');
@@ -322,20 +317,22 @@ export function renderEnvironmentSummary() {
     metric('Runtime types', runtimeKinds.size, runtimeKinds.size ? 'working' : 'neutral'),
   ].join('');
 }
+
+/**
+ * What an operator runs on a host whose environment is missing or silent: the diagnostic, and only
+ * that. It answers without changing anything.
+ *
+ * STARTING aify-env IS NOT IN THE PASTE. It was, after the doctor, and a bare `aify-env` starts the
+ * host tier: on a host with an idle one running, the paste superseded it. Whether to start one is the
+ * operator's decision, so the page says how in words and copies nothing that acts (0.7.1 T05). This
+ * was `cd <root>` + `aify-comms <roots>` before that, which since v0.6.1 refuses with exit 2.
+ */
+const HOST_CHECK_COMMAND = 'aify-env doctor';
+
 /**
  * The hint shown in an empty roots box: an EXAMPLE of the shape this host writes, never a place this
  * service claims anything is installed. A Windows-only hint was the whole prompt on a Linux environment.
  */
-/**
- * What an operator runs on a host whose environment is missing or silent.
- *
- * aify-env is the host tier, and it takes no directory and no roots: the roots are this service's
- * policy, set above. The doctor first, because it answers without changing anything; `aify-env` then
- * starts the environment, and shows one that is already running agents instead of replacing it.
- * This was `cd <root>` + `aify-comms <roots>`, which since v0.6.1 refuses with exit 2.
- */
-const HOST_START_COMMAND = 'aify-env doctor\naify-env';
-
 export function rootsPlaceholder(env) {
   const os = String(env?.os || env?.kind || '').toLowerCase();
   if (os.includes('win')) return 'C:/work\nC:/projects';        // example path
@@ -350,7 +347,7 @@ export function openEnvironmentRootsEditor(environmentId) {
   const overrideBadge = manualRoots
     ? '<span class="mb mb-warn" title="Roots were set from the dashboard and override what the host advertises">dashboard override active</span>'
     : '<span class="subtle">using the roots the host advertises</span>';
-  const startCmd = HOST_START_COMMAND;
+  const checkCmd = HOST_CHECK_COMMAND;
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
       <div class="agent-drawer-head"><strong>Workspace roots — ${esc(env.label || environmentId)}</strong></div>
@@ -359,13 +356,14 @@ export function openEnvironmentRootsEditor(environmentId) {
         <textarea id="env-edit-roots" rows="6" spellcheck="false" placeholder="${esc(rootsPlaceholder(env))}">${esc(roots.join('\n'))}</textarea>
       </label>
       <p class="subtle">Agents spawned in this environment must use a cwd under one of these roots. Leave non-empty; use “Reset to host roots” to restore the advertised set.</p>
-      <label class="settings-label">Host commands <span class="subtle">(run on the host: the doctor says whether aify-env is running; aify-env starts it, and shows one already running agents rather than replacing it)</span>
-        <textarea id="env-start-cmd" rows="2" spellcheck="false" readonly>${esc(startCmd)}</textarea>
+      <label class="settings-label">Host check <span class="subtle">(run on the host: it says whether aify-env is running there and what it can see, and changes nothing)</span>
+        <textarea id="env-check-cmd" rows="1" spellcheck="false" readonly>${esc(checkCmd)}</textarea>
       </label>
+      <p class="subtle">Starting aify-env on that host is the operator's action: run <code>aify-env</code> there yourself if the check says none is running. One already running agents is shown rather than replaced.</p>
       <div class="agent-drawer-actions">
         <button class="primary" data-env-roots-submit="${esc(environmentId)}">Save roots</button>
         <button class="ghost" data-env-roots-reset="${esc(environmentId)}">Reset to host roots</button>
-        <button class="ghost" data-copy-text="${esc(startCmd)}">Copy host commands</button>
+        <button class="ghost" data-copy-text="${esc(checkCmd)}">Copy host check</button>
       </div>
     </div>`;
   state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };

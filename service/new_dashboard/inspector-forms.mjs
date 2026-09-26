@@ -15,10 +15,6 @@
 // Extracted from app.js in v0.5.4 as a measured closure needing only sibling leaf modules, imported
 // downward. It became possible once `state` and `byId` had owners; before that every panel in app.js read
 // at least one name app.js itself declared, which a module extracted from app.js cannot import back.
-//
-// The declarations are byte-identical to those that stood in app.js; the only substitution is the added
-// `export `. Their leading comments stayed behind — `declarationSpan` returns the declaration alone, so a
-// span carrying its comments could not round-trip through the reconstruction proof.
 
 
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';

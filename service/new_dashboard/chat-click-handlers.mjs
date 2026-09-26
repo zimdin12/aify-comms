@@ -10,8 +10,7 @@
 // handlers, not part of the controller, so they get their own home.
 //
 // `chatController` arrives as a PARAMETER for the same reason it cannot move: app.js builds it with
-// app.js-local callbacks. Passing it leaves every body byte-identical to the branch it left — the name it
-// reads is a parameter now instead of a module-scope const.
+// app.js-local callbacks.
 
 import { findLoadedMessage } from './message-store.mjs';
 import { messageId } from './record-fields.mjs';

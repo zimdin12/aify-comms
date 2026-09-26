@@ -245,3 +245,90 @@ test("selectSessionTab DEFAULTS to console when the tab is missing or empty", ()
     state.selectedSessionTab = saved;
   }
 });
+
+// --- keyboard focus survives the rail rebuilding itself (0.7.1 C6) ---------------------------------
+
+/**
+ * A document whose render REBUILDS every control, as `paintIfChanged` does to the rail when a press
+ * changes it: the focused node leaves the page and focus falls to <body>. `querySelector` understands
+ * `tag[attr="value"]…`, the shape a real document would be asked for.
+ */
+function rebuildingDocument(controls) {
+  const body = { tagName: "BODY", isConnected: true };
+  const build = ({ tag, attrs }) => {
+    const node = {
+      tagName: tag.toUpperCase(), isConnected: true, attrs: { ...attrs },
+      getAttributeNames: () => Object.keys(node.attrs), getAttribute: (n) => node.attrs[n] ?? null,
+      focus: () => { doc.activeElement = node; },
+    };
+    return node;
+  };
+  const doc = {
+    body, activeElement: body, nodes: controls.map(build),
+    querySelector: (selector) => {
+      const tag = /^[a-z]+/.exec(selector)?.[0];
+      const wanted = [...selector.matchAll(/\[([\w-]+)="((?:[^"\\]|\\.)*)"\]/g)].map((m) => [m[1], m[2].replace(/\\(.)/g, "$1")]);
+      return doc.nodes.find((n) => n.tagName.toLowerCase() === tag && wanted.every(([k, v]) => n.attrs[k] === v)) || null;
+    },
+    rebuild: () => {
+      for (const node of doc.nodes) node.isConnected = false;
+      doc.nodes = controls.map(build);
+      doc.activeElement = body;
+    },
+  };
+  return doc;
+}
+
+test("A KEY PRESS ON A RAIL CONTROL LEAVES FOCUS ON THAT CONTROL, though the rail was rebuilt", () => {
+  // Enter on a row, Space on a chip, a ticked checkbox: each changes the rail, the rail is rebuilt, and
+  // focus dropped to <body>, so a keyboard operator lost their place on every press.
+  const controls = [
+    { tag: "button", attrs: { "data-session-status-filter": "working" } },
+    { tag: "button", attrs: { "data-session-status-preset": "live" } },
+    { tag: "input", attrs: { "data-session-checkbox": "s1" } },
+    { tag: "article", attrs: { "data-session-select": "s1", "data-kind": "session", "data-id": "s1" } },
+    { tag: "button", attrs: { "data-session-tab": "console" } },
+  ];
+  const presses = [
+    [0, (el, render) => toggleSessionStatusFilter({ ...el, dataset: { sessionStatusFilter: "working" } }, render)],
+    [1, (el, render) => applySessionStatusPreset({ ...el, dataset: { sessionStatusPreset: "live" } }, render)],
+    [2, (el, render) => toggleSessionCheckbox({ ...el, checked: true, dataset: { sessionCheckbox: "s1" } }, render)],
+    [3, (el, render) => selectSessionRow({ ...el, dataset: { sessionSelect: "s1" } }, render)],
+    [4, (el, render) => selectSessionTab({ ...el, dataset: { sessionTab: "console" } }, render)],
+  ];
+  const hadDoc = "document" in globalThis;
+  const savedTab = state.selectedSessionTab;
+  try {
+    withSessions({}, () => withSelection({ sessions: [{ id: "s1", agentId: "coder" }] }, () => {
+      for (const [index, press] of presses) {
+        const doc = rebuildingDocument(controls);
+        globalThis.document = doc;
+        const pressed = doc.nodes[index];
+        doc.activeElement = pressed;
+        press(pressed, () => doc.rebuild());
+        assert.notEqual(doc.activeElement, doc.body, `focus fell to <body> after pressing ${JSON.stringify(controls[index].attrs)}`);
+        assert.equal(doc.activeElement, doc.nodes[index], "focus went to a different control");
+        assert.equal(doc.activeElement.isConnected, true);
+      }
+    }));
+  } finally {
+    state.selectedSessionTab = savedTab;
+    if (!hadDoc) delete globalThis.document;
+  }
+});
+
+test("CONTROL: with focus elsewhere, a rail press does not pull focus onto the rail", () => {
+  const hadDoc = "document" in globalThis;
+  try {
+    withSessions({}, () => {
+      const doc = rebuildingDocument([{ tag: "button", attrs: { "data-session-status-filter": "working" } }]);
+      globalThis.document = doc;
+      const elsewhere = { tagName: "TEXTAREA", isConnected: true, getAttributeNames: () => [] };
+      doc.activeElement = elsewhere;
+      toggleSessionStatusFilter({ dataset: { sessionStatusFilter: "working" } }, () => { doc.nodes = []; });
+      assert.equal(doc.activeElement, elsewhere);
+    });
+  } finally {
+    if (!hadDoc) delete globalThis.document;
+  }
+});

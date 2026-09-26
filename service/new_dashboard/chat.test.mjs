@@ -584,11 +584,49 @@ test("A STATUS CHANGE OR MESSAGE ELSEWHERE DOES NOT REBUILD THE OPEN DM", () => 
   assert.equal(timeline.writes, 1, "CONTROL: a new message in THIS conversation is painted");
 }));
 
-test("A CHANNEL'S HALF-CHOSEN NEW MEMBER SURVIVES A RENDER", () => withStubDocument(async () => {
+/** The channel action bar, where writing markup that holds the add-member select builds a NEW one, as a browser does. */
+function rebuildingActions(h, channel) {
+  const actions = h.els["chat-conv-actions"];
+  let html = actions.innerHTML;
+  Object.defineProperty(actions, "innerHTML", {
+    get: () => html,
+    set: (value) => {
+      html = value;
+      if (value.includes(`id="chat-add-member-${channel}"`)) h.els[`chat-add-member-${channel}`] = { value: "" };
+      else delete h.els[`chat-add-member-${channel}`];
+    },
+    configurable: true,
+  });
+  return actions;
+}
+
+test("A CHANNEL'S HALF-CHOSEN NEW MEMBER SURVIVES A REPAINT, and the bar still repaints (0.7.1 C5)", () => withStubDocument(async () => {
+  // The bar was frozen whenever the select held a value: Leave after leaving, a stale member count, a
+  // remove chip for a member already removed. It now repaints and puts the choice back.
+  const h = pulseHarness({ selected: "channel:ops" });
+  h.state.agents = [...h.state.agents, { id: "carol", status: "online" }]; // keeps the select on the bar throughout
+  h.state.chat.channels = [{ name: "ops", members: ["dashboard", "alice"], memberCount: 2 }];
+  const actions = rebuildingActions(h, "ops");
+  h.controller.render();
+  assert.match(actions.innerHTML, /data-chat-channel-action="leave"/, "CONTROL: a member is offered Leave");
+  h.els["chat-add-member-ops"].value = "bob";
+  h.state.chat.channels = [{ name: "ops", members: ["alice"], memberCount: 1 }]; // the operator pressed Leave
+  h.controller.render();
+  assert.match(actions.innerHTML, /data-chat-channel-action="join"/, "the bar kept showing Leave after leaving");
+  assert.match(actions.innerHTML, /1 member</, "the bar kept the old member count");
+  assert.equal(h.els["chat-add-member-ops"].value, "bob", "the half-chosen member was lost in the repaint");
+
+  h.state.chat.channels = [{ name: "ops", members: ["alice", "bob"], memberCount: 2 }]; // another client added bob
+  h.controller.render();
+  assert.equal(h.els["chat-add-member-ops"].value, "", "a choice that is no longer a candidate was put back");
+}));
+
+test("AN OPEN add-member dropdown is not rebuilt under the operator", () => withStubDocument(async () => {
   const h = pulseHarness({ selected: "channel:ops" });
   h.state.chat.channels = [{ name: "ops", members: ["alice"], memberCount: 1 }];
-  const picked = { value: "bob" };
+  const picked = { value: "" };
   h.els["chat-add-member-ops"] = picked;
+  globalThis.document.activeElement = picked;
   h.controller.render();
   const actions = countWrites(h.els["chat-conv-actions"]);
   h.state.agents = [...h.state.agents, { id: "zed", status: "online" }]; // a new candidate: the list would change

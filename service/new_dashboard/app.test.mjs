@@ -446,7 +446,15 @@ test("the full refresh hands the slices that FAILED to the change-driven refresh
   // Wiring only app.js can do: refresh-cycle.mjs names the failures and change-refresh.mjs retries
   // them, and both are tested. Dropping the value here leaves every failed slice recorded as loaded.
   const source = read("app.js");
-  assert.match(source, /const failed = await _refreshImpl\(\);\s*\n\s*changeRefresh\.fullyRefreshed\(startedAt, failed\);/);
+  // And the start comes from the refresher, which numbers it against its own partial fetches so it
+  // can tell which of two overlapping applies is older (change-refresh.test.mjs, W07-D1).
+  assert.match(source, /const started = changeRefresh\.fullRefreshStarting\(\);\s*\n\s*const failed = await _refreshImpl\(\);\s*\n\s*changeRefresh\.fullyRefreshed\(started, failed\);/);
+});
+
+test("the Settings section repaints on the signature that includes the served schema", () => {
+  // Wiring only app.js can do: settings-panel.test.mjs proves `_settingsSig` repaints a late schema
+  // through the real memo; keyed on `[state.settings]` here, the page stays on "Loading settings…".
+  assert.match(read("app.js"), /renderSection\('settings', _settingsSig\(\), renderSettings\);/);
 });
 
 test("the Settings button that discards unsaved edits says so, not 'Reset'", () => {
