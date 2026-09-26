@@ -91,6 +91,20 @@ NEVER_INHERITED = (
     # The lease of whichever agent's launcher started the host (aify-wrapper's agent lease). Inherited, a
     # start of that agent reads as nested inside its own live instance and is refused, replace or not.
     "AIFY_AGENT_LEASE",
+    # The Claude Code session a host was started inside, as Claude Code sets it for its children
+    # (measured in a live session, 2026-09-26). Each names THAT session, not the worker's: CLAUDECODE
+    # makes claude treat itself as nested, and the messaging socket and token reach the host session's
+    # own messaging. The worker's claude sets its own. Settings such as CLAUDE_CODE_GIT_BASH_PATH are
+    # configuration, not a session, and pass through (v0.7.4).
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PID",
 )
 
 

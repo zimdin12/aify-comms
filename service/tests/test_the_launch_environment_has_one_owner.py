@@ -198,3 +198,23 @@ class TheLaunchEnvironmentHasOneOwnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AHostsClaudeSessionIsNotInheritedTests(unittest.TestCase):
+    """A host started inside a Claude Code session carries that session's markers. MEASURED, not
+    guessed: these are the names Claude Code set in a live session's shell on 2026-09-26. A worker
+    that inherited them would run as part of the host's session (v0.7.4)."""
+
+    SESSION_MARKERS = (
+        "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_EXECPATH", "CLAUDE_PID", "CLAUDE_CODE_CHILD_SESSION",
+    )
+    #: Configuration a worker may need, which must pass through.
+    CONFIGURATION = ("CLAUDE_CODE_GIT_BASH_PATH", "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_API_KEY", "AIFY_HOME", "PATH")
+
+    def test_every_session_marker_is_stripped_and_configuration_is_not(self):
+        from service.api_core.launch_env import NEVER_INHERITED
+
+        self.assertEqual([n for n in self.SESSION_MARKERS if n not in NEVER_INHERITED], [])
+        self.assertEqual([n for n in self.CONFIGURATION if n in NEVER_INHERITED], [])
