@@ -179,3 +179,143 @@ export function missingSiblingImports(file, source, exportsByFile) {
   }
   return found;
 }
+
+// ── ANY sibling, not only one the module already imports from (0.7.1 review, T05) ────────────────
+//
+// The shared rule asks about siblings a module ALREADY imports from, so a module that uses `relTime`
+// and imports nothing at all from `util.js` passes it. `free-names.test.mjs` asked the wider
+// question -- a name used here, exported by any sibling, and neither imported nor declared -- until
+// 66fd9a6e deleted it as covered. The same detector's pieces answer it; the population is every
+// dashboard module in the directory listing, so a new module is in it without anyone adding it. It lives
+// here since v0.7.2 because the bridge asks the same question (no-missing-sibling-imports.test.js).
+
+const escapeName = (name) => name.replace(/\$/g, "\\$");
+
+// Widening the population past "siblings already imported from" exposed two shapes the shared
+// detector never had to tell apart, both measured on this tree as false reports (four of them):
+//
+//   * AN OBJECT-LITERAL KEY names a property, not the binding: `{ sessionId: String(…) }` in
+//     agent-processes.mjs, `{ selectedSessionIds: new Set() }` in state.mjs. A shorthand `{ name }`
+//     IS a use of the binding, so only the `key:` form is set aside.
+//   * AN ARROW'S PARAMETERS with a nested default: `({ api, onError = () => {} }) =>` in
+//     terminal-input.mjs. The shared parameter pattern cannot span the inner parentheses, so the
+//     parameters are found here by walking back from `=>` to the matching `(`.
+
+/** Every identifier inside an arrow function's parameter list, however deeply it nests. */
+function arrowParameterNames(code) {
+  const names = new Set();
+  for (const arrow of code.matchAll(/\)\s*=>/g)) {
+    let depth = 0;
+    for (let i = arrow.index; i >= 0; i -= 1) {
+      if (code[i] === ")") depth += 1;
+      else if (code[i] === "(" && --depth === 0) {
+        for (const token of code.slice(i + 1, arrow.index).matchAll(/[A-Za-z_$][\w$]*/g)) names.add(token[0]);
+        break;
+      }
+    }
+  }
+  return names;
+}
+
+/** `text` cut at each top-level occurrence of `sep`, outside every (), [] and {}. */
+function splitTopLevel(text, sep) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if ("([{".includes(c)) depth += 1;
+    else if (")]}".includes(c)) depth -= 1;
+    else if (c === sep && depth === 0) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/**
+ * The names a parameter list or destructuring pattern BINDS, never the tokens of a default value.
+ * `listeners = () => listListeners(...)` binds `listeners` and USES `listListeners`; reading every
+ * token as bound hid exactly the deleted import this gate exists to find (v0.7.2).
+ */
+function patternNames(text) {
+  const names = [];
+  for (const raw of splitTopLevel(text, ",")) {
+    // The binding is everything before a top-level `=`; an arrow's `=>` in a default comes after it.
+    let part = splitTopLevel(raw.trim().replace(/^\.\.\./, ""), "=")[0].trim();
+    const alias = splitTopLevel(part, ":");
+    if (alias.length > 1) part = alias.slice(1).join(":").trim();
+    if (part.startsWith("{") && part.endsWith("}")) names.push(...patternNames(part.slice(1, -1)));
+    else if (part.startsWith("[") && part.endsWith("]")) names.push(...patternNames(part.slice(1, -1)));
+    else if (/^[A-Za-z_$][\w$]*$/.test(part)) names.push(part);
+  }
+  return names;
+}
+
+/**
+ * Every identifier inside a `function`'s parameter list, found by matching parentheses FORWARD from
+ * its `(`. The shared parameter pattern stops at the first inner `)`, so a destructured parameter
+ * after a default like `imageOf = () => null` read as a use of a sibling's export: three false reports
+ * on the bridge when this scan was pointed at it (v0.7.2). `if (...) {` is never read as parameters.
+ */
+function functionParameterNames(code) {
+  const names = new Set();
+  for (const fn of code.matchAll(/\bfunction\b[^(]*\(/g)) {
+    let depth = 0;
+    const open = fn.index + fn[0].length - 1;
+    for (let i = open; i < code.length; i += 1) {
+      if (code[i] === "(") depth += 1;
+      else if (code[i] === ")" && --depth === 0) {
+        for (const name of patternNames(code.slice(open + 1, i))) names.add(name);
+        break;
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * Every identifier inside a `const|let|var { ... } =` destructuring, found by matching braces FORWARD.
+ * The shared pattern stops at the first `}`, so a default holding a block -- `nextId = (() => { ... })()`
+ * in hermes-active-session.mjs -- hid the names after it (v0.7.2). Over-counting a default's tokens can
+ * only suppress a report, the safe direction.
+ */
+function destructuredNames(code) {
+  const names = new Set();
+  for (const decl of code.matchAll(/\b(?:const|let|var)\s*\{/g)) {
+    let depth = 0;
+    const open = decl.index + decl[0].length - 1;
+    for (let i = open; i < code.length; i += 1) {
+      if (code[i] === "{") depth += 1;
+      else if (code[i] === "}" && --depth === 0) {
+        for (const name of patternNames(code.slice(open + 1, i))) names.add(name);
+        break;
+      }
+    }
+  }
+  return names;
+}
+
+/** True when `name` occurs in `code` somewhere other than as an object-literal key. */
+function usesName(code, name) {
+  const n = escapeName(name);
+  const all = code.match(new RegExp(`(?<![\\w$.])${n}(?![\\w$])`, "g"))?.length ?? 0;
+  const asKey = code.match(new RegExp(`[{,]\\s*${n}\\s*:`, "g"))?.length ?? 0;
+  return all > asKey;
+}
+
+/** Names `source` uses that some OTHER module in `known` exports, and that it neither imports nor declares. */
+export function usedFromAnySiblingWithoutImport(file, source, known) {
+  const code = usableCode(source);
+  const bound = new Set([...moduleBindings(source).bound, ...arrowParameterNames(code), ...functionParameterNames(code), ...destructuredNames(code)]);
+  const found = [];
+  for (const [sibling, names] of known) {
+    if (sibling === file) continue;
+    for (const name of names) {
+      if (!bound.has(name) && usesName(code, name)) found.push({ name, from: sibling });
+    }
+  }
+  return found;
+}

@@ -44,6 +44,7 @@ import {
   missingSiblingImports,
   moduleBindings,
   usableCode,
+  usedFromAnySiblingWithoutImport,
 } from "./missing-imports.mjs";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -193,4 +194,37 @@ test("the detector's own helpers behave as the gate assumes", () => {
   assert.ok(!bound.has("a"), "the ORIGINAL name is not bound by an alias import");
   assert.ok(bound.has("c"), "a local declaration is bound");
   assert.ok(specifiers.has("./x.js"));
+});
+
+// ── ANY sibling, not only one the module already imports from (v0.7.2, external review) ──────────
+// The rule above cannot see a module whose WHOLE import line for a name was deleted: it imports
+// nothing from that sibling any more. `moved-names-resolve.test.js` covered a narrower case until
+// 181c45c4 removed it. The dashboard's wider detector, now shared, asks the question for the bridge.
+
+test("no bridge module uses ANY sibling's export without importing it", () => {
+  const known = bridgeExportsByFile();
+  const offenders = [];
+  for (const [file, source] of bridgeModules()) {
+    for (const hit of usedFromAnySiblingWithoutImport(file, source, known)) {
+      offenders.push(`${file}: ${hit.name} (exported by ${hit.from})`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these names are used here, exported by a sibling this module does not import them from, and not "
+    + "declared here -- they throw ReferenceError when the line runs:\n  " + offenders.join("\n  "));
+});
+
+test("the wider scan finds a deleted import line, and not a parameter with nested parentheses", () => {
+  const known = new Map([["mcp/stdio/ports.mjs", new Set(["listListeners"])]]);
+  const at = (src) => usedFromAnySiblingWithoutImport("mcp/stdio/m.mjs", src, known).map((h) => h.name);
+  // The investigator's mutation: the sole import of a name removed, its use left behind.
+  assert.deepEqual(at("export function f() {\n  return listListeners();\n}\n"), ["listListeners"]);
+  assert.deepEqual(at('import { listListeners } from "./ports.mjs";\nexport const x = listListeners();\n'), []);
+  // A destructured parameter after a default holding parentheses (gateway-orphan-check.mjs).
+  assert.deepEqual(at("export function f({ a, imageOf = () => null, listListeners }) {\n  return listListeners();\n}\n"), []);
+  // A use INSIDE a parameter's default is still a use: hermes-prior-reap.mjs's `listeners = () =>
+  // listListeners(...)` with its import deleted is the mutation this gate was checked against.
+  assert.deepEqual(at("export function f({ listeners = () => listListeners({}) } = {}) {\n  return listeners();\n}\n"), ["listListeners"]);
+  // A destructuring whose default holds a block (hermes-active-session.mjs).
+  assert.deepEqual(at("const {\n  nextId = (() => { let n = 1; return () => n++; })(),\n  listListeners = 1,\n} = opts;\nlistListeners;\n"), []);
 });

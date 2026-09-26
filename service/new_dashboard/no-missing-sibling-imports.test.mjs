@@ -40,8 +40,8 @@ import { fileURLToPath } from "node:url";
 import {
   exportedNames,
   missingSiblingImports,
-  moduleBindings,
   usableCode,
+  usedFromAnySiblingWithoutImport,
 } from "../../mcp/stdio/tests/missing-imports.mjs";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -161,64 +161,6 @@ test("a template continued with a backslash does not mis-pair its delimiters", (
     "the second template must still be recognised as a literal",
   );
 });
-
-// ── ANY sibling, not only one the module already imports from (0.7.1 review, T05) ────────────────
-//
-// The shared rule asks about siblings a module ALREADY imports from, so a module that uses `relTime`
-// and imports nothing at all from `util.js` passes it. `free-names.test.mjs` asked the wider
-// question -- a name used here, exported by any sibling, and neither imported nor declared -- until
-// 66fd9a6e deleted it as covered. The same detector's pieces answer it; the population is every
-// dashboard module in the directory listing, so a new module is in it without anyone adding it.
-
-const escapeName = (name) => name.replace(/\$/g, "\\$");
-
-// Widening the population past "siblings already imported from" exposed two shapes the shared
-// detector never had to tell apart, both measured on this tree as false reports (four of them):
-//
-//   * AN OBJECT-LITERAL KEY names a property, not the binding: `{ sessionId: String(…) }` in
-//     agent-processes.mjs, `{ selectedSessionIds: new Set() }` in state.mjs. A shorthand `{ name }`
-//     IS a use of the binding, so only the `key:` form is set aside.
-//   * AN ARROW'S PARAMETERS with a nested default: `({ api, onError = () => {} }) =>` in
-//     terminal-input.mjs. The shared parameter pattern cannot span the inner parentheses, so the
-//     parameters are found here by walking back from `=>` to the matching `(`.
-
-/** Every identifier inside an arrow function's parameter list, however deeply it nests. */
-function arrowParameterNames(code) {
-  const names = new Set();
-  for (const arrow of code.matchAll(/\)\s*=>/g)) {
-    let depth = 0;
-    for (let i = arrow.index; i >= 0; i -= 1) {
-      if (code[i] === ")") depth += 1;
-      else if (code[i] === "(" && --depth === 0) {
-        for (const token of code.slice(i + 1, arrow.index).matchAll(/[A-Za-z_$][\w$]*/g)) names.add(token[0]);
-        break;
-      }
-    }
-  }
-  return names;
-}
-
-/** True when `name` occurs in `code` somewhere other than as an object-literal key. */
-function usesName(code, name) {
-  const n = escapeName(name);
-  const all = code.match(new RegExp(`(?<![\\w$.])${n}(?![\\w$])`, "g"))?.length ?? 0;
-  const asKey = code.match(new RegExp(`[{,]\\s*${n}\\s*:`, "g"))?.length ?? 0;
-  return all > asKey;
-}
-
-/** Names `source` uses that some OTHER module in `known` exports, and that it neither imports nor declares. */
-function usedFromAnySiblingWithoutImport(file, source, known) {
-  const code = usableCode(source);
-  const bound = new Set([...moduleBindings(source).bound, ...arrowParameterNames(code)]);
-  const found = [];
-  for (const [sibling, names] of known) {
-    if (sibling === file) continue;
-    for (const name of names) {
-      if (!bound.has(name) && usesName(code, name)) found.push({ name, from: sibling });
-    }
-  }
-  return found;
-}
 
 test("no dashboard module uses ANY sibling's export without importing it", () => {
   const known = exportsByFile();
