@@ -100,15 +100,19 @@ class TheServiceAnswersAParkedConsoleTests(unittest.TestCase):
         boot = "claude --dangerously-load-development-channels server:aify-comms-channel --model opus"
         self.assertIsNone(answer_for_screen(boot))
 
-    def test_A_RESUME_MENU_SUPPRESSES_EVERYTHING(self):
+    def test_A_RESUME_MENU_SUPPRESSES_EVERY_OTHER_RULE(self):
         """Its highlighted default is "Resume from summary", so a stray Enter silently compacts a
-        session's whole context. Refused wholesale rather than ordered by position: this is the one
-        screen where a wrong keystroke is unrecoverable, and no rule here is worth that risk."""
+        session's whole context. While one is on screen no other rule may answer: the only answer is
+        the resume rule's own, which moves to "Resume full session" before confirming
+        (test_a_resume_menu_is_answered_with_full_session.py)."""
         screen = (
             "  ❯ 1. I am using this for local development\n    2. Exit\n  Enter to confirm\n"
             "  ❯ Resume from summary (recommended)\n    Resume full session as-is\n"
         )
-        self.assertIsNone(answer_for_screen(screen))
+        answer = answer_for_screen(screen)
+        self.assertIsNotNone(answer)
+        self.assertEqual(answer.rule, "resume-full-session", "the dev-channels rule answered over a resume menu")
+        self.assertNotEqual(answer.keys, ENTER, "a bare Enter here selects the summary")
 
     def test_the_cursor_must_be_on_the_accepting_option(self):
         """Without this the answer is a blind Enter, which selects whatever a different menu had

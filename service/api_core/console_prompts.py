@@ -106,6 +106,37 @@ def needs_resume_policy(screen: str) -> bool:
     return bool(RESUME_MENU.search(plain_text(screen)))
 
 
+#: The rows of a resume menu, numbered or not. The order has changed upstream before (2026-08-01:
+#: summary moved to option 1 and "Don't ask me again" appeared), so rows are found by their text.
+_RESUME_OPTION = re.compile(r"Resume from summary|Resume full session|Don'?t ask me again", re.I)
+_RESUME_KEEP = re.compile(r"Resume full session", re.I)
+UP = "\x1b[A"
+
+
+def _resume_full_session(text: str, resume_policy: str) -> PromptAnswer | None:
+    """Move the menu cursor to "Resume full session" and confirm, or press nothing.
+
+    The operator's policy since 2026-06-05: a resumed session keeps its context. The summary option
+    compacts the session, which cannot be undone, so the keys are computed from where the cursor IS
+    and where the full-session row IS on this screen. A menu painted only as far as its summary row,
+    or with no cursor on an option, is not answered. A `fresh_context` agent (a Reset) carries no
+    resume handle; if it meets this menu anyway, choosing for it is not this rule's call.
+    """
+    if resume_policy == "fresh_context":
+        return None
+    rows = [line for line in text.splitlines() if _RESUME_OPTION.search(line)]
+    cursor = [i for i, line in enumerate(rows) if CURSOR.search(line)]
+    keep = [i for i, line in enumerate(rows) if _RESUME_KEEP.search(line)]
+    if len(cursor) != 1 or len(keep) != 1:
+        return None
+    moves = keep[0] - cursor[0]
+    return PromptAnswer(
+        rule="resume-full-session",
+        keys=(DOWN * moves if moves > 0 else UP * -moves) + ENTER,
+        why="the resume menu defaults to a summary, which compacts the session for good",
+    )
+
+
 def answer_for_screen(screen: str, *, resume_policy: str = "") -> PromptAnswer | None:
     """The keystrokes this dialog needs, or None for every other screen.
 
@@ -119,9 +150,9 @@ def answer_for_screen(screen: str, *, resume_policy: str = "") -> PromptAnswer |
     if not text.strip():
         return None
     if RESUME_MENU.search(text):
-        # Refused wholesale rather than ordered by position: a resume menu is the one screen where
-        # a wrong keystroke is unrecoverable, and no rule here is worth that risk.
-        return None
+        # Nothing else is ever answered while a resume menu is on screen; the menu itself is answered
+        # only by `_resume_full_session`, which presses nothing unless it can see where it lands.
+        return _resume_full_session(text, resume_policy)
 
     cursor_line = _cursor_line(text)
 

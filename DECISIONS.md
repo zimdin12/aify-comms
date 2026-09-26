@@ -304,10 +304,13 @@ nothing. The rule matches the dialog's own question line, and only while that li
 matching the flag name instead is how the old bridge came to press Enter into a resume menu, because
 the flag appears in every worker's boot output.
 
-**A resume menu is refused outright.** While `Resume from summary` or `Resume full session` is on
-screen, no rule answers anything: the menu's highlighted default summarises (compacts) the whole
-session, and a wrong keystroke there cannot be undone. So compaction and resume dialogs are not
-auto-answered, and a managed claude that reaches one waits there (KNOWN_ISSUES.md). Each rule answers
+**A resume menu is answered with "Resume full session", and by nothing else** (since 0.7.4; refused
+outright from 2026-09-03). While `Resume from summary` or `Resume full session` is on screen no other
+rule answers: the menu's highlighted default summarises (compacts) the whole session, and a wrong
+keystroke there cannot be undone. The operator's policy since 2026-06-05 is to keep the session, so
+rule `resume-full-session` moves the cursor to that row and confirms, computing the keys from where the
+cursor and the row are on the rendered screen. A half-painted menu, a missing cursor, or an agent
+whose `resumePolicy` is `fresh_context` gets no answer. Each rule answers
 once per terminal (`should_answer`), because a loop pressing keys at a screen it cannot change looks
 exactly like one that is working.
 

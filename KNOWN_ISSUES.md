@@ -40,15 +40,14 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   dedicated Windows Job isolation test timed out. Not classified: the harness difference is ASSUMED
   to be the cause, not shown.
 
-## A managed claude stops at a compaction or resume dialog
+## The resume-menu answer is tested against hand-written screens only (0.7.4)
 
-The service answers one console dialog, the development-channels acknowledgement, and refuses every
-resume menu (`service/api_core/console_prompts.py`; DECISIONS.md "The service answers one console
-dialog, and never a resume menu"). Nothing answers claude's compaction recommendation or a resume
-menu, so a managed claude that reaches one waits there until someone answers it in the console. The
-refusal is deliberate: the menu's default summarises the session, and a wrong keystroke there cannot
-be undone. `resume_policy` is already read for these screens and passed to the rule, so an answer that
-follows the agent's policy has a place to go; none is written.
+Since 0.7.4 the service answers claude's resume menu with "Resume full session"
+(`service/api_core/console_prompts.py`, rule `resume-full-session`; DECISIONS.md). The screens it is
+tested with are written from the layouts recorded on 2026-08-01, not captured from a live worker, and the
+menu has changed shape upstream before. It presses nothing unless it can see both the cursor and the
+full-session row, so a new layout leaves the worker waiting at the menu, as before 0.7.4, rather than
+choosing the summary. Any other claude dialog is still left to the console.
 
 ## A `/listen` reader that disconnects at the last moment still marks its messages read (2026-09-26)
 
