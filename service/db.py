@@ -377,6 +377,20 @@ async def _migrate_console_signal_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+# v0.7.4: a database created by an earlier 0.7.4 candidate has the table without its host column.
+AGENT_HOOK_ORDER_MIGRATIONS = {
+    "machine_id": "ALTER TABLE agent_hook_order ADD COLUMN machine_id TEXT NOT NULL DEFAULT ''",
+}
+
+
+async def _migrate_agent_hook_order_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(agent_hook_order)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in AGENT_HOOK_ORDER_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def _migrate_bridge_instances_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(bridge_instances)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -549,6 +563,7 @@ async def init_db(db_path: Path = None):
         await _migrate_bridge_instances_table(db)
         await _migrate_console_signal_table(db)
         await _migrate_agent_turn_state_table(db)
+        await _migrate_agent_hook_order_table(db)
         await _migrate_agent_status_state_table(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)

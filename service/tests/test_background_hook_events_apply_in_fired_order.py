@@ -7,7 +7,10 @@ leave the agent `working` with nothing left to end the turn. Driven through the 
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
+
+import service.db as service_db
 
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
@@ -115,3 +118,22 @@ class BackgroundHookEventsApplyInFiredOrderTests(FastApiTestCase):
         self.assertEqual(self._awaiting_input(), 0, "precondition: unblocked applies")
         self.assertEqual(self._post("status-event", 2000, kind="blocked").get("applied"), False)
         self.assertEqual(self._awaiting_input(), 0)
+
+    def test_a_database_from_an_earlier_candidate_gains_the_host_column(self):
+        """Review of c58a8d08: a database created by 18c479ec has `agent_hook_order` without `machine_id`,
+        and `CREATE TABLE IF NOT EXISTS` leaves it so; every stamped hook then answered 500."""
+        db = sqlite3.connect(self._db_path)
+        try:
+            db.execute("DROP TABLE agent_hook_order")
+            db.execute(
+                "CREATE TABLE agent_hook_order (agent_id TEXT PRIMARY KEY, last_at INTEGER NOT NULL, "
+                "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE)"
+            )
+            db.execute("INSERT INTO agent_hook_order (agent_id, last_at) VALUES (?, ?)", (AGENT, 1790000000000))
+            db.commit()
+        finally:
+            db.close()
+        init = getattr(service_db, "_real_init_db", None) or service_db.init_db
+        asyncio.run(init(self._db_path))
+        self._post("turn-start", 1790451762694110)
+        self.assertEqual(self._busy(), 1, "the upgraded table must take the stamped event")
