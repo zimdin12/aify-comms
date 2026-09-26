@@ -161,7 +161,14 @@ test("more unread than one notice holds: the rest surface on the next polls, old
 });
 
 test("the pure pieces: seen ids are bounded, others' shape is unchanged, the overflow is counted", async () => {
-  const { hookOutput, inboxUrl, noticeText, rememberSeen, unseen } = await import("../notify-notice.mjs");
+  const { hookOutput, inboxUrl, noticeText, rememberSeen, unseen, seenForSession, seenRecord, NOTICE_LIMIT } =
+    await import("../notify-notice.mjs");
+  // Seen ids belong to one session: a new session is shown what an earlier one already was.
+  assert.deepEqual(seenForSession(seenRecord("s1", ["a"]), "s1"), ["a"]);
+  assert.deepEqual(seenForSession(seenRecord("s1", ["a"]), "s2"), []);
+  assert.deepEqual(seenForSession(["a"], "s1"), [], "a pre-session bare list belongs to no session");
+  assert.deepEqual(seenForSession(null, "s1"), []);
+  assert.ok(Number.isInteger(NOTICE_LIMIT) && NOTICE_LIMIT > 0);
   const many = Array.from({ length: 250 }, (_, n) => ({ id: `m${n}` }));
   const remembered = rememberSeen([], many);
   assert.equal(remembered.length, 200, "the seen list is capped");
