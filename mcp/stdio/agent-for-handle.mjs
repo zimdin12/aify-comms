@@ -15,6 +15,7 @@
 import { pathToFileURL } from "node:url";
 
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
+import { loadSettingsEnv } from "./load-env.js";
 
 const TIMEOUT_MS = 2000;
 
@@ -41,6 +42,9 @@ export async function agentForHandle({ url, runtime, handle, fetchImpl = fetch, 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [url, runtime, handle] = process.argv.slice(2);
   try {
+    // Settings first, as every other bridge entry point does: the key may be named only in
+    // ~/.claude/settings.local.json (v0.7.1 review, W05).
+    loadSettingsEnv();
     const id = await agentForHandle({ url, runtime, handle });
     if (id) process.stdout.write(id);
   } catch {

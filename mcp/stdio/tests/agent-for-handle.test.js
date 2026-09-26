@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -60,6 +60,32 @@ test("with the key it can resolve, the owner of the handle is printed", async ()
     assert.equal(refused.stdout, "");
   } finally {
     server.close();
+  }
+});
+
+test("a key that only settings.local.json names is found, as every other bridge entry point finds it", async () => {
+  // v0.7.1 review (W05): notify-check.js and server.js call loadSettingsEnv() first, and this CLI did
+  // not, so on a host whose key lives only in ~/.claude/settings.local.json the resume lookup was
+  // refused and the resumed session came up anonymous.
+  const home = mkdtempSync(path.join(os.tmpdir(), "aify-afh-settings-"));
+  mkdirSync(path.join(home, ".claude"), { recursive: true });
+  writeFileSync(path.join(home, ".claude", "settings.local.json"), JSON.stringify({ env: { AIFY_API_KEY: KEY } }));
+  const server = await serve();
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const env = {
+      PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT, HOME: home, USERPROFILE: home,
+      AIFY_SERVICE_REGISTRY: path.join(home, "no-registry.json"),
+    };
+    const found = await new Promise((resolve) => {
+      execFile(process.execPath, [CLI, url, "claude-code", "sess-1"], { env, cwd: home, timeout: 15000 },
+        (error, stdout) => resolve({ code: error ? error.code : 0, stdout }));
+    });
+    assert.equal(found.code, 0);
+    assert.equal(found.stdout, "cc-coder");
+  } finally {
+    server.close();
+    rmSync(home, { recursive: true, force: true });
   }
 });
 
