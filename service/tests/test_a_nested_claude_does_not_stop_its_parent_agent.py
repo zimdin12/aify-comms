@@ -7,8 +7,10 @@ its bridge reported resident-lost as the current owner, and the service set the 
 `launch_mode='none'`. The real bridge kept beating, was ignored as superseded, and 37 messages over
 2.5 hours created no run until the operator had the agent re-register.
 
-A bridge that took over a same-handle bridge which is still alive is not the session's last process:
-its loss hands ownership back instead of stopping the agent. Driven through the real endpoints.
+The proof that the real bridge lives is a beat AFTER the nested bridge is lost: that beat reclaims the
+session and lifts the stop. A predecessor killed by a real relaunch never beats again, so a relaunched
+session that closes, however soon, still stops the agent (0.7.4 review of d51472e3: a freshness window on
+the predecessor's older beats handed exactly that case to a dead bridge). Driven through the real endpoints.
 """
 
 from __future__ import annotations
@@ -77,40 +79,55 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._register("nested-bridge")
         self.assertEqual(self._superseded_by("real-bridge"), "nested-bridge", "precondition: the same-session takeover ran")
 
-    def _age_the_real_bridge(self):
-        self._execute("UPDATE bridge_instances SET last_seen = '2026-01-01T00:00:00Z' WHERE id = 'real-bridge'")
-
-    def test_the_nested_bridges_exit_hands_the_agent_back_to_the_live_one(self):
-        self._nested_takes_over()
-        self._lost("nested-bridge")
+    def _assert_reclaimed(self):
         agent = self._agent()
         self.assertNotEqual(agent["status"], "stopped")
         self.assertNotEqual(agent["launch_mode"], "none")
         self.assertEqual(json.loads(agent["runtime_state"])["bridgeInstanceId"], "real-bridge")
         self.assertEqual(self._superseded_by("real-bridge"), "")
-        self.assertNotIn("ignored", self._beat("real-bridge"), "the live bridge's beats must count again")
 
-    def test_a_long_nested_run_is_handed_back_because_the_real_bridge_kept_beating(self):
-        """A `claude -p` can outlive the lease; the beats the real bridge sent while superseded prove it lives."""
+    def test_the_real_bridges_next_beat_reclaims_the_session(self):
         self._nested_takes_over()
-        self._age_the_real_bridge()
-        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded", "still ignored while superseded")
         self._lost("nested-bridge")
-        self.assertNotEqual(self._agent()["status"], "stopped")
-        self.assertEqual(json.loads(self._agent()["runtime_state"])["bridgeInstanceId"], "real-bridge")
+        self.assertEqual(self._agent()["status"], "stopped", "until a beat proves the real bridge lives")
+        self.assertNotIn("ignored", self._beat("real-bridge"), "the reclaiming beat is a beat like any other")
+        self._assert_reclaimed()
 
-    def test_CONTROL_a_relaunched_session_that_closes_still_stops_the_agent(self):
-        """A real relaunch: the prior bridge was killed and never beats again, so the new one is the last."""
+    def test_a_long_nested_run_is_reclaimed_after_it_ends_not_during_it(self):
         self._nested_takes_over()
-        self._age_the_real_bridge()
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded", "the nested bridge still owns it")
+        self.assertEqual(json.loads(self._agent()["runtime_state"])["bridgeInstanceId"], "nested-bridge")
+        self._lost("nested-bridge")
+        self._beat("real-bridge")
+        self._assert_reclaimed()
+
+    def test_CONTROL_a_quick_relaunch_whose_session_closes_at_once_stays_stopped(self):
+        """The predecessor was killed by the relaunch: its last beat is seconds old but it never beats again."""
+        self._nested_takes_over()
         self._lost("nested-bridge")
         self.assertEqual(self._agent()["status"], "stopped")
         self.assertEqual(self._superseded_by("real-bridge"), "nested-bridge")
 
-    def test_CONTROL_a_takeover_of_a_different_session_is_not_handed_back(self):
-        """The handback is for one session held by two processes; a forced takeover by another session is not that."""
+    def test_CONTROL_a_takeover_by_a_different_session_is_not_reclaimed(self):
         self._register("real-bridge")
         self._register("other-session-bridge", handle="another-session", force=True)
         self.assertEqual(self._superseded_by("real-bridge"), "other-session-bridge", "precondition: the forced takeover ran")
         self._lost("other-session-bridge")
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
         self.assertEqual(self._agent()["status"], "stopped")
+
+    def test_CONTROL_an_operator_stop_is_not_lifted_by_a_beat(self):
+        self._nested_takes_over()
+        self._lost("nested-bridge")
+        stopped = self.client.post(f"/api/v1/agents/{AGENT}/control", json={"action": "stop", "from_agent": "dashboard"})
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual(self._agent()["status"], "stopped")
+
+    def test_CONTROL_a_registration_after_the_offer_keeps_the_session(self):
+        """The operator relaunched before the old bridge beat: the new session owns it, the offer lapses."""
+        self._nested_takes_over()
+        self._lost("nested-bridge")
+        self._register("relaunched-bridge")
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual(json.loads(self._agent()["runtime_state"])["bridgeInstanceId"], "relaunched-bridge")

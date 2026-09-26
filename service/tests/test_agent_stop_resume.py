@@ -37,6 +37,9 @@ CREATE TABLE dispatch_runs (
 CREATE TABLE dispatch_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, event_type TEXT, body TEXT, created_at TEXT
 );
+CREATE TABLE bridge_instances (
+    id TEXT PRIMARY KEY, agent_id TEXT, superseded_by TEXT DEFAULT '', handback_offered_at TEXT
+);
 """
 #: Column names copied from the real schema rather than guessed. The first version of this fixture
 #: called the event column `payload`; the write failed loudly here, but a fixture that merely LOOKS

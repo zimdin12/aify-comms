@@ -254,8 +254,8 @@ CREATE TABLE IF NOT EXISTS bridge_instances (
     last_seen TEXT NOT NULL,
     superseded_by TEXT DEFAULT '',
     superseded_at TEXT,
-    -- Last beat from this bridge while superseded; read only by nested_session_handback.py.
-    superseded_beat_at TEXT,
+    -- The session was offered back to this superseded bridge; its next beat reclaims it (nested_session_handback.py).
+    handback_offered_at TEXT,
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 

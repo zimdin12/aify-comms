@@ -48,8 +48,9 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
 A child `claude` (`claude -p`, `claude mcp list`) inherits `AIFY_AGENT_ID` and the session id, so its
 aify-comms bridge registers as the parent agent with the same session handle and takes the session over.
 sc-manager did this four times on 2026-09-26, and each exit left it `stopped` for 2.5 hours. Since 0.7.4
-the exit hands the session back to the parent's bridge when that bridge is still beating
-(`service/api_core/nested_session_handback.py`), so the agent is no longer stopped. While the child runs,
+the exit offers the session back to the parent's bridge, and that bridge's next beat reclaims it and lifts
+the stop (`service/api_core/nested_session_handback.py`); the agent reads stopped for at most one heartbeat
+interval. A predecessor killed by a real relaunch never beats, so its agent stays stopped. While the child runs,
 it still owns the identity: the parent's heartbeats are ignored, and a run for the agent can be claimed by
 the child's bridge. The fix is bridge-side: a bridge started under a nested `claude` should not register.
 The signal is not yet proven: Claude Code sets `CLAUDE_CODE_SESSION_ID` in its Bash tool's environment,

@@ -358,9 +358,9 @@ BRIDGE_INSTANCE_MIGRATIONS = {
     "terminal_id": "ALTER TABLE bridge_instances ADD COLUMN terminal_id TEXT DEFAULT ''",
     "bridge_kind": "ALTER TABLE bridge_instances ADD COLUMN bridge_kind TEXT DEFAULT ''",
     "bridge_build": "ALTER TABLE bridge_instances ADD COLUMN bridge_build TEXT DEFAULT ''",
-    # v0.7.4: a superseded bridge that still beats is the living process of a session a nested `claude`
-    # took over (api_core/nested_session_handback.py). Its own column, so `last_seen` keeps meaning live.
-    "superseded_beat_at": "ALTER TABLE bridge_instances ADD COLUMN superseded_beat_at TEXT",
+    # v0.7.4: a session a nested `claude` took over is offered back to the bridge it superseded, which
+    # reclaims it by beating (api_core/nested_session_handback.py).
+    "handback_offered_at": "ALTER TABLE bridge_instances ADD COLUMN handback_offered_at TEXT",
 }
 
 
