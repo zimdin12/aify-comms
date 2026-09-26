@@ -13,7 +13,7 @@ import { createHash } from "crypto";
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
-import { hookOutput, inboxUrl, noticeText, rememberSeen, unseen } from "./notify-notice.mjs";
+import { NOTICE_LIMIT, hookOutput, inboxUrl, noticeText, rememberSeen, seenForSession, seenRecord, unseen } from "./notify-notice.mjs";
 
 // Settings env first: the endpoint and the key may only be named in ~/.claude/settings.local.json.
 loadSettingsEnv();
@@ -59,10 +59,12 @@ try {
 fs.writeFileSync(RATE_FILE, String(Date.now()));
 
 const SEEN_FILE = path.join(tmpDir, `aify-notify-seen-${agentId}.json`);
+// The session the notices are for: Claude Code names it in the hook payload; elsewhere the harness
+// process stands in for it, which a relaunch replaces too.
+const SESSION = String(hookPayload?.session_id || process.ppid || "");
 function readSeen() {
   try {
-    const ids = JSON.parse(fs.readFileSync(SEEN_FILE, "utf-8"));
-    return Array.isArray(ids) ? ids : [];
+    return seenForSession(JSON.parse(fs.readFileSync(SEEN_FILE, "utf-8")), SESSION);
   } catch {
     return [];
   }
@@ -96,12 +98,12 @@ fetch(`${SERVER_URL}/api/v1/agents/${encodeURIComponent(agentId)}/heartbeat`, {
 }).catch(() => {});
 
 const seenIds = readSeen();
-const fresh = unseen(data?.messages, seenIds);
+const fresh = unseen(data?.messages, seenIds).slice(0, NOTICE_LIMIT);
 if (fresh.length) {
   const notice = noticeText({ messages: fresh, total: Number(data.total) || fresh.length, agentId });
   const output = hookPayload?.hook_event_name === "PostToolUse"
     ? JSON.stringify(hookOutput(notice, { claude: IS_CLAUDE, count: fresh.length }))
     : notice;
   process.stdout.write(output + "\n");
-  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(rememberSeen(seenIds, fresh))); } catch {}
+  try { fs.writeFileSync(SEEN_FILE, JSON.stringify(seenRecord(SESSION, rememberSeen(seenIds, fresh)))); } catch {}
 }

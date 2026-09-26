@@ -30,7 +30,7 @@ function standInService(messages) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, seen })));
 }
 
-function runHook({ url, scratch, claude }) {
+function runHook({ url, scratch, claude, sessionId }) {
   const env = {
     PATH: process.env.PATH,
     SystemRoot: process.env.SystemRoot || "",
@@ -48,7 +48,7 @@ function runHook({ url, scratch, claude }) {
     child.stdout.on("data", (d) => { out += d; });
     child.on("error", reject);
     child.on("exit", (code) => resolve({ code, out: out.trim() }));
-    child.stdin.end(JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Read" }));
+    child.stdin.end(JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "Read", ...(sessionId ? { session_id: sessionId } : {}) }));
   });
 }
 
@@ -110,6 +110,50 @@ test("a message the hook already surfaced is not surfaced again", async () => {
     for (const f of fs.readdirSync(scratch)) if (f.startsWith("aify-notify-") && f.endsWith(".ts")) fs.rmSync(path.join(scratch, f));
     const second = await runHook({ url, scratch, claude: true });
     assert.equal(second.out, "", `the same unread message was surfaced twice: ${second.out}`);
+  } finally {
+    server.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+const clearRateLimit = (scratch) => {
+  for (const f of fs.readdirSync(scratch)) if (f.startsWith("aify-notify-") && f.endsWith(".ts")) fs.rmSync(path.join(scratch, f));
+};
+
+test("a NEW session is shown what an earlier session was shown", async () => {
+  // v0.7 review: the seen-set was kept per agent, so a relaunched model never heard of an unread
+  // message its previous session had been shown.
+  const { server } = await standInService([MESSAGE]);
+  const scratch = scratchFor("hooked-agent");
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    assert.ok((await runHook({ url, scratch, claude: true, sessionId: "s-1" })).out, "control: shown to the first session");
+    clearRateLimit(scratch);
+    assert.equal((await runHook({ url, scratch, claude: true, sessionId: "s-1" })).out, "", "control: not twice to one session");
+    clearRateLimit(scratch);
+    assert.ok((await runHook({ url, scratch, claude: true, sessionId: "s-2" })).out, "a new session was not told");
+  } finally {
+    server.close();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("more unread than one notice holds: the rest surface on the next polls, oldest included", async () => {
+  // v0.7 review: the hook read only the newest three, so while those stayed unread a fourth, older
+  // message was never surfaced at all.
+  const five = [5, 4, 3, 2, 1].map((n) => ({ ...MESSAGE, id: `m-${n}`, subject: `s${n}` }));
+  const { server, seen } = await standInService(five);
+  const scratch = scratchFor("hooked-agent");
+  try {
+    const url = `http://127.0.0.1:${server.address().port}`;
+    const shown = [];
+    for (let i = 0; i < 2; i += 1) {
+      const context = JSON.parse((await runHook({ url, scratch, claude: true, sessionId: "s-1" })).out).hookSpecificOutput.additionalContext;
+      shown.push(...[...context.matchAll(/^MessageId: (m-\d)$/gm)].map((m) => m[1]));
+      clearRateLimit(scratch);
+    }
+    assert.deepEqual(shown.sort(), ["m-1", "m-2", "m-3", "m-4", "m-5"]);
+    assert.ok(seen.every((u) => !u.startsWith("/api/v1/messages/inbox/") || /[?&]limit=20(&|$)/.test(u)), JSON.stringify(seen));
   } finally {
     server.close();
     fs.rmSync(scratch, { recursive: true, force: true });

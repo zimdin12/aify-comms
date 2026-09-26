@@ -6,16 +6,33 @@
 // not the model, so messages were marked read that no model had read (v0.7 scan B1).
 //
 // Instead it remembers which ids it has already surfaced (`seenFile`), so an unread message is shown
-// once rather than every ten seconds.
+// once rather than every ten seconds -- once PER SESSION. A relaunched model has seen none of them,
+// and a seen-set kept per agent alone hid from it every message a previous session was shown.
+//
+// It reads up to `INBOX_WINDOW` unread and shows at most `NOTICE_LIMIT` it has not shown, so the next
+// poll surfaces the next ones. Reading only the newest three meant a fourth, older unread message was
+// never surfaced while those three stayed unread (v0.7 review).
 
 import { SAFETY_HEADER } from "./tool-response-format.mjs";
 import { quoteUntrustedSubject } from "./quote-subject.mjs";
 
 const MAX_BODY = 800;
 const SEEN_LIMIT = 200;
+const INBOX_WINDOW = 20;
+export const NOTICE_LIMIT = 3;
 
 export function inboxUrl(serverUrl, agentId) {
-  return `${serverUrl}/api/v1/messages/inbox/${encodeURIComponent(agentId)}?filter=unread&limit=3&peek=1`;
+  return `${serverUrl}/api/v1/messages/inbox/${encodeURIComponent(agentId)}?filter=unread&limit=${INBOX_WINDOW}&peek=1`;
+}
+
+/** The ids already shown to THIS session; a record from another session, or none, is an empty set. */
+export function seenForSession(stored, session) {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) return [];
+  return stored.session === session && Array.isArray(stored.ids) ? stored.ids : [];
+}
+
+export function seenRecord(session, ids) {
+  return { session, ids };
 }
 
 export function unseen(messages, seenIds) {
