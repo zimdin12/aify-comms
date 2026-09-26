@@ -22,7 +22,6 @@ longer tells the branches apart, and this goes red rather than the signal going 
 
 from __future__ import annotations
 
-import os
 import tempfile
 import time
 import unittest
@@ -52,11 +51,12 @@ def _painted(chars: int) -> str:
 
 class TheConsoleBranchDiscriminatorSeparatesBothBranches(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
-        os.environ["AIFY_DB_PATH"] = str(
-            Path(tempfile.mkdtemp(prefix="aify-branch-")) / "probe.db")
+        # A local path, not AIFY_DB_PATH: nothing reads that variable any more, and setting it leaked
+        # into the worker's environment for every later test (v0.7.1 review, D9).
+        db_path = Path(tempfile.mkdtemp(prefix="aify-branch-")) / "probe.db"
         from service.db import get_db, init_db
 
-        await init_db(Path(os.environ["AIFY_DB_PATH"]))
+        await init_db(db_path)
         from service.api_core.terminal_output import _trim_terminal_output as trim
 
         self.tail = trim(_painted(8 * 1024))

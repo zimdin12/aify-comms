@@ -18,7 +18,6 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
-from pathlib import Path
 
 #: WHICH SUFFIXES ARE WHICH LANGUAGE, owned here because this is the module that already has to
 #: decide. Two scripts had typed the JavaScript set out by hand and
@@ -29,8 +28,6 @@ from pathlib import Path
 #: differential accepted the file, because deleting a whole statement leaves valid JavaScript.
 JS_LINE_TERMINATORS = (chr(10), chr(13), chr(8232), chr(8233))
 
-PY_SUFFIXES = (".py",)
-JS_SUFFIXES = (".js", ".mjs", ".cjs")
 
 def _offsets(text: str) -> list[int]:
     """Character offset of the first character of each line, 1-indexed by line."""
@@ -183,7 +180,3 @@ def _regex_may_start(text: str, index: int, previous: str) -> bool:
         before = before[:-1]
     return word in REGEX_KEYWORDS
 
-
-def comment_spans(path: Path) -> list[tuple[int, int]]:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return python_comment_spans(text) if path.suffix in PY_SUFFIXES else js_comment_spans(text)

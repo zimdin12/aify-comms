@@ -196,9 +196,9 @@ function resumeRegexesForRuntime(runtime, flags = "") {
 /**
  * The resume flags a runtime's launch command can carry.
  *
- * Exported so the argv reader derives from the SAME table the regexes are built from. Two lists that
- * must agree is how this went wrong before: codex and opencode were missing from the flag set and
- * nothing connected the adapters that EMIT `--resume` to the code that has to undo it.
+ * Exported as the test's view of the table: the argv reader that also derived from it went in 0.7.0,
+ * and `resume-flags-cover-every-runtime.test.js` still holds every runtime's flags to it. Two lists that
+ * had to agree is how this went wrong before: codex and opencode were missing from the flag set.
  */
 export function resumeFlagsForRuntime(runtime = "") {
   return RESUME_FLAGS_BY_RUNTIME[normalizeRuntime(runtime)] || [];
