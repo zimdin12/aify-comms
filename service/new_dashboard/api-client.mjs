@@ -13,7 +13,7 @@
 // a multipart upload — need the base itself, not a wrapped request. An ESM import of a `let` reflects
 // later assignments, so `setApiBase` below reaches them, while an importer still cannot assign to it (that
 // is a syntax error). One writer, many readers, read-only at every reader: the case live bindings are for.
-import { apiKeyHeader } from './api-key.mjs';
+import { apiKeyHeader, credentialOrigin } from './api-key.mjs';
 import { ensureApiKeyPrompt } from './api-key-prompt.mjs';
 
 export let apiBase = '';
@@ -35,7 +35,12 @@ export function setApiBase(base, origin = base) {
 // The OPERATOR KEY, if this dashboard was served with one. It proves that a request naming
 // `requestedBy=operator` really comes from an operator surface — since R5-H1 (2026-08-18) the actor
 // string alone grants nothing, because any caller could type it. Never logged, never rendered.
+//
+// BOUND TO ONE ORIGIN: the service that served this page, which app.js names at boot. It was sent on
+// every request whatever the destination, so a link with `?apiOrigin=https://receiver` handed it to the
+// receiver as the page loaded (v0.7.1 review, W03-R1). Bound to nothing, it is sent nowhere.
 let operatorKey = '';
+let operatorKeyOrigin = '';
 
 // Read at module load from what the dashboard server injected into the page. Done HERE rather than
 // wired from app.js, because the repo's rule is that new behaviour goes in a module.
@@ -43,9 +48,15 @@ if (typeof globalThis !== 'undefined' && globalThis.__AIFY_OPERATOR_KEY__) {
   operatorKey = String(globalThis.__AIFY_OPERATOR_KEY__);
 }
 
-/** Seeded once at boot from the value the dashboard server injected. Exported for tests. */
-export function setOperatorKey(key) {
+/** Set the key and the one origin it may go to. Exported for tests; app.js uses `bindOperatorKeyTo`. */
+export function setOperatorKey(key, origin = operatorKeyOrigin) {
   operatorKey = String(key || '');
+  operatorKeyOrigin = credentialOrigin(origin);
+}
+
+/** Name the origin the injected key belongs to: the service that served this page. Called once at boot. */
+export function bindOperatorKeyTo(origin) {
+  operatorKeyOrigin = credentialOrigin(origin);
 }
 
 // Return the untouched Response for callers with status-specific workflows (409 consent).
@@ -59,7 +70,10 @@ export async function apiResponse(path, options = {}) {
   // content-type a caller ends up with.
   const { headers: callerHeaders, ...rest } = options;
   const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };
-  if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;
+  const url = `${apiBase}${path}`;
+  if (operatorKey && operatorKeyOrigin && credentialOrigin(url) === operatorKeyOrigin) {
+    headers['X-Aify-Operator-Key'] = operatorKey;
+  }
   // THE SERVICE KEY, AND A HEADER RATHER THAN THE COOKIE ON PURPOSE. This page is served from the
   // dashboard port and calls the API back on the service port, so every request here is
   // cross-origin -- and a cookie does not ride a cross-origin fetch unless credentialed CORS is on,
@@ -67,7 +81,6 @@ export async function apiResponse(path, options = {}) {
   // it off is the right call. Attached AFTER the caller's headers for the same reason the operator
   // key is: so it survives a caller that replaced the defaults wholesale. The key is looked up for
   // the URL the request goes to, so it can only ever reach the origin it was entered for.
-  const url = `${apiBase}${path}`;
   const serviceKey = apiKeyHeader(url);
   if (serviceKey) Object.assign(headers, serviceKey);
   const response = await fetch(url, { headers, ...rest });

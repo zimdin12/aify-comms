@@ -17,7 +17,7 @@ test('rendered Download uses authenticated bytes, cleans blobs, preserves drafts
   globalThis.setTimeout = fn=>{fn();return 0;};
   URL.createObjectURL = b=>{assert.equal(b.size,7);return 'blob:owned';};
   URL.revokeObjectURL = u=>revoked.push(u);
-  setApiBase('https://owned.invalid/api/v1');setOperatorKey('synthetic-operator');
+  setApiBase('https://owned.invalid/api/v1');setOperatorKey('synthetic-operator','https://owned.invalid');
   try {
     const pasted = {value:'unsent',focus(){},dispatchEvent(){}};
     await files.uploadPastedImage(new Blob(['image'],{type:'image/png'}),pasted);

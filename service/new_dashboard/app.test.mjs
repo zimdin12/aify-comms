@@ -463,3 +463,15 @@ test("the Settings button that discards unsaved edits says so, not 'Reset'", () 
   const html = read("index.html");
   assert.match(html, /<button class="ghost" id="settings-reset"[^>]*>Discard changes<\/button>/);
 });
+
+test("boot binds the injected operator key to the page's own service before any request", () => {
+  // v0.7.1 review (W03-R1): api-client sends the operator key only to the origin it is bound to, and
+  // sends it nowhere while unbound, so the binding has to happen at boot and to the DEFAULT origin, not
+  // to the resolved one, which a `?apiOrigin=` link chooses. app.js cannot be imported in Node, so the
+  // call site is read; api-client.test.mjs proves what the binding does.
+  const src = read("app.js");
+  const bind = src.indexOf("bindOperatorKeyTo(defaultApiOrigin())");
+  assert.ok(bind > 0, "app.js no longer binds the operator key to the default origin");
+  assert.ok(bind < src.indexOf("setApiBase(apiBase, apiOrigin)"), "the key must be bound before the first request is possible");
+  assert.ok(!/bindOperatorKeyTo\(\s*apiOrigin\s*\)/.test(src), "bound to the link-chosen origin");
+});

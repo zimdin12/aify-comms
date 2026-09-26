@@ -27,7 +27,7 @@ import { pages } from './page-titles.mjs';
 import { _agentSig, _chatChanSig, _chatConvSig, _contractSig, _envSig, _msgSig, _runSig, _settingsSig, _spawnReqSig } from './render-memo.mjs';
 import { renderSection } from './render-memo.mjs';
 import { defaultApiOrigin, resolveApiOrigin } from './api-origin.mjs';
-import { setApiBase, api } from './api-client.mjs';
+import { setApiBase, api, bindOperatorKeyTo } from './api-client.mjs';
 import { adoptLegacyApiKey } from './api-key.mjs';
 import { renderFiles } from './shared-files.mjs';
 import { chatLoadChannels, chatLoadConversation, chatSendMessage } from './message-transport.mjs';
@@ -47,6 +47,7 @@ import { ChangeDrivenRefresh } from './change-refresh.mjs';
 import { loadSlices } from './slice-loaders.mjs';
 
 adoptLegacyApiKey(defaultApiOrigin()); // a key stored before keys were bound to an origin belongs to the default one (api-key.mjs)
+bindOperatorKeyTo(defaultApiOrigin()); // the injected operator key belongs to the service that served this page, never a linked one
 const apiOrigin = resolveApiOrigin();
 const apiBase = `${apiOrigin}/api/v1`;
 

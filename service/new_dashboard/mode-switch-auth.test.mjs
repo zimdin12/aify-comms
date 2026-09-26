@@ -39,7 +39,7 @@ function harness(t, replies, confirm = true) {
   globalThis.requestAnimationFrame = fn => fn();
   globalThis.setTimeout = () => 0;
   setApiBase('https://synthetic.invalid/api/v1');
-  setOperatorKey('synthetic-operator');
+  setOperatorKey('synthetic-operator', 'https://synthetic.invalid');
   resetAdoptionForTests();
   writeApiKey('synthetic-service', 'https://synthetic.invalid');
   globalThis.fetch = async (url, options) => {

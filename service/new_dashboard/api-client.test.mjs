@@ -169,7 +169,7 @@ test("setOperatorKey attaches the operator key to every request", async () => {
   };
   try {
     setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
-    setOperatorKey("k-123");
+    setOperatorKey("k-123", "http://127.0.0.2:1");
     await api("/whatever");
     assert.equal(seen[0]["X-Aify-Operator-Key"], "k-123",
       "the operator key was not sent, so every operator-only action will 403");
@@ -189,6 +189,33 @@ test("setOperatorKey attaches the operator key to every request", async () => {
       "an unset key must not send an empty header");
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test("the operator key goes only to the service that served the page, never to a linked apiOrigin", async () => {
+  // v0.7.1 review (W03-R1). The key the dashboard server injects was attached to every request,
+  // whatever its destination, so a link with `?apiOrigin=https://receiver` handed the operator key
+  // to the receiver the moment the page loaded. It is bound to the default origin at boot.
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    seen.push({ url, headers: options?.headers || {} });
+    return { ok: true, status: 200, text: async () => "{}" };
+  };
+  try {
+    setOperatorKey("synthetic-operator", "http://127.0.0.2:1");
+    setApiBase("https://receiver.example.test/api/v1", "https://receiver.example.test");
+    await api("/agents");
+    assert.equal(seen[0].headers["X-Aify-Operator-Key"], undefined, "the operator key reached a linked origin");
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    await api("/agents");
+    assert.equal(seen[1].headers["X-Aify-Operator-Key"], "synthetic-operator", "control: the page's own service still gets it");
+    setOperatorKey("synthetic-operator", "");
+    await api("/agents");
+    assert.equal(seen[2].headers["X-Aify-Operator-Key"], undefined, "a key bound to no origin is sent nowhere");
+  } finally {
+    globalThis.fetch = realFetch;
+    setOperatorKey("");
   }
 });
 
