@@ -97,6 +97,12 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
                     messages.append(msg)
                     await db.execute("INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)", (row["id"], agent_id, now))
 
+                # ...and asked again at the last moment. The fetch and the receipts above took awaits, and a
+                # caller that went during them must not have them committed (v0.7 review). A caller
+                # that goes after the commit cannot be helped from here.
+                if await request.is_disconnected():
+                    await db.rollback()
+                    return {"total": 0, "messages": []}
                 # Set status to working
                 await db.execute("UPDATE agents SET status = 'working', last_seen = ? WHERE id = ?", (now, agent_id))
                 await db.commit()

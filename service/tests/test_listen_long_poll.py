@@ -177,6 +177,24 @@ class ListenLongPollTests(FastApiTestCase):
                          "a disconnected listener marked the message read")
         self.assertEqual(self._listen().json()["total"], 1, "control: a connected listener still gets it")
 
+    def test_a_caller_that_goes_WHILE_its_messages_are_fetched_is_not_marked_read(self):
+        """The first check passes and the caller goes during the fetch: the receipts written for it
+        must not be committed (v0.7 review: the first fix checked only before the fetch)."""
+        from types import SimpleNamespace
+
+        from service.routers.agents.listen import listen_for_messages
+
+        answers = iter([False, True])
+
+        async def is_disconnected():
+            return next(answers, True)
+
+        self._seed_message("m-1")
+        result = asyncio.run(listen_for_messages(AGENT, SimpleNamespace(is_disconnected=is_disconnected), timeout=1))
+        self.assertEqual(result, {"total": 0, "messages": []})
+        self.assertEqual(self._rows("SELECT * FROM read_receipts"), [], "a receipt was committed for a caller that had gone")
+        self.assertEqual(self._listen().json()["total"], 1, "control: the message is still there to deliver")
+
     # ── the wait ─────────────────────────────────────────────────────────────────────────────
 
     def test_with_nothing_to_do_it_waits_and_then_answers_EMPTY(self):
