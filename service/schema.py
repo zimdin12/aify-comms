@@ -27,8 +27,6 @@ CREATE TABLE IF NOT EXISTS agents (
     instructions TEXT DEFAULT '',
     status TEXT DEFAULT 'idle',
     status_note TEXT DEFAULT '',
-    -- Bumped by a trigger on every write of status_note, launch_mode or session_mode (db.py); read by nested_session_handback.py.
-    note_generation INTEGER NOT NULL DEFAULT 0,
     runtime TEXT DEFAULT 'generic',
     machine_id TEXT DEFAULT '',
     launch_mode TEXT DEFAULT 'detached',

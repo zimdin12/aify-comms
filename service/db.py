@@ -43,8 +43,6 @@ _db_path: Path = None
 
 
 AGENT_MIGRATIONS = {
-    # v0.7.4: a count of explicit writes to the agent's stop state, bumped by AGENT_NOTE_GENERATION_TRIGGER.
-    "note_generation": "ALTER TABLE agents ADD COLUMN note_generation INTEGER NOT NULL DEFAULT 0",
     "runtime": "ALTER TABLE agents ADD COLUMN runtime TEXT DEFAULT 'generic'",
     "machine_id": "ALTER TABLE agents ADD COLUMN machine_id TEXT DEFAULT ''",
     "launch_mode": "ALTER TABLE agents ADD COLUMN launch_mode TEXT DEFAULT 'detached'",
@@ -212,26 +210,12 @@ AGENT_TURN_STATE_BACKFILLS = (
 )
 
 
-# EVERY WRITE COUNTS, EVEN ONE THAT CHANGES NOTHING. `UPDATE OF` fires whenever the statement names the
-# column, whatever the value, so a write that repeats the same stop note is still a new write. That is
-# what lets a session handed back to its own bridge (api_core/nested_session_handback.py) tell the
-# loss's stop apart from any later explicit write: comparing values could not (0.7.4 reviews). `status`
-# is deliberately absent: every heartbeat rewrites it to its current value. Created after the column
-# exists, not in SCHEMA, for the reason the controls index gives below.
-AGENT_NOTE_GENERATION_TRIGGER = (
-    "CREATE TRIGGER IF NOT EXISTS agents_note_generation"
-    " AFTER UPDATE OF status_note, launch_mode, session_mode ON agents"
-    " BEGIN UPDATE agents SET note_generation = OLD.note_generation + 1 WHERE id = NEW.id; END"
-)
-
-
 async def _migrate_agents_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(agents)")
     existing = {row[1] for row in await cursor.fetchall()}
     for column, statement in AGENT_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
-    await db.execute(AGENT_NOTE_GENERATION_TRIGGER)
 
 
 # Written once `worker_idle_close_enabled` has been folded away, because after that the DB cannot

@@ -63,11 +63,7 @@ def _sqlite_reading(conn: sqlite3.Connection, sql: str):
     """(table, updated columns) as SQLite's authorizer reports them while compiling `sql`."""
     actions = []
 
-    def authorizer(action, arg1, arg2, _db, trigger):
-        # The statement's own writes, which is what the parser reads: a trigger's writes (the agents
-        # note-generation count, db.py) arrive with the trigger's name and are its consequence.
-        if trigger:
-            return sqlite3.SQLITE_OK
+    def authorizer(action, arg1, arg2, _db, _trigger):
         if action in (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_DELETE):
             actions.append((arg1.lower(), None))
         elif action == sqlite3.SQLITE_UPDATE:
