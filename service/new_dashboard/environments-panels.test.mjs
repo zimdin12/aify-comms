@@ -511,10 +511,27 @@ test("THE PAGE TELLS THE OPERATOR TO RUN aify-env, never the retired bare aify-c
     openEnvironmentRootsEditor("e1");
     return els["inspector-content"].innerHTML;
   });
-  const command = /<textarea id="env-start-cmd"[^>]*>([^<]*)<\/textarea>/.exec(editor)?.[1] ?? "";
+  const command = /<textarea id="env-check-cmd"[^>]*>([^<]*)<\/textarea>/.exec(editor)?.[1] ?? "";
   assert.match(command, /aify-env doctor/, "the copied command checks the host first");
   assert.ok(!command.split("\n").some((line) => /^\s*aify-comms\b/.test(line)), `still pastes aify-comms: ${command}`);
   assert.doesNotMatch(editor, /Reset to bridge roots/, "the reset names the host, not the retired bridge");
+});
+
+test("THE COPIED HOST COMMAND ONLY DIAGNOSES: starting aify-env is said in words, never pasted (0.7.1 T05)", async () => {
+  // It copied `aify-env doctor` and then `aify-env`, and a bare `aify-env` STARTS the host tier: on a
+  // host with an idle one running, the paste superseded it. Starting it is the operator's decision.
+  state.environments = [{ id: "e1", os: "linux", cwdRoots: ["/srv/work"] }];
+  const editor = await withDomAsync({ "inspector-content": el(), inspector: el() }, (els) => {
+    openEnvironmentRootsEditor("e1");
+    return els["inspector-content"].innerHTML;
+  });
+  const command = /<textarea id="env-check-cmd"[^>]*>([^<]*)<\/textarea>/.exec(editor)?.[1] ?? "";
+  const copied = /data-copy-text="([^"]*)"/.exec(editor)?.[1] ?? "";
+  for (const [where, text] of [["shown", command], ["copied", copied]]) {
+    const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+    assert.deepEqual(lines, ["aify-env doctor"], `the ${where} command must be the diagnostic alone, got: ${JSON.stringify(text)}`);
+  }
+  assert.match(editor, /[Ss]tarting aify-env[^<]*is the operator's/, "the page must still say how aify-env gets started, and by whom");
 });
 
 test("AN ONLINE ENVIRONMENT OFFERS NO 'Stop bridge': nothing claims that control any more", () => {
