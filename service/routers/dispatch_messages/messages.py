@@ -105,13 +105,11 @@ async def send_message(req: MessageSend, request: Request):
         # messageId so the bridge can retry safely. Scoped per sender; absent nonce = today's
         # behavior (old bridges omit it, so no dedup — fully backward compatible).
         client_nonce = str(req.clientNonce or "").strip()
-        # Resolved BEFORE the nonce is judged: a retry is the same send when it resolves to the same
-        # reply parent and recipients, which is what the stored fingerprint records.
+        # A retry is the same send when the caller asked for the same thing (`send_nonce.py`); the
+        # resolution happens here because the legacy fallback compares the parent it resolved to.
         resolved_in_reply_to, reply_parent_found = await _resolve_reply_parent_message_id(db, req.inReplyTo)
         recipients = await _resolve_recipient_ids(db, to=req.to, to_role=req.toRole, from_agent=req.from_agent)
-        fingerprint = (
-            send_fingerprint(req, in_reply_to=resolved_in_reply_to, recipients=recipients) if client_nonce else ""
-        )
+        fingerprint = send_fingerprint(req) if client_nonce else ""
         if client_nonce:
             prior_id = await prior_send_for_nonce(
                 db, req, client_nonce, fingerprint=fingerprint, in_reply_to=resolved_in_reply_to,

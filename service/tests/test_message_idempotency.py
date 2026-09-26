@@ -209,3 +209,47 @@ class MessageIdempotencyTests(FastApiTestCase):
         self.assertEqual(second.json().get("messageId"), first_id)
         self.assertEqual(self._count_messages("sender", "norace"), 1,
                          "a raced retry must not create a second message")
+
+
+class ARetryIsTheSameSendWhateverChangedAroundItTests(FastApiTestCase):
+    """v0.7.1 review. W07: the fingerprint recorded the RESOLVED recipients, so a `toRole` retry after
+    another agent registered with that role resolved differently and got a 409 for a send that had
+    succeeded. W09: a fan-out acknowledges `msg_id` but stores `msg_id-<recipient>` rows, and a retry
+    answered with the first row's suffixed id instead of the id the first attempt returned."""
+
+    DB_NAME = "aify-msg-idempotency-intent.db"
+
+    def _register(self, agent_id: str, role: str = "coder"):
+        r = self.client.post("/api/v1/agents", json={"agentId": agent_id, "role": role})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _send(self, **body):
+        body.setdefault("subject", "test")
+        body.setdefault("type", "info")
+        return self.client.post("/api/v1/messages/send", json=body)
+
+    def setUp(self):
+        super().setUp()
+        self._register("sender", role="lead")
+        self._register("rev-1", role="reviewer")
+        self._register("rev-2", role="reviewer")
+
+    def test_a_role_send_retried_after_the_roster_changed_is_the_same_send(self):
+        first = self._send(from_agent="sender", toRole="reviewer", body="look", clientNonce="n-role")
+        self.assertEqual(first.status_code, 200, first.text)
+        self._register("rev-3", role="reviewer")
+        retry = self._send(from_agent="sender", toRole="reviewer", body="look", clientNonce="n-role")
+        self.assertEqual(retry.status_code, 200, retry.text)
+        self.assertEqual(retry.json()["messageId"], first.json()["messageId"])
+
+    def test_control_a_different_role_under_the_same_nonce_is_still_refused(self):
+        self._register("tester", role="tester")
+        self.assertEqual(self._send(from_agent="sender", toRole="reviewer", body="x", clientNonce="n-2").status_code, 200)
+        self.assertEqual(self._send(from_agent="sender", toRole="tester", body="x", clientNonce="n-2").status_code, 409)
+
+    def test_a_fan_out_retry_returns_the_id_the_first_attempt_returned(self):
+        first = self._send(from_agent="sender", toRole="reviewer", body="fan", clientNonce="n-fan")
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(len(first.json()["recipients"]), 2, "control: this is a fan-out")
+        retry = self._send(from_agent="sender", toRole="reviewer", body="fan", clientNonce="n-fan")
+        self.assertEqual(retry.json()["messageId"], first.json()["messageId"])
