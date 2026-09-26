@@ -61,6 +61,13 @@ const IS_MAIN =
 
 // Windows + Docker Desktop: force IPv4 loopback (see claude-channel.js).
 
+// ── HISTORY OF CODE THAT NOW LIVES ELSEWHERE ─────────────────────────────────────────────────────
+// Every paragraph from here to `readBoundAgentId` describes a constant or helper that moved out of
+// this file: the delivery cadences and teardown backstops to hermes-delivery-loop.mjs and
+// hermes-inflight.mjs, the session freshness and active-session file to hermes-active-session.mjs,
+// the liveness probe to hermes-gateway-liveness.js. They are kept for the incidents they record;
+// none of them describes code in this file (v0.7.1 review, B6).
+
 // Per-agent channel-sidecar bridge id (holistic-review F1, 2026-05-31). A
 // machine-global `hermes-managed-host-<machine>` id collided across co-located
 // managed hermes agents because bridge_instances.id is the PRIMARY KEY — only
