@@ -17,7 +17,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sealedChildEnv } from "./_child-env.mjs";
 import { ENDPOINT_ENV_NAMES } from "../aify-service-endpoint.mjs";
-import { hookFiredAt, postAgentState } from "../agent-state-event.mjs";
+import { hookFiredAtUs, postAgentState } from "../agent-state-event.mjs";
+import { defaultMachineId } from "../machine-id.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "..", "agent-state-event.mjs");
 
@@ -77,9 +78,9 @@ for (const [event, path, body] of [
       assert.equal(req.method, "POST");
       assert.equal(req.url, path);
       assert.equal(req.key, "test-key", "the request must authenticate");
-      // No bridgeId, so the service takes a turn signal as the authoritative harness one. `at` orders
-      // the background hooks' events; here it is the shell time the hook command passed.
-      assert.deepEqual(JSON.parse(req.body), { ...body, at: 1790451762694 });
+      // No bridgeId, so the service takes a turn signal as the authoritative harness one. The stamp
+      // orders the background hooks' events: the shell time the hook command passed, and the host.
+      assert.deepEqual(JSON.parse(req.body), { ...body, firedAtUs: 1790451762694110, machineId: defaultMachineId() });
       assert.equal(r.out, "", "a hook's stdout is parsed by codex; it must stay empty");
       assert.equal(r.err, "");
     } finally {
@@ -88,11 +89,12 @@ for (const [event, path, body] of [
   });
 }
 
-test("the fired-at time is the shell's, in either decimal separator, else the process start", () => {
-  assert.equal(hookFiredAt({ AIFY_HOOK_FIRED_AT: "1790451762.694110" }, 7), 1790451762694);
-  assert.equal(hookFiredAt({ AIFY_HOOK_FIRED_AT: "1790451762,694110" }, 7), 1790451762694);
-  for (const unusable of [undefined, "", "   ", "soon", "0", "-5"]) {
-    assert.equal(hookFiredAt({ AIFY_HOOK_FIRED_AT: unusable }, 7), 7, String(unusable));
+test("the fired-at time is the shell's to the microsecond, in either decimal separator, else the process start", () => {
+  assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.694110" }, 7), 1790451762694110);
+  assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762,694111" }, 7), 1790451762694111);
+  assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.5" }, 7), 1790451762500000);
+  for (const unusable of [undefined, "", "   ", "soon", "0", "-5", "1.2.3", "99999999999999999999"]) {
+    assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: unusable }, 7), 7, String(unusable));
   }
 });
 

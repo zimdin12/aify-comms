@@ -7,7 +7,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { makeDispatchReceipts } from "./channel-dispatch-receipts.mjs";
 import { loadSettingsEnv } from "./load-env.js";
-import { defaultMachineId } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";

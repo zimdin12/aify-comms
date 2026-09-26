@@ -154,5 +154,5 @@ import { declaringModules, isUsedInBridge } from "./bridge-sources.mjs";
     "the transport stays INJECTED — importing one would remove the seam this is testable through");
   assert.match(src, /httpCall: call/, "…and it is still destructured from the caller's argument");
   assert.deepEqual([...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort(),
-    ["./runtimes.js", "./session-mode.mjs"]);
+    ["./machine-id.mjs", "./runtimes.js", "./session-mode.mjs"]);
 }

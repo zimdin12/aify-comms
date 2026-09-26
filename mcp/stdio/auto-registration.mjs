@@ -49,16 +49,16 @@ import {
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import {
   defaultCapabilitiesForRuntime,
-  defaultMachineId,
   defaultSessionHandleForRuntime,
   detectRuntime,
   discoverCodexLiveBinding,
   discoverCodexLiveThreadId,
   hasCodexLiveAppServer,
 } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { validateName } from "./safe-name.mjs";
 
-// Bound from the one `defaultMachineId()` in `runtimes.js`, as several other bridge modules already do: it
+// Bound from the one `defaultMachineId()` in `machine-id.mjs`, as several other bridge modules already do: it
 // is a pure function of env and hostname, so deriving it here cannot disagree with deriving it elsewhere.
 const MACHINE_ID = defaultMachineId();
 

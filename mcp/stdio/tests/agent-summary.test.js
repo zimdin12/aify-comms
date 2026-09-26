@@ -166,5 +166,5 @@ test("the leaf reaches only owned leaves, and holds no mutable state", () => {
   const src = readFileSync(path.join(STDIO, "agent-summary.mjs"), "utf-8");
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ["./parse-json.mjs", "./runtimes.js", "./session-mode.mjs"]);
+  assert.deepEqual(imports, ["./machine-id.mjs", "./parse-json.mjs", "./runtimes.js", "./session-mode.mjs"]);
 });

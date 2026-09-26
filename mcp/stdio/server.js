@@ -57,11 +57,11 @@ import { loadSettingsEnv } from "./load-env.js";
 import { removeAgentBindingFile } from "./binding-file.js";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import {
-  defaultMachineId,
   detectRuntime,
   extractRuntimeSessionHandleFromCommand,
   terminateProcessTree,
 } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 
 import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";

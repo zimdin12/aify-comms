@@ -17,10 +17,10 @@ import { AIFY_COMMS_RECEIPT_TEXT, claudeAifyReceiptLine } from "../aify-console-
 import { forgetResolvedExecutables, inspectShebang } from "../runtimes-exec.js";
 import {
   RUNTIME_SESSION_ENV_VARS,
-  hostIsWsl,
   runtimeCommandWithoutResume,
   sessionEnvVarsForRuntime,
 } from "../runtimes.js";
+import { hostIsWsl } from "../machine-id.mjs";
 
 test("the receipt line IS the marker, so a reader cannot drift from the writer", () => {
   // Three live modules match on this text — `claude-channel-content.js`, `codex-session.js` and the

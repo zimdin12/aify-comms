@@ -476,6 +476,7 @@ CREATE TABLE IF NOT EXISTS agent_turn_state (
 CREATE TABLE IF NOT EXISTS agent_hook_order (
     agent_id TEXT PRIMARY KEY,
     last_at INTEGER NOT NULL,
+    machine_id TEXT NOT NULL DEFAULT '',
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 

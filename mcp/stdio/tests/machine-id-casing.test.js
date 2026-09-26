@@ -5,7 +5,7 @@
 // consistent (lowercased) value to avoid duplicate live bridge_instances.
 import assert from "assert";
 import test from "node:test";
-import { defaultMachineId } from "../runtimes.js";
+import { defaultMachineId } from "../machine-id.mjs";
 
 test("defaultMachineId is fully lowercase", () => {
   const id = defaultMachineId();

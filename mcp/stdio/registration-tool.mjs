@@ -57,16 +57,16 @@ import { __runtimeAdapter } from "./runtime-adapter.mjs";
 import {
   defaultCapabilitiesForRuntime,
   defaultSessionHandleForRuntime,
-  defaultMachineId,
   detectRuntime,
   discoverCodexLiveBinding,
   discoverCodexLiveThreadId,
   hasCodexLiveAppServer,
 } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { validateName } from "./safe-name.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 
-// Bound from the one `defaultMachineId()` in `runtimes.js`, as six other bridge modules already do. It is a
+// Bound from the one `defaultMachineId()` in `machine-id.mjs`, as six other bridge modules already do. It is a
 // pure function of env and hostname — deterministic across processes — so deriving it here is not the
 // duplicate-state defect that kept `BRIDGE_STARTED_AT` and `DEFAULT_CWD` in single owners. Re-deriving a
 // pure function is safe; re-reading a clock or a cwd is not.

@@ -44,7 +44,7 @@ import { checkClaudeLogin } from "./claude-auth-check.mjs";
 // Pure env predicates live in their own module so they can be unit-tested — this script runs its
 // checks at import and ends in process.exit(), so nothing here is importable by a test. See
 // doctor-predicates.js for why (two shipped false greens, zero coverage).
-import { defaultMachineId } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { checkApiExposure } from "./api-exposure-check.mjs";
 import { resolveDoctorApiKey } from "./doctor-api-key.mjs";
 import { markFor } from "./doctor-mark.mjs";

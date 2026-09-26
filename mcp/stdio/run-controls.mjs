@@ -24,7 +24,7 @@
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
 import { httpCall } from "./aify-service-endpoint.mjs";
-import { defaultMachineId } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 
 // Pure function of env and hostname, so deriving it here agrees with every other derivation in the bridge.
 const MACHINE_ID = defaultMachineId();

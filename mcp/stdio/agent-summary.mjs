@@ -16,13 +16,14 @@
 // overlapping pair in both directions.
 //
 // `MACHINE_ID` is bound here the way `claude-channel.js`, `hermes-channel.js`, `hermes-env.mjs` and
-// `hermes-managed-host.js` each bind it: by calling the one `defaultMachineId()` in `runtimes.js`. That is
+// `hermes-managed-host.js` each bind it: by calling the one `defaultMachineId()` in `machine-id.mjs`. That is
 // a repeated derivation of a pure function, not a second owner — all five agree by construction, and
 // there is nothing to keep in sync.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { defaultMachineId, hasCodexLiveAppServer, normalizeRuntime } from "./runtimes.js";
+import { hasCodexLiveAppServer, normalizeRuntime } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { parseJson } from "./parse-json.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 

@@ -18,7 +18,7 @@
 // name. Renaming either is a behavioural edit to a call site rather than a relocation, so both keep their
 // names and this paragraph exists so the next person importing one of them checks which.
 //
-// `MACHINE_ID` is bound here by calling the one `defaultMachineId()` in `runtimes.js`, the way
+// `MACHINE_ID` is bound here by calling the one `defaultMachineId()` in `machine-id.mjs`, the way
 // `claude-channel.js`, `hermes-channel.js`, `hermes-env.mjs`, `hermes-managed-host.js` and
 // `agent-summary.mjs` each do. A repeated derivation of a pure function, not a second owner.
 //
@@ -27,7 +27,7 @@
 import { httpCall } from "./aify-service-endpoint.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { cleanEnvPlaceholder } from "./launch-identity.mjs";
-import { defaultMachineId } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { activeTurnHeartbeatPayload, agentHeartbeatPayload } from "./turn-busy.js";
 
 const MACHINE_ID = defaultMachineId();

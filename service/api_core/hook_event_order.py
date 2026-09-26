@@ -7,38 +7,53 @@ the 3 s hook timeout, so every prompt waited and the event could be lost. In the
 events can arrive out of order: a slow turn-start landing after its own turn-end would leave the agent
 `working` with nothing left to end the turn.
 
-So each hook sends `at`, the host's clock in milliseconds when it fired, and an event older than the
-last one applied for that agent is refused. The comparison is between hook times from the agent's own
-host, never against the service's clock. Registration clears the record, so an agent relaunched on a
-host whose clock is behind is not refused until that clock catches up. An event without `at` (a
-bridge-side detector, an older hook) is outside this ordering and applies as before.
+So each hook sends `firedAtUs`, the host clock in microseconds when it fired (the shell's
+`$EPOCHREALTIME`, taken before `node` starts), and `machineId`, the id its bridge registers with. For
+one agent the service keeps the last applied event's time and host, and applies an event only when:
+
+  * its host is the agent's REGISTERED host. A relaunch on another host re-registers there, so a
+    delayed event from the previous host is refused whatever its clock says; times are never compared
+    across hosts, whose clocks can disagree by minutes.
+  * it is from a different host than the last applied event (the first event after a move), or it
+    fired later than that event.
+  * or it fired in the same microsecond and is a turn-end. The tie goes to the end of a turn because
+    a wrong `idle` is corrected by the next tool call's turn-start, and a wrong `working` is not.
+
+An event without `firedAtUs` (a bridge-side detector, a hook installed before this) is outside the
+ordering and applies as before.
 """
 
 from __future__ import annotations
 
-
-def hook_event_at(body: dict) -> int | None:
-    """The hook's `at`, when it sent a usable one."""
-    at = body.get("at") if isinstance(body, dict) else None
-    if isinstance(at, bool) or not isinstance(at, int) or at <= 0:
-        return None
-    return at
+_MAX_FIRED_AT_US = 2 ** 53  # past this a JSON number is not an exact integer
 
 
-async def accept_hook_event(db, agent_id: str, at: int | None) -> bool:
-    """Record `at` as the agent's latest hook event and return True, or return False when a later one
-    was already applied. One statement, so two concurrent events cannot both pass."""
-    if at is None:
+def hook_event_stamp(body) -> tuple[int | None, str]:
+    """The hook's (firedAtUs, machineId), with None when it sent no usable time."""
+    if not isinstance(body, dict):
+        return None, ""
+    fired = body.get("firedAtUs")
+    if isinstance(fired, bool) or not isinstance(fired, int) or not 0 < fired < _MAX_FIRED_AT_US:
+        fired = None
+    machine = body.get("machineId")
+    return fired, (machine.strip().lower() if isinstance(machine, str) else "")
+
+
+async def accept_hook_event(db, agent_id: str, *, fired_at_us: int | None, machine_id: str, kind: str) -> bool:
+    """Record this event as the agent's latest and return True, or return False when it must not apply.
+    One statement: the host check and the compare-and-set cannot be split by a concurrent event."""
+    if fired_at_us is None:
         return True
     cursor = await db.execute(
-        "INSERT INTO agent_hook_order (agent_id, last_at) VALUES (?, ?) "
-        "ON CONFLICT(agent_id) DO UPDATE SET last_at = excluded.last_at "
-        "WHERE excluded.last_at >= agent_hook_order.last_at",
-        (agent_id, at),
+        """
+        INSERT INTO agent_hook_order (agent_id, last_at, machine_id)
+        SELECT id, ?, ? FROM agents
+        WHERE id = ? AND (? = '' OR COALESCE(machine_id, '') = '' OR lower(machine_id) = ?)
+        ON CONFLICT(agent_id) DO UPDATE SET last_at = excluded.last_at, machine_id = excluded.machine_id
+        WHERE excluded.machine_id != agent_hook_order.machine_id
+           OR excluded.last_at > agent_hook_order.last_at
+           OR (excluded.last_at = agent_hook_order.last_at AND ? = 'turn-end')
+        """,
+        (fired_at_us, machine_id, agent_id, machine_id, machine_id, kind),
     )
     return (cursor.rowcount or 0) > 0
-
-
-async def forget_hook_order(db, agent_id: str) -> None:
-    """At registration: the next hook event may come from another host's clock."""
-    await db.execute("DELETE FROM agent_hook_order WHERE agent_id = ?", (agent_id,))

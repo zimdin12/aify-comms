@@ -179,7 +179,7 @@ test("the owner holds no state and reaches only owned leaves", () => {
     "./aify-service-endpoint.mjs",
     "./bridge-instance.mjs",
     "./launch-identity.mjs",
-    "./runtimes.js",
+    "./machine-id.mjs",
     "./turn-busy.js",
   ]);
 });

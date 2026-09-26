@@ -274,6 +274,7 @@ test("the module reaches only owned leaves", () => {
     "./launch-identity.mjs",
     "./local-active-run.mjs",
     "./local-store.mjs",
+    "./machine-id.mjs",
     "./register-helpers.js",
     "./register-identity.js",
     "./registration-inputs.mjs",

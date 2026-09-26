@@ -15,22 +15,26 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { defaultMachineId } from "./machine-id.mjs";
 
 const EVENTS = new Set(["turn-start", "turn-end", "blocked", "unblocked"]);
 
 const TIMEOUT_MS = 2000;
-const STARTED_AT = Date.now();
+// This process's start, in microseconds: the fallback when the hook command passed no shell time.
+const STARTED_AT_US = Math.round((performance.timeOrigin + performance.now()) * 1000);
 
 /**
- * When the hook fired, in host milliseconds. The hooks run in the background, so two events can reach
- * the service out of order, and the service applies them by this time (service/api_core/
- * hook_event_order.py). The hook command passes the shell's `$EPOCHREALTIME` as AIFY_HOOK_FIRED_AT
- * (seconds, with a `.` or a locale `,`), taken before `node` starts; without it, this process's start.
+ * When the hook fired, in host microseconds. The hooks run in the background, so two events can reach
+ * the service out of order, and the service applies them by this time and host (service/api_core/
+ * hook_event_order.py). The hook command passes the shell's `$EPOCHREALTIME` as AIFY_HOOK_FIRED_AT,
+ * seconds with six decimals behind a `.` or a locale `,`, taken before `node` starts. It is parsed as
+ * text so no microsecond is lost to a float.
  */
-export function hookFiredAt(env = process.env, fallback = STARTED_AT) {
-  const raw = String(env.AIFY_HOOK_FIRED_AT || "").trim().replace(",", ".");
-  const seconds = Number(raw);
-  return raw && Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : fallback;
+export function hookFiredAtUs(env = process.env, fallback = STARTED_AT_US) {
+  const match = String(env.AIFY_HOOK_FIRED_AT || "").trim().match(/^(\d+)(?:[.,](\d{1,6}))?$/);
+  if (!match) return fallback;
+  const us = Number(match[1]) * 1_000_000 + Number((match[2] || "").padEnd(6, "0"));
+  return us > 0 && Number.isSafeInteger(us) ? us : fallback;
 }
 
 /** Post one state event for `AIFY_AGENT_ID`. Resolves true when the service accepted it; never throws. */
@@ -45,13 +49,14 @@ export async function postAgentState(event) {
     if (!IS_REMOTE) return false;
     const id = encodeURIComponent(agentId);
     const opts = { timeoutMs: TIMEOUT_MS };
-    const at = hookFiredAt();
+    const firedAtUs = hookFiredAtUs();
+    const machineId = defaultMachineId();
     // No bridgeId: that is what keeps a turn-start / turn-end the authoritative harness signal, since
     // the service treats one carrying a bridgeId as a detector's and can refuse it. Each call is
     // spelled out so the bridge write-body gate can read its path and body.
-    if (event === "turn-start") await httpCall("POST", `/agents/${id}/turn-start`, { at }, opts);
-    else if (event === "turn-end") await httpCall("POST", `/agents/${id}/turn-end`, { at }, opts);
-    else await httpCall("POST", `/agents/${id}/status-event`, { kind: event, at }, opts);
+    if (event === "turn-start") await httpCall("POST", `/agents/${id}/turn-start`, { firedAtUs, machineId }, opts);
+    else if (event === "turn-end") await httpCall("POST", `/agents/${id}/turn-end`, { firedAtUs, machineId }, opts);
+    else await httpCall("POST", `/agents/${id}/status-event`, { kind: event, firedAtUs, machineId }, opts);
     return true;
   } catch {
     return false;

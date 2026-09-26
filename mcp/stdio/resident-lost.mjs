@@ -19,7 +19,8 @@
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
-import { defaultMachineId, normalizeRuntime } from "./runtimes.js";
+import { normalizeRuntime } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 import { normalizeSessionMode } from "./session-mode.mjs";
 
 // Pure function of env and hostname — the same derivation half a dozen other bridge modules make, so it

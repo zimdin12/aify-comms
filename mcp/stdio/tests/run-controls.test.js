@@ -231,5 +231,5 @@ test("the owner holds no state and reaches only owned leaves", () => {
   const src = fs.readFileSync(path.join(STDIO, "run-controls.mjs"), "utf-8");
   assert.doesNotMatch(src, /^let\s/m, "no module-level mutable state");
   const imports = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ["./aify-service-endpoint.mjs", "./runtimes.js"]);
+  assert.deepEqual(imports, ["./aify-service-endpoint.mjs", "./machine-id.mjs"]);
 });

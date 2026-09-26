@@ -18,7 +18,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { defaultMachineId } from "./runtimes.js";
+import { defaultMachineId } from "./machine-id.mjs";
 
 export const HERMES_CMD = String(process.env.AIFY_HERMES_COMMAND || "hermes").trim() || "hermes";
 export const MACHINE_ID = defaultMachineId();
