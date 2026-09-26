@@ -7,13 +7,19 @@
 // THE TIMEOUT IS THE POINT OF THAT PRIMITIVE. A send that never settles leaves the composer disabled with
 // no error, so the request is raced against an AbortController rather than left to the browser's default.
 
+/**
+ * Load the channel list. Resolves true when it loaded and false when it failed, keeping the prior
+ * list; it never rejects, because several action handlers await it without a catch. The refresh
+ * paths read the result so a failed load is retried rather than recorded as current (0.7.1 C4).
+ */
 export async function chatLoadChannels() {
   try {
     // Pass the viewer id — /channels only computes per-channel unread_count when agentId is
     // supplied; without it every channel's unread badge was permanently 0.
     const res = await api(`/channels?agentId=${encodeURIComponent(state.chat.identity)}`);
     state.chat.channels = res.channels || res || [];
-  } catch (_) { noteSliceFailure('channels'); /* keep prior list */ }
+    return true;
+  } catch (_) { noteSliceFailure('channels'); /* keep prior list */ return false; }
 }
 export async function loadInboxMessages() {
   // The FALLBACK for /messages/recent, and until 2026-08-26 it was a fallback in name only: it sat

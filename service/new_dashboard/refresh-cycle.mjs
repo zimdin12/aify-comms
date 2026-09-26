@@ -160,7 +160,7 @@ export async function runRefreshCycle({
     refreshActiveTerminalTheme(); // keep a mounted console's accent in sync
     armRefreshTimer(); // honor dashboard_refresh_seconds (no-op unless it changed)
   }
-  try { await chatLoadChannels(); } catch (_) { noteSliceFailure('channels'); failed.push('channels'); /* keep prior channels */ }
+  if (!(await chatLoadChannels())) failed.push('channels'); // it reports and keeps the prior list itself (message-transport.mjs)
   // Keep an OPEN channel conversation live: channel messages are otherwise fetched only on
   // open/send, so the rail badge ticked up while the open timeline stayed frozen (review
   // finding #5). The conversation sig covers the re-render.
@@ -181,7 +181,7 @@ export async function runRefreshCycle({
   // open: 8.0 MB an hour per tab at the default 15s refresh, 23.9 at the 5s floor. navigateToPage
   // loads it on open, so the page shows a fetched list rather than a cached one.
   if (shouldLoadFiles()) {
-    try { await loadFiles(); } catch (_) { noteSliceFailure('files'); failed.push('files'); /* keep prior files */ }
+    if (!(await loadFiles())) failed.push('files'); // it reports and keeps the prior list itself (shared-files.mjs)
   }
   // Only flip to "loaded" once the roster actually arrived: with the server fully down all
   // slices reject, and loaded=true made the rail show a misleading "No agents." while the

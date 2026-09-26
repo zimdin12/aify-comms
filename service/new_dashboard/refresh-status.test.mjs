@@ -184,7 +184,12 @@ test('out-of-band and settled failures combine', () => {
 test('every out-of-band name is really reported by a call site', () => {
   // DERIVED FROM refresh-cycle.mjs, because a hand-written list is what let the alias slip past the
   // env-hygiene fix earlier today. A name declared here and never reported is a slice nobody watches.
-  const source = readFileSync(new URL('./refresh-cycle.mjs', import.meta.url), 'utf8');
+  // AND FROM THE MODULES IT IMPORTS: a loader that keeps its last value reports its own failure where
+  // it catches it (out-of-band-loaders-report.test.mjs), and the cycle only reads its result (0.7.1 C4).
+  const cycle = readFileSync(new URL('./refresh-cycle.mjs', import.meta.url), 'utf8');
+  const imported = [...cycle.matchAll(/^import .* from ['"](\.\/[^'"]+)['"]/gm)].map((m) => m[1]);
+  assert.ok(imported.length >= 5, `only ${imported.length} imports found; the scan is broken`);
+  const source = [cycle, ...imported.map((spec) => readFileSync(new URL(spec, import.meta.url), 'utf8'))].join('\n');
   const reported = new Set(
     [...source.matchAll(/noteSliceFailure\(\s*'([^']+)'\s*\)/g)].map((m) => m[1]),
   );

@@ -89,15 +89,17 @@ export const SLICE_LOADERS = Object.freeze({
     applyTheme(state.settings);
     refreshActiveTerminalTheme();
   },
+  // These two loaders keep their last list and resolve false on failure (they never reject, for their
+  // other callers), so the failure is turned into the throw this table's contract asks for.
   async channels() {
-    await chatLoadChannels();
+    if (!(await chatLoadChannels())) throw new Error('channels failed to load');
   },
   async conversation() {
     const selected = String(state.chat.selected || '');
     if (selected.startsWith('channel:')) await chatLoadConversation(selected.slice('channel:'.length));
   },
   async files() {
-    await loadFiles();
+    if (!(await loadFiles())) throw new Error('files failed to load');
   },
 });
 
