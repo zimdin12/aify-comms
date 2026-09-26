@@ -19,9 +19,9 @@ with a named cause for the npm-build case and waits 60s otherwise. Readiness als
 `HERMES_DASHBOARD_TUI=1 hermes dashboard --port 9199 --host 127.0.0.1 --no-open --skip-build`
 should come up within seconds.
 
-**Recovery.** Fix hermes (`hermes update`), confirm the command above, then restart each worker
-from the dashboard (Sessions → Restart). `install.sh` is needed only when hermes' CLI interface
-changed.
+**Recovery.** `hermes update` from a non-admin terminal, then `bash install.sh --client hermes`
+(an update deletes the web bundle `--skip-build` needs). Confirm the command above, then restart
+each worker (Sessions → Restart).
 
 ## `hermes mcp test` works, but the live turn has no aify tools
 
@@ -49,8 +49,7 @@ runs upstream hermes without the plugin for comparison.
 `hermes-gateway-turn-detector.js` reads the gateway session status about every 3s: `working` sets
 the turn, and idle clears it only after several consecutive idle reads
 (`AIFY_HERMES_GATEWAY_TURN_IDLE_DEBOUNCE`), because hermes' running flag blinks off between tool
-calls. It runs in the managed delivery loop and in a resident bridge with `AIFY_HERMES_GATEWAY_URL`
-set. A resident without a gateway has no detector and reads `offline` anyway.
+calls. A resident without a gateway has no detector and reads `offline` anyway.
 
 A managed hermes whose screen shows nothing of its turn is why an idle aify-env observation never
 ends a held turn (status-model.md). If it still never shows `working`, relaunch `hermes-aify` so

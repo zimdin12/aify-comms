@@ -19,8 +19,6 @@ the contract both tables follow.
 | `starting` | A spawn is running and its worker has not appeared yet. Leave it alone: a restart now kills the boot. A send queues until the worker arrives. Bounded by the spawn window, after which it falls back to `available`. |
 | `misconfigured` | The identity can never start (no spawn spec or host, no wake path, unknown runtime). A human must fix the config; sending will not help. |
 
-`available` ≠ `online` (no worker yet). `offline` ≠ `stopped` (lost signal vs deliberate).
-
 ## How `derive()` decides
 
 `service/status_engine.py` `derive()` is the only status authority, a pure function of
@@ -46,8 +44,9 @@ the contract both tables follow.
 - **hermes:** `hermes-gateway-turn-detector.js` reads the gateway session status; idle must hold for
   several consecutive reads before it clears, because hermes' running flag blinks off between tool
   calls. It runs for managed hermes and for any resident with `AIFY_HERMES_GATEWAY_URL` set.
-- **Backstop:** a turn with no end-event is dropped after `TURN_BUSY_BACKSTOP_SECONDS` (30 min).
-  A live turn keeps re-stamping, so only an abandoned one ages out.
+- **Backstop:** a turn with no end-event ages out 30 min after it began
+  (`TURN_BUSY_BACKSTOP_SECONDS`); one a live bridge owns renews, capped at 4 h
+  (`TURN_LEASE_ABSOLUTE_MAX_SECONDS`).
 - **Console lease:** `service/api_core/console_working.py` stamps a 20s lease when the rendered
   managed-claude screen shows the running footer. It holds a long turn at `working` when no fresh
   aify-env observation is available.

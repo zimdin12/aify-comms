@@ -59,18 +59,18 @@ const CEILINGS = {
   "aify-comms-install/SKILL.md": 4_821,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
-  "aify-comms-debug/SKILL.md": 3_056,
-  "aify-comms-debug/references/codex.md": 5_242,
-  "aify-comms-debug/references/dashboard-console.md": 3_844,
-  "aify-comms-debug/references/dispatch-bridges.md": 6_224,
-  "aify-comms-debug/references/dispatch-delivery.md": 7_437,
-  "aify-comms-debug/references/dispatch-launch.md": 5_167,
-  "aify-comms-debug/references/hermes-session.md": 4_798,
-  "aify-comms-debug/references/hermes-turns.md": 4_224,
-  "aify-comms-debug/references/lifecycle.md": 6_577,
-  "aify-comms-debug/references/pi.md": 2_682,
-  "aify-comms-debug/references/status-model.md": 5_298,
-  "aify-comms-debug/references/status-symptoms.md": 5_207,
+  "aify-comms-debug/SKILL.md": 2_934,
+  "aify-comms-debug/references/codex.md": 5_163,
+  "aify-comms-debug/references/dashboard-console.md": 3_593,
+  "aify-comms-debug/references/dispatch-bridges.md": 6_077,
+  "aify-comms-debug/references/dispatch-delivery.md": 6_944,
+  "aify-comms-debug/references/dispatch-launch.md": 5_148,
+  "aify-comms-debug/references/hermes-session.md": 4_770,
+  "aify-comms-debug/references/hermes-turns.md": 4_152,
+  "aify-comms-debug/references/lifecycle.md": 6_531,
+  "aify-comms-debug/references/pi.md": 2_152,
+  "aify-comms-debug/references/status-model.md": 5_231,
+  "aify-comms-debug/references/status-symptoms.md": 4_886,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

@@ -5,8 +5,6 @@ description: Use when aify-comms dispatch, wake mode, bridge health, managed/res
 
 # aify-comms: Troubleshooting
 
-Each entry in the references below gives a **symptom**, its **cause**, and the **fix**.
-
 **Always diagnose first.** Start with `comms_agent_info(agentId="target")` and read
 `wakeMode`, `sessionMode`, `machineId`, `sessionHandle`, and `dispatchState`, then
 `aify-comms doctor`. That is the first read, not proof of live ownership when records
@@ -23,8 +21,8 @@ host, so that step, like any fleet-wide stop, goes to the operator.
 | A badge disagrees with reality: stuck `working`, `online` with no worker, deaf agent | [status-symptoms.md](references/status-symptoms.md) |
 | What a status MEANS, or why `derive()` produced it | [status-model.md](references/status-model.md) |
 | Stop/restart/reset, registration, mode switch, duplicate owner, or safe interrupt | [lifecycle.md](references/lifecycle.md) |
-| A run stalls at queued/claimed/delivered, steer ignored, interrupt has no effect | [dispatch-delivery.md](references/dispatch-delivery.md) |
-| Whole fleet dropped, spawn 409, sidecar/wake-mode confusion, stale session handle | [dispatch-bridges.md](references/dispatch-bridges.md) |
+| A run stalls at queued/claimed/delivered, steer ignored, interrupt has no effect, `claude-needs-channel` | [dispatch-delivery.md](references/dispatch-delivery.md) |
+| Whole fleet dropped, spawn 409, sidecar confusion, stale session handle | [dispatch-bridges.md](references/dispatch-bridges.md) |
 | Managed spawn never starts or dies at launch, ENOENT, session-id in use | [dispatch-launch.md](references/dispatch-launch.md) |
 | Hermes gateway, ports, fresh-session resume, or stray `hermes.exe` | [hermes-session.md](references/hermes-session.md) |
 | Hermes turn never shows `working`, missing aify tools, up-but-deaf, ACP fallback | [hermes-turns.md](references/hermes-turns.md) |
@@ -41,5 +39,5 @@ When the domain is unclear, start with `dispatch-delivery.md`.
 3. Find the matching symptom entry and run its read-only checks before changing state.
 4. Apply one recovery action, then verify native behavior and converged control-plane state.
 
-Do not issue a second stop/restart/interrupt because the first acknowledgement looked vague.
-Re-read ownership first: the replacement turn or bridge may now be the live target.
+After one stop/restart/interrupt, re-read ownership before any second: the replacement turn or
+bridge may now be the live target.

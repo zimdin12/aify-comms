@@ -68,7 +68,7 @@ curl -s -H "X-API-Key: $AIFY_API_KEY" http://127.0.0.1:8800/api/v1/agents/YOUR-A
 tick, so re-read after a minute. To force it now, re-register from inside the live session with an
 empty handle and let discovery fill it:
 `comms_register(agentId="...", role="...", runtime="...", cwd="...", sessionHandle="")`.
-If you know the right handle, Dashboard **Set handle** writes it directly.
+If you know the right handle, the agent's **Edit…** → *Native session handle* field writes it.
 
 ## Who may claim wrapper-backed channel work
 
@@ -86,8 +86,7 @@ question, permissions accept) and never claims work: "up-but-deaf". `comms_conso
 The service answers exactly one dialog, the development-channels acknowledgment
 (`service/api_core/console_prompts.py`, rule `dev-channels-accept`), matched on the rendered screen
 and answered once per terminal. It refuses resume menus wholesale, because a wrong key there is
-unrecoverable, and leaves compaction and permission dialogs for a person to answer. It is service
-code: a change deploys by rebuilding the container.
+unrecoverable, and leaves compaction and permission dialogs for a person to answer.
 
 ## Resident relaunch reads `offline` and deaf
 
@@ -100,8 +99,7 @@ where the sidecar stopped claiming, relaunch the resident terminal.
 
 ## Bridge log lines: `fetch failed` / `503 database is locked` / `claim timed out`
 
-- **`fetch failed` … `recovered after N failure(s)`**: transient network or service interruption,
-  aggregated and summarised on recovery. No recovery line → check the service and network path.
+- **`fetch failed`**: a network or service interruption; check the service and network path.
 - **`HTTP 503 … database is locked`**: sustained write contention. Writes retry the lock before a
   503, and claim endpoints return an empty claim instead, so a 503 here means real overload.
 - **`claim … timed out after 28000ms`**: claims open with a short `SQLITE_CLAIM_BUSY_TIMEOUT_MS` and

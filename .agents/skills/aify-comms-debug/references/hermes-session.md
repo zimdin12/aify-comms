@@ -11,9 +11,8 @@ One `hermes-aify` launch runs three processes per agent:
   submits with `prompt.submit` when idle and `session.steer` when busy.
 - **visible TUI**: `hermes --tui`, attached to that gateway through `HERMES_TUI_GATEWAY_URL`.
 
-Each agent gets its own port, recorded in an `aify-hermes-port-<agent>` marker in the temp directory
-(`resolveGatewayPort` skips ports other agents' markers claim). For any delivery question read
-`comms_run_status(runId=...)` first, then the gateway-host log.
+Each agent gets its own port, recorded in an `aify-hermes-port-<agent>` marker in the temp directory.
+For any delivery question read `comms_run_status(runId=...)` first, then the gateway-host log.
 
 ## Resident hermes send fails: `ECONNREFUSED 127.0.0.1:<port>`
 
@@ -71,8 +70,8 @@ marker `aify-hermes-session-<agent>` in the temp directory must hold the durable
 - hermes deletes sessions that never had a turn, so an agent whose workspace has **no** saved
   sessions starting fresh is correct.
 
-**Check.** `cat ${TMPDIR:-/tmp}/aify-hermes-session-<agent>` should be a `YYYYMMDD_HHMMSS_hex` key
+**Check.** `cat "${TEMP:-${TMP:-/tmp}}/aify-hermes-session-<agent>"` should be a `YYYYMMDD_HHMMSS_hex` key
 before and after a restart. Whether hermes still has it, with hermes' own Python:
 `python3 -c "from hermes_state import SessionDB; print(SessionDB().get_session('<key>'))"`
-(`None` = gone, fresh is correct). To restore a known conversation, set its durable key with
-Dashboard **Set handle**.
+(`None` = gone, fresh is correct). To restore a known conversation, set its durable key in the
+agent's **Edit…** → *Native session handle* field.

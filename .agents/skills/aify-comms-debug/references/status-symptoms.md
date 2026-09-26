@@ -9,7 +9,8 @@ healthy, which is why this goes unnoticed for weeks.
 **Cause.** The wrapper was launched without an agent id, so `AIFY_AGENT_ID` is missing from the
 bridge's process. Every turn path is gated on it: the bridge turn detector never arms, and the
 `Stop`, `UserPromptSubmit` and `PostToolUse` hooks do nothing. The channel sidecar carries the id
-in its own config, so it still POSTs `/turn-start` on a wake and nothing ever clears it.
+in its own config, so it still marks the turn busy (heartbeat `turnBusy`) on a wake and nothing
+ever clears it.
 
 **Diagnose.** The database cannot show this; read the process environment. On Linux
 `aify-comms doctor` `agent-identity` does it for you, or:
@@ -52,9 +53,6 @@ wrapper-child bridge for codex). The read-time gates `_enforce_live_worker_gate`
 - `offline` on every managed agent of one host: its environment is unreachable. Check
   `aify-comms doctor` `env-bridge` and `aify-env doctor`; restarting aify-env is the operator's call.
 
-Debug status from `comms_agent_info` or the dashboard. The live-status cache is in memory
-(`reconcilers/status_cache.py`), so no table holds the served status.
-
 ## Agent reads idle but its queued work never delivers (deaf agent)
 
 **Symptom.** `online`/`available`, bridge alive, yet queued runs stay `queued`. A target without
@@ -92,5 +90,3 @@ ahead of the turn bookkeeping. Without one, the service's console lease (`consol
 - `blocked` while generating: `_agent_awaiting_input` (`api_core/liveness.py`) matched a claude
   permission, resume or compaction prompt on the rendered screen. Read the console tail to see
   whether a prompt is really up.
-- Flaps only while the Console is closed: unverified since the host tier moved to aify-env. Leave a
-  working agent with its Console closed for a minute and record what the dot does.
