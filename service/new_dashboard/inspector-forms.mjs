@@ -20,7 +20,7 @@
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
 import { findLoadedMessage } from './message-store.mjs';
-import { state } from './state.mjs';
+import { state, inspectorOpening } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim } from './status.js';
 import { byId, toast } from './ui.js';
 import { esc, relTime } from './util.js';
@@ -57,7 +57,7 @@ export function openAgentEditForm(agentId) {
       </fieldset>
       <div class="agent-drawer-actions"><button class="primary" data-agent-edit-submit="${esc(agentId)}">Save changes</button></div>
     </div>`;
-  state.inspector = { ...state.inspector, kind: 'agent-edit', runId: '' };
+  state.inspector = inspectorOpening('agent-edit', { runId: '' });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
@@ -85,7 +85,7 @@ export function openMessageDetail(msgId) {
       ${m.subject ? `<h4 class="an-h">${esc(m.subject)}</h4>` : ''}
       <p class="chat-msg-body">${esc(m.body || m.preview || '')}</p>
     </div>`;
-  state.inspector = { ...state.inspector, kind: 'message', runId: '', messageId: msgId };
+  state.inspector = inspectorOpening('message', { runId: '', messageId: msgId });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
@@ -115,7 +115,7 @@ export function openContinueForm(sid, splitIdentity) {
         <button class="primary" data-continue-submit="${esc(sid)}" data-split="${splitIdentity ? '1' : '0'}">${splitIdentity ? 'Continue as' : 'Compact'}</button>
       </div>
     </div>`;
-  state.inspector = { ...state.inspector, kind: 'continue', runId: '' };
+  state.inspector = inspectorOpening('continue', { runId: '' });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
@@ -199,7 +199,7 @@ export async function openCompactionHistory(agentId) {
   if (!showing) byId('inspector-content').innerHTML = historyFrame(agentId, '<p class="subtle">Loading…</p>');
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
-  state.inspector = { ...state.inspector, kind: 'history', runId: '', agentId, loading: true, ...(showing ? {} : { loaded: false, error: '' }) };
+  state.inspector = inspectorOpening('history', { runId: '', agentId, loading: true, ...(showing ? {} : { loaded: false, error: '' }) });
   const stillShowing = () => state.inspector?.kind === 'history' && state.inspector.agentId === agentId;
   let rows = [];
   let truncated = false;

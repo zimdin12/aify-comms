@@ -46,7 +46,7 @@ test("exactly one dashboard module declares `state` at module scope", () => {
 
 test("app.js reads the shared object rather than declaring its own", () => {
   const app = fs.readFileSync(path.join(HERE, "app.js"), "utf-8");
-  assert.ok(app.includes("import { state } from './state.mjs';"),
+  assert.match(app, /^import \{ state(, [\w, ]+)? \} from '\.\/state\.mjs';$/m,
     "app.js must import the shared state object");
   assert.equal(DECLARES_STATE.test(app), false, "app.js must not declare `state` any more");
 });

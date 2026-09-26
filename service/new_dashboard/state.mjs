@@ -54,7 +54,7 @@ export const state = {
   selectedSessionTab: 'console', // Sessions = terminal-first (Console default); Activity is the read-only log
   selectedSessionIds: new Set(),
   selectedDiagnosticIds: new Set(),
-  inspector: { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' },
+  inspector: emptyInspector(),
   filter: '',
   runStatusFilter: '',
   runFromFilter: '', runToFilter: '', runRuntimeFilter: '', runSearch: '', // WS-H runs filters
@@ -92,3 +92,20 @@ export const state = {
   // while it stays active, and on range change. data === null until first load completes.
   analytics: { range: 'hour', data: null, loading: false, usage: null, consumption: null, usageStale: false, lastMs: 0 },
 };
+
+/** The drawer state with no drawer open. A new object each call, because callers mutate what they get. */
+export function emptyInspector() {
+  return { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
+}
+
+/**
+ * The drawer state for opening a `kind` drawer with `fields`. Reopening the drawer already open keeps
+ * its state, which is how a refresh keeps what is on screen; another kind starts clean. Copying the
+ * previous state under a new kind carried a History or run drawer's `loading`/`loadingMore` into the new
+ * drawer, where nothing cleared it, and app.js never refreshed that drawer again (v0.7.2, external
+ * review item 3).
+ */
+export function inspectorOpening(kind, fields = {}) {
+  const base = state.inspector?.kind === kind ? state.inspector : emptyInspector();
+  return { ...base, kind, ...fields };
+}

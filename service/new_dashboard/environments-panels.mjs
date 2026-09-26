@@ -49,7 +49,7 @@ export function renderEnvironmentSpawnOptions(selectedEnvId = byId('env-spawn-en
 
 import { api } from './api-client.mjs';
 import { asArray, environmentRoots, environmentRuntimes } from './record-fields.mjs';
-import { state } from './state.mjs';
+import { state, inspectorOpening } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim, statusWhyContext } from './status.js';
 import { metric } from './summary-tiles.mjs';
 import { byId, toast, uiConfirm } from './ui.js';
@@ -366,7 +366,7 @@ export function openEnvironmentRootsEditor(environmentId) {
         <button class="ghost" data-copy-text="${esc(checkCmd)}">Copy host check</button>
       </div>
     </div>`;
-  state.inspector = { ...state.inspector, kind: 'env-roots', runId: '' };
+  state.inspector = inspectorOpening('env-roots', { runId: '' });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
   setTimeout(() => byId('env-edit-roots')?.focus(), 30);

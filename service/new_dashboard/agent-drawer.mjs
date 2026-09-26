@@ -20,7 +20,7 @@
 
 import { continueCliDetails, resumeMachineNote } from './cli-resume.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
-import { state } from './state.mjs';
+import { state, emptyInspector, inspectorOpening } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
@@ -150,7 +150,7 @@ export function openAgentDrawer(agentId) {
   const changed = paintAgentDrawer(byId('inspector-content'), id, drawerHtml, AGENT_PROCESSES_ID); // an unchanged re-render writes nothing (drawer-paint.mjs)
   // Remember WHICH agent the drawer is showing, so selecting a different agent can follow it
   // (see syncInspectorToSelection) instead of leaving a stale panel open on the previous agent.
-  state.inspector = { ...state.inspector, kind: 'agent', runId: '', agentId: id };
+  state.inspector = inspectorOpening('agent', { runId: '', agentId: id });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
   // B5: WHAT IS ACTUALLY RUNNING FOR THIS AGENT, fetched after the drawer is on screen rather than
@@ -170,7 +170,7 @@ export function syncInspectorToSelection() {
   const shownAgent = String(state.inspector?.agentId || '');
   if (!selected || !selected.startsWith('dm:')) {
     inspector.classList.remove('open');
-    state.inspector = { ...state.inspector, kind: '', agentId: '' };
+    state.inspector = emptyInspector();
     return;
   }
   const nextAgent = selected.slice('dm:'.length);

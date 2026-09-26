@@ -75,9 +75,12 @@ test("the classification covers every kind the dashboard actually sets", async (
     .filter((f) => (f.endsWith('.js') || f.endsWith('.mjs')) && !f.endsWith('.test.mjs'))
     .map((f) => readFileSync(new URL(f, dir), 'utf8'))
     .join(String.fromCharCode(10));
-  const found = new Set(
-    [...sources.matchAll(/state\.inspector\s*=\s*\{[^}]*?kind:\s*'([a-z-]+)'/g)].map((m) => m[1]),
-  );
+  // Both ways a drawer names its kind: a literal object (the run drawer) and `inspectorOpening('<kind>'`
+  // (state.mjs), which every other opener uses since v0.7.2.
+  const found = new Set([
+    ...[...sources.matchAll(/state\.inspector\s*=\s*\{[^}]*?kind:\s*'([a-z-]+)'/g)].map((m) => m[1]),
+    ...[...sources.matchAll(/inspectorOpening\(\s*'([a-z-]+)'/g)].map((m) => m[1]),
+  ]);
   const unclassified = [...found].filter(
     (k) => !REFRESHABLE_INSPECTOR_KINDS.has(k) && !FORM_INSPECTOR_KINDS.has(k),
   );

@@ -7,7 +7,7 @@ import { createChatController } from './chat.js';
 import { inspectorRefreshDecision } from './inspector-refresh.mjs';
 import { applyTheme, settingUnchanged } from './theme.js';
 import { sessionAgentId, sessionId } from './record-fields.mjs';
-import { state } from './state.mjs';
+import { state, emptyInspector } from './state.mjs';
 import { agentForSession, ensureSelectedSession, renderSessionRail } from './session-rail.mjs';
 import { refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
 import { openAgentDrawer, syncInspectorToSelection } from './agent-drawer.mjs';
@@ -350,7 +350,7 @@ function closeInspector() {
   const inspector = byId('inspector');
   inspector?.classList.remove('open');
   inspector?.classList.remove('run-inspector-sheet');
-  state.inspector = { kind: '', runId: '', source: '', run: null, events: [], hasMore: false, loadingMore: false, eventOrder: 'desc', sourceMessageId: '' };
+  state.inspector = emptyInspector();
   byId('inspector-content').textContent = 'Select an item to inspect details.';
   try { if (_inspectorReturnFocus && _inspectorReturnFocus.focus) _inspectorReturnFocus.focus(); } catch {}
   _inspectorReturnFocus = null;

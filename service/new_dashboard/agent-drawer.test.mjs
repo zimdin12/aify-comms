@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { state } from "./state.mjs";
+import { state, emptyInspector } from "./state.mjs";
 import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from "./agent-drawer.mjs";
 import { AGENT_PROCESSES_ID } from "./agent-processes.mjs";
 import { AGENT_RUNS_ID } from "./agent-runs.mjs";
@@ -117,8 +117,7 @@ test("selecting something that is not a DM closes the drawer and clears it", () 
     withDom(drawerEls(["open"]), (els) => {
       syncInspectorToSelection();
       assert.equal(els.inspector.classList.contains("open"), false, `"${selection}" must close the drawer`);
-      assert.equal(state.inspector.kind, "");
-      assert.equal(state.inspector.agentId, "");
+      assert.deepEqual(state.inspector, emptyInspector(), "a closed drawer keeps nothing of the one it was");
     });
   }
 });

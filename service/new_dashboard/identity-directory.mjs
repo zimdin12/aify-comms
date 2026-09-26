@@ -15,7 +15,7 @@
 
 import { sessionForAgent } from './agent-drawer.mjs';
 import { sessionEnvironmentId, sessionRuntime } from './record-fields.mjs';
-import { state } from './state.mjs';
+import { state, inspectorOpening } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { paintIfChanged } from './drawer-paint.mjs';
@@ -68,7 +68,7 @@ export function openIdentityDirectory() {
       </dl>
       ${table}
     </div>`);
-  state.inspector = { ...state.inspector, kind: 'identity-directory', runId: '' };
+  state.inspector = inspectorOpening('identity-directory', { runId: '' });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
