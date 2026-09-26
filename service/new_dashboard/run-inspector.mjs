@@ -213,7 +213,9 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
     state.inspector.loading = false;
     state.inspector.error = '';
     state.inspector.run = run;
-    const merged = keepLoadedEvents(eventPage, previous?.events || []);
+    // Against what is on screen NOW, not the snapshot taken before the fetch: a Load more that landed
+    // meanwhile appended a page this refresh must keep.
+    const merged = keepLoadedEvents(eventPage, state.inspector);
     state.inspector.events = merged.events;
     state.inspector.hasMore = merged.hasMore;
     renderRunInspector();
@@ -230,15 +232,25 @@ export async function openRunInspector({ runId, source = 'programmatic', sourceM
  *
  * A refresh re-fetches page one. Replacing the list with it truncated the timeline to one page and reset
  * the scroll on every data change, undoing "Load more". The events held below the new page are still
- * true, and they are in order after it in either direction, so they stay; the end-of-list flag is then
- * theirs rather than page one's.
+ * true, and they are in order after it in either direction, so they stay.
+ *
+ * ONLY WHEN THE NEW PAGE REACHES THEM. Newest first, more than a page of events can arrive between
+ * refreshes; a page that shares no event with what was loaded would be spliced onto a tail it does not
+ * touch, with the events between them missing and nothing saying so. Such a page stands alone, and
+ * Load more reaches the rest again.
+ *
+ * WHICH END-OF-LIST FLAG. Newest first, the held tail is the older end, so its flag holds. Oldest first,
+ * the held tail runs to the newest event loaded and a live run keeps adding after it: page one's flag
+ * (more exist past page one) keeps Load more on screen to reach them.
  */
-function keepLoadedEvents(firstPage, held) {
+function keepLoadedEvents(firstPage, { events: held = [], hasMore: heldHasMore, eventOrder }) {
   const events = firstPage.events || [];
   const seen = new Set(events.map((e) => e?.id));
   const tail = held.filter((e) => !seen.has(e?.id));
-  if (!tail.length || held.length <= events.length) return { events, hasMore: Boolean(firstPage.hasMore) };
-  return { events: [...events, ...tail], hasMore: Boolean(state.inspector.hasMore) };
+  const reachesHeld = tail.length < held.length;
+  if (!tail.length || !reachesHeld || held.length <= events.length) return { events, hasMore: Boolean(firstPage.hasMore) };
+  const hasMore = eventOrder === 'asc' ? Boolean(firstPage.hasMore || heldHasMore) : Boolean(heldHasMore);
+  return { events: [...events, ...tail], hasMore };
 }
 
 export async function requestRunControl(runId) {
@@ -313,7 +325,8 @@ const stillPaging = (runId, order) => state.inspector?.kind === 'run' && state.i
   && state.inspector.eventOrder === order;
 
 export async function loadMoreRunEvents() {
-  if (!state.inspector.runId || state.inspector.loadingMore) return;
+  // Not while a refresh is loading page one: the list it merges into is about to change under it.
+  if (!state.inspector.runId || state.inspector.loadingMore || state.inspector.loading) return;
   const inspector = state.inspector;
   const { runId, eventOrder: order } = inspector;
   inspector.loadingMore = true;

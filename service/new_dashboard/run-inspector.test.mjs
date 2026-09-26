@@ -589,3 +589,64 @@ test("A FAILED Load more or order toggle is handled, not left to the generic rej
     await assert.doesNotReject(toggleRunEventOrder());
   } finally { h.restore(); }
 });
+
+// ---- a refresh never hides a live run's new events (0.7.1 review, C1) ------------------------------
+
+const ids = (from, to) => Array.from({ length: Math.abs(to - from) + 1 }, (_, i) => ({ id: `e${from < to ? from + i : from - i}` }));
+
+test("OLDEST-FIRST, ALL LOADED: a new event leaves Load more on screen to reach it", async () => {
+  // The refresh fetched page one (the oldest 50), kept the 60 already loaded, and took `hasMore` from
+  // them, which was false. e61 existed on the server and nothing on screen could reach it.
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: ids(1, 60), hasMore: false, eventOrder: "asc", source: "runs" };
+    globalThis.fetch = async () => page(ids(1, 50), true);
+    await openRunInspector({ runId: "run-1", source: "refresh" });
+    assert.equal(state.inspector.events.length, 60, "CONTROL: the loaded events are kept");
+    assert.equal(state.inspector.hasMore, true, "the newer events past the loaded tail cannot be reached");
+  } finally { h.restore(); }
+});
+
+test("NEWEST-FIRST, A PAGE THAT SHARES NOTHING WITH WHAT WAS LOADED replaces it rather than leaving a silent gap", async () => {
+  // More than a page of events arrived between refreshes. Splicing the new page onto the old tail
+  // put e251 next to e100 with the 150 between them missing and nothing saying so.
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: ids(199, 100), hasMore: false, eventOrder: "desc", source: "runs" };
+    globalThis.fetch = async () => page(ids(300, 251), true);
+    await openRunInspector({ runId: "run-1", source: "refresh" });
+    assert.deepEqual(state.inspector.events.map((e) => e.id), ids(300, 251).map((e) => e.id), "the new page was spliced onto a tail it does not reach");
+    assert.equal(state.inspector.hasMore, true, "the older events are reachable again through Load more");
+  } finally { h.restore(); }
+});
+
+test("A PAGE LOADED WHILE A REFRESH WAS IN FLIGHT survives the refresh, and no Load more starts during one", async () => {
+  const h = withInspector(RUNNING);
+  try {
+    state.inspector = { kind: "run", runId: "run-1", run: RUNNING, events: ids(3, 1), hasMore: true, eventOrder: "desc", source: "runs" };
+    const held = {};
+    globalThis.fetch = (url) => {
+      const u = String(url);
+      if (!u.includes("/events")) return Promise.resolve(page([], false));
+      const kind = u.includes("before=") ? "more" : "refresh";
+      return new Promise((resolve) => { held[kind] = () => resolve(kind === "more" ? page([{ id: "e0" }], false) : page(ids(4, 3), true)); });
+    };
+    const more = loadMoreRunEvents();
+    const refresh = openRunInspector({ runId: "run-1", source: "refresh" });
+    held.more();
+    await more;
+    held.refresh();
+    await refresh;
+    assert.deepEqual(state.inspector.events.map((e) => e.id), ["e4", "e3", "e2", "e1", "e0"], "the page Load more fetched was dropped by the refresh");
+    assert.equal(state.inspector.hasMore, false);
+
+    delete held.more;
+    const again = openRunInspector({ runId: "run-1", source: "refresh" });
+    const blocked = loadMoreRunEvents();
+    const started = Boolean(held.more);
+    held.refresh();
+    held.more?.();
+    await Promise.all([again, blocked]);
+    assert.equal(started, false, "a Load more started while the refresh was loading");
+  } finally { h.restore(); }
+});
