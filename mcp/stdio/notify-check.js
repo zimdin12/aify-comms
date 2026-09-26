@@ -13,7 +13,7 @@ import { createHash } from "crypto";
 import { destinationKeyResolver } from "./aify-service-endpoint.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { readAgentBindingFile } from "./binding-file.js";
-import { NOTICE_LIMIT, hookOutput, inboxUrl, noticeText, rememberSeen, seenForSession, seenRecord, unseen } from "./notify-notice.mjs";
+import { collectUnseen, hookOutput, inboxUrl, noticeText, rememberSeen, seenForSession, seenRecord } from "./notify-notice.mjs";
 
 // Settings env first: the endpoint and the key may only be named in ~/.claude/settings.local.json.
 loadSettingsEnv();
@@ -73,14 +73,19 @@ function readSeen() {
 const headers = { Accept: "application/json" };
 if (API_KEY) headers["X-API-Key"] = API_KEY;
 
-let data;
-try {
+async function fetchPage(offset) {
   // NEVER FOLLOWED: `fetch` re-sends headers on a redirect, so a 302 would hand the key to whatever
   // it points at. A 3xx fails `res.ok` like any other non-2xx.
-  const resp = await fetch(inboxUrl(SERVER_URL, agentId), { headers, redirect: "manual", signal: AbortSignal.timeout(3000) });
-  if (!resp.ok) process.exit(0);
+  const resp = await fetch(inboxUrl(SERVER_URL, agentId, offset), { headers, redirect: "manual", signal: AbortSignal.timeout(3000) });
+  if (!resp.ok) return null;
   try { fs.unlinkSync(DOWN_FILE); } catch {}
-  data = await resp.json();
+  return resp.json();
+}
+
+const seenIds = readSeen();
+let collected;
+try {
+  collected = await collectUnseen(fetchPage, seenIds);
 } catch {
   // Only a transport failure marks the server down.
   try { fs.writeFileSync(DOWN_FILE, String(Date.now())); } catch {}
@@ -97,10 +102,9 @@ fetch(`${SERVER_URL}/api/v1/agents/${encodeURIComponent(agentId)}/heartbeat`, {
   signal: AbortSignal.timeout(2000),
 }).catch(() => {});
 
-const seenIds = readSeen();
-const fresh = unseen(data?.messages, seenIds).slice(0, NOTICE_LIMIT);
+const { fresh, total } = collected;
 if (fresh.length) {
-  const notice = noticeText({ messages: fresh, total: Number(data.total) || fresh.length, agentId });
+  const notice = noticeText({ messages: fresh, total: total || fresh.length, agentId });
   const output = hookPayload?.hook_event_name === "PostToolUse"
     ? JSON.stringify(hookOutput(notice, { claude: IS_CLAUDE, count: fresh.length }))
     : notice;

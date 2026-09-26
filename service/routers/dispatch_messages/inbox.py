@@ -45,6 +45,7 @@ async def get_inbox(
     filter: str = Query("unread", pattern="^(unread|read|all)$"),
     fromAgent: Optional[str] = None, fromRole: Optional[str] = None,
     type: Optional[str] = None, limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     mode: str = Query("full", pattern="^(full|headers)$"),
     messageId: Optional[str] = None,
     peek: Optional[str] = None,
@@ -99,9 +100,13 @@ async def get_inbox(
             source += " AND m.type = ?"
             params.append(type)
 
+        # PAGED, newest first. `offset` lets a reader walk past the newest page: the notify hook peeks
+        # the unread population and skips what it already showed, and with one fixed window every
+        # message older than the window stayed unread and was never shown (v0.7 review). `m.id` breaks
+        # timestamp ties, so the page order is declared here rather than left to the query plan.
         cursor = await db.execute(
-            f"{select_clause} {source} ORDER BY m.timestamp DESC LIMIT ?",
-            params + [1 if messageId else limit],
+            f"{select_clause} {source} ORDER BY m.timestamp DESC, m.id DESC LIMIT ? OFFSET ?",
+            params + [1 if messageId else limit, 0 if messageId else offset],
         )
         rows = await cursor.fetchall()
 

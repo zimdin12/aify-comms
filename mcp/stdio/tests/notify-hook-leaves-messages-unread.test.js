@@ -22,7 +22,11 @@ function standInService(messages) {
     seen.push(req.url);
     res.setHeader("content-type", "application/json");
     if (req.url.startsWith("/api/v1/messages/inbox/")) {
-      res.end(JSON.stringify({ total: messages.length, messages }));
+      // Paged as the real route pages: newest first, `limit` rows from `offset`.
+      const query = new URL(req.url, "http://stand-in").searchParams;
+      const offset = Number(query.get("offset") || 0);
+      const limit = Number(query.get("limit") || 200);
+      res.end(JSON.stringify({ total: messages.length, messages: messages.slice(offset, offset + limit) }));
     } else {
       res.end("{}");
     }
@@ -138,26 +142,59 @@ test("a NEW session is shown what an earlier session was shown", async () => {
   }
 });
 
-test("more unread than one notice holds: the rest surface on the next polls, oldest included", async () => {
-  // v0.7 review: the hook read only the newest three, so while those stayed unread a fourth, older
-  // message was never surfaced at all.
-  const five = [5, 4, 3, 2, 1].map((n) => ({ ...MESSAGE, id: `m-${n}`, subject: `s${n}` }));
-  const { server, seen } = await standInService(five);
+test("more unread than one page holds: every one surfaces on a later poll, the oldest included", async () => {
+  // v0.7 review, twice: reading the newest three hid a fourth, and reading the newest twenty hid a
+  // twenty-first, each for as long as the newer ones stayed unread. The hook now pages.
+  const population = Array.from({ length: 25 }, (_, n) => 25 - n).map((n) => ({ ...MESSAGE, id: `m-${n}`, subject: `s${n}` }));
+  const { server, seen } = await standInService(population);
   const scratch = scratchFor("hooked-agent");
   try {
     const url = `http://127.0.0.1:${server.address().port}`;
     const shown = [];
-    for (let i = 0; i < 2; i += 1) {
-      const context = JSON.parse((await runHook({ url, scratch, claude: true, sessionId: "s-1" })).out).hookSpecificOutput.additionalContext;
-      shown.push(...[...context.matchAll(/^MessageId: (m-\d)$/gm)].map((m) => m[1]));
+    for (let poll = 0; poll < 20; poll += 1) {
+      const { out } = await runHook({ url, scratch, claude: true, sessionId: "s-1" });
       clearRateLimit(scratch);
+      if (!out) break;
+      const context = JSON.parse(out).hookSpecificOutput.additionalContext;
+      shown.push(...[...context.matchAll(/^MessageId: (m-\d+)$/gm)].map((m) => m[1]));
     }
-    assert.deepEqual(shown.sort(), ["m-1", "m-2", "m-3", "m-4", "m-5"]);
-    assert.ok(seen.every((u) => !u.startsWith("/api/v1/messages/inbox/") || /[?&]limit=20(&|$)/.test(u)), JSON.stringify(seen));
+    assert.deepEqual([...shown].sort(), population.map((m) => m.id).sort(), "a message was never shown, or shown twice");
+    assert.equal(shown.at(-1), "m-1", "the oldest is reached");
+    assert.ok(seen.some((u) => /[?&]offset=20(&|$)/.test(u)), `control: the hook read past the first page: ${JSON.stringify(seen)}`);
   } finally {
     server.close();
     fs.rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+test("collectUnseen: the reviewer's 21, an old service, and a failing later page", async () => {
+  const { collectUnseen, rememberSeen, NOTICE_LIMIT } = await import("../notify-notice.mjs");
+  const population = Array.from({ length: 21 }, (_, n) => ({ id: `m${21 - n}` }));
+  const paged = async (offset) => ({ total: population.length, messages: population.slice(offset, offset + 20) });
+  let seen = [];
+  const shown = [];
+  for (let poll = 0; poll < 12; poll += 1) {
+    const { fresh, total } = await collectUnseen(paged, seen);
+    assert.equal(total, 21);
+    shown.push(...fresh.map((m) => m.id));
+    seen = rememberSeen(seen, fresh);
+  }
+  assert.equal(shown.length, 21, `shown ${shown.length} of 21`);
+  assert.equal(shown.at(-1), "m1", "the 21st is shown; a fixed window of 20 never showed it");
+
+  // A service too old to know `offset` returns the first page again: the walk stops, it does not spin.
+  let calls = 0;
+  const ignoresOffset = async () => { calls += 1; return { total: 1000, messages: population.slice(0, 20) }; };
+  const old = await collectUnseen(ignoresOffset, population.slice(0, 20).map((m) => m.id));
+  assert.deepEqual(old.fresh, []);
+  assert.equal(calls, 2);
+
+  // The first page failing is the caller's to see (it marks the service down); a later one ends the walk.
+  await assert.rejects(collectUnseen(async () => { throw new Error("down"); }, []));
+  const failsLater = async (offset) => { if (offset) throw new Error("down"); return paged(0); };
+  const partial = await collectUnseen(failsLater, population.slice(0, 19).map((m) => m.id));
+  assert.deepEqual(partial.fresh.map((m) => m.id), ["m2"]);
+  assert.ok(NOTICE_LIMIT > 1, "control: the partial result is short because the walk ended, not because of the limit");
 });
 
 test("the pure pieces: seen ids are bounded, others' shape is unchanged, the overflow is counted", async () => {

@@ -9,9 +9,10 @@
 // once rather than every ten seconds -- once PER SESSION. A relaunched model has seen none of them,
 // and a seen-set kept per agent alone hid from it every message a previous session was shown.
 //
-// It reads up to `INBOX_WINDOW` unread and shows at most `NOTICE_LIMIT` it has not shown, so the next
-// poll surfaces the next ones. Reading only the newest three meant a fourth, older unread message was
-// never surfaced while those three stayed unread (v0.7 review).
+// It shows at most `NOTICE_LIMIT` it has not shown, walking the unread population page by page until
+// it has them (`collectUnseen`). Any FIXED window only moves the loss: reading the newest three hid a
+// fourth, and reading the newest twenty hid a twenty-first, which stayed unread and was never
+// surfaced while the newer ones stayed unread too (v0.7 review, twice).
 
 import { SAFETY_HEADER } from "./tool-response-format.mjs";
 import { quoteUntrustedSubject } from "./quote-subject.mjs";
@@ -21,8 +22,42 @@ const SEEN_LIMIT = 200;
 const INBOX_WINDOW = 20;
 export const NOTICE_LIMIT = 3;
 
-export function inboxUrl(serverUrl, agentId) {
-  return `${serverUrl}/api/v1/messages/inbox/${encodeURIComponent(agentId)}?filter=unread&limit=${INBOX_WINDOW}&peek=1`;
+export function inboxUrl(serverUrl, agentId, offset = 0) {
+  return `${serverUrl}/api/v1/messages/inbox/${encodeURIComponent(agentId)}?filter=unread&limit=${INBOX_WINDOW}` +
+    `&offset=${offset}&peek=1`;
+}
+
+/**
+ * The first `limit` unread messages this session has not been shown, newest first, and the unread
+ * total. `fetchPage(offset)` returns one inbox page, or null for a refusal; a transport failure on the
+ * FIRST page is thrown, so the caller can mark the service down, and on a later page ends the walk.
+ *
+ * It ends: every page either adds an id it has not looked at or stops the walk, which also stops it
+ * against a service too old to know `offset` (it returns the first page again). And it is short: the
+ * seen list holds at most `SEEN_LIMIT` ids, so `limit` unseen lie within the first
+ * `SEEN_LIMIT + limit` unread, which is at most that many over `INBOX_WINDOW` pages.
+ */
+export async function collectUnseen(fetchPage, seenIds, limit = NOTICE_LIMIT) {
+  const looked = new Set();
+  const fresh = [];
+  let total = 0;
+  for (let offset = 0; fresh.length < limit; offset += INBOX_WINDOW) {
+    let page;
+    try {
+      page = await fetchPage(offset);
+    } catch (error) {
+      if (offset === 0) throw error;
+      break;
+    }
+    if (!page) break;
+    total = Number(page.total) || 0;
+    const newlyLooked = (page.messages || []).filter((m) => m?.id && !looked.has(m.id));
+    if (!newlyLooked.length) break;
+    for (const m of newlyLooked) looked.add(m.id);
+    fresh.push(...unseen(newlyLooked, seenIds));
+    if (offset + INBOX_WINDOW >= total) break;
+  }
+  return { fresh: fresh.slice(0, limit), total };
 }
 
 /** The ids already shown to THIS session; a record from another session, or none, is an empty set. */
