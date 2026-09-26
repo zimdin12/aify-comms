@@ -88,7 +88,7 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
       model: z.string().optional().describe("Preferred model (e.g. 'sonnet', 'opus', 'haiku')"),
       description: z.string().optional().describe("Team-facing short description: who you are, what project you're on, what you focus on. Visible to other agents in comms_agents. Preserved across re-register; pass \"\" to clear."),
       instructions: z.string().optional().describe("Standing instructions for when triggered"),
-      runtime: z.string().optional().describe("Runtime type (e.g. 'claude-code', 'codex', 'hermes', 'opencode', 'pi')"),
+      runtime: z.string().optional().describe("Runtime: claude-code, codex or hermes (pi deprecated)"),
       machineId: z.string().optional().describe("Stable machine identifier (auto-detected by default)"),
       launchMode: z.string().optional().describe("Launch mode hint (default: detached)"),
       sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),

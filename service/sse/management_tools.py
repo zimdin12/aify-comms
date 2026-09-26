@@ -24,7 +24,7 @@ async def comms_clear(target: str, agentId: str = "", olderThanHours: float = 0)
 
     target="all" wipes every message, shared artifact and agent identity on the server -- other
     teams included. There is no undo and no confirmation prompt; the only safety is this sentence.
-    Do NOT use it to tidy your own inbox (messages are auto-marked read; just leave them) or to
+    Do NOT use it to tidy your own inbox (reading them marks them read; just leave them) or to
     remove one agent (use comms_remove_agent). Scope it as narrowly as the task allows: pass
     agentId, and prefer olderThanHours over a bare wipe. If you did not explicitly decide to
     destroy shared history, you want a different tool.

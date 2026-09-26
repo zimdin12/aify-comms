@@ -85,7 +85,7 @@ export function registerInboxTools(server, z) {
         }
         const formatter = inboxMode === "headers" ? formatInboxHeaders : formatInboxMessage;
         const lines = r.messages.map((m) => formatter(m, null));
-        const trunc = r.total > r.showing ? `\n\n(Showing ${r.showing} of ${r.total})` : "";
+        const trunc = r.total > r.showing ? `\n\n(Showing ${r.showing} of ${r.total}, newest first. Use limit param for more.)` : "";
         return {
           content: [{ type: "text", text: `${SAFETY_HEADER}\n\n${r.total} message(s):\n\n${lines.join("\n\n")}${trunc}` }],
         };
