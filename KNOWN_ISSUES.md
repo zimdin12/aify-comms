@@ -49,18 +49,13 @@ menu has changed shape upstream before. It presses nothing unless it can see bot
 full-session row, so a new layout leaves the worker waiting at the menu, as before 0.7.4, rather than
 choosing the summary. Any other claude dialog is still left to the console.
 
-## A `/listen` reader that disconnects at the last moment still marks its messages read (2026-09-26)
+## A bridge older than 0.7.4 can have `/listen` mark messages read for a reader that left (2026-09-26)
 
-The `/listen` long-poll marks what it returns as read. A watcher task reads the caller's
-`http.disconnect`; the route checks it before fetching and again after inserting the read receipts but
-before committing them, and rolls back if the caller has gone (`service/routers/agents/listen.py`). In
-0.7.0 both checks used `request.is_disconnected()`, which always answers False behind the app's
-`BaseHTTPMiddleware`, so they did nothing; 0.7.1 replaced them (proven through the production app).
-A disconnect after the second check and before the response reaches the socket still marks the
-messages read with no reader behind them. The window is the commit plus the response write. Closing it needs the client to acknowledge receipt; until then
-treat `/listen` as best-effort. When unread status must be relied on, read with
-`comms_inbox(peek=true)` INSTEAD of `/listen`, not alongside it: a concurrent `/listen` still marks
-what it returns.
+Since 0.7.4 `comms_listen` asks `/listen` with `markRead=false` and marks each message read once it holds
+it, so a disconnect leaves the messages unread and a later read returns them again. A bridge installed
+before 0.7.4 does not ask, and the route then marks what it returns inside its own commit, as before: a
+disconnect after that commit (the commit plus the response write) still marks messages read with no
+reader behind them. Re-running `install.sh` and relaunching the agent closes it.
 
 ## `scripts/stamp.sh` reads no checkout under a shell exporting `MSYS_NO_PATHCONV` (2026-09-26)
 

@@ -57,8 +57,14 @@ def _watch_for_disconnect(request: Request) -> tuple[asyncio.Event, asyncio.Task
 
 
 @router.get("/agents/{agent_id}/listen")
-async def listen_for_messages(agent_id: str, request: Request, timeout: int = Query(300, ge=1, le=600)):
-    """Long-poll: blocks until agent has unread messages or timeout. Returns the messages."""
+async def listen_for_messages(agent_id: str, request: Request, timeout: int = Query(300, ge=1, le=600),
+                              markRead: bool = Query(True)):
+    """Long-poll: blocks until agent has unread messages or timeout. Returns the messages.
+
+    `markRead=false` leaves the receipts to the caller (v0.7.4): a caller that disconnects after the
+    commit below cannot be helped from here, so the bridge asks for its messages unmarked and marks each
+    one read once it holds it. The default keeps the old behaviour for bridges that do not ask.
+    """
     validate_name(agent_id, "agent ID")
 
     # Set status to idle (waiting for work)
@@ -79,12 +85,13 @@ async def listen_for_messages(agent_id: str, request: Request, timeout: int = Qu
 
     gone, watcher = _watch_for_disconnect(request)
     try:
-        return await _poll_until_work(agent_id, event, gone, timeout)
+        return await _poll_until_work(agent_id, event, gone, timeout, mark_read=markRead)
     finally:
         watcher.cancel()
 
 
-async def _poll_until_work(agent_id: str, event: asyncio.Event, gone: asyncio.Event, timeout: int) -> dict:
+async def _poll_until_work(agent_id: str, event: asyncio.Event, gone: asyncio.Event, timeout: int,
+                          *, mark_read: bool = True) -> dict:
     # Poll for unread messages, waiting on the event
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -123,7 +130,8 @@ async def _poll_until_work(agent_id: str, event: asyncio.Event, gone: asyncio.Ev
                         if parent:
                             msg["parentContext"] = {"from": parent["from_agent"], "subject": parent["subject"], "preview": (parent["body"] or "")[:100]}
                     messages.append(msg)
-                    await db.execute("INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)", (row["id"], agent_id, now))
+                    if mark_read:
+                        await db.execute("INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)", (row["id"], agent_id, now))
 
                 # ...and asked again at the last moment. The fetch and the receipts above took awaits, and a
                 # caller that went during them must not have them committed (v0.7 review). A caller

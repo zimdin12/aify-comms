@@ -101,6 +101,20 @@ class ListenLongPollTests(FastApiTestCase):
         self.assertEqual(self._rows("SELECT agent_id FROM read_receipts")[0]["agent_id"], AGENT)
         self.assertEqual(self._listen().json()["total"], 0, "the message was delivered twice")
 
+    def test_markRead_false_returns_the_messages_and_leaves_the_receipt_to_the_caller(self):
+        """v0.7.4: a caller that disconnects after the commit cannot be helped by the route, so the
+        bridge asks for its messages unmarked and marks each one read once it holds it. Until then they
+        stay unread and a later poll returns them again: at least once, never lost."""
+        self._seed_message("m-1")
+        first = self.client.get(f"/api/v1/agents/{AGENT}/listen", params={"timeout": 1, "markRead": "false"})
+        self.assertEqual(first.json()["total"], 1)
+        self.assertEqual(self._rows("SELECT agent_id FROM read_receipts"), [], "the route marked it read")
+        again = self.client.get(f"/api/v1/agents/{AGENT}/listen", params={"timeout": 1, "markRead": "false"})
+        self.assertEqual(again.json()["total"], 1, "an unacknowledged message must come back")
+        marked = self.client.post("/api/v1/messages/m-1/read", json={"agentId": AGENT})
+        self.assertEqual(marked.status_code, 200, marked.text)
+        self.assertEqual(self._listen().json()["total"], 0, "CONTROL: once acknowledged it is not redelivered")
+
     def test_several_messages_arrive_NEWEST_first(self):
         for index, timestamp in enumerate([1700000001, 1700000003, 1700000002]):
             self._seed_message(f"m-{index}", timestamp=timestamp)

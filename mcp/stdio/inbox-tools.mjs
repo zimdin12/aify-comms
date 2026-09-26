@@ -153,7 +153,9 @@ export function registerInboxTools(server, z) {
       const maxWait = Math.min(timeout || 300, 600);
 
       if (IS_REMOTE) {
-        const url = `${SERVER_URL}/api/v1/agents/${agentId}/listen?timeout=${maxWait}`;
+        // markRead=false: this bridge marks each message read once it HOLDS it (below). The route
+        // marking them itself read them for a caller that could disconnect after its commit (v0.7.4).
+        const url = `${SERVER_URL}/api/v1/agents/${agentId}/listen?timeout=${maxWait}&markRead=false`;
         const options = { headers: {}, signal: AbortSignal.timeout((maxWait + 10) * 1000) };
         if (API_KEY) options.headers["X-API-Key"] = API_KEY;
         try {
@@ -168,6 +170,9 @@ export function registerInboxTools(server, z) {
           if (!r.messages || r.messages.length === 0) {
             return { content: [{ type: "text", text: "No messages received (timeout). comms_listen is deprecated compatibility/debug long-polling; use bridge wake delivery and comms_inbox for normal work." }] };
           }
+          // Received, so now read. A mark that fails leaves the message unread, and a later read returns
+          // it again: at least once, never lost.
+          await Promise.all(r.messages.map((m) => httpCall("POST", `/messages/${encodeURIComponent(m.id)}/read`, { agentId }).catch(() => {})));
           const registry = {};
           try { const a = await httpCall("GET", "/agents"); registry.agents = a.agents; } catch {}
           const formatted = r.messages.map((m) => formatInboxMessage(m, registry));
