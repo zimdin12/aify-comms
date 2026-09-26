@@ -74,6 +74,9 @@ export function classify(summary) {
   if (!summary || typeof summary !== "object") return "unknown";
   const { lastRole, lastStopReason, pendingToolUse, pendingToolNames } = summary;
   if (!lastRole) return "unknown";
+  // The operator interrupted the turn (Esc): claude is idle and nothing will answer the marker
+  // (`isInterruptMarker`, adapters/claude.js; v0.7.4).
+  if (summary.interrupted === true) return "ended";
   // A turn ENDED iff the last message is an assistant that yielded to the user
   // (terminal stop_reason) with no pending tool_use awaiting a result.
   if (

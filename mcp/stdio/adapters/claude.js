@@ -242,6 +242,29 @@ export function isBookkeepingUserMessage(msg) {
   return text.replace(BOOKKEEPING_BLOCK_RE, "").trim() === "";
 }
 
+// What claude writes when the operator presses Esc: a user message holding only this marker (v0.7.4).
+const INTERRUPT_MARKER_RE = /^\[Request interrupted by user(?: for tool use)?\]$/;
+
+/**
+ * True for the user message claude appends when a turn is interrupted. Esc fires no hook, and nothing
+ * will answer this message, so read as "the human spoke" it latched the agent at `working`; the tail
+ * summary flags it so `classify` can call the turn ended.
+ */
+export function isInterruptMarker(msg) {
+  if (!msg) return false;
+  const content = msg.content;
+  let text = "";
+  if (typeof content === "string") text = content;
+  else if (Array.isArray(content)) {
+    for (const b of content) {
+      if (!b || b.type === "tool_result") return false;
+      if (typeof b === "string") text += b;
+      else if (typeof b.text === "string") text += b.text;
+    }
+  } else return false;
+  return INTERRUPT_MARKER_RE.test(text.trim());
+}
+
 export function summarizeTranscriptTail(text) {
   const empty = { lastRole: null, lastStopReason: null, pendingToolUse: false, pendingToolNames: [] };
   if (!text) return empty;
@@ -272,6 +295,9 @@ export function summarizeTranscriptTail(text) {
     // last REAL message. A genuine prompt that merely CARRIES a system-reminder still has its
     // own text, so it is untouched.
     if (role === "user" && isBookkeepingUserMessage(msg)) continue;
+    if (role === "user" && isInterruptMarker(msg)) {
+      return { lastRole: "user", lastStopReason: null, pendingToolUse: false, pendingToolNames: [], interrupted: true };
+    }
     const stopReason = msg && typeof msg.stop_reason !== "undefined" ? msg.stop_reason : null;
     let pendingToolUse = false;
     const pendingToolNames = [];

@@ -206,19 +206,21 @@ Three gaps remain:
 `aify-comms doctor`'s `gateway-orphans` row reports all three. The measurements and the chain that
 made a hard kill of the host tier orphan every gateway are in the archive.
 
-## An unwatched managed claude may stop repainting its working footer
+## Rare wrong statuses for a managed claude (traced 2026-09-26)
 
-A managed claude re-emits its spinner footer only while its PTY is actively rendered. The environment
-bridge kept it rendering with a SIGWINCH keepalive, and that keepalive was deleted with the bridge.
-Since 2026-09-14 the service stamps the console-working lease itself, from the screen it already
-renders (`service/api_core/console_working.py`, lease `CONSOLE_WORKING_LEASE_SECONDS` = 20 s), and an
-aify-env screen observation decides a managed agent's status ahead of the lease
-(`service/api_core/host_activity.py`).
+An unwatched console is NOT one: aify-env reads every terminal's output and reports its screen whether
+or not anyone views it (`terminal-controls.mjs`, `runner.mjs`), and on 2026-09-26 all six live managed
+claude agents read correctly, three working and three idle. Esc no longer latches `working` since 0.7.4
+(`isInterruptMarker`, `adapters/claude.js`). A code trace left these, none seen live:
 
-**Not established:** whether a claude whose console nobody watches still repaints under aify-env. If it
-does not, the screen the service reads goes quiet too, and a working agent can read `online`. To
-settle it: leave a managed claude working, close its console, and watch the dot for a minute. The old
-keepalive's design, and why a time-grace cannot replace it, are in the archive.
+- **A turn past 30 minutes rests on the screen alone.** A hook-started turn stops counting after 30
+  minutes; from then on `working` comes from aify-env's screen reading or the 20 s console lease. A
+  layout that pushes the spinner out of the bottom twelve lines, or a footer without its `↓ N tokens`
+  item, would read `online` (ASSUMED; depends on claude's layout).
+- **Assistant text that looks like a spinner line** (a line starting `* `, `· ` or `✻ ` and ending in
+  `…`) near the bottom of an idle screen reads `working` until the screen changes (ASSUMED).
+- **A permission prompt the operator denies** reads `blocked` for up to 45 s, then `working` until
+  the next turn event.
 
 ## An interrupt reaches the agent as a permission refusal (2026-08-25)
 
