@@ -126,6 +126,10 @@ class ServiceConfig:
                 config.build_branch = str(stamp.get("branch", config.build_branch) or "unknown")
                 config.built_at = str(stamp.get("built_at", config.built_at) or "")
                 config.build_dirty = stamp.get("dirty") is True
+                # A sha supplied to stamp.sh (GIT_SHA) is an override like AIFY_BUILD_SHA, and is
+                # reported as one so the doctor does not certify it against a checkout.
+                if stamp.get("sha_from_env") is True:
+                    config.stamp_overrides.append("build_sha")
                 # A stamp written before the version field existed has no "version" key —
                 # keep the fallback rather than blanking the identity the API reports.
                 config.version = str(stamp.get("version", config.version) or config.version)

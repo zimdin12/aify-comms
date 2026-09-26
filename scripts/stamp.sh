@@ -36,10 +36,14 @@ elif [ -r "$REPO_ROOT/VERSION" ]; then
   [ -n "$_v" ] && version="$_v"
 fi
 
-# Env overrides win (useful for CI where .git may be absent), then git.
+# Env overrides win (useful for CI where .git may be absent), then git. A supplied sha is RECORDED as
+# one (`sha_from_env`), so the service reports it as an override and the doctor refuses to certify a
+# value someone typed as the running build (v0.7 review).
+sha_from_env="false"
 if [ -n "${GIT_SHA:-}" ]; then
   sha="$GIT_SHA"
   short="${GIT_SHA:0:7}"
+  sha_from_env="true"
 elif command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
   short="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -53,10 +57,10 @@ fi
 
 # DIRTY: uncommitted changes to code the image runs (the same paths `aify-comms doctor`'s `service`
 # check counts). A build from such a tree matches no commit, so reporting only HEAD's sha let the
-# doctor say "serving HEAD" while the running code differed (v0.7 scan B19). Env overrides and a tree
-# with no git report false: nothing here can tell.
+# doctor say "serving HEAD" while the running code differed (v0.7 scan B19). Asked of the checkout
+# whenever there is one, a supplied GIT_SHA included; a tree with no git reports false.
 dirty="false"
-if [ -z "${GIT_SHA:-}" ] && command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   changed="$(git -C "$REPO_ROOT" status --porcelain -- service mcp config Dockerfile \
     ':(exclude)service/tests' ':(exclude)service/**/*.test.mjs' ':(exclude)mcp/stdio' 2>/dev/null)"
   if [ -n "$changed" ]; then
@@ -76,7 +80,7 @@ built_at="$(_json_escape "$built_at")"
 version="$(_json_escape "$version")"
 
 cat > "$OUT" <<EOF
-{"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at","version":"$version","dirty":$dirty}
+{"sha":"$sha","short":"$short","branch":"$branch","built_at":"$built_at","version":"$version","dirty":$dirty,"sha_from_env":$sha_from_env}
 EOF
 
 echo "stamp.sh: wrote $OUT (version=$version sha=$short branch=$branch dirty=$dirty)"
