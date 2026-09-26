@@ -68,7 +68,7 @@ Default lane loop:
 
 1. Manager/lead sends a bounded `request`.
 2. Worker reads exact docs/files needed, implements, verifies, and replies with `[REVIEW]` or `[HOLD]`.
-3. Lead verifies on disk and replies `[APPROVE]`, `[REWORK]`, or `[BLOCKED]`.
+3. Lead verifies on disk and replies `[APPROVE]`, `[REVISE]`, or `[BLOCKED]`.
 4. Worker fixes rework or continues to the next bounded slice.
 5. Before "done," the driver INTEGRATES and behaviorally verifies the WHOLE — the end-to-end flow plus the cross-cutting concerns no single lane owns (controls/UX consistency, data across layers, auth→action→persistence, restart/recovery) — not just each approved slice. Per-slice APPROVE is not product-works.
 6. Manager reports only meaningful decisions/progress to dashboard.
@@ -83,7 +83,7 @@ Use labels in subjects when they reduce ambiguity:
 - `[IMPLEMENT]`: bounded coding request.
 - `[REVIEW]`: worker believes the slice is ready.
 - `[APPROVE]`: reviewer accepts and may authorize commit/next slice.
-- `[REWORK]`: exact change needed before acceptance.
+- `[REVISE]`: exact change needed before acceptance.
 - `[HOLD]`: grounded stop because safe progress needs a decision/evidence.
 - `[BLOCKED]`: external blocker; name owner and required unblock.
 - `[STATUS]`: evidence-backed status, not a promise.
@@ -192,8 +192,8 @@ When the human asks "what happened", inspect messages/runs/contracts first. Do n
 explicit "talk in comms" / "talk in terminal" overrides that until the user changes it.
 
 - Arrived as a `<channel source="aify-comms-channel" ...>` event → reply with
-  `comms_send(type="response", inReplyTo="<message id>", ...)`. Do NOT just print the answer: the
-  sender is not watching your terminal, they are waiting on the threaded reply.
+  `comms_send(type="response", inReplyTo="<message id>", ...)`, because the sender is waiting on the
+  threaded reply, not watching your terminal.
 - Typed directly into your CLI (operator at your keyboard) → reply in the CLI. Do not `comms_send`
   back unless they asked for a dashboard update.
 - A dashboard-managed run with `inReplyTo` in its metadata → `comms_send(type="response",

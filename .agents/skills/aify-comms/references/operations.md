@@ -72,7 +72,7 @@ Wrapper auto mode:
 - Dashboard-managed identities are registered by aify-env, which claims the spawn and runs the worker. Delivered managed runs must not call `comms_register`.
 - aify-env owns managed backings, including the PTY. Browser Console attaches to that backing and is not another owner.
 - Branch on advertised capabilities, not runtime names. Unsupported resident mode or interrupt must fail visibly rather than create an undeliverable session.
-- Use Dashboard Settings for operator policy. Runtime settings are described in [OPERATING_MODES.md](../../../../docs/OPERATING_MODES.md), and the internals in [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+- Use Dashboard Settings for operator policy. Runtime settings are described in `docs/OPERATING_MODES.md` and the internals in `docs/ARCHITECTURE.md` in the aify-comms checkout.
 
 | Runtime | Normal managed delivery | Resident delivery |
 |---|---|---|
@@ -114,7 +114,7 @@ exist while its delivery owner is dead; prove both before calling the agent `onl
 2. Use manual `comms_register` only when the wrapper did not auto-register.
 3. Verify `sessionHandle`, `sessionMode`, live bridge identity, and status with `comms_agent_info`.
 4. Switch managed/resident explicitly. Registration records a candidate; it must not silently displace a live managed owner.
-5. Use **Set handle** only to repair a known native ID. Use **Reset** only when fresh context is intentional.
+5. Use the agent's **Edit…** → *Native session handle* field only to repair a known native ID. Use **Reset** only when fresh context is intentional.
 
 Pi and OpenCode have no resident delivery path; a plain presence registration does not create one. A resident agent has no aify-owned console.
 
@@ -164,4 +164,3 @@ It is bounded: past the spawn-in-flight window an agent that never produced a wo
 - If another agent is not triggerable, inspect `comms_agent_info(agentId="target")` first.
 - Codex path errors usually mean stale binding, wrong host path style, or stale bridge/app-server markers.
 - Claude `Session ID ... is already in use` means another Claude process owns that native session. Pause/close/take over explicitly; do not silently recreate unless the operator requests it.
-- `comms_listen` is deprecated. Do not use it for normal teamwork or managed runs.
