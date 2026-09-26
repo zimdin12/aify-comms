@@ -38,6 +38,11 @@ detect_installed_server_url() {
 }
 DEFAULT_SERVER="${AIFY_DEFAULT_SERVER_URL:-$(detect_installed_server_url || echo "http://127.0.0.1:8800")}"
 SERVER_URL="${1:-$DEFAULT_SERVER}"
+# The aify-env endpoint the launcher was installed with, carried through so an update keeps it. Empty
+# means none was recovered, and the installer's own default applies.
+ENV_ENDPOINT_ARGS=()
+INSTALLED_ENV_ENDPOINT="$(bash "$REPO_ROOT/scripts/installed-env-endpoint.sh" "$HOME/.local/bin" 2>/dev/null || true)"
+[ -n "$INSTALLED_ENV_ENDPOINT" ] && ENV_ENDPOINT_ARGS=(--env-endpoint "$INSTALLED_ENV_ENDPOINT")
 
 if [ ! -f "$REPO_ROOT/install.sh" ]; then
   echo "redeploy.sh: install.sh not found at $REPO_ROOT" >&2
@@ -110,7 +115,7 @@ for client in "${CLIENTS[@]}"; do
     continue
   fi
   echo "redeploy.sh: refreshing $client..."
-  if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL"; then
+  if bash "$REPO_ROOT/install.sh" --client "$client" "$SERVER_URL" ${ENV_ENDPOINT_ARGS[@]+"${ENV_ENDPOINT_ARGS[@]}"}; then
     echo "redeploy.sh: $client refreshed"
     REFRESHED=$((REFRESHED + 1))
   else
