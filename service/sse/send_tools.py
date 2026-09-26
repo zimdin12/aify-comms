@@ -27,9 +27,10 @@ from service.sse.api_client import api as _api
 
 def awaiting_reply_note(from_agent: str, to: str, type: str, requireReply: bool | None = None) -> str:
     """What the sender knows until the reply arrives. The stdio twin is `awaitingReplyNote` in
-    `mcp/stdio/tool-response-format.mjs` (v0.7, H-A2); said only when a reply is owed, and never on
-    a message to yourself, which IS your own next turn."""
-    owed = requireReply is True or _message_type_expects_reply(type)
+    `mcp/stdio/tool-response-format.mjs` (v0.7, H-A2); said only when a reply is tracked (an explicit
+    requireReply wins over the type, as in `_dispatch_requires_reply`), and never on a message to
+    yourself, which IS your own next turn."""
+    owed = requireReply is True or (requireReply is not False and _message_type_expects_reply(type))
     if not owed or (to and to == from_agent):
         return ""
     return (

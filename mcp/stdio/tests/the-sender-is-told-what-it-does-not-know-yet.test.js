@@ -18,16 +18,26 @@ test("no note when nothing is owed, or when the message is to yourself", () => {
   assert.equal(awaitingReplyNote({ from: "me", to: "me", type: "request" }), "");
 });
 
-test("both send acks carry the note: the direct send and the channel post", () => {
-  // The helper above can be green while a call site never calls it, which is how the channel ack
-  // shipped without the note in 0.7.0. The acks run only against a live service (IS_REMOTE), so
-  // this reads each registration's source, from its name to the next registration.
+test("requireReply=false on a request means no reply is tracked, so none is promised", () => {
+  // v0.7.2 (external review, item 6): the service creates the run with require_reply=false
+  // (reply_expectation.py `_dispatch_requires_reply`), and the ack still said the reply would arrive.
+  for (const type of ["request", "review", "error"]) {
+    assert.equal(awaitingReplyNote({ from: "me", to: "peer", type, requireReply: false }), "", type);
+  }
+});
+
+test("the direct send's ack carries the note, and the channel post's does not", () => {
+  // The helper above can be green while a call site never calls it. The acks run only against a live
+  // service (IS_REMOTE), so this reads each registration's source, from its name to the next one.
+  // A channel run is created with require_reply=False (service/routers/channel_send.py), so no reply is
+  // tracked and the channel ack promised one that nothing owes (v0.7.2, external review item 6).
   const src = readFileSync(new URL("../send-tools.mjs", import.meta.url), "utf8");
-  for (const tool of ["comms_send", "comms_channel_send"]) {
+  const registration = (tool) => {
     const start = src.indexOf(`    "${tool}",`);
     assert.ok(start > 0, `${tool}'s registration was not found; this reader is stale`);
     const next = src.indexOf("server.tool(", start);
-    const body = src.slice(start, next < 0 ? undefined : next);
-    assert.match(body, /awaitingReplyNote\(/, `${tool}'s ack must carry the note`);
-  }
+    return src.slice(start, next < 0 ? undefined : next);
+  };
+  assert.match(registration("comms_send"), /awaitingReplyNote\(/, "comms_send's ack must carry the note");
+  assert.doesNotMatch(registration("comms_channel_send"), /awaitingReplyNote\(/, "the channel ack promises a reply no channel run tracks");
 });

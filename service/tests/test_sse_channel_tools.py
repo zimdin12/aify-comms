@@ -98,13 +98,14 @@ class ChannelToolTests(unittest.TestCase):
         self.assertIn("Not started: b: offline", out)
         self.assertIn("a (r1) [queued]", out)
 
-    def test_a_channel_request_tells_the_sender_it_knows_nothing_until_the_reply(self):
-        """H-A2: the direct-send ack said it and the channel ack did not. An info post owes nothing."""
+    def test_a_channel_request_promises_no_reply(self):
+        """v0.7.2 (external review, item 6): a channel run is created with require_reply=False
+        (routers/channel_send.py), so no reply is tracked, and the ack said one would arrive."""
         payload = {"dispatchRuns": [{"targetAgentId": "a", "runId": "r1", "status": "queued"}]}
-        owed, _ = self._run(ch.comms_channel_send, payload, channel="dev", from_agent="me", body="b", type="request")
-        self.assertIn("until it does you know nothing about its result", owed)
-        info, _ = self._run(ch.comms_channel_send, payload, channel="dev", from_agent="me", body="b")
-        self.assertNotIn("know nothing", info)
+        for kind in ("request", "review", "error", "info"):
+            out, _ = self._run(ch.comms_channel_send, payload, channel="dev", from_agent="me", body="b", type=kind)
+            self.assertIn("a (r1) [queued]", out, "CONTROL: the ack still reports the run")
+            self.assertNotIn("reply arrives", out, kind)
 
     def test_send_says_so_when_nothing_was_launchable(self):
         out, _ = self._run(

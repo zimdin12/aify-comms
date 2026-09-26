@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from service.sse.api_client import api as _api
 from service.sse.rendering import SAFETY_HEADER, fence as _fence
-from service.sse.send_tools import awaiting_reply_note
 
 
 async def comms_channel_create(name: str, from_agent: str, description: str = "") -> str:
@@ -94,8 +93,10 @@ async def comms_channel_send(
         note = f"Sent to #{channel} with live delivery for {', '.join(queued) if queued else 'no launchable recipients'}."
         if skipped:
             note += f" Not started: {'; '.join(skipped)}."
+        # No awaiting-reply note: a channel run tracks no reply (require_reply=False in
+        # routers/channel_send.py), so it would promise one nothing owes (v0.7.2).
         note += " Use comms_run_status(...) to inspect progress."
-        return note + awaiting_reply_note(from_agent, "", type)
+        return note
     return f"Sent to #{channel} ({r.get('members', {})  if isinstance(r.get('members'), int) else len(r.get('members', []))} members)."
 
 

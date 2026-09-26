@@ -73,7 +73,9 @@ class SendTests(unittest.TestCase):
         owed, _ = _with_api(st, st.comms_send, payload,
                             from_agent="me", type="request", subject="s", body="b", to="a")
         self.assertIn("until it does you know nothing about its result", owed)
-        for kwargs in ({"type": "info", "to": "a"}, {"type": "request", "to": "me"}):
+        # requireReply=False: the run is created with no reply contract, so none is promised (v0.7.2).
+        for kwargs in ({"type": "info", "to": "a"}, {"type": "request", "to": "me"},
+                       {"type": "request", "to": "a", "requireReply": False}):
             quiet, _ = _with_api(st, st.comms_send, payload, from_agent="me", subject="s", body="b", **kwargs)
             self.assertNotIn("know nothing", quiet, kwargs)
 

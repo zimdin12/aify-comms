@@ -166,9 +166,11 @@ export function autoReplyBodyForRun(run = {}, terminalStatus = "completed", deta
 // WHAT THE SENDER KNOWS UNTIL THE REPLY ARRIVES (v0.7, H-A2, after Claude Code's own rule for a
 // delegated agent). "Created, not delivered" already stops one false report; this stops the next
 // one along: narrating a result not yet received, or doing the delegate's work in parallel. Said
-// only when a reply is owed, and never on a message to yourself, which IS your own next turn.
+// only when a reply is tracked -- the type's default unless requireReply says otherwise, as the
+// service decides it (reply_expectation.py) -- and never on a message to yourself, which IS your own
+// next turn. A channel post tracks none, so its ack carries no note (v0.7.2, external review item 6).
 export function awaitingReplyNote({ from, to, type, requireReply }) {
-  const owed = requireReply === true || ["request", "review", "error"].includes(type);
+  const owed = requireReply === true || (requireReply !== false && ["request", "review", "error"].includes(type));
   if (!owed || (to && to === from)) return "";
   return " The reply arrives as a new message that wakes you; until it does you know nothing about its result, so do not report, predict or redo that work.";
 }

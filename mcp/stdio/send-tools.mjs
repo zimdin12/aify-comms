@@ -235,7 +235,6 @@ export function registerSendTools(server, z) {
               type: "text",
               text:
                 `Sent to #${channel}. Dispatch: ${queued.join(", ") || "started"}. This ack reports what was CREATED, not what was delivered -- confirm with comms_run_status(...) before reporting delivery.` +
-                awaitingReplyNote({ from, type: type || "info" }) +
                 (skipped.length ? `\nNot started: ${skipped.join("; ")}` : ""),
             }],
           };
