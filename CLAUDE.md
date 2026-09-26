@@ -157,11 +157,11 @@ because it did not look. `node --check` only parses. The counts below are a snap
 authority, and a very different number means a wrong invocation before it means anything else.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 4847 tests, 25 skipped
-cd mcp/stdio && node tests/run-all.mjs                 # 359 suites
-cd service/new_dashboard && node --test *.test.mjs     # 1800 tests
-cd ~/projects/aify-wrapper && npm test                 # 551 tests
-cd ~/projects/aify-env && npm test                     # 1948 tests
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 4750 tests, 25 skipped
+cd mcp/stdio && node tests/run-all.mjs                 # 361 suites
+cd service/new_dashboard && node --test *.test.mjs     # 1790 tests
+cd ~/projects/aify-wrapper && npm test                 # 551 tests, 66 skipped
+cd ~/projects/aify-env && npm test                     # 2039 tests, 4 skipped
 ```
 
 - **Python:** `-n 8 --dist loadfile` is the invocation (about 3 minutes; serial is over 20).
