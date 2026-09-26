@@ -25,6 +25,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service import longpoll
+from service.api_core.interrupt_notice import note_the_interrupt
 from service.api_core.claim_emptiness import dispatch_controls_is_empty
 from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
 from service.api_core.dispatch_run_state import _append_dispatch_control
@@ -184,6 +185,10 @@ async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, r
                         "INSERT OR IGNORE INTO read_receipts (message_id, agent_id, read_at) VALUES (?,?,?)",
                         ((control["source_message_id"] or "").strip(), run["target_agent"], handled_at),
                     )
+        if status == "completed" and control["action"] == "interrupt":
+            run_row = await (await db.execute("SELECT target_agent FROM dispatch_runs WHERE id = ?", (control["run_id"],))).fetchone()
+            if run_row and (run_row["target_agent"] or "").strip():
+                await note_the_interrupt(db, agent_id=run_row["target_agent"], stopped_by=control["from_agent"] or "", at=handled_at)
         # THE ACTOR GOES IN THE AUDIT TRAIL, not only in the control row. The run's event list is
         # where a stranded or wrongly-closed run is actually investigated, and a settlement whose
         # actor is only discoverable by joining another table is a settlement nobody will attribute.

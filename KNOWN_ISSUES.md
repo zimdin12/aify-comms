@@ -238,8 +238,10 @@ the time, out of `terminal_controls` — instead of listing four possible causes
 among them. See `api_core/authored_failures.py`.
 
 **The runtime half is not ours.** That string comes from Claude Code, not from aify-comms, so it cannot
-be corrected from here. Closing it needs either a runtime change or a note injected into the session
-after an interrupt so the agent learns what actually happened. Nothing in this repo currently does that.
+be corrected from here. Since 0.7.4 a completed interrupt of a claude agent leaves it one short unread
+note, from `aify-comms`, saying who stopped it and when and that it was a stop, not a permission refusal
+(`service/api_core/interrupt_notice.py`). It wakes nothing, so the agent reads it at its next turn,
+after it may already have drawn the wrong conclusion in the interrupted one.
 
 ## A worker still inherits any harmful variable nobody has named
 
