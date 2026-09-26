@@ -164,6 +164,14 @@ test("R2: a key is NEVER paired with an endpoint the registry did not name it fo
     assert.equal(read(REAL_HOST, { endpoint: spelling }).key, "s3cret", `refused ${spelling}`);
   }
   assert.equal(sameEndpoint("not a url", "not a url"), false, "unparseable compared equal to itself");
+  // v0.7.1 review (W10): the path was dropped, so a key bound to one service behind a path prefix
+  // opened every other service on that host.
+  assert.equal(sameEndpoint("https://host.example/aify", "https://host.example/other"), false,
+    "a key bound to one path opened another");
+  assert.equal(sameEndpoint("https://host.example/aify", "https://host.example"), false);
+  assert.equal(sameEndpoint("https://host.example/aify", "https://host.example/aify/"), true,
+    "control: a trailing slash is the same service");
+  assert.equal(sameEndpoint("https://host.example", "https://host.example/"), true, "control: an empty path is /");
 });
 
 test("R3: the store's decoding contract, not readFileSync().trim()", () => {

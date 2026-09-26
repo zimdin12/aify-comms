@@ -97,7 +97,11 @@ export function sameEndpoint(a, b) {
     }
     const host = url.hostname === "localhost" ? "127.0.0.1" : url.hostname;
     const port = url.port || (url.protocol === "https:" ? "443" : "80");
-    return `${url.protocol}//${host}:${port}`;
+    // THE PATH IS PART OF THE SERVICE. Behind a reverse proxy two services share a host and differ
+    // only by prefix, and dropping it let a key bound to one open the other (v0.7.1 review, W10).
+    // Every caller passes a base URL, never a request path, so this compares like with like.
+    const path = url.pathname.replace(/\/+$/, "");
+    return `${url.protocol}//${host}:${port}${path}`;
   };
   const left = norm(a);
   const right = norm(b);
