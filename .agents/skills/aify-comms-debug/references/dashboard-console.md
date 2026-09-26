@@ -31,7 +31,7 @@ aify-env owns every PTY and advertises the host. It lists a runtime in `terminal
 that runtime's binary resolves on the PATH aify-env was started with, and sets `terminal` from its
 own PTY check. Ask `aify-env doctor` on that host: its terminal row and the runtime's
 `not found on PATH` reason say which. Report what it says; repairing the host and restarting
-aify-env are the operator's (a restart reaps its managed workers).
+aify-env are the operator's.
 
 Channel delivery still needs a PTY: `claude-channel.js` runs inside the `claude-aify` wrapper, so
 with no wrapper PTY nothing claims. Workaround meanwhile: launch a resident

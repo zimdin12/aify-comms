@@ -24,7 +24,8 @@ Managed Codex uses `~/.local/state/aify-comms/managed-codex-home`; a resident us
 - **Missing rollout (`no rollout found`):** managed Codex imports it from the other homes and
   retries once; the run log says `Resumed imported Codex thread ...`.
 - **Corrupt or oversized rollout** (`Message too long ... > 16777216`): restart fails loudly rather
-  than dropping memory. Only Dashboard **Sessions → Reset** (fresh context) starts a new thread.
+  than dropping memory. Only a Reset (`comms_restart(agentId, freshContext=true)`, dashboard **Sessions → Reset**)
+  starts a new thread.
 
 If the raw error persists, the running bridge predates the classifier (`detectCodexResumeFailure`).
 Run `aify-comms doctor`; with `bridge-installed` red, re-run `bash install.sh --client codex`; with
@@ -50,8 +51,9 @@ comms_agent_info(agentId="<id>")
 ```
 
 Add `sessionHandle="$CODEX_THREAD_ID"` only when it is non-empty in that same session (after
-`codex-aify --resume <id>`); never fill it from historical rollout files. Healthy: `wakeMode:
-codex-live`, the expected `machineId`, and a live `runtimeConfig.appServerUrl`.
+`codex-aify --resume <id>`); never fill it from historical rollout files. Healthy: `comms_agent_info`
+shows wake mode `codex-live` on the expected machine, and `GET /api/v1/agents/<id>` shows a live
+`runtimeConfig.appServerUrl`.
 
 ## Not live-bound when you expected `codex-live`
 

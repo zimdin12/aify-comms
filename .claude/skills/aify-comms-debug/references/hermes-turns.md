@@ -21,7 +21,7 @@ should come up within seconds.
 
 **Recovery.** `hermes update` from a non-admin terminal, then `bash install.sh --client hermes`
 (an update deletes the web bundle `--skip-build` needs). Confirm the command above, then restart
-each worker (Sessions → Restart).
+each worker with `comms_restart(agentId)`.
 
 ## `hermes mcp test` works, but the live turn has no aify tools
 

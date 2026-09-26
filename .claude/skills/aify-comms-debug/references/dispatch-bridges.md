@@ -72,11 +72,9 @@ If you know the right handle, the agent's **Edit…** → *Native session handle
 
 ## Who may claim wrapper-backed channel work
 
-Codex's `bridge_kind='managed-wrapper-child'` or Hermes's `bridge_kind='channel-sidecar'`, plus the
-current active wrapper `terminal_id`. Only the delivery owner holds the local app-server or gateway
-context, so a run claimed by anything else fails or forks hidden work. If a run reads
-claimed/running while the visible terminal never receives it, restart the managed session so a
-fresh delivery owner registers.
+Only the delivery owner (dispatch-delivery.md, "Who may claim") holds the app-server or gateway
+context. If a run reads claimed/running while the visible terminal never gets it, restart the
+managed session so a fresh owner registers.
 
 ## Managed claude freezes on boot at a prompt
 

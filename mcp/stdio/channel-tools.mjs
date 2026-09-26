@@ -131,9 +131,7 @@ export function registerChannelTools(server, z) {
 
   server.tool(
     "comms_channel_leave",
-    "Stop receiving a channel, without destroying it for anyone else. This is the non-destructive " +
-      "exit and the one comms_channel_delete tells you to prefer: leaving removes only your own " +
-      "membership, while deleting ends the channel and its history for every member.",
+    "Leave a channel: removes only your membership. The channel and its history stay for every other member.",
     {
       channel: z.string().describe("Channel name to leave"),
       from: z.string().describe("Your agent ID"),

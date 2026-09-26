@@ -127,10 +127,10 @@ export function registerLifecycleTools(server, z) {
 
   server.tool(
     "comms_restart",
-    "Gracefully restart another agent's MANAGED session — the same path as the dashboard's Sessions -> Restart: a replace start, so the live worker is stopped and aify-env starts the new one, keeping the agent's native session/context. Set freshContext=true for a Reset (discards the native session and starts clean, = the dashboard 'Reset' button). Only works on session_mode='managed' agents: RESIDENT sessions are operator-owned and CANNOT be restarted remotely (a restart would stop the operator's terminal) — use comms_run_interrupt to stop its current run, or ask the operator to relaunch. Prefer this over delete_session+send: it is the graceful, dashboard-equivalent recreate.",
+    "Restart another agent's MANAGED session, as the dashboard's Sessions → Restart does: aify-env replaces the live worker and resumes its native session. freshContext=true is a Reset (fresh native session). A RESIDENT session belongs to the operator: interrupt its run with comms_run_interrupt or ask the operator to relaunch it.",
     {
       agentId: z.string().describe("Agent whose managed session to restart"),
-      freshContext: z.boolean().optional().describe("true = Reset (discard native session, fresh context); false/omitted = Restart (keep native session)"),
+      freshContext: z.boolean().optional().describe("true = Reset (fresh context)"),
     },
     async ({ agentId, freshContext }) => {
       const id = String(agentId || "").trim();

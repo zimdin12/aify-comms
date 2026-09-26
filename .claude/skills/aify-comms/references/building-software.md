@@ -31,9 +31,8 @@ It is general on purpose: apply judgment, scale it to the task, and let language
 ## Reviewing — reviewer ≠ builder, and verify behavior not just text
 - Every non-trivial piece is reviewed by someone who didn't build it. Reviews END with an explicit
   `APPROVE` or `REVISE` (revise = the specific, checkable changes).
-- Distinguish CODE REVIEW (read the diff on disk) from BEHAVIORAL VERIFICATION (run it / measure it).
-  Anything user-facing, render-, feel-, or integration-affecting MUST be behaviorally verified — code
-  review alone does not catch these. Say which you did.
+- Say whether you inspected or behaviorally verified (teamwork.md, Review Discipline); user-facing,
+  render and integration changes need the second.
 - Certify the exact final tree, after the last edit. Earlier review does not cover a later commit or
   uncommitted patch. A timed-out or acknowledgement-only reviewer returned no verdict.
 - Before commit/publish: inspect the complete diff, run the affected gates after the final patch,
@@ -45,12 +44,6 @@ It is general on purpose: apply judgment, scale it to the task, and let language
   decisions in one place instead of fragmenting them across DMs — use `comms_channel_send` for
   decisions everyone needs; use DMs for owned 1:1 handoffs. A runnable skeleton against the frozen
   contract beats a long spec.
-
-## Context discipline — keep sessions lean
-- Hand down only the inputs a subtask needs (the file, the one prior result, the exact decision), not
-  the whole thread. For long or binary content use `comms_share` + a one-line pointer instead of pasting.
-- On a long-running session, compact periodically (`comms_compact` handoff, or the runtime's own
-  `/compact`) so accumulated context doesn't silently inflate every turn's cost.
 
 ## Honesty — proven vs assumed
 - Never overclaim. State plainly what is PROVEN (you ran/measured it), what is ASSUMED (reasoned but not

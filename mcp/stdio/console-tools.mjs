@@ -143,9 +143,8 @@ export const CONSOLE_INPUT_TOOL_DESCRIPTION =
   "Recovery-only: send keystrokes/text into another managed agent's live console. " +
   "Read the console first with comms_console_tail and use this only for a proven interactive prompt or operator recovery. " +
   "Do not inject normal work messages, reminders, or duplicate comms_send delivery through the console. Audited. " +
-  "NOT RELIABLE AS A SUBMIT: a successful call means the bytes were written to the PTY, never that the runtime acted on them. " +
-  "Observed 2026-07-26 on a stuck managed-claude draft — two text writes and three bare-Enter retries ALL reported success while the draft never submitted. " +
-  "If one attempt does not visibly change the console, escalate to the operator instead of retrying; repeated Enter has been measured to do nothing.";
+  "NOT RELIABLE AS A SUBMIT: success means the bytes reached the PTY, not that the runtime acted (measured: five writes reported success on a draft that never submitted). " +
+  "After one attempt that does not visibly change the console, escalate to the operator.";
 
 // Registers the two console tools. A function rather than a module-scope side effect, so a fake server
 // can capture the registrations and a test can call the handlers without an MCP transport. `z` is the

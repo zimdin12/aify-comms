@@ -50,31 +50,38 @@ const CEILINGS = {
   // when a message becomes read (claimed run, comms_inbox, a reply with inReplyTo; a silent send
   // stays unread), because agents treated the notice's unread list as unhandled work. Step 3's tail
   // was shortened to pay for part of it.
-  "aify-comms/SKILL.md": 14_132,
-  "aify-comms/references/building-software.md": 4_488,
-  "aify-comms/references/leading-a-team.md": 18_967,
+  // 14_132 -> 12_720 on 2026-09-26 (0.7.4 skills audit): stale facts corrected against the code, and
+  // repeats of the tool descriptions and references cut to pointers; pays for the new line on running
+  // a nested `claude` without your identity.
+  "aify-comms/SKILL.md": 12_720,
+  "aify-comms/references/building-software.md": 3_948,
+  "aify-comms/references/leading-a-team.md": 15_758,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
   // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
-  "aify-comms/references/operations.md": 10_731,
-  "aify-comms/references/teamwork.md": 15_950,
+  "aify-comms/references/operations.md": 8_485,
+  "aify-comms/references/teamwork.md": 15_617,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
   // to the machine in front of you. Most of that is a question about the HOST, and
   // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
   // read rather than skimmed.
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
-  "aify-comms-install/SKILL.md": 4_821,
+  "aify-comms-install/SKILL.md": 4_760,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
-  "aify-comms-debug/SKILL.md": 2_934,
-  "aify-comms-debug/references/codex.md": 5_163,
-  "aify-comms-debug/references/dashboard-console.md": 3_593,
-  "aify-comms-debug/references/dispatch-bridges.md": 6_071,
-  "aify-comms-debug/references/dispatch-delivery.md": 6_944,
-  "aify-comms-debug/references/dispatch-launch.md": 5_148,
+  // 0.7.4 skills audit, three small raises (debug SKILL.md +71, codex.md +96, hermes-turns.md +9): the
+  // first read names what comms_agent_info actually prints and where the session handle is; codex and
+  // hermes name comms_restart instead of sending the agent to the dashboard. Paid for by the 8,647 characters cut
+  // from the other skill files in the same commit (net -8,471).
+  "aify-comms-debug/SKILL.md": 3_005,
+  "aify-comms-debug/references/codex.md": 5_259,
+  "aify-comms-debug/references/dashboard-console.md": 3_555,
+  "aify-comms-debug/references/dispatch-bridges.md": 5_892,
+  "aify-comms-debug/references/dispatch-delivery.md": 6_752,
+  "aify-comms-debug/references/dispatch-launch.md": 5_047,
   "aify-comms-debug/references/hermes-session.md": 4_770,
-  "aify-comms-debug/references/hermes-turns.md": 4_152,
-  "aify-comms-debug/references/lifecycle.md": 6_531,
+  "aify-comms-debug/references/hermes-turns.md": 4_161,
+  "aify-comms-debug/references/lifecycle.md": 6_195,
   "aify-comms-debug/references/pi.md": 2_152,
   "aify-comms-debug/references/status-model.md": 5_231,
   "aify-comms-debug/references/status-symptoms.md": 4_886,

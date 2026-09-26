@@ -130,9 +130,8 @@ export function registerInboxTools(server, z) {
 
   server.tool(
     "comms_listen",
-    "Deprecated compatibility/debug long-poll for incoming messages. Blocks until a message arrives or timeout. " +
-      "Do not use for normal teamwork or active managed dispatch turns; use bridge wake delivery, comms_inbox, and comms_send instead. " +
-      "Returns immediately if you already have unread messages.",
+    "Deprecated long-poll: blocks until a message arrives or the timeout, returning at once if you have unread messages. " +
+      "Messages normally wake you; read them with comms_inbox and reply with comms_send.",
     {
       agentId: z.string().describe("Your agent ID"),
       timeout: z.number().optional().describe("Max seconds to wait (default: 300, max: 600)"),

@@ -32,7 +32,7 @@ import { personalQuotaLine } from "./usage-predicates.mjs";
 export function registerUsageTool(server, z) {
   server.tool(
     "comms_usage",
-    "Show remaining subscription quota per source pool (Anthropic Claude, OpenAI ChatGPT-Codex) and your own. Advisory: a pool near 0% means agents on it should hand work to a pool with headroom.",
+    "Remaining subscription quota per pool (Anthropic Claude, OpenAI ChatGPT-Codex) and which pool you draw on. Advisory: on a pool near 0%, hand work to a pool with headroom.",
     {},
     async () => {
       if (!IS_REMOTE) {

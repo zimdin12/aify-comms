@@ -84,7 +84,7 @@ export async function commsInterruptHandler({ agentId, from }, { httpCall: call 
 export function registerDispatchTools(server, z) {
   server.tool(
     "comms_dispatch",
-    "Lower-level run-control/debug API for a triggerable resident or environment-managed session. Normal agent teamwork should use comms_send. Use comms_dispatch only when you need explicit run-control fields while diagnosing delivery/runtime behavior. Same reply contract as comms_send: when this opens a run that owes a reply, answer with comms_send(type=\"response\", inReplyTo=<the message id>) in the SAME turn — that tool call is the team-visible reply and closes the run; your final plain text is your own working output, not the delivered reply.",
+    "Lower-level run-control/debug API. Use comms_send for teamwork; use this only when you need explicit run-control fields while diagnosing delivery. It follows comms_send's reply contract.",
     {
       from: z.string().describe("Your agent ID"),
       to: z.string().optional().describe("Target agent ID"),
@@ -96,8 +96,8 @@ export function registerDispatchTools(server, z) {
       body: z.string().describe("Task details"),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
       inReplyTo: z.string().optional().describe("Message ID this replies to"),
-      requireStart: z.boolean().optional().describe("Legacy strict-start flag. Current normal live delivery already fails instead of queueing future work; leave unset unless debugging old clients."),
-      requireReply: z.boolean().optional().describe("Advanced override for reply tracking; normal requests/reviews/errors should be answered explicitly"),
+      requireStart: z.boolean().optional().describe("Legacy; leave unset."),
+      requireReply: z.boolean().optional().describe("As comms_send's requireReply."),
     },
     async ({ from, to, toRole, type, subject, body, priority, inReplyTo, requireStart, requireReply }) => {
       if (!to && !toRole) {

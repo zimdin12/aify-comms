@@ -81,8 +81,7 @@ export function registerAgentReportingTools(server, z) {
 
   server.tool(
     "comms_agent_info",
-    "Check another agent's current status, unread count, and last message they read. " +
-      "Useful for knowing if they've seen your message.",
+    "Another agent's status, wake mode, inbound unread and last read, last output, and active or queued runs.",
     {
       agentId: z.string().describe("Agent ID to check"),
     },

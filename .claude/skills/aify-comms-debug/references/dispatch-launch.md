@@ -27,8 +27,7 @@ all surface here rather than as a runtime problem.
 - `aify-env doctor` for the host itself.
 
 **Fix.**
-- aify-env down, unreachable or stale → tell the operator. Starting or restarting aify-env is
-  theirs: a second one supersedes the first and reaps its managed workers.
+- aify-env down, unreachable or stale → tell the operator.
 - Launcher refused for a missing marker → re-run `bash install.sh --client <runtime>` so the
   launcher is rendered with it.
 - Runtime shows unavailable → aify-env offers a runtime only when `claude` / `codex` / `hermes`
@@ -50,7 +49,7 @@ rapid restart kills the attempt still booting.
 **Cause.** Another Claude process still holds that session: a duplicate tab, or a headless child
 left by a crash. Nothing clears this automatically.
 
-**Fix.** Close the holder, or use Dashboard **Sessions → Reset** (fresh context) when
+**Fix.** Close the holder, or Reset (`comms_restart(agentId, freshContext=true)`) when
 you accept losing that native Claude memory. To find the holder on Windows (replace the id):
 
 ```powershell
@@ -82,7 +81,7 @@ from a different copy.
    `bridge-current` names live bridges on old code.
 2. Relaunch only your own agents, keeping their conversations:
    `<runtime>-aify --aify-agent <id> --resume <handle>`.
-3. Managed agents are restarted from the dashboard (Sessions → Restart), one agent at a time.
+3. Restart managed agents one at a time with `comms_restart(agentId)` (dashboard Sessions → Restart).
 
 The process patterns (`server.js`, `claude-aify`) match every agent on the host, including your own
 session and aify-env's managed workers, so stop processes by id, never by pattern.

@@ -12,14 +12,8 @@ ancestry outrank stale database ownership.
 **Symptom:** a message saying `STOP` was queued/delivered but work continued, or a second
 interrupt hit replacement work.
 
-1. Prove the exact live owner and current turn.
-2. Use `comms_run_interrupt(runId="...")` only for that dispatch run.
-3. Use `comms_interrupt(agentId="...")` for the current managed console turn, including direct-TUI work without a dispatch run.
-4. Re-read the owner after the first control.
-5. Verify the original native turn ended and run/agent/session state converged.
-
-A resident agent has no aify-owned managed console. Use its supported run interrupt or ask
-the operator to stop/relaunch the resident runtime.
+Follow the aify-comms skill's operations.md (Interruption). A resident agent has no aify-owned
+console: use its run interrupt or ask the operator to relaunch it.
 
 ## Lifecycle verbs
 
@@ -29,13 +23,13 @@ the operator to stop/relaunch the resident runtime.
 | Stop | Halt backing and disable wake; preserve identity/spec/handle. |
 | Restart | Recreate backing and resume the stored native handle. |
 | Reset | Recreate backing with fresh native context. |
-| Resume wake | Re-enable a stopped resident wake path without spawning managed backing. |
-| Pause for CLI | Hand ownership to an operator-open terminal. |
+| Resume wake (API) | Re-enable a stopped resident wake path without spawning managed backing. |
+| Pause for CLI (API) | Hand ownership to an operator-open terminal. |
 | Switch managed/resident | Explicitly change the delivery owner while preserving the handle. |
 | **Edit…** → *Native session handle* | Repair a known native resume target without starting work. |
 | Interrupt / Steer | Control one proven active turn. |
 | Remove | Tombstone the identity. |
-| Kill bridge / Forget | Remove an execution target, not agent history. |
+| Forget environment | Hide an offline execution target; agent history stays. |
 
 ## Restart acknowledged, but no new worker appears
 

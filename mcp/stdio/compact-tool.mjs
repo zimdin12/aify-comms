@@ -144,7 +144,7 @@ export function registerCompactTool(server, z) {
     {
       from: z.string().describe("Manager/coordinator agent requesting the compact"),
       targetAgentId: z.string().describe("Existing managed agent to compact/continue from"),
-      mode: z.enum(["handoff", "internal"]).optional().describe("Compaction mode. handoff is the reliable cross-runtime path; internal requests native in-place compaction and may be unsupported."),
+      mode: z.enum(["handoff", "internal"]).optional().describe("handoff (default) is the only mode that works; internal is always refused."),
       newAgentId: z.string().optional().describe("Agent ID for handoff mode. Defaults to the same target agent ID. Pass a different ID only when you intentionally want a separate continuation identity."),
       role: z.string().optional().describe("Handoff role. Defaults to the target's role, else coder."),
       environmentId: z.string().optional().describe("Target environment."),

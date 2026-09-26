@@ -1,6 +1,6 @@
 # aify-comms Teamwork Reference
 
-Load this file when coordinating an autonomous team, assigning/reviewing lanes, compacting/rebriefing agents, or diagnosing why the work loop lost momentum.
+Load this for the mechanics of messages, contracts, replies and reviews; assigning work and compacting agents are in leading-a-team.md.
 
 **These rules are about coordination, not about code.** Software examples appear throughout because
 that is the most common use, but every rule here is meant to hold for research, testing, analysis,
@@ -113,9 +113,7 @@ avoid both missing inputs and repeated context.
 - **Keep intent inline.** Put the owner, decision, ask, and completion condition in the message. Point to a shared path or `comms_share` artifact for bulky detail.
 - **PASS is a move. Make it.** When a message carries no decision, evidence or ask for you, PASS:
   read it, mark it, let the thread settle. A terminal `APPROVE`, result or thanks is where a
-  thread is meant to stop. Written as an action rather than a ban, because a ban puts the banned
-  behaviour in front of you. (Hermes Bot Mode: bots "reply briefly or pass"; a room settles when
-  a full round stays silent.)
+  thread is meant to stop.
 - **Promises need a wake.** Before ending a turn with future work, create the follow-up contract or self-wake. Written `Next:` text is not scheduling.
 - **DM owners; channel shared state.** Post a settled decision once on the team channel. Send a DM only to the person who must act. The same text to several people belongs on a channel.
 - **Delegate inside your lane; route across lanes.** Native subagents can help an owner; they must not shadow another teammate's role.
@@ -130,7 +128,7 @@ Delegation, reinforcement, getting unstuck, and the manager's operational levers
 
 ## Worker Discipline
 
-- Do not answer with "on it" repeatedly. Start work, send a short ack only when useful, then return evidence.
+- Start work and return evidence; send a short ack only when the sender needs one.
 - **A reply-overdue reminder asks you to CLOSE the contract, not to write a progress essay.**
   If the owed reply is ready, send it. If work is genuinely still in flight, ONE line —
   status + ETA — not a 2KB unrequested report. (Observed: a reminder fired mid-work
@@ -178,7 +176,7 @@ Delegation, reinforcement, getting unstuck, and the manager's operational levers
   to be mostly self-addressed notes needing no reply — the number was real, the interpretation was
   not.) **Check what your method matched, not only how much it returned.**
 - Do not approve broad "done" claims without evidence.
-- **End every review with an explicit verdict, not prose.** Reply `inReplyTo` the work request with a clear `APPROVE` or `REVISE` as the first line (then the evidence/rework). `APPROVE` is the signal that closes the loop and lets the manager ship; `REVISE` must list the specific, checkable changes needed. A workflow keeps cycling (implement → review → revise) until a reviewer returns `APPROVE` — that token is the completion contract, so never leave a review ambiguous about which it is. (Explicit accept/revise termination — cf. "TRINITY" Verifier ACCEPT, arXiv:2512.04695.)
+- **End every review with an explicit verdict, not prose.** Reply `inReplyTo` the work request with a clear `APPROVE` or `REVISE` as the first line (then the evidence/rework). `APPROVE` is the signal that closes the loop and lets the manager ship; `REVISE` must list the specific, checkable changes needed. A workflow keeps cycling (implement → review → revise) until a reviewer returns `APPROVE` — that token is the completion contract, so never leave a review ambiguous about which it is.
 
 ## Dashboard User
 

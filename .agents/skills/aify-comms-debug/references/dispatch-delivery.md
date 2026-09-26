@@ -96,9 +96,9 @@ comms_agent_info(agentId="my-agent")
 
 ## In-flight run cancelled: "bridge X is not the current agent bridge Y"
 
-A newer registration of this agent on this machine superseded it (latest-wins, sparing only the
-sidecar↔wrapper-child pair, a channel sidecar when a resident registers, and a fresh
-same-terminal wrapper child; `_record_bridge_registration`). Find the second registrant.
+A newer registration of this agent on this machine superseded it: the latest registration wins
+(`_record_bridge_registration`), except a sidecar with its wrapper child, a channel sidecar when a
+resident registers, and a fresh wrapper child in the same terminal. Find the second registrant.
 
 ## Managed claude run routed through the wrong path
 
@@ -121,9 +121,6 @@ the operator's call.
 
 ## Windows install notes
 
-- Every wrapper bypasses permissions by default (`claude-aify` passes
-  `--dangerously-skip-permissions`, `codex-aify` `--dangerously-bypass-approvals-and-sandbox`);
-  `--safe` / `--no-auto` opts out per launch.
 - `--with-hook` writes native Windows paths into Claude's `settings.json` and Codex's `hooks.json`,
   and the `.cmd` shims put Git's Unix tools on PATH.
 - Check the install with `& "$env:USERPROFILE\.local\bin\aify-comms.cmd" doctor`; add

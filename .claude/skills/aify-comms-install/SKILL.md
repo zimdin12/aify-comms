@@ -7,9 +7,9 @@ description: Use when installing or updating aify-comms, connecting a host or cl
 
 ## Inspect before asking
 
-Read [the onboarding guide](../../../docs/INSTALL_ONBOARDING.md) from the repository root's
-`docs/INSTALL_ONBOARDING.md` before changing anything. It covers the owner-to-owner install chain,
-credential handling, official herdr installers and verification. Installed skills need the checkout.
+Read `docs/INSTALL_ONBOARDING.md` in the aify-comms checkout (the installed copy of this skill has no
+checkout beside it) before changing anything. It covers the owner-to-owner install chain, credential
+handling, official herdr installers and verification.
 
 ```bash
 bash scripts/install-state.sh --json
@@ -20,7 +20,7 @@ Inspect the OS/shell, host role, installed clients, endpoint and the selected ch
 The report is inventory, not a readiness verdict. `hookStates` distinguishes installed, absent and
 unknown; Hermes uses the installer's profile-root resolver, not an assumed `~/.hermes`.
 `apiKey=unknown` means resolution failed, not permission to generate a key. Keep secrets out of reports.
-`components.sh`'s missing command or empty version is only a discovery hint, not proof of app absence.
+`components.sh`'s missing command or empty version is only a discovery hint.
 
 For optional herdr, the state report searches PATH and official install locations without launching
 it. If found, review its origin before `bash scripts/herdr-state.sh --probe` checks only `--version`.

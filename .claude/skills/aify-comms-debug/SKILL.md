@@ -6,8 +6,8 @@ description: Use when aify-comms dispatch, wake mode, bridge health, managed/res
 # aify-comms: Troubleshooting
 
 **Always diagnose first.** Start with `comms_agent_info(agentId="target")` and read
-`wakeMode`, `sessionMode`, `machineId`, `sessionHandle`, and `dispatchState`, then
-`aify-comms doctor`. That is the first read, not proof of live ownership when records
+its status, wake mode, runtime @ machine (session mode) and active or queued runs (the stored
+`sessionHandle` is only in `GET /api/v1/agents/<id>`), then `aify-comms doctor`. That is the first read, not proof of live ownership when records
 conflict. For lifecycle, interrupt, cleanup, or duplicate-session work, correlate the
 agent/session/terminal, environment + bridge instance, runtime events, and current OS
 process ancestry before acting. Never kill, restart, reap, switch, or supersede from a

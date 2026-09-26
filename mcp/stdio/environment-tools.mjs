@@ -80,7 +80,7 @@ function summarizeEnvironment(env, now = Date.now()) {
 export function registerEnvironmentTools(server, z) {
   server.tool(
     "comms_envs",
-    "List environment bridges. Use before spawning a persistent managed agent to pick the host, runtime and workspace root. The bracket says whether a spawn can be CLAIMED there, which is a different fact from the advertised status on the second line: an environment can be advertised and still have nothing able to run anything.",
+    "List environments (aify-env hosts). Use before comms_spawn to pick host, runtime and workspace. The bracket says whether a spawn can be CLAIMED there; `advertised:` only says the host exists.",
     {},
     async () => {
       if (!IS_REMOTE) {
