@@ -7,8 +7,10 @@ kept as evidence. Last reviewed 2026-09-26.
 
 ## Left open by the external review of 0.7.1 (2026-09-26)
 
-0.7.2 fixed the review's two security findings and items 3 to 6; the plan
-(`docs/superpowers/plans/2026-09-26-v0.7.1.md`, "0.7.2") lists them. These remain:
+0.7.2 fixed the review's two security findings and items 3 and 6, and changed items 4 and 5 as far as
+this host can prove: item 4's explicit-reply path is fixed and handling without a reply stays open, and
+item 5's hook output is the shape Codex documents, not yet seen in a live Codex context. The plan
+(`docs/superpowers/plans/2026-09-26-v0.7.1.md`, "0.7.2") lists each. These remain:
 
 - **Sending as `dashboard` skips the trust rule, for any holder of the shared API key.** An external key
   cannot send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`). Closing it is
