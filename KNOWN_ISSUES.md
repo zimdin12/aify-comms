@@ -36,15 +36,19 @@ and `sha_from_env` is true (the doctor reports it as an override), but dirty is 
 shell.
 Running git from `cd "$REPO_ROOT"` instead of `git -C` would remove the dependence.
 
-## Nothing collects the usage pools
+## Only the OpenAI pool is collected
 
-`comms_usage` and the dashboard's Pools band read a per-pool quota cache the service fills from
-`POST /usage`. The only production caller of the collectors (`collectOnce` and
-`collectConsumptionOnce` in `mcp/stdio/usage-collector.js`) was the environment bridge, deleted in
-the release first tagged v0.6.3, so nothing posts. The code is parked, not dead: the operator chose
-on 2026-09-04 to keep it for a caller in another tier (aify-dashboard or an aify-env plugin,
-undecided), and its tests still run. Until a caller exists, `comms_usage` shows `?` or a stale figure
-rather than 0%, so routing work by pool headroom has nothing current to go on.
+`comms_usage` and the dashboard's Pools band read `GET /usage`. That route reads the OpenAI pool
+itself (`collect_openai_pool`, from the read-only `~/.codex` mount, cached 120 s;
+`service/routers/usage.py`), so that figure is current. The Anthropic pool and the per-agent
+consumption rows arrive only by `POST /usage` and `POST /usage/consumption`, and their only production
+caller (`collectOnce` and `collectConsumptionOnce` in `mcp/stdio/usage-collector.js`) was the
+environment bridge, deleted in the release first tagged v0.6.3. The code is parked, not dead: the
+operator chose on 2026-09-04 to keep it for a caller in another tier (aify-dashboard or an aify-env
+plugin, undecided), and its tests still run. Until a caller exists, the Anthropic pool reads `?` or a
+stale figure rather than 0%. On a host with no Codex token no pool is collected at all, and
+`comms_usage` says "No usage data yet (collector warming up)" (`usage-tool.mjs`) although no collector
+runs.
 
 ## Found by the test-duplicate cleanup, not yet acted on (2026-09-19)
 
@@ -215,21 +219,21 @@ Code session turned transcript saving off in every managed claude (history in th
 
 ## `undefined` is not a placeholder session handle, and JavaScript writes it (2026-08-17)
 
-**Measured, not ruled on.** `HANDLE_PLACEHOLDERS` filters the strings a shell writes when a variable
-was set from an empty expansion, so they never get registered as a session id. Both mirrors carry the
-identical set — `service/runtimes/base.py` and `mcp/stdio/adapters/base.js`: `unknown`, `default`,
-`none`, `null`. So this is **not** a divergence to fix on one side.
+**Measured, not ruled on.** `HANDLE_PLACEHOLDERS` in `mcp/stdio/adapters/base.js` filters the strings
+a shell writes when a variable was set from an empty expansion, so they never get registered as a
+session id: `unknown`, `default`, `none`, `null`. The bridge is the only filter; the Python mirror was
+deleted in 0.7.0 (`b2451d86`), and the service stores the handle it is sent.
 
-What is missing from both is `undefined`, which is exactly what `String(undefined)` produces — and
-every bridge in this fleet is Node. An unset value interpolated into `HERMES_SESSION_ID`,
-`CODEX_THREAD_ID` or `CLAUDE_SESSION_ID` arrives as the literal text `undefined`, passes
-normalisation, and is registered as the agent's `sessionHandle`. The symptom is a resume that cannot
-resolve, against a session named `undefined`.
+What is missing is `undefined`, which is exactly what `String(undefined)` produces — and every bridge
+in this fleet is Node. An unset value interpolated into `HERMES_SESSION_ID`, `CODEX_THREAD_ID` or
+`CLAUDE_SESSION_ID` arrives as the literal text `undefined`, passes normalisation, and is registered
+as the agent's `sessionHandle`. The symptom is a resume that cannot resolve, against a session named
+`undefined`.
 
 **Left unfixed and deliberately unasserted.** Widening the set changes handle normalisation for every
-runtime on both sides of the mirror, which is a reviewer's call rather than a test-slice fix.
-`service/tests/runtimes/test_hermes_session_discovery.py` pins the four that ARE filtered and states
-this gap in prose, so adding `undefined` later does not fail a test.
+runtime, which is a reviewer's call rather than a test-slice fix.
+`mcp/stdio/tests/adapters/contract.test.js` ("normalizeSessionHandle returns empty for placeholder")
+pins two of the filtered strings, so adding `undefined` later does not fail a test.
 
 ## The managed-hermes gateway session buffers terminal frames differently from the other three (2026-08-13)
 
@@ -277,7 +281,7 @@ Each item below was read against the code on 2026-09-25; none has been seen misb
   `_close_steered_contracts_for_parent_run` is called only from the PATCH settlement path
   (`service/api_core/dispatch_run_settlement.py`).
 - **`comms_usage`'s personal line drops the pool's `stale` flag**, so a stale percentage can read as
-  current. Advisory only, and moot while nothing collects the pools.
+  current. Advisory only; it matters for the Anthropic pool, which nothing collects.
 - **Crossed messages in fast two-way exchanges.** Two agents answering each other within seconds each
   reply to a state the other has already moved past. The teams' own tie-break protocol handles it; a
   per-pair sequence number surfaced in each delivery is an idea, not a design.
