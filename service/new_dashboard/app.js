@@ -290,8 +290,7 @@ async function saveSettings() {
 
 // The IMPLEMENTATION lives in ./xterm-mount.mjs, together with the two counters only it reads. This is
 // the binding that supplies `resyncActiveConsole`, which stays here because it reaches `refresh`.
-// Deliberately NOT phrased as a `moved to` marker: `moved-names-resolve` treats a marker plus a local
-// declaration of the same name as a fork, and it is right to — this is a shim, not a move.
+// A shim, not a move: the local declaration is deliberate, so it is not marked as moved.
 const mountXtermForTerminal = (terminalId, agentId, container, opts) =>
   mountXtermForTerminalImpl(terminalId, agentId, container, opts, { resyncActiveConsole });
 
