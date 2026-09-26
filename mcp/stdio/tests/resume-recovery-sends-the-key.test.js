@@ -70,6 +70,11 @@ test("--resume recovers the agent from a service that requires a key", async () 
     const withoutKey = run({});
     assert.equal(withoutKey.launched, true, withoutKey.stderr);
     assert.equal(withoutKey.env.AIFY_AGENT_ID, undefined);
+    // The lookup asks the endpoint this launch is bound to. It used AIFY_COMMS_URL-or-localhost, which
+    // ignored a baked remote endpoint (v0.7 review); here AIFY_COMMS_URL names a port nothing serves.
+    const bound = run({ HARNESS_ENDPOINT: url, AIFY_COMMS_URL: "http://127.0.0.1:9", AIFY_API_KEY: KEY });
+    assert.equal(bound.launched, true, bound.stderr);
+    assert.equal(bound.env.AIFY_AGENT_ID, "cc-recovered", bound.stderr);
   } finally {
     child.kill();
     fs.rmSync(rendered, { recursive: true, force: true });
