@@ -23,7 +23,7 @@ OPERATOR_KEY = "op-secret-for-this-test"
 
 class TheDashboardPageRequiresTheApiKeyTests(unittest.TestCase):
     def setUp(self):
-        self.config = SimpleNamespace(api_key=API_KEY, operator_key=OPERATOR_KEY, operator_key_dir="",
+        self.config = SimpleNamespace(api_key=API_KEY, operator_key=OPERATOR_KEY,
                                       data_dir=tempfile.mkdtemp(), version="test")
         patcher = mock.patch.object(new_dashboard_app, "get_config", lambda: self.config)
         patcher.start()

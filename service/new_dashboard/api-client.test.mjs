@@ -192,6 +192,31 @@ test("setOperatorKey attaches the operator key to every request", async () => {
   }
 });
 
+test("with no operator key the dashboard still says it is the dashboard, to its own service only", async () => {
+  // v0.7.5: the operator key is off unless `.env` sets one. A send the dashboard makes AS an agent
+  // must still not count as that agent being present, so it marks itself with X-Aify-Operator.
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    seen.push({ url, headers: options?.headers || {} });
+    return { ok: true, status: 200, text: async () => "{}" };
+  };
+  try {
+    setOperatorKey("", "http://127.0.0.2:1");
+    setApiBase("http://127.0.0.2:1/api/v1", "http://127.0.0.2:1");
+    await api("/agents");
+    assert.equal(seen[0].headers["X-Aify-Operator"], "dashboard", "the dashboard sent no marker");
+    assert.equal(seen[0].headers["X-Aify-Operator-Key"], undefined, "an empty key was sent as a key");
+    setApiBase("https://receiver.example.test/api/v1", "https://receiver.example.test");
+    await api("/agents");
+    assert.equal(seen[1].headers["X-Aify-Operator"], undefined, "the marker reached a linked origin");
+  } finally {
+    globalThis.fetch = realFetch;
+    setOperatorKey("", "");
+    setApiBase("", "");
+  }
+});
+
 test("the operator key goes only to the service that served the page, never to a linked apiOrigin", async () => {
   // v0.7.1 review (W03-R1). The key the dashboard server injects was attached to every request,
   // whatever its destination, so a link with `?apiOrigin=https://receiver` handed the operator key

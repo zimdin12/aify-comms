@@ -1110,6 +1110,14 @@ now names the machine to send it to. Relaying needs this service to hold the oth
 key, which is a peers feature. An external message with `trigger` wakes a local agent exactly as a
 local sender's does, which is the point of it.
 
+**SUPERSEDED 2026-09-27 (v0.7.5, operator ruling: "it should be off by default. api key is that
+trust surface, external ones are basically blocked from doing serious actions").** Nothing is
+generated any more and the `operator-key` volume is gone. With `OPERATOR_KEY` unset there is no
+operator gate: an operator claim that reached the three override endpoints was let in by the API key,
+and an external key never reaches them. The dashboard marks itself with `X-Aify-Operator: dashboard`,
+which keeps its send-as-agent from counting as the agent being present. Setting `OPERATOR_KEY` turns the
+gate on as described below. The 2026-09-24 text follows as history.
+
 **An operator key that exists without being asked for.** `OPERATOR_KEY` was never set by anything;
 `.env.example` asked for `openssl rand -hex 32` by hand. So on most hosts the dashboard's delete
 controls refused, and the service could not tell the operator sending **as** an agent from the agent.

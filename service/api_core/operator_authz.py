@@ -20,10 +20,9 @@ the endpoint, and the answer was: nothing.
     `cors_origins` is `*`. So those three endpoints were reachable unauthenticated by anything that
     could open a socket to the port, gated by a guessable English word.
 
-WHAT THIS MODULE DOES. Operator privilege now requires the `X-Aify-Operator-Key` header to match a
-configured secret. The actor STRING still names who acted, for the audit trail; it no longer grants
-anything. Fails closed in both directions: an unconfigured key means no caller can claim operator
-privilege at all, because a privilege with no credential behind it is exactly the bug being fixed.
+WHAT THIS MODULE DOES. With an operator key configured, operator privilege requires the
+`X-Aify-Operator-Key` header to match it. The actor STRING still names who acted, for the audit trail;
+it does not by itself grant anything when the gate is on.
 
 WHAT IT HONESTLY DOES NOT DO, stated here so nobody reads more into it than it earns. On a host where
 agents can read `.env`, or fetch the dashboard page that carries the key, a determined agent can still
@@ -31,6 +30,14 @@ obtain it. This raises the bar from "guess an English word" to "hold a secret", 
 and the prompt-injected case; it is NOT a security boundary against an agent with filesystem access.
 The real boundary is authenticating the service itself (`API_KEY` unset here) and giving the dashboard
 its own credential — an operator decision, recorded in the v0.6 plan, not something a helper can fix.
+
+OFF UNLESS CONFIGURED (v0.7.5, operator ruling: "it should be off by default. api key is that trust
+surface, external ones are basically blocked from doing serious actions"). With no `OPERATOR_KEY` in
+`.env` there is no operator gate: an operator claim that reached these endpoints was already let in by
+the API key, and an external key never reaches them (`external_keys.py` admits it to sending only). So
+the claim is granted, and on a host with no API key the whole port is the trusted LAN the README
+describes. Setting `OPERATOR_KEY` turns the gate on, and then the claim needs the header as above. The
+key was generated automatically before this, which made the gate the default on every host.
 
 ONE AUTHORITY, not three copies. The three call sites each had their own frozenset with the same two
 strings — the forked-constant shape this repo keeps removing, and the reason a fix applied to one site
@@ -46,6 +53,12 @@ from fastapi import HTTPException
 #: The header a dashboard/operator surface presents to prove it may act on another agent's behalf.
 #: Deliberately NOT the same header as the service API key: every bridge holds that one.
 OPERATOR_KEY_HEADER = "X-Aify-Operator-Key"
+
+#: What the dashboard sends on every request when the service has no operator key, so a send it makes AS
+#: an agent is still told apart from that agent (see `operator_is_acting`). A claim, not a credential:
+#: with the gate off, the API key is the trust boundary, and a caller that sends it only stops a send it
+#: makes from counting as the named agent being present.
+OPERATOR_SURFACE_HEADER = "X-Aify-Operator"
 
 #: Actor strings that REQUEST operator privilege. Naming one is a claim, not a grant — the claim is
 #: verified against the header below. Kept as one set because three copies is how two of them get fixed.
@@ -65,7 +78,7 @@ def operator_privilege_granted(request, configured_key: str) -> bool:
     """
     configured = str(configured_key or "")
     if not configured:
-        return False  # nothing to prove against — see the fail-closed note in `authorize_operator`
+        return False  # nothing to prove against; `authorize_operator` decides what an unset key means
     presented = ""
     try:
         presented = str(request.headers.get(OPERATOR_KEY_HEADER) or "")
@@ -81,27 +94,15 @@ def authorize_operator(actor: str, request, configured_key: str, *, action: str)
     """Return True if `actor` may act on another agent's behalf. Raise 403 if it claimed and failed.
 
     Returns False for an ordinary agent actor, which leaves the caller's own ownership check to decide
-    — this function grants the OVERRIDE, it does not replace the owner comparison.
-
-    FAILS CLOSED WHEN THE KEY IS UNCONFIGURED, and that is the deliberate half. The alternative —
-    "no key configured, so allow the operator strings" — is precisely the vulnerability, restored by
-    default, on every deployment that never sets one. A privilege whose credential is absent is not a
-    privilege; the error says so and names the fix, because a 403 an operator cannot explain is how a
-    security fix gets reverted.
+    -- this function grants the OVERRIDE, it does not replace the owner comparison. With no operator key
+    configured the gate is off and an operator claim is granted; with one, the claim must present it.
     """
     if not is_operator_actor(actor):
         return False
+    if not str(configured_key or ""):
+        return True
     if operator_privilege_granted(request, configured_key):
         return True
-    if not str(configured_key or ""):
-        raise HTTPException(
-            403,
-            f"'{actor}' claims operator privilege for {action}, but no operator key is configured on "
-            f"this service, so the claim cannot be verified. Set OPERATOR_KEY in .env and restart the "
-            f"service; the dashboard sends it automatically. Until then only an item's own owner may "
-            f"act on it. (This used to be granted on the actor string alone, which let any caller "
-            f"delete anything by naming itself 'operator'.)",
-        )
     raise HTTPException(
         403,
         f"'{actor}' claims operator privilege for {action} without a valid "
@@ -113,10 +114,17 @@ def operator_is_acting(request) -> bool:
     """Does this request PROVE it comes from an operator surface, whatever actor it names?
 
     The dashboard can send AS any agent from its identity picker, and such a send is the operator,
-    not the agent: it must not count as the agent being present (see `_touch_agent`). The dashboard
-    attaches the operator key to every request, and no bridge holds it, so the header is the answer.
+    not the agent: it must not count as the agent being present (see `_touch_agent`). With an operator
+    key configured the dashboard proves it with that key, which no bridge holds; without one it says so
+    with `OPERATOR_SURFACE_HEADER`.
     """
-    return operator_privilege_granted(request, operator_key_from(request))
+    configured = operator_key_from(request)
+    if configured:
+        return operator_privilege_granted(request, configured)
+    try:
+        return str(request.headers.get(OPERATOR_SURFACE_HEADER) or "").strip().lower() == "dashboard"
+    except Exception:
+        return False
 
 
 def operator_key_from(request) -> str:

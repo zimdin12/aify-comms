@@ -23,10 +23,10 @@ THE FIX IS A PROVEN CLAIM, not a better word list. `authorize_operator` verifies
 `X-Aify-Operator-Key` header against a configured secret in constant time. The actor string still names
 WHO acted, for the audit trail; it grants nothing.
 
-FAIL-CLOSED IN BOTH DIRECTIONS, and the unconfigured case is the one that matters: "no key is set, so
-allow the operator strings" would restore the vulnerability by default on every deployment that never
-sets one — which is all of them until someone does. A privilege with no credential behind it is not a
-privilege.
+OFF UNLESS CONFIGURED (v0.7.5, operator ruling: "it should be off by default. api key is that trust
+surface, external ones are basically blocked from doing serious actions"). With no `OPERATOR_KEY` the
+claim is granted to whatever reached the endpoint, which the API key already decided, and an external
+key never reaches these endpoints. With a key set, everything above holds: the claim must prove it.
 
 WHAT THIS TEST DOES NOT CLAIM. On a host where an agent can read `.env` or fetch the dashboard page,
 the key is obtainable. This raises the bar from "guess an English word" to "hold a secret" — enough for
@@ -154,14 +154,6 @@ class OperatorPrivilegeMustBeProven(FastApiTestCase):
             f"the wrong-key refusal no longer explains the distinction: {wrong.text[:200]}",
         )
 
-        self._set_key("")
-        unset = self._attacks()["unsend"]("operator", {})
-        self.assertIn(
-            ", but no operator key is configured on this service, so the claim cannot be verified.",
-            unset.text,
-            f"the unconfigured-key refusal no longer names the cause: {unset.text[:200]}",
-        )
-
     def test_a_WRONG_key_is_refused(self):
         self._set_key(SECRET)
         for label, attack in self._attacks().items():
@@ -170,24 +162,26 @@ class OperatorPrivilegeMustBeProven(FastApiTestCase):
                 self.assertEqual(response.status_code, 403, response.text[:200])
                 self.assertTrue(self._still_there()[label])
 
-    def test_an_UNCONFIGURED_key_refuses_the_claim_rather_than_allowing_it(self):
-        """The half that decides whether this fix is real. "No key configured, so allow the operator
-        strings" would restore the vulnerability by default on every deployment that never sets one."""
+    def test_with_NO_operator_key_the_claim_is_granted(self):
+        """v0.7.5, the operator's ruling: no `OPERATOR_KEY`, no operator gate. The API key already let
+        this request in, so the dashboard can moderate without a second secret to manage."""
         self._set_key("")
         for label, attack in self._attacks().items():
             with self.subTest(endpoint=label):
-                response = attack("operator", {OPERATOR_KEY_HEADER: "anything"})
-                self.assertEqual(
-                    response.status_code, 403,
-                    f"{label} granted operator privilege while no operator key was configured, which "
-                    "is the vulnerability restored by default",
-                )
-                self.assertTrue(self._still_there()[label])
-                self.assertIn(
-                    "no operator key is configured", response.text.lower(),
-                    "the refusal must name the cause: an operator seeing an unexplained 403 reverts "
-                    f"the fix. Got: {response.text[:200]}",
-                )
+                response = attack("operator", {})
+                self.assertIn(response.status_code, (200, 204), f"{label}: {response.text[:200]}")
+                self.assertFalse(self._still_there()[label], f"{label}: the granted action did not happen")
+
+    def test_an_EXTERNAL_key_never_reaches_the_override_endpoints(self):
+        """What makes the key-less grant safe beyond this host: a key for another machine may only
+        send (`external_keys.py`), so it is refused before any operator claim is read."""
+        from service.api_core.external_keys import external_route_table, route_admits_external
+        table = external_route_table(self.client.app.routes)
+        for path in ("/api/v1/messages/msg-victim", "/api/v1/channels/victim-room", "/api/v1/shared/victim.txt"):
+            with self.subTest(path=path):
+                self.assertFalse(route_admits_external(table, "DELETE", path), f"an external key may DELETE {path}")
+        self.assertTrue(route_admits_external(table, "POST", "/api/v1/messages/send"),
+                        "CONTROL: the table admits the one thing an external key may do")
 
     # ── what must keep working ───────────────────────────────────────────────────────────────
 

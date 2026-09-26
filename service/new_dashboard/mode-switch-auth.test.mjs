@@ -63,7 +63,7 @@ function requestIsAuthenticated(request, force = false) {
   assert.equal(request.url, 'https://synthetic.invalid/api/v1/agents/coder%20%2Fone/session-mode');
   assert.equal(request.method, 'PATCH');
   assert.equal(request.body, JSON.stringify({ mode: 'managed', force, requestedBy: 'dashboard' }));
-  assert.deepEqual(request.headers, { 'Content-Type': 'application/json', 'X-Aify-Operator-Key': 'synthetic-operator', 'X-API-Key': 'synthetic-service' });
+  assert.deepEqual(request.headers, { 'Content-Type': 'application/json', 'X-Aify-Operator': 'dashboard', 'X-Aify-Operator-Key': 'synthetic-operator', 'X-API-Key': 'synthetic-service' });
 }
 const success = () => ({ status: 200, body: { mode: 'managed', agent: { status: 'available', sessionMode: 'managed' } } });
 const conflict = () => ({ status: 409, body: { detail: 'Active run synthetic-run' } });
@@ -128,7 +128,7 @@ test('pasted image uses both credentials without a JSON content type', async t =
   await uploadPastedImage(new Blob(['fake image'], { type: 'image/png' }), target);
   assert.equal(h.sent[0].url, 'https://synthetic.invalid/api/v1/shared');
   assert.equal(h.sent[0].method, 'POST');
-  assert.deepEqual(h.sent[0].headers, { 'X-Aify-Operator-Key': 'synthetic-operator', 'X-API-Key': 'synthetic-service' });
+  assert.deepEqual(h.sent[0].headers, { 'X-Aify-Operator': 'dashboard', 'X-Aify-Operator-Key': 'synthetic-operator', 'X-API-Key': 'synthetic-service' });
   assert.ok(h.sent[0].body instanceof FormData);
   assert.equal(h.sent[0].body.get('from_agent'), 'dashboard');
   assert.equal(h.sent[0].body.get('description'), 'Pasted image from Dashboard Next');

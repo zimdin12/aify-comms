@@ -75,7 +75,7 @@ class E2EStack:
         self._boot_timeout = float(boot_timeout)
         self._proc: Optional[subprocess.Popen] = None
         #: Applied LAST, over the harness's own settings, so a test can turn authentication on (the
-        #: default leaves `API_KEY` empty) or clear `OPERATOR_KEY` to exercise the generated one.
+        #: default leaves `API_KEY` empty) or clear `OPERATOR_KEY` to run with the operator gate off.
         self._env_overrides = dict(env or {})
 
     # ── lifecycle ────────────────────────────────────────────────────────────────────────────

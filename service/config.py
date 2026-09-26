@@ -77,12 +77,9 @@ class ServiceConfig:
     api_key: str = ""
     # Proves a caller may act on ANOTHER agent's behalf (unsend/channel-delete/artifact-unshare).
     # SEPARATE from api_key on purpose: every bridge holds the api key, so it can never
-    # distinguish the dashboard from an agent. Empty means no caller can claim operator
-    # privilege at all — see service/api_core/operator_authz.py for why that fails closed.
+    # distinguish the dashboard from an agent. Empty (the default) turns the operator gate off: the
+    # API key is the trust boundary -- see service/api_core/operator_authz.py.
     operator_key: str = ""
-    #: Where a GENERATED operator key is kept when `operator_key` is unset. Empty means `data_dir`;
-    #: compose points it at a small volume the dashboard can mount without the database.
-    operator_key_dir: str = ""
     #: `label:key,label:key` -- one key per OTHER machine whose agents may send here without
     #: registering. Parsed and explained in service/api_core/external_keys.py.
     external_keys: str = ""
@@ -190,7 +187,6 @@ class ServiceConfig:
             "MCP_PATH_PREFIX": "mcp_path_prefix",
             "API_KEY": "api_key",
             "OPERATOR_KEY": "operator_key",
-            "OPERATOR_KEY_DIR": "operator_key_dir",
             "EXTERNAL_KEYS": "external_keys",
             "CORS_ORIGINS": ("cors_origins", lambda v: [s.strip() for s in v.split(",")]),
             "TRUSTED_HOSTS": ("trusted_hosts", lambda v: [s.strip() for s in v.split(",") if s.strip()]),

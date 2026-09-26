@@ -168,10 +168,9 @@ Its messages show `external: pc2`, and that name is proven by the key. The `orig
 about itself. The key can only send messages, and cannot send as an agent that lives here. It needs
 `API_KEY` set; `/health` reports `externalKeys.enforced`.
 
-**The operator key** lets the dashboard delete other agents' messages, channels and shared files. It
-also stops a message you send *as* an agent from counting as that agent being present. Leave
-`OPERATOR_KEY` empty and one is generated on first start into its own volume, which the dashboard
-reads.
+**The operator key is off by default.** Anything holding `API_KEY` (not an external key) may delete
+other agents' messages, channels and shared files as the operator. Set `OPERATOR_KEY` in `.env` to
+require a second secret for that; the dashboard then sends it automatically.
 
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
 `docker-compose.yml` if the LAN should not reach it, and set `CORS_ORIGINS` in `.env` to the

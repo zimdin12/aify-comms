@@ -5,12 +5,11 @@ service in a subprocess, not the test app, for one reason above the others: whic
 key opens is DERIVED from the served routes, and from fastapi 0.137 the app's routers are included
 lazily -- a table built from the wrong walk admits nothing, and only the real app can show that.
 
-The same stack also proves the operator key is generated when `.env` sets none.
+The same stack also proves no operator key is generated when `.env` sets none (off by default, v0.7.5).
 """
 
 from __future__ import annotations
 
-import re
 
 import pytest
 
@@ -106,6 +105,8 @@ def test_health_says_the_keys_are_enforced(stack):
     assert stack.api("GET", "/health").get("externalKeys") == {"configured": 1, "rejected": 0, "enforced": True}
 
 
-def test_with_no_operator_key_configured_one_is_generated_into_the_data_volume(stack):
-    key = (stack.data_dir / "operator.key").read_text(encoding="utf-8").strip()
-    assert re.fullmatch(r"[0-9a-f]{64}", key), "expected a generated 32-byte hex key"
+def test_with_no_operator_key_configured_none_is_generated(stack):
+    """v0.7.5, operator ruling: the operator key is off by default, so nothing makes one."""
+    assert stack.data_dir.is_dir(), "the stack has no data directory to look in"
+    assert (stack.data_dir / stack.DB_FILENAME).exists(), "CONTROL: the service wrote its database here"
+    assert not (stack.data_dir / "operator.key").exists(), "an operator key was generated"

@@ -15,9 +15,8 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
 - **Sending as `dashboard` skips the trust rule, for any holder of the shared API key.** An external key
   cannot send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`), and since
   0.7.4 the dashboard page itself, which carries the operator key, needs the API key
-  (`service/dashboard_access.py`). A local agent holding the API key can still send as `dashboard`;
-  requiring the operator key on such a send would close it, and every test that sends as `dashboard`
-  would need the key.
+  (`service/dashboard_access.py`). A local agent holding the API key can still send as `dashboard`:
+  the API key is the trust boundary (v0.7.5 ruling), and a host that wants more sets `OPERATOR_KEY`.
 - **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).

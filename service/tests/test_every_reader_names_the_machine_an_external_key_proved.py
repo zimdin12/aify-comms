@@ -128,6 +128,22 @@ class EveryReaderNamesTheMachine(_TwoMachinesAndOneLocalAgent):
         self._post("/api/v1/messages/send", body)
         self.assertNotEqual(present(), "", "CONTROL: the agent's own send still counts")
 
+        # With the gate on, the dashboard's plain marker proves nothing: only the key does.
+        asyncio.run(clear())
+        self._post("/api/v1/messages/send", body, **{"X-Aify-Operator": "dashboard"})
+        self.assertNotEqual(present(), "", "with an operator key set, the bare marker was taken as proof")
+
+        # v0.7.5: with no operator key (the default) the dashboard marks itself, and that is enough.
+        self._app.state.config.operator_key = ""
+        try:
+            asyncio.run(clear())
+            self._post("/api/v1/messages/send", body, **{"X-Aify-Operator": "dashboard"})
+            self.assertEqual(present(), "", "with no operator key, the dashboard's send counted as the agent")
+            self._post("/api/v1/messages/send", body)
+            self.assertNotEqual(present(), "", "CONTROL: without the marker the agent's send still counts")
+        finally:
+            self._app.state.config.operator_key = OPERATOR_KEY
+
 
 class AMachineSpeaksOnlyForItsOwnAgents(_TwoMachinesAndOneLocalAgent):
     """Found by an adversarial review of the first version, 2026-09-24; each case was a working repro."""

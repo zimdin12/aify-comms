@@ -27,7 +27,6 @@ from service.api_core.external_keys import (
     parse_external_keys,
     route_admits_external,
 )
-from service.api_core.operator_key_file import operator_key_from_config
 from service.api_core.browser_origin import (
     browser_request_is_allowed, effective_trusted_hosts, is_browser_navigation,
     url_without_api_key,
@@ -373,8 +372,6 @@ async def lifespan(app: FastAPI):
     db_path = Path(config.data_dir) / "aify.db"
     await init_db(db_path)
     logger.info(f"Database: {db_path}")
-    # Generated into the data volume when `.env` sets none; see service/api_core/operator_key_file.py.
-    config.operator_key = operator_key_from_config(config, create=True)
     # Connections are reused from here on and closed at shutdown (service/db_pool.py). Enabled HERE,
     # not at import, so only the running service pools: a test using `get_db()` with no lifespan keeps
     # a fresh connection per call and no file handle outlives its temporary database.

@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from service.config import get_config
-from service.api_core.operator_key_file import operator_key_from_config
 from service.dashboard_access import COOKIE, COOKIE_MAX_AGE, is_authorized, key_matches, login_page, session_token
 
 APP_DIR = Path(__file__).resolve().parent / "new_dashboard"
@@ -106,12 +105,13 @@ async def health():
     return {"status": "healthy"}
 
 
-# THE OPERATOR KEY REACHES THE BROWSER FROM HERE, and only from here.
+# THE OPERATOR KEY REACHES THE BROWSER FROM HERE, and only from here, when `.env` sets one.
 #
-# Since R5-H1 (2026-08-18) an actor naming itself "operator" proves nothing — the service requires
-# `X-Aify-Operator-Key` before it will let a caller act on another agent's rows. This dashboard is a
-# legitimate operator surface, so it is given the key server-side; it is never written into a file that
-# git tracks and never logged.
+# With `OPERATOR_KEY` set, an actor naming itself "operator" proves nothing -- the service requires
+# `X-Aify-Operator-Key` before it will let a caller act on another agent's rows (operator_authz.py). This
+# dashboard is a legitimate operator surface, so it is given the key server-side; it is never written
+# into a file that git tracks and never logged. Unset (the default since v0.7.5), there is no operator
+# gate and nothing is injected.
 #
 # WHY INJECTION AND NOT A CONFIG ENDPOINT: an endpoint that hands out the key would hand it to anything
 # that asks, which is the hole being closed. Injecting it into the served HTML at least ties possession
@@ -123,12 +123,10 @@ async def health():
 # (`API_KEY` is unset on this deployment) and is an operator decision, recorded in docs/V0.6_PLAN.md.
 def _index_html() -> str:
     html = (APP_DIR / "index.html").read_text(encoding="utf-8")
-    # The same key the service uses: from `.env`, else the one the service generated into the key
-    # volume this container mounts read-only. Read per request, so a dashboard that started before the
-    # service had generated it picks it up without a restart. Never created here.
-    key = operator_key_from_config(get_config(), create=False)
+    # The same key the service uses, from `.env` (both containers read it).
+    key = str(get_config().operator_key or "")
     if not key:
-        return html  # no key configured: the dashboard simply cannot claim operator privilege
+        return html  # no operator gate: the dashboard marks itself with X-Aify-Operator instead
     # JSON-encoded so a key containing a quote or backslash cannot break out of the script literal.
     import json as _json
     seed = f"<script>window.__AIFY_OPERATOR_KEY__ = {_json.dumps(key)};</script>"

@@ -26,9 +26,6 @@ services:
       - "${SERVICE_PORT:-8800}:8800"
     volumes:
       - service-data:/data
-      # The generated operator key (service/api_core/operator_key_file.py), in its own volume so the
-      # dashboard can read it without being handed the database.
-      - operator-key:/keys
       - ./config:/app/config:ro
       # Mount Claude Code auth from host — enables trigger/dispatch inside container
       # Uses your Max subscription, no API key needed
@@ -45,7 +42,6 @@ services:
     environment:
       - SERVICE_PORT=${SERVICE_PORT:-8800}
       - DATA_DIR=/data
-      - OPERATOR_KEY_DIR=/keys
     deploy:
       resources:
         limits:
@@ -76,11 +72,6 @@ services:
         max-file: "3"
     ports:
       - "${NEW_DASHBOARD_PORT:-8801}:8801"
-    # READ-ONLY, for one file: the operator key the service generates when `.env` sets none. The
-    # dashboard injects it into its page, so it must hold the SAME key; it never writes here. Its own
-    # small volume, not the data volume, so this container is not handed the database for it.
-    volumes:
-      - operator-key:/keys:ro
     depends_on:
       - service
     env_file:
@@ -88,7 +79,6 @@ services:
     environment:
       - SERVICE_PORT=${SERVICE_PORT:-8800}
       - DATA_DIR=/data
-      - OPERATOR_KEY_DIR=/keys
     deploy:
       resources:
         limits:
@@ -165,10 +155,6 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME:-aify-comms}-caddy-data
   caddy-config:
     name: ${COMPOSE_PROJECT_NAME:-aify-comms}-caddy-config
-  # The generated operator key. Disposable: if it is removed, the service writes a new one at its next
-  # start and the dashboard serves that from its next page load.
-  operator-key:
-    name: ${COMPOSE_PROJECT_NAME:-aify-comms}-operator-key
 
 networks:
   service-network:

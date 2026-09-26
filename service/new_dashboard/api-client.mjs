@@ -71,8 +71,12 @@ export async function apiResponse(path, options = {}) {
   const { headers: callerHeaders, ...rest } = options;
   const headers = callerHeaders ? { ...callerHeaders } : { 'Content-Type': 'application/json' };
   const url = `${apiBase}${path}`;
-  if (operatorKey && operatorKeyOrigin && credentialOrigin(url) === operatorKeyOrigin) {
-    headers['X-Aify-Operator-Key'] = operatorKey;
+  if (operatorKeyOrigin && credentialOrigin(url) === operatorKeyOrigin) {
+    // Says this is the dashboard, so a send it makes AS an agent does not count as that agent being
+    // present. A claim, not a credential: with no operator key configured the API key is the trust
+    // boundary (service/api_core/operator_authz.py). With one, the key proves it.
+    headers['X-Aify-Operator'] = 'dashboard';
+    if (operatorKey) headers['X-Aify-Operator-Key'] = operatorKey;
   }
   // THE SERVICE KEY, AND A HEADER RATHER THAN THE COOKIE ON PURPOSE. This page is served from the
   // dashboard port and calls the API back on the service port, so every request here is
