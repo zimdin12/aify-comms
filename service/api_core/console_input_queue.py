@@ -20,6 +20,7 @@ from __future__ import annotations
 from service.api_core.vocabulary import RUNTIMES_THAT_TRACK_A_TURN
 
 import json
+import re
 import time
 import uuid
 from typing import Optional
@@ -166,8 +167,19 @@ async def _record_terminal_delivery_contract(
     return run_id
 
 
-def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, message_id: str, bracketed_paste: bool = True,
-                                 sender: str = "") -> str:
+# A terminal ends a bracketed paste at the first `ESC[201~`, or at `\x9b201~` where it reads 8-bit
+# controls, and acts on any other control sequence inside it. So nothing in the message may reach the
+# terminal as a control: C0 except line feed and tab, DEL, and C1. Each is written as `\xNN` text, so
+# the agent still reads what was sent. A body carrying `ESC[201~` and a newline was typed as keys
+# (v0.7.2, external review item 2).
+_TERMINAL_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _inert_for_terminal(text: str) -> str:
+    return _TERMINAL_CONTROL_RE.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
+
+
+def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, message_id: str, sender: str = "") -> str:
     subject = str(req.subject or "").strip()
     body = str(req.body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     message = "\n".join(
@@ -187,9 +199,7 @@ def _console_dispatch_input_body(req: DispatchRequest, *, recipient_id: str, mes
             "Reply in the dashboard when appropriate, using the available aify-comms tools.",
         ] if part != ""
     )
-    if bracketed_paste:
-        return f"\x1b[200~{message}\x1b[201~\r"
-    return f"{message}\r"
+    return f"\x1b[200~{_inert_for_terminal(message)}\x1b[201~\r"
 
 
 async def _queue_console_dispatch_inputs(db, req, msg_id, recipients, console_recipients, console_deliveries, resolved_in_reply_to):
@@ -241,7 +251,6 @@ async def _queue_console_inputs_for_dispatch(db, req, message_id, console_recipi
                 req,
                 recipient_id=recipient_id,
                 message_id=recipient_message_id,
-                bracketed_paste=True,
                 sender=sender,
             ),
         )

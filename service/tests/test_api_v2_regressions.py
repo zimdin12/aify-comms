@@ -4631,6 +4631,36 @@ class ApiV2RegressionTests(FastApiTestCase):
         self.assertIn("From: agent-from-another-pc (external", typed)
         self.assertIn(origin, typed)
 
+    def test_a_console_typed_body_cannot_end_the_paste_and_type_keys(self):
+        """v0.7.2 (external review, item 2). The body is typed inside one bracketed paste, which a
+        terminal ends at the first `ESC[201~` (or the 8-bit CSI `\\x9b201~`). A body carrying one ended
+        the paste early, and the newline after it submitted the rest as keystrokes. The row asserted is
+        the input control aify-env writes to the PTY byte for byte."""
+        session_id = self._create_running_session(
+            agent_id="paste-console", terminal=True, runtime="claude-code",
+            terminal_runtimes=["claude-code"], session_handle="claude-session-1",
+        )
+        started = self.client.post(f"/api/v1/sessions/{session_id}/console/start", json={"requestedBy": "dashboard"})
+        self.assertEqual(started.status_code, 200, started.text)
+        terminal_id = started.json()["terminal"]["id"]
+        hostile = "looks harmless\x1b[201~\ntyped as keys\n\x9b201~\ralso typed\x07\x1b[2J\x7fend"
+        payload = self._send_message(
+            from_agent="agent-from-another-pc", origin="192.168.1.50:8800", to="paste-console", type="request",
+            subject="console chat", body=hostile, trigger=True,
+        )
+        self.assertEqual(len(payload["consoleDeliveries"]), 1, payload)
+        [typed] = [row["body"] for row in self._fetchall(
+            "SELECT body FROM terminal_controls WHERE terminal_id = ? AND action = 'input'", (terminal_id,),
+        )]
+        self.assertTrue(typed.startswith("\x1b[200~"), repr(typed[:20]))
+        self.assertTrue(typed.endswith("\x1b[201~\r"), repr(typed[-20:]))
+        inside = typed[len("\x1b[200~"):-len("\x1b[201~\r")]
+        controls = sorted({hex(ord(c)) for c in inside if (ord(c) < 0x20 and c not in "\n\t") or 0x7f <= ord(c) <= 0x9f})
+        self.assertEqual(controls, [], f"terminal control characters inside the paste: {controls}")
+        # CONTROL: the text itself still arrives, as text, so the agent can read what was sent.
+        for words in ("looks harmless", "typed as keys", "also typed", "end"):
+            self.assertIn(words, inside)
+
     def test_managed_dispatch_native_runtime_can_fall_back_to_native_when_terminal_backing_disabled(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
         for runtime, handle in (("codex", "codex-thread-1"), ("pi", "pi-session-1"), ("opencode", "opencode-session-1")):
