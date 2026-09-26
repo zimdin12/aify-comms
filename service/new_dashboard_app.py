@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Form, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from service.config import get_config
 from service.api_core.operator_key_file import operator_key_from_config
+from service.dashboard_access import COOKIE, COOKIE_MAX_AGE, is_authorized, key_matches, login_page, session_token
 
 APP_DIR = Path(__file__).resolve().parent / "new_dashboard"
 
@@ -137,9 +138,33 @@ def _index_html() -> str:
     return seed + html
 
 
+def _with_session(response, request: Request, api_key: str):
+    """Sign the browser in: a cookie holding a keyed hash of the API key (dashboard_access.py)."""
+    https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
+    response.set_cookie(COOKIE, session_token(api_key), max_age=COOKIE_MAX_AGE, httponly=True,
+                        samesite="strict", secure=https, path="/")
+    return response
+
+
+# THE PAGE THAT CARRIES THE OPERATOR KEY is served only to a browser that has shown the API key
+# (v0.7.4; service/dashboard_access.py says why). Everything else gets the login form.
 @app.get("/", include_in_schema=False)
-async def index():
-    return HTMLResponse(_index_html())
+async def index(request: Request):
+    api_key = str(get_config().api_key or "")
+    query_key = request.query_params.get("api_key", "")
+    if not is_authorized(api_key, cookie=request.cookies.get(COOKIE, ""), query_key=query_key):
+        return HTMLResponse(login_page((APP_DIR / "index.html").read_text(encoding="utf-8")), status_code=401)
+    response = HTMLResponse(_index_html())
+    return _with_session(response, request, api_key) if key_matches(api_key, query_key) else response
+
+
+@app.post("/login", include_in_schema=False)
+async def login(request: Request, key: str = Form("")):
+    api_key = str(get_config().api_key or "")
+    if api_key and not key_matches(api_key, key):
+        return HTMLResponse(login_page((APP_DIR / "index.html").read_text(encoding="utf-8"), refused=True), status_code=401)
+    response = RedirectResponse(url="/", status_code=303)
+    return _with_session(response, request, api_key) if api_key else response
 
 
 @app.get("/dashboard", include_in_schema=False)
