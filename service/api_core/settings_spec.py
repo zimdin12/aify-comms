@@ -188,6 +188,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("dashboard_tertiary_color", "", "color", _A, "Tertiary colour", "Depth, charts."),
     Setting("dashboard_title", "AIFY Comms", "text", _A, "Dashboard title"),
     # ── Advanced ──
+    Setting("usage_poll_minutes", 5, "int", _X, "Read the usage pools every",
+            "How often the service asks OpenAI and Anthropic for the subscription quota. One read serves every agent.",
+            unit="min", min=1, max=1440),
     Setting("insert_messages_via_console", False, "bool", _X, "Type messages into the console (legacy)",
             "Delivers by typing into the agent's terminal instead of its message channel. Scrambles "
             "anything typed at the same time; for diagnosing a broken channel only."),

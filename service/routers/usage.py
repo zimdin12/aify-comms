@@ -10,7 +10,7 @@ The factory fixes `route_class=JsonApiRoute`, which carries the bounded SQLite w
 refuses an override. A domain built by hand would keep every body, path and method, pass the whole
 suite, and silently 503 under concurrent writes.
 
-`_OPENAI_POOL_CACHE` moved with the handlers and is mutable process state, so it is registered in
+`_POOL_CACHE` (once `_OPENAI_POOL_CACHE`) moved with the handlers and is mutable process state, so it is registered in
 `service/tests/test_process_global_identity.py` alongside the other forkable globals — a second
 module-level assignment would give two importers separate caches and the only symptom would be quota
 readings that disagree depending on which path served them.
@@ -27,7 +27,11 @@ from fastapi import HTTPException, Request
 from service.api_core.routing import domain_router
 from service.clock import now as _now
 from service.usage_cache import consumption_set, consumption_summary, usage_all, usage_set
+from service.usage_anthropic import collect_anthropic_pool
 from service.usage_openai import collect_openai_pool
+from service.db import get_db
+from service.api_core.settings import _load_settings
+from service.api_core.settings_spec import BY_KEY
 from service.api_core.request_body import json_object_body
 
 logger = logging.getLogger("aify_comms.routers.usage")
@@ -51,38 +55,57 @@ async def post_usage(request: Request):
     return {"ok": True, "source_id": source_id}
 
 
-_OPENAI_POOL_TTL_SECONDS = 120.0
+# ONE CACHE FOR BOTH POOLS, keyed by collector. Each pool is read at most once per
+# `usage_poll_minutes` (default 5) however many agents and dashboards ask: one read serves everyone.
+_POOL_CACHE: dict[str, dict[str, Any]] = {"openai": {"at": 0.0, "pool": None}, "anthropic": {"at": 0.0, "pool": None}}
 
 
-_OPENAI_POOL_CACHE: dict[str, Any] = {"at": 0.0, "pool": None}
+def _collectors():
+    """Looked up when called, so a test that replaces a collector is the one used."""
+    return (("openai", collect_openai_pool), ("anthropic", collect_anthropic_pool))
+
+
+async def _poll_seconds() -> float:
+    """The operator's `usage_poll_minutes`, in seconds; the declared default when settings cannot be read."""
+    try:
+        db = await get_db()
+        try:
+            return float((await _load_settings(db))["usage_poll_minutes"]) * 60
+        finally:
+            await db.close()
+    except Exception:
+        return float(BY_KEY["usage_poll_minutes"].default) * 60
 
 
 @router.get("/usage")
 async def get_usage():
-    """Usage pools — collected BY THE SERVICE for OpenAI, so a fix costs no agent restart.
+    """Usage pools, collected BY THE SERVICE for OpenAI and Anthropic, so a fix costs no agent restart.
 
     The collector used to live only in the environment bridge, so every quota fix required
-    restarting it — which cycles the operator's managed agents. Quota is a file read plus one HTTP
-    GET; it has no business costing a restart. Bridge posts are still accepted (other hosts), but
-    a fresh service-side reading wins.
+    restarting it -- which cycles the operator's managed agents -- and after that bridge was deleted
+    in v0.6.3 nothing collected the Anthropic pool at all. Quota is a file read plus one HTTP GET per
+    source. Bridge posts are still accepted (other hosts), but a fresh service-side reading wins.
     """
     pools = usage_all()
-    try:
-        now = time.monotonic()
-        if now - float(_OPENAI_POOL_CACHE["at"] or 0) > _OPENAI_POOL_TTL_SECONDS:
-            fresh = await collect_openai_pool()
+    ttl = await _poll_seconds()
+    for name, collect in _collectors():
+        cache = _POOL_CACHE[name]
+        try:
+            now = time.monotonic()
+            if now - float(cache["at"] or 0) > ttl:
+                fresh = await collect()
+                if fresh:
+                    # Stamped when READ FROM THE PROVIDER, not when served: stamping on every GET made
+                    # a cached reading report an age of zero (v0.7 scan A14).
+                    fresh = dict(fresh, updated_at=_now(), stale=False)
+                cache["at"] = now
+                cache["pool"] = fresh
+            fresh = cache["pool"]
             if fresh:
-                # Stamped when READ FROM OPENAI, not when served: stamping on every GET made a
-                # reading up to two minutes old report an age of zero (v0.7 scan A14).
-                fresh = dict(fresh, updated_at=_now(), stale=False)
-            _OPENAI_POOL_CACHE["at"] = now
-            _OPENAI_POOL_CACHE["pool"] = fresh
-        fresh = _OPENAI_POOL_CACHE["pool"]
-        if fresh:
-            fresh = dict(fresh)
-            pools = [p for p in pools if p.get("source_id") != fresh["source_id"]] + [fresh]
-    except Exception:
-        logger.debug("service-side OpenAI usage collection failed; keeping bridge-posted pool", exc_info=True)
+                fresh = dict(fresh)
+                pools = [p for p in pools if p.get("source_id") != fresh["source_id"]] + [fresh]
+        except Exception:
+            logger.debug("service-side %s usage collection failed; keeping any posted pool", name, exc_info=True)
     return {"pools": pools}
 
 

@@ -67,19 +67,16 @@ and `sha_from_env` is true (the doctor reports it as an override), but dirty is 
 shell.
 Running git from `cd "$REPO_ROOT"` instead of `git -C` would remove the dependence.
 
-## Only the OpenAI pool is collected
+## Per-agent usage consumption has no collector
 
-`comms_usage` and the dashboard's Pools band read `GET /usage`. That route reads the OpenAI pool
-itself (`collect_openai_pool`, from the read-only `~/.codex` mount, cached 120 s;
-`service/routers/usage.py`), so that figure is current. The Anthropic pool and the per-agent
-consumption rows arrive only by `POST /usage` and `POST /usage/consumption`, and their only production
-caller (`collectOnce` and `collectConsumptionOnce` in `mcp/stdio/usage-collector.js`) was the
-environment bridge, deleted in the release first tagged v0.6.3. The code is parked, not dead: the
-operator chose on 2026-09-04 to keep it for a caller in another tier (aify-dashboard or an aify-env
-plugin, undecided), and its tests still run. Until a caller exists, the Anthropic pool reads `?` or a
-stale figure rather than 0%. On a host with no Codex token no pool is collected at all, and
-`comms_usage` says "No usage data yet (collector warming up)" (`usage-tool.mjs`) although no collector
-runs.
+Since 0.7.4 the service reads both quota pools itself (`service/usage_openai.py`,
+`service/usage_anthropic.py`), each at most once per `usage_poll_minutes` (default 5), from the
+read-only `~/.codex` and `~/.claude` mounts; the Anthropic reading is proven by its tests against a
+recorded response shape, not yet against the live endpoint from the container. What still has no
+caller is `POST /usage/consumption`, the per-agent token rows (`collectConsumptionOnce` in
+`mcp/stdio/usage-collector.js`, parked since the environment bridge was deleted in v0.6.3), so the
+dashboard's Consumption section stays empty. aify-env, which already watches every process, is the
+candidate caller.
 
 ## Found by the test-duplicate cleanup, not yet acted on (2026-09-19)
 

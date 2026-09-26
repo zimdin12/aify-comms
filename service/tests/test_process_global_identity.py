@@ -50,7 +50,7 @@ GLOBALS = {
     "_terminal_event_counts": "service/api_core/events.py",
     # Moved with the first route DOMAIN in v0.5.2b. Two copies would give two quota caches and
     # the only symptom would be usage readings that disagree depending which path served them.
-    "_OPENAI_POOL_CACHE": "service/routers/usage.py",
+    "_POOL_CACHE": "service/routers/usage.py",
     # Moved in v0.5.4, and this entry IS the receipt the move was waiting for: an earlier slice pulled
     # `_terminal_prompt_hint_from_raw` back out precisely because relocating the cache it reads is a
     # process-identity change rather than a relocation. A second copy would not raise -- each importer
@@ -78,7 +78,7 @@ GLOBALS = {
     # neither of its two structures had a line here. `_USAGE_CACHE` holds the per-pool snapshots the
     # dashboard and `comms_usage` read; two copies give two caches and the only symptom is usage
     # readings that disagree depending which path served them — which is verbatim the reason already
-    # written beside `_OPENAI_POOL_CACHE` above, for the same kind of state one layer along.
+    # written beside `_POOL_CACHE` above, for the same kind of state one layer along.
     "_USAGE_CACHE": "service/usage_cache.py",
     # Its sibling, and the one nothing named at all. Token rows accumulate here and
     # `summarize_consumption` folds them; two copies split the accumulation, so every total is short
