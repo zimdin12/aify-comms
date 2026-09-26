@@ -30,8 +30,9 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
 - **`test_turn_end_event_flips_managed_hermes_off_working_immediately` failed some of the reviewer's
   Linux runs.** It passed 30 of 30 serial runs here; the failure output was not available.
 - **Ten Windows process-control tests fail in comms-senior-dev's isolated harness and pass on this
-  host, at the same code.** That harness runs each suite in a Windows Job object with private
-  HOME/APPDATA/TMP. Bridge: `a-default-argument-is-evaluated-in-production` (process enumeration
+  host, at the same code.** That harness gives each suite a private HOME/APPDATA/TMP and sealed AIFY
+  endpoints, and runs it with `subprocess.run`; whether those runs sat in a Windows Job, and with which
+  limits, was not recorded and is unknown. Bridge: `a-default-argument-is-evaluated-in-production` (process enumeration
   omitted its own pid), `session-fixes` (EBUSY removing a scratch dir),
   `kill-prior-collects-what-a-previous-hermes-left`, `codex-legacy-controller-verbs`,
   `hermes-daemon-default-killtree` (a process survived a tree kill). aify-env: four takeover and
