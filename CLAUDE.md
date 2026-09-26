@@ -76,8 +76,9 @@ What you edited decides how it reaches the running system:
 
 The release version lives in the repo-root `VERSION` file. `bash scripts/bump-version.sh X.Y.Z`
 writes it into every file that must agree (`mcp/stdio/version.js`, `mcp/stdio/package.json`,
-`mcp/stdio/package-lock.json`, `.claude-plugin/plugin.json`), and `test_version_single_source.py` plus
-`mcp/stdio/tests/version-consistency.test.js` fail on any disagreement or a new hardcoded version.
+`mcp/stdio/package-lock.json`, `.claude-plugin/plugin.json`), and `test_version_single_source.py`,
+`mcp/stdio/tests/version-consistency.test.js` and (for the lockfile) `test_repository_build_contract.py`
+fail on any disagreement or a new hardcoded version.
 `scripts/stamp.sh` bakes the version and git sha into `service/_build_stamp.json`, which
 `service/config.py` reads.
 
@@ -85,8 +86,8 @@ To cut a release: bump, run all suites, stamp, rebuild, re-run `install.sh` for 
 `mcp/stdio/` changed, confirm `aify-comms doctor` is green, then tag.
 
 Leave `SERVICE_VERSION` out of `.env`: an environment value overrides the stamp. `config/service.json`
-cannot set the five stamp-owned fields (`version`, `build_sha`, `build_short`, `build_branch`,
-`built_at`); they are observations of a build, and `test_service_json_cannot_override_the_build_stamp.py`
+cannot set the six stamp-owned fields (`version`, `build_sha`, `build_short`, `build_branch`,
+`built_at`, `build_dirty`); they are observations of a build, and `test_service_json_cannot_override_the_build_stamp.py`
 holds that.
 
 ## Repo layout (what matters)
@@ -114,13 +115,15 @@ without `AIFY_AGENT_ID`. Report success from the doctor, not from the absence of
 
 ```bash
 aify-comms doctor            # human-readable report
-aify-comms doctor --json     # {ok, checks:[{id, ok, code, detail, fix}]}
+aify-comms doctor --json     # {ok, passed, failed, skipped, repo, service_url, checks:[{id, ok, code, detail, fix?, skipped?}]}
 aify-comms doctor --strict   # exit 1 if any check failed
 ```
 
 `aify-comms` is a verifier and starts nothing: `doctor`, `--check`, `--version` and `--help`, and
 anything else exits 2 and names aify-env. `aify-doctor` is the same script under its older name. A
-check that gathered no evidence reports `unknown`, never ok.
+check that could not run reports `skipped` (`ok: false, skipped: true` in `--json`, counted apart, and
+not a `--strict` failure); one that ran and found no evidence reports an `unknown-*` code, which fails.
+Neither reads ok.
 
 | check | catches |
 |---|---|
@@ -213,7 +216,7 @@ agent on every turn.
 
 - **Size is a ratchet.** `mcp/stdio/tests/skill-size-ratchet.test.js` holds every skill file at its
   measured size: a file that grows fails, and a file that shrinks must lower its ceiling in the same
-  commit. An always-loaded `SKILL.md` also has a hard 16 KB limit. Raising a ceiling is a decision
+  commit. An always-loaded `SKILL.md` also has a hard limit of 16,000 characters (`ALWAYS_LOADED_LIMIT`). Raising a ceiling is a decision
   argued in the commit; pay for new bytes elsewhere in the file.
 - **Steps in the skill, reference behind a pointer.** Inline what every run needs; put what only
   some branches reach in `references/`, and word the pointer so it says what the reader will find
