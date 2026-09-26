@@ -50,6 +50,9 @@ def _redeploy(tmp_path: Path, *, env_launcher: str | None) -> str:
     done = subprocess.run([bash(), (repo / "redeploy.sh").as_posix()], capture_output=True, text=True,
                           timeout=120, env=env, cwd=repo)
     assert done.returncode == 0, done.stdout + done.stderr
+    # redeploy re-runs install.sh only for a client whose runtime is on PATH, so the record exists only
+    # if the `claude` stub was found. Every assertion below needs that, the controls included.
+    assert record.exists(), "redeploy never ran install.sh: the claude stub was not found on PATH. " + done.stdout
     return record.read_text(encoding="utf-8")
 
 
