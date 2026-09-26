@@ -84,10 +84,10 @@ Native runtime handles also must not be silently invented during ordinary recove
 
 - the operator creates a new managed identity through spawn
 - the operator resumes/starts directly in the native CLI and re-registers that exact live session
-- the operator explicitly repairs a known native ID with **Set handle**
+- the operator explicitly repairs a known native ID with the agent's **Edit…** → *Native session handle* field
 - the operator explicitly chooses **Reset**
 
-When a managed session is taken over in CLI, the CLI should re-register with the same `agentId` and its real runtime handle. The backend records that handle on the latest session. Later **Adopt env** and **Restart** should carry that stored handle forward when the runtime is unchanged. If the handle is missing or locked, the system should surface the problem instead of quietly creating a contextless replacement. **Set handle** is an operator repair for a known native ID; it updates saved state but must not start a fresh context by itself.
+When a managed session is taken over in CLI, the CLI should re-register with the same `agentId` and its real runtime handle. The backend records that handle on the latest session. Later **Adopt env** and **Restart** should carry that stored handle forward when the runtime is unchanged. If the handle is missing or locked, the system should surface the problem instead of quietly creating a contextless replacement. Editing the native session handle is an operator repair for a known native ID; it updates saved state but must not start a fresh context by itself.
 
 ## Capability Flags
 
@@ -221,7 +221,7 @@ Dashboard rule:
 - Prefer wrapper auto-registration with `--aify-agent <agentId>` when opening the native CLI. Manual `comms_register(...)` remains the fallback and is still required for a new ID when the wrapper was launched without an ID.
 - Resident/managed ownership is manual. A resident wrapper registration against an existing managed identity records a `manualResidentCandidate` for later use, but does not take over the identity or stop the managed PTY.
 - Operators switch ownership from **Sessions -> Actions -> Switch to resident/managed** or the Chat details switch. Active runs block the switch unless the operator explicitly forces it. Stale resident bridges do not silently return to managed; dashboard sends fail visibly until the operator switches to managed or restarts the resident wrapper.
-- Show **Set handle** in session/identity details when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or reset path.
+- Offer the *Native session handle* field (the agent's **Edit…**) when a saved native handle may need operator repair. The action updates the saved handle and runtime state; it is not a compact or reset path.
 - **Stop wake** / session **Stop** on a resident identity sets `launch_mode=none`; the live resident bridge observes that state and terminates its host CLI/app process where the OS allows it.
 - Show **View transcript/logs** for all persistent sessions.
 - Dashboard chat and terminal input must not drive the same active turn concurrently.
