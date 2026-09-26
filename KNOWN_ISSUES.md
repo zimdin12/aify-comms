@@ -29,6 +29,15 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   the deploy, the service log should not say "terminal output still queued after".
 - **`test_turn_end_event_flips_managed_hermes_off_working_immediately` failed some of the reviewer's
   Linux runs.** It passed 30 of 30 serial runs here; the failure output was not available.
+- **Ten Windows process-control tests fail in comms-senior-dev's isolated harness and pass on this
+  host, at the same code.** That harness runs each suite in a Windows Job object with private
+  HOME/APPDATA/TMP. Bridge: `a-default-argument-is-evaluated-in-production` (process enumeration
+  omitted its own pid), `session-fixes` (EBUSY removing a scratch dir),
+  `kill-prior-collects-what-a-previous-hermes-left`, `codex-legacy-controller-verbs`,
+  `hermes-daemon-default-killtree` (a process survived a tree kill). aify-env: four takeover and
+  supersession tests could not rebind ephemeral ports after stopping the predecessor, and the
+  dedicated Windows Job isolation test timed out. Not classified: the harness difference is ASSUMED
+  to be the cause, not shown.
 
 ## A managed claude stops at a compaction or resume dialog
 

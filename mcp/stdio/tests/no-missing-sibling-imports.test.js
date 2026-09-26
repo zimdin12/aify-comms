@@ -234,6 +234,9 @@ test("the wider scan finds a deleted import line, and not a parameter with neste
   assert.deepEqual(missingSiblingImports("mcp/stdio/m.mjs", probe, sib).map((h) => h.name), ["listListeners"]);
   assert.deepEqual(usedFromAnySiblingWithoutImport("mcp/stdio/m.mjs", probe, sib).map((h) => h.name), ["listListeners"]);
   assert.deepEqual(at("export const g = ({ listeners = listListeners } = {}) => listeners;\n"), ["listListeners"], "the arrow form too");
+  // Its second probe: an arrow whose default is itself an arrow. arrowParameterNames read every token
+  // of the list, so only the wide rule missed it at v0.7.2.
+  assert.deepEqual(at("import { other } from './sib.js';\nexport const f = ({listeners = () => listListeners()}) => listeners();\n"), ["listListeners"]);
   assert.ok(moduleBindings(probe).bound.has("listeners"), "CONTROL: the parameter itself is bound");
   // A destructuring whose default holds a block (hermes-active-session.mjs).
   assert.deepEqual(at("const {\n  nextId = (() => { let n = 1; return () => n++; })(),\n  listListeners = 1,\n} = opts;\nlistListeners;\n"), []);
