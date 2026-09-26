@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { AGENT_PROCESSES_ID, loadAgentProcesses, renderAgentProcesses } from "./agent-processes.mjs";
+import { AGENT_PROCESSES_ID, loadAgentProcesses, processesReadFailed, renderAgentProcesses } from "./agent-processes.mjs";
 import { state } from "./state.mjs";
 
 /** The loader only writes while the drawer is still open on that agent, so tests must say it is. */
@@ -342,4 +342,13 @@ test("the loader hands the service's truncated flag to the panel", async () => {
     byId: (id) => (id === AGENT_PROCESSES_ID ? host : null),
   });
   assert.match(host.innerHTML, /newest 1 shown/);
+});
+
+test("processesReadFailed recognises the panel a failed read paints, and nothing else", () => {
+  // Both ends of the mark: the renderer writes it, the drawer reads it to decide whether to read again
+  // (agent-drawer.test.mjs, 0.7.1 C7). A mark the reader cannot see would leave the failure stuck.
+  assert.equal(processesReadFailed({ innerHTML: renderAgentProcesses([], { error: "Failed to fetch" }) }), true);
+  assert.equal(processesReadFailed({ innerHTML: renderAgentProcesses([{ id: "t1", status: "running" }]) }), false);
+  assert.equal(processesReadFailed({ innerHTML: renderAgentProcesses([]) }), false, "an empty list is not a failure");
+  assert.equal(processesReadFailed(null), false);
 });
