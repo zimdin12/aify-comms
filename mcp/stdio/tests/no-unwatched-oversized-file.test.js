@@ -176,7 +176,9 @@ const CEILINGS = {
   // them). Paid out of it: a guard that stops the plugin refresh deleting the checkout it copies from.
   // 2772 -> 2768 on 2026-09-26, PAID DOWN (v0.7.1): an unused hermes marker variable and a stale
   // comment went, paying for install.sh reading back the installed aify-env endpoint (B2).
-  "install.sh": 2768,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  // 2768 -> 2754 on 2026-09-28: the Windows user-PATH write moved to scripts/add-to-user-path.sh, which
+  // writes only for this profile's own ~/.local/bin.
+  "install.sh": 2754,  // 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

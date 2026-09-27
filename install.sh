@@ -1562,7 +1562,6 @@ install_windows_cmd_shim() {
   local wrapper_dir="$2"
   local shim_path="$wrapper_dir/$wrapper_name.cmd"
   local bash_path=""
-  local windows_wrapper_dir=""
 
   if ! is_git_bash_windows; then
     return 0
@@ -1572,7 +1571,6 @@ install_windows_cmd_shim() {
   fi
 
   bash_path="$(cygpath -w "$(command -v bash)")"
-  windows_wrapper_dir="$(cygpath -w "$wrapper_dir")"
 
   # .cmd files are parsed by cmd.exe in the console's OEM codepage and require
   # CRLF line endings. Two hard rules follow (both bit real users):
@@ -1595,19 +1593,7 @@ install_windows_cmd_shim() {
     printf '%s\r\n' 'endlocal'
   } > "$shim_path"
 
-  if [ -z "$EMIT_WRAPPERS_DIR" ] && command -v powershell.exe >/dev/null 2>&1; then
-    AIFY_SHIM_DIR="$windows_wrapper_dir" powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '
-      $dir = $env:AIFY_SHIM_DIR; if ([string]::IsNullOrWhiteSpace($dir)) { exit 1 }
-      $current = [Environment]::GetEnvironmentVariable("Path", "User")
-      $parts = @()
-      if ($current) { $parts = $current -split ";" }
-      $normalized = $dir.Trim().ToLowerInvariant()
-      if (-not ($parts | Where-Object { $_.Trim().ToLowerInvariant() -eq $normalized })) {
-        $updated = if ([string]::IsNullOrWhiteSpace($current)) { $dir } else { $current.TrimEnd(";") + ";" + $dir }
-        [Environment]::SetEnvironmentVariable("Path", $updated, "User")
-      }
-    ' >/dev/null 2>&1 || true
-  fi
+  [ -n "$EMIT_WRAPPERS_DIR" ] || bash "$SCRIPT_DIR/scripts/add-to-user-path.sh" "$wrapper_dir"
 }
 
 copy_codex_assets() {
