@@ -36,8 +36,7 @@ export function registerAgentReportingTools(server, z) {
 
   server.tool(
     "comms_agents",
-    "List registered agents with role, status and unread count. The id that starts each line is the address for comms_send `to`. " +
-      "A new send to an offline, stopped or misconfigured agent is refused; an available managed agent cold-starts on send.",
+    "List registered agents with role, status and unread count. Each line starts with the id to pass as comms_send `to`.",
     {},
     async () => {
       const describeLine = (info) => {
@@ -81,7 +80,7 @@ export function registerAgentReportingTools(server, z) {
 
   server.tool(
     "comms_agent_info",
-    "Another agent's status, wake mode, inbound unread and last read, last output, and active or queued runs.",
+    "An agent's status, wake mode, unread count, last message read, last output, and active or queued runs.",
     {
       agentId: z.string().describe("Agent ID to check"),
     },

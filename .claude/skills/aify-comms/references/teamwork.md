@@ -1,6 +1,6 @@
 # aify-comms Teamwork Reference
 
-Load this for the mechanics of messages, contracts, replies and reviews; assigning work and compacting agents are in leading-a-team.md.
+Load this for writing a request or a review, message labels, and self-wakes; assigning work and compacting agents are in leading-a-team.md.
 
 **These rules are about coordination, not about code.** Software examples appear throughout because
 that is the most common use, but every rule here is meant to hold for research, testing, analysis,
@@ -15,7 +15,7 @@ apply the general form. If a rule only makes sense for code, it is written wrong
 - `architect` / tech lead: owns design boundaries, review quality, integration order, and rework decisions. Converts broad goals into bounded implementation lanes.
 - `coder`: implements bounded chunks, self-checks, reports exact evidence, and asks for review when the slice is ready.
 - `tester` / reviewer: verifies behaviour, regressions and risks. Reports evidence, not vague confidence.
-- `operator`: manages environments, sessions, runtime settings, compaction, recovery.
+- `operator`: the human at the dashboard. Owns environments, runtime settings, and whatever needs a person.
 - `driver`/owner: owns the integrated result end-to-end and the seams between lanes; personally exercises the whole thing before "done." Distinct from per-lane ownership — tracking status is not the same as owning that it works. Usually the lead also drives. (See `references/building-software.md`.)
 
 Roles are operating modes, not rigid permissions. The owner of a contract acts; everyone else passes.
@@ -71,7 +71,7 @@ Default lane loop:
 3. Lead verifies on disk and replies `[APPROVE]`, `[REVISE]`, or `[BLOCKED]`.
 4. Worker fixes rework or continues to the next bounded slice.
 5. Before "done," the driver INTEGRATES and behaviorally verifies the WHOLE — the end-to-end flow plus the cross-cutting concerns no single lane owns (controls/UX consistency, data across layers, auth→action→persistence, restart/recovery) — not just each approved slice. Per-slice APPROVE is not product-works.
-6. Manager reports only meaningful decisions/progress to dashboard.
+6. The manager answers the operator's questions; unprompted, it reports only what went wrong and needs a human.
 
 Agents may work in parallel when lanes are independent. Every parallel request must name the expected reply target and completion condition so results wake the correct owner.
 
@@ -128,29 +128,16 @@ Delegation, reinforcement, getting unstuck, and the manager's operational levers
 
 ## Worker Discipline
 
-- Start work and return evidence; send a short ack only when the sender needs one.
+- Start work and return evidence in the reply the message owes; an early short reply only when the sender needs one.
 - **A reply-overdue reminder asks you to CLOSE the contract, not to write a progress essay.**
   If the owed reply is ready, send it. If work is genuinely still in flight, ONE line —
   status + ETA — not a 2KB unrequested report. (Observed: a reminder fired mid-work
   triggered a 2,066-char status essay nobody asked for.)
-- Self-continue only for a known next chunk. Do not create infinite self-wake loops.
-- **A watchdog that polls faster than the thing can change is a spin loop.** Before re-waking to
-  check on something, ask how long it could possibly take to change. Wait at least that long.
-  Concrete cures overnight, a review takes minutes, a build takes as long as a build takes — polling
-  every 30 seconds cannot make any of them finish sooner, it just spends your turns and your
-  context. Three requirements for any self-wake:
-  1. **An exit condition**, written down before the first wake — what you are waiting for, and what
-     you will do when it arrives.
-  2. **Back off when nothing changed.** If a wake observes no change, the next interval must be
-     LONGER than the last. Same-interval polling is the loop.
-  3. **A give-up count.** After N consecutive no-change wakes, stop and report or escalate. An
-     agent silently watching forever looks identical to one that is working.
-
-  (Measured here: one agent self-woke 1,248 times at a median gap of 27 seconds — 10% of them under
-  4 seconds — accounting for half its entire outbound volume. Teammates on the same task doing
-  comparable work sat at 1-2%. The platform did not require this; the loop was self-inflicted, and
-  the tell was in the subjects, which had degenerated into `Re: Pending updates; latest: Re:
-  Pending updates; latest: watchdog…`.)
+- **A self-wake fires the moment your turn ends; there is no timer.** Send one for a known next
+  chunk of work, never to check on something. To wait for a reply, a review or a run, end the turn:
+  the result arrives as a message and wakes you. (Measured here: one agent self-woke 1,248 times at
+  a median gap of 27 seconds to check on things, half its entire outbound volume; teammates on the
+  same task sat at 1-2%.)
 - **Absence of visible output is not absence of progress.** Do not treat "no files written yet" or
   "nothing posted yet" as evidence of a stall a few minutes in — thinking, reading, measuring and
   waiting all look identical to idleness from outside. Check what the worker is actually doing
@@ -178,12 +165,6 @@ Delegation, reinforcement, getting unstuck, and the manager's operational levers
 - Do not approve broad "done" claims without evidence.
 - **End every review with an explicit verdict, not prose.** Reply `inReplyTo` the work request with a clear `APPROVE` or `REVISE` as the first line (then the evidence/rework). `APPROVE` is the signal that closes the loop and lets the manager ship; `REVISE` must list the specific, checkable changes needed. A workflow keeps cycling (implement → review → revise) until a reviewer returns `APPROVE` — that token is the completion contract, so never leave a review ambiguous about which it is.
 
-## Dashboard User
-
-The dashboard user is the human/operator. Dashboard chat rides the aify-comms transport, so a dashboard-managed run replies the same way as any aify-comms message: `comms_send(type="response", inReplyTo="<message id>", to="dashboard")`. That threads into dashboard chat and closes the run. Your final plain text is your own working output, not the chat reply.
-
-When the human asks "what happened", inspect messages/runs/contracts first. Do not summarize from memory if the system has data.
-
 ## Reply on the surface you received
 
 **Use one human-facing surface per interaction**, inferred from where the request arrived. An
@@ -197,6 +178,9 @@ explicit "talk in comms" / "talk in terminal" overrides that until the user chan
 - A dashboard-managed run with `inReplyTo` in its metadata → `comms_send(type="response",
   inReplyTo="<message id>", to="dashboard")`; that closes the run and threads into chat.
 - Agent-to-agent is the same rule: B replies to A with `inReplyTo` = A's message id.
+
+The dashboard user is the operator. When they ask "what happened", read messages, runs and contracts
+first rather than answering from memory.
 
 **Comms-observed work needs no terminal narration** (nobody is reading it), and terminal-observed
 work needs no duplicate comms copy. Every channel has its own thread: replying on a different

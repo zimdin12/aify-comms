@@ -78,23 +78,23 @@ export function registerRegistrationTool(server, z, { ensureDispatchLoop }) {
     "comms_register",
     // The opening sentence was "Register this agent instance." -- the tool's own name, and subsumed by
     // the one after it, which says the same thing and adds why it matters.
-    "Register this exact live session so other agents can message and, when supported, trigger this specific session. " +
-      "New persistent agents should be created with comms_spawn or the dashboard Environments page.",
+    "Register this live session so other agents can message and wake it. A launch with --aify-agent has already registered you, and aify-env registers the agents it manages. " +
+      "For a new persistent agent use comms_spawn.",
     {
       agentId: z.string().describe("Unique ID (e.g. 'coder-1', 'tester')"),
       role: z.string().describe("Role: 'coder', 'tester', 'reviewer', 'architect', etc."),
       name: z.string().optional().describe("Friendly name"),
       cwd: z.string().optional().describe("Working directory (used when triggered)"),
-      model: z.string().optional().describe("Preferred model (e.g. 'sonnet', 'opus', 'haiku')"),
-      description: z.string().optional().describe("Team-facing short description: who you are, what project you're on, what you focus on. Visible to other agents in comms_agents. Preserved across re-register; pass \"\" to clear."),
+      model: z.string().optional().describe("Preferred model"),
+      description: z.string().optional().describe("As comms_describe. Kept across re-register."),
       instructions: z.string().optional().describe("Standing instructions for when triggered"),
       runtime: z.string().optional().describe("Runtime: claude-code, codex or hermes (pi deprecated)"),
-      machineId: z.string().optional().describe("Stable machine identifier (auto-detected by default)"),
-      launchMode: z.string().optional().describe("Launch mode hint (default: detached)"),
-      sessionMode: z.enum(["resident", "managed"]).optional().describe("Session type (default: resident)"),
+      machineId: z.string().optional().describe("Auto-detected; leave unset."),
+      launchMode: z.string().optional().describe("Leave unset."),
+      sessionMode: z.enum(["resident", "managed"]).optional().describe("Leave unset (resident)."),
       sessionHandle: z.string().optional().describe("Runtime-specific live session handle if known"),
       appServerUrl: z.string().optional().describe("Runtime-specific live app-server URL if known (Codex live sessions)"),
-      managedBy: z.string().optional().describe("Owning agent ID for environment-managed sessions"),
+      managedBy: z.string().optional().describe("Leave unset; set by aify-env."),
     },
     async (args) => {
       args = await fillSessionHandleFromAdapter(args, __runtimeAdapter);

@@ -47,11 +47,10 @@ import { awaitingReplyNote, formatQueuedRun } from "./tool-response-format.mjs";
 // instead. The requireReply phrasing is load-bearing -- three tests match on "omit requireReply",
 // "set requireReply=true" and "set requireReply=false", because each mode has to be findable.
 export const COMMS_SEND_TOOL_DESCRIPTION =
-  "Send a message to an agent by ID, or to all agents with a given role. The target `dashboard` stores it for the operator without starting a runtime. " +
-  "LIVE-DELIVERY GATED: a new message to an offline, stopped or misconfigured target, or one with no live wake path, is refused and not written; a reply is stored anyway. `available` and `blocked` ARE deliverable, including a managed agent with no live worker yet, which the send cold-starts. A busy target is steered into its active run between tool calls when it can steer, and queued as next-turn work when it cannot. queueIfBusy=true forces the queue and ignores steer. " +
-  "REPLY WITH A TOOL CALL, in both live CLI sessions and dashboard-managed runs: comms_send(type=\"response\", inReplyTo=<the message id>). That call is the team-visible reply and closes the run; your final plain text is your own working output, not a delivered reply. Requests, reviews, errors, dashboard asks and explicit reply contracts owe one. A response, approval, info or acknowledgement carrying no new question or work is read context — leave it unanswered. Input typed into your terminal is answered there. " +
-  "Omit requireReply for type-based behaviour (`request`, `review` and `error` owe replies; `info`, `response` and `approval` do not). Set requireReply=true to track a normally optional message; set requireReply=false only knowing that on `request`, `review` and `error` it tells the recipient no reply is tracked, yet the Work Loop still enrols them by type; on the others it does nothing. requireReply changes the reply contract, not whether the target is woken. " +
-  "Keep each message on one topic and scoped to the recipient's own work, say what you checked when truth matters, and ask one clear question when blocked.";
+  "Send a message to an agent by ID, or to every agent with a role. `dashboard` stores it for the operator without waking anyone: send there what they asked for, and problems that need a human. " +
+  "LIVE-DELIVERY GATED: a new message to an offline, stopped or misconfigured target, or one with no live wake path, is refused and not written; a reply is stored anyway. An `available` or `blocked` target is deliverable, and an available managed agent is cold-started by the send. A busy target is steered into its active run when it can steer, and gets it next turn when it cannot. " +
+  "REPLY WITH A TOOL CALL: comms_send(type=\"response\", inReplyTo=<the message id>). That call is the reply and closes the run; your final plain text is never delivered. Requests, reviews, errors and dashboard asks owe a reply. Leave a response, approval, info or acknowledgement with no new question or work unanswered. Answer input typed into your terminal there. " +
+  "Omit requireReply to keep the type default: request, review and error owe a reply, the rest do not. Set requireReply=true to track a reply on the rest. If you set requireReply=false on a request, review or error, the recipient is told no reply is tracked while the Work Loop still tracks one. requireReply never affects waking.";
 
 export function registerSendTools(server, z) {
 
@@ -69,9 +68,9 @@ export function registerSendTools(server, z) {
       body: z.string().describe("Message content"),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
       inReplyTo: z.string().optional().describe("Message ID this replies to"),
-      steer: z.boolean().optional().describe("When true and target is busy, deliver between tool calls when supported; otherwise queue/merge as next-turn work. Defaults to true. Ignored when queueIfBusy=true."),
-      queueIfBusy: z.boolean().optional().describe("When true, force next-turn queue/merge behind the target's active/queued work instead of steering the active turn."),
-      requireReply: z.boolean().optional().describe("Reply-contract override. Omit for type defaults (request/review/error=true; info/response/approval=false). Set true only to track a response to a normally optional message; false on request/review/error tells the recipient no reply is tracked, yet the Work Loop still enrols them by type; on info/response/approval it changes nothing."),
+      steer: z.boolean().optional().describe("Default true: a busy target that can steer gets it between tool calls; one that cannot gets it next turn."),
+      queueIfBusy: z.boolean().optional().describe("true: deliver next turn, behind its current work, even if it could steer. Overrides steer."),
+      requireReply: z.boolean().optional().describe("Leave unset; see the description."),
     },
     async ({ from, to, toRole, type, subject, body, priority, inReplyTo, steer, queueIfBusy, requireReply }) => {
       if (!to && !toRole) {
@@ -194,7 +193,7 @@ export function registerSendTools(server, z) {
 
   server.tool(
     "comms_channel_send",
-    "Send a message to a channel. The post and every member's inbox copy are always stored; members that cannot start now (offline, stopped, misconfigured, or no live wake path) are not woken and are named under Not started. Busy steer-capable members receive the channel update as steer into their active run; busy non-steer members queue or merge as next-turn work. Use queueIfBusy=true only to force next-turn delivery; when queueIfBusy=true, the steer option is ignored.",
+    "Post to a channel. The post and every member's inbox copy are always stored. Members that cannot be woken (offline, stopped, misconfigured, or no live wake path) are listed under Not started. Busy members are steered or queued as with comms_send.",
     {
       channel: z.string().describe("Channel name"),
       from: z.string().describe("Your agent ID"),
@@ -204,8 +203,8 @@ export function registerSendTools(server, z) {
         .optional()
         .describe("Message type (default: info)"),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Message priority (default: normal)"),
-      steer: z.boolean().optional().describe("When true and members are busy, deliver between tool calls when supported; otherwise queue/merge as next-turn work. Defaults to true. Ignored when queueIfBusy=true."),
-      queueIfBusy: z.boolean().optional().describe("When true, force this channel update behind active/queued work instead of steering active turns."),
+      steer: z.boolean().optional().describe("Default true: busy members that can steer get it between tool calls; the rest get it next turn."),
+      queueIfBusy: z.boolean().optional().describe("true: deliver next turn for everyone. Overrides steer."),
     },
     async ({ channel, from, body, type, priority, steer, queueIfBusy }) => {
       try { validateName(channel, "channel name"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }

@@ -1,7 +1,7 @@
 # aify-comms debug: Bridges, sidecars, wake modes and session ownership
 
-The `curl` examples read the service key from `$AIFY_API_KEY`; drop the header on a service
-running without `API_KEY`.
+The `curl` and `docker exec` examples are [host], run on the service's host; `curl` reads the key
+from `$AIFY_API_KEY` (drop the header on a service running without `API_KEY`).
 
 ## A whole managed fleet dies at once, with no deploy
 
@@ -11,8 +11,8 @@ overlap are enough, and stopping the newcomer does not bring them back. Treat it
 suspecting an install or deploy fault.
 
 **Ask, never start:** `aify-env doctor`, and `aify-comms doctor` (`env-bridge` confirms a host is
-actually online, not merely registered). Bringing the host tier back and re-spawning the agents is
-the operator's action.
+actually online, not merely registered) [host]. Bringing the host tier back and re-spawning the
+agents is [operator].
 
 ## `comms_spawn` returns 409 on a host that is up
 
@@ -26,8 +26,8 @@ heartbeat carrying a `bridgeId`, which is aify-env's aify-comms plugin claiming.
 curl -s -H "X-API-Key: $AIFY_API_KEY" http://127.0.0.1:8800/api/v1/environments   | python -c "import json,sys;[print(r['id'],r['status'],(r.get('metadata') or {}).get('bridgeLastSeen')) for r in json.load(sys.stdin)['environments']]"
 ```
 
-Older than 90s means nothing can claim there, whatever `status` says. Tell the operator: the host
-needs an aify-env running its aify-comms plugin, and starting one is theirs.
+Older than 90s means nothing can claim there, whatever `status` says. [operator]: the host needs an
+aify-env running its aify-comms plugin.
 
 ## Channel-routed claude dispatches stay queued forever
 
@@ -58,7 +58,7 @@ codex "no rollout found") while bridges heartbeat and runs read `delivered`.
 curl -s -H "X-API-Key: $AIFY_API_KEY" http://127.0.0.1:8800/api/v1/agents/YOUR-AGENT-ID | python -m json.tool | grep -E '"sessionHandle"|"runtime"'
 ```
 
-- **hermes:** see hermes-session.md, "Hermes starts a FRESH session".
+- **hermes:** see hermes.md, "Hermes starts a FRESH session".
 - **codex:** use `$CODEX_THREAD_ID` only when this exact session exported it (after
   `codex-aify --resume <id>`); the newest rollout under `~/.codex/sessions` may be unrelated.
 - **claude:** `ls -t ~/.claude/projects/*/*.jsonl | head -5`; a stored handle with no matching

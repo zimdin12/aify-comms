@@ -7,9 +7,10 @@ description: Use when installing or updating aify-comms, connecting a host or cl
 
 ## Inspect before asking
 
-Read `docs/INSTALL_ONBOARDING.md` in the aify-comms checkout (the installed copy of this skill has no
-checkout beside it) before changing anything. It covers the owner-to-owner install chain, credential
-handling, official herdr installers and verification.
+Read the install guide before changing anything: `docs/INSTALL_ONBOARDING.md` in an aify-comms
+checkout, or https://github.com/zimdin12/aify-comms/blob/main/docs/INSTALL_ONBOARDING.md where there
+is none. It covers the owner-to-owner install chain, credential handling, official herdr installers
+and verification. In a checkout:
 
 ```bash
 bash scripts/install-state.sh --json

@@ -33,13 +33,13 @@ export function registerSelfRecordTools(server, z) {
 
   server.tool(
     "comms_status",
-    "Set your focus note, shown beside your name on the dashboard; it persists across re-register. Your status badge is derived by the service and cannot be set here: `status` is only a coarse hint. Report task completion with a reply, not with this tool.",
+    "Set your focus note, shown beside your name on the dashboard until you change it. It does not change your status badge, which the service derives. Report finished work with a reply.",
     {
       agentId: z.string().describe("Your agent ID"),
       status: z
         .enum(["idle", "working", "reviewing", "testing", "researching", "blocked", "focused"])
-        .describe("Coarse focus hint — does NOT set your derived live badge; prefer the note"),
-      note: z.string().optional().describe("What you're working on (e.g. 'NRD createPipelines') — this is what actually shows"),
+        .describe("Coarse tag for the note; not your badge"),
+      note: z.string().optional().describe("What you're working on, e.g. 'NRD createPipelines'"),
     },
     async ({ agentId, status, note }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
@@ -66,11 +66,10 @@ export function registerSelfRecordTools(server, z) {
 
   server.tool(
     "comms_describe",
-    "Update your team-facing description: who you are, what project you're on, what you focus on. " +
-      "Visible to other agents in comms_agents. Persists across re-register. Pass \"\" to clear.",
+    "Set your team-facing description, shown to other agents in comms_agents until you change it.",
     {
       agentId: z.string().describe("Your agent ID"),
-      description: z.string().max(2000).describe("Short description (max 2000 chars). Example: 'Senior backend engineer on NRD ingest pipeline. Focus: Postgres migrations, dbt models, GCP dataflow jobs.'"),
+      description: z.string().max(2000).describe("Who you are, your project and your focus. \"\" clears it."),
     },
     async ({ agentId, description }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }

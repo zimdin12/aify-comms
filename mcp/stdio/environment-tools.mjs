@@ -101,18 +101,18 @@ export function registerEnvironmentTools(server, z) {
 
   server.tool(
     "comms_spawn",
-    "Create a persistent dashboard-managed agent session. The only normal agent-spawn path; choose an environment from comms_envs, or omit environmentId to take the first that can claim a spawn for the runtime.",
+    "Create a persistent managed agent on an aify-env environment. An existing available agent needs no spawn: a send cold-starts it.",
     {
-      from: z.string().describe("Owning/manager agent ID"),
-      environmentId: z.string().optional().describe("Environment ID from comms_envs. If omitted, the first environment able to claim a spawn for this runtime is used."),
+      from: z.string().describe("Your agent ID"),
+      environmentId: z.string().optional().describe("From comms_envs. Omit to use the first that can claim a spawn for this runtime."),
       agentId: z.string().describe("Stable agent ID to create"),
       role: z.string().describe("Agent role: manager, coder, reviewer, tester, researcher, architect, operator"),
       runtime: z.string().describe("Runtime: claude-code, codex or hermes (pi deprecated)"),
       workspace: z.string().optional().describe("Workspace path inside the selected environment's advertised roots"),
       name: z.string().optional().describe("Friendly name"),
-      model: z.string().optional().describe("Preferred model/profile value"),
+      model: z.string().optional().describe("Model or profile"),
       instructions: z.string().optional().describe("Standing instructions for the agent"),
-      initialMessage: z.string().optional().describe("Initial task/brief to deliver after spawn"),
+      initialMessage: z.string().optional().describe("First brief, delivered once it is up"),
       subject: z.string().optional().describe("Initial task subject"),
       priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the initial task"),
       envVars: z.record(z.string(), z.string()).optional().describe("Extra worker env vars (NAME: value); AIFY_* is reserved"),

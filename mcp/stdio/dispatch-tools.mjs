@@ -125,12 +125,12 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_contracts",
-    "List reply/work contracts derived from messages and dispatch runs. Use this to see who owes whom a reply, what is overdue, and whether unread counts are real work or old noise.",
+    "Who owes whom a reply or work, derived from messages and runs: what is open, what is overdue, and whether unread counts are real work.",
     {
-      agentId: z.string().optional().describe("Show contracts targeting this agent"),
-      from: z.string().optional().describe("Show contracts created by this sender"),
+      agentId: z.string().optional().describe("Contracts this agent owes"),
+      from: z.string().optional().describe("Contracts owed to this sender"),
       state: z.enum(["open", "overdue", "working", "queued", "seen", "sent", "missing_reply", "failed", "answered", "closed"]).optional().describe("Filter by computed contract state. Defaults to open."),
-      category: z.enum(["direct", "channel", "self_wake"]).optional().describe("Filter by category. Defaults to direct so old channel fan-out does not hide owned work."),
+      category: z.enum(["direct", "channel", "self_wake"]).optional().describe("Defaults to direct."),
       includeClosed: z.boolean().optional().describe("Include answered/closed recent contracts. Default false."),
       limit: z.number().int().min(1).max(200).optional().describe("Max contracts to return. Default 25."),
     },
@@ -158,10 +158,10 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_run_interrupt",
-    "Request interruption of an active dispatched RUN. Returns a control request ID. No dispatched run to interrupt? Use comms_interrupt.",
+    "Interrupt an active dispatched RUN. Returns a control request ID. No dispatched run? Use comms_interrupt.",
     {
       runId: z.string().describe("Dispatch run ID"),
-      from: z.string().optional().describe("Requesting agent ID"),
+      from: z.string().optional().describe("Your agent ID"),
     },
     async ({ runId, from }) => {
       if (!IS_REMOTE) {
@@ -183,10 +183,10 @@ export function registerDispatchTools(server, z) {
 
   server.tool(
     "comms_interrupt",
-    "Interrupt the agent currently running in a managed CONSOLE. Sends terminal-native Ctrl+C, so it also works for turns started directly in the TUI rather than by a dispatch run. For a dispatched run, comms_run_interrupt is the tracked path.",
+    "Send Ctrl+C to a managed agent's console. It also stops turns typed directly into the TUI. For a dispatched run use comms_run_interrupt, which is tracked.",
     {
       agentId: z.string().describe("Target agent ID"),
-      from: z.string().optional().describe("Requesting agent ID"),
+      from: z.string().optional().describe("Your agent ID"),
     },
     (args) => commsInterruptHandler(args),
   );

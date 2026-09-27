@@ -27,12 +27,12 @@ all surface here rather than as a runtime problem.
 - `aify-env doctor` for the host itself.
 
 **Fix.**
-- aify-env down, unreachable or stale → tell the operator.
+- aify-env down, unreachable or stale → [operator].
 - Launcher refused for a missing marker → re-run `bash install.sh --client <runtime>` so the
   launcher is rendered with it.
 - Runtime shows unavailable → aify-env offers a runtime only when `claude` / `codex` / `hermes`
   resolves on the PATH aify-env was started with; the reason reads `<command> not found on PATH`.
-  Fixing that PATH is the operator's step.
+  Fixing that PATH is [operator].
 
 ## Worker "launches then dies" during a slow SessionStart hook
 

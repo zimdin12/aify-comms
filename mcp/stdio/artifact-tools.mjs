@@ -38,13 +38,12 @@ import { validateName } from "./safe-name.mjs";
 export function registerArtifactTools(server, z) {
   server.tool(
     "comms_share",
-    "Share an artifact (code, results, images, any file) with other agents. " +
-      "Pass text content directly, or a file path for images/binaries.",
+    "Share an artifact with other agents: text as content, or any file (images, binaries) by filePath.",
     {
       from: z.string().describe("Your agent ID"),
       name: z.string().describe("Artifact name (e.g. 'test-results.txt', 'screenshot.png')"),
       content: z.string().optional().describe("Text content (omit if using filePath)"),
-      filePath: z.string().optional().describe("Absolute path to file to copy into shared space"),
+      filePath: z.string().optional().describe("Absolute path of a file to copy in"),
       description: z.string().optional().describe("Short description"),
     },
     async ({ from, name, content, filePath, description }) => {
@@ -216,7 +215,7 @@ export function registerArtifactTools(server, z) {
 
   server.tool(
     "comms_files",
-    "List shared artifacts. Bounded — pass query/fromAgent to narrow, limit to see more.",
+    "List shared artifacts. Narrow with query or fromAgent; raise limit to see more.",
     {
       query: z.string().optional().describe("Match against artifact name or description"),
       fromAgent: z.string().optional().describe("Only artifacts shared by this agent"),
@@ -290,7 +289,7 @@ export function registerArtifactTools(server, z) {
     "Delete a shared artifact YOU shared, by name.",
     {
       name: z.string().describe("Artifact name to delete"),
-      from: z.string().describe("Your agent ID — must be the agent that shared it"),
+      from: z.string().describe("Your agent ID; must be the sharer"),
     },
     async ({ name, from }) => {
       // Until 2026-08-18 the only agent-reachable way to remove an artifact was

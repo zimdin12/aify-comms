@@ -1,7 +1,7 @@
 # aify-comms debug: Dispatch delivery: claims, steers and stuck runs
 
-The `curl` examples read the service key from `$AIFY_API_KEY`; drop the header on a service
-running without `API_KEY`.
+The `curl` and `docker exec` examples are [host], run on the service's host; `curl` reads the key
+from `$AIFY_API_KEY` (drop the header on a service running without `API_KEY`).
 
 ## Dispatches stay `queued`, never claimed
 
@@ -117,7 +117,7 @@ Kill-prior (`reap-managed-claude.js`) reaps only a `claude.exe` whose parent wra
 `claude-aify --aify-agent <thatAgent>`, so it never touches another agent or a resident session.
 The session-collision guard parks a handle a different live agent already owns (`session-collision`
 note). Remaining orphans are reported by `aify-comms doctor` (`managed-orphans`); cleaning them up is
-the operator's call.
+[operator].
 
 ## Windows install notes
 

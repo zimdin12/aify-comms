@@ -46,10 +46,7 @@ export function registerLifecycleTools(server, z) {
 
   server.tool(
     "comms_remove_agent",
-    "DESTRUCTIVE. Tombstones one agent identity: unregisters the ID and stops this bridge from auto-re-registering it. " +
-      "Their message history survives, but the identity stops being addressable and a live session under it is orphaned. " +
-      "This is for retiring an agent for good — NOT for restarting a stuck one (comms_restart), stopping one temporarily " +
-      "(dashboard Sessions), or clearing an inbox (comms_clear with agentId). Re-creating the same ID later is a fresh identity, not a restore.",
+    "DESTRUCTIVE. Retires an agent identity for good: the ID stops being addressable and a live session under it is orphaned. Its message history survives; re-creating the ID later makes a fresh identity, not a restore. To restart a stuck agent use comms_restart; to pause one, stop it in dashboard Sessions.",
     {
       agentId: z.string().describe("Agent ID to remove"),
     },
@@ -127,10 +124,10 @@ export function registerLifecycleTools(server, z) {
 
   server.tool(
     "comms_restart",
-    "Restart another agent's MANAGED session, as the dashboard's Sessions → Restart does: aify-env replaces the live worker and resumes its native session. freshContext=true is a Reset (fresh native session). A RESIDENT session belongs to the operator: interrupt its run with comms_run_interrupt or ask the operator to relaunch it.",
+    "Restart a MANAGED agent, as dashboard Sessions → Restart does: aify-env replaces the worker and resumes its native session. Not while it is `starting`: that kills the boot. A RESIDENT cannot be restarted: interrupt its run with comms_run_interrupt, or ask the operator to relaunch it.",
     {
       agentId: z.string().describe("Agent whose managed session to restart"),
-      freshContext: z.boolean().optional().describe("true = Reset (fresh context)"),
+      freshContext: z.boolean().optional().describe("true = Reset: a fresh native session, its memory lost"),
     },
     async ({ agentId, freshContext }) => {
       const id = String(agentId || "").trim();

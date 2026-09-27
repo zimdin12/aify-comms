@@ -34,47 +34,49 @@ import { countToolRegistrations, measureToolSurface } from "./tool-surface-size.
  *  the count control below now exists rather than a third round of this.
  *  Characters of description + schema text, per tool. May only go DOWN. */
 const CEILINGS = {
-  comms_agent_info: 145,
+  // 0.7.5 skills pass: every description and field was cut to what changes a call, and each ceiling
+  // below that fell was lowered to its measurement in the same commit (comms_send 2529 -> 1650).
+  comms_agent_info: 119,
   // 67 -> 240 in 0.7.1 (H-A7): says the id is the address and which statuses refuse or cold-start a
   // send, so a caller picks a target from the listing without a failed send first. Paid in part by
   // comms_channel_send (-47) and comms_register (-17).
-  comms_agents: 240,
-  comms_channel_create: 164,
-  comms_channel_delete: 423,
+  comms_agents: 115,
+  comms_channel_create: 138,
+  comms_channel_delete: 311,
   comms_channel_join: 128,
   comms_channel_leave: 137,
   comms_channel_list: 18,
   comms_channel_read: 94,
-  comms_channel_send: 831,
+  comms_channel_send: 497,
   // 697 -> 692 in 0.7.5: the whole-hub `all` target is gone; the sentence naming it now says what
   // the three remaining targets reach without an agentId.
   comms_clear: 692,
   // 1006 -> 881 in 0.7.5: the native mode added and each handoff-only field marked, in fewer
   // characters than the one-working-mode text it replaced.
   comms_compact: 881,
-  comms_console_input: 771,
-  comms_console_tail: 476,
-  comms_contracts: 479,
+  comms_console_input: 645,
+  comms_console_tail: 353,
+  comms_contracts: 351,
   comms_delete_session: 176,
-  comms_describe: 346,
+  comms_describe: 160,
   comms_envs: 191,
-  comms_files: 194,
-  comms_inbox: 552,
-  comms_interrupt: 272,
+  comms_files: 190,
+  comms_inbox: 433,
+  comms_interrupt: 182,
   comms_read: 52,
-  comms_register: 943,
-  comms_remove_agent: 496,
-  comms_restart: 392,
-  comms_run_interrupt: 166,
+  comms_register: 708,
+  comms_remove_agent: 321,
+  comms_restart: 375,
+  comms_run_interrupt: 133,
   comms_run_status: 104,
-  comms_search: 580,
-  comms_send: 2529,
-  comms_share: 305,
-  comms_spawn: 783,
-  comms_status: 417,
-  comms_unsend: 164,
-  comms_unshare: 116,
-  comms_usage: 190,
+  comms_search: 420,
+  comms_send: 1650,
+  comms_share: 255,
+  comms_spawn: 644,
+  comms_status: 283,
+  comms_unsend: 97,
+  comms_unshare: 101,
+  comms_usage: 170,
 };
 
 test("THE PARSER MEASURES EVERY REGISTRATION THAT IS WRITTEN", () => {

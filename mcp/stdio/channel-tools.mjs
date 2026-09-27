@@ -53,10 +53,10 @@ export function registerChannelTools(server, z) {
 
   server.tool(
     "comms_channel_create",
-    "Create a new channel (group chat) for multiple agents to communicate.",
+    "Create a channel (group chat). You join it automatically.",
     {
       name: z.string().describe("Channel name (e.g. 'backend-team', 'code-review')"),
-      from: z.string().describe("Your agent ID (auto-joined)"),
+      from: z.string().describe("Your agent ID"),
       description: z.string().optional().describe("Channel description"),
     },
     async ({ name, from, description }) => {
@@ -256,10 +256,7 @@ export function registerChannelTools(server, z) {
     // The warning below lived HERE as a code comment, where no agent could read it, while the SSE
     // transport carried it in its description. Same endpoint, same destruction, and which warning an
     // agent received depended only on how it happened to be connected.
-    "THE MOST DESTRUCTIVE DELETE AN AGENT CAN REACH. Deletes a channel YOU created, its membership " +
-      "and EVERY message ever posted to it — shared history for every member, not just your own. " +
-      "There is no undo. To stop receiving a channel, LEAVE it: deleting ends it for everybody, so " +
-      "only the creator or an operator surface may do so and the service enforces that.",
+    "DESTRUCTIVE. Deletes a channel YOU created, its membership and EVERY message posted to it, shared history for every member. There is no undo. To stop receiving a channel, LEAVE it: deleting ends it for everybody. Only the creator may delete it.",
     {
       channel: z.string().describe("Channel name to delete"),
       from: z.string().describe("Your agent ID — must be the channel's creator"),

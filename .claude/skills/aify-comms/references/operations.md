@@ -1,5 +1,37 @@
 # aify-comms Operations Reference
 
+## Status Meanings
+
+Read `comms_agent_info`; diagnose conflicts
+through `aify-comms-debug` rather than inventing another status.
+
+| Status | Meaning | Normal action |
+|---|---|---|
+| `working` | Live worker, open turn | wait, steer, or interrupt the proven turn |
+| `shell` | Idle at prompt, background shells running | send normally |
+| `online` | Live worker, between turns | send normally |
+| `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
+| `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send |
+| `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
+| `offline` | No current wake path | resident: relaunch its `*-aify`; managed: its host's aify-env is down (operator) |
+| `stopped` | Operator-disabled, or a resident that closed cleanly (`resident-lost`) | restart/resume only when intended |
+| `misconfigured` | Identity exists but can never start | a human must fix the config; sending will not work |
+
+There are no live `idle` or `stale` states. A long-quiet live worker remains `online`.
+
+**Contract states** (`comms_contracts`): `sent` not yet read; `seen` read, no run yet; `queued` a run
+waits for the next turn; `working` a run is claimed or running; `overdue` a reply is owed past the
+reminder window; `answered` a reply is linked; `missing_reply` the run completed without the owed
+reply; `failed` the run failed or was cancelled; `closed` done and no reply was owed. `open` filters
+the first five.
+
+**Wake modes** (`comms_agent_info`), how a message reaches the agent: `managed-worker` aify-env
+starts or wakes it; `claude-live`, `codex-live`, `hermes-live` a live resident session;
+`codex-thread-resume` a resident codex thread with no live app-server (the fallback path); `claude-needs-channel` and
+`*-missing-handle` a resident that registered without its wake path, so relaunch it through its
+`*-aify`; `presence-only` and `message-only` messages are stored and nothing wakes it; `disabled`
+launching is off.
+
 ## Operator proof model
 
 ### Ownership before action
@@ -66,7 +98,7 @@ Wrapper auto mode:
 
 - aify-env owns managed backings, including the PTY. Browser Console attaches to that backing and is not another owner.
 - Branch on advertised capabilities, not runtime names. Unsupported resident mode or interrupt must fail visibly rather than create an undeliverable session.
-- Use Dashboard Settings for operator policy. Runtime settings are described in `docs/OPERATING_MODES.md` and the internals in `docs/ARCHITECTURE.md` in the aify-comms checkout.
+- Operator policy lives in Dashboard Settings.
 
 | Runtime | Normal managed delivery | Resident delivery |
 |---|---|---|
@@ -120,25 +152,6 @@ Pi and OpenCode have no resident delivery path; a plain presence registration do
 - Chat's **Queue** button sends with `queueIfBusy=true`; **Send** uses live delivery.
 - Console attaches to the current managed backing. Opening, hiding, or copying from it must not change session ownership.
 - Dashboard state is a view over the API, not independent execution proof.
-
-## Status Meanings
-
-Read `comms_agent_info`; diagnose conflicts
-through `aify-comms-debug` rather than inventing another status.
-
-| Status | Meaning | Normal action |
-|---|---|---|
-| `working` | Live worker, open turn | wait, steer, or interrupt the proven turn |
-| `shell` | Idle at prompt, background shells running | send normally |
-| `online` | Live worker, between turns | send normally |
-| `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
-| `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send |
-| `blocked` | Live turn awaiting operator input | inspect console, then answer the proven prompt |
-| `offline` | No current wake path | resident: relaunch its `*-aify`; managed: its host's aify-env is down (operator) |
-| `stopped` | Operator-disabled, or a resident that closed cleanly (`resident-lost`) | restart/resume only when intended |
-| `misconfigured` | Identity exists but can never start | a human must fix the config; sending will not work |
-
-There are no live `idle` or `stale` states. A long-quiet live worker remains `online`.
 
 ## Repair Hints
 

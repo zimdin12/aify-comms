@@ -41,14 +41,10 @@ export function registerSearchTool(server, z) {
 
   server.tool(
     "comms_search",
-    "Search an agent's messages (sent AND received) and shared artifacts by keyword. " +
-      "PASS agentId, or messages are NOT searched at all and you only get shared files — an empty " +
-      "result would then say nothing about whether the message exists. The response always reports " +
-      "what it actually searched; read it before treating an empty result as absence.",
+    "Keyword search over an agent's messages (sent AND received) and shared artifacts. PASS agentId, or messages are NOT searched and an empty result says nothing about them. The response reports what it searched; read it before treating empty as absence.",
     {
       agentId: z.string().optional().describe(
-        "Whose record to search — matches messages this agent SENT or RECEIVED. " +
-        "OMIT AND MESSAGES ARE NOT SEARCHED (shared artifacts only)."),
+        "Whose messages to search. OMIT AND MESSAGES ARE NOT SEARCHED."),
       query: z.string().describe("Search term (case-insensitive, matches subject + body)"),
       scope: z.enum(["inbox", "shared", "all"]).optional().describe("Where to search (default: all)"),
       limit: z.number().optional().describe("Max results (default: 10)"),

@@ -13,7 +13,7 @@ ancestry outrank stale database ownership.
 interrupt hit replacement work.
 
 Follow the aify-comms skill's operations.md (Interruption). A resident agent has no aify-owned
-console: use its run interrupt or ask the operator to relaunch it.
+console: use its run interrupt, or relaunch it from its own terminal.
 
 ## Lifecycle verbs
 

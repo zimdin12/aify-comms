@@ -2,11 +2,61 @@
 
 Load this when you are the one assigning work — delegating, reviewing, deciding what to do
 yourself, or keeping a team's durable docs. The mechanics of messages, contracts and replies are in
-[teamwork.md](teamwork.md); this file is the judgement.
+[teamwork.md](teamwork.md); this file is the judgement, starting with what to do about a stuck or
+silent agent.
 
 **These rules are about coordination, not code.** Software examples appear because that is the most
 common use, but every rule is meant to hold for research, testing, analysis, design, construction,
 finance, or any work split across people who cannot see each other's desks.
+
+## Manager Discipline
+
+- **A `[NOT DELIVERED]` bounce means nothing claimed the run: the worker is deaf or never started.**
+  Read `comms_console_tail`, then `comms_restart(agentId)` (a resident is relaunched from its own
+  terminal), confirm the runtime banner, then resend once. Several bounces at once usually share one
+  cause a human must clear (an aify-env restart, a runtime update): tell the operator once.
+- **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
+- **Scope the context you hand down.** Give each agent only the inputs its subtask needs — the file, the one prior result, the exact decision — and name bulky material with `comms_share` plus a one-line pointer. Put decisions everyone needs (frozen contracts, API shapes, integration order) on the team channel; DMs are for owned handoffs.
+- **Say what blocks what, in the brief itself.** A split into parallel lanes usually has an order
+  hiding inside it: lane B cannot start until lane A's interface exists. If that order lives only in
+  your head it dies when your context does, and the worker who reaches the dependency has to guess
+  between waiting, improvising and asking. Give each lane the lanes that BLOCK it, by name, in its
+  own brief — then work the FRONTIER: the lanes whose blockers have all closed. A lane with no
+  blockers starts immediately. This is also the honest answer to "what can I parallelise?", which
+  is a different question from "what is independent?": most work is neither fully independent nor
+  fully serial, and writing the edges down is what separates the two.
+- **Hand down CAPABILITY, not just context.** Scoping the inputs is half a brief; the other half is
+  saying what to LOAD. A fresh teammate does not know this repo has an `aify-comms-debug` skill, or
+  which reference answers the question you just handed them — and discovering that costs a
+  round-trip you could have spent on the work. Name it: *"read `references/operations.md` (Send
+  Gating) first"*, *"call the Skill tool for aify-comms-debug"*. A delegate that starts from the
+  right document gives a different answer, not merely a faster one.
+- **Word the pointer so it gets opened.** `comms_share` moves bulk out of a message, but an
+  artifact nobody opens has been hidden rather than shared, and it is the POINTER that decides
+  which — not the artifact. Say what the thing is and what the reader will find in it: *"the
+  40-line failing diff; the assertion that fires is at the bottom"*, not *"see attached"*. A
+  must-read artifact behind a weak pointer is not a failure of the reader's diligence.
+- **Give the review cycle a round budget, in the brief.** The implement → review → revise loop in [teamwork.md](teamwork.md) has no bound of its own. Of 20 review artifacts with round numbers, 18 settled by R3 and one ran to R7 with the build on hold. A third round that has not converged means the brief is wrong, the standard is disputed, or the slice is too big: escalate or re-cut.
+- **Some evidence is PERISHABLE — order the work around it.** Before authorising a change, ask what
+  becomes impossible to observe once it lands, and collect that FIRST: the "before" measurement, the
+  current state of the thing being replaced, the reproduction of the fault being fixed, the
+  photograph of what is about to be covered up. Put the reason in the brief — *"capture it now,
+  because once this lands 'before' is unobtainable"* — so the worker reads the ordering as a
+  constraint rather than a preference. This is the one class of mistake no amount of later effort
+  repairs: a baseline you failed to take is a comparison you can never make, and "we'll measure
+  afterwards" is how an improvement becomes unprovable and a regression becomes undetectable.
+- Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
+- **Presence is not progress.** `online` proves a live worker and `lastSeen` proves a heartbeat; neither proves work or session resumption. Measure a lane by its latest evidenced output — for example a commit, push, merge, deploy, test result, or delivered artifact — and keep those states distinct.
+- If an agent is `online`/`available` and owes a contract, send a focused status probe or rebrief.
+- `comms_console_input` success means bytes reached the PTY, not that the runtime acted (5 writes reported success on a draft that never submitted). Send one attempt, re-read `comms_console_tail`, then escalate; an ordinary `comms_send` is what woke those agents.
+- **Console tools are managed-only.** Resident agents have no aify-owned console, so `comms_console_tail`/`comms_console_input` report "no live console." For a resident agent your levers are `comms_send` (ask for a `[STATUS]` with evidence) and the dashboard; **Switch to managed** if you need a console to peek into.
+- If a worker replies with repeated vague status, demand `[REVIEW]` or `[HOLD]` with evidence.
+- If context is noisy, compact another managed agent: `comms_compact(from="<your-id>", targetAgentId="other")`.
+  - `mode="native"` types its runtime's `/compact` (hermes `/compress`) into its console; it keeps its session. Refused unless it is managed and idle at its prompt: typed mid-turn it queues, over a dialog it answers it. Success means QUEUED.
+  - `mode="handoff"` (default) starts a fresh session told its old session id, transcript location, and to read its last `recentMessages` (10) with `comms_inbox`. Same agent ID unless `newAgentId`. On the dashboard, **Compact** offers both and keeps the same
+  agent identity; **Continue as** deliberately creates a separate one.
+- **An identity change is a migration.** Renaming tombstones the old ID, orphans a live session until it re-registers under the new ID, and makes stale sends fail. Notify the agent and its active correspondents of the cutover, or keep the existing ID.
+- Answer the operator what they asked, briefly: what changed, what was verified, what remains blocked, and the next owner.
 
 ## Leading a team is a skill — practise it deliberately
 
@@ -113,54 +163,5 @@ creates them at kickoff; "we'll remember" is not a plan.
 - **Anyone who finds the doc wrong owns saying so**, immediately, to whoever owns the doc. Finding
   a doc wrong and quietly working around it is how the whole team's shared picture rots.
 - **Keep the durable answer out of chat.** If an answer will matter next week, a message is the
-  wrong home — messages are not searched, get compacted away, and are invisible to whoever joins
-  later. Put it in the doc and send a pointer.
-
-## Manager Discipline
-
-- **A `[NOT DELIVERED]` bounce means nothing claimed the run: the worker is deaf or never started.**
-  Read `comms_console_tail`, then `comms_restart(agentId)` (resident: ask the operator to relaunch it),
-  confirm the runtime banner, then resend once. Several bounces at once usually share one cause
-  (aify-env restart, runtime update): tell the operator in one message.
-- **Stuck? Peek before you re-spawn or remind.** When an agent looks stalled or owes an overdue reply, read what it is actually doing first — `comms_console_tail(agentId="...")` for a managed agent, or a focused `[STATUS]` probe for a resident — BEFORE you re-spawn it or fire a reminder. The console reveals mid-build vs waiting-at-a-prompt vs looping vs errored; reach for it as the reflex, not the filesystem.
-- **Scope the context you hand down.** Give each agent only the inputs its subtask needs — the file, the one prior result, the exact decision — and name bulky material with `comms_share` plus a one-line pointer. Put decisions everyone needs (frozen contracts, API shapes, integration order) on the team channel; DMs are for owned handoffs.
-- **Say what blocks what, in the brief itself.** A split into parallel lanes usually has an order
-  hiding inside it: lane B cannot start until lane A's interface exists. If that order lives only in
-  your head it dies when your context does, and the worker who reaches the dependency has to guess
-  between waiting, improvising and asking. Give each lane the lanes that BLOCK it, by name, in its
-  own brief — then work the FRONTIER: the lanes whose blockers have all closed. A lane with no
-  blockers starts immediately. This is also the honest answer to "what can I parallelise?", which
-  is a different question from "what is independent?": most work is neither fully independent nor
-  fully serial, and writing the edges down is what separates the two.
-- **Hand down CAPABILITY, not just context.** Scoping the inputs is half a brief; the other half is
-  saying what to LOAD. A fresh teammate does not know this repo has an `aify-comms-debug` skill, or
-  which reference answers the question you just handed them — and discovering that costs a
-  round-trip you could have spent on the work. Name it: *"read `references/operations.md` (Send
-  Gating) first"*, *"call the Skill tool for aify-comms-debug"*. A delegate that starts from the
-  right document gives a different answer, not merely a faster one.
-- **Word the pointer so it gets opened.** `comms_share` moves bulk out of a message, but an
-  artifact nobody opens has been hidden rather than shared, and it is the POINTER that decides
-  which — not the artifact. Say what the thing is and what the reader will find in it: *"the
-  40-line failing diff; the assertion that fires is at the bottom"*, not *"see attached"*. A
-  must-read artifact behind a weak pointer is not a failure of the reader's diligence.
-- **Give the review cycle a round budget, in the brief.** The implement → review → revise loop in [teamwork.md](teamwork.md) has no bound of its own. Of 20 review artifacts with round numbers, 18 settled by R3 and one ran to R7 with the build on hold. A third round that has not converged means the brief is wrong, the standard is disputed, or the slice is too big: escalate or re-cut.
-- **Some evidence is PERISHABLE — order the work around it.** Before authorising a change, ask what
-  becomes impossible to observe once it lands, and collect that FIRST: the "before" measurement, the
-  current state of the thing being replaced, the reproduction of the fault being fixed, the
-  photograph of what is about to be covered up. Put the reason in the brief — *"capture it now,
-  because once this lands 'before' is unobtainable"* — so the worker reads the ordering as a
-  constraint rather than a preference. This is the one class of mistake no amount of later effort
-  repairs: a baseline you failed to take is a comparison you can never make, and "we'll measure
-  afterwards" is how an improvement becomes unprovable and a regression becomes undetectable.
-- Check `comms_contracts` and `comms_agent_info` before assuming who is idle or stuck.
-- **Presence is not progress.** `online` proves a live worker and `lastSeen` proves a heartbeat; neither proves work or session resumption. Measure a lane by its latest evidenced output — for example a commit, push, merge, deploy, test result, or delivered artifact — and keep those states distinct.
-- If an agent is `online`/`available` and owes a contract, send a focused status probe or rebrief.
-- `comms_console_input` success means bytes reached the PTY, not that the runtime acted (5 writes reported success on a draft that never submitted). Send one attempt, re-read `comms_console_tail`, then escalate; an ordinary `comms_send` is what woke those agents.
-- **Console tools are managed-only.** Resident agents have no aify-owned console, so `comms_console_tail`/`comms_console_input` report "no live console." For a resident agent your levers are `comms_send` (ask for a `[STATUS]` with evidence) and the dashboard; **Switch to managed** if you need a console to peek into.
-- If a worker replies with repeated vague status, demand `[REVIEW]` or `[HOLD]` with evidence.
-- If context is noisy, compact another managed agent: `comms_compact(from="<your-id>", targetAgentId="other")`.
-  - `mode="native"` types its runtime's `/compact` (hermes `/compress`) into its console; it keeps its session. Refused unless it is managed and idle at its prompt: typed mid-turn it queues, over a dialog it answers it. Success means QUEUED.
-  - `mode="handoff"` (default) starts a fresh session told its old session id, transcript location, and to read its last `recentMessages` (10) with `comms_inbox`. Same agent ID unless `newAgentId`. On the dashboard, **Compact** offers both and keeps the same
-  agent identity; **Continue as** deliberately creates a separate one.
-- **An identity change is a migration.** Renaming tombstones the old ID, orphans a live session until it re-registers under the new ID, and makes stale sends fail. Notify the agent and its active correspondents of the cutover, or keep the existing ID.
-- Avoid long dashboard updates. Tell the human what changed, what was verified, what remains blocked, and the next owner.
+  wrong home: nobody goes looking for it there, it falls out of every context, and whoever joins
+  later never sees it. Put it in the doc and send a pointer.

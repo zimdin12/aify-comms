@@ -7,25 +7,29 @@ description: Use when aify-comms dispatch, wake mode, bridge health, managed/res
 
 **Always diagnose first.** Start with `comms_agent_info(agentId="target")` and read
 its status, wake mode, runtime @ machine (session mode) and active or queued runs (the stored
-`sessionHandle` is only in `GET /api/v1/agents/<id>`), then `aify-comms doctor`. That is the first read, not proof of live ownership when records
+`sessionHandle` is only in `GET /api/v1/agents/<id>`), then, on the service's host,
+`aify-comms doctor`. That is the first read, not proof of live ownership when records
 conflict. For lifecycle, interrupt, cleanup, or duplicate-session work, correlate the
 agent/session/terminal, environment + bridge instance, runtime events, and current OS
 process ancestry before acting. Never kill, restart, reap, switch, or supersede from a
 stale row or badge. Starting or restarting aify-env ends every managed worker on the
 host, so that step, like any fleet-wide stop, goes to the operator.
 
+Labels in the references: **[host]** needs a shell on the machine named (the service's host for
+`docker exec`, `curl` to `127.0.0.1` and `aify-comms doctor`; the agent's host for its processes and
+temp files). **[operator]** is the human's step. Everything else is a `comms_*` call any agent
+holding the API key may make, `comms_restart` included.
+
 ## Route by symptom
 
 | Symptom | Open |
 |---|---|
-| A badge disagrees with reality: stuck `working`, `online` with no worker, deaf agent | [status-symptoms.md](references/status-symptoms.md) |
-| What a status MEANS, or why `derive()` produced it | [status-model.md](references/status-model.md) |
+| A badge disagrees with reality (stuck `working`, `online` with no worker, deaf agent), or what a status MEANS | [status-model.md](references/status-model.md) |
 | Stop/restart/reset, registration, mode switch, duplicate owner, or safe interrupt | [lifecycle.md](references/lifecycle.md) |
 | A run stalls at queued/claimed/delivered, steer ignored, interrupt has no effect, `claude-needs-channel` | [dispatch-delivery.md](references/dispatch-delivery.md) |
 | Whole fleet dropped, spawn 409, sidecar confusion, stale session handle | [dispatch-bridges.md](references/dispatch-bridges.md) |
 | Managed spawn never starts or dies at launch, ENOENT, session-id in use | [dispatch-launch.md](references/dispatch-launch.md) |
-| Hermes gateway, ports, fresh-session resume, or stray `hermes.exe` | [hermes-session.md](references/hermes-session.md) |
-| Hermes turn never shows `working`, missing aify tools, up-but-deaf, ACP fallback | [hermes-turns.md](references/hermes-turns.md) |
+| Hermes gateway, ports, fresh-session resume, stray `hermes.exe`, never `working`, missing aify tools, up-but-deaf, ACP fallback | [hermes.md](references/hermes.md) |
 | Codex approval, resume/thread, app-server, or resident binding failure | [codex.md](references/codex.md) |
 | Pi (deprecated) project/session, model, RPC, or wrapper failure | [pi.md](references/pi.md) |
 | Dashboard Console rendering, terminal support, copy, or attachment failure | [dashboard-console.md](references/dashboard-console.md) |

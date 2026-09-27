@@ -47,19 +47,17 @@ export function registerInboxTools(server, z) {
 
   server.tool(
     "comms_inbox",
-    "Check your inbox. Returns only UNREAD messages by default (limit 20). " +
-      "Viewing MARKS MESSAGES READ, mode=headers included — pass peek=true to leave them unread. " +
-      "messageId fetches one message by ID.",
+    "Read your inbox: UNREAD messages by default, 20 at a time. Viewing MARKS MESSAGES READ, mode=headers included; pass peek=true to leave them unread. messageId fetches one message.",
     {
       agentId: z.string().describe("Your agent ID"),
       filter: z.enum(["unread", "read", "all"]).optional().describe("Which messages (default: unread)"),
       fromAgent: z.string().optional().describe("Filter by sender agent ID"),
       fromRole: z.string().optional().describe("Filter by sender role"),
       type: z.string().optional().describe("Filter by message type"),
-      mode: z.enum(["full", "headers"]).optional().describe("Return full bodies or header/preview only (default: full)"),
-      messageId: z.string().optional().describe("Fetch one specific inbox message by ID. Overrides the unread/read filter."),
+      mode: z.enum(["full", "headers"]).optional().describe("full (default) or headers; both mark read"),
+      messageId: z.string().optional().describe("Fetch one message by ID, read or unread."),
       limit: z.number().optional().describe("Max messages (default: 20)"),
-      peek: z.boolean().optional().describe("Read without consuming: leave the messages UNREAD. mode=headers alone does NOT do this."),
+      peek: z.boolean().optional().describe("Leave the returned messages UNREAD."),
     },
     async ({ agentId, filter, fromAgent, fromRole, type, mode, messageId, limit, peek }) => {
       try { validateName(agentId, "agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
@@ -128,10 +126,10 @@ export function registerInboxTools(server, z) {
 
   server.tool(
     "comms_unsend",
-    "Take back a message YOU sent, by its ID. Only the sender (or the operator) may unsend.",
+    "Take back a message YOU sent, by its ID.",
     {
       messageId: z.string().describe("The message ID to delete"),
-      from: z.string().describe("Your agent ID — the sender taking its own message back"),
+      from: z.string().describe("Your agent ID; must be the sender"),
     },
     async ({ messageId, from }) => {
       if (IS_REMOTE) {

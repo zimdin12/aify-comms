@@ -41,6 +41,15 @@ const SKILLS = path.join(REPO, ".claude", "skills");
 
 //: MEASURED 2026-08-19 (re-measured after the debug-reference prune). Not rounded up — see the header. May only go DOWN.
 const CEILINGS = {
+  // 0.7.5 skills pass (2026-09-27), net -2,047 across the tree and -1,728 on the always-loaded files.
+  // The main SKILL.md fell 12_578 -> 10_577 and teamwork.md 15_617 -> 14_364 (the operator's rulings:
+  // any API-key agent may run lifecycle tools, unprompted reports only for what went wrong; repeats of
+  // the tool text cut). status-symptoms.md merged into status-model.md (10_094 -> 10_062) and the two
+  // hermes files into hermes.md (8_931 -> 8_959). Raises, each paid for by those cuts: operations.md
+  // +801 for the contract-state and wake-mode glossary a fresh reader could not find anywhere; the
+  // debug SKILL.md +201 for the [host]/[operator] labels; install +72 for a guide link that works
+  // without a checkout; leading-a-team.md +90 for the pointer to its reordered first section; the
+  // dispatch and lifecycle references +63 for labels in place of "tell the operator".
   // 15_053 -> 14_915 on 2026-09-25 (0.7.0): the trust rule and the "the reply wakes you" line were
   // paid for by shorter registration notes and dropping a pointer the file already makes below.
   // 14_915 -> 14_055 on 2026-09-26 (0.7.1): the send gate and requireReply=false are described as the
@@ -55,41 +64,39 @@ const CEILINGS = {
   // a nested `claude` without your identity.
   // 12_720 -> 12_592 -> 12_578 on 2026-09-27 (0.7.5): the tool map lost the three tools the operator
   // removed, and the Compacting section names the native mode in place of the mode="internal" caveat.
-  "aify-comms/SKILL.md": 12_578,
+  "aify-comms/SKILL.md": 10_577,
   "aify-comms/references/building-software.md": 3_948,
   // 15_758 -> 15_819 on 2026-09-27 (0.7.5), a raise: the operator asked for native compaction, and
   // the compact bullet now describes two modes and when native is refused instead of one mode and a
   // refusal. Most of the new text is paid for by the dead `mode="internal"` sentence it replaces.
-  "aify-comms/references/leading-a-team.md": 15_819,
+  "aify-comms/references/leading-a-team.md": 15_909,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
   // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
-  "aify-comms/references/operations.md": 8_485,
-  "aify-comms/references/teamwork.md": 15_617,
+  "aify-comms/references/operations.md": 9_286,
+  "aify-comms/references/teamwork.md": 14_364,
   // 4_864 on 2026-08-30, measured. NEW FILE, so this is a first reading rather than a raise:
   // installing meant reading 1,227 lines of per-runtime guides and knowing which half applied
   // to the machine in front of you. Most of that is a question about the HOST, and
   // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
   // read rather than skimmed.
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
-  "aify-comms-install/SKILL.md": 4_760,
+  "aify-comms-install/SKILL.md": 4_832,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
   // 0.7.4 skills audit, three small raises (debug SKILL.md +71, codex.md +96, hermes-turns.md +9): the
   // first read names what comms_agent_info actually prints and where the session handle is; codex and
   // hermes name comms_restart instead of sending the agent to the dashboard. Paid for by the 8,647 characters cut
   // from the other skill files in the same commit (net -8,471).
-  "aify-comms-debug/SKILL.md": 3_005,
+  "aify-comms-debug/SKILL.md": 3_206,
   "aify-comms-debug/references/codex.md": 5_259,
   "aify-comms-debug/references/dashboard-console.md": 3_555,
-  "aify-comms-debug/references/dispatch-bridges.md": 5_892,
-  "aify-comms-debug/references/dispatch-delivery.md": 6_725,
-  "aify-comms-debug/references/dispatch-launch.md": 5_047,
-  "aify-comms-debug/references/hermes-session.md": 4_770,
-  "aify-comms-debug/references/hermes-turns.md": 4_161,
-  "aify-comms-debug/references/lifecycle.md": 6_195,
+  "aify-comms-debug/references/dispatch-bridges.md": 5_903,
+  "aify-comms-debug/references/dispatch-delivery.md": 6_774,
+  "aify-comms-debug/references/dispatch-launch.md": 5_031,
+  "aify-comms-debug/references/hermes.md": 8_959,
+  "aify-comms-debug/references/lifecycle.md": 6_198,
   "aify-comms-debug/references/pi.md": 2_152,
-  "aify-comms-debug/references/status-model.md": 5_208,
-  "aify-comms-debug/references/status-symptoms.md": 4_886,
+  "aify-comms-debug/references/status-model.md": 10_062,
 };
 
 // An ALWAYS-LOADED file enters context whether or not it is needed, so it carries a hard limit on top

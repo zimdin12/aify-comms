@@ -140,11 +140,7 @@ export async function commsConsoleInputHandler({ agentId, text, enter, from }, {
 }
 
 export const CONSOLE_INPUT_TOOL_DESCRIPTION =
-  "Recovery-only: send keystrokes/text into another managed agent's live console. " +
-  "Read the console first with comms_console_tail and use this only for a proven interactive prompt or operator recovery. " +
-  "Do not inject normal work messages, reminders, or duplicate comms_send delivery through the console. Audited. " +
-  "NOT RELIABLE AS A SUBMIT: success means the bytes reached the PTY, not that the runtime acted (measured: five writes reported success on a draft that never submitted). " +
-  "After one attempt that does not visibly change the console, escalate to the operator.";
+  "Recovery-only: types into another managed agent's live console. Read the console first with comms_console_tail, and use this only to answer a prompt you saw there. Do not inject normal work messages, reminders or duplicate sends. NOT RELIABLE AS A SUBMIT: success means the bytes reached the PTY, not that the runtime acted (five writes reported success on a draft that never submitted). If one attempt does not visibly change the console, escalate to the operator.";
 
 // Registers the two console tools. A function rather than a module-scope side effect, so a fake server
 // can capture the registrations and a test can call the handlers without an MCP transport. `z` is the
@@ -154,11 +150,7 @@ export const CONSOLE_INPUT_TOOL_DESCRIPTION =
 export function registerConsoleTools(server, z) {
   server.tool(
     "comms_console_tail",
-    "Read the last N lines of another agent's console (read-only; managed agents). " +
-      "Works on a DEAD worker too: with no live console it returns the LAST RECORDED output of the " +
-      "agent's most recent terminal, clearly marked NOT LIVE and led by the one-line cause. " +
-      "This is the tool to reach for when a spawn or dispatch failed and you want to know WHY, " +
-      "instead of asking the operator to read the terminal for you.",
+    "Read the last N lines of a managed agent's console. Works on a DEAD worker too: it returns the LAST RECORDED output, marked NOT LIVE and led by the one-line cause. Read it to learn WHY a spawn or dispatch failed, and before restarting or re-sending to an agent that looks stalled.",
     {
       agentId: z.string().describe("Agent whose console to read"),
       lines: z.number().int().min(1).max(200).optional().describe("How many trailing lines to return. Default 40."),
@@ -172,7 +164,7 @@ export function registerConsoleTools(server, z) {
     {
       agentId: z.string().describe("Agent whose console to send input to"),
       text: z.string().optional().describe("Text/command to type. Empty string + enter=true sends just Enter."),
-      enter: z.boolean().optional().describe("Append a carriage return. Default true. ATTEMPTS a submit — does not guarantee one; see the tool description."),
+      enter: z.boolean().optional().describe("Append a carriage return. Default true. ATTEMPTS a submit; see the description."),
     },
     (args) => commsConsoleInputHandler({ ...args, from: AIFY_AGENT_ID })
   );
