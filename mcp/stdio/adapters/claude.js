@@ -35,6 +35,20 @@ export class ClaudeAdapter extends RuntimeAdapter {
     return `claude-aify --resume ${sessionId}`;
   }
 
+  // The session of a `claude` started from another Claude Code's shell, or "" for any other claude.
+  // Such a claude (an agent running `claude -p` or `claude mcp list` from its Bash tool) inherits the
+  // agent's AIFY_AGENT_ID and CLAUDE_SESSION_ID, so its bridge resolved the PARENT's session handle and
+  // took the agent over by the same-session relaunch rule (sc-manager, 2026-09-26). Claude Code sets
+  // CLAUDE_PID in every shell it runs and CLAUDE_CODE_SESSION_ID, its own session, in every stdio MCP
+  // server it spawns, and it does not set CLAUDE_PID for an MCP server: CLAUDE_PID reaches a bridge only
+  // through a claude that was itself started from a Claude Code shell (read from the claude.exe build of
+  // 2026-09-26: the shell environment builder and the stdio MCP spawn). Registering with that session
+  // meets the live owner's different handle, which the service refuses (409) instead of taking over.
+  sessionWhenStartedFromAClaudeShell(env = process.env) {
+    if (!String(env.CLAUDE_PID || "").trim()) return "";
+    return String(env.CLAUDE_CODE_SESSION_ID || "").trim();
+  }
+
   controllerFor(opts) {
     return new ClaudeController(opts);
   }

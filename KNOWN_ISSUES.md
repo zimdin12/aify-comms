@@ -42,7 +42,7 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   dedicated Windows Job isolation test timed out. Not classified: the harness difference is ASSUMED
   to be the cause, not shown.
 
-## A `claude` run from an agent's own shell holds that agent's identity while it runs (2026-09-26)
+## A `claude` run from an agent's own shell took that agent over (2026-09-26; refused since 0.7.5)
 
 A child `claude` (`claude -p`, `claude mcp list`) inherits `AIFY_AGENT_ID` and the session id, so its
 aify-comms bridge registers as the parent agent with the same session handle and takes the session over.
@@ -50,14 +50,16 @@ sc-manager did this four times on 2026-09-26, and each exit left it `stopped` fo
 the exit sets the agent `offline` instead of stopping it, and the parent's bridge takes the session back on
 its next beat (`service/api_core/nested_session_handback.py`). A predecessor killed by a real relaunch never
 beats, so nothing is handed back and the agent reads `offline` rather than `stopped` until its next launch.
-While the child runs,
-it still owns the identity: the parent's heartbeats are ignored, and a run for the agent can be claimed by
-the child's bridge. The fix is bridge-side: a bridge started under a nested `claude` should not register.
-The signal is not yet proven: Claude Code sets `CLAUDE_CODE_SESSION_ID` in its Bash tool's environment,
-but whether it sets it for MCP servers, and whether a nested `claude` overwrites it, was not measured.
-Until then an agent can run `env -u AIFY_AGENT_ID -u AIFY_COMMS_AGENT_ID claude ...`: with neither set, a
-bridge neither registers nor reports resident-lost (`auto-registration.mjs`, `server.js`
-`shutdownWithStatus`).
+Since 0.7.5 the child's bridge registers the session Claude Code gave it rather than the parent's, so the
+service refuses it (409, a different handle against a live owner) and it takes nothing over
+(`sessionWhenStartedFromAClaudeShell` in `mcp/stdio/adapters/claude.js`). The signal was read from the
+claude.exe build of 2026-09-26, not observed on a running nested bridge: Claude Code puts `CLAUDE_PID` in
+every shell it runs and `CLAUDE_CODE_SESSION_ID` (its own session) in every stdio MCP server, and does not
+set `CLAUDE_PID` for an MCP server, so only a claude started from a Claude Code shell hands its bridge
+both. In a launcher-resumed session the two session ids were observed equal. ASSUMED, not checked: that a
+nested `claude` keeps that behaviour in other Claude Code versions, and the managed-agent registration
+path. With `env -u AIFY_AGENT_ID -u AIFY_COMMS_AGENT_ID claude ...` a bridge neither registers nor
+reports resident-lost (`auto-registration.mjs`, `server.js` `shutdownWithStatus`).
 
 ## The resume-menu answer is tested against hand-written screens only (0.7.4)
 

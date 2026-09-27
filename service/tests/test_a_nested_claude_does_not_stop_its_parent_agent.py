@@ -116,6 +116,20 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self._beat("real-bridge")
         self.assertEqual(self._owner(), "real-bridge")
 
+    def test_a_nested_bridge_that_registers_its_own_session_is_refused(self):
+        """The bridge of a claude started from an agent's shell registers the session Claude Code gave
+        it (`sessionWhenStartedFromAClaudeShell` in the bridge's claude adapter), not the parent's; a
+        different handle against a live owner is refused, so it takes nothing over."""
+        self._register("real-bridge")
+        response = self.client.post("/api/v1/agents", json={
+            "agentId": AGENT, "role": "manager", "runtime": "claude-code", "sessionMode": "resident",
+            "launchMode": "detached", "sessionHandle": "nested-own-session", "machineId": "win32:test-host",
+            "bridgeId": "nested-bridge", "capabilities": ["resident-run", "resume", "interrupt"],
+        })
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(self._owner(), "real-bridge")
+        self.assertEqual(self._superseded_by("real-bridge"), "")
+
     # -- nothing is handed back ----------------------------------------------------------------------
 
     def test_CONTROL_a_quick_relaunch_whose_session_closes_at_once_hands_nothing_back(self):
@@ -126,6 +140,17 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self.assertEqual(self._superseded_by("real-bridge"), "nested-bridge")
         self.assertEqual(self._owner(), "nested-bridge")
         self.assertEqual(self._agent()["status"], "offline")
+
+    def test_CONTROL_a_managed_workers_loss_stays_cold_startable(self):
+        """Only a loss that would STOP the agent is replaced. A managed worker's loss rests it `active`
+        so the next message cold-starts a session; an offer here would park it `offline`, which
+        refuses sends."""
+        self._nested_takes_over()
+        self._execute("UPDATE agents SET session_mode = 'managed' WHERE id = ?", (AGENT,))
+        self.assertEqual(self._lost("nested-bridge")["transition"], "managed_worker_lost_available")
+        agent = self._agent()
+        self.assertEqual((agent["status"], agent["launch_mode"]), ("active", "detached"))
+        self.assertIsNone(self._fetchone("SELECT handback_offer FROM bridge_instances WHERE id = 'real-bridge'")["handback_offer"])
 
     def test_CONTROL_a_takeover_by_a_different_session_is_not_reclaimed(self):
         self._register("real-bridge")

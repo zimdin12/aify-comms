@@ -102,6 +102,23 @@ test("makeGatewayTurnDetector: default idleDebounce >= 3 (flap-safe)", () => {
 // direct-typed turns (no dispatch) AND removes the flap.
 // ---------------------------------------------------------------------------
 
+// Every loop test waits for the detector to have READ a number of statuses, never for a fixed time.
+// Both keep-alive accumulators advance intervalMs per tick, so N reads are N ticks however slowly a
+// loaded host delivers them; a fixed 300 ms saw 2 re-stamps where 3 were asserted on 2026-09-27, and
+// a fixed 60-90 ms at a 5 ms interval failed about one run in two. A read's tick finishes in
+// microtasks, so once the count is reached every post that tick made has been counted.
+async function untilConsumed(read, count, deadlineMs = 3000) {
+  const deadline = Date.now() + deadlineMs;
+  while (read() < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(read() >= count, `the detector made ${read()} reads of the ${count} this test needs`);
+}
+
+/** Wraps a status source so a test can wait for reads. */
+function counted(read) {
+  let n = 0;
+  return { read: async () => { n += 1; return read(); }, reads: () => n };
+}
+
 test("startHermesGatewayTurnDetector: gateway working with turn_busy unset → POSTs /turn-start (edge-triggered, no spam)", async () => {
   let starts = 0;
   let ends = 0;
@@ -114,7 +131,7 @@ test("startHermesGatewayTurnDetector: gateway working with turn_busy unset → P
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 40));
+  await untilConsumed(() => i, statuses.length + 3);
   stop();
   assert.equal(starts, 1, "edge-triggered: /turn-start fired exactly once for a sustained working run (no per-tick spam)");
   assert.equal(ends, 0, "no /turn-end while working");
@@ -132,7 +149,7 @@ test("startHermesGatewayTurnDetector: sustained idle after working → POSTs /tu
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 80));
+  await untilConsumed(() => i, statuses.length + 3);
   stop();
   assert.equal(starts, 1, "one start");
   assert.equal(ends, 1, "sustained idle → exactly one /turn-end (no flap, no repeat)");
@@ -154,7 +171,7 @@ test("startHermesGatewayTurnDetector: a gateway read error never flips state (no
     postTurnStart: async () => {},
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 50));
+  await untilConsumed(() => i, 8);
   stop();
   assert.equal(ends, 0, "a gateway read error is unknown → never a false /turn-end");
 });
@@ -170,37 +187,35 @@ test("startHermesGatewayTurnDetector: re-stamps turn-busy while WORKING (long tu
   // re-pulse window let the server expire turn_busy → `online` while still working
   // (next-senior-dev long refactor). While the gateway stays WORKING, the detector must
   // keep re-stamping turn-busy so last_event_at never crosses the server stale window.
+  const source = counted(async () => "working");
   let starts = 0;
-  // Intervals are kept well ABOVE the Windows ~15ms setInterval timer floor: at intervalMs:5
-  // Windows fires ticks ~every 15ms, so the nominal-intervalMs accumulator under-counts and
-  // the refresh barely fires (a deterministic cross-platform failure, not flakiness). 25ms
-  // ticks + a proportional window keep this meaningful on every OS. (Production uses
-  // intervalMs~3000 / workingRefreshMs~45000, where the 15ms floor is irrelevant.)
+  // Six working reads: the edge start, then a refresh every second tick (50 / 25), so four stamps.
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 25,
     idleDebounce: 3,
     workingRefreshMs: 50, // refresh ~every 2 ticks while working
-    readGatewayStatus: async () => "working", // one long, uninterrupted turn
+    readGatewayStatus: source.read,
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => {},
   });
-  await new Promise((r) => setTimeout(r, 300));
+  await untilConsumed(source.reads, 6);
   stop();
   // 1 edge "start" + several periodic refreshes — NOT a single edge that then goes stale.
   assert.ok(starts >= 3, `a sustained working turn must keep re-stamping turn-busy (got ${starts})`);
 });
 
 test("startHermesGatewayTurnDetector: workingRefreshMs=0 keeps edge-only turn-start", async () => {
+  const source = counted(async () => "working");
   let starts = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 5,
     idleDebounce: 3,
     workingRefreshMs: 0, // disabled → edge-triggered only (back-compat)
-    readGatewayStatus: async () => "working",
+    readGatewayStatus: source.read,
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => {},
   });
-  await new Promise((r) => setTimeout(r, 50));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(starts, 1, "refresh disabled → exactly one edge /turn-start");
 });
@@ -214,59 +229,54 @@ test("startHermesGatewayTurnDetector: workingRefreshMs=0 keeps edge-only turn-st
 // ---------------------------------------------------------------------------
 
 test("shouldFireTurnStart=false SUPPRESSES the edge /turn-start (background gateway 'working' → no flap)", async () => {
+  const source = counted(async () => "working");
   let starts = 0, ends = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 5,
     idleDebounce: 2,
-    readGatewayStatus: async () => "working", // background self-improvement: gateway running, no dispatch
+    readGatewayStatus: source.read,
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => { ends++; },
     shouldFireTurnStart: () => false, // no dispatched turn open
   });
-  await new Promise((r) => setTimeout(r, 40));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(starts, 0, "background working must NOT fire /turn-start when no dispatched turn is open");
   assert.equal(ends, 0, "no /turn-end while working");
 });
 
 test("shouldFireTurnStart=false ALSO suppresses the working-refresh keep-alive", async () => {
+  const source = counted(async () => "working");
   let starts = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 25,
     idleDebounce: 3,
     workingRefreshMs: 50, // would refresh every ~2 ticks if allowed
-    readGatewayStatus: async () => "working",
+    readGatewayStatus: source.read,
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => {},
     shouldFireTurnStart: () => false,
   });
-  await new Promise((r) => setTimeout(r, 300));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(starts, 0, "the keep-alive must not re-stamp turn-busy for post-turn background work");
 });
 
 test("shouldFireTurnStart=true fires normally (dispatched turn open → real turn shows working)", async () => {
+  const source = counted(async () => "working");
   let starts = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 5,
     idleDebounce: 2,
-    readGatewayStatus: async () => "working",
+    readGatewayStatus: source.read,
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => {},
     shouldFireTurnStart: () => true, // dispatched turn open
   });
-  await new Promise((r) => setTimeout(r, 40));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(starts, 1, "an open dispatched turn fires /turn-start exactly once on the working edge");
 });
-
-// Wait for the detector to have READ every scripted status, not for a fixed time. At a 5 ms interval
-// on Windows (timer floor ~15 ms) a fixed 60-90 ms window was a budget below its own cost, and the
-// two tests below failed about one run in two while other suites loaded the machine.
-async function untilConsumed(read, count, deadlineMs = 3000) {
-  const deadline = Date.now() + deadlineMs;
-  while (read() < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
-}
 
 test("shouldFireTurnStart gate is dynamic: fires while open, then a NEW background 'working' after end is suppressed", async () => {
   // Models the real lifecycle: dispatch open (fire), turn ends (credit revoked),
@@ -348,6 +358,7 @@ test("startHermesGatewayTurnDetector: refresh does not cause a false turn-end, a
 // ---------------------------------------------------------------------------
 
 test("KEEP-CLEARED: sustained gateway IDLE (never saw working) re-asserts /turn-end (stray clear)", async () => {
+  const source = counted(async () => "idle");
   // The stray case: idle before ever observing working — the edge clear's submit-race guard
   // never fires an "end", so ONLY keep-cleared can heal a stray in_turn here.
   let ends = 0;
@@ -355,56 +366,59 @@ test("KEEP-CLEARED: sustained gateway IDLE (never saw working) re-asserts /turn-
     intervalMs: 25,
     idleDebounce: 1,
     idleRefreshMs: 50,
-    readGatewayStatus: async () => "idle",
+    readGatewayStatus: source.read,
     postTurnStart: async () => {},
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 300));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.ok(ends >= 3, `sustained gateway idle must keep re-asserting turn-end (got ${ends})`);
 });
 
 test("KEEP-CLEARED (hermes): never fires while the gateway reports WORKING", async () => {
+  const source = counted(async () => "working");
   let ends = 0, starts = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 25,
     workingRefreshMs: 50,
     idleRefreshMs: 50,
-    readGatewayStatus: async () => "working",
+    readGatewayStatus: source.read,
     postTurnStart: async () => { starts++; },
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 300));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(ends, 0, `keep-cleared must never fire while working; got ${ends}`);
   assert.ok(starts >= 3, `keep-fresh still re-stamps working; got ${starts}`);
 });
 
 test("KEEP-CLEARED (hermes): unknown/'' status never re-asserts turn-end (false-clear safety)", async () => {
+  const source = counted(async () => "");
   let ends = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 25,
     idleRefreshMs: 50,
-    readGatewayStatus: async () => "", // unknown/transient
+    readGatewayStatus: source.read,
     postTurnStart: async () => {},
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 200));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(ends, 0, `unknown status is not proof of idle → never keep-clears; got ${ends}`);
 });
 
 test("KEEP-CLEARED (hermes): idleRefreshMs=0 disables the re-assert (back-compat)", async () => {
+  const source = counted(async () => "idle");
   let ends = 0;
   const stop = startHermesGatewayTurnDetector({
     intervalMs: 5,
     idleDebounce: 1,
     idleRefreshMs: 0,
-    readGatewayStatus: async () => "idle", // idle-before-working: edge never ends it
+    readGatewayStatus: source.read,
     postTurnStart: async () => {},
     postTurnEnd: async () => { ends++; },
   });
-  await new Promise((r) => setTimeout(r, 60));
+  await untilConsumed(source.reads, 6);
   stop();
   assert.equal(ends, 0, `disabled keep-cleared + idle-before-working → no turn-end; got ${ends}`);
 });

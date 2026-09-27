@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 // Imported from its OWNER, not from `server.js`. It used to come from the bin entry point, which meant
 // testing nine lines of session-handle precedence loaded the entire bridge.
 import { computeInitialSessionHandle } from "../auto-registration.mjs";
+import { ClaudeAdapter } from "../adapters/claude.js";
 
 test("computeInitialSessionHandle prefers discoverSessionId over env-default", async () => {
   const adapter = {
@@ -58,4 +59,45 @@ test("computeInitialSessionHandle trims whitespace from discover result", async 
   };
   const result = await computeInitialSessionHandle({ adapter, envHandle: "" });
   assert.equal(result, "fresh-id");
+});
+
+// A `claude` an agent runs from its own shell (sc-manager, 2026-09-26). It inherits the agent's session, and
+// the capture store keyed by the agent's id still names the parent's session, so discovery answers the
+// PARENT's handle; a registration with it took the live agent over. Claude Code sets CLAUDE_PID in its
+// shells and CLAUDE_CODE_SESSION_ID in its MCP servers, so only such a bridge sees both.
+const PARENT = "11111111-parent-session";
+const NESTED = "22222222-nested-session";
+function claudeDiscovering(handle) {
+  const adapter = new ClaudeAdapter();
+  adapter.discoverSessionId = async () => handle;
+  return adapter;
+}
+
+test("a claude started from a Claude Code shell registers the session Claude Code gave its bridge", async () => {
+  const result = await computeInitialSessionHandle({
+    adapter: claudeDiscovering(PARENT),
+    envHandle: PARENT,
+    env: { CLAUDE_PID: "4242", CLAUDE_CODE_SESSION_ID: NESTED, CLAUDE_SESSION_ID: PARENT },
+  });
+  assert.equal(result, NESTED);
+});
+
+test("CONTROL: any other claude keeps discovery's answer, even where Claude Code names another session", async () => {
+  // A fresh launch whose capture store still names the previous session: the heartbeat corrects that
+  // handle, and the same-session takeover it allows is how a quick relaunch binds. Unchanged here.
+  const result = await computeInitialSessionHandle({
+    adapter: claudeDiscovering(PARENT),
+    envHandle: "",
+    env: { CLAUDE_CODE_SESSION_ID: "33333333-fresh-launch" },
+  });
+  assert.equal(result, PARENT);
+});
+
+test("CONTROL: CLAUDE_PID without a session from Claude Code falls back to discovery", async () => {
+  const result = await computeInitialSessionHandle({
+    adapter: claudeDiscovering(PARENT),
+    envHandle: "",
+    env: { CLAUDE_PID: "4242" },
+  });
+  assert.equal(result, PARENT);
 });

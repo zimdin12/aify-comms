@@ -62,7 +62,10 @@ import { validateName } from "./safe-name.mjs";
 // is a pure function of env and hostname, so deriving it here cannot disagree with deriving it elsewhere.
 const MACHINE_ID = defaultMachineId();
 
-export async function computeInitialSessionHandle({ adapter, envHandle }) {
+export async function computeInitialSessionHandle({ adapter, envHandle, env = process.env }) {
+  // A claude started from another claude's shell registers its own session, never the one it inherited.
+  const ownSession = adapter?.sessionWhenStartedFromAClaudeShell?.(env) || "";
+  if (ownSession) return ownSession;
   if (adapter && typeof adapter.discoverSessionId === "function") {
     try {
       const discovered = await adapter.discoverSessionId();
