@@ -60,3 +60,19 @@ class RuntimeAdapter:
     # channelEnabled, hermes gatewayUrl) override.
     def is_resident_ready(self, runtime_config: dict) -> bool:
         return self.supports_resident
+
+    # ─────────────────── COMPACTION (comms_compact) ───────────────────
+
+    #: What makes this runtime compact its OWN conversation when typed at its prompt, or "" when
+    #: none has been verified. `comms_compact(mode="native")` types it into a managed agent's live
+    #: console, so a guessed value is a keystroke sent into somebody's terminal on a guess: each
+    #: subclass that sets one says where it was read. Empty is the refusal, and it is the default.
+    native_compact_command: str = ""
+
+    def transcript_location(self, session_handle: str, workspace: str) -> str:
+        """Where the agent itself can read a finished session's transcript, or "" when unknown.
+
+        Written for the AGENT that inherits the session, on its own host, so a path may start with
+        `~`. A handoff brief states it so a fresh session can look back without the old context.
+        """
+        return ""

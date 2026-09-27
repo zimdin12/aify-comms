@@ -431,6 +431,73 @@ test("a typed environment and runtime are enough on their own", async () => {
   } finally { h.restore(); }
 });
 
+// --- compaction: native, and the handoff's first message ---------------------------------------------
+
+/** Replace the harness fetch with one that answers per path and records every request. */
+function answer(h, byPath) {
+  const all = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const method = (options.method || "GET").toUpperCase();
+    const path = String(url).split("?")[0];
+    all.push(`${method} ${url}`);
+    if (method !== "GET") h.sent.push({ url: String(url), method, body: options.body });
+    const payload = byPath[path] ?? { ok: true };
+    return { ok: true, status: 200, statusText: "OK", json: async () => payload, text: async () => JSON.stringify(payload) };
+  };
+  return all;
+}
+
+test("NATIVE COMPACT asks the service and sends no spawn, and a refusal leaves the form open", async () => {
+  const ok = withActions({ fields: { "cont-mode": "native" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    answer(ok, { "/agents/coder/compact/native": { ok: true, command: "/compact" } });
+    await submitContinue("s1", false);
+    assert.deepEqual(mutating(ok), ["POST /agents/coder/compact/native"], "native must not also queue a handoff");
+    assert.deepEqual(JSON.parse(ok.sent[0].body), { from: "dashboard" }, "the service picks the command; the form sends only who asks");
+    assert.equal(ok.calls.closeInspector, 1);
+  } finally { ok.restore(); }
+
+  const refused = withActions({ fields: { "cont-mode": "native" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    answer(refused, { "/agents/coder/compact/native": { ok: false, refused: "mid-turn", message: "coder is mid-turn" } });
+    await submitContinue("s1", false);
+    assert.deepEqual(mutating(refused), ["POST /agents/coder/compact/native"], "a refusal must not fall back to a handoff");
+    assert.equal(refused.calls.closeInspector, 0, "the form stays open so the operator can choose handoff instead");
+  } finally { refused.restore(); }
+});
+
+test("continue-as never goes native, even with the native box left checked", async () => {
+  const h = withActions({ fields: { "cont-mode": "native", "cont-agent-id": "coder-2", "cont-packet": "typed" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    answer(h, {});
+    await submitContinue("s1", true);
+    assert.deepEqual(mutating(h), ["POST /spawn-requests"]);
+  } finally { h.restore(); }
+});
+
+test("A HANDOFF WITH AN EMPTY PACKET SENDS THE SERVICE'S BRIEF, never an empty first message", async () => {
+  const h = withActions({ fields: { "cont-recent": "4" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    const all = answer(h, { "/agents/coder/compact/handoff-brief": { ok: true, recentMessages: 4, text: "THE BRIEF" } });
+    await submitContinue("s1", false);
+    assert.ok(all.includes("GET /agents/coder/compact/handoff-brief?sessionId=s1&recentMessages=4"), all.join("\n"));
+    assert.equal(JSON.parse(h.sent.at(-1).body).initialMessage, "THE BRIEF");
+  } finally { h.restore(); }
+
+  const typed = withActions({ fields: { "cont-packet": "operator's own packet" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    const all = answer(typed, {});
+    await submitContinue("s1", false);
+    assert.ok(!all.some((r) => r.includes("handoff-brief")), "a packet the operator wrote is sent as written");
+    assert.equal(JSON.parse(typed.sent.at(-1).body).initialMessage, "operator's own packet");
+  } finally { typed.restore(); }
+});
+
 test("INIT REFUSES A PARTIAL BAG", () => {
   const full = {
     chatController: { close() {}, open() {} }, closeInspector() {}, markConversationRead: async () => {},

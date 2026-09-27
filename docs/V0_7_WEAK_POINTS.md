@@ -133,7 +133,8 @@ down; these are the one-line versions, because the front of the file is the only
    conversation view, not just the packet. It cannot simply be
    page-gated: `buildHandoffPacket` reads the same store for message BODIES and is reached from an
    agent action, so gating it would produce an EMPTY packet with no error. The safe version makes that
-   function fetch on demand, which means making an operator-facing action async.
+   function fetch on demand, which means making an operator-facing action async. (0.7.5: that
+   function is gone; see the update under the payload section below.)
 12. **Five attribution columns a rename leaves pointing at a tombstoned name.** `requested_by` (three
    tables), `handled_by` and `removed_by` all demonstrably store agent ids and none is repointed. They
    sit in the rename gate's `UNRESOLVED` bucket, and the argument runs both ways: an audit trail should
@@ -1117,6 +1118,12 @@ BODIES to assemble a handoff packet, and it is reached from `openContinueForm` -
 a chat one. Page-gating the fetch would leave it reading an empty store and producing an EMPTY PACKET
 with no error: the silent-degradation shape this review has spent the day removing, reintroduced to
 save bandwidth.
+
+**UPDATE 0.7.5: this blocker is removed.** `buildHandoffPacket` no longer exists. The handoff packet is
+the service's brief (`GET /agents/{id}/compact/handoff-brief`, fetched by `handoff-brief.mjs`), which
+tells the fresh session to read its messages with `comms_inbox` instead of carrying their bodies. The
+message inspector still reads `state.messages`, so page-gating the fetch remains a decision to make
+against that reader, not a free change.
 
 **THREE CHEAPER ANGLES WERE TRIED FIRST AND ALL LAND ON THE SAME BLOCKER**, so nobody needs to
 re-explore them:

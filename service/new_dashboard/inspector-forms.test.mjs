@@ -1,8 +1,7 @@
 // Real tests for the inspector's form and detail panels.
 //
-// `buildHandoffPacket` is the one with logic worth pinning: it is the text an operator pastes into another
-// agent to hand work over, so a filter that misses one leg of a conversation hands over a half-transcript
-// and the receiving agent answers the wrong question. It had no test while it lived in app.js.
+// The continue form's handoff packet is the service's brief now (`handoff-brief.mjs`); what is pinned here
+// is that the form asks for it, fills it, and offers native compaction only where it can apply.
 //
 // SEALING. `state` is a shared singleton, so every field read here is rebuilt per test; `document` does not
 // exist in Node and is installed only while rendering.
@@ -14,7 +13,6 @@ import test from "node:test";
 import { setApiBase } from "./api-client.mjs";
 import { state } from "./state.mjs";
 import {
-  buildHandoffPacket,
   openAgentEditForm,
   openCompactionHistory,
   openContinueForm,
@@ -58,46 +56,6 @@ function render(run) {
     if (!had.r) delete globalThis.requestAnimationFrame;
   }
 }
-
-test("the handoff packet collects BOTH legs of the conversation", () => {
-  // Filtering on `from` alone would hand over only what the agent said and none of what it was asked —
-  // the receiving agent then answers a question it cannot see.
-  state.messages = [
-    { from: "coder", to: "manager", body: "done" },
-    { from: "manager", to: "coder", body: "please do it" },
-    { from: "tester", to: "manager", body: "unrelated" },
-  ];
-  const packet = buildHandoffPacket("coder");
-  assert.ok(packet.includes("done"));
-  assert.ok(packet.includes("please do it"), "inbound messages must be included, not just outbound");
-  assert.ok(!packet.includes("unrelated"), "another pair's traffic must not leak into the handoff");
-});
-
-test("the `target` recipient spelling counts as a leg", () => {
-  // Dispatch-authored rows carry `target` rather than `to`; missing them silently truncates the handoff.
-  state.messages = [{ from: "manager", target: "coder", body: "via target" }];
-  assert.ok(buildHandoffPacket("coder").includes("via target"));
-});
-
-test("the packet keeps the LAST N messages and says how many it has", () => {
-  // `.slice(-count)`: a handoff is about recent context, and taking the first N would hand over the
-  // beginning of a long conversation instead of where it got to.
-  state.messages = Array.from({ length: 40 }, (_, i) => ({ from: "coder", to: "manager", body: `msg ${i}` }));
-  const packet = buildHandoffPacket("coder", 5);
-  assert.ok(packet.includes("msg 39"), "the newest message must be present");
-  assert.ok(!packet.includes("msg 34"), "…and anything older than the window must not");
-  assert.ok(packet.includes("last 5 messages"), "the header states how much context is actually included");
-});
-
-test("a message with no body falls back to its preview, and an empty conversation still yields a packet", () => {
-  state.messages = [{ from: "coder", to: "manager", preview: "just a preview" }];
-  assert.ok(buildHandoffPacket("coder").includes("just a preview"));
-
-  state.messages = [];
-  const empty = buildHandoffPacket("ghost");
-  assert.ok(empty.includes("ghost"), "an empty packet must still name the agent it is about");
-  assert.ok(empty.includes("last 0 messages"));
-});
 
 test("opening a message that is not loaded warns instead of rendering an empty panel", () => {
   // The detail panel is reachable from a row the poll may have dropped. A blank drawer reads as a bug.
@@ -402,15 +360,32 @@ test("an answer that arrives after another drawer was opened does not paint over
   });
 });
 
-test("the continue form is prefilled from the session, and a missing session opens nothing", () => {
+test("the continue form is prefilled from the session, and a missing session opens nothing", async () => {
   state.sessions = [{ id: "s1", agentId: "coder", role: "tester", environmentId: "env-a", runtime: "codex", workspace: "C:/w" }];
-  state.messages = [{ from: "manager", to: "coder", body: "carry this over" }];
-  const compact = render(() => openContinueForm("s1", false));
+  const asked = [];
+  HISTORY_HANDLER = (req, res) => {
+    asked.push(req.url);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, recentMessages: 10, text: "THE SERVICE BRIEF" }));
+  };
+  const withFields = (run) => renderAsync(async (els) => {
+    els["cont-packet"] = el();
+    els["cont-recent"] = el();
+    await run(els);
+  });
+  const { html: compact, els } = await withFields(() => openContinueForm("s1", false));
   assert.match(compact, /id="cont-agent-id" type="text" value="coder"/, "compacting keeps the same agent id");
-  assert.match(compact, /carry this over/, "the handoff packet is in the form");
+  assert.match(compact, /<option value="native">/, "compact offers the native mode");
+  assert.match(compact, /<option value="handoff" selected>/, "…with handoff still the default");
   assert.equal(state.inspector.kind, "continue");
-  const split = render(() => openContinueForm("s1", true));
+  assert.deepEqual(asked, ["/api/v1/agents/coder/compact/handoff-brief?sessionId=s1"],
+    "the packet is the service's brief for THIS session, at the service's default count");
+  assert.equal(els["cont-packet"].value, "THE SERVICE BRIEF");
+  assert.equal(els["cont-recent"].value, "10", "the default the service applied is shown for the operator to change");
+
+  const { html: split } = await withFields(() => openContinueForm("s1", true));
   assert.match(split, /id="cont-agent-id" type="text" value=""/, "continuing as a new agent asks for a new id");
+  assert.doesNotMatch(split, /id="cont-mode"/, "a new identity can only be a fresh session, so native is not offered");
   state.sessions = [];
   assert.equal(render(() => openContinueForm("gone", true)), "", "no session, no form");
 });

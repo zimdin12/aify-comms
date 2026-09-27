@@ -13,6 +13,7 @@
 
 import { openAgentDrawer } from './agent-drawer.mjs';
 import { api, apiResponse } from './api-client.mjs';
+import { loadHandoffBrief } from './handoff-brief.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { renderSessionRail, selectedSessionIds } from './session-rail.mjs';
 import { state } from './state.mjs';
@@ -136,11 +137,30 @@ export async function resolveAgentSession(agentId, mode) {
   } catch (err) { toast(`${label} failed: ${err?.message || err}`, 'error'); }
 }
 
+// NATIVE COMPACTION: the service types the runtime's own command into the agent's live console, or
+// refuses and says why (resident, no verified command, no TUI, not idle at its prompt). Nothing here
+// decides that, so the dashboard and `comms_compact` cannot disagree. Success means QUEUED.
+async function submitNativeCompact(agentId) {
+  if (!agentId) return;
+  let res;
+  try {
+    res = await api(`/agents/${encodeURIComponent(agentId)}/compact/native`, {
+      method: 'POST',
+      body: JSON.stringify({ from: 'dashboard' }),
+    });
+  } catch (err) { toast(`Native compact failed: ${err?.message || err}`, 'error'); return; }
+  if (!res?.ok) { toast(`Native compact refused: ${res?.message || 'no reason given'}`, 'error'); return; }
+  toast(`Queued ${res.command} to ${agentId}'s console; its console shows whether it compacted`, 'ok');
+  closeInspector();
+  refreshSoon();
+}
+
 export async function submitContinue(sid, splitIdentity) {
   const target = state.sessions.find((s) => String(sessionId(s)) === String(sid));
   if (!target) { toast('Session not found', 'error'); return; }
   const v = (id) => byId(id)?.value?.trim() || '';
   const sourceAgent = sessionAgentId(target) || '';
+  if (!splitIdentity && v('cont-mode') === 'native') { await submitNativeCompact(sourceAgent); return; }
   const newAgentId = splitIdentity ? v('cont-agent-id') : (v('cont-agent-id') || sourceAgent);
   if (!newAgentId) { toast('Agent ID is required', 'error'); return; }
   // SAY WHICH FIELD IS MISSING, HERE, rather than posting a value the server has to reject.
@@ -153,12 +173,15 @@ export async function submitContinue(sid, splitIdentity) {
   const runtime = v('cont-runtime') || sessionRuntime(target);
   if (!runtime) { toast('Runtime is required — this session does not name one, so type one', 'error'); return; }
   try {
+    // AN EMPTY PACKET IS FETCHED, NOT SENT. The form fills it once the brief arrives; a submit that beats
+    // that fetch, or a failed one, must not start a fresh session with no first message at all.
+    const packet = v('cont-packet') || (await loadHandoffBrief(sourceAgent, sid, v('cont-recent'))).text;
     await api('/spawn-requests', {
       method: 'POST',
       body: JSON.stringify({
         createdBy: 'dashboard', environmentId,
         agentId: newAgentId, role: v('cont-role') || 'coder', runtime,
-        workspace: v('cont-workspace') || target.workspace || target.cwd, initialMessage: v('cont-packet'),
+        workspace: v('cont-workspace') || target.workspace || target.cwd, initialMessage: packet,
         subject: splitIdentity ? `Continue as from ${sourceAgent}` : `Handoff compact from ${sourceAgent}`,
         mode: 'managed-warm', resumePolicy: 'fresh_context',
         metadata: { continuedFromSessionId: sid, continuedFromAgentId: sourceAgent, compactMode: 'handoff', sameAgentId: newAgentId === sourceAgent, splitIdentity },

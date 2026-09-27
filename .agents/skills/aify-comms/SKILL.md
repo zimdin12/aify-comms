@@ -158,8 +158,8 @@ Dashboard is a store-only recipient: answer a dashboard message with `comms_send
 
 ## Compacting
 
-- `comms_compact(from="<your-id>", targetAgentId="...", mode="handoff")` is the only mode that works: a fresh managed backing seeded with a handoff packet, same agent ID unless you pass `newAgentId`.
-- Compacting **another** agent is a manager action — the caveats (managed backing required, `mode="internal"` unsupported, how to reach a runtime's own `/compact`) live in `references/leading-a-team.md`.
+- `comms_compact(from="<your-id>", targetAgentId="...")` defaults to `mode="handoff"`: a fresh session told its old session id and to read its last `recentMessages` (10) messages; same agent ID unless `newAgentId`.
+- `mode="native"` types the runtime's own `/compact` (hermes `/compress`) into a managed, idle agent's console and keeps its session. Caveats: `references/leading-a-team.md`.
 
 ## Tool Map
 

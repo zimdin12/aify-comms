@@ -9,7 +9,6 @@ from __future__ import annotations
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
 from service.api_core.terminal_text import _ANSI_RE, _CTRL_RE
 import asyncio
-import json
 import logging
 import time
 
@@ -24,7 +23,7 @@ logger = logging.getLogger("aify_comms.routers.agents.console")
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 from service.models import AgentConsoleInputRequest
 
-from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.console_write import queue_console_input, require_console_caller
 from service.api_core.settings import _load_settings
 from service.api_core.ws import _get_ws
 from service.db import get_db
@@ -280,12 +279,7 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
         agent_row = await (await db.execute("SELECT id, runtime, session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        caller = str(req.from_ or "").strip()
-        if not caller:
-            raise HTTPException(400, "console input requires a `from` caller (the requesting agent id)")
-        caller_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (caller,))).fetchone()
-        if not caller_row:
-            raise HTTPException(403, f"caller '{caller}' is not a registered agent")
+        caller = await require_console_caller(db, req.from_)
 
         settings = await _load_settings(db)
         terminal = await _resolve_live_console_terminal(db, agent_id)
@@ -328,21 +322,7 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
 
         text = str(req.text or "")
         body = text + ("\r" if (req.enter is None or req.enter) else "")
-        control_id = await _append_terminal_control(
-            db,
-            terminal_id=terminal["id"],
-            environment_id=terminal["environment_id"],
-            bridge_id=terminal["bridge_id"] or "",
-            action="input",
-            requested_by=caller,
-            body=body,
-        )
-        await _append_terminal_event(
-            db,
-            terminal["id"],
-            "agent_console_input",
-            json.dumps({"from": caller, "controlId": control_id, "bytes": len(body)}),
-        )
+        control_id = await queue_console_input(db, terminal, caller=caller, body=body)
         await db.commit()
         ws = await _get_ws(request)
         if ws:

@@ -27,6 +27,7 @@ JsonApiRoute DELETE /api/v1/shared/{name} name=delete_shared status=- response_m
 JsonApiRoute GET /api/v1/ name=root status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents name=list_agents status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id} name=get_agent status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute GET /api/v1/agents/{agent_id}/compact/handoff-brief name=get_agent_handoff_brief status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/console name=get_agent_console status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/last-read name=agent_last_read status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute GET /api/v1/agents/{agent_id}/pi-session-state name=get_agent_pi_session_state status=- response_model=- tags=api deps=0 in_schema=True
@@ -77,6 +78,7 @@ JsonApiRoute PATCH /api/v1/spawn-requests/{spawn_request_id} name=update_spawn_r
 JsonApiRoute PATCH /api/v1/terminals/controls/{control_id} name=update_terminal_control status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents name=register_agent status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/claimer-lease name=post_claimer_lease status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/agents/{agent_id}/compact/native name=post_agent_native_compact status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/console-working name=agent_console_working status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/console/input name=post_agent_console_input status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/control name=control_agent status=- response_model=- tags=api deps=0 in_schema=True

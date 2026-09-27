@@ -53,10 +53,14 @@ const CEILINGS = {
   // 14_132 -> 12_720 on 2026-09-26 (0.7.4 skills audit): stale facts corrected against the code, and
   // repeats of the tool descriptions and references cut to pointers; pays for the new line on running
   // a nested `claude` without your identity.
-  // 12_720 -> 12_592 on 2026-09-27 (0.7.5): the tool map lost the three tools the operator removed.
-  "aify-comms/SKILL.md": 12_592,
+  // 12_720 -> 12_592 -> 12_578 on 2026-09-27 (0.7.5): the tool map lost the three tools the operator
+  // removed, and the Compacting section names the native mode in place of the mode="internal" caveat.
+  "aify-comms/SKILL.md": 12_578,
   "aify-comms/references/building-software.md": 3_948,
-  "aify-comms/references/leading-a-team.md": 15_758,
+  // 15_758 -> 15_819 on 2026-09-27 (0.7.5), a raise: the operator asked for native compaction, and
+  // the compact bullet now describes two modes and when native is refused instead of one mode and a
+  // refusal. Most of the new text is paid for by the dead `mode="internal"` sentence it replaces.
+  "aify-comms/references/leading-a-team.md": 15_819,
   // 11_598 -> 10_810 on 2026-09-25 (0.7.0): the bridge-era host section became aify-env's, Pi and
   // OpenCode are marked as they ship, and a duplicate of the main skill's registration rule went.
   "aify-comms/references/operations.md": 8_485,

@@ -7,6 +7,7 @@ preserving it means the shadow gate is comparing like with like.
 """
 
 from service.api_core.routing import domain_router
+from service.routers.agents.compaction import router as _compaction_router
 from service.routers.agents.config import router as _config_router
 from service.routers.agents.console import router as _console_router
 from service.routers.agents.environment_assignment import router as _environment_assignment_router
@@ -29,6 +30,8 @@ router.include_router(_config_router)
 # long-poll that left with it was removed in 0.7.5 (DECISIONS.md).
 router.include_router(_environment_assignment_router)
 router.include_router(_console_router)
+# Compaction (0.7.5): native types into the console the router above resolves; placed beside it.
+router.include_router(_compaction_router)
 # Virtual-terminal provisioning left `console.py` in v0.5.4, still in first-appearance order.
 router.include_router(_virtual_terminal_router)
 router.include_router(_identity_router)

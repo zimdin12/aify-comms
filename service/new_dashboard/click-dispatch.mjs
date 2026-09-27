@@ -28,6 +28,7 @@ import { codexConsoleClose, codexConsoleConnect } from './codex-console.mjs';
 import { resyncActiveConsole, startConsoleForSession, stopConsoleTerminal } from './console-actions.mjs';
 import { runConsoleAction } from './console-click-handlers.mjs';
 import { controlEnvironment, openEnvironmentRootsEditor, renderEnvironmentSpawnOptions, resetEnvironmentRoots, submitEnvironmentRoots } from './environments-panels.mjs';
+import { fillHandoffBrief } from './handoff-brief.mjs';
 import { openAgentEditForm, openCompactionHistory, openContinueForm, openMessageDetail } from './inspector-forms.mjs';
 import { addChannelMember, chatChannelAction, markConversationRead, markMessageRead, openMessageThread, removeChannelMember, toggleFavorite, unsendMessage } from './message-actions.mjs';
 import { navigateToPage, openEnvironmentSpawn, openHermesTabFromRow, selectAnalyticsRange } from './nav-click-handlers.mjs';
@@ -176,6 +177,8 @@ export function dispatchClick(event) {
   if (agentCompact) { openContinueForm(agentCompact.dataset.agentCompact, false); return; }
   const agentContinue = event.target.closest('[data-agent-continue]');
   if (agentContinue) { openContinueForm(agentContinue.dataset.agentContinue, true); return; }
+  const continueBrief = event.target.closest('[data-continue-brief]');
+  if (continueBrief) { fillHandoffBrief(continueBrief.dataset.continueBrief, { force: true }); return; }
   const continueSubmit = event.target.closest('[data-continue-submit]');
   if (continueSubmit) { submitContinue(continueSubmit.dataset.continueSubmit, continueSubmit.dataset.split === '1'); return; }
   const agentEdit = event.target.closest('[data-agent-edit]');

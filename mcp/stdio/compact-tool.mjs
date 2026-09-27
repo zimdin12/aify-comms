@@ -1,31 +1,31 @@
 // Compaction: replacing an agent's live working memory with a summary of it.
 //
-// One MCP tool, `comms_compact`, and the four helpers only it uses. v0.5.4 layer 2 of the server.js
-// decomposition — the last tool group with no unowned dependency, and the last one that could be cut
-// without resolving a seam packet.
+// One MCP tool, `comms_compact`. v0.5.4 layer 2 of the server.js decomposition moved it here; 0.7.5 gave it
+// the two modes the operator specified (2026-09-26) and moved what they decide into the service.
 //
-// IT IS THE MOST DESTRUCTIVE NON-DELETING TOOL IN THE BRIDGE, which is why the four helpers travel with it
-// rather than being generalised. Compaction does not remove an agent or a message; it removes what the agent
-// KNEW. Anything it never wrote down is gone, and nothing can recover it — so the tool's own description
-// leads with that and tells a caller to have the target record open decisions somewhere durable FIRST.
-// Reviewer's ruling kept it out of the lifecycle group for exactly this reason: losing working memory is not
-// losing an identity, and the two are different subjects even though both are destructive.
+// IT IS THE MOST DESTRUCTIVE NON-DELETING TOOL IN THE BRIDGE. Compaction does not remove an agent or a
+// message; it removes what the agent KNEW. Anything it never wrote down is gone, so the description leads
+// with that and tells a caller to have the target record open decisions somewhere durable FIRST. It stays
+// out of the lifecycle group for that reason: losing working memory is not losing an identity.
 //
-// TWO MODES, AND ONLY ONE OF THEM WORKS TODAY. `handoff` builds a portable packet and spawns a fresh managed
-// backing from it — reliable, and the default. `internal` asks the runtime to compact in place, and
-// currently returns unsupported unless an adapter proves native support; `internalCompactUnsupportedText`
-// is that refusal. It is a real branch rather than dead code because adapters are expected to grow the
-// capability, and the refusal names the session and runtime so an operator can tell which.
-//
-// `internalCompactUnsupportedText` BRIEFLY LIVED IN `tool-response-format.mjs` and was returned. It calls
-// `normalizeRuntime`, an import, so it is not a pure formatter — that module's header records the episode
-// and the scan hole that let it through. Here it is what it always was: a helper of this group.
+// TWO MODES, BOTH DECIDED BY THE SERVICE (`service/api_core/compaction.py`), so this tool and the
+// dashboard's Compact form cannot disagree:
+//   native   `POST /agents/{id}/compact/native` types the runtime's own command (`/compact`, hermes
+//            `/compress`) into a managed agent's live console, then Enter. The service refuses a resident,
+//            a runtime with no verified command, a console with no TUI, and an agent that is not idle at
+//            its prompt -- typed mid-turn it queues behind the turn, typed over a dialog it ANSWERS it.
+//   handoff  a fresh session from a spawn request, as before. Its first message is the service's brief
+//            (`GET /agents/{id}/compact/handoff-brief`): the previous session and native session id, where
+//            the transcript is when the runtime's layout says, and "read your last N messages" with
+//            comms_inbox. It used to paste ~24 message bodies; the inbox already holds them.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run (sequentially) AND every wrapper relaunches.
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
+import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { normalizeRuntime } from "./runtimes.js";
 import { validateName } from "./safe-name.mjs";
+
 function pickCompactSession(sessions = []) {
   const scores = {
     running: 100,
@@ -46,198 +46,130 @@ function pickCompactSession(sessions = []) {
   })[0] || null;
 }
 
-function messageContextForCompact(messages = [], targetAgentId, count = 24) {
-  return messages
-    .filter((message) => {
-      if (message.source === "channel") return message.from === targetAgentId;
-      return message.from === targetAgentId || message.to === targetAgentId;
-    })
-    .sort((a, b) => (Date.parse(b.timestamp || "") || 0) - (Date.parse(a.timestamp || "") || 0))
-    .slice(0, Math.max(0, Number(count || 0)))
-    .reverse()
-    .map((message) => ({
-      timestamp: message.timestamp || "",
-      route: message.source === "channel"
-        ? `${message.from || ""} -> #${message.channel || ""}`
-        : `${message.from || ""} -> ${message.to || ""}`,
-      subject: message.subject || (message.channel ? `#${message.channel}` : ""),
-      preview: message.preview || message.body || "",
-    }));
-}
+const errorText = (text) => ({ content: [{ type: "text", text }], isError: true });
 
-function compactPacket({ from, targetAgentId, sourceSession, successorId, messages, instructions }) {
-  const messageBlock = messages.length
-    ? messages.map((message, index) =>
-        `${index + 1}. [${message.timestamp || "unknown time"}] ${message.route}\nSubject: ${message.subject || "(none)"}\n${message.preview || ""}`
-      ).join("\n\n")
-    : "No recent message context selected.";
-  return `Handoff compact from previous managed session
-Requested by: ${from}
-Source agent: ${targetAgentId}
-Source session: ${sourceSession.id || ""}
-Handoff agent: ${successorId}
-Runtime: ${sourceSession.runtime || ""}
-Environment: ${sourceSession.environmentId || ""}
-Workspace: ${sourceSession.workspace || ""}
-
-Operator instructions:
-${instructions || "Continue the same work unless the manager gives a narrower phase brief."}
-
-Recent message context:
-${messageBlock}
-
-Current state:
-
-Open tasks:
-
-Next action:`;
-}
-
-function internalCompactUnsupportedText(sourceSession = {}) {
-  const runtime = normalizeRuntime(sourceSession.runtime || "generic");
-  const sessionId = sourceSession.id || "unknown";
-  const handle = sourceSession.sessionHandle || sourceSession.session_handle || "";
-  const detailByRuntime = {
-    "claude-code":
-      "Claude Code exposes interactive `/compact`, but aify-comms does not currently have a safe headless managed-run API for triggering that native operation.",
-    codex:
-      "Codex app-server/CLI currently exposes resume, turn, interrupt, and steer controls, but no native compact/context-reset API.",
-    hermes:
-      "Hermes support is PTY-backed. Use Hermes's own interactive compression/session tools in the terminal; aify-comms does not have a verified native compact adapter yet.",
-    opencode:
-      "OpenCode support has no verified native compact adapter yet.",
-    pi:
-      "Oh My Pi support has no verified native compact adapter yet.",
+async function compactNatively({ from, targetAgentId, handoff }, { call = httpCall } = {}) {
+  // What a handoff reads, passed with mode=native, is refused rather than silently ignored.
+  const misplaced = Object.keys(handoff).filter((name) => handoff[name] !== undefined);
+  if (misplaced.length) {
+    return errorText(`${misplaced.join(", ")} appl${misplaced.length === 1 ? "ies" : "y"} to mode "handoff" only; native compaction types the runtime's own command and takes none of them.`);
+  }
+  // The launch identity when there is one, as comms_console_input does: this writes into another agent's
+  // terminal, and the audit should name who actually asked.
+  const caller = AIFY_AGENT_ID || from;
+  const r = await call("POST", `/agents/${encodeURIComponent(targetAgentId)}/compact/native`, { from: caller });
+  if (!r.ok) return errorText(r.message || `Native compaction of "${targetAgentId}" was refused.`);
+  return {
+    content: [{
+      type: "text",
+      text: `QUEUED ${r.command} to ${targetAgentId}'s console (terminal ${r.terminalId}, control ${r.controlId}). ` +
+        "Not confirmation: the bytes reach the PTY, and whether it compacted shows on its console (comms_console_tail). It keeps its session.",
+    }],
   };
-  const detail = detailByRuntime[runtime] || `Runtime "${runtime}" has no verified native compact adapter.`;
-  return [
-    `Internal/native compaction is not supported for session "${sessionId}" (${runtime}${handle ? `, handle ${handle}` : ""}).`,
-    detail,
-    'Use `comms_compact(mode="handoff", ...)` to create a fresh managed backing from an editable handoff packet. Handoff defaults to the same agent ID unless you pass `newAgentId`.',
-  ].join("\n");
+}
+
+async function compactByHandoff({ from, targetAgentId, newAgentId, role, environmentId, runtime, workspace, instructions, recentMessages, priority }, { call = httpCall } = {}) {
+  const agents = (await call("GET", "/agents")).agents || {};
+  const targetInfo = agents[targetAgentId] || {};
+  const successorId = newAgentId || targetAgentId;
+  try { validateName(successorId, "handoff agent ID"); } catch (e) { return errorText(e.message); }
+
+  const sessionsRes = await call("GET", `/sessions?agentId=${encodeURIComponent(targetAgentId)}&limit=100`);
+  const sourceSession = pickCompactSession(sessionsRes.sessions || []);
+  if (!sourceSession) {
+    return errorText(`No managed session record found for "${targetAgentId}". Compact needs a dashboard-managed backing session. Use comms_spawn first or adopt the identity into an environment from the dashboard.`);
+  }
+
+  const query = new URLSearchParams({ sessionId: sourceSession.id || "" });
+  if (recentMessages !== undefined) query.set("recentMessages", String(recentMessages));
+  const brief = await call("GET", `/agents/${encodeURIComponent(targetAgentId)}/compact/handoff-brief?${query}`);
+  const packet = instructions ? `${brief.text}\n\nInstructions:\n${instructions}` : brief.text;
+
+  const resolvedRuntime = normalizeRuntime(runtime || sourceSession.runtime || targetInfo.runtime || "generic");
+  const r = await call("POST", "/spawn-requests", {
+    createdBy: from,
+    environmentId: environmentId || sourceSession.environmentId,
+    agentId: successorId,
+    role: role || targetInfo.role || "coder",
+    name: successorId,
+    runtime: resolvedRuntime,
+    workspace: workspace || sourceSession.workspace || targetInfo.cwd || "",
+    initialMessage: packet,
+    subject: `Handoff compact from ${targetAgentId}`,
+    priority: priority || "normal",
+    mode: "managed-warm",
+    resumePolicy: "fresh_context",
+    metadata: {
+      compactMode: "handoff",
+      compactedFromAgentId: targetAgentId,
+      compactedFromSessionId: sourceSession.id || "",
+      compactedBy: from,
+      recentMessagesToRead: brief.recentMessages,
+      sameAgentId: successorId === targetAgentId,
+    },
+  });
+  const req = r.spawnRequest || {};
+  const identityText = successorId === targetAgentId ? `same agent ID "${successorId}"` : `successor "${successorId}"`;
+  return {
+    content: [{
+      type: "text",
+      text:
+        `Queued handoff compaction for ${identityText} from "${targetAgentId}". Spawn request: ${req.id || "unknown"} [${req.status || "queued"}]. ` +
+        `The fresh session is told its previous session and to read its last ${brief.recentMessages} message(s); the old native session is not reused.`,
+    }],
+  };
+}
+
+/** The tool's handler: every parameter named here, then handed to the mode that reads it. */
+async function commsCompactHandler(args) {
+  const { from, targetAgentId, mode, newAgentId, role, environmentId, runtime, workspace, instructions, recentMessages, priority } = args;
+  if (!IS_REMOTE) {
+    return errorText("Managed compaction requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent.");
+  }
+  try {
+    validateName(from, "from agent ID");
+    validateName(targetAgentId, "target agent ID");
+  } catch (e) {
+    return errorText(e.message);
+  }
+  const handoff = { newAgentId, role, environmentId, runtime, workspace, instructions, recentMessages, priority };
+  try {
+    return mode === "native"
+      ? await compactNatively({ from, targetAgentId, handoff })
+      : await compactByHandoff({ from, targetAgentId, ...handoff });
+  } catch (error) {
+    return errorText(error.message);
+  }
 }
 
 // Registers the compaction tool. A function rather than a module-scope side effect, so a fake server can
 // capture the registration and a test can call the handler without an MCP transport. `z` is the caller's zod
-// — see the other tool groups for why it is not imported here.
-//
-// The body below is the original server.js text, indented one level. Nothing else changed.
+// -- see the other tool groups for why it is not imported here.
 export function registerCompactTool(server, z) {
   server.tool(
     "comms_compact",
-    // C1. Every agent re-reads this on every turn, so the test applied to each sentence was whether it
-    // changes what the CALLER does. Three go, and none of them was information:
-    //   - "Compact a managed agent/session." restated the tool's own name.
-    //   - both `mode="..."` sentences said what the `mode` FIELD's own description already says, and
-    //     the "defaults to the same agent ID" half is what `newAgentId` says. A caller filling a
-    //     parameter reads the field; saying it twice is one meaning in two places.
-    //   - four fields each ended "Defaults to the source session X", so that pattern is stated ONCE
-    //     here instead of four times below.
-    // What stays is what the existing contracts pin -- `/DESTRUCTIVE TO CONTEXT/` and
-    // `/record open decisions somewhere durable FIRST/` -- which is a useful
-    // check on the rule: the sentences that change a caller's action are the ones reviewers already
-    // insisted on.
-    "DESTRUCTIVE TO CONTEXT — the target loses its live working memory and continues from a summary. " +
-      "Use when a managed agent is degraded by a long noisy session, not as routine hygiene: whatever it knew but never wrote down is gone. " +
-      "Have it record open decisions somewhere durable FIRST. " +
-      "environmentId, runtime and workspace each default to the source session's.",
+    // Every agent re-reads this on every turn. What stays is what changes the CALLER's action, and what
+    // the contracts pin: `/DESTRUCTIVE TO CONTEXT/` and `/record open decisions somewhere durable FIRST/`.
+    // Which fields belong to which mode is said once, by the `mode` field and a "handoff:" prefix.
+    "DESTRUCTIVE TO CONTEXT — the target continues from a summary: whatever it knew but never wrote down is gone. " +
+      "Use when a managed agent is degraded by a long noisy session, not as routine hygiene. " +
+      "Have it record open decisions somewhere durable FIRST.",
     {
       from: z.string().describe("Manager/coordinator agent requesting the compact"),
-      targetAgentId: z.string().describe("Existing managed agent to compact/continue from"),
-      mode: z.enum(["handoff", "internal"]).optional().describe("handoff (default) is the only mode that works; internal is always refused."),
-      newAgentId: z.string().optional().describe("Agent ID for handoff mode. Defaults to the same target agent ID. Pass a different ID only when you intentionally want a separate continuation identity."),
-      role: z.string().optional().describe("Handoff role. Defaults to the target's role, else coder."),
-      environmentId: z.string().optional().describe("Target environment."),
-      runtime: z.string().optional().describe("Target runtime."),
-      workspace: z.string().optional().describe("Target workspace."),
-      instructions: z.string().optional().describe("Phase brief or compaction instructions for the fresh backing."),
-      recentMessages: z.number().int().min(0).max(80).optional().describe("Recent comms messages to include in the handoff packet. Default 24."),
-      priority: z.enum(["normal", "high", "urgent"]).optional().describe("Priority for the handoff initial brief"),
+      targetAgentId: z.string().describe("Existing managed agent to compact"),
+      mode: z.enum(["handoff", "native"]).optional().describe(
+        "handoff (default): fresh session, told its old session id and to read its recent messages. " +
+        "native: types its runtime's /compact (hermes /compress) into its live console; managed, idle agents only.",
+      ),
+      newAgentId: z.string().optional().describe("handoff: a separate continuation identity. Default: the target's own."),
+      role: z.string().optional().describe("handoff: default the target's role, else coder."),
+      environmentId: z.string().optional().describe("handoff: default the source session's."),
+      runtime: z.string().optional().describe("handoff: default the source session's."),
+      workspace: z.string().optional().describe("handoff: default the source session's."),
+      instructions: z.string().optional().describe("handoff: a phase brief for the fresh session."),
+      recentMessages: z.number().int().min(0).optional().describe("handoff: messages it is told to read. Default 10."),
+      priority: z.enum(["normal", "high", "urgent"]).optional().describe("handoff: priority of its brief."),
     },
-    async ({ from, targetAgentId, mode, newAgentId, role, environmentId, runtime, workspace, instructions, recentMessages, priority }) => {
-      if (!IS_REMOTE) {
-        return { content: [{ type: "text", text: "Managed compaction requires remote server mode. Set AIFY_SERVER_URL to the service, or re-run install.sh with its URL, then restart this agent." }], isError: true };
-      }
-      try {
-        validateName(from, "from agent ID");
-        validateName(targetAgentId, "target agent ID");
-      } catch (e) {
-        return { content: [{ type: "text", text: e.message }], isError: true };
-      }
-
-      const agents = (await httpCall("GET", "/agents")).agents || {};
-      const targetInfo = agents[targetAgentId] || {};
-      const selectedMode = mode || "handoff";
-      const successorId = newAgentId || targetAgentId;
-      try { validateName(successorId, "handoff agent ID"); } catch (e) { return { content: [{ type: "text", text: e.message }], isError: true }; }
-
-      const sessionsRes = await httpCall("GET", `/sessions?agentId=${encodeURIComponent(targetAgentId)}&limit=100`);
-      const sourceSession = pickCompactSession(sessionsRes.sessions || []);
-      if (!sourceSession) {
-        return {
-          content: [{
-            type: "text",
-            text: `No managed session record found for "${targetAgentId}". Compact needs a dashboard-managed backing session. Use comms_spawn first or adopt the identity into an environment from the dashboard.`,
-          }],
-          isError: true,
-        };
-      }
-
-      if (selectedMode === "internal") {
-        return {
-          content: [{ type: "text", text: internalCompactUnsupportedText(sourceSession) }],
-          isError: true,
-        };
-      }
-
-      const count = Math.max(0, Math.min(80, Number(recentMessages ?? 24)));
-      const recentLimit = Math.min(250, Math.max(80, count * 4 || 80));
-      const recentRes = await httpCall("GET", `/messages/recent?limit=${recentLimit}`);
-      const contextMessages = messageContextForCompact(recentRes.messages || [], targetAgentId, count);
-      const packet = compactPacket({
-        from,
-        targetAgentId,
-        sourceSession,
-        successorId,
-        messages: contextMessages,
-        instructions,
-      });
-
-      const resolvedRuntime = normalizeRuntime(runtime || sourceSession.runtime || targetInfo.runtime || "generic");
-      const r = await httpCall("POST", "/spawn-requests", {
-        createdBy: from,
-        environmentId: environmentId || sourceSession.environmentId,
-        agentId: successorId,
-        role: role || targetInfo.role || "coder",
-        name: successorId,
-        runtime: resolvedRuntime,
-        workspace: workspace || sourceSession.workspace || targetInfo.cwd || "",
-        initialMessage: packet,
-        subject: `Handoff compact from ${targetAgentId}`,
-        priority: priority || "normal",
-        mode: "managed-warm",
-        resumePolicy: "fresh_context",
-        metadata: {
-          compactMode: "handoff",
-          compactedFromAgentId: targetAgentId,
-          compactedFromSessionId: sourceSession.id || "",
-          compactedBy: from,
-          contextMessageCount: contextMessages.length,
-          sameAgentId: successorId === targetAgentId,
-        },
-      });
-      const req = r.spawnRequest || {};
-      const identityText = successorId === targetAgentId
-        ? `same agent ID "${successorId}"`
-        : `successor "${successorId}"`;
-      return {
-        content: [{
-          type: "text",
-          text:
-            `Queued handoff compaction for ${identityText} from "${targetAgentId}" with ${contextMessages.length} recent message(s). ` +
-            `Spawn request: ${req.id || "unknown"} [${req.status || "queued"}]. This creates a fresh managed backing; the old native session is not reused.`,
-        }],
-      };
-    }
+    (args) => commsCompactHandler(args)
   );
 }

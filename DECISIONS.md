@@ -160,6 +160,23 @@ hosts: a move to a host whose clock is behind starts a fresh record, and a late 
 is refused because that host is no longer registered. An event with no `firedAtUs` (a detector, an older
 hook) is outside the ordering and applies as before.
 
+## Compaction is the runtime's own command, or a fresh session that points back (2026-09-27, v0.7.5)
+
+**Decision.** `comms_compact` and the dashboard's Compact form offer two modes, both decided in
+`service/api_core/compaction.py`. **Native** types the runtime's own command into a managed agent's live
+console, then Enter: `/compact` for Claude Code and codex, `/compress` for hermes, each read from the
+runtime's own command table (the adapter names the source). It is refused for a resident (the console is
+the operator's terminal), a runtime with no verified command, a console with no TUI, and an agent not
+idle at its prompt, because typed mid-turn it queues behind the turn and typed over a dialog it answers
+it. **Handoff** still starts a fresh session from a spawn request, but its first message no longer pastes
+~24 message bodies: it names the previous session and native session id, where the transcript is when
+the runtime's layout says, and tells the agent to read its last N messages (default 10, asked in the
+dashboard) with `comms_inbox`.
+
+**Why.** Operator (2026-09-26): native `/compact` "is real compaction" and was missing from the menu, and
+a handoff should tell the agent to read its recent messages and reference the original session rather
+than inject them. The inbox already holds the messages; a copy in the brief was a second, staler one.
+
 ## No source decides where something is from a path typed into it
 
 The operator, 2026-09-16: "we should never have C:/ paths. we never know where user installs anything.

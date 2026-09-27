@@ -49,7 +49,9 @@ const CEILINGS = {
   // 697 -> 692 in 0.7.5: the whole-hub `all` target is gone; the sentence naming it now says what
   // the three remaining targets reach without an agentId.
   comms_clear: 692,
-  comms_compact: 1006,
+  // 1006 -> 881 in 0.7.5: the native mode added and each handoff-only field marked, in fewer
+  // characters than the one-working-mode text it replaced.
+  comms_compact: 881,
   comms_console_input: 771,
   comms_console_tail: 476,
   comms_contracts: 479,

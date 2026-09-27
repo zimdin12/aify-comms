@@ -266,8 +266,9 @@ async def recent_messages(
         # NOT REPLACED WITH A REAL COUNT. `SELECT COUNT(*)` over the same WHERE measured 19.6 ms
         # median (7 runs, min 19.2, max 20.8) inside the container, and the dashboard polls this every
         # 15s per open tab. That is a real cost for a number no reader wants: searching aify-comms,
-        # aify-wrapper and aify-env found no consumer of this field -- `compact-tool.mjs` reads
-        # `.messages` alone, and the dashboard reads neither. I cannot see consumers outside those
+        # aify-wrapper and aify-env found no consumer of this field -- `compact-tool.mjs` read
+        # `.messages` alone (and since 0.7.5 does not call this route), and the dashboard reads
+        # neither. I cannot see consumers outside those
         # three repos, so this is a removal made on the evidence available, not on proof of absence.
         #
         # `truncated` answers the question the name was reaching for, exactly, and costs nothing.

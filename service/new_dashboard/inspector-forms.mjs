@@ -9,8 +9,8 @@
 // rebuilding underneath the operator destroys what they were writing. Keeping them in one module makes that
 // class of bug visible in one place instead of three.
 //
-// `buildHandoffPacket` comes with `openContinueForm` because nothing else reads it: it assembles the
-// session context a continuation needs, and it exists only to fill that form.
+// The continue form's handoff packet is the service's brief (`handoff-brief.mjs`), fetched once the form
+// is open; it replaced `buildHandoffPacket`, which pasted message bodies from the dashboard's own cache.
 //
 // Extracted from app.js in v0.5.4 as a measured closure needing only sibling leaf modules, imported
 // downward. It became possible once `state` and `byId` had owners; before that every panel in app.js read
@@ -19,6 +19,7 @@
 
 import { messageId, messageRunId, sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { api } from './api-client.mjs';
+import { fillHandoffBrief } from './handoff-brief.mjs';
 import { findLoadedMessage } from './message-store.mjs';
 import { state, inspectorOpening } from './state.mjs';
 import { renderStatusChip, resolveStatus, spawnClaim } from './status.js';
@@ -89,35 +90,42 @@ export function openMessageDetail(msgId) {
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
 }
-export function buildHandoffPacket(agentId, count = 25) {
-  const related = state.messages
-    .filter((m) => m.from === agentId || m.to === agentId || m.target === agentId)
-    .slice(-count)
-    .map((m) => `[${m.from || '?'}→${m.to || m.target || '?'}] ${m.subject ? m.subject + ': ' : ''}${m.body || m.preview || ''}`.trim());
-  return `Handoff packet for ${agentId} (last ${related.length} messages):\n\n${related.join('\n')}`;
-}
 export function openContinueForm(sid, splitIdentity) {
   const target = state.sessions.find((s) => String(sessionId(s)) === String(sid));
   if (!target) { toast('Session not found', 'warn'); return; }
   const agentId = sessionAgentId(target) || '';
-  const packet = buildHandoffPacket(agentId);
+  // NATIVE IS OFFERED ONLY FOR COMPACT. Continue-as makes a new identity, which only a fresh session
+  // can be. Which runtimes and states allow native is the service's call, made when it is submitted.
+  const modes = splitIdentity ? '' : `
+      <label class="settings-label">How<select id="cont-mode">
+        <option value="handoff" selected>Handoff: a fresh session, briefed below</option>
+        <option value="native">Native: the runtime's own compact command, in its live console</option>
+      </select></label>
+      <p class="subtle">Native keeps the session and needs a managed agent idle at its prompt; the fields below are for handoff.</p>`;
   byId('inspector-content').innerHTML = `
     <div class="agent-drawer continue-form">
       <div class="agent-drawer-head"><strong>${splitIdentity ? 'Continue as new agent' : 'Compact session'}</strong></div>
-      <p class="subtle">${splitIdentity ? 'Splits into a new agent identity with an editable handoff packet.' : 'Compacts into a fresh managed backing, keeping the same agent ID.'}</p>
-      <label class="settings-label">Agent ID<input id="cont-agent-id" type="text" value="${esc(splitIdentity ? '' : agentId)}" placeholder="${esc(agentId)}"></label>
-      <label class="settings-label">Role<input id="cont-role" type="text" value="${esc(target.role || 'coder')}"></label>
-      <label class="settings-label">Environment<input id="cont-env" type="text" value="${esc(sessionEnvironmentId(target) || '')}"></label>
-      <label class="settings-label">Runtime<input id="cont-runtime" type="text" value="${esc(sessionRuntime(target) || '')}"></label>
-      <label class="settings-label">Workspace<input id="cont-workspace" type="text" value="${esc(target.workspace || target.cwd || '')}"></label>
-      <label class="settings-label">Handoff packet<textarea id="cont-packet" rows="8">${esc(packet)}</textarea></label>
+      <p class="subtle">${splitIdentity ? 'Splits into a new agent identity, briefed by an editable handoff packet.' : 'Compacts the agent, keeping the same agent ID.'}</p>${modes}
+      <fieldset class="agent-edit-env">
+        <legend>Handoff</legend>
+        <label class="settings-label">Agent ID<input id="cont-agent-id" type="text" value="${esc(splitIdentity ? '' : agentId)}" placeholder="${esc(agentId)}"></label>
+        <label class="settings-label">Role<input id="cont-role" type="text" value="${esc(target.role || 'coder')}"></label>
+        <label class="settings-label">Environment<input id="cont-env" type="text" value="${esc(sessionEnvironmentId(target) || '')}"></label>
+        <label class="settings-label">Runtime<input id="cont-runtime" type="text" value="${esc(sessionRuntime(target) || '')}"></label>
+        <label class="settings-label">Workspace<input id="cont-workspace" type="text" value="${esc(target.workspace || target.cwd || '')}"></label>
+        <label class="settings-label">Recent messages it is told to read<input id="cont-recent" type="number" min="0" value=""></label>
+        <label class="settings-label">Handoff packet<textarea id="cont-packet" rows="8" placeholder="Loading the handoff brief…"></textarea></label>
+        <button class="ghost" data-continue-brief="${esc(sid)}">Rebuild packet</button>
+      </fieldset>
       <div class="agent-drawer-actions">
         <button class="primary" data-continue-submit="${esc(sid)}" data-split="${splitIdentity ? '1' : '0'}">${splitIdentity ? 'Continue as' : 'Compact'}</button>
       </div>
     </div>`;
-  state.inspector = inspectorOpening('continue', { runId: '' });
+  state.inspector = inspectorOpening('continue', { runId: '', sessionId: String(sid) });
   byId('inspector')?.classList.add('open');
   byId('inspector')?.classList.remove('run-inspector-sheet');
+  // Returned so a caller (and a test) can wait for the packet; the click path does not need to.
+  return fillHandoffBrief(sid);
 }
 
 // The compaction/spawn HISTORY panel — the fourth thing the same drawer shows on request, and the only
