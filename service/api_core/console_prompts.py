@@ -71,11 +71,42 @@ def plain_text(screen: str) -> str:
     return ANSI.sub("", str(screen or ""))
 
 
-def _cursor_line(screen: str) -> str:
-    """The line the menu cursor is on, or "". Latest wins: a screen accumulates nothing, but a
-    partially repainted one can briefly show two."""
-    for line in reversed(screen.splitlines()):
-        if CURSOR.search(line):
+#: What claude draws BELOW a dialog's options: blank lines, a box border, and the key hint. Read from
+#: the development-channels dialog captured live on 2026-09-03, which ends with its option rows, a
+#: blank line and `Enter to confirm · Esc to cancel`, and nothing under that.
+_BELOW_A_MENU = re.compile(r"^[\s─╭╮╰╯│]*$|Enter to confirm|Esc to cancel", re.I)
+
+#: Where a menu row's content starts: after indentation and at most a box border.
+_ROW_START = r"^\s*(?:│\s*)?"
+#: A cursor that marks a menu row: the first thing on its line.
+_ROW_CURSOR = re.compile(_ROW_START + CURSOR.pattern)
+
+
+def _last_drawn_block(text: str) -> list[str]:
+    """The lines of the last thing drawn on screen: the paragraph directly above the key hint and
+    borders a dialog draws under its options.
+
+    THIS IS THE ANCHOR, and it is what separates a live menu from the same words quoted. A dialog
+    claude is waiting at is the last thing on its screen. A claude with a transcript on screen
+    always draws its input box and footer below it, and a shell draws its prompt, so a menu's rows
+    in grep output, a printed fixture or an agent's reply are never in this block (external review
+    of 0.7.6, finding F5: the rule once typed arrows and Enter into a live agent for exactly that).
+    """
+    lines = text.splitlines()
+    end = len(lines)
+    while end and _BELOW_A_MENU.search(lines[end - 1]):
+        end -= 1
+    start = end
+    while start and not _BELOW_A_MENU.search(lines[start - 1]):
+        start -= 1
+    return lines[start:end]
+
+
+def _cursor_line(block: list[str]) -> str:
+    """The row of `block` the menu cursor is on, or "". Latest wins: a screen accumulates nothing,
+    but a partially repainted one can briefly show two."""
+    for line in reversed(block):
+        if _ROW_CURSOR.search(line):
             return line
     return ""
 
@@ -107,9 +138,14 @@ def needs_resume_policy(screen: str) -> bool:
 
 
 #: The rows of a resume menu, numbered or not. The order has changed upstream before (2026-08-01:
-#: summary moved to option 1 and "Don't ask me again" appeared), so rows are found by their text.
-_RESUME_OPTION = re.compile(r"Resume from summary|Resume full session|Don'?t ask me again", re.I)
+#: summary moved to option 1 and "Don't ask me again" appeared), so rows are found by their text,
+#: which must be the first thing on the row after a border, the cursor and a number.
+_RESUME_OPTION = re.compile(
+    _ROW_START + "(?:" + CURSOR.pattern + r"\s*)?(?:\d+\.\s*)?"
+    r"(?:Resume from summary|Resume full session|Don'?t ask me again)", re.I,
+)
 _RESUME_KEEP = re.compile(r"Resume full session", re.I)
+_RESUME_SUMMARY = re.compile(r"Resume from summary", re.I)
 UP = "\x1b[A"
 
 
@@ -118,16 +154,22 @@ def _resume_full_session(text: str, resume_policy: str) -> PromptAnswer | None:
 
     The operator's policy since 2026-06-05: a resumed session keeps its context. The summary option
     compacts the session, which cannot be undone, so the keys are computed from where the cursor IS
-    and where the full-session row IS on this screen. A menu painted only as far as its summary row,
-    or with no cursor on an option, is not answered. A `fresh_context` agent (a Reset) carries no
-    resume handle; if it meets this menu anyway, choosing for it is not this rule's call.
+    and where the full-session row IS on this screen. Only the menu claude is drawing counts
+    (`_last_drawn_block`), and it must show both choices: a menu painted only as far as its summary
+    row, or with no cursor on an option, is not answered. A `fresh_context` agent (a Reset) carries
+    no resume handle; if it meets this menu anyway, choosing for it is not this rule's call.
     """
     if resume_policy == "fresh_context":
         return None
-    rows = [line for line in text.splitlines() if _RESUME_OPTION.search(line)]
-    cursor = [i for i, line in enumerate(rows) if CURSOR.search(line)]
+    rows: list[str] = []
+    for line in reversed(_last_drawn_block(text)):  # the options end the block: nothing under them
+        if not _RESUME_OPTION.search(line):
+            break
+        rows.insert(0, line)
+    cursor = [i for i, line in enumerate(rows) if _ROW_CURSOR.search(line)]
     keep = [i for i, line in enumerate(rows) if _RESUME_KEEP.search(line)]
-    if len(cursor) != 1 or len(keep) != 1:
+    summary = [line for line in rows if _RESUME_SUMMARY.search(line)]
+    if len(cursor) != 1 or len(keep) != 1 or len(summary) != 1:
         return None
     moves = keep[0] - cursor[0]
     return PromptAnswer(
@@ -154,7 +196,7 @@ def answer_for_screen(screen: str, *, resume_policy: str = "") -> PromptAnswer |
         # only by `_resume_full_session`, which presses nothing unless it can see where it lands.
         return _resume_full_session(text, resume_policy)
 
-    cursor_line = _cursor_line(text)
+    cursor_line = _cursor_line(_last_drawn_block(text))
 
     # ── the development-channels acknowledgment ────────────────────────────────────────────────
     #
