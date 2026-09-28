@@ -12,11 +12,14 @@ this host can prove: item 4's explicit-reply path is fixed and handling without 
 item 5's hook output is the shape Codex documents, not yet seen in a live Codex context. The plan
 (`docs/superpowers/plans/2026-09-26-v0.7.1.md`, "0.7.2") lists each. These remain:
 
-- **Sending as `dashboard` skips the trust rule, for any holder of the shared API key.** An external key
-  cannot send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`), and since
-  0.7.4 the dashboard page itself, which carries the operator key, needs the API key
-  (`service/dashboard_access.py`). A local agent holding the API key can still send as `dashboard`:
-  the API key is the trust boundary (v0.7.5 ruling), and a host that wants more sets `OPERATOR_KEY`.
+- **With no `OPERATOR_KEY`, any holder of the shared API key can send as `dashboard`, which skips the
+  trust rule.** That is the v0.7.5 ruling (the API key is the trust boundary). An external key cannot
+  send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`), and the dashboard
+  page, which carries the operator key, needs the API key (`service/dashboard_access.py`). With
+  `OPERATOR_KEY` set, `/messages/send`, `/dispatch` and `/channels/{name}/send` refuse the sender
+  `dashboard` or `operator` without `X-Aify-Operator-Key` (`refuse_an_unproven_operator_sender`, since
+  the review of 0.7.6; before it the key gated only unsend, channel delete and unshare). Still not
+  gated: the `from_agent` of a run control (`/dispatch/runs/{id}/control`), which names who steered.
 - **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).
@@ -83,7 +86,11 @@ Since 0.7.4 the service answers claude's resume menu with "Resume full session"
 tested with are written from the layouts recorded on 2026-08-01, not captured from a live worker, and the
 menu has changed shape upstream before. It presses nothing unless it can see both the cursor and the
 full-session row, so a new layout leaves the worker waiting at the menu, as before 0.7.4, rather than
-choosing the summary. Any other claude dialog is still left to the console.
+choosing the summary. Since the review of 0.7.6 (F5) it reads only the last block drawn on screen,
+whose rows must end it with nothing but a key hint or border below: before that, a live agent that
+grepped a resume-menu fixture got arrow keys and Enter typed into its input box. That anchor is taken
+from the captured development-channels dialog, and ASSUMED to hold for the resume menu. Any other
+claude dialog is still left to the console.
 
 ## `scripts/stamp.sh` reads no checkout under a shell exporting `MSYS_NO_PATHCONV` (2026-09-26)
 

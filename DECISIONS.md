@@ -361,7 +361,9 @@ outright from 2026-09-03). While `Resume from summary` or `Resume full session` 
 rule answers: the menu's highlighted default summarises (compacts) the whole session, and a wrong
 keystroke there cannot be undone. The operator's policy since 2026-06-05 is to keep the session, so
 rule `resume-full-session` moves the cursor to that row and confirms, computing the keys from where the
-cursor and the row are on the rendered screen. A half-painted menu, a missing cursor, or an agent
+cursor and the row are on the rendered screen. Both rules read only the last block drawn, above
+the key hint and borders (`_last_drawn_block`): a dialog claude waits at is the last thing on its
+screen, while quoted menu text sits above an input box or a shell prompt. A half-painted menu, a missing cursor, or an agent
 whose `resumePolicy` is `fresh_context` gets no answer. Each rule answers
 once per terminal (`should_answer`), because a loop pressing keys at a screen it cannot change looks
 exactly like one that is working.
@@ -1147,7 +1149,8 @@ generated any more and the `operator-key` volume is gone. With `OPERATOR_KEY` un
 operator gate: an operator claim that reached the three override endpoints was let in by the API key,
 and an external key never reaches them. The dashboard marks itself with `X-Aify-Operator: dashboard`,
 which keeps its send-as-agent from counting as the agent being present. Setting `OPERATOR_KEY` turns the
-gate on as described below. The 2026-09-24 text follows as history.
+gate on as described below, and since the review of 0.7.6 it also covers a message sent as `dashboard`
+or `operator` on the three sending routes, which agents read as the operator's own. The 2026-09-24 text follows as history.
 
 **An operator key that exists without being asked for.** `OPERATOR_KEY` was never set by anything;
 `.env.example` asked for `openssl rand -hex 32` by hand. So on most hosts the dashboard's delete
