@@ -23,7 +23,7 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
 - **The claim long-polls cannot tell a caller has gone**, so a claimed run stays held while its sidecar
   heartbeats. None of them watches `http.disconnect`. Predates 0.7.
 - **The late-`turn_end` guard never fires**: every producer posts an empty run id (0.7.1 backlog S4).
-- **aify-env splits a paste that pauses for half a second or more**, and submits the rest early.
+- **Fixed in aify-env fbc4373: a paste that pauses stays one paste.** Before, a pause of 500 ms or more closed it and the rest was typed, submitting early. A paste given up in part now closes on the detach key alone or after 5 s of silence (a lost end marker).
 - **Codex's notify notice is proven against Codex's documentation only** (`additionalContext` "is added as
   extra developer context"), not observed in a live Codex agent's context.
 - **The shutdown bound is proven by configuration only.** Whether `docker compose up -d --build` stops a
