@@ -50,9 +50,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { activeListRowsOrNull } from "./hermes-active-session.mjs";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
-import { buildSessionActiveListFrame } from "./hermes-gateway-protocol.js";
+import { activeListRowsOrNull, buildSessionActiveListFrame } from "./hermes-gateway-protocol.js";
 
 /**
  * How many sessions an agent's gateway lists, or null when that could not be read (no gateway file,

@@ -97,7 +97,15 @@ export function buildSessionActiveListFrame({ id, currentSessionId = "" } = {}) 
 // Normalize the many session.active_list envelope shapes into a flat row array.
 // Shared by pickSessionForKey / pickSessionById / pickMostRecentSession /
 // pickSessionStatusForKey so every resolver reads the same wire shapes.
-function activeListRows(activeListResponse) {
+/**
+ * The session rows of a session.active_list answer, in any of the envelopes hermes has sent, or NULL for
+ * an answer in none of them. THE one parser: the status path here and the delivery path in
+ * hermes-active-session.mjs used to carry byte-identical copies (held together by
+ * hermes-active-list-parsers-agree.test.js). Null is unknown, and a caller deciding that NO session is
+ * attached must not read an unrecognised reply as an empty list (review of 53ba3622: the doctor and the
+ * delivery loop both did).
+ */
+export function activeListRowsOrNull(activeListResponse) {
   return Array.isArray(activeListResponse)
     ? activeListResponse
     : Array.isArray(activeListResponse?.result?.sessions)
@@ -106,7 +114,11 @@ function activeListRows(activeListResponse) {
     ? activeListResponse.sessions
     : Array.isArray(activeListResponse?.result)
     ? activeListResponse.result
-    : [];
+    : null;
+}
+
+function activeListRows(activeListResponse) {
+  return activeListRowsOrNull(activeListResponse) ?? [];
 }
 
 // The session's EPHEMERAL runtime id off a row (`id` / `session_id` / `sessionId`).

@@ -5,7 +5,6 @@ import {
   makeAifyHttpCall,
 } from "./aify-http.mjs";
 import {
-  activeListRowsOrNull,
   sessionKeyFor,
   startResumeMarkerSync,
 } from "./hermes-active-session.mjs";
@@ -23,6 +22,7 @@ import {
 import { TMP_DIR } from "./hermes-env.mjs";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
+  activeListRowsOrNull,
   buildSessionActiveListFrame,
   pickMostRecentSessionRow,
   pickSessionStatusById,

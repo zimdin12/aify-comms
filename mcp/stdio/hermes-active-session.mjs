@@ -42,6 +42,7 @@ import { AIFY_API_KEY, AIFY_SERVER_URL, makeAifyHttpCall } from "./aify-http.mjs
 import { setTimeout as sleep } from "node:timers/promises";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import {
+  activeListRowsOrNull,
   buildSessionActiveListFrame,
   buildSessionListFrame,
   pickMostRecentSession,
@@ -61,24 +62,7 @@ const ATTACH_FRESH_GRACE_FRACTION = (() => {
 })();
 
 
-/**
- * The session rows of a session.active_list answer in any shape hermes has sent, or NULL for an answer in
- * none of them. Null is unknown: a caller deciding that NO session is attached must not read a reply it
- * did not recognise as an empty list (review of 53ba3622: the doctor and the loop both did).
- */
-export function activeListRowsOrNull(activeListResponse) {
-  return Array.isArray(activeListResponse)
-    ? activeListResponse
-    : Array.isArray(activeListResponse?.result?.sessions)
-    ? activeListResponse.result.sessions
-    : Array.isArray(activeListResponse?.sessions)
-    ? activeListResponse.sessions
-    : Array.isArray(activeListResponse?.result)
-    ? activeListResponse.result
-    : null;
-}
-
-/** The same rows, with an unrecognised answer read as no rows: for callers that pick a row, not count them. */
+/** The protocol module's rows, an unrecognised answer read as none: for callers that pick a row, not count. */
 export function activeListRowsLocal(activeListResponse) {
   return activeListRowsOrNull(activeListResponse) ?? [];
 }

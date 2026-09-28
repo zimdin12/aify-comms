@@ -19,7 +19,12 @@
 // sees as empty, or the reverse. An agent that looks idle while its session is live, or live while
 // the status engine sees nothing, is the exact class this project has spent the most time chasing.
 //
-// AN AGREEMENT TEST, NOT A MERGE. Which module should OWN this is a reviewer's call — the same
+// SETTLED 2026-09-28 FOR THE ROWS: ONE PARSER. The review of 53ba3622 needed a parser that can say
+// "unrecognised" (null) apart from "empty", and a third copy was the wrong answer. activeListRowsOrNull
+// now lives in hermes-gateway-protocol.js, the module that owns the gateway's envelopes, and both names
+// above delegate to it; the first block below fails if either grows its own ladder again.
+//
+// AN AGREEMENT TEST, NOT A MERGE, still, for the rowRealId pair. Which module should OWN that is a reviewer's call — the same
 // ruling already made for `createDeferred`, the turn-busy reporting family,
 // `DelegatedManagedController` and `parseProcLines`. Keeping the two from drifting in the meantime
 // is not a reviewer's call.
@@ -34,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 import { declarationSpan } from "../../../service/new_dashboard/extraction-proof.mjs";
 import { activeListRowsLocal } from "../hermes-active-session.mjs";
-import { pickSessionStatusForKey } from "../hermes-gateway-protocol.js";
+import { activeListRowsOrNull, pickSessionStatusForKey } from "../hermes-gateway-protocol.js";
 
 const STDIO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -48,18 +53,18 @@ function bodyOf(relative, name) {
   return src.split("\n").slice(span.start, span.end + 1).join("\n");
 }
 
-// ── the two copies are the same code ─────────────────────────────────────────────────────────
+// ── both names are the one parser ────────────────────────────────────────────────────────────
 {
-  const shared = bodyOf("hermes-gateway-protocol.js", "activeListRows");
-  const local = bodyOf("hermes-active-session.mjs", "activeListRowsLocal");
+  const delegate = "function NAME(activeListResponse) {\n  return activeListRowsOrNull(activeListResponse) ?? [];\n}";
   const normalise = (body, name) =>
     body.replace(/^export\s+/, "").replace(new RegExp(`\\b${name}\\b`), "NAME");
-  assert.equal(
-    normalise(local, "activeListRowsLocal"), normalise(shared, "activeListRows"),
-    "the copies have drifted at the SOURCE level. That is not automatically wrong — but it means "
-      + "one of the two now accepts a gateway envelope the other does not, so status and delivery "
-      + "will read the same response differently. Settle both, or record why they differ.",
-  );
+  for (const [relative, name] of [["hermes-gateway-protocol.js", "activeListRows"], ["hermes-active-session.mjs", "activeListRowsLocal"]]) {
+    assert.equal(
+      normalise(bodyOf(relative, name), name), delegate,
+      `${relative} ${name} parses the envelope itself again. Two parsers can accept different envelopes, `
+        + "so status and delivery would read the same response differently: teach activeListRowsOrNull instead.",
+    );
+  }
 }
 {
   // The neighbouring pair, identical apart from the parameter identifier (`r` vs `row`). Normalised
@@ -104,6 +109,15 @@ for (const [label, payload] of Object.entries(ACCEPTED)) {
     `${label}: the status-side parser did not see the row the delivery side did — the two parsers `
       + `have diverged on which envelopes they accept`,
   );
+}
+
+// ── unrecognised is not empty ────────────────────────────────────────────────────────────────
+// A caller counting sessions (the delivery loop's no-TUI teardown, the doctor's gateway-orphans) must tell
+// an answer it did not recognise from a genuine empty list (review of 53ba3622).
+assert.deepEqual(activeListRowsOrNull({ result: { sessions: [] } }), [], "a genuine empty list must read as empty");
+assert.deepEqual(activeListRowsOrNull([]), [], "a bare empty array must read as empty");
+for (const [label, payload] of Object.entries({ ...REJECTED, "a success in no known shape": { result: { unexpected: "not sessions" } } })) {
+  assert.equal(activeListRowsOrNull(payload), null, `${label}: an unrecognised answer read as a list`);
 }
 
 for (const [label, payload] of Object.entries(REJECTED)) {
