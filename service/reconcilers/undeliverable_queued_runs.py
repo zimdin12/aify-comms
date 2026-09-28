@@ -28,7 +28,11 @@ from typing import Any, Optional
 from service.api_core.channel_delivery import _CHANNEL_SIDECAR_DELIVERY_RUNTIMES
 from service.api_core.dispatch_start import _coldstart_spawn_request_for_dispatch
 from service.api_core.events import _append_dispatch_event
-from service.api_core.liveness import _has_live_claimer_lease, _has_recorded_claimer_lease
+from service.api_core.liveness import (
+    _claimer_lease_released_within,
+    _has_live_claimer_lease,
+    _has_recorded_claimer_lease,
+)
 from service.api_core.live_process_probes import (
     ACTIVE_RUN_BRIDGE_STALE_SECONDS,
     _has_live_channel_sidecar,
@@ -41,7 +45,9 @@ from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
-async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str, Any]] = None) -> bool:
+async def _agent_has_live_claimer(
+    db, agent_row, *, settings: Optional[dict[str, Any]] = None, left_within_seconds: float = 0,
+) -> bool:
     """WS3 (2026-06-02): True when SOME process can claim + deliver a dispatch to
     this agent right now — the runtime-agnostic "live claimer" deliverability
     predicate used by the queued-run backstop (Task 3.2). (Task 3.3 deaf-target
@@ -60,6 +66,11 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
       - native managed (codex / pi / opencode): any fresh, non-superseded
         bridge_instances row for the agent (the managed env bridge / RPC worker
         that claims via /dispatch/claim).
+
+    `left_within_seconds`: a delivery loop that released its lease less than this long ago counts as
+    live. It is restarting, and the reapers' grace exists for exactly that; measured from the run's
+    age instead, a sweep landing between release and re-acquire failed the run (0.7.6 review, F4).
+    The other claimers are judged by a heartbeat window that already outlasts a restart.
 
     NOTE deliberately distinct from "available for cold lazy-autostart": a managed
     agent that is registered but has NO worker yet has no claimer here, but the
@@ -90,7 +101,8 @@ async def _agent_has_live_claimer(db, agent_row, *, settings: Optional[dict[str,
     #        not-yet-polled healthy claimer must NOT be treated as deaf).
     if runtime in _CHANNEL_SIDECAR_DELIVERY_RUNTIMES:
         if await _has_recorded_claimer_lease(db, agent_row["id"]):
-            return await _has_live_claimer_lease(db, agent_row["id"])
+            return (await _has_live_claimer_lease(db, agent_row["id"])
+                    or await _claimer_lease_released_within(db, agent_row["id"], left_within_seconds))
         return await _has_live_channel_sidecar(db, agent_row["id"])
     # Native managed (codex / pi / opencode): a fresh, non-superseded bridge row
     # for the agent is the claiming worker. Channel sidecar also counts (defensive).
@@ -212,7 +224,7 @@ async def _reap_undeliverable_queued_runs(db, *, backstop_seconds: Optional[int]
         if agent_row is None:
             # Tombstoned target — its runs are drained by agent-delete; skip here.
             continue
-        if await _agent_has_live_claimer(db, agent_row, settings=settings):
+        if await _agent_has_live_claimer(db, agent_row, settings=settings, left_within_seconds=backstop_seconds):
             # Deliverable — a live claimer will pick it up on the next poll.
             continue
         # Bug D fix (2026-07-02): SELF-HEAL before failing. The run may be queued because

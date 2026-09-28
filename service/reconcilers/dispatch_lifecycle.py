@@ -61,15 +61,18 @@ async def _fail_stranded_delivered_reply_runs(db, *, limit: int = 200) -> list[d
         leaving the run open would have the Work Loop re-wake an agent the operator had just stopped.
 
     A live agent whose turn ended without a reply is not failed here: the Work Loop reminders ask it
-    for the reply, which a live agent can give. `queued_run_backstop_seconds` is the grace before the
-    first check, so a worker between restarts is not read as gone. The existing
+    for the reply, which a live agent can give. `queued_run_backstop_seconds` is the grace, and it is
+    applied twice: to the run's age, and to how long ago a delivery loop released its lease, so a
+    worker between restarts is not read as gone. The run's age alone did not cover a restart: any run
+    older than the grace was failed by a sweep landing between the loop's release and its re-acquire
+    (0.7.6 review, F4). The existing
     `_sweep_unmirrored_failed_handoffs` then mirrors the failure to the sender. SAFETY: a run the agent is
     CURRENTLY working is skipped, and the UPDATE re-checks `status='delivered'` so a reply landing
     concurrently wins. Idempotent.
     """
     settings = await _load_settings(db)
-    grace = int(settings.get("queued_run_backstop_seconds", DEFAULT_SETTINGS["queued_run_backstop_seconds"]) or 180)
-    cutoff = f"-{max(60, grace)} seconds"
+    grace = max(60, int(settings.get("queued_run_backstop_seconds", DEFAULT_SETTINGS["queued_run_backstop_seconds"]) or 180))
+    cutoff = f"-{grace} seconds"
     rows = await (await db.execute(
         """
         SELECT id, target_agent, from_agent, subject, requested_at
@@ -146,7 +149,8 @@ async def _fail_stranded_delivered_reply_runs(db, *, limit: int = 200) -> list[d
             run_reason = turn_interrupted(interrupted[0], interrupted[1])
         else:
             agent = await (await db.execute("SELECT * FROM agents WHERE id = ?", (target,))).fetchone()
-            if agent is not None and await _agent_has_live_claimer(db, agent, settings=settings):
+            if agent is not None and await _agent_has_live_claimer(db, agent, settings=settings,
+                                                                   left_within_seconds=grace):
                 continue  # something alive can still reply; the Work Loop asks it to
             run_reason = reason
         cur = await db.execute(

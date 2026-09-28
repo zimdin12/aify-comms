@@ -128,6 +128,26 @@ async def _has_live_claimer_lease(db, agent_id: str) -> bool:
     return age <= CLAIMER_LEASE_STALE_SECONDS
 
 
+async def _claimer_lease_released_within(db, agent_id: str, seconds: float) -> bool:
+    """True when the agent's delivery loop released its lease less than `seconds` ago.
+
+    A RESTART, not a death, is what this names. A hermes delivery loop releases its lease on teardown
+    and acquires it again after its next claim, so between the two `_has_live_claimer_lease` says no
+    one is there. A reaper that waits a grace "so a worker between restarts is not read as gone" has to
+    measure that grace from the release, which is what the restart changes, and not from when the run
+    it is judging was requested (0.7.6 review, F4). `seconds` of 0 or less never counts.
+    """
+    if seconds <= 0:
+        return False
+    row = await _claimer_lease_row(db, agent_id)
+    if not row or str(row["state"] or "").strip().lower() != "released":
+        return False
+    released = _iso_to_epoch(str(row["updated_at"] or ""))
+    if not released:
+        return False
+    return datetime.now(timezone.utc).timestamp() - released < seconds
+
+
 async def _has_recorded_claimer_lease(db, agent_id: str) -> bool:
     """WS5 Task 5.1: True when a lease has EVER been recorded for this agent
     (acquired OR released). Used to decide whether the lease is AUTHORITATIVE
