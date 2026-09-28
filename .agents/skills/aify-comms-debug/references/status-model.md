@@ -100,8 +100,8 @@ the contract both tables follow.
 
 | Label | Meaning |
 |-------|---------|
-| `working` | A turn is in progress (turn-start seen, no turn-end), or aify-env's screen observation shows the worker generating. Liveness-gated: a dead worker cannot hold `working`. |
-| `shell` | Live worker idle at its prompt with background shells still running (claude's footer `· N shell`, seen by aify-env). Deliverable exactly like `online`; never ends a held turn. |
+| `working` | A turn is in progress (turn-start seen, no turn-end), or aify-env sees the worker generating on screen. Liveness-gated: a dead worker cannot hold `working`. |
+| `shell` | Live worker idle at its prompt, background work: claude's footer `· N shell`, hermes' dock `N live agents`/`N procs` (read by aify-env). Delivers like `online`; never ends a held turn. |
 | `online` | Live worker, no turn in progress. The ready state: queued work delivers to it. |
 | `available` | Managed agent, host reachable, no live worker. The next send cold-starts one. |
 | `blocked` | The turn is waiting on operator input (a prompt or question), not generating. Liveness-gated like `working`. |

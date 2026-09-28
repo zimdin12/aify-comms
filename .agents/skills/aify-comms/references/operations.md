@@ -8,7 +8,7 @@ through `aify-comms-debug` rather than inventing another status.
 | Status | Meaning | Normal action |
 |---|---|---|
 | `working` | Live worker, open turn | wait, steer, or interrupt the proven turn |
-| `shell` | Idle at prompt, background shells running | send normally |
+| `shell` | Idle at prompt, background work running | send normally |
 | `online` | Live worker, between turns | send normally |
 | `available` | Managed and cold-startable, no worker | send normally; it auto-starts |
 | `starting` | A claimed spawn is coming up; no worker YET | wait — do NOT restart or re-send |

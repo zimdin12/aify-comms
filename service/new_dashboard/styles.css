@@ -1222,9 +1222,9 @@ small, .subtle { color: var(--muted); }
 .chat-chip.status.dot { padding: 0; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
 .chat-chip.status.dot::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .chat-chip.status.dot.active { background: var(--accent-soft); border-color: var(--accent); }
-/* Per-state colors MUST match the base selector's specificity (.chat-chip.status.dot::before =
-   0,3,1) or the grey default wins and every dot renders colorless. Qualify with .status.dot. */
+/* Per-state colors MUST qualify with .status.dot (0,3,1 like ::before above), or the grey default wins. */
 .chat-chip.status.dot.s-working::before { background: var(--amber); }
+.chat-chip.status.dot.s-shell::before { background: #3fc6d6; }
 .chat-chip.status.dot.s-online::before { background: var(--green-soft); }
 .chat-chip.status.dot.s-available::before { background: var(--available-blue); }
 .chat-chip.status.dot.s-blocked::before { background: var(--red); }
