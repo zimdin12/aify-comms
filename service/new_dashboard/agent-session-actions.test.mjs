@@ -499,6 +499,41 @@ test("A HANDOFF WITH AN EMPTY PACKET SENDS THE SERVICE'S BRIEF, never an empty f
   } finally { typed.restore(); }
 });
 
+test("A BRIEF FILLED FOR ANOTHER COUNT IS FETCHED AGAIN; text the operator edited is sent as written", async () => {
+  // Review of 7f638a65: the brief was filled for 10, the operator changed the count to 3, and the old
+  // "read your last 10" text was spawned.
+  const filledFor10 = (value) => ({ value, dataset: { briefText: "READ 10", briefFor: "10" } });
+  const stale = withActions({ fields: { "cont-recent": "3" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    Object.assign(document.getElementById("cont-packet"), filledFor10("READ 10"));
+    const all = answer(stale, { "/agents/coder/compact/handoff-brief": { ok: true, recentMessages: 3, text: "READ 3" } });
+    await submitContinue("s1", false);
+    assert.ok(all.includes("GET /agents/coder/compact/handoff-brief?sessionId=s1&recentMessages=3"), all.join("\n"));
+    assert.equal(JSON.parse(stale.sent.at(-1).body).initialMessage, "READ 3");
+  } finally { stale.restore(); }
+
+  const edited = withActions({ fields: { "cont-recent": "3" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    Object.assign(document.getElementById("cont-packet"), filledFor10("READ 10, and my note"));
+    const all = answer(edited, {});
+    await submitContinue("s1", false);
+    assert.ok(!all.some((r) => r.includes("handoff-brief")), "the operator's edit is theirs, whatever the count");
+    assert.equal(JSON.parse(edited.sent.at(-1).body).initialMessage, "READ 10, and my note");
+  } finally { edited.restore(); }
+
+  const same = withActions({ fields: { "cont-recent": "10" } });
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder", environmentId: "env-real", runtime: "claude-code" }];
+    Object.assign(document.getElementById("cont-packet"), filledFor10("READ 10"));
+    const all = answer(same, {});
+    await submitContinue("s1", false);
+    assert.ok(!all.some((r) => r.includes("handoff-brief")), "CONTROL: an unchanged count sends the brief already there");
+    assert.equal(JSON.parse(same.sent.at(-1).body).initialMessage, "READ 10");
+  } finally { same.restore(); }
+});
+
 test("INIT REFUSES A PARTIAL BAG", () => {
   const full = {
     chatController: { close() {}, open() {} }, closeInspector() {}, markConversationRead: async () => {},

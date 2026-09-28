@@ -7,11 +7,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { setApiBase } from "./api-client.mjs";
-import { fillHandoffBrief, handoffBriefPath, loadHandoffBrief } from "./handoff-brief.mjs";
+import { briefIsStale, fillHandoffBrief, handoffBriefPath, loadHandoffBrief } from "./handoff-brief.mjs";
 import { state } from "./state.mjs";
 
 function field(value = "") {
-  return { value, innerHTML: "", classList: { add() {}, remove() {} } };
+  // `dataset` because every real element has one; the form records which brief it filled in there.
+  return { value, innerHTML: "", dataset: {}, classList: { add() {}, remove() {} } };
 }
 
 /** Install a document holding the form's two fields and a fetch answering `reply`; returns the probe. */
@@ -71,6 +72,10 @@ test("an empty packet is filled, and the count the service applied is shown", as
     assert.deepEqual(h.asked, ["/agents/coder/compact/handoff-brief?sessionId=s1"]);
     assert.equal(h.els["cont-packet"].value, "BRIEF");
     assert.equal(h.els["cont-recent"].value, "10");
+    // What a submit reads to tell this brief from the operator's text, and which count it was for.
+    assert.deepEqual({ ...h.els["cont-packet"].dataset }, { briefText: "BRIEF", briefFor: "10" });
+    assert.equal(briefIsStale(h.els["cont-packet"], "10"), false);
+    assert.equal(briefIsStale(h.els["cont-packet"], "3"), true);
   } finally { h.restore(); }
 });
 

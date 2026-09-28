@@ -31,6 +31,17 @@ export async function loadHandoffBrief(agentId, sid, recentMessages) {
 }
 
 /**
+ * Whether the packet box still holds a brief written for a different message count than the form now
+ * asks for. The count can be changed after the brief was filled in, and the old text then promised the
+ * old count (review of 7f638a65: count 3 submitted a brief saying "read 10"). Text the operator edited is
+ * theirs and is never stale; an untouched brief for another count is.
+ */
+export function briefIsStale(packet, recentValue) {
+  if (!packet?.dataset?.briefText || packet.value !== packet.dataset.briefText) return false;
+  return String(packet.dataset.briefFor ?? '') !== String(recentValue ?? '').trim();
+}
+
+/**
  * Put the brief for session `sid` into the open form. `force` replaces what is in the packet box (the
  * Rebuild button); without it an operator's text is left alone. Returns the brief, or null on failure.
  */
@@ -49,7 +60,12 @@ export async function fillHandoffBrief(sid, { force = false } = {}) {
   // open, is written into.
   if (state.inspector?.kind !== 'continue' || String(state.inspector.sessionId) !== String(sid)) return brief;
   const packet = byId('cont-packet');
-  if (packet && (force || !packet.value.trim())) packet.value = brief.text || '';
+  if (packet && (force || !packet.value.trim())) {
+    packet.value = brief.text || '';
+    // Which brief is in the box, so a submit can tell it apart from text the operator wrote (briefIsStale).
+    packet.dataset.briefText = packet.value;
+    packet.dataset.briefFor = String(brief.recentMessages ?? '');
+  }
   const recent = byId('cont-recent');
   if (recent && !String(recent.value || '').trim()) recent.value = String(brief.recentMessages ?? '');
   return brief;

@@ -13,7 +13,7 @@
 
 import { openAgentDrawer } from './agent-drawer.mjs';
 import { api, apiResponse } from './api-client.mjs';
-import { loadHandoffBrief } from './handoff-brief.mjs';
+import { briefIsStale, loadHandoffBrief } from './handoff-brief.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { renderSessionRail, selectedSessionIds } from './session-rail.mjs';
 import { state } from './state.mjs';
@@ -175,7 +175,9 @@ export async function submitContinue(sid, splitIdentity) {
   try {
     // AN EMPTY PACKET IS FETCHED, NOT SENT. The form fills it once the brief arrives; a submit that beats
     // that fetch, or a failed one, must not start a fresh session with no first message at all.
-    const packet = v('cont-packet') || (await loadHandoffBrief(sourceAgent, sid, v('cont-recent'))).text;
+    // A brief filled in for another count than the form now names is fetched again for this one.
+    const fresh = !v('cont-packet') || briefIsStale(byId('cont-packet'), v('cont-recent'));
+    const packet = fresh ? (await loadHandoffBrief(sourceAgent, sid, v('cont-recent'))).text : v('cont-packet');
     await api('/spawn-requests', {
       method: 'POST',
       body: JSON.stringify({

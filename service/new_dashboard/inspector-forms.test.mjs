@@ -25,6 +25,7 @@ function el() {
   return {
     innerHTML: "",
     value: "",
+    dataset: {},
     classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
   };
 }
