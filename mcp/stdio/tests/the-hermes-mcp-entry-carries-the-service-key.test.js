@@ -125,6 +125,72 @@ test("patching twice is idempotent", () => {
   }
 });
 
+// The layout of the operator's hermes config (2026-09-28): `plugins.entries.aify-comms` is hermes' own
+// plugin setting, and a two-space MCP block under `plugins:` is what earlier installs left there. The
+// old patcher replaced the FIRST indented `aify-comms:` -- the plugin setting -- so each install
+// destroyed it and added a second `plugins.aify-comms`, and hermes refused the file as a duplicate key.
+const HERMES_LIKE = [
+  "model: gpt-5",
+  "plugins:",
+  "  enabled:",
+  "    - aify-comms",
+  "  disabled: []",
+  "  entries:",
+  "    aify-comms:",
+  "      allow_tool_override: false",
+  "  aify-comms:",
+  "    command: node",
+  "    env:",
+  "      AIFY_SERVER_URL: http://stale-in-plugins",
+  "hooks:",
+  "  post_tool_call: []",
+  // Another section may name aify-comms for its own reasons; it carries no command and is not ours.
+  "known_plugin_toolsets:",
+  "  aify-comms:",
+  "    - comms_send",
+  "mcp_servers:",
+  "  aify-project-graph:",
+  "    command: node",
+  "  aify-comms:",
+  "    command: node",
+  "    env:",
+  "      AIFY_SERVER_URL: http://stale-in-mcp",
+  "platform_toolsets: {}",
+  "",
+].join("\n");
+
+const blocksUnder = (text, section) => {
+  const lines = text.split("\n");
+  let current = "";
+  return lines.filter((line) => {
+    if (/^[^\s#-][^:]*:/.test(line)) current = line.split(":")[0];
+    return current === section && /^ {2}aify-comms:$/.test(line);
+  }).length;
+};
+
+test("the entry is written under mcp_servers only, and hermes' own plugin setting survives", () => {
+  const after = configWithAifyEntry(HERMES_LIKE, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "sk-new" });
+  assert.equal(blocksUnder(after, "mcp_servers"), 1, "exactly one entry under mcp_servers");
+  assert.equal(blocksUnder(after, "plugins"), 0, "the MCP block left under plugins is removed");
+  assert.match(after, /^ {2}entries:\n {4}aify-comms:\n {6}allow_tool_override: false$/m,
+               "plugins.entries.aify-comms is hermes' plugin setting and must be untouched");
+  assert.ok(!after.includes("stale-in-mcp") && !after.includes("stale-in-plugins"));
+  assert.ok(after.includes("  aify-project-graph:") && after.includes("platform_toolsets: {}"), "neighbours survive");
+  assert.match(after, /^known_plugin_toolsets:\n {2}aify-comms:\n {4}- comms_send$/m, "another section's aify-comms key is not ours to replace");
+  assert.ok(after.includes('AIFY_API_KEY: "sk-new"'));
+  assert.equal(configWithAifyEntry(after, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "sk-new" }), after, "idempotent");
+});
+
+test("with only the plugin setting present, the entry is inserted under mcp_servers, not over it", () => {
+  const withoutEntry = HERMES_LIKE.replace(/  aify-comms:\n    command: node\n    env:\n      AIFY_SERVER_URL: http:\/\/stale-in-plugins\n/, "")
+    .replace(/  aify-comms:\n    command: node\n    env:\n      AIFY_SERVER_URL: http:\/\/stale-in-mcp\n/, "");
+  assert.equal(blocksUnder(withoutEntry, "plugins") + blocksUnder(withoutEntry, "mcp_servers"), 0, "fixture control");
+  const after = configWithAifyEntry(withoutEntry, { serverPath: SERVER_PATH, serverUrl: URL_, apiKey: "" });
+  assert.equal(blocksUnder(after, "mcp_servers"), 1);
+  assert.equal(blocksUnder(after, "plugins"), 0);
+  assert.match(after, /^ {4}aify-comms:\n {6}allow_tool_override: false$/m);
+});
+
 test("THE INSTALLER ACTUALLY PASSES A KEY -- the call site, not just the module", () => {
   // The failure this guards is a module that builds a perfect entry while install.sh hands it
   // three arguments and no key. Asserting the module alone would stay green through exactly that.

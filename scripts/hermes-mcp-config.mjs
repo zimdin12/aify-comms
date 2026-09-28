@@ -82,46 +82,62 @@ export function aifyEntryLines({ serverPath, serverUrl = "", apiKey = "" } = {})
   ];
 }
 
+/** A top-level YAML key line: `name:` at column 0. */
+const isTopLevelKey = (line) => /^[^\s#-][^:]*:/.test(line);
+
+/** Index of the first non-blank line after `start` indented at or above `indent`, else the end. */
+function blockEnd(lines, start, indent) {
+  for (let j = start + 1; j < lines.length; j++) {
+    if (lines[j].trim() === "") continue;
+    if ((lines[j].match(/^[ \t]*/) || [""])[0].length <= indent) return j;
+  }
+  return lines.length;
+}
+
+/** The top-level key a line sits under, or "" above the first one. */
+function sectionOf(lines, index) {
+  for (let j = index; j >= 0; j--) if (isTopLevelKey(lines[j])) return lines[j].split(":")[0].trim();
+  return "";
+}
+
 /**
- * Return `text` with the aify-comms MCP entry present exactly once.
+ * Return `text` with the aify-comms MCP entry present exactly once, under `mcp_servers:`.
  *
- * PURE: no filesystem, no process state. Three cases, in the order the original established --
- * replace an existing `aify-comms:` block in place (so re-running the installer REFRESHES the env
- * block; a skip-if-exists guard here once left operators on an entry that predated the env
- * expansion, which broke managed delivery), otherwise insert under an existing `mcp_servers:`,
- * otherwise append a whole `mcp_servers:` section.
+ * PURE: no filesystem, no process state. The entry is REPLACED in place when `mcp_servers:` has one,
+ * so re-running the installer refreshes its env block (a skip-if-exists guard once left operators on
+ * an entry that predated the env expansion); otherwise it is inserted under `mcp_servers:`, or a
+ * whole section is appended.
+ *
+ * ONLY INSIDE `mcp_servers:`. This used to replace the first indented `aify-comms:` anywhere, and
+ * hermes' `plugins:` has one too: `plugins.entries.aify-comms` (`allow_tool_override`). Each install
+ * overwrote that plugin setting with the MCP block one level too shallow, leaving the real entry
+ * stale; on 2026-09-28 two such blocks under `plugins:` made the whole config unparseable ("found
+ * duplicate key"), and every managed hermes died at start. A two-space `aify-comms:` block carrying
+ * `command:` under any other section is that leftover, and is removed.
  */
 export function configWithAifyEntry(text, options) {
   const entry = aifyEntryLines(options);
   const lines = String(text || "").replace(/\s*$/, "").split(/\r?\n/);
-  const mcpIndex = lines.findIndex((line) => /^[ \t]*mcp_servers:[ \t]*$/.test(line));
 
-  let existingStart = -1;
-  let existingEnd = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^[ \t]+aify-comms:[ \t]*$/.test(lines[i])) {
-      existingStart = i;
-      const baseIndent = (lines[i].match(/^[ \t]+/) || [""])[0].length;
-      existingEnd = lines.length;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim() === "") continue;
-        const indent = (lines[j].match(/^[ \t]*/) || [""])[0].length;
-        if (indent <= baseIndent) { existingEnd = j; break; }
-      }
-      break;
-    }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!/^  aify-comms:[ \t]*$/.test(lines[i]) || sectionOf(lines, i) === "mcp_servers") continue;
+    const end = blockEnd(lines, i, 2);
+    if (lines.slice(i + 1, end).some((line) => /^    command:/.test(line))) lines.splice(i, end - i);
   }
 
-  if (existingStart >= 0) {
-    lines.splice(existingStart, existingEnd - existingStart, ...entry);
-    return lines.join("\n") + "\n";
+  const mcpIndex = lines.findIndex((line) => /^mcp_servers:[ \t]*$/.test(line));
+  if (mcpIndex < 0) {
+    const head = lines.filter(Boolean).join("\n");
+    return `${head}${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`;
   }
-  if (mcpIndex >= 0) {
+  const sectionEnd = blockEnd(lines, mcpIndex, 0);
+  const existing = lines.findIndex((line, i) => i > mcpIndex && i < sectionEnd && /^  aify-comms:[ \t]*$/.test(line));
+  if (existing >= 0) {
+    lines.splice(existing, blockEnd(lines, existing, 2) - existing, ...entry);
+  } else {
     lines.splice(mcpIndex + 1, 0, ...entry);
-    return lines.join("\n") + "\n";
   }
-  const head = lines.filter(Boolean).join("\n");
-  return `${head}${lines.some(Boolean) ? "\n\n" : ""}mcp_servers:\n${entry.join("\n")}\n`;
+  return lines.join("\n") + "\n";
 }
 
 /** Read, patch, write. The only side effect in this file. */
