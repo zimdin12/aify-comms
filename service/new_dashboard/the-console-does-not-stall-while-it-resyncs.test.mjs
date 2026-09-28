@@ -93,7 +93,7 @@ function withRealResync(run, { snapshotSeq = 5, snapshotSeqs = null, snapshot = 
     return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) };
   };
   setApiBase("");
-  initConsoleActions({ closeInspector() {}, refresh: async () => {}, refreshSoon() {}, setPage() {} });
+  initConsoleActions({ closeInspector() {}, refresh: async () => {}, refreshSoon() {}, renderSessionWorkspace() {}, setPage() {} });
   initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },
     dashboardNotifier: { handle() {} },
     evaluateFlowGates() {},

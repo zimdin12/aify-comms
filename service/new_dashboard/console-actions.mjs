@@ -7,7 +7,9 @@
 // reconnect. Its sequence bookkeeping is what stops the repaint from being undone by frames that were
 // already painted.
 //
-// Four injected names, each of which reaches `refresh`.
+// Five injected names. `renderSessionWorkspace` stays in app.js, where it reaches most of the render web;
+// `openRunConsole` called it without it being injected, so the jump from a run to its console threw
+// ReferenceError before it could close the inspector (external review, 2026-09-29).
 
 import { api } from './api-client.mjs';
 import { cursorFromSnapshot, drainHeldFrames, rememberPainted } from './console-cursor.mjs';
@@ -28,14 +30,15 @@ const MAX_RESYNC_PASSES = 3;
 let closeInspector = () => {};
 let refresh = async () => {};
 let refreshSoon = () => {};
+let renderSessionWorkspace = () => {};
 let setPage = () => {};
 
 /** Supply the app.js-side dependencies. Throws on a partial bag. */
 export function initConsoleActions(deps) {
-  const REQUIRED = ['closeInspector', 'refresh', 'refreshSoon', 'setPage'];
+  const REQUIRED = ['closeInspector', 'refresh', 'refreshSoon', 'renderSessionWorkspace', 'setPage'];
   const missing = REQUIRED.filter((k) => typeof deps?.[k] !== 'function');
   if (missing.length) throw new TypeError(`initConsoleActions requires ${missing.join(', ')}`);
-  ({ closeInspector, refresh, refreshSoon, setPage } = deps);
+  ({ closeInspector, refresh, refreshSoon, renderSessionWorkspace, setPage } = deps);
 }
 
 

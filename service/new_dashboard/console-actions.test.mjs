@@ -90,11 +90,12 @@ function withConsole({ confirm = true, snapshot = { terminal: { snapshot: "CLEAN
     return { ok: true, status: 200, statusText: "OK", json: async () => snapshot, text: async () => JSON.stringify(snapshot) };
   };
   setApiBase("");
-  const calls = { refresh: 0, refreshSoon: 0, closeInspector: 0, setPage: [] };
+  const calls = { refresh: 0, refreshSoon: 0, closeInspector: 0, renderSessionWorkspace: 0, setPage: [] };
   initConsoleActions({
     closeInspector: () => { calls.closeInspector += 1; },
     refresh: async () => { calls.refresh += 1; },
     refreshSoon: () => { calls.refreshSoon += 1; },
+    renderSessionWorkspace: () => { calls.renderSessionWorkspace += 1; },
     setPage: (p) => { calls.setPage.push(p); },
   });
   Object.assign(state, { sessions: [], agents: [], activeXterm: null, chat: { ...(state.chat || {}) } });
@@ -339,8 +340,23 @@ test("openRunConsole with a run that has NO session does not navigate", async ()
   } finally { h.restore(); }
 });
 
+test("openRunConsole with a session opens its console tab, repaints the workspace, and closes the inspector", async () => {
+  // External review, 2026-09-29: this called a renderSessionWorkspace that lives in app.js and was never
+  // injected, so it navigated, threw ReferenceError, and left the inspector open over the console.
+  const h = withConsole();
+  try {
+    state.sessions = [{ id: "s1", agentId: "coder-1" }];
+    openRunConsole({ id: "r1", targetAgentId: "coder-1" });
+    assert.equal(state.selectedSessionId, "s1");
+    assert.equal(state.selectedSessionTab, "console");
+    assert.deepEqual(h.calls.setPage, ["sessions"]);
+    assert.equal(h.calls.renderSessionWorkspace, 1, "the sessions workspace was not repainted for the chosen session");
+    assert.equal(h.calls.closeInspector, 1, "the inspector stayed open over the console");
+  } finally { h.restore(); }
+});
+
 test("INIT REFUSES A PARTIAL BAG", () => {
-  const full = { closeInspector() {}, refresh: async () => {}, refreshSoon() {}, setPage() {} };
+  const full = { closeInspector() {}, refresh: async () => {}, refreshSoon() {}, renderSessionWorkspace() {}, setPage() {} };
   for (const missing of Object.keys(full)) {
     const partial = { ...full };
     delete partial[missing];

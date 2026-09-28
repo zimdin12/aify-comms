@@ -399,7 +399,7 @@ restorePersistedPreferences({ setPage });
 
 initAgentSessionActions({ chatController, closeInspector, markConversationRead, refresh, refreshSoon, renderSessionWorkspace, setPage });
 initMessageActions({ chatController, refreshSoon, renderSessionConsole });
-initConsoleActions({ closeInspector, refresh, refreshSoon, setPage });
+initConsoleActions({ closeInspector, refresh, refreshSoon, renderSessionWorkspace, setPage });
 initEnvironmentActions({ closeInspector, refresh, refreshSoon });
 initClickDispatch({ chatController, closeInspector, refreshSoon, renderSessionWorkspace, setPage });
 initWorkLoopActions({ refresh });

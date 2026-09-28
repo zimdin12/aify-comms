@@ -81,7 +81,7 @@ async function deliver(stride, behind = 0) {
     return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) };
   };
   setApiBase("");
-  initConsoleActions({ closeInspector() {}, refresh: async () => {}, refreshSoon() {}, setPage() {} });
+  initConsoleActions({ closeInspector() {}, refresh: async () => {}, refreshSoon() {}, renderSessionWorkspace() {}, setPage() {} });
   initRealtimeSocket({ changeRefresh: { covering: false, opened() {}, closed() {}, changed() {} },
     dashboardNotifier: { handle() {} },
     evaluateFlowGates() {},
