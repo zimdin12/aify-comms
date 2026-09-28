@@ -8,8 +8,10 @@ operator picks from it.
 **How it was gathered.** Two read-only code audits: the aify-env terminal UI, with frames rendered
 from the pure modules `lib/tui.mjs` and `lib/keys.mjs`, and the dashboard (`service/new_dashboard/`),
 probed in Node with a stubbed `document`. The live dashboard was not opened, because it needs the API
-key. The load-bearing claims were re-read at the source before this was written; each is marked
-VERIFIED or INFERRED. Line numbers are as of aify-env `8ce4414` and aify-comms `d7468486`.
+key. VERIFIED means the auditor read the code or ran the probe; INFERRED means neither. **Checked a
+second time, at the source, before this was written:** D1-D4, T1 and T2, with D3 narrowed after review
+and re-probed. Every other VERIFIED item is the auditor's reading alone, one instrument, and should be
+re-read before it is built on. Line numbers are as of aify-env `8ce4414` and aify-comms `d7468486`.
 
 ## Bugs that ship today
 
@@ -17,7 +19,7 @@ VERIFIED or INFERRED. Line numbers are as of aify-env `8ce4414` and aify-comms `
 |---|---|---|---|
 | D1 | `console-actions.mjs:176` | The run inspector's "Open console" throws: it calls `renderSessionWorkspace()`, which lives in module-scoped `app.js` and is not injected (`REQUIRED` at `:35`). The drawer stays open and the "Unexpected error" toast fires. VERIFIED. | S |
 | D2 | `session-rail.mjs:47-48` | The Sessions status filter matches `session.status` (`running`) against agent-status chips, so the Live preset shows no live session. Because the filter persists, the rail then says "No sessions yet". VERIFIED (read, plus the auditor's Node probe). | S |
-| D3 | `work-loop-panels.mjs:76`, `summary-tiles.mjs:45-46` | Setting any Work-page filter empties "Needs Attention" and the Chat metric tiles, because they read `state.contracts` (the filtered set) instead of `state.contractsBase`. VERIFIED. | S |
+| D3 | `work-loop-panels.mjs:76`, `summary-tiles.mjs:45-46`, `work-loop-actions.mjs:54` | Choosing a non-open value in the Work page's **State** dropdown replaces `state.contracts` with that state's contracts. "Needs Attention" and the Chat page's "Overdue work" and "Queued contracts" tiles count `state.contracts`, so they then describe the selected state instead of the open set. The Work page's own summary tiles read `state.contractsBase` and do not move. The **category** dropdown only re-renders the list and causes none of this. VERIFIED with an offline probe (stubbed document, real modules), holding one overdue and one queued open contract in `contractsBase`: State=open gives attention 2, overdue 1, queued 1; State=answered gives attention "clear", overdue 0, queued 0, while the Work tiles stay at Overdue 1, Open work 2; the category-change control is unchanged from open. A state that itself holds queued contracts keeps some counts, so the effect is drift, not always zero. | S |
 | D4 | `chat.js:490-515` | Send has no in-flight guard and is not disabled, so a double press sends twice (the send can take up to 20 s). Type, priority and "Expects reply" stay set after sending. VERIFIED. | S |
 | D5 | `work-loop-actions.mjs:183-205` | Bulk Remind/Close stops at the first failure: earlier items are done, the rest untried, and only a generic toast appears. VERIFIED (read). | S |
 | D6 | `settings-fields.mjs:17-21` | A comment says setting keys reach `id="…"` unescaped because the schema is hard-coded, but the schema now comes from `GET /settings/schema`. Low risk, since the source is trusted; the stated reason is false. VERIFIED. | S |
