@@ -7,9 +7,15 @@ the service came back 401, so anyone who could reach 8801 was the operator. The 
 
 THE GATE. With `API_KEY` set, `/` is served to a browser holding the session cookie, or arriving with a
 valid `?api_key=` (the bookmark shape the service port documents); anything else gets the login page.
-The cookie holds a keyed hash of the API key, never the key, so changing `API_KEY` signs every browser
-out. With no `API_KEY` there is no authentication anywhere, and this gate adds none: the service itself
+With no `API_KEY` there is no authentication anywhere, and this gate adds none: the service itself
 is open then too.
+
+THE COOKIE is `<issued_at>.<HMAC(API_KEY, issued_at)>`: the time the browser signed in, and a keyed hash
+binding that time to the key, never the key itself. The server refuses one older than `COOKIE_MAX_AGE`
+or stamped in the future, so a copied cookie stops working on a known date, and changing `API_KEY`
+signs every browser out. Until the review of 0.7.6 (L2) it was one fixed hash of the key with no age
+check, the same for every browser and valid for as long as the key stood; a browser holding that one
+is shown the login once.
 """
 
 from __future__ import annotations
@@ -21,11 +27,30 @@ from html import escape
 
 COOKIE = "aify_dashboard"
 COOKIE_MAX_AGE = 180 * 24 * 3600
+#: How far ahead of this clock a cookie's issue time may be. The cookie is only ever issued by this
+#: server, so any lead is a forgery or a clock step; one minute absorbs the step.
+CLOCK_SKEW = 60
 
 
-def session_token(api_key: str) -> str:
-    """What the cookie holds: derived from the key, so the key itself never sits in a cookie."""
-    return hmac.new(api_key.encode("utf-8"), b"aify-dashboard-session-v1", hashlib.sha256).hexdigest()
+def _signature(api_key: str, issued_at: int) -> str:
+    return hmac.new(api_key.encode("utf-8"), f"aify-dashboard-session-v2:{issued_at}".encode("ascii"),
+                    hashlib.sha256).hexdigest()
+
+
+def session_token(api_key: str, issued_at: int) -> str:
+    """What the cookie holds for a browser that signed in at `issued_at` (epoch seconds)."""
+    return f"{int(issued_at)}.{_signature(api_key, int(issued_at))}"
+
+
+def session_is_valid(api_key: str, cookie: str, now: int) -> bool:
+    """True for a cookie this server issued under `api_key` within the last `COOKIE_MAX_AGE`."""
+    stamp, _, signature = str(cookie or "").partition(".")
+    if not api_key or not signature or not (stamp.isascii() and stamp.isdigit()):
+        return False
+    issued_at = int(stamp)
+    if not now - COOKIE_MAX_AGE <= issued_at <= now + CLOCK_SKEW:
+        return False
+    return hmac.compare_digest(signature.encode("utf-8", "ignore"), _signature(api_key, issued_at).encode("ascii"))
 
 
 def key_matches(api_key: str, presented: str) -> bool:
@@ -35,12 +60,10 @@ def key_matches(api_key: str, presented: str) -> bool:
     return hmac.compare_digest(api_key.encode("utf-8", "ignore"), presented.encode("utf-8", "ignore"))
 
 
-def is_authorized(api_key: str, *, cookie: str = "", query_key: str = "") -> bool:
+def is_authorized(api_key: str, *, now: int, cookie: str = "", query_key: str = "") -> bool:
     if not api_key:
         return True
-    if cookie and hmac.compare_digest(cookie.encode("utf-8", "ignore"), session_token(api_key).encode("utf-8")):
-        return True
-    return key_matches(api_key, query_key)
+    return session_is_valid(api_key, cookie, now) or key_matches(api_key, query_key)
 
 
 _API_PORT = re.compile(r'<html[^>]*\bdata-default-api-port="(\d+)"')

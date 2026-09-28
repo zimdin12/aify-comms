@@ -1,5 +1,6 @@
 """Standalone replacement dashboard shell served on port 8801."""
 
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -12,6 +13,8 @@ from service.config import get_config
 from service.dashboard_access import COOKIE, COOKIE_MAX_AGE, is_authorized, key_matches, login_page, session_token
 
 APP_DIR = Path(__file__).resolve().parent / "new_dashboard"
+#: The shell `/` serves behind the login, with the operator key injected. Never an asset.
+PAGE = APP_DIR / "index.html"
 
 app = FastAPI(
     title="AIFY Comms Dashboard Next",
@@ -62,6 +65,9 @@ class AssetsOnly(StaticFiles):
     #: Suffixes and directories that are never part of the shipped dashboard.
     REFUSED_SUFFIXES = (".test.mjs", ".test.js")
     REFUSED_DIRECTORIES = ("fixtures",)
+    #: The shell itself, which only `/` serves, behind the login. As an asset it skipped the login
+    #: (review of 0.7.6, L1); it carried no operator key, but the login is the page's only door.
+    REFUSED_PAGES = (PAGE.name,)
 
     @classmethod
     def is_asset(cls, path: str) -> bool:
@@ -70,6 +76,8 @@ class AssetsOnly(StaticFiles):
         if not parts:
             return False
         if any(segment in cls.REFUSED_DIRECTORIES for segment in parts):
+            return False
+        if len(parts) == 1 and parts[0] in cls.REFUSED_PAGES:
             return False
         return not parts[-1].endswith(cls.REFUSED_SUFFIXES)
 
@@ -122,7 +130,7 @@ async def health():
 # a boundary against an agent with filesystem access. That boundary is authenticating the service itself
 # (`API_KEY` is unset on this deployment) and is an operator decision, recorded in docs/V0.6_PLAN.md.
 def _index_html() -> str:
-    html = (APP_DIR / "index.html").read_text(encoding="utf-8")
+    html = PAGE.read_text(encoding="utf-8")
     # The same key the service uses, from `.env` (both containers read it).
     key = str(get_config().operator_key or "")
     if not key:
@@ -136,10 +144,14 @@ def _index_html() -> str:
     return seed + html
 
 
+def _now_seconds() -> int:
+    return int(time.time())
+
+
 def _with_session(response, request: Request, api_key: str):
-    """Sign the browser in: a cookie holding a keyed hash of the API key (dashboard_access.py)."""
+    """Sign the browser in: a cookie holding its issue time, signed with the API key (dashboard_access.py)."""
     https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
-    response.set_cookie(COOKIE, session_token(api_key), max_age=COOKIE_MAX_AGE, httponly=True,
+    response.set_cookie(COOKIE, session_token(api_key, _now_seconds()), max_age=COOKIE_MAX_AGE, httponly=True,
                         samesite="strict", secure=https, path="/")
     return response
 
@@ -150,8 +162,8 @@ def _with_session(response, request: Request, api_key: str):
 async def index(request: Request):
     api_key = str(get_config().api_key or "")
     query_key = request.query_params.get("api_key", "")
-    if not is_authorized(api_key, cookie=request.cookies.get(COOKIE, ""), query_key=query_key):
-        return HTMLResponse(login_page((APP_DIR / "index.html").read_text(encoding="utf-8")), status_code=401)
+    if not is_authorized(api_key, now=_now_seconds(), cookie=request.cookies.get(COOKIE, ""), query_key=query_key):
+        return HTMLResponse(login_page(PAGE.read_text(encoding="utf-8")), status_code=401)
     response = HTMLResponse(_index_html())
     return _with_session(response, request, api_key) if key_matches(api_key, query_key) else response
 
@@ -160,7 +172,7 @@ async def index(request: Request):
 async def login(request: Request, key: str = Form("")):
     api_key = str(get_config().api_key or "")
     if api_key and not key_matches(api_key, key):
-        return HTMLResponse(login_page((APP_DIR / "index.html").read_text(encoding="utf-8"), refused=True), status_code=401)
+        return HTMLResponse(login_page(PAGE.read_text(encoding="utf-8"), refused=True), status_code=401)
     response = RedirectResponse(url="/", status_code=303)
     return _with_session(response, request, api_key) if api_key else response
 

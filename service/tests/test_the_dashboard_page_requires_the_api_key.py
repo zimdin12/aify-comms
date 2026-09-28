@@ -19,15 +19,17 @@ from service.dashboard_access import COOKIE, session_token
 
 API_KEY = "banana"
 OPERATOR_KEY = "op-secret-for-this-test"
+NOW = 1_790_000_000  # the clock the app signs cookies with, fixed so a cookie can be predicted
 
 
 class TheDashboardPageRequiresTheApiKeyTests(unittest.TestCase):
     def setUp(self):
         self.config = SimpleNamespace(api_key=API_KEY, operator_key=OPERATOR_KEY,
                                       data_dir=tempfile.mkdtemp(), version="test")
-        patcher = mock.patch.object(new_dashboard_app, "get_config", lambda: self.config)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (("get_config", lambda: self.config), ("_now_seconds", lambda: NOW)):
+            patcher = mock.patch.object(new_dashboard_app, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.client = TestClient(new_dashboard_app.app)
 
     def _carries_operator_key(self, response) -> bool:
@@ -44,7 +46,7 @@ class TheDashboardPageRequiresTheApiKeyTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(self._carries_operator_key(r), "CONTROL: an authenticated page carries the operator key")
         cookie = r.headers.get("set-cookie", "")
-        self.assertIn(f"{COOKIE}={session_token(API_KEY)}", cookie)
+        self.assertIn(f"{COOKIE}={session_token(API_KEY, NOW)}", cookie)
         self.assertIn("HttpOnly", cookie)
         self.assertIn("samesite=strict", cookie.lower())
         self.assertNotIn(f"={API_KEY};", cookie, "the cookie must not hold the key itself")
@@ -62,10 +64,10 @@ class TheDashboardPageRequiresTheApiKeyTests(unittest.TestCase):
         self.assertIn("That key was refused", wrong.text)
         right = self.client.post("/login", data={"key": API_KEY}, follow_redirects=False)
         self.assertEqual(right.status_code, 303)
-        self.assertIn(f"{COOKIE}={session_token(API_KEY)}", right.headers.get("set-cookie", ""))
+        self.assertIn(f"{COOKIE}={session_token(API_KEY, NOW)}", right.headers.get("set-cookie", ""))
 
     def test_changing_the_api_key_signs_every_browser_out(self):
-        self.client.cookies.set(COOKIE, session_token(API_KEY))
+        self.client.cookies.set(COOKIE, session_token(API_KEY, NOW))
         self.assertEqual(self.client.get("/").status_code, 200)
         self.config.api_key = "a-new-key"
         self.assertEqual(self.client.get("/").status_code, 401)
