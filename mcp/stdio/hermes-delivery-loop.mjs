@@ -500,6 +500,26 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // instead of requeued forever. Owned here (one map per loop lifetime), threaded
   // through runPollCycle → deliverRun. Cleared per-run on a successful attach.
   const emptyAttachCounter = new Map();
+  // ONE COUNT OF CYCLES WITH NO TUI CONFIRMED, fed by every path that could not confirm one: an empty
+  // active_list, a read that errored, a connect the gateway rejected. Each used to leave the count alone
+  // but the first, and pc-manager's loop spun 18 days beside a gateway with no session (2026-09-28): the
+  // live gateway answers a stale token with a 403, which is not "refused". True once teardown is due.
+  const noTuiConfirmed = () => {
+    if (!(hasSeenAttachedTui || now() - loopStartedAt > noTuiGraceMs)) return false;
+    noTuiCycles += 1;
+    return noTuiCycles >= noTuiTeardownCycles;
+  };
+  // Report the agent lost, reap the gateway host this loop owns, and end, so an orphaned but reachable
+  // gateway can no longer keep the agent looking online.
+  const giveUpWithoutTui = async () => {
+    await reportGatewayDeadOnce(noAttachedSessionTeardownMessage(host.wsUrl, noTuiCycles));
+    stopLiveness();
+    stopRepulse();
+    stopGatewayTurnDetector();
+    stopGatewayProbe();
+    await teardown();
+    return { released: false, processed: totalProcessed, residentLost: true };
+  };
   try {
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
@@ -569,6 +589,10 @@ export async function runDeliveryLoop(agentId, deps = {}) {
               continue;
             }
             await reportGatewayDeadOnce(gatewayUnreachableMessage(host.wsUrl));
+          } else if (noTuiConfirmed()) {
+            // Rejected any other way (a 403 for a token this loop no longer holds): no re-ensure can
+            // fix that, and a loop that cannot reach its gateway cannot see a TUI in it either.
+            return await giveUpWithoutTui();
           }
           await sleepImpl(POLL_MS);
           continue;
@@ -592,9 +616,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         // attached sessions: zero means no visible TUI (the SIGKILL'd-terminal orphan
         // the A1 trap can't reach — the gateway host survived but nothing is viewing
         // it). Accumulate consecutive empties; a single empty (or any attached
-        // session) resets the counter so a brief relaunch detach never trips it. On a
-        // read error (-1) leave the counter unchanged (treat a flaky read as neither
-        // empty nor attached). After NO_TUI_TEARDOWN_CYCLES sustained empties, promote
+        // session) resets the counter so a brief relaunch detach never trips it. A read
+        // error (-1) counts like an empty: it confirms no TUI either, and leaving it out
+        // let a loop spin forever (noTuiConfirmed). After NO_TUI_TEARDOWN_CYCLES, promote
         // to resident-lost: reportGatewayDeadOnce flips the agent off `available` and
         // teardown reaps the gateway host this loop owns, then self-exit so the
         // orphaned-but-reachable gateway can no longer keep the agent looking online.
@@ -604,29 +628,14 @@ export async function runDeliveryLoop(agentId, deps = {}) {
         // cold-start grace window has elapsed. Before then it's the expected pre-attach
         // window (the loop is spawned before the visible `hermes --tui` attaches), so a
         // slow first-launch TUI build on a loaded host is never torn down prematurely.
-        const coldStartGraceElapsed = now() - loopStartedAt > noTuiGraceMs;
-        if (attachedCount === 0 && (hasSeenAttachedTui || coldStartGraceElapsed)) {
-          noTuiCycles += 1;
-          if (noTuiCycles >= noTuiTeardownCycles) {
-            await reportGatewayDeadOnce(
-              noAttachedSessionTeardownMessage(host.wsUrl, noTuiCycles),
-            );
-            stopLiveness();
-            stopRepulse();
-            stopGatewayTurnDetector();
-            stopGatewayProbe();
-            await teardown();
-            return { released: false, processed: totalProcessed, residentLost: true };
-          }
-        } else if (attachedCount > 0) {
+        if (attachedCount > 0) {
           // The TUI is attached: latch it (so future empties count immediately) and
           // reset the empty streak (a brief relaunch detach never trips teardown).
           hasSeenAttachedTui = true;
           noTuiCycles = 0;
+        } else if (noTuiConfirmed()) {
+          return await giveUpWithoutTui();
         }
-        // attachedCount === -1 (read error) and the in-grace empty case both leave
-        // noTuiCycles unchanged — a flaky read or a cold-start pre-attach empty is
-        // neither a confirmed attach nor a teardown-worthy empty.
         // Task 1.4: the loop is now a LIVE CLAIMER — gateway ok + heartbeat
         // started (above) + a successful /dispatch/claim round-trip (even with 0
         // runs). Write/refresh the ready marker the wrapper health-gates on so a

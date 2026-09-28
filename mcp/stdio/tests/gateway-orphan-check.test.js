@@ -10,6 +10,9 @@
 // THE COMMAND LINES BELOW ARE REAL, copied from that capture.
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { cmdlineDeliveryLoopAgent, cmdlineHermesGatewayPort } from "../proc-probes.js";
@@ -18,6 +21,7 @@ import {
   gatewayOrphanVerdict,
   gatewayOwners,
   gatewaysInRange,
+  readGatewaySessionCount,
   unreadableListeners,
 } from "../gateway-orphan-check.mjs";
 import { imageName, parseTasklistImage } from "../listening-ports.mjs";
@@ -242,7 +246,7 @@ test("each missing input makes the answer UNKNOWN, never clean", () => {
 
 // ── the CHECK ───────────────────────────────────────────────────────────────────────────────────
 
-function harness({ procRows, markers = {}, agents = managed, listeners = [] } = {}) {
+function harness({ procRows, markers = {}, agents = managed, listeners = [], sessions = {} } = {}) {
   const calls = { added: [] };
   return {
     calls,
@@ -256,6 +260,8 @@ function harness({ procRows, markers = {}, agents = managed, listeners = [] } = 
       readPortMarkers: () => markers,
       base: BASE,
       span: SPAN,
+      // SEALED: the default reads real gateway files in TEMP and connects to live gateways.
+      sessionsOf: async (agentId) => sessions[agentId] ?? null,
     },
   };
 }
@@ -328,4 +334,65 @@ test("a service that does not answer is unknown too", () => {
   return checkGatewayOrphans(deps).then(() => {
     assert.equal(calls.added[0][2], "unknown-all");
   });
+});
+
+// ── a gateway's own session list ────────────────────────────────────────────────────────────────
+//
+// 2026-09-28, pc-manager: a RESIDENT's gateway on 8868, running since 09-25 with no TUI behind it (its
+// session.active_list listed 0 rows beside a live gateway's 1), read ok for 18 days: first its delivery
+// loop was alive, then resident gateways were exempt. The command line below is that gateway's.
+const PC_GATEWAY_CMD = GATEWAY_CMD.replace("--host 127.0.0.1 --port 8823", "--port 8868 --host 127.0.0.1 --no-open --skip-build");
+const resident = { "pc-manager": { sessionMode: "resident" } };
+
+test("THE PC-MANAGER CASE: a resident gateway listing no session is orphaned", async () => {
+  const { deps, calls } = harness({
+    procRows: [selfRow, { pid: 60944, commandLine: PC_GATEWAY_CMD }],
+    markers: { "pc-manager": 8868 }, agents: resident, sessions: { "pc-manager": 0 },
+  });
+  await checkGatewayOrphans(deps);
+  const [, ok, code, detail] = calls.added[0];
+  assert.equal(ok, false);
+  assert.equal(code, "orphaned");
+  assert.match(detail, /pc-manager pid 60944 port 8868 \(its gateway lists no session, so no TUI is attached\)/);
+});
+
+test("CONTROL: the same resident gateway listing a session is fine, and so is one whose count is unknown", async () => {
+  for (const sessions of [{ "pc-manager": 1 }, {}]) {
+    const { deps, calls } = harness({
+      procRows: [selfRow, { pid: 60944, commandLine: PC_GATEWAY_CMD }],
+      markers: { "pc-manager": 8868 }, agents: resident, sessions,
+    });
+    await checkGatewayOrphans(deps);
+    assert.equal(calls.added[0][1], true, `sessions ${JSON.stringify(sessions)}`);
+  }
+});
+
+test("a live delivery loop does not excuse a gateway listing no session", () => {
+  // pc-manager's loop was alive and spinning on a rejected connect the whole time.
+  const verdict = gatewayOrphanVerdict({
+    gateways: [{ pid: 1, port: 8826 }], owners: gatewayOwners({ "graph-senior-dev": 8826 }),
+    loopAgentIds: ["graph-senior-dev"], agents: managed, unreadable: [], sessions: new Map([["graph-senior-dev", 0]]),
+  });
+  assert.equal(verdict.code, "orphaned");
+});
+
+test("a session reader that throws reads as unknown, not as none", async () => {
+  const { deps, calls } = harness({
+    procRows: [selfRow, { pid: 60944, commandLine: PC_GATEWAY_CMD }],
+    markers: { "pc-manager": 8868 }, agents: resident,
+  });
+  deps.sessionsOf = () => { throw new Error("boom"); };
+  await checkGatewayOrphans(deps);
+  assert.equal(calls.added[0][1], true, "a failed read was taken as zero sessions");
+});
+
+test("readGatewaySessionCount counts the listed sessions, and says null for anything it could not read", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aify-gw-sessions-"));
+  fs.writeFileSync(path.join(dir, "aify-hermes-gateway-a"), JSON.stringify({ gatewayUrl: "ws://127.0.0.1:1/api/ws?token=t" }));
+  const answering = (sessions) => async () => ({ request: async () => ({ result: { sessions } }), close() {} });
+  assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: answering([]) }), 0);
+  assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: answering([{ id: "s" }, { id: "t" }]) }), 2);
+  const rejected = async () => { throw new Error("Unexpected server response: 403"); };
+  assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: rejected }), null);
+  assert.equal(await readGatewaySessionCount("no-such-agent", { tempDir: dir, open: answering([]) }), null, "no gateway file read as zero sessions");
 });

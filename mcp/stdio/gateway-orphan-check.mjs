@@ -41,6 +41,35 @@
 // REPORTS, NEVER KILLS -- the same ruling as `managed-orphans`. A gateway is a live process holding a
 // visible TUI; deciding it is unwanted is the operator's call, and a doctor that reaps on its own
 // judgement is one bad inference away from taking a session someone is reading.
+//
+// AND IT ASKS THE GATEWAY WHO IS ATTACHED. 2026-09-28: a resident's gateway read ok for 18 days with no
+// TUI behind it, first because its delivery loop was alive (spinning, unable to connect) and then
+// because resident gateways were exempt. Neither says whether anyone is using the gateway; its own
+// session.active_list does, so a gateway listing no session is reported whoever owns it.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { activeListRowsLocal } from "./hermes-active-session.mjs";
+import { openGatewayWsClient } from "./hermes-gateway.mjs";
+import { buildSessionActiveListFrame } from "./hermes-gateway-protocol.js";
+
+/**
+ * How many sessions an agent's gateway lists, or null when that could not be read (no gateway file,
+ * a refused or rejected connect, an RPC that failed). Null is unknown, never zero.
+ */
+export async function readGatewaySessionCount(agentId, { tempDir = process.env.TEMP || process.env.TMP || "/tmp", open = openGatewayWsClient, timeoutMs = 4000 } = {}) {
+  let client = null;
+  try {
+    const { gatewayUrl } = JSON.parse(readFileSync(join(tempDir, `aify-hermes-gateway-${agentId}`), "utf8"));
+    client = await open(gatewayUrl, { timeoutMs });
+    return activeListRowsLocal(await client.request(buildSessionActiveListFrame({ id: 1 }))).length;
+  } catch {
+    return null;
+  } finally {
+    try { client?.close?.(); } catch { /* already closed */ }
+  }
+}
 
 /**
  * Gateways whose port falls in aify-comms' per-agent range, one per host process tree.
@@ -139,7 +168,7 @@ export function gatewayOwners(portMarkers) {
  * a service that did not answer, and no readable markers each make the answer unknown rather than
  * clean.
  */
-export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgentIds = null, agents = null, unreadable = null } = {}) {
+export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgentIds = null, agents = null, unreadable = null, sessions = null } = {}) {
   const missing = [];
   if (gateways === null) missing.push("the process table could not be read");
   if (unreadable === null) missing.push("the listening ports could not be read");
@@ -183,6 +212,11 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
       orphans.push({ ...gw, agentId: "", why: "no port marker claims it" });
       continue;
     }
+    // ITS OWN SESSION LIST FIRST: no session means no TUI, whatever loop or residency says.
+    if (sessions?.get(agentId) === 0) {
+      orphans.push({ ...gw, agentId, why: "its gateway lists no session, so no TUI is attached" });
+      continue;
+    }
     if (live.has(agentId)) continue;
     const agent = agents[agentId];
     // A resident session owns its gateway legitimately and has no managed loop by design.
@@ -207,7 +241,7 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
     };
   }
 
-  const named = orphans.map((o) => `${o.agentId || "(unclaimed)"} pid ${o.pid} port ${o.port}`);
+  const named = orphans.map((o) => `${o.agentId || "(unclaimed)"} pid ${o.pid} port ${o.port} (${o.why})`);
   return {
     ok: false,
     code: "orphaned",
@@ -228,7 +262,7 @@ export function gatewayOrphanVerdict({ gateways = null, owners = null, loopAgent
 /**
  * Enumerate the gateways, name their owners, and say which have nothing behind them.
  */
-export async function checkGatewayOrphans({ get, add, listProcesses, listListeners, imageOf = () => null, toPort, readPortMarkers, loopAgent, base, span }) {
+export async function checkGatewayOrphans({ get, add, listProcesses, listListeners, imageOf = () => null, toPort, readPortMarkers, loopAgent, base, span, sessionsOf = readGatewaySessionCount }) {
   let gateways = null;
   let loopAgentIds = null;
   let rows = null;
@@ -258,9 +292,19 @@ export async function checkGatewayOrphans({ get, add, listProcesses, listListene
     unreadable = null;
   }
 
+  // One read per claimed gateway. A count that could not be read stays null, and the rules above decide.
+  const sessions = new Map();
+  if (gateways !== null && owners !== null) {
+    for (const gateway of gateways) {
+      const agentId = owners.get(gateway.port);
+      if (!agentId || sessions.has(agentId)) continue;
+      sessions.set(agentId, await Promise.resolve().then(() => sessionsOf(agentId)).catch(() => null));
+    }
+  }
+
   const body = await get("/api/v1/agents");
   const agents = body && body.agents && typeof body.agents === "object" ? body.agents : null;
 
-  const verdict = gatewayOrphanVerdict({ gateways, owners, loopAgentIds, agents, unreadable });
+  const verdict = gatewayOrphanVerdict({ gateways, owners, loopAgentIds, agents, unreadable, sessions });
   return add("gateway-orphans", verdict.ok, verdict.code, verdict.detail, verdict.fix);
 }

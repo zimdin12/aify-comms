@@ -137,7 +137,7 @@ Neither reads ok.
 | `tier-version` | the aify-env serving this host is older than `MINIMUM_AIFY_ENV_VERSION` (`tier-version-check.mjs`) |
 | `spawn-queue` | a spawn request a host claimed and never started, aged against the service's `SPAWN_ORPHAN_GRACE_SECONDS`; reports, never acts |
 | `managed-orphans` | managed delivery loops (`hermes-managed-host.js run <agent>`) running for an agent no live host owns; reports, never kills |
-| `gateway-orphans` | hermes gateway hosts in aify-comms' port range with no worker behind them, including unclaimed ports and elevated processes whose command line cannot be read |
+| `gateway-orphans` | hermes gateway hosts in aify-comms' port range with no worker behind them or no session in their own `session.active_list` (resident ones too), including unclaimed ports and elevated processes whose command line cannot be read |
 | `env-code-currency` | aify-env running code that differs from the code on its disk (`build` against `codeOnDisk` on its `/health`) |
 | `env-processes` | a process aify-env runs with no live terminal in the control plane, or the reverse, on this host |
 | `session-handles` | one native session handle claimed by more than one agent; reports, never refuses |

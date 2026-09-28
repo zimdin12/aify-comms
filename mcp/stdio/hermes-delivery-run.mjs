@@ -84,7 +84,7 @@ export function noAttachedSessionTeardownMessage(gatewayUrl, cycles) {
   const url = redactGatewayUrl(gatewayUrl);
   const n = Number(cycles) || 0;
   return (
-    `No visible TUI attached across ${n} poll cycles — relaunch this agent's hermes-aify ` +
+    `No visible TUI confirmed attached across ${n} poll cycles — relaunch this agent's hermes-aify ` +
     `session to reattach. Reaping the orphaned gateway host ${url}.`
   );
 }

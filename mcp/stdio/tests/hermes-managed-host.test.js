@@ -1896,6 +1896,75 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the co
   assert.ok(toreDown, "teardown (clearReady) must run so the orphaned gateway is reaped");
 });
 
+// 2026-09-28, pc-manager: a resident's loop ran 18 days beside a gateway listing ZERO sessions, its TUI
+// long gone, and the agent read `online` the whole time; it never wrote a ready marker. Failing CLAIMS
+// were ruled out (the backstop runs after one). Two paths never reached it: a gateway connect that fails
+// any way but "refused" -- the live orphan answers a stale token with `Unexpected server response: 403`,
+// which isGatewayConnectRefused says is not refused -- and an active_list read that errors, which left
+// the count unchanged. A loop that cannot see a TUI ten times running cannot deliver to one either.
+for (const [how, ws] of [
+  ["the gateway rejects every connect (403, a stale token)", { openWs: async () => { throw new Error("Unexpected server response: 403"); } }],
+  ["every active_list read errors", { openWs: async () => makeFakeWsClient({ "session.active_list": () => { throw new Error("rpc timeout"); } }) }],
+]) {
+  test(`runDeliveryLoop: no TUI confirmed tears down when ${how}`, async () => {
+    const { spawn } = makeFakeSpawn();
+    const { httpCall, calls } = makeAifyHttp();
+    let toreDown = false;
+    let clock = 0;
+    const result = await runDeliveryLoop("pc-manager", {
+      httpCall,
+      spawnImpl: spawn,
+      fetchImpl: makeFakeFetch(),
+      ...ws,
+      installTeardown: () => {},
+      sleepImpl: async () => {},
+      serverUrl: "http://127.0.0.1:8800",
+      writeReady: () => {},
+      clearReady: () => { toreDown = true; },
+      killByPort: () => {},
+      procExit: () => {},
+      noTuiTeardownCycles: 3,
+      noTuiGraceMs: 100,
+      now: () => { const t = clock; clock += 1000; return t; },
+      maxIterations: 20,
+    });
+    assert.equal(result.residentLost, true, `the loop spun without a TUI when ${how}`);
+    assert.ok(calls.find((c) => c.method === "POST" && c.endpoint === "/agents/pc-manager/resident-lost"),
+      "the agent was never reported lost, so it keeps reading online");
+    assert.ok(toreDown, "the orphaned gateway was not torn down");
+  });
+}
+
+test("runDeliveryLoop: CONTROL: one rejected connect, then an attached TUI, keeps the loop", async () => {
+  const { spawn } = makeFakeSpawn();
+  const { httpCall, calls } = makeAifyHttp();
+  let opens = 0;
+  let clock = 0;
+  const result = await runDeliveryLoop("pc-manager", {
+    httpCall,
+    spawnImpl: spawn,
+    fetchImpl: makeFakeFetch(),
+    openWs: async () => {
+      opens += 1;
+      if (opens === 1) throw new Error("Unexpected server response: 403");
+      return makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
+    },
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => {},
+    killByPort: () => {},
+    procExit: () => {},
+    noTuiTeardownCycles: 3,
+    noTuiGraceMs: 100,
+    now: () => { const t = clock; clock += 1000; return t; },
+    maxIterations: 8,
+  });
+  assert.notEqual(result.residentLost, true, "a single rejected connect tore down a loop whose TUI is attached");
+  assert.ok(!calls.find((c) => c.endpoint === "/agents/pc-manager/resident-lost"));
+});
+
 test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TUI attaches → NO teardown (slow cold start)", async () => {
   // THE FIX: the delivery loop is spawned BEFORE the visible `hermes --tui` attaches.
   // A slow first-launch TUI build can leave active_list empty for many poll cycles;

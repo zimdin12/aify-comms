@@ -216,6 +216,24 @@ Three gaps remain:
 `aify-comms doctor`'s `gateway-orphans` row reports all three. The measurements and the chain that
 made a hard kill of the host tier orphan every gateway are in the archive.
 
+A fourth, found 2026-09-28: pc-manager's resident gateway (started 2026-09-25) carried no
+`AIFY_AGENT_LEASE`, so it had no `HERMES_PARENT_PID` and its launcher's death stopped nothing; what
+started it without a lease is not known. It ran 18 days with no TUI, the agent reading `online`
+through the gateway's own MCP bridge. Two holes let it: the delivery loop's no-TUI teardown counted
+only an empty session list, never a rejected connect (a stale token answers 403) or a failed read,
+and `gateway-orphans` exempted any resident gateway. Both are closed: the loop counts every cycle
+that confirms no TUI, and the doctor reports any gateway whose own `session.active_list` is empty.
+
+## Two viewers of one agent fight over its terminal size (diagnosed 2026-09-28)
+
+A worker has one PTY. `aify-env attach` (a herdr-aify pane) resizes it to its own terminal on start
+and on every local resize, and the dashboard's web console resizes it to the browser's. The last
+resize wins, and every other viewer shows the agent's redraws for a size it is not: the operator's
+screenshot of a managed claude in herdr-aify had frames of two widths fused together. Measured the
+same evening: both herdr panes 40 rows, both worker PTYs 32 and 29. Not fixed: the usual answer,
+tmux's, is that the smallest attached viewer sets the size and every viewer is repainted when it
+changes, which is a change to aify-env's attach and to the console together.
+
 ## Rare wrong statuses for a managed claude (traced 2026-09-26)
 
 An unwatched console is NOT one: aify-env reads every terminal's output and reports its screen whether
