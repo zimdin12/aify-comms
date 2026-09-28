@@ -44,10 +44,12 @@ function dialogNode(captured) {
     removeEventListener() {},
     querySelectorAll: () => captured.focusables,
     querySelector: (selector) => {
-      if (selector === ".dialog-input" && captured.noInput) return null;
+      // A confirm renders no field, and the real querySelector then returns null: a stub that handed a confirm
+      // an input made openDialog focus that phantom field instead of a button.
+      if (selector === ".dialog-input" && (captured.noInput || !captured.markup.includes("dialog-input"))) return null;
       if (!captured.controls.has(selector)) {
         const control = {
-          value: "", focus() {},
+          value: "", focused: 0, focus() { this.focused += 1; },
           addEventListener(type, fn) { captured.controlHandlers.set(`${selector}:${type}`, fn); },
         };
         captured.controls.set(selector, control);
@@ -161,6 +163,58 @@ test("an unrelated key is left entirely alone", async () => {
   assert.equal(event.stopped, 0);
   dialog.click(".dialog-cancel");
   await dialog.settle();
+});
+
+// ── Enter answers with the FOCUSED button ──────────────────────────────────
+//
+// External review, 2026-09-29: Enter confirmed even with Cancel focused. The keydown listener is on the
+// document with capture, so it runs before the focused button's own activation and preventDefault stops
+// that activation: whatever had focus, Enter meant Confirm. On a Delete dialog, Tab to Cancel then Enter
+// deleted. These fail on that code.
+
+const opened = () => new Promise((resolve) => setTimeout(resolve, 50)); // openDialog focuses after 30 ms
+
+test("ENTER with Cancel focused CANCELS, and with Confirm focused confirms", async () => {
+  const cancelled = openWith(() => uiConfirm("Delete it?"));
+  globalThis.document.activeElement = cancelled.controls.get(".dialog-cancel");
+  cancelled.key("Enter");
+  assert.equal(await cancelled.settle(), false, "Enter on the focused Cancel button confirmed");
+
+  // CONTROL: the same dialog with Confirm focused confirms, so the answer follows focus and not a fixed side.
+  const confirmed = openWith(() => uiConfirm("Delete it?"));
+  globalThis.document.activeElement = confirmed.controls.get(".dialog-confirm");
+  confirmed.key("Enter");
+  assert.equal(await confirmed.settle(), true);
+
+  const prompt = openWith(() => uiPrompt("New name?"));
+  prompt.controls.get(".dialog-input").value = "typed";
+  globalThis.document.activeElement = prompt.controls.get(".dialog-cancel");
+  prompt.key("Enter");
+  assert.equal(await prompt.settle(), null, "Enter on a prompt's focused Cancel submitted the field");
+});
+
+test("a DESTRUCTIVE confirm opens on Cancel, and a stray Enter takes the safe answer", async () => {
+  const danger = openWith(() => uiConfirm("Delete channel #ops?", { tone: "danger" }));
+  await opened();
+  assert.equal(danger.controls.get(".dialog-cancel").focused, 1, "a destructive confirm did not open with Cancel focused");
+  assert.equal(danger.controls.get(".dialog-confirm").focused, 0, "a destructive confirm opened with Delete focused");
+  globalThis.document.activeElement = null;  // focus is on neither button: Enter must not delete
+  danger.key("Enter");
+  assert.equal(await danger.settle(), false, "a stray Enter confirmed a destructive dialog");
+
+  // CONTROL: an ordinary confirm still opens on Confirm and a stray Enter still confirms, so the two above
+  // come from the tone and not from a dialog that stopped confirming on Enter.
+  const plain = openWith(() => uiConfirm("Close this run?"));
+  await opened();
+  assert.equal(plain.controls.get(".dialog-confirm").focused, 1);
+  plain.key("Enter");
+  assert.equal(await plain.settle(), true);
+
+  // And the operator can still confirm a destructive one from the keyboard, by focusing its button.
+  const chosen = openWith(() => uiConfirm("Delete channel #ops?", { tone: "danger" }));
+  globalThis.document.activeElement = chosen.controls.get(".dialog-confirm");
+  chosen.key("Enter");
+  assert.equal(await chosen.settle(), true, "Enter on a focused Delete button did not delete");
 });
 
 // ── the focus trap ──────────────────────────────────────────────────────────

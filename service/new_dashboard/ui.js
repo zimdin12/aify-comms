@@ -80,14 +80,28 @@ function openDialog({ title = '', message = '', kind = 'confirm', defaultValue =
     };
     const onConfirm = () => done(isPrompt ? (input ? input.value : '') : true);
     const onCancel = () => done(isPrompt ? null : false);
-    overlay.querySelector('.dialog-confirm').addEventListener('click', onConfirm);
-    overlay.querySelector('.dialog-cancel').addEventListener('click', onCancel);
+    const confirmButton = overlay.querySelector('.dialog-confirm');
+    const cancelButton = overlay.querySelector('.dialog-cancel');
+    confirmButton.addEventListener('click', onConfirm);
+    cancelButton.addEventListener('click', onCancel);
+    // ENTER ANSWERS WITH THE FOCUSED BUTTON, as a native dialog does: Enter on Cancel cancels. A
+    // destructive confirm (tone 'danger') opens with Cancel focused, and Enter from anywhere that is not
+    // one of the two buttons or the prompt's field takes that same safe answer, so a stray Enter never
+    // deletes. An external review (2026-09-29) found Enter confirming with Cancel focused.
+    const safeDefault = tone === 'danger' && !isPrompt;
+    const onEnter = () => {
+      const focused = document.activeElement;
+      if (focused === cancelButton) onCancel();
+      else if (focused === confirmButton || (input && focused === input)) onConfirm();
+      else if (safeDefault) onCancel();
+      else onConfirm();
+    };
     overlay.addEventListener('click', (event) => { if (event.target === overlay) onCancel(); });
     const onKey = (event) => {
       // stopPropagation so Escape/Enter don't ALSO reach document-level handlers
       // (Escape canceling a confirm was dismissing the inspector beneath it — review #14).
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onCancel(); }
-      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); onConfirm(); }
+      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); onEnter(); }
       else if (event.key === 'Tab') {
         const items = focusables();
         if (!items.length) return;
@@ -98,7 +112,7 @@ function openDialog({ title = '', message = '', kind = 'confirm', defaultValue =
     };
     document.addEventListener('keydown', onKey, true);
     if (input) { input.value = defaultValue; setTimeout(() => input.focus(), 30); }
-    else setTimeout(() => overlay.querySelector('.dialog-confirm')?.focus(), 30);
+    else setTimeout(() => (safeDefault ? cancelButton : confirmButton)?.focus(), 30);
   });
 }
 
