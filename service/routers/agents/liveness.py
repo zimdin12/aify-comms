@@ -192,7 +192,8 @@ async def agent_heartbeat(agent_id: str, request: Request):
                 (bridge_id, agent_id),
             )).fetchone()
             if bridge_row and str(bridge_row["superseded_by"] or "").strip():
-                if await reclaim_on_beat(db, agent_id=agent_id, bridge_id=bridge_id):
+                lease = (await _load_settings(db)).get("resident_lease_seconds", 150)
+                if await reclaim_on_beat(db, agent_id=agent_id, bridge_id=bridge_id, lease_seconds=lease, now=now):
                     await db.commit()
                     logger.info("handback: agent=%s bridge=%s reclaimed its session by beating", agent_id, bridge_id)
                 else:

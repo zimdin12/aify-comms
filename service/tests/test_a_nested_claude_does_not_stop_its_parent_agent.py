@@ -289,3 +289,56 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         patched = self.client.patch("/api/v1/dispatch/runs/run-before-loss", json={"agentStatus": "stopped"})
         self.assertEqual(patched.status_code, 200, patched.text)
         self._assert_stays_stopped()
+
+    # -- overlapping nested runs, and a nested bridge that dies without a word (external review, 2026-09-29) --
+
+    def _two_nested_take_over(self):
+        """real <- nested-1 <- nested-2: each same-session registration supersedes only the current owner."""
+        self._register("real-bridge")
+        self._register("nested-1")
+        self._register("nested-2")
+        self.assertEqual(
+            (self._superseded_by("real-bridge"), self._superseded_by("nested-1")), ("nested-1", "nested-2"),
+            "precondition: two stacked takeovers",
+        )
+
+    def test_overlapping_nested_runs_whose_older_exits_first_hand_the_session_back(self):
+        """The older child's loss is ignored (it is not the owner), so the newer one's loss used to offer
+        the session only to the older, dead one, and the real bridge was refused for good."""
+        self._two_nested_take_over()
+        self.assertEqual(self._lost("nested-1").get("reason"), "bridge_not_current")
+        self._lost("nested-2")
+        self.assertNotIn("ignored", self._beat("real-bridge"), "the session's own bridge takes it back")
+        self.assertEqual(self._owner(), "real-bridge")
+        self.assertNotIn(self._agent()["status"], ("stopped", "offline"))
+
+    def test_CONTROL_overlapping_nested_runs_whose_newer_exits_first_still_unwind_in_order(self):
+        self._two_nested_take_over()
+        self._lost("nested-2")
+        self._beat("nested-1")
+        self.assertEqual(self._owner(), "nested-1", "the still-running older child beat first and holds it")
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded", "a live owner keeps it")
+        self._lost("nested-1")
+        self.assertNotIn("ignored", self._beat("real-bridge"))
+        self.assertEqual(self._owner(), "real-bridge")
+
+    def _age(self, bridge_id: str) -> None:
+        self._execute("UPDATE bridge_instances SET last_seen = '2026-01-01T00:00:00Z' WHERE id = ?", (bridge_id,))
+
+    def test_a_nested_bridge_that_crashed_gives_the_session_back_once_its_beats_lapse(self):
+        """No resident-lost ever arrives; the owner's silence past the resident lease is the release."""
+        self._nested_takes_over()
+        self._age("nested-bridge")
+        self.assertNotIn("ignored", self._beat("real-bridge"))
+        self.assertEqual(self._owner(), "real-bridge")
+        self.assertNotIn(self._agent()["status"], ("stopped", "offline"))
+        self.assertEqual(self._superseded_by("nested-bridge"), "real-bridge", "the silent owner is superseded")
+        self.assertEqual(self._beat("nested-bridge").get("reason"), "bridge_superseded", "a revived child owns nothing")
+
+    def test_CONTROL_a_silent_owner_of_a_different_session_is_not_reclaimed(self):
+        """A forced takeover by another session is deliberate; its silence hands nothing to the old one."""
+        self._register("real-bridge")
+        self._register("other-session-bridge", handle="another-session", force=True)
+        self._age("other-session-bridge")
+        self.assertEqual(self._beat("real-bridge").get("reason"), "bridge_superseded")
+        self.assertEqual(self._owner(), "other-session-bridge")

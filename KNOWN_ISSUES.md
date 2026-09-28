@@ -50,6 +50,9 @@ sc-manager did this four times on 2026-09-26, and each exit left it `stopped` fo
 the exit sets the agent `offline` instead of stopping it, and the parent's bridge takes the session back on
 its next beat (`service/api_core/nested_session_handback.py`). A predecessor killed by a real relaunch never
 beats, so nothing is handed back and the agent reads `offline` rather than `stopped` until its next launch.
+The offer reaches every same-session bridge behind the lost one, so overlapping nested runs that exit
+oldest-first still hand back; and a child's bridge that crashes without reporting its loss gives the
+session back once it has not beaten for the resident lease and the parent's bridge beats (2026-09-29).
 Since 0.7.5 the child's bridge registers the session Claude Code gave it rather than the parent's, so the
 service refuses it (409, a different handle against a live owner) and it takes nothing over
 (`sessionWhenStartedFromAClaudeShell` in `mcp/stdio/adapters/claude.js`). The signal was read from the
