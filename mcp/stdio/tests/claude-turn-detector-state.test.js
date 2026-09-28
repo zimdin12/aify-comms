@@ -141,6 +141,7 @@ test("the owner reaches only owned leaves", () => {
     "./claude-turn-end-detector.js",
     "./launch-identity.mjs",
     "./runtime-adapter.mjs",
+    "./turn-event-stamp.mjs",
   ]);
   // The server-URL fix landed first precisely so this module would not need `__serverUrl`.
   assert.doesNotMatch(src, /__serverUrl/, "no duplicate server-URL derivation may enter a new module");

@@ -25,6 +25,7 @@
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run and the wrappers relaunch.
 
 import { MACHINE_ID, RUNTIME } from "./hermes-env.mjs";
+import { turnEventStamp } from "./turn-event-stamp.mjs";
 
 // LOOKS LIKE A DUPLICATE OF `hermes-channel.js` AND MUST NOT BE MERGED WITH IT. That module declares
 // the same five names with byte-identical bodies — `channelBridgeId`, `reportTurnBusy`, `clearTurn`,
@@ -54,14 +55,21 @@ export async function reportTurnBusy(httpCall, agentId, { busy, runId = "" } = {
     turnBusy: !!busy,
     turnRunId: runId,
     turnRuntime: RUNTIME,
+    ...turnEventStamp(),
   });
 }
 
 
-export async function clearTurn(httpCall, agentId) {
+// `runId` names the run whose turn ended, so a late clear for it cannot end the NEXT run's turn: the
+// service clears only when that run's turn is the open one (0.7.6 review, O2). Left empty, the clear
+// ends whatever turn is open, as before; the gateway detector's sustained-idle clear has no run.
+export async function clearTurn(httpCall, agentId, { runId = "" } = {}) {
+  const ending = String(runId || "").trim();
   await httpCall("POST", `/agents/${encodeURIComponent(agentId)}/turn-end`, {
     bridgeId: channelBridgeId(agentId),
     turnRuntime: RUNTIME,
+    ...(ending ? { runId: ending } : {}),
+    ...turnEventStamp(),
   });
 }
 

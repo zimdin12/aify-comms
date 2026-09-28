@@ -139,7 +139,7 @@ export function makeInFlightProbe({
           inFlight.runId = "";
           inFlight.dispatchTurnOpen = false;
           inFlight.idleStreak = 0;
-          await clearTurnImpl?.();
+          await clearTurnImpl?.(runId);
           return false;
         }
       }
@@ -150,6 +150,8 @@ export function makeInFlightProbe({
       if (inFlight.observedWorking && isGatewaySessionIdle(gwStatus)) {
         inFlight.idleStreak = (Number(inFlight.idleStreak) || 0) + 1;
         if (inFlight.idleStreak >= idleThreshold) {
+          // Read BEFORE it is blanked: the clear names the run whose turn this is (0.7.6 review, O2).
+          const endedRunId = inFlight.runId;
           inFlight.completed = true; // latch: gateway sustained idle → turn ended.
           inFlight.runId = "";
           inFlight.observedWorking = false;
@@ -161,7 +163,7 @@ export function makeInFlightProbe({
           inFlight.dispatchTurnOpen = false;
           if (typeof clearTurnImpl === "function") {
             // Authoritative /turn-end: clear turn_busy NOW, not on the 120s window.
-            await clearTurnImpl();
+            await clearTurnImpl(endedRunId);
           }
           return false;
         }

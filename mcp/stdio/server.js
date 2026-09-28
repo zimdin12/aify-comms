@@ -62,6 +62,7 @@ import {
   terminateProcessTree,
 } from "./runtimes.js";
 import { defaultMachineId } from "./machine-id.mjs";
+import { turnEventStamp } from "./turn-event-stamp.mjs";
 
 import { shutdownAllPiSessions } from "./pi-session-pool.mjs";
 import { shutdownAllCodexSessions } from "./codex-session.js";
@@ -273,6 +274,7 @@ if (
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "codex",
         source: "bridge-codex-rollout-detector",
+        ...turnEventStamp(),
       });
     },
     postTurnEnd: async () => {
@@ -281,6 +283,7 @@ if (
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "codex",
         source: "bridge-codex-rollout-detector",
+        ...turnEventStamp(),
       });
     },
   });
@@ -351,6 +354,7 @@ if (
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "hermes",
         source: "bridge-resident-gateway-detector",
+        ...turnEventStamp(),
       });
     },
     // CLEAR on sustained idle — authoritative /turn-end, only ever clears.
@@ -360,6 +364,7 @@ if (
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "hermes",
         source: "bridge-resident-gateway-detector",
+        ...turnEventStamp(),
       });
     },
   });

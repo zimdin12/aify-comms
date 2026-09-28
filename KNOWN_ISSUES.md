@@ -27,14 +27,17 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   the five claim long-polls read `http.disconnect` from `receive()` (`service/longpoll.py`): a caller
   that goes ends the wait, and no attempt runs after that. The attempt itself is one transaction of a
   few milliseconds, and a caller leaving inside it is not seen.
-- **A late turn-end can clear the next turn** when it comes from a producer that sends no fire time. The
-  hooks stamp `firedAtUs` and are ordered (`api_core/hook_event_order.py`); the bridge-side detectors,
-  the codex and resident-hermes detectors in `server.js` and hermes' `clearTurn` post `/turn-end` with a
-  `bridgeId` and nothing that names the turn, so the service clears whatever turn is open, including a
-  newer run's (reproduced at the service, 0.7.6 review O2). The engine's run-id guard never fires:
-  every producer posts an empty run id (0.7.1 backlog S4). Whether a detector's end actually arrives
-  after the next start on a live host is not observed. Fixing it means choosing, per producer, what
-  names the turn: a fire time, or the run id for a run-owned turn.
+- **A late turn-end is matched to its turn only once the bridge is reinstalled** (0.7.6 review O2).
+  `/turn-end` with a `runId` clears only when that run's turn is the open one in both
+  `agent_turn_state` and `agent_status_state`; hermes' `clearTurn` sends the run it ends. The claude
+  transcript, codex and resident-hermes detectors, hermes' clears and the heartbeat that starts a turn
+  now stamp `firedAtUs` and `machineId`, so `api_core/hook_event_order.py` orders them with the hooks.
+  An end carrying neither still clears whatever is open, which is every bridge installed before this,
+  and `turn-busy-heartbeat.js`'s keep-alive `/turn-start` is still unstamped. A stamp is taken when the
+  bridge posts, milliseconds after its read, so an end read just before a start and stamped just after
+  it still wins. A stamp from a bridge whose machine id differs from the agent's registered one is
+  refused, as a hook's is. Proven at the service and on the bridge's wire bodies in tests; not observed
+  on a live host.
 - **Fixed in aify-env fbc4373: a paste that pauses stays one paste.** Before, a pause of 500 ms or more closed it and the rest was typed, submitting early. A paste given up in part now closes on the detach key alone or after 5 s of silence (a lost end marker).
 - **Codex's notify notice is proven against Codex's documentation only** (`additionalContext` "is added as
   extra developer context"), not observed in a live Codex agent's context.

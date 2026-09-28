@@ -28,6 +28,7 @@ import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
+import { turnEventStamp } from "./turn-event-stamp.mjs";
 
 // Claude hook-independent turn-END detector (pure-event-status change #1,
 // 2026-06-02). The claude Stop hook (install.sh -> POST /turn-end) is NOT a
@@ -98,6 +99,7 @@ export function armClaudeTurnEndDetector(agentId) {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "claude-code",
         source: "bridge-transcript-detector",
+        ...turnEventStamp(),
       });
     },
     postTurnEnd: async () => {
@@ -106,6 +108,7 @@ export function armClaudeTurnEndDetector(agentId) {
         bridgeId: BRIDGE_INSTANCE_ID,
         turnRuntime: "claude-code",
         source: "bridge-transcript-detector",
+        ...turnEventStamp(),
       });
     },
   });

@@ -181,6 +181,7 @@ test("the owner holds no state and reaches only owned leaves", () => {
     "./launch-identity.mjs",
     "./machine-id.mjs",
     "./turn-busy.js",
+    "./turn-event-stamp.mjs",
   ]);
 });
 

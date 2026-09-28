@@ -456,7 +456,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
       // /turn-end (turn_busy=0) — only ever CLEARS, keyed on the gateway's process
       // truth, never the aify server's derived status (anti-feedback-loop safe).
       readGatewayStatus: readManagedSessionStatus,
-      clearTurnImpl: () => clearTurn(httpCall, id).catch(() => {}),
+      clearTurnImpl: (runId) => clearTurn(httpCall, id, { runId }).catch(() => {}),
       failRunImpl: (runId, error) => markRunFailed(httpCall, { id: runId }, error),
     }),
     // Thread the in-flight runId so the server heartbeat handler keeps

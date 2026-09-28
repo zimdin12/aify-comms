@@ -8,6 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { makeDispatchReceipts } from "./channel-dispatch-receipts.mjs";
 import { loadSettingsEnv } from "./load-env.js";
 import { defaultMachineId } from "./machine-id.mjs";
+import { turnEventStamp } from "./turn-event-stamp.mjs";
 import { writeRuntimeMarker, removeRuntimeMarker } from "./runtime-markers.js";
 import { startLivenessHeartbeat } from "./liveness-heartbeat.js";
 import { BRIDGE_BUILD_TAG } from "./bridge-build.mjs";
@@ -207,6 +208,7 @@ async function reportTurnBusy(agentId, { busy, runId = "" } = {}) {
     turnBusy: !!busy,
     turnRunId: runId,
     turnRuntime: "claude-code",
+    ...turnEventStamp(),
   });
 }
 

@@ -191,7 +191,7 @@ export async function deliverRun({
           inFlight.runId = "";
           inFlight.dispatchTurnOpen = false; // no delivered turn on this path → no detector turn-start credit
         }
-        await clearTurn(httpCall, agentId).catch(() => {});
+        await clearTurn(httpCall, agentId, { runId: run?.id }).catch(() => {});
         return;
       }
 
@@ -213,7 +213,7 @@ export async function deliverRun({
         inFlight.runId = "";
         inFlight.dispatchTurnOpen = false; // no delivered turn on this path → no detector turn-start credit
       }
-      await clearTurn(httpCall, agentId).catch(() => {});
+      await clearTurn(httpCall, agentId, { runId: run?.id }).catch(() => {});
       return;
     }
     // The visible TUI session DID attach — reset this run's no-attach streak so a
@@ -340,7 +340,7 @@ export async function deliverRun({
         inFlight.runId = "";
         inFlight.dispatchTurnOpen = false; // no delivered turn on this path → no detector turn-start credit
       }
-      await clearTurn(httpCall, agentId).catch(() => {});
+      await clearTurn(httpCall, agentId, { runId: run?.id }).catch(() => {});
       return;
     }
     console.error(
@@ -355,7 +355,7 @@ export async function deliverRun({
       inFlight.runId = "";
       inFlight.dispatchTurnOpen = false; // symmetry with the other failure paths (2026-07-10 review F4)
     }
-    await clearTurn(httpCall, agentId).catch(() => {});
+    await clearTurn(httpCall, agentId, { runId: run?.id }).catch(() => {});
   }
 }
 

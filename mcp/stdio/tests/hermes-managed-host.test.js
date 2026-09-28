@@ -587,6 +587,8 @@ test("deliverRun: at threshold → FAIL with actionable no-TUI-attached message 
   assert.equal(emptyAttachCounter.has("run-1"), false, "the failed run's streak entry must be cleared");
   // The turn_busy pulse is cleared (the run is terminal, not 'working').
   assert.ok(findCall(calls, "POST", (e) => e.endsWith("/turn-end")), "a bounded-fail must clear the turn_busy pulse");
+  // …and the clear names the run, so arriving late it cannot end the next run's turn (0.7.6 review, O2).
+  assert.equal(findCall(calls, "POST", (e) => e.endsWith("/turn-end")).body.runId, SAMPLE_RUN.id);
 });
 
 test("deliverRun: a successful attach RESETS the run's no-attach streak (slow cold start never penalized)", async () => {
