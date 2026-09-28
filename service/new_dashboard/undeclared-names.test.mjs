@@ -116,3 +116,24 @@ test("every browser name the gate allows is read by some module", () => {
   const unused = ALLOWED_BROWSER.filter((name) => !read.has(name));
   assert.deepEqual(unused, [], `allowed but read by no dashboard module: ${unused.join(", ")}`);
 });
+
+test("patternNames finds every name a destructuring binds, and none for a member target", async () => {
+  // The gate's DECLARED set is built from these. A binding it missed would report its later reads as
+  // undeclared, and one it invented would hide a real undeclared read. AST nodes are built by hand, in
+  // acorn's ESTree shape, so this needs no parser.
+  const { patternNames } = await import(pathToFileURL(path.join(HERE, "undeclared-names.mjs")).href);
+  const id = (name) => ({ type: "Identifier", name });
+  // const { a, b: [c, d = 1], ...rest } = x;
+  const pattern = {
+    type: "ObjectPattern",
+    properties: [
+      { type: "Property", value: id("a") },
+      { type: "Property", value: { type: "ArrayPattern", elements: [id("c"), { type: "AssignmentPattern", left: id("d") }] } },
+      { type: "RestElement", argument: id("rest") },
+    ],
+  };
+  assert.deepEqual(patternNames(pattern), ["a", "c", "d", "rest"]);
+  assert.deepEqual(patternNames({ type: "ArrayPattern", elements: [null, id("e")] }), ["e"], "a hole binds nothing");
+  assert.deepEqual(patternNames({ type: "MemberExpression" }), [], "obj.x = ... binds nothing");
+  assert.deepEqual(patternNames(null), []);
+});
