@@ -227,15 +227,25 @@ killing nothing. And `gateway-orphans` exempted a gateway with a live loop or a 
 now reports any gateway whose own `session.active_list` is a recognised empty list. A failed or
 unrecognised read stays unknown in both.
 
-## Two viewers of one agent fight over its terminal size (diagnosed 2026-09-28)
+## Two viewers of one agent share its terminal size: the one that types owns it (aify-env 3e8a7f4)
 
-A worker has one PTY. `aify-env attach` (a herdr-aify pane) resizes it to its own terminal on start
-and on every local resize, and the dashboard's web console resizes it to the browser's. The last
-resize wins, and every other viewer shows the agent's redraws for a size it is not: the operator's
-screenshot of a managed claude in herdr-aify had frames of two widths fused together. Measured the
-same evening: both herdr panes 40 rows, both worker PTYs 32 and 29. Not fixed: the usual answer,
-tmux's, is that the smallest attached viewer sets the size and every viewer is repainted when it
-changes, which is a change to aify-env's attach and to the console together.
+A worker has one PTY, shown in a herdr-aify pane (`aify-env attach`) and in the dashboard console.
+The last resize used to win, so every other viewer showed redraws for a size it is not. On 2026-09-28
+both scrambled workers had last been resized by the dashboard (157x32 and 157x29, the second half of a
+Refresh nudge, from `terminal_controls`) while their herdr panes were 40 rows. Since aify-env
+3e8a7f4 each viewer names itself, and a keystroke from a viewer that is not the owner gives the
+terminal that viewer's size before the key lands (tmux `window-size latest`). What remains: a pane
+stays scrambled until the operator types in it or resizes it, a dashboard Refresh still takes the
+size, and what already reached herdr's scrollback stays. Live only after an aify-env restart.
+
+## Attach and typing lag came from one icacls per credential read (aify-env 4044364)
+
+The daemon ran `icacls` on the stored key's file on every plugin call and every HTTP request, and on
+Windows the spawn runs on the event loop. A 30 s profile of the live daemon (2026-09-28) put 80% of
+the main thread in that spawn; `/health` stalled 250-300 ms about twice a second, up to 3 s, and every
+keystroke echo waited behind it, worse when agents produced more output. Now read once per change of
+the file (device, inode, ctime; 60 s TTL). Measured in a harness: loop delay max 567 ms before,
+17.7 ms after. Not yet measured on the live daemon, which needs an aify-env restart to load it.
 
 ## Rare wrong statuses for a managed claude (traced 2026-09-26)
 
