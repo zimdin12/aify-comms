@@ -19,6 +19,7 @@ Driven through the real app with the config and the clock replaced, like
 from __future__ import annotations
 
 import hashlib
+import sys
 import hmac
 import tempfile
 import unittest
@@ -109,6 +110,42 @@ class TheShellHasOneDoorTests(unittest.TestCase):
 
     def test_the_shell_is_not_served_as_an_asset(self):
         self.assertEqual(self.client.get("/assets/index.html").status_code, 404)
+
+    def test_no_spelling_of_a_refused_file_is_served(self):
+        # REVIEW OF 0.7.6 (L1 follow-up): on a case-insensitive filesystem StaticFiles resolves
+        # `/assets/INDEX.HTML` to the shell, and the refusal compared names case-sensitively. On
+        # Windows a trailing dot names the same file too. Every spelling that reaches a refused file
+        # must be refused; the checks below are the ones this host can resolve.
+        spellings = ["/assets/INDEX.HTML", "/assets/InDeX.HtMl", "/assets/APP.TEST.MJS",
+                     "/assets/Fixtures/README.md", "/assets/FIXTURES/README.md"]
+        if sys.platform == "win32":
+            spellings += ["/assets/index.html.", "/assets/app.test.mjs."]
+        for path in spellings:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404, "a refused file was served")
+
+    @unittest.skipUnless(sys.platform == "win32", "8.3 short names exist only on Windows")
+    def test_a_short_name_of_the_shell_is_refused_by_what_it_resolves_to(self):
+        # The one alias no name rule can fold: Windows' 8.3 name (`INDEX~1.HTM`). Refused because the
+        # file it resolves to is the refused shell, which is what the identity check in get_response is for.
+        import ctypes
+        import os
+
+        long_path = str(new_dashboard_app.PAGE)
+        buffer = ctypes.create_unicode_buffer(1024)
+        ctypes.windll.kernel32.GetShortPathNameW(long_path, buffer, len(buffer))
+        short_name = os.path.basename(buffer.value)
+        if not short_name or short_name.casefold() == os.path.basename(long_path).casefold():
+            self.skipTest("this volume keeps no 8.3 names, so there is no alias to test")
+        self.assertEqual(self.client.get(f"/assets/{short_name}").status_code, 404,
+                         f"the shell was served under its short name {short_name}")
+
+    def test_the_rule_folds_case(self):
+        is_asset = new_dashboard_app.AssetsOnly.is_asset
+        for path in ("INDEX.HTML", "x/Fixtures/a.js", "APP.TEST.MJS", "app.Test.Js"):
+            with self.subTest(path=path):
+                self.assertFalse(is_asset(path))
+        self.assertTrue(is_asset("app.js"), "CONTROL: an ordinary asset is still one")
 
     def test_CONTROL_the_assets_the_shell_and_the_login_page_load_are_still_served(self):
         for path in ("/assets/app.js", "/assets/api-key.mjs", "/assets/api-origin.mjs"):

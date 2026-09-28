@@ -1,8 +1,10 @@
 """Standalone replacement dashboard shell served on port 8801."""
 
+import os
 import time
 from pathlib import Path
 
+import anyio
 from fastapi import FastAPI, Form, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -71,8 +73,13 @@ class AssetsOnly(StaticFiles):
 
     @classmethod
     def is_asset(cls, path: str) -> bool:
-        """Pure, so the rule can be tested without a server. `path` is the URL path under the mount."""
-        parts = [segment for segment in str(path or "").replace(chr(92), "/").split("/") if segment]
+        """Pure, so the rule can be tested without a server. `path` is the URL path under the mount.
+
+        NAMES ARE FOLDED the way a case-insensitive filesystem folds them: case, and the trailing dots
+        and spaces Windows drops. Compared as typed, `/assets/INDEX.HTML` reached the shell on Windows
+        (review of 0.7.6, L1 follow-up). Folding cannot catch every alias (an 8.3 short name), so
+        `get_response` also refuses by file identity."""
+        parts = [_folded(segment) for segment in str(path or "").replace(chr(92), "/").split("/") if segment]
         if not parts:
             return False
         if any(segment in cls.REFUSED_DIRECTORIES for segment in parts):
@@ -81,11 +88,49 @@ class AssetsOnly(StaticFiles):
             return False
         return not parts[-1].endswith(cls.REFUSED_SUFFIXES)
 
+    def _refused_files(self) -> frozenset:
+        """The identity of every file the name rule refuses, read once from the directory's TRUE names."""
+        cached = getattr(self, "_refused_cache", None)
+        if cached is None:
+            refused = set()
+            for root, _dirs, files in os.walk(self.directory):
+                for name in files:
+                    full = os.path.join(root, name)
+                    if self.is_asset(os.path.relpath(full, self.directory)):
+                        continue
+                    try:
+                        refused.add(_file_identity(os.stat(full), full))
+                    except OSError:
+                        continue
+            cached = self._refused_cache = frozenset(refused)
+        return cached
+
     async def get_response(self, path, scope):
         if not self.is_asset(path):
             # 404 rather than 403: whether the file exists is itself the thing not being published.
             raise StarletteHTTPException(status_code=404)
+        # ANY SPELLING OF A REFUSED FILE IS THAT FILE: whatever alias the filesystem resolved, a request
+        # that lands on a refused file is refused.
+        try:
+            full_path, stat_result = await anyio.to_thread.run_sync(self.lookup_path, path)
+        except (OSError, ValueError):
+            full_path, stat_result = "", None
+        if stat_result is not None and _file_identity(stat_result, full_path) in self._refused_files():
+            raise StarletteHTTPException(status_code=404)
         return await super().get_response(path, scope)
+
+
+def _folded(name: str) -> str:
+    """A file name as a case-insensitive filesystem compares it: case folded, trailing dots and spaces gone."""
+    return name.casefold().rstrip(". ")
+
+
+def _file_identity(stat_result, full_path: str):
+    """What makes two paths the same file: device and inode, or, where the filesystem reports no inode,
+    the normalised real path."""
+    if getattr(stat_result, "st_ino", 0):
+        return ("inode", stat_result.st_dev, stat_result.st_ino)
+    return ("path", os.path.normcase(os.path.realpath(full_path)))
 
 
 app.mount("/assets", AssetsOnly(directory=APP_DIR), name="new-dashboard-assets")
