@@ -138,3 +138,15 @@ def operator_key_from(request) -> str:
         return str(getattr(request.app.state.config, "operator_key", "") or "")
     except Exception:
         return ""
+
+
+def refuse_an_unproven_operator_sender(sender: str, request) -> None:
+    """A message may name the operator as its sender only as far as `authorize_operator` allows.
+
+    A message from `dashboard` is read as the operator's own: the managed wake prompt leaves the peer
+    trust rule out for it, and the Claude channel tells a session that only other senders are agents.
+    So the sending routes gate the sender name exactly as the destructive endpoints gate the actor:
+    granted with no `OPERATOR_KEY` (the API key is the boundary), and with one set, refused (403)
+    unless the request presents it. Before this the key gated nothing on a send (review of 0.7.6, O3).
+    """
+    authorize_operator(sender, request, operator_key_from(request), action="sending a message as the operator")

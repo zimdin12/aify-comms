@@ -29,7 +29,7 @@ import uuid
 from fastapi import HTTPException, Request
 
 from service.api_core.agent_sessions import _touch_agent
-from service.api_core.operator_authz import operator_is_acting
+from service.api_core.operator_authz import operator_is_acting, refuse_an_unproven_operator_sender
 from service.api_core.channel_coldstart import _coldstart_cold_channel_members
 from service.api_core.dispatch_run_state import _finalize_dispatch_runs
 from service.api_core.dispatch_runs import _create_dispatch_runs
@@ -88,6 +88,7 @@ async def _has_recent_direct_delivery_for_channel_fanout(
 @router.post("/channels/{name}/send")
 async def send_channel_message(name: str, req: ChannelMessage, request: Request):
     validate_name(name, "channel name")
+    refuse_an_unproven_operator_sender(req.from_agent, request)
     _reject_sender_truncated_body(req.body)
     db = await get_db()
     try:
