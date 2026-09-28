@@ -53,6 +53,9 @@ beats, so nothing is handed back and the agent reads `offline` rather than `stop
 The offer reaches every same-session bridge behind the lost one, so overlapping nested runs that exit
 oldest-first still hand back; and a child's bridge that crashes without reporting its loss gives the
 session back once it has not beaten for the resident lease and the parent's bridge beats (2026-09-29).
+Bridges beat every 60 s against a 150 s lease, so a live child must miss two beats first; the case
+that can still do it is a machine waking from sleep, where the parent may beat before a running child
+and take the session back from it (not observed).
 Since 0.7.5 the child's bridge registers the session Claude Code gave it rather than the parent's, so the
 service refuses it (409, a different handle against a live owner) and it takes nothing over
 (`sessionWhenStartedFromAClaudeShell` in `mcp/stdio/adapters/claude.js`). The signal was read from the
