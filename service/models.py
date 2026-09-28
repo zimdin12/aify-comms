@@ -272,6 +272,8 @@ class AgentRuntimeStateUpdate(BaseModel):
 class AgentSessionHandleUpdate(BaseModel):
     sessionHandle: Optional[str] = None
     requestedBy: Optional[str] = None
+    # The reporting bridge; a `bridge-heartbeat` must name a current registration (bridge_report_gate.py).
+    bridgeId: Optional[str] = None
 
 
 class AgentReadyUpdate(BaseModel):
@@ -674,6 +676,8 @@ class AgentNativeCompactRequest(BaseModel):
     # Who asks: a registered agent, or the dashboard. The command typed is the runtime's own and is
     # never taken from the request, so this route cannot be used to type arbitrary text.
     from_: Optional[str] = Field(default=None, alias="from")
+    # The session the caller picked; when given, a live console running another session is refused.
+    sessionId: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 

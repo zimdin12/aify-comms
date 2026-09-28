@@ -23,7 +23,11 @@ if [ -z "$profile" ]; then
   exit 0
 fi
 lower() { cygpath -u "$1" | tr '[:upper:]' '[:lower:]' | sed 's:/*$::'; }
-if [ "$(lower "$dir")" != "$(lower "$profile/.local/bin")" ]; then
+# BOTH SIDES MUST BE READ. A cygpath that fails prints nothing, and nothing equals nothing: two failed
+# conversions once compared equal and let any directory through (review of 7f638a65).
+want="$(lower "$profile/.local/bin")" || want=""
+have="$(lower "$dir")" || have=""
+if [ -z "$want" ] || [ -z "$have" ] || [ "$have" != "$want" ]; then
   echo "[install.sh] $dir is not this profile's .local/bin; the Windows user PATH was left alone." >&2
   exit 0
 fi

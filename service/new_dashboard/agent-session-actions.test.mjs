@@ -454,7 +454,8 @@ test("NATIVE COMPACT asks the service and sends no spawn, and a refusal leaves t
     answer(ok, { "/agents/coder/compact/native": { ok: true, command: "/compact" } });
     await submitContinue("s1", false);
     assert.deepEqual(mutating(ok), ["POST /agents/coder/compact/native"], "native must not also queue a handoff");
-    assert.deepEqual(JSON.parse(ok.sent[0].body), { from: "dashboard" }, "the service picks the command; the form sends only who asks");
+    assert.deepEqual(JSON.parse(ok.sent[0].body), { from: "dashboard", sessionId: "s1" },
+      "the service picks the command; the form sends who asks and WHICH session was picked, so a stale row is refused");
     assert.equal(ok.calls.closeInspector, 1);
   } finally { ok.restore(); }
 

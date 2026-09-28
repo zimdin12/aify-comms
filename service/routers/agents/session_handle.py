@@ -27,6 +27,7 @@ import json
 from fastapi import HTTPException, Request
 
 from service.api_core.agent_sessions import _agent_tombstone, _session_handle_live_owner
+from service.api_core.bridge_report_gate import bridge_may_report
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.records import _agent_record_to_dict
@@ -98,6 +99,13 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
         #     same cross-agent guard itself (registration_handle_collision.py).
         requested_by = str(req.requestedBy or "").strip()
         persisted_handle = str(row["session_handle"] or "").strip()
+
+        # A bridge's report counts only from a bridge that holds this agent (bridge_report_gate.py): a
+        # refused nested bridge rewrote its live parent's handle before this.
+        if requested_by == "bridge-heartbeat" and not await bridge_may_report(
+            db, agent_id, str(req.bridgeId or "").strip()
+        ):
+            return {"ok": True, "ignored": True, "state": "bridge-not-registered", "agentId": agent_id}
 
         # ── Cross-agent collision guard (root-cause fix, 2026-05-31) ──
         # A runtime session id must be owned by at most ONE live agent. Never let

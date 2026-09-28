@@ -58,6 +58,7 @@ async def clear_data(req: ClearRequest, request: Request):
         deleted_messages = 0
         deleted_files = 0
         deleted_agents = 0
+        deleted_channels = 0
         files_to_unlink: list[Path] = []
 
         if req.target == "inbox":
@@ -97,7 +98,9 @@ async def clear_data(req: ClearRequest, request: Request):
             else:
                 await db.execute("DELETE FROM channel_members")
                 deleted_messages += await _delete_messages_where(db, "channel IS NOT NULL")
-                await db.execute("DELETE FROM channels")
+                # Counted, because the channels themselves go: an answer of messages, files and agents only
+                # read "Nothing to clear." after a whole channel list was deleted (review of 7f638a65).
+                deleted_channels = (await db.execute("DELETE FROM channels")).rowcount or 0
 
         await db.commit()
         # Off the disk only once the rows are gone: unlinking first left rows naming missing files
@@ -116,6 +119,7 @@ async def clear_data(req: ClearRequest, request: Request):
                 "messages": deleted_messages,
                 "files": deleted_files,
                 "agents": deleted_agents,
+                "channels": deleted_channels,
             },
         }
     finally:

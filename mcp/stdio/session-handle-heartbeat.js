@@ -14,7 +14,9 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
 
   const tick = async () => {
     if (stopped) return;
-    let current = null;
+    // A claude started from another claude's shell reports the session it registered with, never the one
+    // its inherited capture store names (the same rule computeInitialSessionHandle applies).
+    let current = adapter.sessionWhenStartedFromAClaudeShell?.() || null;
     // Plan 6 A1 (2026-05-26): runtime discovery is authoritative.
     // env-read is fallback — operators leave stale env vars in their
     // shells (HERMES_SESSION_ID etc.), and the prior fallback order
@@ -22,7 +24,7 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
     // values in the server's stored handle indefinitely. Discover-first
     // is self-correcting; env-fallback preserves the legacy behavior
     // when the runtime can't be probed.
-    if (typeof adapter.discoverSessionId === "function") {
+    if (!current && typeof adapter.discoverSessionId === "function") {
       try { current = await adapter.discoverSessionId(); } catch { /* swallow; fall through */ }
     }
     if (!current) {
@@ -36,7 +38,9 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
       // the agent kept no conversation even after the owner's lease ran out (external review, 2026-09-16).
       // Offered again next tick, it is taken as soon as the owner is gone. `session-changed` is final: that
       // id waits for an operator's Confirm, and sending it again changes nothing.
-      if (answer?.state !== "session-collision") lastHandle = current;
+      // `bridge-not-registered` is the same kind of answer: this bridge holds no registration YET (a retry
+      // after a 409 can still win), so the id is offered again rather than recorded as sent.
+      if (answer?.state !== "session-collision" && answer?.state !== "bridge-not-registered") lastHandle = current;
     } catch {
       // best-effort — next tick will retry
     }
@@ -54,8 +58,9 @@ export function startSessionHandleHeartbeat({ adapter, agentId, intervalMs, post
   };
 }
 
-// Default poster: PATCH /api/v1/agents/{id}/session-handle
-export function makeDefaultHandlePoster(baseUrl, apiKey = "") {
+// Default poster: PATCH /api/v1/agents/{id}/session-handle. `bridgeId` names this bridge, which the service
+// requires of a heartbeat: a report from a bridge that holds no registration for the agent is ignored.
+export function makeDefaultHandlePoster(baseUrl, apiKey = "", bridgeId = "") {
   const root = String(baseUrl || "").replace(/\/+$/, "");
   const key = String(apiKey || "").trim();
   return async (agentId, sessionHandle) => {
@@ -66,7 +71,7 @@ export function makeDefaultHandlePoster(baseUrl, apiKey = "") {
       method: "PATCH",
       headers,
       redirect: "manual",   // a 302 would hand the key to whatever it points at
-      body: JSON.stringify({ sessionHandle, requestedBy: "bridge-heartbeat" }),
+      body: JSON.stringify({ sessionHandle, requestedBy: "bridge-heartbeat", bridgeId }),
     });
     const text = await res.text().catch(() => "");
     if (!res.ok) {

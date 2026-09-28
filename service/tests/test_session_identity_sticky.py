@@ -33,6 +33,7 @@ from service.routers.api_v2 import router
 
 
 from service.tests._base import FastApiTestCase
+from service.tests._bridge_rows import registered_bridge
 
 
 class SessionIdentityStickyTests(FastApiTestCase):
@@ -55,7 +56,8 @@ class SessionIdentityStickyTests(FastApiTestCase):
         """In-session capture path — mirrors session-handle-heartbeat.js."""
         return self.client.patch(
             f"/api/v1/agents/{agent_id}/session-handle",
-            json={"sessionHandle": session_handle, "requestedBy": "bridge-heartbeat"},
+            json={"sessionHandle": session_handle, "requestedBy": "bridge-heartbeat",
+                  "bridgeId": registered_bridge(self._db_path, agent_id)},
         )
 
     def _row(self, agent_id):

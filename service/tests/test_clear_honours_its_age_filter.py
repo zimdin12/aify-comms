@@ -53,3 +53,13 @@ class ClearHonoursItsAgeFilterTests(FastApiTestCase):
                 files, agents = self._names()
                 self.assertEqual((("fresh.txt" in files), ("fresh-agent" in agents)), (True, True),
                                  f"clear({target}) was refused and still deleted something")
+
+    def test_a_channel_wipe_reports_the_channels_it_deleted(self):
+        """Review of 7f638a65: the channels went, and the answer counted messages, files and agents only,
+        so the SSE tool rendered it "Nothing to clear."."""
+        self._fresh_world()
+        self.assertEqual(len(self.client.get("/api/v1/channels").json().get("channels", [])), 1, "control: one channel")
+        r = self.client.post("/api/v1/clear", json={"target": "channels"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.get("/api/v1/channels").json().get("channels", []), [])
+        self.assertEqual(r.json()["cleared"].get("channels"), 1)

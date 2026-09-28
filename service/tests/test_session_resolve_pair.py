@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from service.routers.api_v2 import router  # noqa: F401 — the base builds the app from it
 from service.tests._base import FastApiTestCase
+from service.tests._bridge_rows import registered_bridge
 
 RESOLVE_ROUTES = ("confirm", "keep")
 
@@ -73,7 +74,8 @@ class SessionResolvePairTests(FastApiTestCase):
         """
         response = self.client.patch(
             f"/api/v1/agents/{agent_id}/session-handle",
-            json={"sessionHandle": new_handle, "requestedBy": "bridge-heartbeat"},
+            json={"sessionHandle": new_handle, "requestedBy": "bridge-heartbeat",
+                  "bridgeId": registered_bridge(self._db_path, agent_id)},
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(

@@ -10,6 +10,7 @@ and that is the half this proves: the same PATCH the heartbeat sends, before and
 import sqlite3
 
 from service.tests._base import FastApiTestCase
+from service.tests._bridge_rows import registered_bridge
 
 H = "11111111-2222-4333-8444-555555555555"
 
@@ -25,7 +26,8 @@ class ARefusedSessionIdIsTakenOnceItsOwnerIsGone(FastApiTestCase):
 
     def _heartbeat(self, agent_id, handle):
         res = self.client.patch(f"/api/v1/agents/{agent_id}/session-handle",
-                                json={"sessionHandle": handle, "requestedBy": "bridge-heartbeat"})
+                                json={"sessionHandle": handle, "requestedBy": "bridge-heartbeat",
+                                      "bridgeId": registered_bridge(self._db_path, agent_id)})
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()
 

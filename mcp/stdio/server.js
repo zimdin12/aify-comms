@@ -172,7 +172,7 @@ const __stopHandleHeartbeat = IS_REMOTE && __isEntrypoint
       adapter: __runtimeAdapter,
       agentId: AIFY_AGENT_ID,
       intervalMs: __HEARTBEAT_MS,
-      postFn: makeDefaultHandlePoster(SERVER_URL, API_KEY),
+      postFn: makeDefaultHandlePoster(SERVER_URL, API_KEY, BRIDGE_INSTANCE_ID),
     })
   : () => {};
 

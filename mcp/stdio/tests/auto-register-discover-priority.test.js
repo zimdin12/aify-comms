@@ -9,7 +9,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 // Imported from its OWNER, not from `server.js`. It used to come from the bin entry point, which meant
 // testing nine lines of session-handle precedence loaded the entire bridge.
-import { computeInitialSessionHandle } from "../auto-registration.mjs";
+import fs from "node:fs";
+import { computeInitialSessionHandle, registersAsTheAgent } from "../auto-registration.mjs";
 import { ClaudeAdapter } from "../adapters/claude.js";
 
 test("computeInitialSessionHandle prefers discoverSessionId over env-default", async () => {
@@ -100,4 +101,28 @@ test("CONTROL: CLAUDE_PID without a session from Claude Code falls back to disco
     env: { CLAUDE_PID: "4242" },
   });
   assert.equal(result, PARENT);
+});
+
+// A nested claude inside a MANAGED worker (review of 7f638a65). The same-mode gate lets a managed
+// registration supersede, so the refusal a resident nested bridge gets never comes; the bridge must not
+// register at all. Managed launches strip CLAUDE_PID, so a legitimate managed bridge never sees one.
+test("a managed bridge under a claude started from a Claude Code shell does not register as the agent", () => {
+  assert.equal(registersAsTheAgent({ sessionMode: "managed", nestedSession: NESTED }), false);
+});
+
+test("CONTROL: every other bridge registers (managed without the signal, resident with or without it)", () => {
+  assert.equal(registersAsTheAgent({ sessionMode: "managed", nestedSession: "" }), true);
+  assert.equal(registersAsTheAgent({ sessionMode: "resident", nestedSession: NESTED }), true);
+  assert.equal(registersAsTheAgent({ sessionMode: "resident", nestedSession: "" }), true);
+});
+
+test("the registration asks the rule, with the adapter's nested session, before it posts", () => {
+  // The predicate above is only half: a registration that never consults it would register anyway.
+  const source = fs.readFileSync(new URL("../auto-registration.mjs", import.meta.url), "utf8");
+  const factory = source.slice(source.indexOf("export function makeAutoRegister"));
+  const asked = factory.indexOf("registersAsTheAgent({ sessionMode: resolvedSessionMode, nestedSession })");
+  const posted = factory.indexOf('httpCall("POST", "/agents"');
+  assert.ok(asked > 0 && posted > 0, "both the question and the post must be found in the factory");
+  assert.ok(asked < posted, "the rule must be asked before the registration is posted");
+  assert.match(factory, /const nestedSession = __runtimeAdapter\?\.sessionWhenStartedFromAClaudeShell\?\.\(\) \|\| "";/);
 });

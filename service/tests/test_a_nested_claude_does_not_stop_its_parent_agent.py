@@ -130,6 +130,61 @@ class ANestedClaudeDoesNotStopItsParentAgentTests(FastApiTestCase):
         self.assertEqual(self._owner(), "real-bridge")
         self.assertEqual(self._superseded_by("real-bridge"), "")
 
+    # -- a refused bridge reports nothing (review of 7f638a65) -------------------------------------------
+
+    def _handle_beat(self, bridge_id, handle: str) -> dict:
+        body = {"sessionHandle": handle, "requestedBy": "bridge-heartbeat"}
+        if bridge_id is not None:
+            body["bridgeId"] = bridge_id
+        response = self.client.patch(f"/api/v1/agents/{AGENT}/session-handle", json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def _parent_after_refused_nested(self):
+        """The parent registered and live; a nested bridge with its own session refused (409)."""
+        self._register("real-bridge")
+        refused = self.client.post("/api/v1/agents", json={
+            "agentId": AGENT, "role": "manager", "runtime": "claude-code", "sessionMode": "resident",
+            "launchMode": "detached", "sessionHandle": "nested-own-session", "machineId": "win32:test-host",
+            "bridgeId": "nested-bridge", "capabilities": ["resident-run", "resume", "interrupt"],
+        })
+        self.assertEqual(refused.status_code, 409, refused.text)
+        return self._fetchone("SELECT session_handle, last_seen, status_note FROM agents WHERE id = ?", (AGENT,))
+
+    def test_a_refused_bridges_heartbeat_cannot_rebind_the_parents_handle(self):
+        """The reviewer's stale-capture case: the refused bridge's heartbeat reports another id."""
+        before = self._parent_after_refused_nested()
+        self.assertEqual(self._handle_beat("nested-bridge", "stale-captured-id").get("state"), "bridge-not-registered")
+        after = self._fetchone("SELECT session_handle, last_seen, status_note FROM agents WHERE id = ?", (AGENT,))
+        self.assertEqual(tuple(after), tuple(before), "the parent's handle, last_seen and note are untouched")
+        self.assertEqual(after["session_handle"], HANDLE)
+
+    def test_a_refused_bridges_heartbeat_with_the_parents_own_handle_writes_nothing(self):
+        before = self._parent_after_refused_nested()
+        self._handle_beat("nested-bridge", HANDLE)
+        after = self._fetchone("SELECT session_handle, last_seen, status_note FROM agents WHERE id = ?", (AGENT,))
+        self.assertEqual(tuple(after), tuple(before))
+
+    def test_a_heartbeat_naming_no_bridge_writes_nothing(self):
+        before = self._parent_after_refused_nested()
+        self.assertEqual(self._handle_beat(None, "stale-captured-id").get("state"), "bridge-not-registered")
+        self.assertEqual(self._fetchone("SELECT session_handle FROM agents WHERE id = ?", (AGENT,))["session_handle"],
+                         before["session_handle"])
+
+    def test_a_superseded_bridges_heartbeat_writes_nothing(self):
+        self._nested_takes_over()
+        self.assertEqual(self._handle_beat("real-bridge", "stale-captured-id").get("state"), "bridge-not-registered")
+        self.assertEqual(self._fetchone("SELECT session_handle FROM agents WHERE id = ?", (AGENT,))["session_handle"], HANDLE)
+
+    def test_CONTROL_the_owning_bridges_heartbeat_still_moves_the_handle(self):
+        """Without this, a route that ignores every heartbeat would pass the four cases above."""
+        self._parent_after_refused_nested()
+        answer = self._handle_beat("real-bridge", "after-clear-session")
+        self.assertNotEqual(answer.get("state"), "bridge-not-registered", answer)
+        stored = self._fetchone("SELECT session_handle, pending_session_id FROM agents WHERE id = ?", (AGENT,))
+        self.assertIn("after-clear-session", (stored["session_handle"], stored["pending_session_id"]),
+                      "the owner's report is applied or parked for Confirm, never ignored")
+
     # -- nothing is handed back ----------------------------------------------------------------------
 
     def test_CONTROL_a_quick_relaunch_whose_session_closes_at_once_hands_nothing_back(self):

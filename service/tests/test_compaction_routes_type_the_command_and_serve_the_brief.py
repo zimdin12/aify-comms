@@ -72,8 +72,10 @@ class CompactionRouteTests(FastApiTestCase):
                  command or f"{runtime}-aify --aify-agent {agent_id}", "", "attached", "dashboard", now, now, None, ""),
                 write=True)
 
-    def _native(self, agent_id: str, caller="manager", *, status=None):
+    def _native(self, agent_id: str, caller="manager", *, status=None, session_id=None):
         body = {} if caller is None else {"from": caller}
+        if session_id is not None:
+            body["sessionId"] = session_id
         if status is None:
             return self.client.post(f"/api/v1/agents/{agent_id}/compact/native", json=body)
         async def fixed(*_a, **_k):
@@ -99,6 +101,20 @@ class CompactionRouteTests(FastApiTestCase):
             "SELECT body FROM terminal_events WHERE terminal_id = ? AND event_type = 'agent_console_input'", ("term_1",))]
         self.assertEqual([(a["from"], a["purpose"], a["controlId"]) for a in audit],
                          [("manager", "native-compact", data["controlId"])])
+
+    def test_a_picked_session_that_is_not_the_live_one_is_refused_and_nothing_typed(self):
+        """Review of 7f638a65: the dashboard form belongs to one session row; a historical or replaced row
+        must not compact whatever session is live now."""
+        self._seed("worker")
+        response = self._native("worker", caller="dashboard", status="online", session_id="sess_an_older_one")
+        self.assertEqual(response.json().get("refused"), "not-the-live-session", response.text)
+        self.assertEqual(self._controls(), [])
+
+    def test_CONTROL_the_live_session_picked_is_compacted(self):
+        self._seed("worker")
+        response = self._native("worker", caller="dashboard", status="online", session_id="sess_worker")
+        self.assertTrue(response.json()["ok"], response.text)
+        self.assertEqual([r["body"] for r in self._controls()], ["/compact\r"])
 
     def test_hermes_gets_its_own_command(self):
         self._seed("herm", runtime="hermes")

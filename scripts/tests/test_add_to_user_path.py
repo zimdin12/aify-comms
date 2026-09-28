@@ -49,6 +49,20 @@ class TheUserPathTakesOnlyThisProfilesBin(unittest.TestCase):
         self.assertEqual(calls, [], "a temporary home's bin reached the PATH writer")
         self.assertIn("left alone", stderr)
 
+    def test_a_path_that_cannot_be_read_never_reaches_the_writer(self):
+        """Review of 7f638a65: two failed conversions printed nothing, compared equal, and passed."""
+        broken_cygpath = 'cygpath() { if [ "$1" = "-F" ]; then echo /c/Users/someone; else return 1; fi; }; export -f cygpath; '
+        with tempfile.TemporaryDirectory() as scratch:
+            log = Path(scratch) / "powershell-calls.txt"
+            done = subprocess.run(
+                [BASH, "-c", broken_cygpath + STUB, "stub", str(HELPER), "C:/Temp/evil/.local/bin"],
+                env={**os.environ, "STUB_LOG": str(log)},
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertFalse(log.exists(), "an unreadable path reached the PATH writer")
+            self.assertIn("left alone", done.stderr)
+
     def test_CONTROL_this_profiles_bin_reaches_the_writer(self):
         """Without this, a helper that never writes at all would pass the case above."""
         calls, _ = self.run_helper(profile_bin())

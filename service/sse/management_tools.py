@@ -19,7 +19,7 @@ async def comms_clear(target: str, agentId: str = "", olderThanHours: float = 0)
     """DESTRUCTIVE AND IRREVERSIBLE. Permanently deletes data for the WHOLE hub, not just for you.
 
     Without agentId, inbox and agents reach every agent and shared every artifact -- other teams
-    included. There is no undo and no confirmation prompt; the only safety is this sentence.
+    included; channels without olderThanHours deletes every channel itself, not only its messages. There is no undo and no confirmation prompt; the only safety is this sentence.
     Do NOT use it to tidy your own inbox (reading them marks them read; just leave them) or to
     remove one agent (use comms_remove_agent). Scope it as narrowly as the task allows: pass
     agentId, and prefer olderThanHours over a bare wipe. If you did not explicitly decide to

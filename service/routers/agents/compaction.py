@@ -60,6 +60,8 @@ async def post_agent_native_compact(agent_id: str, req: AgentNativeCompactReques
             status=str(status or ""),
             terminal_id=str(terminal["id"] or "") if terminal else "",
             terminal_command=str(terminal["command"] or "") if terminal else "",
+            requested_session_id=str(req.sessionId or ""),
+            terminal_session_id=str(terminal["session_id"] or "") if terminal else "",
         ))
         if not decision.allowed:
             return {"ok": False, "refused": decision.refused, "status": status, "message": decision.message}

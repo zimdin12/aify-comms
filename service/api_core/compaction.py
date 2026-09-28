@@ -34,6 +34,7 @@ NO_TUI = "no-tui"
 MID_TURN = "mid-turn"
 PROMPT_ON_SCREEN = "prompt-on-screen"
 NOT_AT_PROMPT = "not-at-prompt"
+NOT_THE_LIVE_SESSION = "not-the-live-session"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,9 @@ class NativeCompactTarget:
     status: str
     terminal_id: str = ""
     terminal_command: str = ""
+    # The session the caller picked (the dashboard's row), and the session the live console runs.
+    requested_session_id: str = ""
+    terminal_session_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -107,6 +111,15 @@ def decide_native_compact(target: NativeCompactTarget) -> NativeCompactDecision:
             NO_TUI,
             f"{agent}'s console is synthesized by the bridge, not a {runtime} TUI, so {command} would "
             'arrive as a prompt rather than run. Use mode "handoff".',
+        )
+    # THE SESSION THAT WAS PICKED, not whichever one is live now (review of 7f638a65): the dashboard
+    # form belongs to one session row, and a historical or replaced row must not compact the current one.
+    requested = str(target.requested_session_id or "").strip()
+    if requested and requested != str(target.terminal_session_id or "").strip():
+        return _refuse(
+            NOT_THE_LIVE_SESSION,
+            f"The session you picked is not the one {agent}'s console runs now, so nothing is typed. "
+            "Reopen the agent's current session and compact that.",
         )
     status = str(target.status or "").strip().lower()
     if status in WORKER_AT_REST_STATUSES:

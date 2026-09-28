@@ -140,13 +140,13 @@ export async function resolveAgentSession(agentId, mode) {
 // NATIVE COMPACTION: the service types the runtime's own command into the agent's live console, or
 // refuses and says why (resident, no verified command, no TUI, not idle at its prompt). Nothing here
 // decides that, so the dashboard and `comms_compact` cannot disagree. Success means QUEUED.
-async function submitNativeCompact(agentId) {
+async function submitNativeCompact(agentId, sid) {
   if (!agentId) return;
   let res;
   try {
     res = await api(`/agents/${encodeURIComponent(agentId)}/compact/native`, {
       method: 'POST',
-      body: JSON.stringify({ from: 'dashboard' }),
+      body: JSON.stringify({ from: 'dashboard', sessionId: sid }),
     });
   } catch (err) { toast(`Native compact failed: ${err?.message || err}`, 'error'); return; }
   if (!res?.ok) { toast(`Native compact refused: ${res?.message || 'no reason given'}`, 'error'); return; }
@@ -160,7 +160,7 @@ export async function submitContinue(sid, splitIdentity) {
   if (!target) { toast('Session not found', 'error'); return; }
   const v = (id) => byId(id)?.value?.trim() || '';
   const sourceAgent = sessionAgentId(target) || '';
-  if (!splitIdentity && v('cont-mode') === 'native') { await submitNativeCompact(sourceAgent); return; }
+  if (!splitIdentity && v('cont-mode') === 'native') { await submitNativeCompact(sourceAgent, sid); return; }
   const newAgentId = splitIdentity ? v('cont-agent-id') : (v('cont-agent-id') || sourceAgent);
   if (!newAgentId) { toast('Agent ID is required', 'error'); return; }
   // SAY WHICH FIELD IS MISSING, HERE, rather than posting a value the server has to reject.

@@ -75,6 +75,20 @@ export async function computeInitialSessionHandle({ adapter, envHandle, env = pr
   return String(envHandle || "").trim();
 }
 
+/**
+ * Whether this bridge registers as its agent at all.
+ *
+ * A MANAGED agent's claude never carries CLAUDE_PID: every managed launch removes it (`NEVER_INHERITED` in
+ * service/api_core/launch_env.py), and Claude Code does not set it for an MCP server. A managed bridge that
+ * sees one belongs to a `claude` run from that worker's own shell, and the same-mode gate lets a managed
+ * registration supersede by design (latest launch wins), so registering would take the worker over (review
+ * of 7f638a65: a nested managed registration answered 200 and superseded the parent). A resident nested
+ * bridge still registers: it names its own session and the service refuses it (409).
+ */
+export function registersAsTheAgent({ sessionMode, nestedSession }) {
+  return !(sessionMode === "managed" && String(nestedSession || "").trim());
+}
+
 // The factory. `ensureDispatchLoop` is injected; see the header on why the retry makes this a
 // factory rather than an extra parameter.
 export function makeAutoRegister({ ensureDispatchLoop }) {
@@ -133,6 +147,11 @@ export function makeAutoRegister({ ensureDispatchLoop }) {
       const explicit = String(process.env.AIFY_SESSION_MODE || "").trim().toLowerCase();
       return explicit === "managed" || explicit === "resident" ? explicit : "resident";
     })();
+    const nestedSession = __runtimeAdapter?.sessionWhenStartedFromAClaudeShell?.() || "";
+    if (!registersAsTheAgent({ sessionMode: resolvedSessionMode, nestedSession })) {
+      console.error(`[aify] "${AIFY_AGENT_ID}" is managed and this claude was started from a Claude Code shell; not registering as it.`);
+      return;
+    }
     const channelsEnabled = String(process.env.AIFY_CHANNELS_ENABLED || "").trim() === "1";
     const capabilities = defaultCapabilitiesForRuntime(runtime, resolvedSessionMode, sessionHandle, runtimeConfig);
     const effectiveRuntimeConfig = channelsEnabled
