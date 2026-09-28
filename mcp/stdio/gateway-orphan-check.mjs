@@ -42,15 +42,15 @@
 // visible TUI; deciding it is unwanted is the operator's call, and a doctor that reaps on its own
 // judgement is one bad inference away from taking a session someone is reading.
 //
-// AND IT ASKS THE GATEWAY WHO IS ATTACHED. 2026-09-28: a resident's gateway read ok for 18 days with no
-// TUI behind it, first because its delivery loop was alive (spinning, unable to connect) and then
-// because resident gateways were exempt. Neither says whether anyone is using the gateway; its own
+// AND IT ASKS THE GATEWAY WHO IS ATTACHED. 2026-09-28: pc-manager's resident gateway (up since 09-25)
+// read ok with no TUI behind it, first because its delivery loop was alive and then, once that loop was
+// stopped, because resident gateways were exempt. Neither says whether anyone is using the gateway; its own
 // session.active_list does, so a gateway listing no session is reported whoever owns it.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { activeListRowsLocal } from "./hermes-active-session.mjs";
+import { activeListRowsOrNull } from "./hermes-active-session.mjs";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import { buildSessionActiveListFrame } from "./hermes-gateway-protocol.js";
 
@@ -63,7 +63,8 @@ export async function readGatewaySessionCount(agentId, { tempDir = process.env.T
   try {
     const { gatewayUrl } = JSON.parse(readFileSync(join(tempDir, `aify-hermes-gateway-${agentId}`), "utf8"));
     client = await open(gatewayUrl, { timeoutMs });
-    return activeListRowsLocal(await client.request(buildSessionActiveListFrame({ id: 1 }))).length;
+    // A reply in no known shape is unknown, never zero (review of 53ba3622).
+    return activeListRowsOrNull(await client.request(buildSessionActiveListFrame({ id: 1 })))?.length ?? null;
   } catch {
     return null;
   } finally {

@@ -61,7 +61,12 @@ const ATTACH_FRESH_GRACE_FRACTION = (() => {
 })();
 
 
-export function activeListRowsLocal(activeListResponse) {
+/**
+ * The session rows of a session.active_list answer in any shape hermes has sent, or NULL for an answer in
+ * none of them. Null is unknown: a caller deciding that NO session is attached must not read a reply it
+ * did not recognise as an empty list (review of 53ba3622: the doctor and the loop both did).
+ */
+export function activeListRowsOrNull(activeListResponse) {
   return Array.isArray(activeListResponse)
     ? activeListResponse
     : Array.isArray(activeListResponse?.result?.sessions)
@@ -70,7 +75,12 @@ export function activeListRowsLocal(activeListResponse) {
     ? activeListResponse.sessions
     : Array.isArray(activeListResponse?.result)
     ? activeListResponse.result
-    : [];
+    : null;
+}
+
+/** The same rows, with an unrecognised answer read as no rows: for callers that pick a row, not count them. */
+export function activeListRowsLocal(activeListResponse) {
+  return activeListRowsOrNull(activeListResponse) ?? [];
 }
 
 

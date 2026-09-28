@@ -339,8 +339,8 @@ test("a service that does not answer is unknown too", () => {
 // ── a gateway's own session list ────────────────────────────────────────────────────────────────
 //
 // 2026-09-28, pc-manager: a RESIDENT's gateway on 8868, running since 09-25 with no TUI behind it (its
-// session.active_list listed 0 rows beside a live gateway's 1), read ok for 18 days: first its delivery
-// loop was alive, then resident gateways were exempt. The command line below is that gateway's.
+// session.active_list listed 0 rows beside a live gateway's 1), read ok when found on 2026-09-28: first
+// its delivery loop was alive, then resident gateways were exempt. The command line below is that gateway's.
 const PC_GATEWAY_CMD = GATEWAY_CMD.replace("--host 127.0.0.1 --port 8823", "--port 8868 --host 127.0.0.1 --no-open --skip-build");
 const resident = { "pc-manager": { sessionMode: "resident" } };
 
@@ -392,6 +392,9 @@ test("readGatewaySessionCount counts the listed sessions, and says null for anyt
   const answering = (sessions) => async () => ({ request: async () => ({ result: { sessions } }), close() {} });
   assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: answering([]) }), 0);
   assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: answering([{ id: "s" }, { id: "t" }]) }), 2);
+  // REVIEW OF 53BA3622: a successful reply in no known shape read as 0 and would call an occupied gateway orphaned.
+  const malformed = async () => ({ request: async () => ({ result: { unexpected: "not sessions" } }), close() {} });
+  assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: malformed }), null, "an unrecognised reply was counted as no sessions");
   const rejected = async () => { throw new Error("Unexpected server response: 403"); };
   assert.equal(await readGatewaySessionCount("a", { tempDir: dir, open: rejected }), null);
   assert.equal(await readGatewaySessionCount("no-such-agent", { tempDir: dir, open: answering([]) }), null, "no gateway file read as zero sessions");

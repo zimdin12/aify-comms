@@ -504,6 +504,20 @@ export function gatewayUnreachableAfterProbesMessage(gatewayUrl, consecutiveFail
   );
 }
 
+/**
+ * A gateway that answers but keeps turning this loop away (a 403 for a token it did not issue). It says
+ * the agent cannot be delivered to, and nothing about whether a TUI is attached, which is unknown here.
+ */
+export function gatewayRejectedMessage(gatewayUrl, count, detail = "") {
+  const url = redactGatewayUrl(gatewayUrl);
+  // Within the 200-character status_note the server keeps, remedy first; the cause is cut, never the remedy.
+  const why = String(detail || "").replace(/token=[^&\s]*/g, "token=<redacted>").slice(0, 40);
+  return (
+    `Undeliverable: relaunch this agent's hermes-aify. Gateway ${url} rejected its delivery loop ` +
+    `${Number(count) || 0} times in a row${why ? ` (${why})` : ""}; left running.`
+  );
+}
+
 export function gatewayUnreachableMessage(gatewayUrl) {
   const url = redactGatewayUrl(gatewayUrl);
   return (

@@ -80,13 +80,14 @@ export function noTuiAttachedMessage(gatewayUrl, attempts) {
  * rests in is the SERVER's decision, made from session_mode; the bridge does not know it and must not
  * narrate it.
  */
-export function noAttachedSessionTeardownMessage(gatewayUrl, cycles) {
+export function noAttachedSessionTeardownMessage(gatewayUrl, cycles, { owned = false } = {}) {
   const url = redactGatewayUrl(gatewayUrl);
   const n = Number(cycles) || 0;
-  return (
-    `No visible TUI confirmed attached across ${n} poll cycles — relaunch this agent's hermes-aify ` +
-    `session to reattach. Reaping the orphaned gateway host ${url}.`
-  );
+  // SAYS WHAT TEARDOWN DOES. It kills the gateway only when this loop spawned it; a reused one belongs to
+  // the visible TUI and stays up (review of 53ba3622: this said "Reaping" for a gateway it left running).
+  // Within the 200-character status_note, remedy first (see the budget test).
+  const gateway = owned ? `Stopped its own gateway ${url}.` : `Gateway ${url} is not this loop's; left running.`;
+  return `No visible TUI attached across ${n} poll cycles; relaunch this agent's hermes-aify to reattach. ${gateway}`;
 }
 
 export function classifyClaimError(err, counter = { count: 0 }, { grace = CLAIM_404_GRACE } = {}) {

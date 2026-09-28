@@ -42,6 +42,7 @@ import {
   MAX_REENSURE_WITHOUT_RECOVERY,
   ensureGatewayHost,
   gatewayOwnerEnv,
+  gatewayRejectedMessage,
   gatewayUnreachableMessage,
   installShutdownTeardown,
   isGatewayConnectRefused,
@@ -1896,73 +1897,98 @@ test("runDeliveryLoop: SUSTAINED empty active_list (no TUI attached) PAST the co
   assert.ok(toreDown, "teardown (clearReady) must run so the orphaned gateway is reaped");
 });
 
-// 2026-09-28, pc-manager: a resident's loop ran 18 days beside a gateway listing ZERO sessions, its TUI
-// long gone, and the agent read `online` the whole time; it never wrote a ready marker. Failing CLAIMS
-// were ruled out (the backstop runs after one). Two paths never reached it: a gateway connect that fails
-// any way but "refused" -- the live orphan answers a stale token with `Unexpected server response: 403`,
-// which isGatewayConnectRefused says is not refused -- and an active_list read that errors, which left
-// the count unchanged. A loop that cannot see a TUI ten times running cannot deliver to one either.
-for (const [how, ws] of [
-  ["the gateway rejects every connect (403, a stale token)", { openWs: async () => { throw new Error("Unexpected server response: 403"); } }],
-  ["every active_list read errors", { openWs: async () => makeFakeWsClient({ "session.active_list": () => { throw new Error("rpc timeout"); } }) }],
-]) {
-  test(`runDeliveryLoop: no TUI confirmed tears down when ${how}`, async () => {
-    const { spawn } = makeFakeSpawn();
-    const { httpCall, calls } = makeAifyHttp();
-    let toreDown = false;
-    let clock = 0;
-    const result = await runDeliveryLoop("pc-manager", {
-      httpCall,
-      spawnImpl: spawn,
-      fetchImpl: makeFakeFetch(),
-      ...ws,
-      installTeardown: () => {},
-      sleepImpl: async () => {},
-      serverUrl: "http://127.0.0.1:8800",
-      writeReady: () => {},
-      clearReady: () => { toreDown = true; },
-      killByPort: () => {},
-      procExit: () => {},
-      noTuiTeardownCycles: 3,
-      noTuiGraceMs: 100,
-      now: () => { const t = clock; clock += 1000; return t; },
-      maxIterations: 20,
-    });
-    assert.equal(result.residentLost, true, `the loop spun without a TUI when ${how}`);
-    assert.ok(calls.find((c) => c.method === "POST" && c.endpoint === "/agents/pc-manager/resident-lost"),
-      "the agent was never reported lost, so it keeps reading online");
-    assert.ok(toreDown, "the orphaned gateway was not torn down");
-  });
-}
+// 2026-09-28, pc-manager: a resident agent read `online` long after it last sent anything (2026-09-10),
+// through a gateway started 2026-09-25 that listed ZERO sessions. Its loop left no log. One path that
+// never ends: a connect the gateway rejects any way but "refused" -- that gateway answers a stale token
+// with `Unexpected server response: 403`, and isGatewayConnectRefused says it is not refused.
+//
+// REVIEW OF 53ba3622 (REVISE): counting that, or a failed active_list read, as "no TUI" tore down an
+// attached TUI's loop after three timeouts, and the message claimed a reap that never happens to a
+// reused gateway. A rejection says the loop cannot DELIVER; it says nothing about the TUI. So it ends the
+// loop and releases its claim, and kills nothing. A failed read stays unknown.
 
-test("runDeliveryLoop: CONTROL: one rejected connect, then an attached TUI, keeps the loop", async () => {
-  const { spawn } = makeFakeSpawn();
+/** A loop run against the fakes, with every killed child and every resident-lost reason recorded. */
+async function runLoop({ openWs, maxIterations = 20, noTuiTeardownCycles = 3, fetchFailTimes = 0 }) {
+  const { spawn, spawns } = makeFakeSpawn();
   const { httpCall, calls } = makeAifyHttp();
-  let opens = 0;
+  let readyCleared = false;
   let clock = 0;
   const result = await runDeliveryLoop("pc-manager", {
     httpCall,
     spawnImpl: spawn,
-    fetchImpl: makeFakeFetch(),
+    fetchImpl: makeFakeFetch({ failTimes: fetchFailTimes }),
+    openWs,
+    installTeardown: () => {},
+    sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800",
+    writeReady: () => {},
+    clearReady: () => { readyCleared = true; },
+    killByPort: () => {},
+    procExit: () => {},
+    noTuiTeardownCycles,
+    noTuiGraceMs: 100,
+    now: () => { const t = clock; clock += 1000; return t; },
+    maxIterations,
+  });
+  const lost = calls.filter((c) => c.method === "POST" && c.endpoint === "/agents/pc-manager/resident-lost");
+  return { result, lost, readyCleared, killed: spawns.filter((s) => s.child._killed).length, spawned: spawns.length };
+}
+
+test("runDeliveryLoop: a gateway that rejects every connect ends the loop as undeliverable, and kills nothing", async () => {
+  const run = await runLoop({ openWs: async () => { throw new Error("Unexpected server response: 403"); } });
+  assert.equal(run.result.residentLost, true, "a loop the gateway keeps turning away spun on");
+  assert.equal(run.lost.length, 1, "the agent was not reported undeliverable, so it keeps reading online");
+  assert.match(run.lost[0].body.reason, /rejected its delivery loop 3 times in a row \(Unexpected server response: 403\)/);
+  assert.doesNotMatch(run.lost[0].body.reason, /no visible TUI/i, "a rejection claimed to know no TUI is attached");
+  assert.ok(run.readyCleared, "the claim was not released");
+  assert.equal(run.killed, 0, "a rejected connect killed a gateway");
+  // AND ONE THIS LOOP SPAWNED ITSELF: a rejection still proves nothing about the TUI using it.
+  const owned = await runLoop({ openWs: async () => { throw new Error("Unexpected server response: 403"); }, fetchFailTimes: 1 });
+  assert.equal(owned.spawned, 1, "CONTROL: this run spawned its own gateway");
+  assert.equal(owned.result.residentLost, true);
+  assert.equal(owned.killed, 0, "a rejected connect killed the gateway this loop started");
+});
+
+for (const [how, badRead] of [
+  ["time out", () => { throw new Error("rpc timeout"); }],
+  ["answer in no known shape", () => ({ result: { unexpected: "not sessions" } })],
+]) {
+  test(`runDeliveryLoop: an attached TUI survives session reads that ${how} (the review's reproduction)`, async () => {
+    let reads = 0;
+    const ws = makeFakeWsClient({
+      "session.active_list": () => {
+        reads += 1;
+        return reads >= 2 && reads <= 4 ? badRead() : ACTIVE_LIST_RESULT;
+      },
+    });
+    const run = await runLoop({ openWs: async () => ws, maxIterations: 8 });
+    assert.ok(reads >= 5, `CONTROL: the loop reached the recovery read (${reads} reads)`);
+    assert.notEqual(run.result.residentLost, true, `three reads that ${how} tore down a loop whose TUI is attached`);
+    assert.equal(run.lost.length, 0);
+  });
+}
+
+test("runDeliveryLoop: CONTROL: one rejected connect, then an attached TUI, keeps the loop", async () => {
+  let opens = 0;
+  const run = await runLoop({
     openWs: async () => {
       opens += 1;
       if (opens === 1) throw new Error("Unexpected server response: 403");
       return makeFakeWsClient({ "session.active_list": ACTIVE_LIST_RESULT });
     },
-    installTeardown: () => {},
-    sleepImpl: async () => {},
-    serverUrl: "http://127.0.0.1:8800",
-    writeReady: () => {},
-    clearReady: () => {},
-    killByPort: () => {},
-    procExit: () => {},
-    noTuiTeardownCycles: 3,
-    noTuiGraceMs: 100,
-    now: () => { const t = clock; clock += 1000; return t; },
     maxIterations: 8,
   });
-  assert.notEqual(result.residentLost, true, "a single rejected connect tore down a loop whose TUI is attached");
-  assert.ok(!calls.find((c) => c.endpoint === "/agents/pc-manager/resident-lost"));
+  assert.notEqual(run.result.residentLost, true, "a single rejected connect tore down a loop whose TUI is attached");
+  assert.equal(run.lost.length, 0);
+});
+
+test("runDeliveryLoop: confirmed no TUI on a gateway this loop did not start says it is left running", async () => {
+  const run = await runLoop({ openWs: async () => makeFakeWsClient({ "session.active_list": EMPTY_ACTIVE_LIST }) });
+  assert.equal(run.spawned, 0, "CONTROL: the gateway was reused, as the wrapper's ensure-host leaves it");
+  assert.equal(run.result.residentLost, true);
+  assert.match(run.lost[0].body.reason, /is not this loop's; left running/);
+  assert.doesNotMatch(run.lost[0].body.reason, /Reaping|Stopped its own/, "the message claims a reap that did not happen");
+  assert.equal(run.killed, 0);
 });
 
 test("runDeliveryLoop: empty active_list DURING the cold-start grace then the TUI attaches → NO teardown (slow cold start)", async () => {
@@ -3286,6 +3312,22 @@ test("noAttachedSessionTeardownMessage: fits the status_note budget the server t
     message.length <= 200,
     `status_note truncates at 200; this is ${message.length} and would lose its own remedy`,
   );
+});
+
+test("the no-TUI and rejected-loop messages both fit the status_note budget, remedy first", () => {
+  // Same server truncation as above, for every variant a loop can end with. The cause of a rejection
+  // is the part that varies, so it is the part cut; the remedy leads every message.
+  const realistic = "ws://127.0.0.1:9147/api/ws?token=boxCCW04x3h49iuQa0wtMi37WWTd-BRjsffbcHRZYak";
+  const longCause = `Unexpected server response: 403 ${"x".repeat(300)}`;
+  for (const message of [
+    noAttachedSessionTeardownMessage(realistic, 10, { owned: true }),
+    noAttachedSessionTeardownMessage(realistic, 10, { owned: false }),
+    gatewayRejectedMessage(realistic, 10, longCause),
+  ]) {
+    assert.ok(message.length <= 200, `${message.length}: ${message}`);
+    assert.match(message.slice(0, 120), /relaunch this agent's hermes-aify/, `the remedy is not near the front: ${message}`);
+    assert.ok(!message.includes("boxCCW04"), "the gateway token reached the status note");
+  }
 });
 
 test("noAttachedSessionTeardownMessage: degrades honestly on missing inputs", () => {

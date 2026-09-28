@@ -218,11 +218,14 @@ made a hard kill of the host tier orphan every gateway are in the archive.
 
 A fourth, found 2026-09-28: pc-manager's resident gateway (started 2026-09-25) carried no
 `AIFY_AGENT_LEASE`, so it had no `HERMES_PARENT_PID` and its launcher's death stopped nothing; what
-started it without a lease is not known. It ran 18 days with no TUI, the agent reading `online`
-through the gateway's own MCP bridge. Two holes let it: the delivery loop's no-TUI teardown counted
-only an empty session list, never a rejected connect (a stale token answers 403) or a failed read,
-and `gateway-orphans` exempted any resident gateway. Both are closed: the loop counts every cycle
-that confirms no TUI, and the doctor reports any gateway whose own `session.active_list` is empty.
+started it without a lease is not known. Found on 2026-09-28 with no TUI (its session list was empty),
+the agent still reading `online` through the gateway's own MCP bridge; pc-manager had sent nothing
+since 2026-09-10. Its delivery loop left no log, so which path it was on is not known. Two holes are
+closed. A connect the gateway rejects any way but "refused" (a stale token answers 403) used to be
+retried for ever; the loop now reports the agent undeliverable after a bounded run of them and ends,
+killing nothing. And `gateway-orphans` exempted a gateway with a live loop or a resident owner; it
+now reports any gateway whose own `session.active_list` is a recognised empty list. A failed or
+unrecognised read stays unknown in both.
 
 ## Two viewers of one agent fight over its terminal size (diagnosed 2026-09-28)
 
