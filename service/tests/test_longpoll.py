@@ -81,13 +81,14 @@ class LongpollTests(unittest.TestCase):
             async def attempt():
                 return {"ok": True, "run": None}
 
-            async def disconnected():
-                return True
+            class GoneRequest:
+                async def receive(self):
+                    return {"type": "http.disconnect"}
 
             started = time.monotonic()
             result = await longpoll.longpoll(
                 25000, attempt, is_empty=lambda r: r.get("run") is None,
-                scope="dispatch", fallback_s=10.0, is_disconnected=disconnected,
+                scope="dispatch", fallback_s=10.0, request=GoneRequest(),
             )
             return result, time.monotonic() - started
 

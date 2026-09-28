@@ -224,10 +224,7 @@ class InsideTheRealLongPollLoopTests(unittest.TestCase):
 
 
 class _StubRequest:
-    """Only what a claim handler touches before `longpoll()` is called."""
-
-    async def is_disconnected(self) -> bool:
-        return False
+    """Only what a claim handler touches before `longpoll()` is called: nothing but its identity."""
 
 
 class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
@@ -245,6 +242,7 @@ class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
             captured["is_empty"] = is_empty
             captured["scope"] = kwargs.get("scope")
             captured["lock_result"] = kwargs.get("lock_result")
+            captured["request"] = kwargs.get("request")
             return {"recorded": True}
 
         with mock.patch.object(longpoll, "longpoll", recorder):
@@ -256,7 +254,11 @@ class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
 
         The lock result is the substituted result a claim returns under SQLite write contention. If a
         route's lock result did not read as empty, a moment of contention would end the long poll and
-        send that bridge back to short polling — silently, and exactly under load."""
+        send that bridge back to short polling — silently, and exactly under load.
+
+        The request is the one the handler was given, so the wait can see its caller leave. Two
+        routes took no request at all, and the other three passed `is_disconnected`, which always
+        answers False behind the production middleware (0.7.6 review, O1)."""
         from service.models import (
             DispatchClaimRequest,
             DispatchControlClaimRequest,
@@ -270,21 +272,22 @@ class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
         from service.routers.spawn_requests import claim_spawn_request
         from service.routers.terminal_controls import claim_terminal_controls
 
+        stub = _StubRequest()
         handlers = {
             "dispatch": (
-                lambda: claim_dispatch(DispatchClaimRequest(agentId="a"), _StubRequest()),
+                lambda: claim_dispatch(DispatchClaimRequest(agentId="a"), stub),
                 dispatch_claim_is_empty, "dispatch"),
             "dispatch-controls": (
-                lambda: claim_dispatch_controls(DispatchControlClaimRequest(agentId="a"), _StubRequest()),
+                lambda: claim_dispatch_controls(DispatchControlClaimRequest(agentId="a"), stub),
                 dispatch_controls_is_empty, "control"),
             "terminal-controls": (
-                lambda: claim_terminal_controls(TerminalControlClaim(environmentId="e", bridgeId="b")),
+                lambda: claim_terminal_controls(TerminalControlClaim(environmentId="e", bridgeId="b"), stub),
                 terminal_controls_is_empty, "terminal-control"),
             "environment-control": (
-                lambda: claim_environment_control(EnvironmentControlClaim(environmentId="e", bridgeId="b")),
+                lambda: claim_environment_control(EnvironmentControlClaim(environmentId="e", bridgeId="b"), stub),
                 environment_control_is_empty, "env-control"),
             "spawn-request": (
-                lambda: claim_spawn_request(SpawnRequestClaim(environmentId="e", bridgeId="b"), _StubRequest()),
+                lambda: claim_spawn_request(SpawnRequestClaim(environmentId="e", bridgeId="b"), stub),
                 spawn_request_is_empty, "spawn"),
         }
         for name, (handler, predicate, scope) in handlers.items():
@@ -295,6 +298,7 @@ class TheRoutesPassTheirOwnPredicateTests(unittest.TestCase):
                 lock_result = captured["lock_result"]
                 self.assertIsNotNone(lock_result, "no lock_result — contention would raise a 503")
                 self.assertIs(captured["is_empty"](lock_result), True)
+                self.assertIs(captured["request"], stub, "the wait cannot see this route's caller leave")
 
 
 if __name__ == "__main__":

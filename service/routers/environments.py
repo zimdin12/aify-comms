@@ -747,7 +747,7 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
 
 
 @router.post("/environments/controls/claim")
-async def claim_environment_control(req: EnvironmentControlClaim):
+async def claim_environment_control(req: EnvironmentControlClaim, request: Request):
     # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Wait only on the
     # exact "nothing pending" shape; a claimed control (has controlId) returns at once.
     return await longpoll.longpoll(
@@ -756,6 +756,7 @@ async def claim_environment_control(req: EnvironmentControlClaim):
         environment_control_is_empty,
         scope="env-control",
         fallback_s=3.0,
+        request=request,
         lock_result={"ok": True, "control": None},
     )
 

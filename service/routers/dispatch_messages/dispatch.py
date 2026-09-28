@@ -112,7 +112,7 @@ async def claim_dispatch(req: DispatchClaimRequest, request: Request):
         dispatch_claim_is_empty,
         scope="dispatch",
         fallback_s=3.0,
-        is_disconnected=request.is_disconnected,
+        request=request,
         lock_result={"ok": True, "run": None},
     )
 

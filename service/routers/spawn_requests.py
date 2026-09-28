@@ -424,7 +424,7 @@ async def claim_spawn_request(req: SpawnRequestClaim, request: Request):
         spawn_request_is_empty,
         scope="spawn",
         fallback_s=3.0,
-        is_disconnected=request.is_disconnected,
+        request=request,
         lock_result={"ok": True, "spawnRequest": None},
     )
 

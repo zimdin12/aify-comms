@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from service.db_errors import _is_lock_error
 import asyncio
+import contextlib
 import contextvars
 import time
 from collections import defaultdict
@@ -121,19 +122,50 @@ def notify(scope: str = GLOBAL_SCOPE) -> int:
     return woken
 
 
-async def _wait_once(scope: str, timeout: float) -> None:
-    """Block up to `timeout` seconds or until notify(scope)/notify('*')."""
+async def _wait_once(scope: str, timeout: float, gone: Optional[asyncio.Event] = None) -> None:
+    """Block up to `timeout` seconds, until notify(scope)/notify('*'), or until the caller has `gone`."""
     loop = asyncio.get_event_loop()
     fut: asyncio.Future = loop.create_future()
     _waiters[scope].add(fut)
+    left = asyncio.ensure_future(gone.wait()) if gone is not None else None
     try:
-        await asyncio.wait_for(fut, timeout)
-    except asyncio.TimeoutError:
-        pass
+        await asyncio.wait({fut} if left is None else {fut, left}, timeout=timeout,
+                           return_when=asyncio.FIRST_COMPLETED)
     finally:
+        if left is not None:
+            left.cancel()
         _waiters[scope].discard(fut)
         if not _waiters[scope]:
             _waiters.pop(scope, None)
+
+
+@contextlib.asynccontextmanager
+async def _watch_for_the_caller_leaving(request):
+    """An event set when the caller of `request` disconnects, for as long as the block runs.
+
+    `request.is_disconnected()` cannot see it: the app is wrapped in `BaseHTTPMiddleware` subclasses,
+    under which it always answers False (v0.7.1 review S2, found on `/listen`; the claim routes kept the
+    same call until the 0.7.6 review, O1). Awaiting `receive()` does reach the `http.disconnect`. The
+    claim body has already been read by the time the wait starts, so nothing else is reading it.
+    No request (a direct unit call) means no caller to watch, and the event is never set.
+    """
+    gone = asyncio.Event()
+    if request is None:
+        yield gone
+        return
+
+    async def watch() -> None:
+        while True:
+            message = await request.receive()
+            if message.get("type") == "http.disconnect":
+                gone.set()
+                return
+
+    watcher = asyncio.create_task(watch())
+    try:
+        yield gone
+    finally:
+        watcher.cancel()
 
 
 async def longpoll(
@@ -143,11 +175,16 @@ async def longpoll(
     *,
     scope: str = GLOBAL_SCOPE,
     fallback_s: float = DEFAULT_FALLBACK_S,
-    is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
+    request=None,
     lock_result: Optional[dict] = None,
 ) -> dict:
     """Run `attempt()`; if its result is empty and `wait_ms` > 0, wait for work and
     retry until a non-empty result, the client disconnects, or `wait_ms` elapses.
+
+    `request`: the HTTP request being held. Its caller leaving ends the wait, and no attempt runs
+    after that, so a caller that has gone is never handed work it will not receive: a claim marks
+    what it returns, and a return to nobody would strand it. An attempt already running when the
+    caller leaves still commits; that window is the attempt's own duration, not the wait's.
 
     `attempt` must be a COMPLETE, self-contained claim (open its own connection /
     transaction) so it is safe to call repeatedly. `is_empty(result)` decides whether
@@ -173,23 +210,22 @@ async def longpoll(
         return result
 
     deadline = time.monotonic() + min(wait_ms / 1000.0, MAX_WAIT_S)
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return result
-        if is_disconnected is not None:
-            try:
-                if await is_disconnected():
-                    return result
-            except Exception:
-                pass
-        # ONLY THE SLEEP is counted as waiting. The retry `attempt()` below is real work and must
-        # keep counting against the slow-request threshold, or a claim that is slow to EXECUTE would
-        # hide inside a long poll -- which is the failure this accounting exists to make visible, not
-        # a second place to bury it.
-        slept_at = time.monotonic()
-        await _wait_once(scope, min(remaining, fallback_s))
-        note_waited(time.monotonic() - slept_at)
-        result = await _try()
-        if not is_empty(result):
-            return result
+    async with _watch_for_the_caller_leaving(request) as gone:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or gone.is_set():
+                return result
+            # ONLY THE SLEEP is counted as waiting. The retry `attempt()` below is real work and must
+            # keep counting against the slow-request threshold, or a claim that is slow to EXECUTE would
+            # hide inside a long poll -- which is the failure this accounting exists to make visible, not
+            # a second place to bury it.
+            slept_at = time.monotonic()
+            await _wait_once(scope, min(remaining, fallback_s), gone)
+            note_waited(time.monotonic() - slept_at)
+            # Asked AFTER the wake and BEFORE the attempt: the wake is usually the work arriving, and
+            # claiming it now would mark it for a caller that will never read the answer.
+            if gone.is_set():
+                return result
+            result = await _try()
+            if not is_empty(result):
+                return result

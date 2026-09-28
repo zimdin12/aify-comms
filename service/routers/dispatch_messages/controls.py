@@ -58,7 +58,7 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
         dispatch_controls_is_empty,
         scope="control",
         fallback_s=3.0,
-        is_disconnected=request.is_disconnected,
+        request=request,
         lock_result={"ok": True, "controls": []},
     )
 

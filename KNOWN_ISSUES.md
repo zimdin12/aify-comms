@@ -20,9 +20,18 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
 - **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).
-- **The claim long-polls cannot tell a caller has gone**, so a claimed run stays held while its sidecar
-  heartbeats. None of them watches `http.disconnect`. Predates 0.7.
-- **The late-`turn_end` guard never fires**: every producer posts an empty run id (0.7.1 backlog S4).
+- **A claim attempt already running when its caller leaves still commits.** Since the 0.7.6 review (O1)
+  the five claim long-polls read `http.disconnect` from `receive()` (`service/longpoll.py`): a caller
+  that goes ends the wait, and no attempt runs after that. The attempt itself is one transaction of a
+  few milliseconds, and a caller leaving inside it is not seen.
+- **A late turn-end can clear the next turn** when it comes from a producer that sends no fire time. The
+  hooks stamp `firedAtUs` and are ordered (`api_core/hook_event_order.py`); the bridge-side detectors,
+  the codex and resident-hermes detectors in `server.js` and hermes' `clearTurn` post `/turn-end` with a
+  `bridgeId` and nothing that names the turn, so the service clears whatever turn is open, including a
+  newer run's (reproduced at the service, 0.7.6 review O2). The engine's run-id guard never fires:
+  every producer posts an empty run id (0.7.1 backlog S4). Whether a detector's end actually arrives
+  after the next start on a live host is not observed. Fixing it means choosing, per producer, what
+  names the turn: a fire time, or the run id for a run-owned turn.
 - **Fixed in aify-env fbc4373: a paste that pauses stays one paste.** Before, a pause of 500 ms or more closed it and the rest was typed, submitting early. A paste given up in part now closes on the detach key alone or after 5 s of silence (a lost end marker).
 - **Codex's notify notice is proven against Codex's documentation only** (`additionalContext` "is added as
   extra developer context"), not observed in a live Codex agent's context.

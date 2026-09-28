@@ -50,7 +50,7 @@ router = domain_router()
 
 
 @router.post("/terminals/controls/claim")
-async def claim_terminal_controls(req: TerminalControlClaim):
+async def claim_terminal_controls(req: TerminalControlClaim, request: Request):
     # Long-poll wrapper — see claim_dispatch / service/longpoll.py. Fallback 1s matches
     # the legacy 800ms console-control poll so interactivity latency never regresses.
     return await longpoll.longpoll(
@@ -59,6 +59,7 @@ async def claim_terminal_controls(req: TerminalControlClaim):
         terminal_controls_is_empty,
         scope="terminal-control",
         fallback_s=1.0,
+        request=request,
         lock_result={"ok": True, "controls": []},
     )
 
