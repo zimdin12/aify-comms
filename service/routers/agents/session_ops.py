@@ -227,6 +227,14 @@ async def stop_agent_worker(agent_id: str, request: Request):
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')
         now = _now()
+        # THE RUN IN FLIGHT IS INTERRUPTED, as the session stop does: this is the drawer's only
+        # stop since 2026-09-29, and without it the run is left with nobody behind it.
+        active_run = await _get_blocking_active_run(db, agent_id)
+        if active_run:
+            await _append_dispatch_control(
+                db, active_run["runId"], from_agent=requested_by, action="interrupt",
+                body="Worker stopped from the dashboard.",
+            )
         runtime_state = _json_loads_or(agent_row["runtime_state"], {}) or {}
         virtual_terminal_id = str(runtime_state.get("virtualTerminalId") or "").strip()
         terminal_payload = None

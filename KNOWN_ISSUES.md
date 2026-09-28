@@ -231,15 +231,17 @@ unrecognised read stays unknown in both.
 
 A worker has one PTY, shown in a herdr-aify pane (`aify-env attach`) and in the dashboard console.
 The last resize used to win, so every other viewer showed redraws for a size it is not. On 2026-09-28
-both scrambled workers had last been resized by the dashboard (157x32 and 157x29, the second half of a
-Refresh nudge, from `terminal_controls`) while their herdr panes were 40 rows. Since aify-env
-3e8a7f4 each attach client names itself, and a keystroke from a viewer that is not the owner gives
-the terminal that viewer's size before the key lands (tmux `window-size latest`); if the PTY refuses
-that resize the key is withheld and the sender told. Every dashboard console tab is ONE viewer, since
-a control carries no tab identity, so two tabs of different sizes share the size last resized. What
-remains: a pane stays scrambled until the operator types in it or resizes it, a dashboard Refresh
-still takes the size, and what already reached herdr's scrollback stays. Live only after an aify-env
-restart.
+both scrambled workers had last been resized by the dashboard (157x32 and 157x29, the second half of
+the repaint nudge a console sends when it opens, `dashboard-attach` in `terminal_controls`) while
+their herdr panes were 40 rows. Since aify-env 3e8a7f4 each attach client names itself, and a
+keystroke from a viewer that is not the owner gives the terminal that viewer's size before the key
+lands (tmux `window-size latest`); if the PTY refuses that resize the key is withheld and the sender
+told. Every dashboard console tab is ONE viewer, since a control carries no tab identity, so two tabs
+of different sizes share the size last resized. Only the dashboard's own surfaces (`dashboard`,
+`dashboard-*`) count as that viewer: an auto-answer (`console-prompt`) or an agent typing into a
+console never resizes. What remains: a pane stays scrambled until the operator types in it or resizes
+it, opening or refreshing a dashboard console still takes the size, and what already reached herdr's
+scrollback stays. Live only after an aify-env restart.
 
 ## Attach and typing lag came from one icacls per credential read (aify-env 4044364)
 

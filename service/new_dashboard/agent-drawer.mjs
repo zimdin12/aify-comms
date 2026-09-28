@@ -68,9 +68,8 @@ export function openAgentDrawer(agentId) {
   ].filter(Boolean).join('');
   const dangerActions = [
     canStopWorker
-      ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Kill this agent's live worker. Identity, history and resume handle are kept — it can be started again.">Stop worker</button>`
+      ? `<button class="ghost danger" data-agent-stop-worker="${esc(id)}" title="Stop this agent: its worker, terminals and live sessions, interrupting the message it is working on. Identity, history and resume handle are kept, so it can be started again.">Stop</button>`
       : '',
-    sid ? `<button class="ghost danger" data-agent-control="stop" data-session="${esc(sid)}">Stop session</button>` : '',
     sid ? `<button class="ghost danger" data-agent-delete-session="${esc(sid)}">Delete session</button>` : '',
     `<button class="ghost danger" data-agent-remove="${esc(id)}">Remove agent</button>`,
   ].filter(Boolean).join('');

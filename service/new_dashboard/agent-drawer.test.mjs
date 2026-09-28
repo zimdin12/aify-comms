@@ -178,22 +178,21 @@ test("the AGENT-level stop is offered only when there is a live worker to stop",
   }
 });
 
-test("the session-scoped stop keeps a distinct label, and only appears with a session", () => {
-  // Two destructive buttons in one drawer: confusing them costs the operator a worker they meant to keep.
-  seed({ agents: [{ id: "coder", status: "online" }], sessions: [{ id: "s1", agentId: "coder" }], inspector: {} });
-  withDom(drawerEls(), (els) => {
-    openAgentDrawer("coder");
-    const html = els["inspector-content"].innerHTML;
-    assert.ok(html.includes(">Stop session<"), "the session control keeps its own label");
-    assert.ok(html.includes(">Stop worker<"), "…distinct from the agent-level one");
-  });
-
-  seed({ agents: [{ id: "coder", status: "online" }], sessions: [], inspector: {} });
-  withDom(drawerEls(), (els) => {
-    openAgentDrawer("coder");
-    assert.ok(!els["inspector-content"].innerHTML.includes(">Stop session<"),
-      "with no resolvable session there is nothing session-scoped to stop");
-  });
+test("the drawer offers ONE stop, with a session or without one", () => {
+  // It offered two, "Stop worker" (agent-wide) and "Stop session" (one session, and the only one that
+  // interrupted the run in flight); neither was the whole stop, and the operator asked why there were
+  // two (2026-09-29). The agent-level stop now interrupts the run too (service stop-worker), and the
+  // Sessions page keeps its per-session Stop for bulk and multi-session work.
+  for (const sessions of [[{ id: "s1", agentId: "coder" }], []]) {
+    seed({ agents: [{ id: "coder", status: "online" }], sessions, inspector: {} });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("coder");
+      const html = els["inspector-content"].innerHTML;
+      assert.equal(html.split('data-agent-stop-worker="coder"').length - 1, 1, "exactly one agent stop");
+      assert.ok(!html.includes('data-agent-control="stop"'), "the session-scoped stop is back in the drawer");
+      assert.ok(html.includes(">Stop<"), "the one stop reads as Stop");
+    });
+  }
 });
 
 test("the Continue-in-CLI block renders even when there is no command to give", () => {
