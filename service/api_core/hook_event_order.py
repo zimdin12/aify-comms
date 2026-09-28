@@ -19,7 +19,12 @@ one agent the service keeps the last applied event's time and host, and applies 
   * or it fired in the same microsecond and is a turn-end. The tie goes to the end of a turn because
     a wrong `idle` is corrected by the next tool call's turn-start, and a wrong `working` is not.
 
-An event without `firedAtUs` (a bridge-side detector, a hook installed before this) is outside the
+The bridge-side turn detectors (claude transcript, codex rollout, resident hermes gateway), hermes'
+`clearTurn`, and a heartbeat that STARTS a turn (`api_core/turn_busy_signal.py`) stamp the same two
+fields since the 0.7.6 review (O2), taking the time when they observed the state they report. Before
+that they were outside the ordering, so a detector's end observed before the next turn started could
+land after it and clear it. They share one host clock with the hooks, which is what makes the times
+comparable. An event without `firedAtUs` (a bridge or hook installed before this) is outside the
 ordering and applies as before.
 """
 

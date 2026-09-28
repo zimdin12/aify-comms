@@ -37,6 +37,7 @@ from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
+from service.status_engine import turn_end_matches
 
 router = domain_router()
 
@@ -202,6 +203,22 @@ async def agent_turn_end(agent_id: str, request: Request):
         # already has this guard; this brings the dedicated endpoint in line for detector posts.
         if await _posted_by_a_superseded_bridge(db, request, agent_id):
             return {"ok": True, "agentId": agent_id, "ignored": "superseded_bridge"}
+        _tb = await (await db.execute(
+            "SELECT turn_busy, turn_run_id FROM agent_turn_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+        _st = await (await db.execute(
+            "SELECT in_turn, turn_run_id FROM agent_status_state WHERE agent_id = ?", (agent_id,)
+        )).fetchone()
+        _turn_busy = int((_tb["turn_busy"] if _tb else 0) or 0)
+        _in_turn = int((_st["in_turn"] if _st else 0) or 0)
+        # An end that names its run ends only that run's turn (0.7.6 review, O2): a late end for r1
+        # arriving after r2 started must not clear r2. Asked before the ordering below records this
+        # end's time, so an end refused here moves nothing. An end naming no run applies as before.
+        ending_run = str((await json_object_body(request, lenient=True)).get("runId") or "").strip()
+        open_runs = [(_tb["turn_run_id"] if _tb else ""), (_st["turn_run_id"] if _st else "")]
+        if (_turn_busy or _in_turn) and not turn_end_matches(ending_run, open_runs):
+            await db.commit()
+            return {"ok": True, "agentId": agent_id, "ignored": "another_turn_is_open"}
         # Recorded even when there is nothing to clear, so a turn-start that fired earlier and
         # arrives later is refused (api_core/hook_event_order.py).
         if not await _accept_hook(db, request, agent_id, "turn-end"):
@@ -212,14 +229,6 @@ async def agent_turn_end(agent_id: str, request: Request):
         # periodic-write anti-pattern the _LIVE_STATE_CACHE redesign removed). Skip it. A real stray
         # (either bit set) still takes the full clear below, preserving KEEP-CLEARED's healing purpose.
         # last_seen refresh is safe to skip here: the unconditional liveness beat owns liveness.
-        _tb = await (await db.execute(
-            "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", (agent_id,)
-        )).fetchone()
-        _st = await (await db.execute(
-            "SELECT in_turn FROM agent_status_state WHERE agent_id = ?", (agent_id,)
-        )).fetchone()
-        _turn_busy = int((_tb["turn_busy"] if _tb and "turn_busy" in _tb.keys() else 0) or 0)
-        _in_turn = int((_st["in_turn"] if _st and "in_turn" in _st.keys() else 0) or 0)
         if _turn_busy == 0 and _in_turn == 0:
             await db.commit()
             return {"ok": True, "agentId": agent_id, "noop": "already-cleared"}
@@ -244,7 +253,7 @@ async def agent_turn_end(agent_id: str, request: Request):
         await _mark_agent_present(db, agent_id, now)
         # status v2: feed the event-driven engine (clears in_turn). Flag-agnostic —
         # only the `new` read path reads agent_status_state, so it's a no-op for `old`.
-        await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ""})
+        await _apply_status_event(db, agent_id, {"kind": "turn_end", "runId": ending_run})
         await _invalidate_agent_live_state(db, agent_id)
         await db.commit()
         # Push the to-ready transition immediately — this is the hop the operator most needs

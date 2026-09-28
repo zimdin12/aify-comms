@@ -192,9 +192,27 @@ def _on_turn_start(s: dict, event: dict) -> None:
     s["awaiting_input"] = 0
 
 
+def turn_end_matches(ending_run, open_runs) -> bool:
+    """Whether a turn-end naming `ending_run` ends the turn that is open, whose run ids are `open_runs`.
+
+    The `/turn-end` route asks this across BOTH tables that hold a turn (`agent_turn_state` and this
+    engine's `agent_status_state`), because they can disagree: a hook turn-start inside a run's turn
+    keeps the busy row's run and blanks the engine's. An end that names no run is a legacy end and
+    applies. One that names a run applies only when that run is the one every table that names a run
+    names: a late end for r1 must not close r2's turn, nor a turn nobody attributed (0.7.6 review, O2).
+    """
+    ending = str(ending_run or "").strip()
+    if not ending:
+        return True
+    named = {str(run or "").strip() for run in open_runs} - {""}
+    return named == {ending}
+
+
 def _on_turn_end(s: dict, event: dict) -> None:
     # An end that names a run ends THAT run. A late end for an older run, arriving after a newer
     # turn started, must not close the newer one. An end naming no run still closes whatever is open.
+    # Laxer than `turn_end_matches` on purpose: this sees only its own column, and the route has
+    # already refused an end that another table says belongs to a different turn.
     ending = str(event.get("runId") or "")
     current = str(s.get("turn_run_id") or "")
     if ending and current and ending != current:

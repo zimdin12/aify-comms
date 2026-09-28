@@ -13,7 +13,8 @@ only dependencies, the clock and the pure status engine, already were — is wha
 ASYMMETRY IS THE WHOLE DESIGN, and it is not obvious from reading the code:
 
     turnBusy MISSING  -> liveness only. Old bridges that never send the field keep working.
-    turnBusy TRUE     -> the LATEST bridge wins, unconditionally.
+    turnBusy TRUE     -> the LATEST bridge wins, unless the beat opens a turn and carries a fire time
+                         older than the last applied turn event (the hooks' ordering).
     turnBusy FALSE    -> ONLY the owning bridge, and only for the owning run, may clear.
 
 The false case is guarded because a stale `false` from a superseded bridge or a finished run would
@@ -26,6 +27,7 @@ real flip is worth pushing to dashboards; every 3-second liveness beat would oth
 """
 from __future__ import annotations
 
+from service.api_core.hook_event_order import accept_hook_event, hook_event_stamp
 from service.api_core.status_events import _apply_status_event
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
@@ -47,6 +49,16 @@ async def _apply_turn_busy_signal(db, agent_id, bridge_id, body, now, turn_flip)
             _prev_row = await (await db.execute(
                 "SELECT turn_busy FROM agent_turn_state WHERE agent_id = ?", (agent_id,))).fetchone()
             _prev_busy = bool(_prev_row and _prev_row["turn_busy"])
+            # A beat that STARTS a turn is in the hooks' fire-time ordering (api_core/hook_event_order.py)
+            # when it carries `firedAtUs`: its time is recorded, so an end observed before it loses, and
+            # a start that fired before the last applied end is refused. Without that, a stamped late
+            # end beat a heartbeat-started turn (0.7.6 review, O2). A re-pulse of a turn already open is
+            # not a start, and a beat with no stamp applies as before.
+            if turn_busy and not _prev_busy:
+                fired_at_us, machine_id = hook_event_stamp(body)
+                if not await accept_hook_event(db, agent_id, fired_at_us=fired_at_us,
+                                               machine_id=machine_id, kind="turn-start"):
+                    return turn_flip
             if turn_busy:
                 await db.execute(
                     """
