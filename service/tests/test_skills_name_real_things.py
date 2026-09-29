@@ -39,6 +39,7 @@ EXTERNAL = {
     "hooks.json": "Claude Code's per-user hook config",
     "settings.json": "Claude Code's per-user settings",
     "install-deps.js": "an example third-party plugin's dep installer",
+    "terminal-size-owner.mjs": "aify-env's lib/, the host tier's PTY size owner",
 }
 
 # Directories a bare filename may live under. A skill writes `claude.js`, not the full path, and
