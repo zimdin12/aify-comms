@@ -32,7 +32,7 @@ SERVER_URL=""
 WITH_HOOK=false
 WITH_API_KEY=false
 # Plan 5 (2026-05-25): --prebuild-dry-run exits after running the hermes
-# web_dist prebuild branch (no npm invocation, no wrapper writes). Used by
+# web_dist prebuild branch (no npm, no wrappers, no key or credential). Used by
 # service/tests/test_install_hermes_prebuild.py to verify the branch's
 # detection logic without touching the operator's environment.
 PREBUILD_DRY_RUN=false
@@ -2494,6 +2494,9 @@ if [ -n "$EMIT_WRAPPERS_DIR" ]; then
   install_bridge_launcher
   exit 0
 fi
+# Dry run: the hermes prebuild branch alone, and out BEFORE the key block, whose carrier writes this
+# host's credential store (it did, on every test run, until the 0.7.6 review).
+[ "$CLIENT" = "hermes" ] && [ "$PREBUILD_DRY_RUN" = true ] && { prebuild_hermes_web_dist || true; exit 0; }
 
 # Settled BEFORE the first config that carries it. NOT gated on `--with-api-key`: that flag asks for a
 # key to be GENERATED, and gating the carry left configured clients beside an aify-env holding no
@@ -2510,18 +2513,8 @@ fi
 # Plan 5 (2026-05-25): pre-build hermes web_dist BEFORE the heavy install
 # steps so a fresh hermes install doesn't fall through to plain `hermes`
 # (which leaves AIFY_HERMES_GATEWAY_URL unexported and every resident
-# wake mode reporting `hermes-missing-handle`). Also handles
-# --prebuild-dry-run, used by tests to exercise just this branch without
-# mutating the operator's env.
-if [ "$CLIENT" = "hermes" ]; then
-  prebuild_hermes_web_dist || true
-  if [ "$PREBUILD_DRY_RUN" = true ]; then
-    # Dry-run: only the prebuild branch was exercised. Skip wrapper writes,
-    # MCP registration, and post-install steps so tests don't touch the
-    # operator's environment or invoke npm/hermes.
-    exit 0
-  fi
-fi
+# wake mode reporting `hermes-missing-handle`). --prebuild-dry-run ran it above.
+[ "$CLIENT" = "hermes" ] && { prebuild_hermes_web_dist || true; }
 
 require_cmd node
 require_cmd npm

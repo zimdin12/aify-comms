@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -27,18 +28,24 @@ ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = ROOT / "install.sh"
 
 
-def _run_install_sh(env_extra: dict, *args: str) -> subprocess.CompletedProcess:
+def _run_install_sh(env_extra: dict, *args: str, home: Path | None = None) -> subprocess.CompletedProcess:
     """Run install.sh with the given extra env. Returns the completed process.
 
     `bash` is required. The dry-run flag prevents npm + actual wrapper writes
     from firing; we only need to assert the prebuild branch's stderr output.
+
+    IN A DISPOSABLE HOME. The dry run used to exit after the API-key block, whose carrier stores the
+    key through `aify-env credential set` into `~/.aify/credentials`: every run of this file rewrote
+    the operator's real credential (found in the 0.7.6 review round by watching its mtime).
     """
     bash = shutil.which("bash")
     if not bash:
         pytest.skip("bash not on PATH — install.sh prebuild smoke skipped")
     import os
 
-    env = {**os.environ, **env_extra}
+    if home is None:
+        home = Path(tempfile.mkdtemp(prefix="aify-prebuild-home-"))
+    env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), **env_extra}
     return subprocess.run(
         [bash, str(INSTALL_SH), "--client", "hermes", "--prebuild-dry-run"],
         cwd=str(ROOT),
@@ -155,4 +162,15 @@ def test_install_hermes_detects_install_root_from_aify_hermes_command(tmp_path):
         "Expected install.sh to call AIFY_HERMES_COMMAND config path and "
         f"discover fake install root; got rc={result.returncode}\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
+def test_the_dry_run_leaves_the_credential_store_alone(tmp_path):
+    """The dry run exits before the key block: nothing reaches the home's credential store."""
+    home = tmp_path / "home"
+    home.mkdir()
+    result = _run_install_sh({"AIFY_HERMES_INSTALL_ROOT": str(tmp_path / "does-not-exist")}, home=home)
+    assert result.returncode == 0, result.stderr
+    assert not (home / ".aify").exists(), (
+        f"the dry run wrote {sorted(str(p.relative_to(home)) for p in (home / '.aify').rglob('*'))}"
     )
