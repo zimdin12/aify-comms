@@ -30,10 +30,19 @@ SECRET = "s3cret-operator-key"
 #: What only the operator gate says (`authorize_operator`). A route's own 403 (not a channel member,
 #: say) is a different refusal, so the gate is recognised by this, not by the status.
 GATE_SAYS = "does not grant permission"
-#: Every spelling a request uses to name who is acting.
-ACTOR_FIELDS = frozenset({"requestedBy", "from_agent", "from", "createdBy", "actor", "fromAgent"})
-#: A raw-body handler reading an actor key: `body.get("requestedBy")` and the like.
-RAW_ACTOR_READ = re.compile(r"""\.get\(\s*["'](%s)["']""" % "|".join(sorted(ACTOR_FIELDS)))
+#: A field that names who is acting, BY SHAPE, not by list: the list missed `handledBy` on control
+#: settlement (dev review of 0.7.6). camelCase `...By`, or a `from` / `actor` spelling.
+ACTOR_SHAPE = re.compile(r"^(?:[a-z]+By|from|from_|from_agent|fromAgent|actor)$")
+#: Fields of that shape that name something other than the requester, each with why.
+NOT_AN_ACTOR = {
+    "managedBy": "registration: the agent that manages the one being registered, read by no privilege check",
+}
+#: A raw-body handler reading an actor-shaped key: `body.get("requestedBy")` and the like.
+RAW_ACTOR_READ = re.compile(r"""\.get\(\s*["']([a-z]+By|from|from_agent|fromAgent|actor)["']""")
+
+
+def is_actor_field(key: str) -> bool:
+    return bool(ACTOR_SHAPE.match(key)) and key not in NOT_AN_ACTOR
 
 
 def _dummy(annotation):
@@ -65,16 +74,16 @@ def _probes(app):
         for param in dependant.body_params:
             for name, field in (getattr(param.field_info.annotation, "model_fields", {}) or {}).items():
                 key = field.alias or name
-                if key in ACTOR_FIELDS and actor is None:
+                if is_actor_field(key) and actor is None:
                     actor = ("body", key)
                 elif field.is_required():
                     body[key] = _dummy(field.annotation)
         for query in dependant.query_params:
-            if query.alias in ACTOR_FIELDS and actor is None:
+            if is_actor_field(query.alias) and actor is None:
                 actor = ("query", query.alias)
         if actor is None and not dependant.body_params:
             read = RAW_ACTOR_READ.search(inspect.getsource(route.endpoint))
-            if read:
+            if read and is_actor_field(read.group(1)):
                 actor = ("body", read.group(1))
         if actor is None:
             continue
@@ -98,6 +107,8 @@ class NoRouteAcceptsAnUnprovenOperatorName(FastApiTestCase):
         self.assertEqual(probes.get(("DELETE", "/api/v1/messages/no-such-record")), ("query", "requestedBy"))
         self.assertEqual(probes.get(("POST", "/api/v1/agents/no-such-record/stop-worker")), ("body", "requestedBy"),
                          "the raw-body reader missed stop-worker, which reads requestedBy by hand")
+        self.assertEqual(probes.get(("PATCH", "/api/v1/dispatch/controls/no-such-record")), ("body", "handledBy"),
+                         "the shape rule missed handledBy, the field a hand-written list missed")
         self.assertGreaterEqual(len(probes), 25, f"the walk found only {len(probes)} actor routes")
 
     def test_with_the_key_set_every_route_refuses_an_unproven_dashboard(self):
@@ -124,6 +135,21 @@ class NoRouteAcceptsAnUnprovenOperatorName(FastApiTestCase):
                      for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
                      if spelled.search(line)]
         self.assertEqual(offenders, [], "record an unnamed caller through recorded_operator_actor, which gates it")
+
+    def test_CONTROL_the_actor_shape_says_yes_and_no(self):
+        for key in ("requestedBy", "handledBy", "createdBy", "from", "from_agent", "fromAgent"):
+            self.assertTrue(is_actor_field(key), key)
+        for key in ("managedBy", "agentId", "to", "body", "machineId", "status"):
+            self.assertFalse(is_actor_field(key), key)
+
+    def test_every_exemption_still_names_a_field_some_request_carries(self):
+        """A stale exemption would silently cover a future field of the same name."""
+        import service.models as models
+        carried = {f.alias or n for cls in vars(models).values()
+                   if isinstance(cls, type) and hasattr(cls, "model_fields")
+                   for n, f in cls.model_fields.items()}
+        for key in NOT_AN_ACTOR:
+            self.assertIn(key, carried, f"{key} is exempt but no request model carries it any more")
 
     def test_CONTROL_the_default_census_sees_a_default(self):
         self.assertTrue(re.search(r"""or\s+["']dashboard["']""", 'x = name or "dashboard"'))

@@ -197,6 +197,30 @@ class DispatchControlSettlementNamesItsActor(FastApiTestCase):
                                 response="no controller")
         self.assertEqual(response.status_code, 200, response.text)
 
+    # ── settling as the operator needs the operator key (review of 0.7.6, S4) ─────────────────
+
+    def test_with_the_key_set_settling_as_the_operator_without_it_writes_nothing(self):
+        """An unclaimed control has no owner check, so before the gate `handledBy=dashboard` closed it
+        as the operator's doing with no proof. Refused now, and the row and the run's events untouched."""
+        from service.api_core.operator_authz import OPERATOR_KEY_HEADER
+        self.client.app.state.config.operator_key = "s3cret-operator-key"
+        for actor in ("dashboard", "operator"):
+            with self.subTest(handledBy=actor):
+                control = self._make_control(f"c-claim-{actor}", claimed_by=None)
+                before = self._events()
+                response = self._settle(control, status="completed", handledBy=actor, machineId=MACHINE)
+                self.assertEqual(response.status_code, 403, response.text)
+                row = self._row(control)
+                self.assertEqual((row["status"], row["handled_by"] or ""), ("pending", ""))
+                self.assertEqual(self._events(), before, "a refused settlement wrote a dispatch event")
+        # CONTROL: the same settlement presenting the key goes through, so the refusal is the gate's.
+        control = self._make_control("c-claim-proven", claimed_by=None)
+        response = self.client.patch(f"/api/v1/dispatch/controls/{control}", json={
+            "status": "completed", "handledBy": "dashboard", "machineId": MACHINE,
+        }, headers={OPERATOR_KEY_HEADER: "s3cret-operator-key"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self._row(control)["handled_by"], "dashboard")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -103,6 +103,8 @@ async def request_dispatch_control(run_id: str, req: DispatchControlRequest, req
 
 @router.patch("/dispatch/controls/{control_id}")
 async def update_dispatch_control(control_id: str, req: DispatchControlUpdate, request: Request):
+    # The settler is recorded as who carried the control out; only the bridge settles, under its agent id.
+    refuse_an_unproven_operator_claim(req.handledBy, request, action="settling a control as the operator")
     # NORMALISED, like `action` twelve lines up and like the sibling that does this exact job for
     # environment controls (`update_environment_control` does `str(req.status or "").strip().lower()`
     # before the same {completed, failed} allowlist). This one compared `req.status` RAW, so two
