@@ -6,8 +6,8 @@
 // who that viewer is from the control's `requestedBy` (`lib/plugins/aify-comms/control-viewer.mjs`).
 // The dashboard chooses those names (`CONSOLE_VIEWER` in `terminal-input.mjs`, and the attach and
 // Refresh resizes), and the service fills in `dashboard` for any caller that named nobody
-// (`service/routers/terminals.py`). A rename on either side breaks size ownership with every suite
-// green: named wrong, the console's keys stop restoring its size; the default counted as a viewer, a
+// (`recorded_operator_actor`, service/api_core/operator_authz.py). A rename on either side breaks
+// size ownership with every suite green: named wrong, the console's keys stop restoring its size; the default counted as a viewer, a
 // chat message or a Compact resizes the operator's Herdr pane (external review of 0.7.6, ST1).
 //
 // Both modules are imported, not read: each is pure and has no imports of its own. The dashboard's
@@ -59,11 +59,15 @@ test("every name the dashboard console types or resizes under is the viewer aify
 
 test("the requester the service fills in for a caller that named nobody is no viewer", async () => {
   const { viewerOfControl } = await hostViewerRule();
-  const source = readFileSync(path.join(REPO, "service", "routers", "terminals.py"), "utf8");
-  const defaults = [...source.matchAll(/str\(req\.requestedBy or "([^"]+)"\)/g)].map((m) => m[1]);
-  assert.ok(defaults.length >= 2, "CONTROL: terminals.py no longer defaults requestedBy textually; repoint this test");
-  for (const fallback of new Set(defaults)) {
-    assert.equal(viewerOfControl({ requestedBy: fallback }), "",
-      `an input with no named requester arrives as '${fallback}' and would resize the terminal`);
-  }
+  // The terminal routes record an unnamed caller through `recorded_operator_actor`, whose fallback is
+  // `DASHBOARD_ACTOR` (service/api_core/operator_authz.py).
+  const routes = readFileSync(path.join(REPO, "service", "routers", "terminals.py"), "utf8");
+  const recorded = routes.match(/recorded_operator_actor\(req\.requestedBy,/g) ?? [];
+  assert.ok(recorded.length >= 2, "CONTROL: terminal input and resize no longer record their requester through "
+    + "recorded_operator_actor; repoint this test at whatever fills in an unnamed caller now");
+  const authz = readFileSync(path.join(REPO, "service", "api_core", "operator_authz.py"), "utf8");
+  const fallback = /^DASHBOARD_ACTOR = "([^"]+)"$/m.exec(authz)?.[1];
+  assert.ok(fallback, "CONTROL: operator_authz.py no longer declares DASHBOARD_ACTOR as a string literal");
+  assert.equal(viewerOfControl({ requestedBy: fallback }), "",
+    `an input with no named requester arrives as '${fallback}' and would resize the terminal`);
 });
