@@ -20,8 +20,9 @@ import { defaultMachineId } from "./machine-id.mjs";
 const EVENTS = new Set(["turn-start", "turn-end", "blocked", "unblocked"]);
 
 const TIMEOUT_MS = 2000;
-// This process's start, in microseconds: the fallback when the hook command passed no shell time.
-const STARTED_AT_US = Math.round((performance.timeOrigin + performance.now()) * 1000);
+// This process's start on the WALL clock, in microseconds: the fallback when the hook command passed no
+// shell time. The same clock as $EPOCHREALTIME and the bridge's stamps (turn-event-stamp.mjs says why).
+const STARTED_AT_US = Date.now() * 1000;
 
 /**
  * When the hook fired, in host microseconds. The hooks run in the background, so two events can reach

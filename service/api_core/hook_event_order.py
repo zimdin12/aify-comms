@@ -30,6 +30,10 @@ ordering and applies as before.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _MAX_FIRED_AT_US = 2 ** 53  # past this a JSON number is not an exact integer
 
 
@@ -61,4 +65,12 @@ async def accept_hook_event(db, agent_id: str, *, fired_at_us: int | None, machi
         """,
         (fired_at_us, machine_id, agent_id, machine_id, machine_id, kind),
     )
-    return (cursor.rowcount or 0) > 0
+    accepted = (cursor.rowcount or 0) > 0
+    if not accepted:
+        # LOGGED, because the caller answers 200 either way: a refused turn event is otherwise invisible,
+        # and a clock skew that refused every one of an agent's turn-ends went unseen (review of 0.7.6).
+        logger.info(
+            "turn event refused as out of order: agent=%s kind=%s firedAtUs=%s machine=%s",
+            agent_id, kind, fired_at_us, machine_id,
+        )
+    return accepted

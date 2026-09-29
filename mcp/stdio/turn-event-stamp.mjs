@@ -15,8 +15,17 @@ import { defaultMachineId } from "./machine-id.mjs";
 
 const THIS_HOST = defaultMachineId();
 
-/** The host wall clock in integer microseconds. `clockMs` is injectable so a test can fix it. */
-export function hostNowUs(clockMs = () => performance.timeOrigin + performance.now()) {
+/**
+ * The host wall clock in integer microseconds. `clockMs` is injectable so a test can fix it.
+ *
+ * Date.now(), NOT performance.timeOrigin + performance.now(). That sum is a monotonic clock anchored
+ * once at process start, and it drifts from the wall clock the hooks read: measured on a WSL host at
+ * 1.7 s every few seconds, ~200 s after an hour. The service orders both in one sequence, so a
+ * long-lived bridge's events read as the future and a relaunched one's turn-ends were refused
+ * (external review, 2026-09-29, HIGH). Milliseconds are coarser than the hooks' microseconds; an
+ * equal time still lets a turn-end through (hook_event_order.py).
+ */
+export function hostNowUs(clockMs = () => Date.now()) {
   return Math.round(clockMs() * 1000);
 }
 

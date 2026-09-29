@@ -106,6 +106,17 @@ class ALateTurnEndDoesNotClearTheNextTurnTests(FastApiTestCase):
         self._post("turn-end", bridgeId=LOOP, turnRuntime="hermes")
         self.assertEqual(self._turn(), ((0, ""), (0, "")))
 
+    def test_a_refused_turn_event_is_logged_and_an_accepted_one_is_not(self):
+        # The route answers 200 either way, so the log is the only trace of a refusal. A clock skew
+        # that refused every turn-end of a relaunched bridge went unseen (review of 0.7.6).
+        logger = "service.api_core.hook_event_order"
+        self._post("turn-start", firedAtUs=2000, machineId=HOST)
+        with self.assertLogs(logger, level="INFO") as caught:
+            self._post("turn-end", bridgeId="late-end-bridge", firedAtUs=1500, machineId=HOST)
+        self.assertTrue(any("refused as out of order" in line and "firedAtUs=1500" in line for line in caught.output))
+        with self.assertNoLogs(logger, level="INFO"):
+            self._post("turn-end", bridgeId="late-end-bridge", firedAtUs=2500, machineId=HOST)
+
     def test_CONTROL_a_stamped_end_after_the_start_clears(self):
         self._post("turn-start", firedAtUs=2000, machineId=HOST)
         self._post("turn-end", bridgeId="late-end-bridge", firedAtUs=2500, machineId=HOST)

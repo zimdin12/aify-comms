@@ -187,3 +187,21 @@ test("the stamp is integer microseconds on the host wall clock", () => {
   assert.ok(Math.abs(firedAtUs - before) < 5_000_000, "within seconds of Date.now()");
   assert.ok(machineId.includes(":"), "the <platform>:<host> id a bridge registers with");
 });
+
+test("the stamp follows the WALL clock the hooks read, not a monotonic one that drifts from it", async (t) => {
+  // External review, 2026-09-29 (HIGH): the stamp read performance.timeOrigin + performance.now(),
+  // a monotonic clock fixed at process start. Measured on a WSL host it drifted 1.7 s from the wall
+  // clock every few seconds, so after an hour a bridge's turn events were ~200 s "in the future"
+  // against the hooks' $EPOCHREALTIME, and a relaunched bridge's turn-ends were refused as older than
+  // the last one: the agent sat `working` with nothing logged. A fresh process shows no drift, so
+  // this moves Date.now() instead: a stamp on the wall clock follows it; one on any other does not.
+  const realNow = Date.now;
+  t.after(() => { Date.now = realNow; });
+  const jumped = realNow() + 3_600_000;
+  Date.now = () => jumped;
+  assert.equal(hostNowUs(), jumped * 1000, "the bridge stamp is not on the wall clock");
+  assert.equal(turnEventStamp().firedAtUs, jumped * 1000);
+  // The hook's own fallback (no shell time passed) is taken when its process starts: a fresh module.
+  const { hookFiredAtUs } = await import(`../agent-state-event.mjs?wall-clock=${jumped}`);
+  assert.equal(hookFiredAtUs({}), jumped * 1000, "the hook fallback is not on the wall clock");
+});
