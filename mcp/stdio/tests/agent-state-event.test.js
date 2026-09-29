@@ -154,3 +154,9 @@ test("a service that never answers and a stdin nobody closes cannot hold the hoo
     s.close();
   }
 });
+
+test("a nanosecond time from GNU date (the hook's fallback under dash) keeps its microseconds", () => {
+  assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.694110987" }, 7), 1790451762694110);
+  assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.1234567890" }, 7), 7, "ten decimals is not a time");
+  assert.equal(hookFiredAtUs({ AIFY_HOOK_FIRED_AT: "1790451762.%N" }, 7), 7, "a date without %N falls back");
+});

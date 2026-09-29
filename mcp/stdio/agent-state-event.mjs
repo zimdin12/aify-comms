@@ -32,9 +32,10 @@ const STARTED_AT_US = Date.now() * 1000;
  * text so no microsecond is lost to a float.
  */
 export function hookFiredAtUs(env = process.env, fallback = STARTED_AT_US) {
-  const match = String(env.AIFY_HOOK_FIRED_AT || "").trim().match(/^(\d+)(?:[.,](\d{1,6}))?$/);
+  // Up to NINE decimals: under dash the hook command falls back to GNU `date +%s.%N`, nanoseconds.
+  const match = String(env.AIFY_HOOK_FIRED_AT || "").trim().match(/^(\d+)(?:[.,](\d{1,9}))?$/);
   if (!match) return fallback;
-  const us = Number(match[1]) * 1_000_000 + Number((match[2] || "").padEnd(6, "0"));
+  const us = Number(match[1]) * 1_000_000 + Number((match[2] || "").slice(0, 6).padEnd(6, "0"));
   return us > 0 && Number.isSafeInteger(us) ? us : fallback;
 }
 
