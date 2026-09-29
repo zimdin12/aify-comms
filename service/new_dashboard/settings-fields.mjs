@@ -13,15 +13,8 @@
 // it is tested through the public root rather than exported to make testing convenient. An export exists
 // because a named production consumer needs it.
 //
-// `esc` is the HTML escaper from util.js, and MOST interpolations of caller data go through it — but not
-// all, and this comment claimed otherwise until the tests proved it wrong. `item.key` reaches `id="..."`
-// and `for="..."` UNESCAPED via the `id` template, while the adjacent `data-setting-key` is escaped. So a
-// setting key containing a quote injects attributes. It is not reachable today (keys come from the
-// hardcoded `SETTINGS_SCHEMA`) and v0.5.x is structural-only, so `settings-fields.test.mjs` PINS it as
-// current behaviour and it is reported for its own behaviour tag.
-//
-// The comment is corrected rather than deleted because "every interpolation is escaped" is exactly the kind
-// of reassuring, unenforced sentence that makes the next reader stop checking.
+// Every interpolation of caller data goes through `esc`, the setting key included: the schema arrives
+// from GET /settings/schema, so a key is service data (v0.7.7 D6; settings-fields.test.mjs holds it).
 
 import { esc } from './util.js';
 import { COLOR_SETTING_SLOT, THEMES, normalizedHexColor, paletteFromSettings } from './theme.js';
@@ -36,7 +29,7 @@ function themePreviewTilesHtml(selectedKey) {
 }
 
 export function settingsFieldHtml(item, value, settings = {}) {
-  const id = `set-${item.key}`;
+  const id = esc(`set-${item.key}`);
   const hint = item.hint ? `<span class="field-hint">${esc(item.hint)}</span>` : '';
   // Associate the label with its input (for/id) so screen readers announce the field name.
   const labelBlock = `<label class="field-label" for="${id}">${esc(item.label)}${hint}</label>`;

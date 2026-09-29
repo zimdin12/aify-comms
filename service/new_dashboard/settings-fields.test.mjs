@@ -118,24 +118,12 @@ test("ESCAPING: an untrusted value cannot break out of the value attribute", () 
   assert.doesNotMatch(html, /value="" onfocus=/, "the value attribute must not be closed by its content");
 });
 
-test("PINNED DEFECT: item.key is NOT escaped into the id/for attributes", () => {
-  // FOUND BY THIS TEST, on the first executable assertion ever run against a line of app.js.
-  //
-  // `settingsFieldHtml` builds `const id = `set-${item.key}`` and interpolates it into `for="${id}"` and
-  // `id="${id}"` with NO esc(), while the neighbouring `data-setting-key="${esc(item.key)}"` IS escaped.
-  // So a key containing a quote closes the attribute and injects arbitrary attributes into the label and
-  // the input.
-  //
-  // NOT EXPLOITABLE TODAY, and that is why this pins rather than fixes: every `item.key` comes from
-  // `SETTINGS_SCHEMA`, a hardcoded const array of developer-authored literals in app.js. There is no path
-  // from user or agent input to a setting key. It is latent, and it becomes real the day the schema grows
-  // a key from a runtime source.
-  //
-  // v0.5.x is structural-only with an empty behaviour changelog, so fixing it here would be exactly the
-  // "while I'm in there" change the series forbids. Pinned as CURRENT behaviour, reported for its own
-  // behaviour tag — the same treatment `validate_name`'s trailing-newline acceptance got.
+test("ESCAPING: a setting key cannot break out of the id/for attributes", () => {
+  // Pinned as a defect in v0.5.x while the schema was a hardcoded array. It now arrives from
+  // GET /settings/schema, so a key is service data and is escaped like the rest (v0.7.7 D6).
   const html = settingsFieldHtml({ key: '" data-evil="1', label: "L", type: "text" }, "");
-  assert.match(html, /data-evil="1"/, "unescaped id injection is the CURRENT behaviour being pinned");
+  assert.doesNotMatch(html, /data-evil="1"/, "a quote in the key must not close the attribute");
+  assert.match(html, /id="set-&quot; data-evil=&quot;1"/, "the id carries the key, escaped");
   assert.match(html, /data-setting-key="&quot; data-evil=&quot;1"/, "the data attribute IS escaped");
 });
 
