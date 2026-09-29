@@ -13,6 +13,7 @@
 import { copyActiveConsole } from './clipboard.mjs';
 import { applyConsoleFind, handleConsoleFindKey, toggleConsoleFind } from './console-find.mjs';
 import { isSearchHotkey } from './terminal-search.mjs';
+import { isStartHotkey, openStartDialog } from './start-dialog.mjs';
 import { state } from './state.mjs';
 import { closeStatusWhy, openStatusWhy } from './status-why-popover.mjs';
 import { jumpFromDiagnostic } from './work-loop-panels.mjs';
@@ -27,6 +28,12 @@ export function handleGlobalKeydown(event, closeInspector, toggleFavorite) {
   // attached per render is a leak that grows for as long as the page is open.
   if (event.target?.matches?.('.console-find-input')) {
     if (handleConsoleFindKey(consoleHostOf(event.target), event)) return;
+  }
+  // Ctrl+K opens the Start dialog (v0.7.7), except inside a terminal, where it is the shell's kill-line.
+  if (isStartHotkey(event)) {
+    event.preventDefault();
+    openStartDialog();
+    return;
   }
   if (event.key === 'Escape') {
     closeStatusWhy();

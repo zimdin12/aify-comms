@@ -55,15 +55,23 @@ the realistic regression — and that gate runs every time. This file proves the
 enforced, and it runs when someone remembers. Treat a change to `message-format.mjs`, the vendored
 sanitizer, or `chat-render.mjs`'s body interpolation as a reason to run it.
 
-## `drawer-browser-check.mjs` — the closed drawer is out of the Tab order
+## `ux-browser-check.mjs` — the v0.7.7 drawer and Start dialog
 
 ```bash
-DASHBOARD_TEST_CHROME="<chrome executable>" node service/new_dashboard/fixtures/drawer-browser-check.mjs
+DASHBOARD_TEST_CHROME="<chrome executable>" node service/new_dashboard/fixtures/ux-browser-check.mjs
 ```
 
-An isolated Chromium loads the real `styles.css` and the drawer markup cut from `index.html`, and
-checks three things: closed, the drawer is `visibility: hidden` and its Close button cannot take
-focus; opened, it is visible at once; closing, it stays visible while it slides out and is hidden
-after. **MEASURED 2026-09-29, Chrome on Windows: 1 of 3 before the CSS change (the closed drawer
-read `visible`), 3 of 3 after.** With the visibility delay removed from the close transition it
-went to 2 of 3, naming the slide, and was restored byte-exact.
+An isolated Chromium loads the real `styles.css`, the drawer markup cut from `index.html` and the
+real dashboard modules, with the control route stubbed to refuse. Eight checks. The drawer: closed,
+it is `visibility: hidden` and its Close button cannot take focus; opened, it is visible at once;
+closing, it stays visible while it slides and is hidden after. The Start dialog: it opens with the
+search focused and every agent listed; typing filters; Enter on a startable agent posts to
+`/agents/{id}/control` and the route's refusal appears in the dialog, which stays open; arrows move;
+a live agent opens its console; a new name offers Create and fills the spawn form's Agent ID; Escape
+closes and returns focus.
+
+**MEASURED 2026-09-29, Chrome on Windows.** The drawer checks read 1 of 3 before the CSS change (the
+closed drawer was `visible`) and 3 of 3 after; with the visibility delay removed from the close
+transition they went to 2 of 3, naming the slide. The whole file reads 8 of 8. With the refusal line
+removed from `start-dialog.mjs` it read 7 of 8 ("the refusal is not in the dialog"), and with the
+arrow keys not moving the selection 7 of 8. Each mutant was restored byte-exact.

@@ -20,6 +20,7 @@
 
 import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { openAgentDrawer } from './agent-drawer.mjs';
+import { openStartDialog } from './start-dialog.mjs';
 import { deleteSessionById, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';
 import { loadAnalytics } from './analytics-page.mjs';
 import { openChatConversation, openChatReply, runChannelAction, setChatView, setPulseWindow } from './chat-click-handlers.mjs';
@@ -259,6 +260,10 @@ export function dispatchClick(event) {
   const analyticsRange = event.target.closest('[data-analytics-range]');
   if (analyticsRange) {
     selectAnalyticsRange(analyticsRange, loadAnalytics);
+    return;
+  }
+  if (event.target.closest('[data-start-dialog]')) {
+    openStartDialog();
     return;
   }
   const page = event.target.closest('[data-page], [data-page-jump]')?.dataset.page || event.target.closest('[data-page-jump]')?.dataset.pageJump;
