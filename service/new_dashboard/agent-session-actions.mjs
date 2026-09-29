@@ -58,7 +58,8 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
     // I10: an active run blocks the switch (409). Offer to force it, matching the old dashboard.
     if (res.status === 409 && !force) {
       const detail = body?.detail || body?.error || 'An active run is blocking the switch.';
-      if (await uiConfirm(`${detail}\n\nForce the switch to ${targetMode} anyway?`)) {
+      // Forcing stops the run in flight, so it is destructive: Cancel is focused and Enter is not yes.
+      if (await uiConfirm(`${detail}\n\nForce the switch to ${targetMode} anyway?`, { tone: 'danger' })) {
         return switchAgentSessionMode(agentId, targetMode, { force: true });
       }
       return null;

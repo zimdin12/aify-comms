@@ -97,6 +97,8 @@ for (const confirmed of [false, true]) test(`409 ${confirmed ? 'confirmation' : 
   assert.equal(h.dialogs.length, 1);
   assert.match(h.dialogs[0].innerHTML, /Active run synthetic-run/);
   assert.match(h.dialogs[0].innerHTML, /Force the switch to managed anyway/);
+  // Forcing stops a running agent: a destructive confirm, so Enter does not answer yes (review of 0.7.6).
+  assert.match(h.dialogs[0].innerHTML, /class="dialog dialog-danger"/);
   assert.equal(h.sent.length, confirmed ? 2 : 1);
   requestIsAuthenticated(h.sent[0]);
   if (confirmed) { requestIsAuthenticated(h.sent[1], true); assert.equal(answer.mode, 'managed'); }
