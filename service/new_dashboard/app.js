@@ -10,7 +10,7 @@ import { sessionAgentId, sessionId } from './record-fields.mjs';
 import { state, emptyInspector } from './state.mjs';
 import { agentForSession, ensureSelectedSession, renderSessionRail } from './session-rail.mjs';
 import { refreshActiveTerminalTheme, renderSettings } from './settings-panel.mjs';
-import { openAgentDrawer, syncInspectorToSelection } from './agent-drawer.mjs';
+import { focusAfterClose, openAgentDrawer, syncInspectorToSelection } from './agent-drawer.mjs';
 import { renderActivityFeed, renderAttention } from './work-loop-panels.mjs';
 import { codexConsoleConnections } from './codex-console.mjs';
 import { openIdentityDirectory } from './identity-directory.mjs';
@@ -110,7 +110,7 @@ const chatController = createChatController({
   markConversationRead: (agentId, opts) => markConversationRead(agentId, opts),
   // Keep the details drawer pointed at whatever the operator just selected — otherwise its
   // lifecycle buttons act on the agent they navigated away from. See syncInspectorToSelection.
-  onSelectionChange: () => syncInspectorToSelection(),
+  onSelectionChange: () => syncInspectorToSelection(closeInspector),
 });
 
 // Channels management (Phase 1.4): create/join/leave/read scoped to the viewing identity.
@@ -348,11 +348,12 @@ let _inspectorReturnFocus = null;
 
 function closeInspector() {
   const inspector = byId('inspector');
+  const returnTo = focusAfterClose(inspector, _inspectorReturnFocus, document.activeElement);
   inspector?.classList.remove('open');
   inspector?.classList.remove('run-inspector-sheet');
   state.inspector = emptyInspector();
   byId('inspector-content').textContent = 'Select an item to inspect details.';
-  try { if (_inspectorReturnFocus && _inspectorReturnFocus.focus) _inspectorReturnFocus.focus(); } catch {}
+  try { returnTo?.focus(); } catch {}
   _inspectorReturnFocus = null;
   evaluateFlowGates();
 }

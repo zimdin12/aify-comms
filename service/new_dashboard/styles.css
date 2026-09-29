@@ -670,11 +670,11 @@ small, .subtle { color: var(--muted); }
   padding: 16px;
   overflow: auto;
   box-shadow: var(--shadow);
-  transform: translateX(100%);
-  transition: transform .18s ease;
+  transform: translateX(100%); visibility: hidden; /* closed: out of the Tab order (v0.7.7) */
+  transition: transform .18s ease, visibility 0s .18s; /* hidden only once the slide has ended */
 }
 .inspector.open {
-  transform: translateX(0);
+  transform: translateX(0); visibility: visible; transition: transform .18s ease, visibility 0s;
 }
 .inspector pre {
   white-space: pre-wrap;

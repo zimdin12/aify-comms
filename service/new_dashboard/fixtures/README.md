@@ -54,3 +54,16 @@ gates the POLICY in Node — that the options handed to DOMPurify are still the 
 the realistic regression — and that gate runs every time. This file proves the policy is actually
 enforced, and it runs when someone remembers. Treat a change to `message-format.mjs`, the vendored
 sanitizer, or `chat-render.mjs`'s body interpolation as a reason to run it.
+
+## `drawer-browser-check.mjs` — the closed drawer is out of the Tab order
+
+```bash
+DASHBOARD_TEST_CHROME="<chrome executable>" node service/new_dashboard/fixtures/drawer-browser-check.mjs
+```
+
+An isolated Chromium loads the real `styles.css` and the drawer markup cut from `index.html`, and
+checks three things: closed, the drawer is `visibility: hidden` and its Close button cannot take
+focus; opened, it is visible at once; closing, it stays visible while it slides out and is hidden
+after. **MEASURED 2026-09-29, Chrome on Windows: 1 of 3 before the CSS change (the closed drawer
+read `visible`), 3 of 3 after.** With the visibility delay removed from the close transition it
+went to 2 of 3, naming the slide, and was restored byte-exact.

@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { state, emptyInspector } from "./state.mjs";
-import { openAgentDrawer, sessionForAgent, syncInspectorToSelection } from "./agent-drawer.mjs";
+import { focusAfterClose, openAgentDrawer, sessionForAgent, syncInspectorToSelection } from "./agent-drawer.mjs";
 import { AGENT_PROCESSES_ID } from "./agent-processes.mjs";
 import { AGENT_RUNS_ID } from "./agent-runs.mjs";
 import { AGENT_SHARING_ID } from "./agent-session-sharing.mjs";
@@ -111,15 +111,32 @@ test("syncInspectorToSelection does nothing unless an AGENT drawer is open", () 
   });
 });
 
-test("selecting something that is not a DM closes the drawer and clears it", () => {
+test("selecting something that is not a DM closes the drawer through the page's close (v0.7.7)", () => {
+  // It removed the `open` class itself and skipped the close path: the content reset, the flow
+  // gates and the focus return. The page's `closeInspector` is passed in and called instead.
   for (const selection of ["", "channel:general", "run:r1", null]) {
     seed({ inspector: { kind: "agent", agentId: "coder" }, chat: { selected: selection } });
-    withDom(drawerEls(["open"]), (els) => {
-      syncInspectorToSelection();
-      assert.equal(els.inspector.classList.contains("open"), false, `"${selection}" must close the drawer`);
-      assert.deepEqual(state.inspector, emptyInspector(), "a closed drawer keeps nothing of the one it was");
+    withDom(drawerEls(["open"]), () => {
+      let closed = 0;
+      syncInspectorToSelection(() => { closed += 1; });
+      assert.equal(closed, 1, `"${selection}" must close the drawer through the page's close`);
     });
   }
+  seed({ agents: [{ id: "tester" }], inspector: { kind: "agent", agentId: "coder" }, chat: { selected: "dm:tester" } });
+  withDom(drawerEls(["open"]), () => {
+    let closed = 0;
+    syncInspectorToSelection(() => { closed += 1; });
+    assert.equal(closed, 0, "CONTROL: another agent retargets the drawer rather than closing it");
+  });
+});
+
+test("focus goes back to the opener only when it was inside the closing drawer", () => {
+  const inside = {};
+  const drawer = { contains: (el) => el === inside };
+  const opener = { focus() {} };
+  assert.equal(focusAfterClose(drawer, opener, inside), opener, "focus in the drawer would be lost when it hides");
+  assert.equal(focusAfterClose(drawer, opener, {}), null, "a click elsewhere closed it: focus stays on that click");
+  assert.equal(focusAfterClose(drawer, null, inside), null);
 });
 
 test("selecting the SAME agent is a no-op — it does not re-render the drawer", () => {

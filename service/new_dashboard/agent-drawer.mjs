@@ -20,7 +20,7 @@
 
 import { continueCliDetails, resumeMachineNote } from './cli-resume.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
-import { state, emptyInspector, inspectorOpening } from './state.mjs';
+import { state, inspectorOpening } from './state.mjs';
 import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
@@ -165,15 +165,28 @@ export function openAgentDrawer(agentId) {
   fillAgentRuns(id, { byId });
   fillSessionSharing(id, { byId, agents: state.agents });
 }
-export function syncInspectorToSelection() {
+/**
+ * Keep an open agent drawer on the selected conversation. `close` is the page's `closeInspector`,
+ * so an auto-close takes the same path as the Close button (v0.7.7): content reset, flow gates,
+ * focus return.
+ */
+/**
+ * Where focus goes when the drawer closes: back to where it was opened from, but only when focus was
+ * inside the drawer, which hides as it closes (v0.7.7). A close caused by a click elsewhere leaves
+ * focus on that click.
+ */
+export function focusAfterClose(inspector, returnTo, active) {
+  return returnTo?.focus && inspector?.contains?.(active) ? returnTo : null;
+}
+
+export function syncInspectorToSelection(close) {
   const inspector = byId('inspector');
   if (!inspector?.classList.contains('open')) return;
   if (state.inspector?.kind !== 'agent') return;
   const selected = String(state.chat?.selected || '');
   const shownAgent = String(state.inspector?.agentId || '');
   if (!selected || !selected.startsWith('dm:')) {
-    inspector.classList.remove('open');
-    state.inspector = emptyInspector();
+    close();
     return;
   }
   const nextAgent = selected.slice('dm:'.length);

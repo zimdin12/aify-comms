@@ -413,7 +413,8 @@ test("the chat controller is wired to the drawer's selection sync", () => {
   //
   // The wiring is the part that lives here and nowhere else. Without it the sync is never called and the
   // drawer goes stale exactly as it did before the feature existed.
-  assert.match(read("app.js"), /onSelectionChange: \(\) => syncInspectorToSelection\(\)/);
+  // v0.7.7: it passes the page's close, so an auto-close takes the Close button's path.
+  assert.match(read("app.js"), /onSelectionChange: \(\) => syncInspectorToSelection\(closeInspector\)/);
 });
 
 test("chat controller notifies on every selection change", () => {
