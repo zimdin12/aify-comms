@@ -87,7 +87,9 @@ git clone https://github.com/zimdin12/aify-env  # agent hosts only; then its own
 
 Then, on each agent host, start `aify-env` from the directory that contains your workspaces, open
 `http://localhost:8801`, go to **Environments**, fill in **Spawn Session** (environment, runtime,
-agent id, workspace), click **Spawn**, and message the new agent.
+agent id, workspace), click **Spawn**, and message the new agent. To start an agent that already
+exists, press **Start agent** in the top bar or Ctrl+K and search for it: Enter starts a stopped
+managed agent, opens a live one's console, or says why not.
 
 **Order: service, then `install.sh --client` on each agent host, then aify-env's `install.sh`, then
 start `aify-env`.** The client install writes this service into `~/.aify/services.json`, and aify-env
