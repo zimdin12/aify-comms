@@ -42,6 +42,7 @@ from service.api_core.terminal_status import _TERMINAL_ACTIVE_STATUSES
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
+from service.reconcilers.dead_session_status import managed_sessions_with_dead_terminals
 
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
@@ -62,14 +63,24 @@ async def _live_session_for(db, agent_id: str):
 
     LOWERED IN SQL, because a status is written by several producers and this comparison is the
     whole guard: a row saying `Running` must not read as not-live.
+
+    A STOPPED WORKER IS NOT A LIVE SESSION, whatever its row still says. A managed session whose
+    terminals are all dead keeps its `running` status until the sweep settles it, about a minute
+    later; the session list aify-env chose from already showed it stopped, so reading the stored
+    status alone refused the very start the stop was for. The sweep's own rule decides it, so the
+    two cannot disagree, and a session with no terminal yet stays live (it is starting).
     """
     placeholders = ",".join("?" for _ in _LIVE_SESSION_STATUSES)
     cursor = await db.execute(
         f"SELECT id, status FROM agent_sessions WHERE agent_id = ? "
-        f"AND LOWER(TRIM(status)) IN ({placeholders}) LIMIT 1",
+        f"AND LOWER(TRIM(status)) IN ({placeholders})",
         (agent_id, *sorted(_LIVE_SESSION_STATUSES)),
     )
-    return await cursor.fetchone()
+    dead = {row["id"] for row in await managed_sessions_with_dead_terminals(db, agent_id)}
+    for row in await cursor.fetchall():
+        if row["id"] not in dead:
+            return row
+    return None
 
 
 @router.post("/sessions/{session_id}/control")

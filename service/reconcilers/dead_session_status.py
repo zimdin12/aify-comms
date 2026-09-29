@@ -21,6 +21,44 @@ from service.clock import now as _now
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 
 
+async def managed_sessions_with_dead_terminals(db, agent_id: str = "") -> list:
+    """Live-status MANAGED sessions whose terminals are all dead: case (a) below, as one rule.
+
+    ONE RULE, TWO READERS. The sweep settles these rows about once a minute; the conditional
+    restart asks the same question for one agent at decision time. Before it did, a worker the
+    operator had just stopped read as a live session until the next sweep, and every start in
+    that window was refused with a 409 (2026-09-29, comms-senior-dev, 44 s).
+
+    A session with NO terminal rows is not matched: that is a worker still starting, and calling
+    it dead is how one agent gets two workers.
+    """
+    live_states = tuple(sorted(s.lower() for s in LIVE_SESSION_STATUSES))
+    state_ph = ",".join("?" for _ in live_states)
+    agent_clause = "AND s.agent_id = ?" if agent_id else ""
+    return await (
+        await db.execute(
+            f"""
+            SELECT s.id AS id, s.agent_id AS agent_id
+            FROM agent_sessions s
+            WHERE s.owner_mode = 'managed'
+              AND s.status IN ({state_ph})
+              {agent_clause}
+              AND EXISTS (
+                SELECT 1 FROM terminal_sessions t
+                WHERE t.session_id = s.id AND t.id NOT LIKE 'vterm_%'
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM terminal_sessions t
+                WHERE t.session_id = s.id
+                  AND t.id NOT LIKE 'vterm_%'
+                  AND LOWER(COALESCE(t.status, '')) IN ({state_ph})
+              )
+            """,
+            [*live_states, *([agent_id] if agent_id else []), *live_states],
+        )
+    ).fetchall()
+
+
 async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int = 500) -> int:
     """Downgrade a live-status `agent_sessions` row to 'stopped' once its BACKING
     is dead (2026-06-03).
@@ -80,27 +118,7 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
     # "has terminals AND all dead" without falsely stopping a session that simply
     # hasn't spawned a console yet (no terminal rows → not matched). Computed in
     # Python so we can also invalidate each mutated agent's live-state cache.
-    dead_terminal_rows = await (
-        await db.execute(
-            f"""
-            SELECT s.id AS id, s.agent_id AS agent_id
-            FROM agent_sessions s
-            WHERE s.owner_mode = 'managed'
-              AND s.status IN ({state_ph})
-              AND EXISTS (
-                SELECT 1 FROM terminal_sessions t
-                WHERE t.session_id = s.id AND t.id NOT LIKE 'vterm_%'
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM terminal_sessions t
-                WHERE t.session_id = s.id
-                  AND t.id NOT LIKE 'vterm_%'
-                  AND LOWER(COALESCE(t.status, '')) IN ({state_ph})
-              )
-            """,
-            [*live_states, *[s.lower() for s in live_states]],
-        )
-    ).fetchall()
+    dead_terminal_rows = await managed_sessions_with_dead_terminals(db)
     dead_a_ids = [str(r["id"]) for r in (dead_terminal_rows or [])]
     for r in (dead_terminal_rows or []):
         aid = str(r["agent_id"] or "")

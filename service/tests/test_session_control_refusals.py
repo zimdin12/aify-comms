@@ -218,6 +218,32 @@ class SessionControlRefusalTests(FastApiTestCase):
         response = self._control_if_idle("restart")
         self.assertFalse(self._refused_for_liveness(response), response.text)
 
+    def _seed_terminal(self, status: str) -> None:
+        self._write(
+            "INSERT INTO terminal_sessions (id, session_id, agent_id, environment_id, runtime,"
+            " status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("term-1", SESSION_ID, AGENT_ID, ENVIRONMENT_ID, "codex", status,
+             "2026-08-16T00:00:00Z", "2026-08-16T00:00:00Z"),
+        )
+
+    def test_a_worker_just_stopped_is_not_a_live_session(self):
+        """THE 2026-09-29 409. The operator stopped a worker and pressed start: the terminal was
+        already `stopped`, the session row still said `running` until the sweep, and every start
+        in those 44 seconds was refused as a double start. The sweep's rule decides it here too.
+        """
+        self._seed_session()
+        self._seed_terminal("stopped")
+        response = self._control_if_idle("restart")
+        self.assertFalse(self._refused_for_liveness(response), response.text)
+
+    def test_a_worker_whose_terminal_is_running_still_refuses(self):
+        """THE CONTROL for the one above: same rows, terminal alive. It must be the terminal's
+        status that decides, not the terminal's mere presence."""
+        self._seed_session()
+        self._seed_terminal("running")
+        response = self._control_if_idle("restart")
+        self.assertTrue(self._refused_for_liveness(response), response.text)
+
     def _seed_running_dispatch(self, run_id: str = "run-live") -> None:
         """A run this route would INTERRUPT, which is the thing the ordering test watches for."""
         self._write(
