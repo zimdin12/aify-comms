@@ -143,6 +143,20 @@ test('CALL SITE: nothing matching reads as clear, and marks itself clear', () =>
   });
 });
 
+test('CALL SITE: choosing a Work State does not empty Needs Attention', () => {
+  // v0.7.7 D3: State=Closed reloads `state.contracts` with closed ones only, and the strip read
+  // "clear" while three open contracts were overdue. It reads the open set, `state.contractsBase`.
+  state.filter = '';
+  state.contracts = [{ id: 'done', subject: 's', state: 'completed', overdue: false }];
+  state.contractsBase = overdue(3);
+  try {
+    withAttentionDom(({ summary }) => {
+      renderAttention();
+      assert.equal(summary.textContent, '3');
+    });
+  } finally { state.contractsBase = undefined; }
+});
+
 test('CALL SITE: a missing summary node does not stop the list rendering', () => {
   // `renderAttention` runs inside the unconditional renderAll loop. The strip's own guard comment
   // says a missing node must never throw out of it; the new node needs the same tolerance.

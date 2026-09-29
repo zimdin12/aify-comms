@@ -110,6 +110,18 @@ test("the metrics tiles count agents by RESOLVED status, not by raw string", () 
     "active counts online+working+blocked, not offline");
 });
 
+test("choosing a Work State does not move the contract tiles", () => {
+  // v0.7.7 D3: the State dropdown reloads `state.contracts` (Closed shows only closed ones), and the
+  // tiles counted that, so "Overdue work" read 0 while the open set still held an overdue contract.
+  seed({ contracts: [{ id: "old", state: "completed" }] });
+  state.contractsBase = [{ id: "c1", overdue: true }, { id: "c2", state: "queued" }];
+  try {
+    const html = renderInto("metrics", renderMetrics);
+    assert.ok(html.includes("<b>1</b><span>Overdue work</span>"), html);
+    assert.ok(html.includes("<b>1</b><span>Queued contracts</span>"), html);
+  } finally { state.contractsBase = undefined; }
+});
+
 test("a zero count renders neutral rather than alarming", () => {
   // A permanently red "Blocked agents: 0" trains the operator to ignore the tile that matters.
   seed({ agents: [{ id: "a", status: "online" }], contracts: [] });

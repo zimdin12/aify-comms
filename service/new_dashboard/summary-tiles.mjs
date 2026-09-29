@@ -42,8 +42,10 @@ export function renderMetrics() {
   const working = state.agents.filter((a) => resolveStatus(a.status).kind === 'working').length;
   const blocked = state.agents.filter((a) => resolveStatus(a.status).kind === 'blocked').length;
   const active = state.agents.filter((a) => ACTIVE_AGENT_STATUSES.includes(resolveStatus(a.status).kind)).length;
-  const overdue = state.contracts.filter((c) => c.overdue).length;
-  const queued = state.contracts.filter((c) => c.state === 'queued').length;
+  // The open set, not the Work page's State choice (v0.7.7 D3).
+  const openContracts = state.contractsBase || state.contracts;
+  const overdue = openContracts.filter((c) => c.overdue).length;
+  const queued = openContracts.filter((c) => c.state === 'queued').length;
   byId('metrics').innerHTML = [
     metric('Active agents', active, 'ok'),
     metric('Working now', working, working ? 'working' : 'neutral'),

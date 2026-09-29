@@ -73,7 +73,8 @@ export function attentionSummaryLabel(total, shown) {
 
 export function renderAttention() {
   // Counted BEFORE the cap, so the header can tell a full list from a truncated one.
-  const matching = filtered(state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
+  // The open set, so choosing a State on the Work page does not empty it (v0.7.7 D3).
+  const matching = filtered(state.contractsBase || state.contracts, ['subject', 'preview', 'from', 'targetAgentId'])
     .filter((c) => c.overdue || c.state === 'working' || c.state === 'queued');
   const items = matching.slice(0, 8);
   const summary = byId('attention-summary');
