@@ -57,6 +57,20 @@ test("every name the dashboard console types or resizes under is the viewer aify
   }
 });
 
+test("no agent id can be the dashboard viewer: the surface namespace is outside every agent id", async () => {
+  // An agent's console input is recorded under its id. The surfaces were `dashboard-*` first, the shape
+  // of a live agent's id (`dashboard-manager`), whose typing would then have resized the operator's pane.
+  const { viewerOfControl, DASHBOARD_SURFACE_PREFIX } = await hostViewerRule();
+  const source = readFileSync(path.join(REPO, "service", "api_core", "validation.py"), "utf8");
+  const pattern = /^SAFE_NAME_RE = re\.compile\(r'(.+)'\)$/m.exec(source)?.[1];
+  assert.ok(pattern, "CONTROL: validation.py no longer declares SAFE_NAME_RE as a raw-string literal");
+  const agentId = new RegExp(pattern.replace(/\\Z$/, "$"));
+  assert.ok(agentId.test("dashboard-manager"), "CONTROL: the agent-id rule admits a real agent id");
+  assert.ok(DASHBOARD_SURFACE_PREFIX && !agentId.test(`${DASHBOARD_SURFACE_PREFIX}x`),
+    `an agent could be named '${DASHBOARD_SURFACE_PREFIX}x' and act as the dashboard viewer`);
+  assert.equal(viewerOfControl({ requestedBy: "dashboard-manager" }), "");
+});
+
 test("the requester the service fills in for a caller that named nobody is no viewer", async () => {
   const { viewerOfControl } = await hostViewerRule();
   // The terminal routes record an unnamed caller through `recorded_operator_actor`, whose fallback is

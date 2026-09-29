@@ -73,7 +73,7 @@ try {
   assert.deepEqual(requests.map((r) => r.url), ['/api/v1/probe', '/api/v1/terminals/fixture-terminal/input', '/ws?changes=1']);
   assert.ok(requests.every((r) => r.host === new URL(origin).host));
   assert.equal(requests[1].method, 'POST');
-  assert.deepEqual(JSON.parse(requests[1].body), { body: 'native paste payload\r', requestedBy: 'dashboard-console' });
+  assert.deepEqual(JSON.parse(requests[1].body), { body: 'native paste payload\r', requestedBy: 'dashboard:console' });
   console.log('verified HTTPS API, terminal input, WSS frame; untrusted and wrong-host TLS refused');
 } finally {
   clearTimeout(deadline);

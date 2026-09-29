@@ -72,7 +72,7 @@ export async function resyncActiveConsole({ forceRepaint = false } = {}) {
           rows: entry.term.rows,
           resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(entry.terminalId)}/resize`, {
             method: 'POST',
-            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-refresh' }),
+            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard:refresh' }),
           }),
           waitForSize: (nextCols, nextRows) => awaitTerminalSize(entry.terminalId, nextCols, nextRows),
         });

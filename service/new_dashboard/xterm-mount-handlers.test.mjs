@@ -340,7 +340,7 @@ test("typing reaches the PTY through the serialized poster", async () => {
   const posts = requestsTo(`/terminals/${terminalId}/input`);
   assert.equal(posts.length, 1, "a keystroke did not reach the terminal input endpoint");
   assert.equal(posts[0].method, "POST");
-  assert.deepEqual(JSON.parse(posts[0].body), { body: "ls\r", requestedBy: "dashboard-console" });
+  assert.deepEqual(JSON.parse(posts[0].body), { body: "ls\r", requestedBy: "dashboard:console" });
 });
 
 test("input is REFUSED when the console is not live, and the operator is told once per 4s", async () => {
@@ -424,7 +424,7 @@ test("a grid change is posted once, after the debounce, at the clamped size", as
   await passTheDebounce(t);
   const posts = requestsTo(`/terminals/${terminalId}/resize`);
   assert.equal(posts.length, 1);
-  assert.deepEqual(JSON.parse(posts[0].body), { cols: 100, rows: 30, requestedBy: "dashboard-console" });
+  assert.deepEqual(JSON.parse(posts[0].body), { cols: 100, rows: 30, requestedBy: "dashboard:console" });
 });
 
 test("an UNCHANGED grid is not posted at all", async (t) => {
@@ -451,7 +451,7 @@ test("a burst of DIFFERENT sizes posts only the last one", async (t) => {
   await passTheDebounce(t);
   const posts = requestsTo(`/terminals/${terminalId}/resize`);
   assert.equal(posts.length, 1, "each intermediate size reached the PTY");
-  assert.deepEqual(JSON.parse(posts[0].body), { cols: 90, rows: 28, requestedBy: "dashboard-console" });
+  assert.deepEqual(JSON.parse(posts[0].body), { cols: 90, rows: 28, requestedBy: "dashboard:console" });
 });
 
 test("a collapsing pane is clamped to a usable grid, never to its real 2x1", async (t) => {
@@ -464,7 +464,7 @@ test("a collapsing pane is clamped to a usable grid, never to its real 2x1", asy
   await passTheDebounce(t);
   const posts = requestsTo(`/terminals/${terminalId}/resize`);
   assert.equal(posts.length, 1);
-  assert.deepEqual(JSON.parse(posts[0].body), { cols: 20, rows: 5, requestedBy: "dashboard-console" });
+  assert.deepEqual(JSON.parse(posts[0].body), { cols: 20, rows: 5, requestedBy: "dashboard:console" });
 });
 
 // ── wheel: the focus gate ───────────────────────────────────────────────────
@@ -498,7 +498,7 @@ test("a wheel over a FOCUSED full-screen TUI scrolls it through the same seriali
   await new Promise((r) => setImmediate(r));
   const posts = requestsTo(`/terminals/${terminalId}/input`);
   assert.equal(posts.length, 1, "a focused wheel gesture did not reach the PTY");
-  assert.deepEqual(JSON.parse(posts[0].body), { body: "\x1b[B\x1b[B\x1b[B", requestedBy: "dashboard-console" });
+  assert.deepEqual(JSON.parse(posts[0].body), { body: "\x1b[B\x1b[B\x1b[B", requestedBy: "dashboard:console" });
   assert.equal(prevented, 1, "the page scrolled as well as the terminal");
 });
 

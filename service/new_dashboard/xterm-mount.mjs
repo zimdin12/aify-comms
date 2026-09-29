@@ -400,7 +400,7 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
           rows: r2,
           resize: (nextCols, nextRows) => api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
             method: 'POST',
-            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard-attach' }),
+            body: JSON.stringify({ cols: nextCols, rows: nextRows, requestedBy: 'dashboard:attach' }),
           }),
           waitForSize: (nextCols, nextRows) => awaitTerminalSize(terminalId, nextCols, nextRows),
         });
