@@ -157,8 +157,15 @@ can land out of order, and a turn-start landing after its own turn-end would lea
 **What it costs.** Codex hashes `async` into a hook's trust, so the codex Herdr hooks need trusting once
 more. The installer re-records trust for the hooks it writes itself. Times are never compared across
 hosts: a move to a host whose clock is behind starts a fresh record, and a late event from the old host
-is refused because that host is no longer registered. An event with no `firedAtUs` (a detector, an older
-hook) is outside the ordering and applies as before.
+is refused because that host is no longer registered. An event with no `firedAtUs` (an older hook) is
+outside the ordering and applies as before; since the review of 0.7.6 the bridge's detectors and a
+heartbeat that starts a turn are stamped too (`mcp/stdio/turn-event-stamp.mjs`).
+
+**Every stamp is the host's WALL clock**: `Date.now()` in node, `$EPOCHREALTIME` in the hook shell, or
+`date +%s.%N` where the shell is dash and has none. The bridge once stamped with
+`performance.timeOrigin + performance.now()`, a monotonic clock that drifted from the hooks' wall clock
+by 1.7 s in five on WSL, so a relaunched bridge's turn-ends were refused as late and the agent sat
+`working`. A refusal is logged, since the route answers 200 either way.
 
 ## Compaction is the runtime's own command, or a fresh session that points back (2026-09-27, v0.7.5)
 
@@ -1095,7 +1102,9 @@ whatever the key (`CrossSiteBrowserMiddleware`, keyed on `Sec-Fetch-Site`).
 
 **What `OPERATOR_KEY` does and does not do.** Added for R5-H1: until 2026-08-18 an actor string of
 `operator` or `dashboard` was enough to unsend any message, delete any channel and unshare any
-artifact. It now requires `X-Aify-Operator-Key`. That raises the bar from "type an English word" to
+artifact. It now requires `X-Aify-Operator-Key`, and since the review of 0.7.6 so does every route where
+the name grants more than a label: the three sending routes, spawn, agent control, run control and
+native compaction (`refuse_an_unproven_operator_claim`). That raises the bar from "type an English word" to
 "hold a secret" — which stops the casual, the confused and the prompt-injected case. It is NOT a
 boundary against an agent with filesystem access: `.env` is readable on the host, and the dashboard
 page carries the key to the browser. Anyone reading this should not treat it as one. Since 2026-09-24
