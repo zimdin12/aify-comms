@@ -5906,7 +5906,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
     def test_dispatch_claim_includes_scoped_direct_conversation_context(self):
         self.client.put("/api/v1/settings", json={"managed_terminal_backing_enabled": False})
-        self._register("dashboard", role="manager")
+        # No `dashboard` agent row: the dashboard is not an agent, and the name is reserved.
         self._create_running_session(
             agent_id="worker",
             terminal=True,

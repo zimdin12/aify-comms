@@ -62,7 +62,7 @@ class NoAgentCanHoldAnOperatorName(FastApiTestCase):
                 with self.subTest(setting=label, name=name):
                     response = self.client.post("/api/v1/agents", json=_register_body(name), headers=headers)
                     self.assertEqual(response.status_code, 400, response.text[:200])
-                    self.assertIn("reserved for the operator", response.text)
+                    self.assertIn(f"'{name}' is reserved for the operator and cannot be an agent id", response.text)
         self.assertEqual(self._agent_ids() & {n for n in RESERVED}, set(), "a refused registration wrote a row")
 
     def test_rename_refuses_an_operator_name_and_leaves_the_agent_as_it_was(self):
@@ -84,7 +84,7 @@ class NoAgentCanHoldAnOperatorName(FastApiTestCase):
                 response = self.client.post("/api/v1/spawn-requests", json={
                     "environmentId": "no-such-env", "agentId": name, "runtime": "claude-code"})
                 self.assertEqual(response.status_code, 400, response.text[:200])
-                self.assertIn("reserved for the operator", response.text)
+                self.assertIn(f"'{name}' is reserved for the operator and cannot be an agent id", response.text)
 
     def test_CONTROL_ordinary_names_still_register_and_rename(self):
         """A live agent is called `dashboard-manager`; only the exact operator names are reserved."""
