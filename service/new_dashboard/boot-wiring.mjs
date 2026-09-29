@@ -174,15 +174,17 @@ export function wireGlobalControls({
       });
     });
   });
-  // Clear all rail filters (scope→all, toggles off, status set empty, sort→activity).
-  byId('chat-clear-filters')?.addEventListener('click', () => {
+  // Clear all rail filters (scope→all, toggles off, status set empty, sort→activity). The filter bar's
+  // button and the rail's "N hidden by filters · Clear" both call it.
+  const clearChatFilters = () => {
     state.chat.scope = 'all';
     state.chat.unreadOnly = false; state.chat.liveOnly = false; state.chat.openOnly = false; state.chat.workingUp = false;
     state.chat.statusFilter = new Set();
     state.chat.sortMode = 'activity';
     const sortSel = byId('chat-sort'); if (sortSel) sortSel.value = 'activity';
     persistChatPrefs(); syncChatChips(); chatController.renderRail();
-  });
+  };
+  byId('chat-clear-filters')?.addEventListener('click', clearChatFilters);
   byId('chat-identity')?.addEventListener('change', (event) => {
     state.chat.identity = event.target.value || 'dashboard';
     if (state.chat.identity === 'all' && state.chat.view === 'console') {
@@ -206,6 +208,10 @@ export function wireGlobalControls({
   });
   // Delegated handler for the filter-bar chips (scope / quick toggles / status filter).
   byId('page-chat')?.addEventListener('click', (event) => {
+    if (event.target.closest('[data-chat-clear-filters]')) {
+      clearChatFilters();
+      return;
+    }
     const scopeBtn = event.target.closest('[data-chat-scope]');
     if (scopeBtn) {
       state.chat.scope = scopeBtn.dataset.chatScope || 'all';

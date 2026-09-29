@@ -650,3 +650,22 @@ test("a second press while a send is in flight sends nothing (external review, D
     await next;
     assert.equal(sent.length, 2, "CONTROL: a send after the first settles goes through");
 }));
+
+test("the rail says how many agents its filters hide, and offers Clear (v0.7.7)", () => {
+  const els = { "chat-rail-list": { innerHTML: "" } };
+  const state = {
+    loaded: true,
+    agents: [{ id: "alice", status: "online" }, { id: "bob", status: "offline" }],
+    messages: [],
+    chat: { identity: "dashboard", selected: "", drafts: {}, channels: [], statusFilter: new Set(["working"]) },
+  };
+  const controller = createChatController({ state, byId: (id) => els[id] || null });
+  controller.renderRail();
+  const html = els["chat-rail-list"].innerHTML;
+  assert.match(html, /2 hidden by filters/);
+  assert.match(html, /data-chat-clear-filters/);
+  assert.doesNotMatch(html, /No agents\./, "a filtered-empty rail read as an empty roster");
+  state.chat.statusFilter = new Set();
+  controller.renderRail();
+  assert.doesNotMatch(els["chat-rail-list"].innerHTML, /hidden by filters/, "CONTROL: nothing hidden, no note");
+});

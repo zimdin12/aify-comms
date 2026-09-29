@@ -113,6 +113,21 @@ test("wiring binds listeners and never throws on a DOM missing every optional el
   } finally { h.restore(); }
 });
 
+test("the rail's Clear resets the filters its note counted (v0.7.7)", () => {
+  const h = recordingDom();
+  try {
+    wireGlobalControls(DEPS);
+    Object.assign(state.chat, { scope: "channel", liveOnly: true, statusFilter: new Set(["working"]) });
+    const click = h.bound.find((b) => b.on === "page-chat" && b.type === "click");
+    assert.ok(click, "CONTROL: the chat page has a delegated click listener");
+    const clear = { closest: (sel) => (sel === "[data-chat-clear-filters]" ? {} : null) };
+    click.fn({ target: clear });
+    assert.equal(state.chat.scope, "all");
+    assert.equal(state.chat.liveOnly, false);
+    assert.equal(state.chat.statusFilter.size, 0);
+  } finally { h.restore(); }
+});
+
 test("THE env-group TOGGLE LISTENER IS REGISTERED IN THE CAPTURE PHASE", () => {
   // `toggle` does not bubble. Registered in the bubble phase it never fires, and the only symptom is
   // that session env-group collapse silently stops persisting — no error, no visible difference until

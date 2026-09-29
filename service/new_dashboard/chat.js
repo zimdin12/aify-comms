@@ -10,7 +10,7 @@ import { fleetPulseHtml } from './analytics.js';
 // The conversation-list builders left for `chat-select.mjs` in v0.5.4, with the HTML builders that
 // went to `chat-render.mjs` before them. What remains here is the controller — the part that needs
 // a document — and it is the only caller of both.
-import { chatConversationItems, dmMessages, sortChronological } from './chat-select.mjs';
+import { chatRailItems, dmMessages, sortChronological } from './chat-select.mjs';
 import { anchoredScrollTop } from './message-history.mjs';
 import { paintIfChanged } from './drawer-paint.mjs';
 import { createMessengerReading } from './messenger-reading.mjs';
@@ -51,7 +51,7 @@ export function createChatController(deps) {
   function renderRail() {
     const host = byId('chat-rail-list');
     if (!host) return;
-    const items = chatConversationItems(state);
+    const { items, hidden } = chatRailItems(state);
     const dmItems = items.filter((i) => i.kind === 'dm');
     const chItems = items.filter((i) => i.kind === 'channel');
     // Before the first successful refresh, show "Loading…" rather than "No agents." so a cold
@@ -99,7 +99,10 @@ export function createChatController(deps) {
     // moves into the line that was already there.
     const html = (
       `<div class="chat-rail-section">Direct messages${scopeNote}</div>`
-      + (dmItems.length ? dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts, state.chat.identity === 'all')).join('') : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
+      + dmItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts, state.chat.identity === 'all')).join('')
+      // WHAT THE FILTERS HIDE, and the way back (v0.7.7): a filtered-empty rail said "No agents.".
+      + (hidden ? `<p class="subtle chat-rail-empty">${hidden} hidden by filters · <button type="button" class="filter-hidden-note" data-chat-clear-filters>Clear</button></p>`
+        : dmItems.length ? '' : `<p class="subtle chat-rail-empty">${dmEmpty}</p>`)
       + `<div class="chat-rail-section">Channels</div>`
       + (chItems.length ? chItems.map((i) => railItemHtml(i, state.chat.selected, state.chat.drafts)).join('') : `<p class="subtle chat-rail-empty">${chEmpty}</p>`)
     );

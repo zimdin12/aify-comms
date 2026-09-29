@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { chatConversationItems, dmMessages, sortChronological } from "./chat-select.mjs";
+import { chatConversationItems, chatRailItems, dmMessages, sortChronological } from "./chat-select.mjs";
 
 test("sortChronological orders oldest→newest so the newest sits at the bottom (2026-07-06)", () => {
   // /messages/recent returns DESCENDING (newest first). The timeline must show ascending.
@@ -197,4 +197,20 @@ test("every live status outranks every dead one, whoever edits the vocabulary ne
   const worstLive = Math.max(...live.map((s) => order.findIndex((id) => id.endsWith(s))));
   const bestDead = Math.min(...dead.map((s) => order.findIndex((id) => id.endsWith(s))));
   assert.ok(worstLive < bestDead, `a dead agent outranked a live one: ${order.join(" < ")}`);
+});
+
+test("the rail counts the agents its filters hide, and not the ones the search hides (v0.7.7)", () => {
+  const base = {
+    agents: [{ id: "w", status: "working" }, { id: "off", status: "offline" }, { id: "on", status: "online" }],
+    messages: [],
+    chat: { identity: "dashboard", channels: [{ name: "room", memberCount: 1 }], statusFilter: new Set(["working"]) },
+  };
+  const narrowed = chatRailItems(base);
+  assert.deepEqual(narrowed.items.filter((i) => i.kind === "dm").map((i) => i.id), ["w"]);
+  assert.equal(narrowed.hidden, 2, "two agents are hidden by the status filter");
+  assert.equal(chatRailItems({ ...base, chat: { ...base.chat, statusFilter: new Set() } }).hidden, 0, "CONTROL: no filter, none hidden");
+  const searched = chatRailItems({ ...base, chat: { ...base.chat, statusFilter: new Set(), filter: "w" } });
+  assert.equal(searched.hidden, 0, "the search box is not one of the filters Clear resets");
+  assert.equal(chatRailItems({ ...base, chat: { ...base.chat, statusFilter: new Set(), scope: "channel" } }).hidden, 3,
+    "the Channels scope hides every agent");
 });

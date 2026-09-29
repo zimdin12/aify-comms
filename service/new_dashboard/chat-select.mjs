@@ -73,7 +73,17 @@ function statusRank(kind) { return STATUS_SORT_RANK[kind] ?? STATUS_SORT_ORDER.l
 
 // Build rail items (DMs + channels) from state. Pure → unit-tested. Honors sortMode, the
 // live-only / open-only / working-first toggles, the status filter set, and global text search.
+/** The rail's conversations, filtered and sorted. */
 export function chatConversationItems(state) {
+  return chatRailItems(state).items;
+}
+
+/**
+ * The rail's conversations, and how many agents the filters hide (v0.7.7): the scope, the quick
+ * toggles and the status chips, which Clear resets. The search box is not counted; what it hides is
+ * visible in the box.
+ */
+export function chatRailItems(state) {
   const chat = state.chat || {};
   const identity = chat.identity || 'dashboard';
   const filter = String(chat.filter || '').trim().toLowerCase();
@@ -145,6 +155,7 @@ export function chatConversationItems(state) {
   // but a DM only shows if its status is selected — no unread/favorited escape hatch.
   if (statusSet && statusSet.size) items = items.filter((i) => i.kind === 'channel' || statusSet.has(resolveStatus(i.status).kind));
   if (openOnly) items = items.filter((i) => i.kind === 'channel' ? i.unread > 0 : i.msgCount > 0);
+  const hidden = dms.length - items.filter((i) => i.kind === 'dm').length;
   if (filter) {
     // Global search (parity with old dashboard): match id/preview AND any loaded message body.
     const bodyMatch = (i) => i.kind === 'dm'
@@ -166,5 +177,5 @@ export function chatConversationItems(state) {
     || byMode(a, b)
     || a.id.localeCompare(b.id)
   ));
-  return items;
+  return { items, hidden };
 }
