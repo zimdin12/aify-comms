@@ -12,7 +12,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { collapseSupersededSessions, countSupersededSessions, sessionRowIsLive } from './sessions-list.mjs';
+import { collapseSupersededSessions, countSupersededSessions, sessionDisplayStatus, sessionRowIsLive } from './sessions-list.mjs';
 
 const S = (agentId, status, id = `${agentId}-${status}`) => ({ id, agentId, status });
 
@@ -116,4 +116,12 @@ test('countSupersededSessions reports 0 when nothing is collapsed', () => {
   assert.equal(countSupersededSessions([S('a', 'running', 'l')]), 0);
   assert.equal(countSupersededSessions([]), 0);
   assert.equal(countSupersededSessions(null), 0);
+});
+
+test('sessionDisplayStatus: a live row speaks for its agent, an ended row for itself (v0.7.7 D2)', () => {
+  assert.equal(sessionDisplayStatus({ status: 'running' }, { status: 'working' }), 'working');
+  assert.equal(sessionDisplayStatus({ status: 'running' }, {}), 'unknown', 'a live row with no agent is never presumed live');
+  assert.equal(sessionDisplayStatus({ status: 'stopped' }, { status: 'online' }), 'stopped',
+    "an ended row took its agent's live status");
+  assert.equal(sessionDisplayStatus({}, { status: 'online' }), 'unknown');
 });
