@@ -67,8 +67,13 @@ async def _live_session_for(db, agent_id: str):
     A STOPPED WORKER IS NOT A LIVE SESSION, whatever its row still says. A managed session whose
     terminals are all dead keeps its `running` status until the sweep settles it, about a minute
     later; the session list aify-env chose from already showed it stopped, so reading the stored
-    status alone refused the very start the stop was for. The sweep's own rule decides it, so the
-    two cannot disagree, and a session with no terminal yet stays live (it is starting).
+    status alone refused the very start the stop was for. The sweep's own rule decides it, and a
+    session with no terminal yet stays live (it is starting).
+
+    `restarting` AND `cli-takeover` STAY LIVE, deliberately: they are in this guard's set and not in
+    the sweep's, so the rule never calls them dead. A restart in flight is exactly a session whose
+    old terminal is dead and whose new one has not arrived; reading that as dead would let a second
+    start through. A refused start can be retried; a second worker cannot be taken back.
     """
     placeholders = ",".join("?" for _ in _LIVE_SESSION_STATUSES)
     cursor = await db.execute(

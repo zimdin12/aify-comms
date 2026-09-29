@@ -244,6 +244,25 @@ class SessionControlRefusalTests(FastApiTestCase):
         response = self._control_if_idle("restart")
         self.assertTrue(self._refused_for_liveness(response), response.text)
 
+    def test_a_restart_in_flight_still_refuses_though_its_old_terminal_is_dead(self):
+        """THE CHOSEN LIMIT of the rule above (peer review, 2026-09-29): `restarting` and
+        `cli-takeover` with a dead terminal are what an in-flight restart looks like before its new
+        worker arrives, so they stay live. A refused start can be retried; a double start cannot."""
+        self._seed_session()
+        self._seed_terminal("stopped")
+        for status in ("restarting", "cli-takeover"):
+            with self.subTest(status=status):
+                self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", (status, SESSION_ID))
+                self.assertTrue(self._refused_for_liveness(self._control_if_idle("restart")), status)
+
+    def test_a_stopped_worker_whose_row_says_Running_is_not_live_either(self):
+        """The shared rule lowers and trims as the guard does, or a `Running ` row read live."""
+        self._seed_session()
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("Running ", SESSION_ID))
+        self._seed_terminal("stopped")
+        response = self._control_if_idle("restart")
+        self.assertFalse(self._refused_for_liveness(response), response.text)
+
     def _seed_running_dispatch(self, run_id: str = "run-live") -> None:
         """A run this route would INTERRUPT, which is the thing the ordering test watches for."""
         self._write(

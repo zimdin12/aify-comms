@@ -41,7 +41,7 @@ async def managed_sessions_with_dead_terminals(db, agent_id: str = "") -> list:
             SELECT s.id AS id, s.agent_id AS agent_id
             FROM agent_sessions s
             WHERE s.owner_mode = 'managed'
-              AND s.status IN ({state_ph})
+              AND LOWER(TRIM(s.status)) IN ({state_ph})
               {agent_clause}
               AND EXISTS (
                 SELECT 1 FROM terminal_sessions t
