@@ -31,7 +31,7 @@ from service.db import get_db
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
 from service.models import ConversationClearRequest
-from service.api_core.operator_authz import authorize_operator, operator_key_from
+from service.api_core.operator_authz import authorize_operator, operator_key_from, refuse_an_unproven_operator_claim
 
 router = domain_router()
 
@@ -66,6 +66,8 @@ async def unsend_message(message_id: str, request: Request, requestedBy: str = "
     sender. What the actor check stops is the accident and the casual cross-delete; what the operator
     key stops is the universal one. Per-agent credentials remain a separate, larger question.
     """
+    # Refused before the lookup, so an unproven claim learns nothing about what exists.
+    refuse_an_unproven_operator_claim(requestedBy, request, action="unsending a message as the operator")
     actor = str(requestedBy or "").strip()
     if not actor:
         raise HTTPException(

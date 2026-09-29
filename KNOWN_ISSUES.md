@@ -16,12 +16,13 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   trust rule.** That is the v0.7.5 ruling (the API key is the trust boundary). An external key cannot
   send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`), and the dashboard
   page, which carries the operator key, needs the API key (`service/dashboard_access.py`). With
-  `OPERATOR_KEY` set, `/messages/send`, `/dispatch` and `/channels/{name}/send` refuse the sender
-  `dashboard` or `operator` without `X-Aify-Operator-Key`, and so do `/spawn-requests`,
-  `/agents/{id}/control`, `/dispatch/runs/{id}/control` and `/agents/{id}/compact/native`
-  (`refuse_an_unproven_operator_claim`, since the review of 0.7.6; before it the key gated only unsend,
-  channel delete and unshare). An omitted name counts as `dashboard` where the route records it so
-  (spawn, agent control); on a run control it is an agent's ordinary call and is stored empty.
+  `OPERATOR_KEY` set, no route accepts the name `dashboard` or `operator` without
+  `X-Aify-Operator-Key`, checked before anything is looked up (since the review of 0.7.6; before it the
+  key gated only unsend, channel delete and unshare). `test_no_route_accepts_an_unproven_operator_name.py`
+  derives the routes from the app, so a new one cannot miss the check. An omitted name counts as
+  `dashboard` where a route records it so (`recorded_operator_actor`); on a run control and a
+  session-handle update it is an agent's ordinary call and is not the operator. The key proves the name,
+  not the right to act: any API-key holder can stop or restart a worker under its own name.
 - **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).
@@ -192,8 +193,7 @@ These were left on purpose:
   by no test, because importing `doctor.js` runs the doctor. Removing it makes the climb stop at the
   listener, a narrower pid than a tree kill needs, never a wider one.
 - **With no `OPERATOR_KEY`, `requestedBy: "dashboard"` is a string any caller can send**, and it
-  replaces. With the key set, a spawn or agent start naming `dashboard` must present it
-  (`refuse_an_unproven_operator_claim`).
+  replaces. With the key set it must present the key, like every other operator name.
 - **Not yet proven on the live fleet.** The suites and mutation runs pass; no live hermes, claude or
   codex agent had been restarted through the new launchers when this was written.
 

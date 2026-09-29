@@ -12,7 +12,7 @@ import time
 
 from fastapi import HTTPException, Request
 
-from service.api_core.operator_authz import refuse_an_unproven_operator_claim
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.request_body import json_object_body
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
@@ -59,7 +59,7 @@ router = domain_router()
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
     validate_sender(req.from_agent)
     # `dashboard` starts REPLACE a live instance, and an interrupt or stop records an omitted name as it.
-    refuse_an_unproven_operator_claim(req.from_agent or "dashboard", request, action="controlling an agent as the operator")
+    actor = recorded_operator_actor(req.from_agent, request, action="controlling an agent as the operator")
     action = str(req.action or "").strip().lower()
     if action not in {"interrupt", "stop", "resume", "start"}:
         raise HTTPException(400, f'Unsupported agent control action "{req.action}"')
@@ -147,7 +147,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 agent_id,
                 runtime=start_runtime,
                 settings=settings,
-                requested_by=req.from_agent or "dashboard",
+                requested_by=actor,
                 warnings=coldstart_warnings,
                 start_intent=start_intent_for_requester(req.from_agent),
             )
@@ -171,7 +171,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 control_id = await _append_dispatch_control(
                     db,
                     active_run["runId"],
-                    from_agent=req.from_agent or "dashboard",
+                    from_agent=actor,
                     action="interrupt",
                     body=req.body or f"Agent {action} requested from dashboard.",
                 )
@@ -225,7 +225,7 @@ async def stop_agent_worker(agent_id: str, request: Request):
     db = await get_db()
     try:
         body = await json_object_body(request, lenient=True)
-        requested_by = str(body.get("requestedBy") or "dashboard").strip() or "dashboard"
+        requested_by = recorded_operator_actor(body.get("requestedBy"), request, action="stopping a worker as the operator")
         agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
         if not agent_row:
             raise HTTPException(404, f'Agent "{agent_id}" not found')

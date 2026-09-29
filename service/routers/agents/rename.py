@@ -24,6 +24,7 @@ from fastapi import HTTPException, Request
 from service.api_core.agent_rename_writes import _rewrite_agent_references_for_rename
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.liveness import _agent_liveness
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -40,6 +41,8 @@ router = domain_router()
 
 @router.post("/agents/{agent_id}/rename")
 async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request):
+    # agent_rename_writes.py records an omitted name as `dashboard`.
+    recorded_operator_actor(req.requestedBy, request, action="renaming an agent as the operator")
     validate_name(agent_id, "agent ID")
     new_agent_id = str(req.newAgentId or "").strip()
     validate_name(new_agent_id, "new agent ID")

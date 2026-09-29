@@ -1102,9 +1102,12 @@ whatever the key (`CrossSiteBrowserMiddleware`, keyed on `Sec-Fetch-Site`).
 
 **What `OPERATOR_KEY` does and does not do.** Added for R5-H1: until 2026-08-18 an actor string of
 `operator` or `dashboard` was enough to unsend any message, delete any channel and unshare any
-artifact. It now requires `X-Aify-Operator-Key`, and since the review of 0.7.6 so does every route where
-the name grants more than a label: the three sending routes, spawn, agent control, run control and
-native compaction (`refuse_an_unproven_operator_claim`). That raises the bar from "type an English word" to
+artifact. It now requires `X-Aify-Operator-Key`, and since the review of 0.7.6 no route accepts either
+name without it, checked first (`refuse_an_unproven_operator_claim`, or `recorded_operator_actor` where an
+omitted name is recorded as `dashboard`). The routes are derived from the app by
+`test_no_route_accepts_an_unproven_operator_name.py`, because gating the ones someone remembered left a
+new gap each review round. The key proves the name; it does not stop an API-key holder acting under
+its own. That raises the bar from "type an English word" to
 "hold a secret" — which stops the casual, the confused and the prompt-injected case. It is NOT a
 boundary against an agent with filesystem access: `.env` is readable on the host, and the dashboard
 page carries the key to the browser. Anyone reading this should not treat it as one. Since 2026-09-24

@@ -32,6 +32,7 @@ from service.api_core.events import _append_terminal_control
 # THE SET aify-env's OWN `restartTargetFor` USES, imported rather than retyped: two copies of
 # "which sessions are live" agree until one is corrected, and this one gates a stop.
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.records import _agent_session_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_sender
@@ -74,6 +75,8 @@ async def _live_session_for(db, agent_id: str):
 @router.post("/sessions/{session_id}/control")
 async def control_session(session_id: str, req: SessionControlRequest, request: Request):
     validate_sender(req.from_agent)
+    # An omitted name is recorded as `dashboard`; the bridge and aify-env always name themselves.
+    actor = recorded_operator_actor(req.from_agent, request, action="controlling a session as the operator")
     action = str(req.action or "").strip().lower()
     # Lifecycle cleanup (2026-06-03): `recover` + `resume` were byte-identical
     # aliases of `restart` with NO dashboard caller — dropped. (Resident
@@ -136,7 +139,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
             control_id = await _append_dispatch_control(
                 db,
                 active_run["runId"],
-                from_agent=req.from_agent or "dashboard",
+                from_agent=actor,
                 action="interrupt",
                 body=req.body or f"Session {action} requested from dashboard.",
             )
@@ -236,7 +239,7 @@ async def control_session(session_id: str, req: SessionControlRequest, request: 
                     environment_id=term_row["environment_id"] or "",
                     bridge_id=term_row["bridge_id"] or "",
                     action="stop",
-                    requested_by=req.from_agent or "dashboard",
+                    requested_by=actor,
                     body=f"Session {action} from dashboard.",
                 )
 

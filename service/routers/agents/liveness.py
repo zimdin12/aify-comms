@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from fastapi import HTTPException, Request
 
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.request_body import json_object_body
 from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
@@ -74,6 +75,7 @@ async def update_agent_ready(agent_id: str, req: AgentReadyUpdate, request: Requ
     Upsert preserves any existing turn_busy/turn_run_id state — clearing
     ready does NOT also clear turn_busy and vice versa.
     """
+    refuse_an_unproven_operator_claim(req.requestedBy, request, action="setting an agent ready as the operator")
     validate_name(agent_id, "agent ID")
     db = await get_db()
     try:

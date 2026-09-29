@@ -73,10 +73,10 @@ router = domain_router()
 
 @router.post("/messages/send", openapi_extra=EXTERNAL_ROUTE)
 async def send_message(req: MessageSend, request: Request):
-    if not req.to and not req.toRole:
-        raise HTTPException(400, "Need 'to' or 'toRole'")
     validate_sender(req.from_agent)
     refuse_an_unproven_operator_sender(req.from_agent, request)
+    if not req.to and not req.toRole:
+        raise HTTPException(400, "Need 'to' or 'toRole'")
     _reject_sender_truncated_body(req.body)
     # WHICH OTHER MACHINE, when the request carried an external key: set by the key middleware, so it
     # is a fact about the request and not something the sender wrote (service/api_core/external_keys.py).

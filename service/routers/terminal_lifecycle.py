@@ -26,6 +26,7 @@ import json
 from fastapi import HTTPException, Request
 
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.settings import _load_settings
@@ -51,13 +52,13 @@ router = domain_router()
 
 @router.post("/terminals/{terminal_id}/stop")
 async def stop_terminal(terminal_id: str, req: TerminalControlRequest, request: Request):
+    requested_by = recorded_operator_actor(req.requestedBy, request, action="stopping a terminal as the operator")
     db = await get_db()
     try:
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
         now = _now()
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (terminal["environment_id"],))).fetchone()
         settings = await _load_settings(db)
         env_status = _environment_effective_status(

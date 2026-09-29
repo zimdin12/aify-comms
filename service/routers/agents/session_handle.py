@@ -30,6 +30,7 @@ from service.api_core.agent_sessions import _agent_tombstone, _session_handle_li
 from service.api_core.bridge_report_gate import bridge_may_report
 from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _normalize_session_mode
@@ -62,6 +63,7 @@ router = domain_router()
 
 @router.patch("/agents/{agent_id}/session-handle")
 async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpdate, request: Request):
+    refuse_an_unproven_operator_claim(req.requestedBy, request, action="re-pinning a session handle as the operator")
     validate_name(agent_id, "agent ID")
     # Drop unexpanded shell placeholders ("$HERMES_SESSION_ID", "${VAR}") so a
     # literal is never stored as the resume handle — see _sanitize_session_handle.
@@ -198,7 +200,8 @@ async def update_agent_session_handle(agent_id: str, req: AgentSessionHandleUpda
                 session_handle,
                 json.dumps(runtime_state),
                 json.dumps(capabilities),
-                f"Session handle set by {req.requestedBy or 'operator'}." if session_handle else f"Session handle cleared by {req.requestedBy or 'operator'}.",
+                # An omitted name is hermes' own re-pin (hermes-active-session.mjs), never proven the operator's.
+                f"Session handle set by {req.requestedBy or 'an unnamed caller'}." if session_handle else f"Session handle cleared by {req.requestedBy or 'an unnamed caller'}.",
                 now,
                 agent_id,
             ),

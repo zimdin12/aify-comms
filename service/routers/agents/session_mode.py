@@ -19,6 +19,7 @@ from service.api_core.session_mode_gates import (
 from service.api_core.session_mode_writes import _apply_session_mode_switch_to_agent
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_mode")
@@ -83,6 +84,8 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
     the response surfaces what happened (or what failed).
     """
     validate_name(agent_id, "agent ID")
+    # Recorded as `dashboard` when unnamed, and only the dashboard calls this route.
+    requested_by = recorded_operator_actor(req.requestedBy, request, action="switching an agent's session mode as the operator")
     new_mode = _normalize_session_mode(req.mode)
     requested_raw = str(req.mode or "").strip().lower()
     if requested_raw not in _SESSION_MODES:
@@ -172,7 +175,6 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         )
 
         now = _now()
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         runtime_config = switch_runtime_config
         runtime_state = dict(current_runtime_state)
         runtime_state.pop("pendingResidentTakeover", None)

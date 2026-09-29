@@ -27,7 +27,7 @@ from service.api_core.validation import validate_name, validate_sender
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
-from service.api_core.operator_authz import authorize_operator, operator_key_from
+from service.api_core.operator_authz import authorize_operator, operator_key_from, refuse_an_unproven_operator_claim
 
 logger = logging.getLogger("aify_comms.routers.shared")
 
@@ -184,6 +184,8 @@ async def delete_shared(name: str, request: Request, requestedBy: str = ""):
     Actor is MANDATORY and absence fails closed, for the reason the H4 ruling gives: an optional
     actor is theatre, since an attacker simply omits it. Self-asserted, like every actor in this API.
     """
+    # Refused before the lookup, so an unproven claim learns nothing about what exists.
+    refuse_an_unproven_operator_claim(requestedBy, request, action="deleting a shared artifact as the operator")
     validate_name(name, "artifact name")
     actor = str(requestedBy or "").strip()
     if not actor:

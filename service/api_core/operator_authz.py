@@ -153,6 +153,25 @@ def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> No
     authorize_operator(actor, request, operator_key_from(request), action=action)
 
 
+#: The name a route records for a caller that gave none, on the routes only the dashboard calls unnamed.
+DASHBOARD_ACTOR = "dashboard"
+
+
+def recorded_operator_actor(name, request, *, action: str) -> str:
+    """The actor a route records: the caller's name, or `dashboard` when it gave none. Refused (403) when
+    that is an operator name the request cannot prove.
+
+    For the routes that attribute an omitted name to the dashboard. The bridge and aify-env name
+    themselves on every one of them, so an omitted name is the dashboard's or a raw HTTP caller's, and
+    with `OPERATOR_KEY` set it must prove itself like an explicit `dashboard`. A route whose ordinary
+    callers do omit the name (`comms_run_interrupt`, hermes' session-handle) gates only an explicit
+    claim, with `refuse_an_unproven_operator_claim`.
+    """
+    actor = str(name or "").strip() or DASHBOARD_ACTOR
+    refuse_an_unproven_operator_claim(actor, request, action=action)
+    return actor
+
+
 def refuse_an_unproven_operator_sender(sender: str, request) -> None:
     """A message may name the operator as its sender only as far as `authorize_operator` allows.
 

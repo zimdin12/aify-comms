@@ -11,6 +11,10 @@ and nothing else, while the name `dashboard` grants more than a label on four ot
   * `POST /dispatch/runs/{id}/control`: the agent is told who stopped or steered it. An omitted name is an
     agent's ordinary `comms_run_interrupt` and is stored empty, so only an explicit claim is gated.
   * `POST /agents/{id}/compact/native`: `dashboard` is let through without being a registered agent.
+  * `POST /agents/{id}/stop-worker`, `POST /sessions/{id}/control` and `PATCH /agents/{id}/session-mode`
+    (force included): each stops, restarts or re-modes an agent in the name it records, `dashboard` when
+    the caller gave none (review of 0.7.6, the S4 follow-up). The bridge's `comms_restart` and aify-env
+    name themselves on session control, so gating the omitted name refuses no ordinary caller.
 
 THE RULE is `authorize_operator`'s, through `refuse_an_unproven_operator_claim`: with no key the claim is
 granted (the API key is the boundary), with one it must present `X-Aify-Operator-Key`.
@@ -58,7 +62,24 @@ class ClaimingTheOperatorOnAControlRouteRequiresTheKey(FastApiTestCase):
             body = {} if actor is None else {"from": actor}
             return self.client.post("/api/v1/agents/no-such-agent/compact/native", headers=headers, json=body)
 
-        return {"spawn": spawn, "agent control": agent_control, "run control": run_control, "compact": compact}
+        def stop_worker(actor, headers):
+            body = {} if actor is None else {"requestedBy": actor}
+            return self.client.post("/api/v1/agents/no-such-agent/stop-worker", headers=headers, json=body)
+
+        def session_control(actor, headers):
+            body = {"action": "stop"}
+            if actor is not None:
+                body["from_agent"] = actor
+            return self.client.post("/api/v1/sessions/no-such-session/control", headers=headers, json=body)
+
+        def session_mode(actor, headers):
+            body = {"mode": "managed", "force": True}
+            if actor is not None:
+                body["requestedBy"] = actor
+            return self.client.patch("/api/v1/agents/no-such-agent/session-mode", headers=headers, json=body)
+
+        return {"spawn": spawn, "agent control": agent_control, "run control": run_control, "compact": compact,
+                "stop worker": stop_worker, "session control": session_control, "session mode": session_mode}
 
     def test_with_the_key_set_an_unproven_operator_claim_is_refused(self):
         self._set_key(SECRET)
@@ -71,7 +92,7 @@ class ClaimingTheOperatorOnAControlRouteRequiresTheKey(FastApiTestCase):
 
     def test_with_the_key_set_an_omitted_name_the_route_records_as_dashboard_is_refused(self):
         self._set_key(SECRET)
-        for route in ("spawn", "agent control"):
+        for route in ("spawn", "agent control", "stop worker", "session control", "session mode"):
             with self.subTest(route=route):
                 self.assertEqual(self._routes()[route](None, {}).status_code, 403)
 

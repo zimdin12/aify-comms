@@ -29,6 +29,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 
 
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.tuning import TERMINAL_EVENTS_KEPT_PER_TERMINAL
 from service.api_core.events import _append_terminal_control, _append_terminal_event
 from service.api_core.terminal_output import _record_host_reported_alive
@@ -655,12 +656,12 @@ async def append_terminal_output(terminal_id: str, req: TerminalOutputRequest, r
 
 @router.post("/terminals/{terminal_id}/input")
 async def send_terminal_input(terminal_id: str, req: TerminalControlRequest, request: Request):
+    requested_by = recorded_operator_actor(req.requestedBy, request, action="typing into a terminal as the operator")
     db = await get_db()
     try:
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         control_id = await _append_terminal_control(
             db,
             terminal_id=terminal_id,
@@ -683,12 +684,12 @@ async def send_terminal_input(terminal_id: str, req: TerminalControlRequest, req
 
 @router.post("/terminals/{terminal_id}/resize")
 async def resize_terminal(terminal_id: str, req: TerminalControlRequest, request: Request):
+    requested_by = recorded_operator_actor(req.requestedBy, request, action="resizing a terminal as the operator")
     db = await get_db()
     try:
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (terminal_id,))).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{terminal_id}" not found')
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         # Clamp the resize to sane maxima before it is ever recorded or forwarded to the bridge
         # (Hermes parity). An absurd winsize crashes node-pty's TIOCSWINSZ ioctl (their WSL2
         # `columns=131072` incident); clamping at the service means a bad value can never reach any

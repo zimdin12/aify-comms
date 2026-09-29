@@ -35,6 +35,7 @@ from service.api_core.capabilities import _default_capabilities_for
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.execution_mode import _auto_return_resident_to_managed_if_possible
 from service.api_core.nested_session_handback import offer_handback
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.records import _agent_record_to_dict
 from service.api_core.resident_loss import _settle_lost_resident_when_no_transition
 from service.api_core.routing import domain_router
@@ -64,6 +65,7 @@ async def confirm_agent_session(agent_id: str, req: AgentSessionResolveRequest, 
     follows the new id. Idempotent: a 409 is returned if there is no pending id
     to confirm (nothing to resolve).
     """
+    refuse_an_unproven_operator_claim(req.requestedBy or "operator", request, action="resolving a session change as the operator")
     validate_name(agent_id, "agent ID")
     db = await get_db()
     try:
@@ -134,6 +136,7 @@ async def keep_agent_session(agent_id: str, req: AgentSessionResolveRequest, req
     onto a fresh id and must be resumed back onto the pinned one). Idempotent:
     409 if there is no pending id to keep.
     """
+    refuse_an_unproven_operator_claim(req.requestedBy or "operator", request, action="resolving a session change as the operator")
     validate_name(agent_id, "agent ID")
     db = await get_db()
     try:

@@ -48,7 +48,7 @@ from service.db import get_db
 # the endpoint 422s at request time. That is the v0.5.2g defect; two gates now catch it, and this
 # comment is here so the next person does not "tidy away" an import that looks unused.
 from service.models import ChannelCreate
-from service.api_core.operator_authz import authorize_operator, operator_key_from
+from service.api_core.operator_authz import authorize_operator, operator_key_from, refuse_an_unproven_operator_claim
 
 logger = logging.getLogger("aify_comms.routers.channels")
 
@@ -139,6 +139,7 @@ async def list_channels(request: Request, agentId: Optional[str] = None):
 
 @router.post("/channels")
 async def create_channel(req: ChannelCreate, request: Request):
+    refuse_an_unproven_operator_claim(req.createdBy, request, action="creating a channel as the operator")
     validate_name(req.name, "channel name")
     validate_sender(req.createdBy)
     db = await get_db()
@@ -242,6 +243,8 @@ async def delete_channel(name: str, request: Request, requestedBy: str = ""):
     against the stored row, absence fails closed. A member is deliberately NOT enough — leaving a
     channel is `comms_channel_leave`; deleting one ends it for everybody.
     """
+    # Refused before the lookup, so an unproven claim learns nothing about what exists.
+    refuse_an_unproven_operator_claim(requestedBy, request, action="deleting a channel as the operator")
     actor = str(requestedBy or "").strip()
     if not actor:
         raise HTTPException(

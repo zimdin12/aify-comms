@@ -7,6 +7,7 @@ declares NO tags — the parent applies `tags=["api"]` once when api_v2 includes
 from __future__ import annotations
 
 from service.api_core.managed_pty_for_dispatch import _ensure_managed_pty_for_dispatch
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.terminal_text import _ANSI_RE, _CTRL_RE
 import asyncio
 import logging
@@ -274,6 +275,7 @@ async def post_agent_console_input(agent_id: str, req: AgentConsoleInputRequest,
     message delivery through a PTY. Disabling that legacy path must never disable
     deliberate console control.
     """
+    refuse_an_unproven_operator_claim(req.from_, request, action="typing into an agent's console as the operator")
     db = await get_db()
     try:
         agent_row = await (await db.execute("SELECT id, runtime, session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()

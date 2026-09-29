@@ -28,6 +28,7 @@ import uuid
 from fastapi import HTTPException, Request
 
 from service.api_core.capabilities import _default_capabilities_for
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _runtime_capability_for_environment
@@ -51,6 +52,8 @@ router = domain_router()
 
 @router.post("/agents/{agent_id}/environment")
 async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignRequest, request: Request):
+    # spawn_spec_assignment.py records an omitted name as `dashboard`.
+    recorded_operator_actor(req.requestedBy, request, action="assigning an agent's environment as the operator")
     validate_name(agent_id, "agent ID")
     environment_id = str(req.environmentId or "").strip()
     if not environment_id:

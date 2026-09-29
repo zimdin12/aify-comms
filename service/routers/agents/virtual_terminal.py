@@ -30,6 +30,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.console_terminal_rows import _reanchor_existing_virtual_terminal
 from service.api_core.events import _append_terminal_event
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.records import _agent_session_to_dict, _terminal_session_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime
@@ -61,6 +62,7 @@ async def ensure_virtual_terminal(agent_id: str, req: VirtualTerminalEnsureReque
     idempotent: a second call for the same agent on the same bridge returns the
     existing virtual terminal row. See docs/plans/pi-persistent-rpc.md.
     """
+    refuse_an_unproven_operator_claim(req.requestedBy, request, action="ensuring a virtual terminal as the operator")
     db = await get_db()
     try:
         agent = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()

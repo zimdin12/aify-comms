@@ -29,6 +29,7 @@ from service import longpoll
 from service.api_core.claim_emptiness import environment_control_is_empty
 from service.environment_claim import _claim_environment_control_once
 from service.api_core.environment_registration import _record_environment_registration
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
 from service.api_core.records import _environment_record_to_dict
@@ -608,6 +609,7 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
 
 @router.patch("/environments/{environment_id:path}/roots")
 async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpdate, request: Request):
+    actor = recorded_operator_actor(req.requestedBy, request, action="changing an environment's roots as the operator")
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
@@ -621,7 +623,7 @@ async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpd
             next_metadata = {k: v for k, v in metadata.items() if k not in {"manualRoots", "manualRootsUpdatedAt", "manualRootsUpdatedBy"}}
             next_metadata["manualRoots"] = False
             next_metadata["manualRootsResetAt"] = now
-            next_metadata["manualRootsResetBy"] = req.requestedBy or "dashboard"
+            next_metadata["manualRootsResetBy"] = actor
         else:
             roots = _normalize_roots(req.roots or [])
             if not roots:
@@ -630,7 +632,7 @@ async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpd
                 **metadata,
                 "manualRoots": True,
                 "manualRootsUpdatedAt": now,
-                "manualRootsUpdatedBy": req.requestedBy or "dashboard",
+                "manualRootsUpdatedBy": actor,
                 "previousCwdRoots": _json_loads_or(env["cwd_roots"], []),
             }
         await db.execute(
@@ -656,6 +658,7 @@ async def update_environment_roots(environment_id: str, req: EnvironmentRootsUpd
 
 @router.post("/environments/{environment_id:path}/control")
 async def control_environment(environment_id: str, req: EnvironmentControlRequest, request: Request):
+    actor = recorded_operator_actor(req.requestedBy, request, action="stopping or forgetting an environment as the operator")
     action = str(req.action or "").strip().lower()
     if action not in {"stop", "forget"}:
         raise HTTPException(400, "Environment control action must be stop or forget")
@@ -679,7 +682,7 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
                     last_seen = ?
                 WHERE id = ?
                 """,
-                (json.dumps({**_json_loads_or(env["metadata"], {}), "forgottenAt": now, "forgottenBy": req.requestedBy or "dashboard"}), now, environment_id),
+                (json.dumps({**_json_loads_or(env["metadata"], {}), "forgottenAt": now, "forgottenBy": actor}), now, environment_id),
             )
             await db.commit()
             ws = await _get_ws(request)
@@ -700,7 +703,7 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
                 env["machine_id"] or "",
                 action,
                 "pending",
-                req.requestedBy or "dashboard",
+                actor,
                 now,
             ),
         )

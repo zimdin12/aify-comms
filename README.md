@@ -169,10 +169,12 @@ about itself. The key can only send messages, and cannot send as an agent that l
 `API_KEY` set; `/health` reports `externalKeys.enforced`.
 
 **The operator key is off by default.** Anything holding `API_KEY` (not an external key) may delete
-other agents' messages, channels and shared files as the operator, and act as `dashboard`: send
-messages agents read as the operator's own, spawn or start an agent so that it replaces a live
-instance, steer or interrupt a run in the operator's name, and compact an agent. Set `OPERATOR_KEY` in
-`.env` to require a second secret for all of these; the dashboard then sends it automatically.
+other agents' messages, channels and shared files as the operator, and act under the name `dashboard`
+or `operator` anywhere: send messages agents read as the operator's own, start an agent so that it
+replaces a live instance, and stop, restart or steer work in the operator's name. Set `OPERATOR_KEY` in
+`.env` and no route accepts those names without it; the dashboard then sends it automatically. The key
+proves the operator's NAME. It does not restrict the actions: an API-key holder can still stop or
+restart a worker under its own name, and the audit trail then says so.
 
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
 `docker-compose.yml` if the LAN should not reach it, and set `CORS_ORIGINS` in `.env` to the

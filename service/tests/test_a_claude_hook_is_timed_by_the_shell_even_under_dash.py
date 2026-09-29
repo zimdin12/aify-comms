@@ -50,12 +50,12 @@ class AClaudeHookIsTimedByTheShellTests(unittest.TestCase):
                 "writeFileSync(process.env.RECORD, String(process.env.AIFY_HOOK_FIRED_AT ?? ''));\n",
                 encoding="utf-8",
             )
-            # The command as install.sh renders it, with the bridge dir pointed at the stub.
-            posix_bridge = subprocess.run([bash, "-c", 'cygpath -u "$1" 2>/dev/null || printf %s "$1"', "_", bridge],
-                                          capture_output=True, text=True).stdout.strip()
+            # The command as install.sh renders it, with the bridge dir pointed at the stub. Forward
+            # slashes, never `/c/...`: a native Windows node reads `/c/...` only when MSYS converts the
+            # argument, and with MSYS_NO_PATHCONV set (as install.sh sets it) the stub never ran.
             rendered = subprocess.run(
                 [bash, "-c", _function("agent_state_hook_command") + '\nagent_state_hook_command turn-start'],
-                capture_output=True, text=True, env={**os.environ, "AIFY_BRIDGE_DIR": posix_bridge},
+                capture_output=True, text=True, env={**os.environ, "AIFY_BRIDGE_DIR": bridge.replace("\\", "/")},
             )
             command = rendered.stdout
             self.assertIn("node", command, f"CONTROL: nothing was rendered: {rendered.stderr}")

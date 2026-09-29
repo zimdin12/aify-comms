@@ -33,6 +33,7 @@ from service.api_core.console_terminal_rows import (
     _start_virtual_pi_console,
 )
 from service.api_core.events import _append_terminal_control, _append_terminal_event
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.records import (
     _agent_session_to_dict,
     _environment_record_to_dict,
@@ -58,6 +59,7 @@ router = domain_router()
 
 @router.post("/sessions/{session_id}/console/start")
 async def start_session_console(session_id: str, req: ConsoleStartRequest, request: Request):
+    requested_by = recorded_operator_actor(req.requestedBy, request, action="starting a console as the operator")
     db = await get_db()
     try:
         session = await (await db.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,))).fetchone()
@@ -90,7 +92,7 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
                         existing_terminal_id,
                         "console_attach_reused_existing",
                         json.dumps({
-                            "requestedBy": str(req.requestedBy or "dashboard").strip() or "dashboard",
+                            "requestedBy": requested_by,
                             "sessionId": session_id,
                             "agentId": session["agent_id"],
                         }),
@@ -164,7 +166,6 @@ async def start_session_console(session_id: str, req: ConsoleStartRequest, reque
         supplied = str(req.command or "").strip()
         argv = None if supplied else _default_console_argv(session, workspace, interactive=True)
         command = supplied or " ".join(argv)
-        requested_by = str(req.requestedBy or "dashboard").strip() or "dashboard"
         bridge_id = str(environment.get("bridgeId") or "").strip()
         await _insert_pty_console_terminal(
             db, terminal_id, session_id, session, bridge_id, workspace, command, requested_by, now, argv,
