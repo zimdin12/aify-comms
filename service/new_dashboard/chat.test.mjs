@@ -44,7 +44,7 @@ function withStubDocument(fn) {
     });
 }
 
-function sendHarness({ selected = "dm:peer" } = {}) {
+function sendHarness({ selected = "dm:peer", sendMessage = null } = {}) {
   const sent = [];
   const readCalls = [];
   const els = {
@@ -68,7 +68,7 @@ function sendHarness({ selected = "dm:peer" } = {}) {
   const controller = createChatController({
     state,
     byId: (id) => els[id] || null,
-    sendMessage: async (payload) => { sent.push(payload); return { ok: true }; },
+    sendMessage: sendMessage || (async (payload) => { sent.push(payload); return { ok: true }; }),
     refresh: async () => {},
     loadConversation: async () => {},
     markConversationRead: async (agentId, opts) => { readCalls.push({ agentId, opts }); },
@@ -632,4 +632,21 @@ test("AN OPEN add-member dropdown is not rebuilt under the operator", () => with
   h.state.agents = [...h.state.agents, { id: "zed", status: "online" }]; // a new candidate: the list would change
   h.controller.render();
   assert.equal(actions.writes, 0, "the select the operator was choosing from was rebuilt under them");
+}));
+
+test("a second press while a send is in flight sends nothing (external review, D4)", () => withStubDocument(async () => {
+    // A send can take up to 20 s, and Send had no in-flight guard: a double press sent twice.
+    const sent = [];
+    const answers = [];
+    const h = sendHarness({ sendMessage: (payload) => { sent.push(payload); return new Promise((r) => { answers.push(r); }); } });
+    const presses = [h.controller.send(), h.controller.send(), h.controller.send({ queue: true })];
+    const inFlight = sent.length;
+    answers.forEach((r) => r({ ok: true }));
+    await Promise.all(presses);
+    assert.equal(inFlight, 1, `the in-flight guard let ${inFlight} sends through`);
+    h.els["chat-composer-body"].value = "and another";
+    const next = h.controller.send();
+    answers.at(-1)({ ok: true });
+    await next;
+    assert.equal(sent.length, 2, "CONTROL: a send after the first settles goes through");
 }));

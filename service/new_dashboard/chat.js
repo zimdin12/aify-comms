@@ -487,11 +487,23 @@ export function createChatController(deps) {
   // collapsed Options disclosure, so one tick silently queued every subsequent message — reported
   // 2026-07-27 as "what does ordinary pressing enter do? ... message was queued". Removed rather
   // than surfaced: a per-send choice does not want a persistent mode.
+  // ONE SEND AT A TIME. A send can take up to 20 s, and a double press sent the message twice
+  // (external review, D4). Send, Queue and Enter all come through here, so one flag covers them.
+  let sending = false;
+  const setSendButtons = (disabled) => {
+    const composer = byId('chat-composer');
+    for (const button of [composer?.querySelector?.('.composer-send-main'), byId('chat-send-queue')]) {
+      if (button) button.disabled = disabled;
+    }
+  };
+
   async function send({ queue = false } = {}) {
     const bodyEl = byId('chat-composer-body');
     const body = (bodyEl?.value || '').trim();
     const key = state.chat.selected;
-    if (!body || !key) return;
+    if (!body || !key || sending) return;
+    sending = true;
+    setSendButtons(true);
     const isChannel = key.startsWith('channel:');
     const id = key.slice(key.indexOf(':') + 1);
     const expectsReply = byId('chat-expects-reply')?.checked;
@@ -542,6 +554,9 @@ export function createChatController(deps) {
       render();
     } catch (error) {
       toast(`Send failed: ${error?.message || error}`, 'error');
+    } finally {
+      sending = false;
+      setSendButtons(false);
     }
   }
 
