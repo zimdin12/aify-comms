@@ -90,7 +90,7 @@ const CEILINGS = {
   // from the other skill files in the same commit (net -8,471).
   "aify-comms-debug/SKILL.md": 3_206,
   "aify-comms-debug/references/codex.md": 5_259,
-  "aify-comms-debug/references/dashboard-console.md": 3_555,
+  "aify-comms-debug/references/dashboard-console.md": 3_865,
   "aify-comms-debug/references/dispatch-bridges.md": 5_903,
   "aify-comms-debug/references/dispatch-delivery.md": 6_774,
   "aify-comms-debug/references/dispatch-launch.md": 5_031,

@@ -20,6 +20,9 @@ workers bring this class of failure back.
 - **Attach/refresh:** the dashboard paints a server-rendered screen, not the raw log:
   `GET /terminals/{id}?cols=&rows=` returns a `snapshot` rendered by `service/terminal_snapshot.py`
   at the viewer's size. A console that still scrambles after a hard reload is on a stale service.
+- **A herdr pane scrambled, the dashboard console fine:** one PTY, two viewers. The viewer that last
+  typed or resized owns the size (aify-env `terminal-size-owner.mjs`); typing in the pane takes it back.
+  Only `dashboard:*` controls act as the dashboard; `terminal_controls.requested_by` shows who resized.
 
 ## Environment does not advertise terminal support
 
