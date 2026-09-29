@@ -43,6 +43,7 @@ from fastapi import HTTPException, Query, Request
 
 from service import longpoll
 from service.api_core.claim_emptiness import spawn_request_is_empty
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
 from service.api_core.runtime import (
@@ -242,6 +243,10 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     env_problems = spawn_env_problems(req.envVars)
     if env_problems:
         raise HTTPException(400, "; ".join(env_problems))
+    # The creator is the brief's sender once the worker is up (running_spawn.py), and `dashboard`
+    # makes the start REPLACE a live instance: an unproven operator claim goes no further.
+    created_by = req.createdBy or "dashboard"
+    refuse_an_unproven_operator_claim(created_by, request, action="spawning as the operator")
 
     db = await get_db()
     try:
@@ -384,7 +389,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
             (
                 request_id,
                 spec_id,
-                req.createdBy or "dashboard",
+                created_by,
                 req.environmentId,
                 req.agentId,
                 req.role or "coder",

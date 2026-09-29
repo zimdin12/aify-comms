@@ -17,9 +17,11 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   send as it (`refuse_external_impersonation`, `service/api_core/external_keys.py`), and the dashboard
   page, which carries the operator key, needs the API key (`service/dashboard_access.py`). With
   `OPERATOR_KEY` set, `/messages/send`, `/dispatch` and `/channels/{name}/send` refuse the sender
-  `dashboard` or `operator` without `X-Aify-Operator-Key` (`refuse_an_unproven_operator_sender`, since
-  the review of 0.7.6; before it the key gated only unsend, channel delete and unshare). Still not
-  gated: the `from_agent` of a run control (`/dispatch/runs/{id}/control`), which names who steered.
+  `dashboard` or `operator` without `X-Aify-Operator-Key`, and so do `/spawn-requests`,
+  `/agents/{id}/control`, `/dispatch/runs/{id}/control` and `/agents/{id}/compact/native`
+  (`refuse_an_unproven_operator_claim`, since the review of 0.7.6; before it the key gated only unsend,
+  channel delete and unshare). An omitted name counts as `dashboard` where the route records it so
+  (spawn, agent control); on a run control it is an agent's ordinary call and is stored empty.
 - **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).
@@ -189,8 +191,9 @@ These were left on purpose:
   `checkGatewayOrphans`, but the line in `doctor.js` that hands it `listening-ports.imageName` is reached
   by no test, because importing `doctor.js` runs the doctor. Removing it makes the climb stop at the
   listener, a narrower pid than a tree kill needs, never a wider one.
-- **`requestedBy: "dashboard"` is a string any caller can send**, and it replaces. Nothing
-  authenticates the dashboard, so refusing it in the MCP tools would move the spoof, not end it.
+- **With no `OPERATOR_KEY`, `requestedBy: "dashboard"` is a string any caller can send**, and it
+  replaces. With the key set, a spawn or agent start naming `dashboard` must present it
+  (`refuse_an_unproven_operator_claim`).
 - **Not yet proven on the live fleet.** The suites and mutation runs pass; no live hermes, claude or
   codex agent had been restarted through the new launchers when this was written.
 

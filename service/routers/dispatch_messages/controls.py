@@ -30,6 +30,7 @@ from service.api_core.claim_emptiness import dispatch_controls_is_empty
 from service.api_core.dispatch_controls_io import _claim_dispatch_controls_once
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.events import _append_dispatch_event
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_sender
 from service.api_core.ws import _get_ws
@@ -67,6 +68,9 @@ async def claim_dispatch_controls(req: DispatchControlClaimRequest, request: Req
 @router.post("/dispatch/runs/{run_id}/control")
 async def request_dispatch_control(run_id: str, req: DispatchControlRequest, request: Request):
     validate_sender(req.from_agent)
+    # The agent is told who stopped or steered it. An omitted name is an agent's ordinary call
+    # (`comms_run_interrupt`) and is stored empty, so only an explicit operator claim is gated.
+    refuse_an_unproven_operator_claim(req.from_agent, request, action="steering or interrupting a run as the operator")
     action = (req.action or "").strip().lower()
     if action not in {"interrupt", "steer"}:
         raise HTTPException(400, "Unsupported control action")

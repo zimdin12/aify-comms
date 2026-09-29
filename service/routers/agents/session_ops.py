@@ -12,6 +12,7 @@ import time
 
 from fastapi import HTTPException, Request
 
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.request_body import json_object_body
 from service.api_core.active_run_lookup import _get_blocking_active_run
 from service.api_core.agent_stop_resume import _apply_agent_stop_or_resume
@@ -57,6 +58,8 @@ router = domain_router()
 @router.post("/agents/{agent_id}/control")
 async def control_agent(agent_id: str, req: AgentControlRequest, request: Request):
     validate_sender(req.from_agent)
+    # `dashboard` starts REPLACE a live instance, and an interrupt or stop records an omitted name as it.
+    refuse_an_unproven_operator_claim(req.from_agent or "dashboard", request, action="controlling an agent as the operator")
     action = str(req.action or "").strip().lower()
     if action not in {"interrupt", "stop", "resume", "start"}:
         raise HTTPException(400, f'Unsupported agent control action "{req.action}"')

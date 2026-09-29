@@ -25,6 +25,7 @@ from service.api_core.compaction import (
     transcript_location,
 )
 from service.api_core.console_write import queue_console_input, require_console_caller
+from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.routing import domain_router
 from service.api_core.status_refresh import _compute_agent_status
 from service.api_core.ws import _get_ws
@@ -45,6 +46,8 @@ async def post_agent_native_compact(agent_id: str, req: AgentNativeCompactReques
     has a live TUI console, and it is idle at its prompt. `ok` means QUEUED: whether the runtime
     compacted is read on its console, as with any console input.
     """
+    # `dashboard` is let through unregistered below, so it must be the operator.
+    refuse_an_unproven_operator_claim(req.from_, request, action="compacting an agent as the operator")
     db = await get_db()
     try:
         agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()

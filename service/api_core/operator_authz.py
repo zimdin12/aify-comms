@@ -140,6 +140,19 @@ def operator_key_from(request) -> str:
         return ""
 
 
+def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> None:
+    """Refuse (403) a request that names the operator without proving it, when the gate is on.
+
+    For every route where naming `dashboard` or `operator` grants something beyond a label: a message
+    read as the operator's (the sending routes), a start that REPLACES a live instance
+    (`start_intent_for_requester`), a spawn brief delivered as the dashboard's, a steer or interrupt an
+    agent is told came from the operator, a compaction by an unregistered caller. Pass the actor the
+    route will RECORD, after its own default, so an omitted name that becomes `dashboard` is gated too
+    (review of 0.7.6, S4). With no `OPERATOR_KEY` it grants, as `authorize_operator` does.
+    """
+    authorize_operator(actor, request, operator_key_from(request), action=action)
+
+
 def refuse_an_unproven_operator_sender(sender: str, request) -> None:
     """A message may name the operator as its sender only as far as `authorize_operator` allows.
 
@@ -149,4 +162,4 @@ def refuse_an_unproven_operator_sender(sender: str, request) -> None:
     granted with no `OPERATOR_KEY` (the API key is the boundary), and with one set, refused (403)
     unless the request presents it. Before this the key gated nothing on a send (review of 0.7.6, O3).
     """
-    authorize_operator(sender, request, operator_key_from(request), action="sending a message as the operator")
+    refuse_an_unproven_operator_claim(sender, request, action="sending a message as the operator")
