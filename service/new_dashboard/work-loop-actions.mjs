@@ -158,6 +158,30 @@ export async function remindWorkContract(runId, refreshAfter = true) {
   if (refreshAfter) await refresh();
 }
 
+/**
+ * Try `act` on every item, whatever the others did (v0.7.7 D5: the first refusal used to end the
+ * loop). Succeeded items leave the selection; failed ones stay selected for a retry. One toast counts both.
+ */
+async function settleEach(items, act, verb) {
+  let firstError = null;
+  let failed = 0;
+  for (const item of items) {
+    try {
+      await act(item);
+      state.selectedDiagnosticIds.delete(`${item.kind}:${item.id}`);
+    } catch (err) {
+      failed += 1;
+      firstError ??= err;
+    }
+  }
+  if (!failed) {
+    toast(`${items.length} ${verb}.`, 'ok');
+  } else {
+    toast(`${items.length - failed} of ${items.length} ${verb}, ${failed} failed: ${firstError?.message || firstError}`, 'error');
+  }
+  await refresh();
+}
+
 export async function requestBulkDiagnosticAction(action) {
   const selected = selectedDiagnostics();
   if (!selected.length || !action) return;
@@ -180,30 +204,19 @@ export async function requestBulkDiagnosticAction(action) {
       toast('No reply-contract items in the selection to remind.', 'warn');
       return;
     }
-    for (const item of contracts) {
-      await remindWorkContract(item.id, false);
-    }
-    toast(`Reminder sent for ${contracts.length} contract${contracts.length === 1 ? '' : 's'}.`, 'ok');
-    state.selectedDiagnosticIds.clear();
-    await refresh();
+    await settleEach(contracts, (item) => remindWorkContract(item.id, false), 'reminded');
     return;
   }
   if (action === 'close') {
     if (!await uiConfirm(`Close ${selected.length} selected Work item${selected.length === 1 ? '' : 's'} as operator-reviewed?`)) return;
-    for (const item of selected) {
-      if (item.kind === 'contract') {
-        await closeWorkContract(item.id, false, false);
-      } else if (item.kind === 'run') {
-        await patchRun(item.id, {
-          status: 'completed',
-          requireReply: false,
-          summary: 'Closed from Work by dashboard operator.',
-          appendEvent: 'Closed from Work by dashboard operator.',
-          eventType: 'operator_closed',
-        });
-      }
-    }
-    state.selectedDiagnosticIds.clear();
-    await refresh();
+    await settleEach(selected, (item) => (item.kind === 'contract'
+      ? closeWorkContract(item.id, false, false)
+      : patchRun(item.id, {
+        status: 'completed',
+        requireReply: false,
+        summary: 'Closed from Work by dashboard operator.',
+        appendEvent: 'Closed from Work by dashboard operator.',
+        eventType: 'operator_closed',
+      })), 'closed');
   }
 }

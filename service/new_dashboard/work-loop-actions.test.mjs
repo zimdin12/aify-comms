@@ -46,7 +46,7 @@ function makeDialog(answer) {
   return overlay;
 }
 
-function withWorkLoop({ confirm = true } = {}) {
+function withWorkLoop({ confirm = true, failing = [] } = {}) {
   const els = new Map();
   const sent = [];
   const toasts = [];
@@ -55,7 +55,11 @@ function withWorkLoop({ confirm = true } = {}) {
   globalThis.document = {
     getElementById: (id) => { if (!els.has(id)) els.set(id, makeEl()); return els.get(id); },
     querySelector: () => null, querySelectorAll: () => [],
-    createElement: () => makeDialog(confirm),
+    createElement: () => {
+      const el = makeDialog(confirm);
+      Object.defineProperty(el, "textContent", { get: () => "", set: (v) => { if (v) toasts.push({ text: v, tone: el.className }); } });
+      return el;
+    },
     addEventListener() {}, removeEventListener() {},
     body: {
       appendChild: (el) => { if (el && el.className === "dialog-overlay") queueMicrotask(() => el.__answer()); },
@@ -66,6 +70,9 @@ function withWorkLoop({ confirm = true } = {}) {
   globalThis.fetch = async (url, options = {}) => {
     const method = (options.method || "GET").toUpperCase();
     if (method !== "GET") sent.push({ url: String(url), method, body: options.body });
+    if (method !== "GET" && failing.some((id) => String(url).includes(id))) {
+      return { ok: false, status: 409, statusText: "Conflict", text: async () => JSON.stringify({ error: "already closed" }) };
+    }
     const payload = { ok: true, contracts: [], runs: [], repaired: 3 };
     return { ok: true, status: 200, statusText: "OK", json: async () => payload, text: async () => JSON.stringify(payload) };
   };
@@ -131,6 +138,33 @@ test("bulk close acts on EVERY selected item and clears afterwards", async () =>
     assert.equal(h.sent.length, 2, "both runs must be closed, not just the first");
     assert.equal(state.selectedDiagnosticIds.size, 0);
     assert.equal(h.refreshes(), 1);
+  } finally { h.restore(); }
+});
+
+test("ONE FAILING ITEM DOES NOT STOP A BULK CLOSE, AND THE TOAST COUNTS BOTH", async () => {
+  // v0.7.7 D5: the loop had no catch, so the first refused item ended the action with "Unexpected
+  // error", the rest were never tried, and the selection was left as it was.
+  const h = withWorkLoop({ confirm: true, failing: ["r2"] });
+  try {
+    select([{ kind: "run", id: "r1" }, { kind: "run", id: "r2" }, { kind: "run", id: "r3" }]);
+    await requestBulkDiagnosticAction("close");
+    assert.equal(h.sent.length, 3, "every item is tried, including the ones after the failure");
+    const summary = h.toasts.find((t) => /closed/.test(t.text));
+    assert.ok(summary, `a summary toast: ${JSON.stringify(h.toasts)}`);
+    assert.match(summary.text, /2 of 3 closed, 1 failed/);
+    assert.match(summary.text, /already closed/, "the first refusal says why");
+    assert.deepEqual([...state.selectedDiagnosticIds], ["run:r2"], "only the failed item stays selected, for a retry");
+    assert.equal(h.refreshes(), 1);
+  } finally { h.restore(); }
+});
+
+test("a failing reminder does not stop the others either", async () => {
+  const h = withWorkLoop({ confirm: true, failing: ["c1"] });
+  try {
+    select([{ kind: "contract", id: "c1" }, { kind: "contract", id: "c2" }]);
+    await requestBulkDiagnosticAction("remind");
+    assert.equal(h.sent.length, 2);
+    assert.ok(h.toasts.some((t) => /1 of 2 reminded, 1 failed/.test(t.text)), JSON.stringify(h.toasts));
   } finally { h.restore(); }
 });
 
