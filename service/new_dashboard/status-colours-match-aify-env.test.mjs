@@ -17,7 +17,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { siblingCheckout } from "../../mcp/stdio/tests/_sibling-checkout.mjs";
-import { AGENT_STATUSES, STATUS_KINDS } from "./status.js";
+import { AGENT_STATUSES, AGENT_STATUS_MEANINGS, STATUS_KINDS, statusChipsHtml, statusLegendHtml } from "./status.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Comments removed, or the one above a rule reads as part of its selector.
@@ -86,12 +86,31 @@ test("aify-env's terminal paints every agent status in the dashboard's hue for i
   assert.deepEqual(differ, [], "a status reads one colour on the dashboard and another in aify-env");
 });
 
-test("each messenger filter chip is its status's own dot colour, and shell has one", () => {
-  const chips = [...HTML.matchAll(/data-chat-status="([\w-]+)"/g)].map(([, status]) => status);
-  assert.ok(chips.includes("shell"), "no shell chip: filtering by status hides every agent running a shell");
-  for (const status of chips) {
-    const colour = colourOf(`.chat-chip.status.dot.s-${status}::before`);
+test("every agent status has a messenger filter chip, in its own dot colour (v0.7.7)", () => {
+  // The chips were hand markup missing `starting` and `misconfigured`, so a newly spawned agent
+  // vanished under any chip filter. They are generated from AGENT_STATUSES now.
+  const chips = [...statusChipsHtml().matchAll(/class="chat-chip status dot s-([\w-]+)" data-chat-status="([\w-]+)"/g)];
+  assert.deepEqual(chips.map(([, , status]) => status), AGENT_STATUSES, "a status has no chip");
+  for (const [, dotClass, status] of chips) {
+    const colour = colourOf(`.chat-chip.status.dot.s-${dotClass}::before`);
     assert.ok(colour, `the ${status} chip paints no colour of its own, so it shows the grey default`);
     assert.equal(hueName(colour), dotHue(status), `the ${status} chip is not the ${status} dot's colour`);
   }
+  assert.doesNotMatch(HTML, /data-chat-status="/, "index.html still carries a hand-written chip");
+});
+
+test("the Help legend lists every agent status, and says how many there are", () => {
+  const legend = statusLegendHtml();
+  for (const status of AGENT_STATUSES) {
+    assert.match(legend, new RegExp(`<strong>${STATUS_KINDS[status].label}</strong>`), `${status} is not in the legend`);
+  }
+  assert.deepEqual(Object.keys(AGENT_STATUS_MEANINGS), AGENT_STATUSES, "a status has no meaning, or a meaning no status");
+  assert.doesNotMatch(HTML, /six agent states/, "the legend still says six");
+  assert.match(HTML, /id="status-legend"/, "CONTROL: the legend's host is in the page");
+});
+
+test("the Working now tile is the working dot's colour", () => {
+  const tile = colourOf('.metric[data-tone="working"]');
+  assert.ok(tile, "the working tile paints no colour");
+  assert.equal(hueName(tile), dotHue("working"));
 });

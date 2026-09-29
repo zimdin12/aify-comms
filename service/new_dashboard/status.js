@@ -91,6 +91,37 @@ export const STATUS_KINDS = {
   unknown: { label: 'unknown', dotKind: 'unknown', tone: 'muted', inputEnabled: false },
 };
 
+// What each agent status means to the operator, for the chips' titles and the Help legend (v0.7.7).
+// Keyed by status, and a test holds its keys to AGENT_STATUSES, so a new status without a meaning
+// is a red test rather than a chip that is missing.
+export const AGENT_STATUS_MEANINGS = {
+  working: 'live and in an active turn right now',
+  shell: 'idle prompt, background work still running',
+  online: 'live session, idle between turns',
+  available: 'no live session, but auto-starts on the next send',
+  blocked: 'in a turn but waiting on input or approval',
+  offline: 'no live session and not auto-startable',
+  stopped: 'explicitly disabled',
+  misconfigured: 'cannot start until its configuration is fixed',
+  starting: 'a spawn is booting; no worker yet',
+};
+
+/** The Chat rail's status filter chips, one per agent status. `syncChatChips` sets which are pressed. */
+export function statusChipsHtml() {
+  return AGENT_STATUSES.map((status) => {
+    const { label } = STATUS_KINDS[status];
+    return `<button type="button" class="chat-chip status dot s-${status}" data-chat-status="${status}" title="${esc(`${label} — ${AGENT_STATUS_MEANINGS[status]}`)}" aria-label="Filter: ${esc(label)}"></button>`;
+  }).join('');
+}
+
+/** The Help page's status legend, one row per agent status in its dot colour. */
+export function statusLegendHtml() {
+  return AGENT_STATUSES.map((status) => {
+    const { label, dotKind } = STATUS_KINDS[status];
+    return `<li><span class="status-dot ${dotKind}"></span><strong>${esc(label)}</strong> — ${esc(AGENT_STATUS_MEANINGS[status])}.</li>`;
+  }).join('');
+}
+
 // Resolve a raw status into { kind, label, dotKind, tone, inputEnabled, badges }. An unknown
 // raw value falls back to the `unknown` kind (never throws). Context may override the label
 // and attach badge strings.

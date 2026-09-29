@@ -227,6 +227,20 @@ test("chat rail preferences are restored from storage", () => {
   } finally { h.restore(); }
 });
 
+test("boot draws a chip and a legend row for every agent status (v0.7.7)", () => {
+  const h = recordingDom({ storage: {} });
+  try {
+    restorePersistedPreferences({ setPage() {} });
+    restorePersistedPreferences({ setPage() {} });
+    const chips = h.els.get("chat-status-chips").innerHTML;
+    assert.match(chips, /data-chat-status="starting"/);
+    assert.match(chips, /data-chat-status="misconfigured"/);
+    assert.equal((chips.match(/data-chat-status=/g) || []).length, 9, "a second restore duplicated the chips");
+    assert.match(chips, /chat-status-label/, "the row lost its label");
+    assert.match(h.els.get("status-legend").innerHTML, /<strong>misconfigured<\/strong>/);
+  } finally { h.restore(); }
+});
+
 test("CORRUPT stored chat preferences are ignored rather than crashing the boot", () => {
   // It is JSON from a previous version of the app; the shape is not guaranteed.
   for (const stored of ["not json", "null", "[]", '{"statusFilter":"not-an-array"}']) {

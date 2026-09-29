@@ -280,7 +280,7 @@ small, .subtle { color: var(--muted); }
   border-left: 4px solid #44504e;
 }
 .metric[data-tone="ok"] { border-left-color: var(--green); }
-.metric[data-tone="working"] { border-left-color: var(--blue); }
+.metric[data-tone="working"] { border-left-color: var(--amber); }
 .metric[data-tone="warn"] { border-left-color: var(--amber); }
 .metric[data-tone="bad"] { border-left-color: var(--red); }
 .metric[data-tone="queued"] { border-left-color: var(--violet); }
@@ -1223,12 +1223,12 @@ small, .subtle { color: var(--muted); }
 .chat-chip.status.dot::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
 .chat-chip.status.dot.active { background: var(--accent-soft); border-color: var(--accent); }
 /* Per-state colors MUST qualify with .status.dot (0,3,1 like ::before above), or the grey default wins. */
-.chat-chip.status.dot.s-working::before { background: var(--amber); }
+.chat-chip.status.dot.s-working::before, .chat-chip.status.dot.s-starting::before { background: var(--amber); }
 .chat-chip.status.dot.s-shell::before { background: #3fc6d6; }
 .chat-chip.status.dot.s-online::before { background: var(--green-soft); }
 .chat-chip.status.dot.s-available::before { background: var(--available-blue); }
 .chat-chip.status.dot.s-blocked::before { background: var(--red); }
-.chat-chip.status.dot.s-offline::before { background: var(--muted); }
+.chat-chip.status.dot.s-offline::before, .chat-chip.status.dot.s-misconfigured::before { background: var(--muted); }
 .chat-chip.status.dot.s-stopped::before { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
 .chat-rail-list { flex: 1; overflow-y: auto; padding: 6px; }
 /* The partial-list hint: annotates the rail without taking a row from it. `margin-left: auto` on a

@@ -30,6 +30,7 @@ import { previewAppearance, refreshActiveTerminalTheme, renderSettings } from '.
 import { preferredAttentionCollapsed, preferredNavCollapsed, setAttentionCollapsed, setNavCollapsed, toggleSessionGroupCollapsed } from './layout-prefs.mjs';
 import { REL_TIME_SELECTOR, startRelTimeTicker } from './rel-time-ticker.mjs';
 import { state } from './state.mjs';
+import { statusChipsHtml, statusLegendHtml } from './status.js';
 import { byId, installRejectionToast, toast, uiConfirm } from './ui.js';
 
 /**
@@ -363,6 +364,12 @@ export function restorePersistedPreferences({ setPage }) {
   applyCachedTheme(); // paint cached theme/title immediately so no default-palette flash before /settings
   try { state.settingsTab = localStorage.getItem('aifySettingsTab') || ''; } catch { /* ignore */ }
   try { const sf = JSON.parse(localStorage.getItem('aifySessionStatusFilter') || '[]'); if (Array.isArray(sf)) state.sessionStatusFilter = new Set(sf); } catch { /* ignore */ }
+  // ONE CHIP AND ONE LEGEND ROW PER AGENT STATUS, generated from AGENT_STATUSES (v0.7.7): the hand
+  // markup was missing `starting` and `misconfigured`. Before the prefs restore, which presses them.
+  const chipRow = byId('chat-status-chips');
+  if (chipRow) chipRow.innerHTML = `<span class="chat-status-label">Status</span>${statusChipsHtml()}`;
+  const legend = byId('status-legend');
+  if (legend) legend.innerHTML = statusLegendHtml();
   // Restore persisted chat rail prefs (sticky declutter) + reflect into the controls.
   try {
     const p = JSON.parse(localStorage.getItem('aify.next.chatPrefs') || '{}') || {};
