@@ -1,3 +1,10 @@
+// THE NAME THE CONSOLE'S OWN KEYSTROKES AND RESIZES CARRY, so the host can tell the operator typing
+// here from everything else that types as "dashboard". The host gives a terminal back to the size of the
+// viewer that types into it (aify-env control-viewer.mjs), and only `dashboard-*` names are that viewer:
+// a chat message, a Compact, and any input the service defaulted to "dashboard" are not a screen and
+// must not resize one (external review of 0.7.6, ST1).
+export const CONSOLE_VIEWER = 'dashboard-console';
+
 // Input reaches the PTY IN ORDER, and a burst travels as one request.
 //
 // MEASURED 2026-09-17: every keystroke was its own POST, chained behind the previous one, and every
@@ -10,7 +17,7 @@
 export const createTerminalInputPoster = ({ api, terminalId, onError = () => {} }) => {
   const post = (body) => api(`/terminals/${encodeURIComponent(terminalId)}/input`, {
     method: 'POST',
-    body: JSON.stringify({ body, requestedBy: 'dashboard' }),
+    body: JSON.stringify({ body, requestedBy: CONSOLE_VIEWER }),
   }).catch(onError);
   let inFlight = null;
   let buffered = '';

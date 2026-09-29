@@ -16,7 +16,7 @@ import { cursorFromSnapshot, drainHeldFrames, rememberPainted } from './console-
 import { agentForTerminal } from './session-rail.mjs';
 import { terminalAccentColor, terminalThemeFromDashboard } from './settings-panel.mjs';
 import { state } from './state.mjs';
-import { createTerminalInputHandler, createTerminalInputPoster, forceTerminalRepaint, wheelInputSequence } from './terminal-input.mjs';
+import { CONSOLE_VIEWER, createTerminalInputHandler, createTerminalInputPoster, forceTerminalRepaint, wheelInputSequence } from './terminal-input.mjs';
 import { applyRenderedWidth } from './terminal-width.mjs';
 import { toast } from './ui.js';
 import { awaitTerminalSize, disposeActiveXterm } from './xterm-lifecycle.mjs';
@@ -175,7 +175,7 @@ export async function mountXtermForTerminal(terminalId, agentId, container, { ca
     resizeTimer = setTimeout(() => {
       api(`/terminals/${encodeURIComponent(terminalId)}/resize`, {
         method: 'POST',
-        body: JSON.stringify({ cols: c, rows: r, requestedBy: 'dashboard' }),
+        body: JSON.stringify({ cols: c, rows: r, requestedBy: CONSOLE_VIEWER }),
       }).catch(() => {});
     }, 120);
   });
