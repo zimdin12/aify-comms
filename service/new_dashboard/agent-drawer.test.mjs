@@ -178,6 +178,24 @@ test("the AGENT-level stop is offered only when there is a live worker to stop",
   }
 });
 
+test("the drawer offers Start exactly where the service would start the agent (v0.7.7)", () => {
+  // Stop existed and Start did not, though the Stop confirm says "you can start it again". The rule
+  // is `startOffer`: a managed agent that is stopped or available. The route refuses a resident.
+  for (const [mode, status, expected] of [
+    ["managed", "stopped", true], ["managed", "available", true],
+    ["managed", "starting", false], ["managed", "misconfigured", false], ["managed", "online", false],
+    ["managed", "working", false], ["managed", "offline", false], ["resident", "stopped", false],
+  ]) {
+    seed({ agents: [{ id: "coder", status, sessionMode: mode }], inspector: {} });
+    withDom(drawerEls(), (els) => {
+      openAgentDrawer("coder");
+      const html = els["inspector-content"].innerHTML;
+      assert.equal(html.includes('data-agent-action="start" data-agent-id="coder"'), expected,
+        `${mode} ${status} must ${expected ? "offer" : "withhold"} Start`);
+    });
+  }
+});
+
 test("the drawer offers ONE stop, with a session or without one", () => {
   // It offered two, "Stop worker" (agent-wide) and "Stop session" (one session, and the only one that
   // interrupted the run in flight); neither was the whole stop, and the operator asked why there were

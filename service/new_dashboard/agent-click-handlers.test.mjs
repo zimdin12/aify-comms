@@ -12,6 +12,7 @@ import test from "node:test";
 import {
   runAgentControl,
   startColdAgent,
+  startOffer,
   switchAgentModeFromRow,
   switchModeFromChip,
   toggleFavouriteRow,
@@ -125,6 +126,15 @@ test("FAILURE RESTORES BOTH the disabled flag and the label", () => {
   });
 });
 
+test("a failed start puts back the label its own surface drew (the drawer says Start)", () => {
+  return withFetch({ reject: true }, async () => {
+    const btn = { ...button(), textContent: "Start" };
+    startColdAgent(btn, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(btn.textContent, "Start");
+  });
+});
+
 test("a rejected start never throws out of the handler", () => {
   // `.catch(...)`. An unhandled rejection inside a delegated click listener surfaces as an unrelated
   // console error and, in some browsers, kills the listener for the rest of the page's life.
@@ -226,4 +236,16 @@ test("switchAgentModeFromRow passes AGENT and MODE, and swallows a rejection", (
     ));
     await new Promise((r) => setTimeout(r, 0));
   });
+});
+
+test("startOffer: Start for a managed agent the service would start, and a reason where it would not", () => {
+  assert.deepEqual(startOffer({ sessionMode: "managed", status: "available" }), { start: true, why: "" });
+  assert.equal(startOffer({ sessionMode: "managed", status: "stopped" }).start, true);
+  const resident = startOffer({ sessionMode: "resident", status: "stopped" });
+  assert.equal(resident.start, false);
+  assert.match(resident.why, /resident/, "a resident agent is told why, not silently skipped");
+  assert.equal(startOffer({ status: "available" }).start, false, "no mode is resident, as the service reads it");
+  assert.match(startOffer({ sessionMode: "managed", status: "misconfigured" }).why, /configuration/);
+  assert.match(startOffer({ sessionMode: "managed", status: "starting" }).why, /starting/);
+  assert.equal(startOffer({ sessionMode: "managed", status: "working" }).start, false);
 });

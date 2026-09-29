@@ -9,10 +9,35 @@
 // propagation before doing anything.
 
 import { api } from './api-client.mjs';
+import { resolveStatus } from './status.js';
 import { toast } from './ui.js';
+
+/**
+ * Whether the dashboard offers Start for this agent, and why not when it does not (v0.7.7).
+ *
+ * The drawer and the Start dialog both ask this. It decides when to OFFER Start, not whether the
+ * start succeeds: `POST /agents/{id}/control` still refuses what it cannot run, and the caller shows
+ * that refusal. A missing mode is resident, as the route reads it, and the route refuses a resident.
+ * Only `stopped` and `available` are offered: a live agent has a worker, `starting` has one on the
+ * way, and `misconfigured` cannot start until a human fixes it. Narrower than aify-env's
+ * `startabilityOf`, which also offers an offline agent on its own host.
+ */
+export function startOffer(agent) {
+  const mode = String(agent?.sessionMode || 'resident').toLowerCase();
+  const status = resolveStatus(agent?.status).kind;
+  if (mode !== 'managed') {
+    return { start: false, why: 'resident: its terminal is the CLI you launched. Switch it to managed to start it here.' };
+  }
+  if (status === 'stopped' || status === 'available') return { start: true, why: '' };
+  if (status === 'starting') return { start: false, why: 'already starting' };
+  if (status === 'misconfigured') return { start: false, why: 'misconfigured: fix its configuration first' };
+  return { start: false, why: '' };
+}
 
 export function startColdAgent(agentAction, refreshSoon) {
   const id = agentAction.dataset.agentId;
+  // Put back what the button said, whichever surface drew it ("Start" or "Start agent").
+  const label = agentAction.textContent;
   agentAction.disabled = true;
   agentAction.textContent = 'Starting…';
   api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'start', from_agent: 'dashboard' }) })
@@ -23,7 +48,7 @@ export function startColdAgent(agentAction, refreshSoon) {
     .catch((err) => {
       toast(`Start agent failed: ${err?.message || err}`, 'error');
       agentAction.disabled = false;
-      agentAction.textContent = 'Start agent';
+      agentAction.textContent = label;
     });
 }
 
