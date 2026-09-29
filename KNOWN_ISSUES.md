@@ -276,12 +276,13 @@ their herdr panes were 40 rows. Since aify-env 3e8a7f4 each attach client names 
 keystroke from a viewer that is not the owner gives the terminal that viewer's size before the key
 lands (tmux `window-size latest`); if the PTY refuses that resize the key is withheld and the sender
 told. Every dashboard console tab is ONE viewer, since a control carries no tab identity, so two tabs
-of different sizes share the size last resized. Only the dashboard's console surfaces (`dashboard:*`:
-`dashboard:console`, `:attach`, `:refresh`, a namespace no agent id can enter) count as that viewer: an auto-answer (`console-prompt`),
-an agent typing into a console, and a chat message or Compact from the dashboard (bare `dashboard`,
-also what the service fills in for an unnamed caller) never resize. A console tab opened before this
-change sends bare `dashboard` until it reloads, so its keys stop restoring its size, which is the
-old last-resize-wins behaviour. What remains: a pane stays scrambled until the operator types in it or resizes
+of different sizes share the size last resized. Only the dashboard's console surfaces
+(`dashboard:console`, `:attach`, `:refresh`, a namespace no agent id can enter) count as that viewer:
+an auto-answer (`console-prompt`), an agent typing into a console, and a chat message or Compact from
+the dashboard (bare `dashboard`, also what the service fills in for an unnamed caller) never resize.
+A console tab loaded on older dashboard code sends an older name until it reloads: `dashboard-console`
+from v0.7.6, bare `dashboard` from before it. Neither is a viewer to aify-env 0.7.2, so that tab's
+keys do not restore its size, which is the old last-resize-wins behaviour. What remains: a pane stays scrambled until the operator types in it or resizes
 it, opening or refreshing a dashboard console still takes the size, and what already reached herdr's
 scrollback stays. Live only after an aify-env restart.
 
