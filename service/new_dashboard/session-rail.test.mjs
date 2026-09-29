@@ -110,6 +110,32 @@ test("an EMPTY status filter means all, not none", () => {
   assert.equal(groupedSessionsByEnvironment().length, 1, "…and neither must an absent one");
 });
 
+test("LIVE SHOWS THE RUNNING SESSION: one status decision for the row, the filter and the hidden count", async () => {
+  // v0.7.7 D2. The filter resolved the ROW's raw status, and `running` is not an agent status, so the
+  // Live preset hid every running session (live 2026-09-29: 4 running, 76 stopped, Live showed none).
+  const { LIVE_AGENT_STATUSES, AGENT_STATUSES } = await import("./status.js");
+  const rows = [
+    session("s-new", "coder", "env", { status: "running" }),
+    session("s-old", "coder", "env", { status: "stopped" }),
+    session("s-orphan", "ghost", "env", { status: "running" }),
+  ];
+  const ids = () => groupedSessionsByEnvironment().flatMap((g) => g.sessions.map((s) => s.id));
+  const agents = [{ id: "coder", status: "online" }];
+
+  seed({ sessions: rows, agents, statusFilter: new Set(LIVE_AGENT_STATUSES) });
+  assert.deepEqual(ids(), ["s-new"], "Live keeps the current session, drops the ended one and the ownerless one");
+
+  seed({ sessions: rows, agents, statusFilter: new Set(AGENT_STATUSES) });
+  assert.deepEqual(ids(), ["s-new", "s-old"], "All keeps the ended row; a session with no agent is unknown");
+
+  // The row chip and the "N hidden" note say the same thing the filter decided.
+  const html = renderRailHtml({ sessions: rows, agents, statusFilter: new Set(LIVE_AGENT_STATUSES) });
+  assert.match(html, /data-status-kind="online"/, "the live row shows its agent's live status");
+  assert.doesNotMatch(html, /data-status-kind="running"/);
+  assert.match(filterHostHtml, /data-session-status-preset="live"/, "CONTROL: the filter host was captured");
+  assert.match(filterHostHtml, /2 hidden by filter/, "the ended row and the ownerless one, not the live one");
+});
+
 test("selectedSessionIds drops ids whose session is gone", () => {
   // The rail keeps a selection across refreshes; a stopped session must not stay silently selected and
   // then be acted on by a bulk control.
@@ -467,21 +493,24 @@ test("a session's WORKSPACE PATH is marked as a path, not styled as prose", () =
 
 // ---- the list is a PAGE, and it has to say so -----------------------------------------------------
 
-/** Render the rail into a captured string. The rail is the only element whose innerHTML is read. */
+/** What the last `renderRailHtml` painted into the status-filter host. */
+let filterHostHtml = "";
+
+/** Render the rail into a captured string; the status-filter host is captured into `filterHostHtml`. */
 function renderRailHtml(seedArgs) {
   const hadDoc = Object.prototype.hasOwnProperty.call(globalThis, "document");
   const prevDoc = globalThis.document;
   let railHtml = "";
   const el = (capture = false) => ({
     hidden: false, textContent: "", value: "", dataset: {},
-    set innerHTML(v) { if (capture) railHtml = v; },
-    get innerHTML() { return capture ? railHtml : ""; },
+    set innerHTML(v) { if (capture === "filter") filterHostHtml = v; else if (capture) railHtml = v; },
+    get innerHTML() { return capture === true ? railHtml : ""; },
     classList: { add() {}, remove() {}, toggle() {}, contains: (c) => c === "active" },
     setAttribute() {}, removeAttribute() {}, appendChild() {}, addEventListener() {},
     querySelector: () => null, querySelectorAll: () => [], closest: () => null,
   });
   globalThis.document = {
-    getElementById: (id) => el(id === "session-rail"),
+    getElementById: (id) => el(id === "session-status-filter" ? "filter" : id === "session-rail"),
     querySelector: () => el(), querySelectorAll: () => [], createElement: () => el(),
   };
   try {

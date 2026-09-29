@@ -36,6 +36,17 @@ export function sessionRowIsLive(session) {
   return LIVE_SESSION_ROW_STATUSES.has(norm(session?.status));
 }
 
+/**
+ * The status a session row shows, filters by and is counted by (v0.7.7 D2). A live row speaks for
+ * its agent, so it takes the agent's live status; `running` is a row state no status chip offers, and
+ * filtering on it hid every running session from Live. An ended row keeps its own state. A live row
+ * whose agent is missing is `unknown`, never presumed live.
+ */
+export function sessionDisplayStatus(session, agent) {
+  if (!sessionRowIsLive(session)) return session?.status || 'unknown';
+  return agent?.status || 'unknown';
+}
+
 // ONE AGENT = ONE ENTRY, which is how the operator reads this list: "for me i know only one
 // sc-manager. this one identification is one specific agent / session for me.. seeing 2 makes me
 // misunderstand". So per agent:

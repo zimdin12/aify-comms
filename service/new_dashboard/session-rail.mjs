@@ -19,7 +19,7 @@
 
 
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
-import { collapseSupersededSessions, countSupersededSessions } from './sessions-list.mjs';
+import { collapseSupersededSessions, countSupersededSessions, sessionDisplayStatus } from './sessions-list.mjs';
 import { state } from './state.mjs';
 import { AGENT_STATUSES, renderStatusChip, resolveStatus, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
@@ -31,6 +31,7 @@ export function agentForSession(session) {
   const agentId = sessionAgentId(session);
   return state.agents.find((agent) => String(agent.id) === agentId) || {};
 }
+const sessionStatus = (session) => sessionDisplayStatus(session, agentForSession(session));
 export function groupedSessionsByEnvironment() {
   const groups = new Map();
   const filter = state.sessionStatusFilter;
@@ -44,9 +45,7 @@ export function groupedSessionsByEnvironment() {
   visibleSessions.forEach((session) => {
     // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
     if (filter && filter.size) {
-      const agent = agentForSession(session);
-      const kind = resolveStatus(session.status || agent.status || 'unknown').kind;
-      if (!filter.has(kind)) return;
+      if (!filter.has(resolveStatus(sessionStatus(session)).kind)) return;
     }
     // WS-H6: the top-bar global Find also narrows Sessions (id / agent / workspace / runtime).
     if (find) {
@@ -95,7 +94,7 @@ function renderSessionStatusFilter() {
   let hiddenNote = '';
   const filter = state.sessionStatusFilter;
   if (filter && filter.size) {
-    const hidden = state.sessions.filter((s) => !filter.has(resolveStatus(s.status || agentForSession(s).status || 'unknown').kind)).length;
+    const hidden = state.sessions.filter((s) => !filter.has(resolveStatus(sessionStatus(s)).kind)).length;
     if (hidden) hiddenNote = `<span class="filter-hidden-note">${hidden} hidden by filter</span>`;
   }
   // Superseded rows are collapsed so one agent reads as ONE entry — but say how many, so the list
@@ -138,7 +137,7 @@ export function renderSessionRail() {
       ${group.sessions.map((session) => {
         const id = sessionId(session);
         const agent = agentForSession(session);
-        const status = session.status || agent.status || 'unknown';
+        const status = sessionStatus(session);
         const active = id === state.selectedSessionId ? ' active' : '';
         const checked = state.selectedSessionIds.has(id) ? ' checked' : '';
         return `
