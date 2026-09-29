@@ -162,9 +162,9 @@ authority, and a very different number means a wrong invocation before it means 
 ```bash
 python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 4895 passed, 24 skipped, 1 failed (version gate, red until HEAD is tagged)
 cd mcp/stdio && node tests/run-all.mjs                 # 365 suites
-cd service/new_dashboard && node --test *.test.mjs     # 1881 tests
+cd service/new_dashboard && node --test *.test.mjs     # 1882 tests
 cd ~/projects/aify-wrapper && npm test                 # 575 tests, 66 skipped
-cd ~/projects/aify-env && npm test                     # 2168 tests, 4 skipped
+cd ~/projects/aify-env && npm test                     # 2170 tests, 4 skipped
 ```
 
 - **Python:** `-n 8 --dist loadfile` is the invocation (about 3 minutes; serial is over 20).

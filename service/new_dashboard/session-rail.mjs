@@ -32,17 +32,22 @@ export function agentForSession(session) {
   return state.agents.find((agent) => String(agent.id) === agentId) || {};
 }
 const sessionStatus = (session) => sessionDisplayStatus(session, agentForSession(session));
+// The rows before the status filter: every session, or with an agent's SUPERSEDED rows collapsed
+// (see sessions-list.mjs). Applied HERE, at the list render, rather than where `state.sessions` is
+// assigned: that array also builds `state.terminalOwners` and backs `sessionForAgent`, so narrowing
+// it would silently change lookups far from this page. The rows and the "hidden by filter" count
+// both start from it (review of v0.7.7 D2: the count read every session and called collapsed rows
+// hidden by the filter).
+function unfilteredRows() {
+  return state.showSupersededSessions
+    ? state.sessions
+    : collapseSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
+}
 export function groupedSessionsByEnvironment() {
   const groups = new Map();
   const filter = state.sessionStatusFilter;
   const find = state.filter.trim().toLowerCase();
-  // Collapse an agent's SUPERSEDED rows (see sessions-list.mjs). Applied HERE, at the list render,
-  // rather than where `state.sessions` is assigned: that array also builds `state.terminalOwners`
-  // and backs `sessionForAgent`, so narrowing it would silently change lookups far from this page.
-  const visibleSessions = state.showSupersededSessions
-    ? state.sessions
-    : collapseSupersededSessions(state.sessions, { agentIdOf: sessionAgentId });
-  visibleSessions.forEach((session) => {
+  unfilteredRows().forEach((session) => {
     // WS-F status multiselect: empty filter = all; otherwise keep only matching status kinds.
     if (filter && filter.size) {
       if (!filter.has(resolveStatus(sessionStatus(session)).kind)) return;
@@ -94,7 +99,7 @@ function renderSessionStatusFilter() {
   let hiddenNote = '';
   const filter = state.sessionStatusFilter;
   if (filter && filter.size) {
-    const hidden = state.sessions.filter((s) => !filter.has(resolveStatus(sessionStatus(s)).kind)).length;
+    const hidden = unfilteredRows().filter((s) => !filter.has(resolveStatus(sessionStatus(s)).kind)).length;
     if (hidden) hiddenNote = `<span class="filter-hidden-note">${hidden} hidden by filter</span>`;
   }
   // Superseded rows are collapsed so one agent reads as ONE entry — but say how many, so the list

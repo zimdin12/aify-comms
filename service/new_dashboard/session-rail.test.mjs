@@ -136,6 +136,17 @@ test("LIVE SHOWS THE RUNNING SESSION: one status decision for the row, the filte
   assert.match(filterHostHtml, /2 hidden by filter/, "the ended row and the ownerless one, not the live one");
 });
 
+test("'hidden by filter' counts the rows the filter hid, not the older rows the collapse hid (review, D2)", () => {
+  // One working agent with a current session and an older ended one, Working filter, show-older off:
+  // the collapse hides the old row and the filter hides nothing, and the note said "1 hidden by filter".
+  const rows = [session("s-new", "coder", "env", { status: "running" }), session("s-old", "coder", "env", { status: "stopped" })];
+  renderRailHtml({ sessions: rows, agents: [{ id: "coder", status: "working" }], statusFilter: new Set(["working"]), showSuperseded: false });
+  assert.doesNotMatch(filterHostHtml, /hidden by filter/, filterHostHtml);
+  assert.match(filterHostHtml, /1 older session collapsed/, "CONTROL: the collapse still says what it hid");
+  renderRailHtml({ sessions: rows, agents: [{ id: "coder", status: "working" }], statusFilter: new Set(["working"]), showSuperseded: true });
+  assert.match(filterHostHtml, /1 hidden by filter/, "with older rows shown, the filter does hide the ended one");
+});
+
 test("selectedSessionIds drops ids whose session is gone", () => {
   // The rail keeps a selection across refreshes; a stopped session must not stay silently selected and
   // then be acted on by a bulk control.
