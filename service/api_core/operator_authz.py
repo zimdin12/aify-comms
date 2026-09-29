@@ -153,6 +153,20 @@ def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> No
     authorize_operator(actor, request, operator_key_from(request), action=action)
 
 
+def refuse_a_reserved_agent_id(agent_id: str) -> None:
+    """Refuse (400) an agent id that is an operator name, with or without an operator key.
+
+    The operator names are identities, not only claims. An agent registered or renamed as `dashboard`
+    had its old messages and queued runs rewritten to read as the operator's, which every recipient
+    reads without the peer trust rule; the gate on the actor fields never saw it, because the name
+    arrived as the agent's new id (external review of 0.7.6). And `to=dashboard` is the operator's own
+    inbox, so no agent can hold the name whatever the key setting. Called wherever an agent id is
+    created: registration, rename, and a spawn request (whose worker registers under its `agentId`).
+    """
+    if is_operator_actor(agent_id):
+        raise HTTPException(400, f"'{str(agent_id).strip()}' is reserved for the operator and cannot be an agent id")
+
+
 #: The name a route records for a caller that gave none, on the routes only the dashboard calls unnamed.
 DASHBOARD_ACTOR = "dashboard"
 

@@ -27,6 +27,7 @@ of the bounded SQLite write-lock retry.
 
 from __future__ import annotations
 
+from service.api_core.operator_authz import refuse_a_reserved_agent_id
 from service.api_core.terminal_status import TERMINAL_ACTIVE_STATUS_SQL
 from service.api_core.ownership_authority import (
     preserved_environment_state,
@@ -88,6 +89,7 @@ router = domain_router()
 
 @router.post("/agents")
 async def register_agent(req: AgentRegister, request: Request):
+    refuse_a_reserved_agent_id(req.agentId)
     # THE PREVIOUS `last_seen` IS READ BEFORE REGISTRATION REFRESHES IT, so a returning agent can be
     # told what it missed (service/api_core/away_briefing.py). Sent only after registration succeeded.
     previous_last_seen = await _previous_last_seen(req.agentId)

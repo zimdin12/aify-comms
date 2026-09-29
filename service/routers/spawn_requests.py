@@ -43,7 +43,7 @@ from fastapi import HTTPException, Query, Request
 
 from service import longpoll
 from service.api_core.claim_emptiness import spawn_request_is_empty
-from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
 from service.api_core.runtime import (
@@ -234,6 +234,7 @@ async def list_spawn_requests(
 @router.post("/spawn-requests")
 async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     validate_name(req.agentId, "agent ID")
+    refuse_a_reserved_agent_id(req.agentId)
     normalized_runtime = _normalize_runtime(req.runtime)
     mode = str(req.mode or "managed-warm").strip()
     if mode not in _SPAWN_MODES:

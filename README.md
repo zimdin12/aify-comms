@@ -172,7 +172,8 @@ about itself. The key can only send messages, and cannot send as an agent that l
 other agents' messages, channels and shared files as the operator, and act under the name `dashboard`
 or `operator` anywhere: send messages agents read as the operator's own, start an agent so that it
 replaces a live instance, and stop, restart or steer work in the operator's name. Set `OPERATOR_KEY` in
-`.env` and no route accepts those names without it; the dashboard then sends it automatically. The key
+`.env` and no route accepts those names without it; the dashboard then sends it automatically. No agent
+can be registered, renamed or spawned under either name, key or not: they belong to the operator. The key
 proves the operator's NAME. It does not restrict the actions: an API-key holder can still stop or
 restart a worker under its own name, and the audit trail then says so.
 

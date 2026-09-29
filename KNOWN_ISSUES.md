@@ -22,7 +22,9 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   derives the routes from the app, so a new one cannot miss the check. An omitted name counts as
   `dashboard` where a route records it so (`recorded_operator_actor`); on a run control and a
   session-handle update it is an agent's ordinary call and is not the operator. The key proves the name,
-  not the right to act: any API-key holder can stop or restart a worker under its own name.
+  not the right to act: any API-key holder can stop or restart a worker under its own name. No agent
+  id may be `dashboard` or `operator`, key or not (`refuse_a_reserved_agent_id` on register, rename and
+  spawn): a rename to `dashboard` rewrote an agent's history to read as the operator's.
 - **By design: a silent (inbox-only) message stays unread until `comms_inbox` reads it**, so a new
   session is shown it again. A message that woke a run is read when the run claims it, and a reply marks
   the message it answers read (0.7.2); the skill says so (0.7.4).
@@ -41,6 +43,15 @@ item 5's hook output is the shape Codex documents, not yet seen in a live Codex 
   it still wins. A stamp from a bridge whose machine id differs from the agent's registered one is
   refused, as a hook's is. Proven at the service and on the bridge's wire bodies in tests; not observed
   on a live host.
+- **Every turn stamp is the host's wall clock, so a backward step of it can refuse an event** (0.7.6
+  review). An event fired after the clock stepped back carries a time below the last one applied and
+  is refused as out of order until the clock passes that time again; the refusal is logged
+  (`hook_event_order.py`). The review measured one 347 ms backward step in 150 s on a WSL host and none
+  in a 600 s run.
+- **Where the hook shell has no `$EPOCHREALTIME` and `date` has no `%N`** (macOS's BSD `date`, most
+  busybox builds), the hook passes no usable time and `agent-state-event.mjs` falls back to when node
+  started, 32-160 ms late, as every shell did before 0.7.6. The parser's rejection of `%N` left
+  unexpanded is tested; neither system has been run.
 - **Fixed in aify-env fbc4373: a paste that pauses stays one paste.** Before, a pause of 500 ms or more closed it and the rest was typed, submitting early. A paste given up in part now closes on the detach key alone or after 5 s of silence (a lost end marker).
 - **Codex's notify notice is proven against Codex's documentation only** (`additionalContext` "is added as
   extra developer context"), not observed in a live Codex agent's context.

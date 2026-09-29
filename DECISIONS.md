@@ -1107,7 +1107,9 @@ name without it, checked first (`refuse_an_unproven_operator_claim`, or `recorde
 omitted name is recorded as `dashboard`). The routes are derived from the app by
 `test_no_route_accepts_an_unproven_operator_name.py`, because gating the ones someone remembered left a
 new gap each review round. The key proves the name; it does not stop an API-key holder acting under
-its own. That raises the bar from "type an English word" to
+its own. The names are also reserved as agent ids, key or not (`refuse_a_reserved_agent_id`): a
+rename to `dashboard` passed every actor check and rewrote the agent's history as the operator's. That
+raises the bar from "type an English word" to
 "hold a secret" — which stops the casual, the confused and the prompt-injected case. It is NOT a
 boundary against an agent with filesystem access: `.env` is readable on the host, and the dashboard
 page carries the key to the browser. Anyone reading this should not treat it as one. Since 2026-09-24
