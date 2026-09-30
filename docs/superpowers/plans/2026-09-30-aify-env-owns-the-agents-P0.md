@@ -365,8 +365,11 @@ for that machine. A push already in flight is decided by this table when it arri
 **The machine is `machineId`, and two stores must never share one silently.** aify-env derives it as
 `<platform, or wsl>:<host>` lower-cased (`lib/advertise.mjs` `machineIdFor`), so the Windows and WSL
 installs on one PC are `win32:stevenz-l` and `wsl:stevenz-l`: two machines, two stores, no retirement.
-An `AIFY_MACHINE_ID` override set alike on two installs makes them one machine, and the table above
-would then let each retire the other (raised by dashboard-manager, 2026-09-30). So a retired store's
+`AIFY_MACHINE_ID` replaces only the host part, so it keeps them apart too. What makes two stores one
+machine is two installs on the SAME platform and host with their own definition directories: two
+Windows user profiles (each with its own `~/.aify`), or two daemons with different
+`AIFY_AGENT_DEFINITIONS_DIR`. The table above would then let each retire the other (raised and
+corrected by dashboard-manager, 2026-09-30). So a retired store's
 push is refused with the store that retired it and when, and a retired store that keeps pushing is
 reported in `aify-env doctor` and on the dashboard as "two stores claim machine <id>", never only
 logged.
@@ -396,8 +399,9 @@ bridgeId refused); unchanged definition bytes through available, unavailable, av
 ordered revision, no withdrawal, no conflict); valid, invalid, repaired (previous kept while invalid,
 no withdrawal); the same state enumerated in two orders (same digest); a directory read failure
 (nothing pushed, nothing withdrawn); an intentional empty snapshot (all withdrawn); two stores under
-one machineId alternating (the second retires the first, the first is refused naming the second, and
-the doctor row names both). Each checks
+one machineId alternating, made the way it happens (one platform and host, two definition
+directories): the second retires the first, the first is refused naming the second, and the doctor
+row names both. Each checks
 `agent_definitions` membership and owner after the step, not only the HTTP status.
 
 ## C4. Change requests: compare-and-set on lifetime and revision, idempotent, fenced
