@@ -101,9 +101,11 @@ def spawn_worker_ended_sql(spawn: str = "s") -> tuple[str, tuple[str, ...]]:
     """SQL true when a spawn's OWN worker came and went, and the parameters it binds.
 
     ITS OWN: a terminal on the spawn's session. That session is the spawn's alone: every insert leaves
-    `session_id` empty and the running transition mints a fresh `sess_<ms>_<uuid>` (running_spawn.py),
-    so a queued or starting spawn owns nothing, and a restart gets a new session instead of inheriting
-    the previous worker's dead terminal. A terminal reaches another session only by a rebind, and each
+    `session_id` empty, and the spawn PATCH mints a fresh `sess_<ms>_<uuid>` the first time the request
+    reaches running (running_spawn.py) and keeps it on every later PATCH, a move back to starting or
+    claimed included. So a request that has never reached running owns nothing, and a restart, being a
+    new request, gets its own session on running instead of inheriting the previous worker's dead
+    terminal. A terminal reaches another session only by a rebind, and each
     rebind moves a LIVE one (the bridge migration and the console repair) or a `vterm_` (excluded
     here), so a dead terminal on this session was serving it. A spawn with no terminal on its session
     is still coming up.

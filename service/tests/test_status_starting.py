@@ -304,8 +304,8 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self._booting())
 
     async def test_a_spawn_not_yet_running_owns_no_terminal(self):
-        """The session is minted at the running transition, so a starting spawn has none, and an
-        empty session must not match terminals that also carry an empty one."""
+        """A request that has never reached running has no session yet, and an empty session must
+        not match terminals that also carry an empty one."""
         await self._terminal("stopped", term_id="t-blank", session="")
         await self._add(status="starting", session="", age_seconds=5)
         self.assertTrue(await self._booting())
