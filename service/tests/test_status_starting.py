@@ -20,6 +20,7 @@ test_api_v2_regressions pins the window.
 
 from __future__ import annotations
 
+import time
 import unittest
 from pathlib import Path
 
@@ -195,6 +196,11 @@ class EnsureManagedPtyRowAccessTests(unittest.TestCase):
 
 
 
+def _utc_stamp(age_seconds=0):
+    """The service clock's shape: whole-second UTC, which is why same-second cases exist."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age_seconds))
+
+
 class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
     """The BOUND, tested at the gatherer where the clock actually lives.
 
@@ -225,14 +231,12 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.db.close()
 
-    async def _add(self, *, status="running", age_seconds=0, started=True):
-        import time as _t
-
-        stamp = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - age_seconds))
+    async def _add(self, *, status="running", age_seconds=0, started=True, session="sess-1", stamp=None):
+        stamp = stamp or _utc_stamp(age_seconds)
         await self.db.execute(
-            "INSERT INTO spawn_requests (id, agent_id, status, started_at, updated_at, created_at) "
-            "VALUES (?,?,?,?,?,?)",
-            ("s1", "a1", status, stamp if started else "", stamp, stamp),
+            "INSERT INTO spawn_requests (id, agent_id, status, started_at, updated_at, created_at, session_id) "
+            "VALUES (?,?,?,?,?,?,?)",
+            ("s1", "a1", status, stamp if started else "", stamp, stamp, session),
         )
         await self.db.commit()
 
@@ -265,11 +269,9 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         await self.db.commit()
         self.assertFalse(await self._starting())
 
-    async def _terminal(self, status, *, age_seconds=0, term_id="t1"):
-        import time as _t
-
-        stamp = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - age_seconds))
-        await self.db.execute("INSERT INTO terminal_sessions VALUES (?,?,?,?)", (term_id, "sess-1", status, stamp))
+    async def _terminal(self, status, *, age_seconds=0, term_id="t1", session="sess-1", stamp=None):
+        stamp = stamp or _utc_stamp(age_seconds)
+        await self.db.execute("INSERT INTO terminal_sessions VALUES (?,?,?,?)", (term_id, session, status, stamp))
         await self.db.commit()
 
     async def _booting(self):
@@ -291,13 +293,38 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self._starting())
         self.assertTrue(await self._booting())
 
-    async def test_a_restart_waiting_for_its_first_terminal_is_still_starting(self):
-        """A restart reuses the session, so the PREVIOUS worker's dead terminal is on it. That
-        terminal predates the spawn and is not its worker; counting it would allow a second start."""
-        await self._terminal("stopped", age_seconds=3600, term_id="t-old")
-        await self._add(age_seconds=5)
+    async def test_a_restart_in_the_same_second_is_not_ended_by_the_previous_worker(self):
+        """Review of e1095fbc: the previous worker's dead terminal and the restart spawn stamped in
+        the SAME second. The restart has its own fresh session and no terminal yet, so it is still
+        coming up; counting the old terminal would allow a second start."""
+        same = _utc_stamp(5)
+        await self._terminal("stopped", term_id="t-old", session="sess-old", stamp=same)
+        await self._add(session="sess-new", stamp=same)
         self.assertTrue(await self._starting())
         self.assertTrue(await self._booting())
+
+    async def test_a_spawn_not_yet_running_owns_no_terminal(self):
+        """The session is minted at the running transition, so a starting spawn has none, and an
+        empty session must not match terminals that also carry an empty one."""
+        await self._terminal("stopped", term_id="t-blank", session="")
+        await self._add(status="starting", session="", age_seconds=5)
+        self.assertTrue(await self._booting())
+
+    async def test_CONTROL_its_own_worker_from_the_same_second_that_ended_counts(self):
+        """The case a strict `>` on timestamps would miss: spawn and worker born in one second."""
+        same = _utc_stamp(5)
+        await self._add(session="sess-new", stamp=same)
+        await self._terminal("stopped", session="sess-new", stamp=same)
+        self.assertFalse(await self._starting())
+        self.assertFalse(await self._booting())
+
+    async def test_a_rebound_worker_older_than_its_spawn_that_ended_counts(self):
+        """The bridge migration moves a LIVE terminal onto the new spawn's session, so the worker can
+        predate its spawn. When it dies, the spawn's worker is gone."""
+        await self._add(session="sess-new", age_seconds=5)
+        await self._terminal("stopped", session="sess-new", age_seconds=3600)
+        self.assertFalse(await self._starting())
+        self.assertFalse(await self._booting())
 
     async def test_no_spawn_at_all(self):
         self.assertFalse(await self._starting())

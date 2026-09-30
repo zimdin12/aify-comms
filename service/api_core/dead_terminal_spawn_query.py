@@ -100,10 +100,17 @@ async def _count_spawns_masked_by_live_sibling(db, end_statuses):
 def spawn_worker_ended_sql(spawn: str = "s") -> tuple[str, tuple[str, ...]]:
     """SQL true when a spawn's OWN worker came and went, and the parameters it binds.
 
-    ITS OWN: a terminal created at or after the spawn, on its session. A restart reuses the session,
-    so the previous worker's dead terminal is there too, and counting it would call a restart still
-    waiting for its first terminal finished, which is how one agent gets two workers. A spawn with no
-    terminal of its own yet is still coming up.
+    ITS OWN: a terminal on the spawn's session. That session is the spawn's alone: every insert leaves
+    `session_id` empty and the running transition mints a fresh `sess_<ms>_<uuid>` (running_spawn.py),
+    so a queued or starting spawn owns nothing, and a restart gets a new session instead of inheriting
+    the previous worker's dead terminal. A terminal reaches another session only by a rebind, and each
+    rebind moves a LIVE one (the bridge migration and the console repair) or a `vterm_` (excluded
+    here), so a dead terminal on this session was serving it. A spawn with no terminal on its session
+    is still coming up.
+
+    NO TIMESTAMPS. An earlier version also required `t.created_at >= s.created_at`: both are whole
+    seconds, so a terminal from the same second was ambiguous, and a rebound worker older than its
+    spawn never counted at all.
 
     WHY IT EXISTS (2026-09-30): the finalizer settles such a spawn only after a 45 s grace plus a sweep,
     about 90 s in practice, and until then the agent read `starting` and aify-env refused to start it.
@@ -112,8 +119,8 @@ def spawn_worker_ended_sql(spawn: str = "s") -> tuple[str, tuple[str, ...]]:
     """
     ends = _terminal_end_statuses_ordered()
     placeholders = ",".join("?" for _ in ends)
-    own = (f"t.session_id = {spawn}.session_id AND t.id NOT LIKE 'vterm_%' "
-           f"AND t.created_at >= {spawn}.created_at")
+    own = (f"COALESCE({spawn}.session_id, '') != '' AND t.session_id = {spawn}.session_id "
+           f"AND t.id NOT LIKE 'vterm_%'")
     sql = (f"(EXISTS (SELECT 1 FROM terminal_sessions t WHERE {own}) "
            f"AND NOT EXISTS (SELECT 1 FROM terminal_sessions t WHERE {own} "
            f"AND LOWER(COALESCE(t.status, '')) NOT IN ({placeholders})))")
