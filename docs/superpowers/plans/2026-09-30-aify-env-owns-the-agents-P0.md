@@ -29,7 +29,8 @@ the rule, whose body `agent.id` equals that name exactly. Anything else in the d
 (`.collection.json`, `.intent.json`, `.lock`, `.trash/`, `.recovered/`).
 
 **Schema v1.** A file is always written complete; a reader applies no defaults to a stored file, so
-"absent" means invalid, not default.
+"absent" means invalid, not default. That holds for every desired field in both populations below; the
+store's four identity fields are the one qualified case.
 
 | field | type | rule |
 |---|---|---|
@@ -62,12 +63,26 @@ fixture carries each:
   any host: it starts with `/`, or a drive letter then `:\` or `:/`, or `\\server\share`.
 - `agent.env` values carry no NUL either (`spawn_env.py` refuses one).
 - `appliedRequest`, when present, is 1-128 code points with no control characters.
-- `updatedAt` matches `YYYY-MM-DDTHH:MM:SS(.1-9 digits)?Z`.
+- `updatedAt` matches `YYYY-MM-DDTHH:MM:SS(.1-9 digits)?Z` as a full-string pattern in both languages.
+  Calendar validity is not checked (`2026-13-45T99:99:99Z` passes), so no host date parser decides it.
+- The bytes are strict UTF-8: a byte that does not decode is `file: not-utf8` (Node's default decoder
+  would substitute U+FFFD and pass it). A byte-order mark is not JSON (`file: not-json`), nor are
+  `NaN` and `Infinity`, which Python's parser would otherwise accept.
+- `operation` is a lower-case UUID, what the store's `randomUUID()` writes.
 - A key the table does not name, at the top level or in `agent`, is invalid (`unknown-field`), so a
   left-out field cannot come back in by hand.
-- `incarnation`, `revision`, `operation` and `updatedAt` are the store's: every file the store writes
-  has them, a hand-made or hand-edited file may omit or change them, and adoption assigns them from the
-  ledger (C2). Validity is decided without them (`updatedAt` is still checked when present).
+- `incarnation`, `revision`, `operation` and `updatedAt` are the store's identity fields, and a file is
+  validated as one of TWO POPULATIONS, which every fixture case names:
+  - a **candidate** is what a person wrote, or a file waiting for adoption: those four are untrusted
+    and do not decide its validity (`updatedAt` is still checked when present). Their absence supplies
+    no default for any desired field. Adoption assigns identity from the ledger and writes a fresh
+    receipt (C2);
+  - a **normalized** definition is what the store writes and what a valid snapshot publishes: all four
+    are required and exact (`incarnation: missing`, `revision: not-a-counter`, `operation: format`).
+    The service admits only this population and never allocates a host identity by ignoring one.
+  The fixture carries one desired body with its identity omitted and with it forged, in both
+  populations: a valid candidate each time, a refused normalized file each time. In a snapshot the
+  identity is the entry's own `incarnation` and `revision`; its `definition` is the `agent` object.
 - A problem is `<field>: <code>`, the same string in both languages, from the vocabulary the fixture
   lists; a file's problems are sorted. A problem is always ASCII: an unknown key is named only when it
   matches `[A-Za-z0-9_.-]{1,64}`, otherwise the problem is `file: unknown-field` or
@@ -75,16 +90,24 @@ fixture carries each:
 
 **Numbers.** `incarnation`, `revision`, the ledger's `revision` and `nextIncarnation` are integers in
 `[1, 2^53 - 1]` (JavaScript's safe integers). Both languages refuse a value outside that range, or not
-an integer, as invalid; neither rounds or wraps one.
+an integer, as invalid; neither rounds or wraps one. THE RULE IS CHECKED ON THE TEXT: every number token
+in a file must be a plain integer literal (`-?(0|[1-9][0-9]*)`) inside the safe range, else the file is
+`file: non-integer-number` or `file: unsafe-integer`, whatever field holds it, and validation stops
+there. A parsed value cannot prove what was written: JavaScript's `JSON.parse` reads
+`9007199254740990.5` as a safe integer and `1.0` as `1`, while Python reads `1.0` as a float. `true` is
+never a number (`version: unsupported`, `incarnation: not-a-counter`).
 
 **One schema, two languages.** aify-env (JavaScript) and aify-comms (Python) each validate it. Both
 suites run one shared fixture, `tests/fixtures/agent-definitions/cases.json` in aify-env (valid and
-invalid bodies with the expected problem, `agent\n` and `agent\r\n` among the ids), which aify-comms
+invalid bodies with the expected problems and the population each is judged in, plus cases given as
+exact text or bytes for the number and encoding rules, `agent\n` and `agent\r\n` among the ids; its
+generator computes the golden bytes with Python's own encoder), which aify-comms
 reads as a sibling checkout the way its other cross-repo tests do. A case one side accepts and the
 other refuses fails both suites. The fixture also carries GOLDEN CANONICAL VECTORS for C3: snapshot
 inputs with their exact canonical bytes and sha-256, including non-ASCII field values, an `env` whose
-keys arrive out of order, problems listed out of order, and the largest safe integers; both encoders
-must produce those bytes exactly.
+keys arrive out of order (`__proto__` and `constructor` among them, which a naive object copy loses),
+problems listed out of order, and the largest safe integers; both encoders must produce those bytes
+exactly.
 
 **Fields left out, stated narrowly.** `systemPrompt`, `profile`, `channelIds` and the three policies
 are stored in `spawn_specs`, serialized (`spawn_requests_io.py:88-96`) and copied by cold-start
