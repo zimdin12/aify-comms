@@ -51,12 +51,32 @@ the rule, whose body `agent.id` equals that name exactly. Anything else in the d
 | `appliedRequest` | string or absent | the last service change request this revision applied (C4) |
 | `operation` | string | the id of the store operation that last wrote this file: its commit receipt (C2) |
 
+**Exact edges**, decided here because the two languages would otherwise decide them differently; the
+fixture carries each:
+
+- Every string must be well-formed Unicode: a lone surrogate is invalid (JavaScript and Python count
+  and encode one differently). Lengths in characters are Unicode code points, so a 128-emoji name is
+  valid in both. Byte limits are UTF-8 bytes: `instructions` at most 65,536.
+- "No control characters" means Unicode category Cc: U+0000-U+001F and U+007F-U+009F.
+- `agent.workspace` is absolute by one host-independent rule, since the service validates a file from
+  any host: it starts with `/`, or a drive letter then `:\` or `:/`, or `\\server\share`.
+- `agent.env` values carry no NUL either (`spawn_env.py` refuses one).
+- `appliedRequest`, when present, is 1-128 code points with no control characters.
+- `updatedAt` matches `YYYY-MM-DDTHH:MM:SS(.1-9 digits)?Z`.
+- A key the table does not name, at the top level or in `agent`, is invalid (`unknown-field`), so a
+  left-out field cannot come back in by hand.
+- `incarnation`, `revision` and `operation` are the store's: every file the store writes has them, a
+  hand-made or hand-edited file may omit or change them, and adoption assigns them from the ledger (C2).
+  Validity is decided without them.
+- A problem is `<field>: <code>`, the same string in both languages, from the vocabulary the fixture
+  lists; a file's problems are sorted.
+
 **Numbers.** `incarnation`, `revision`, the ledger's `revision` and `nextIncarnation` are integers in
 `[1, 2^53 - 1]` (JavaScript's safe integers). Both languages refuse a value outside that range, or not
 an integer, as invalid; neither rounds or wraps one.
 
 **One schema, two languages.** aify-env (JavaScript) and aify-comms (Python) each validate it. Both
-suites run one shared fixture, `test/fixtures/agent-definitions/cases.json` in aify-env (valid and
+suites run one shared fixture, `tests/fixtures/agent-definitions/cases.json` in aify-env (valid and
 invalid bodies with the expected problem, `agent\n` and `agent\r\n` among the ids), which aify-comms
 reads as a sibling checkout the way its other cross-repo tests do. A case one side accepts and the
 other refuses fails both suites. The fixture also carries GOLDEN CANONICAL VECTORS for C3: snapshot
@@ -275,6 +295,12 @@ acts on, so a change in availability or validity advances the revision like a ch
 - the fields in it: `id`, `state`, and for a valid entry `incarnation`, `revision`, `definitionDigest`
   (sha-256 of the canonical JSON of `agent`), `available`, `unavailableReason`; for an invalid entry
   `problems`, sorted;
+- exactly: the digested value is the JSON array of those entries. Object keys are sorted at every
+  depth (the `env` inside `agent` too). A valid entry that is available has no `unavailableReason`
+  key; one that is not has `unavailableReason: "harness-not-installed"`. Strings are escaped as
+  JavaScript's `JSON.stringify` and Python's `json.dumps(..., ensure_ascii=False)` both escape them:
+  `"`, `\` and U+0000-U+001F only, with the `\b \f \n \r \t` short forms and `\u00xx` in lower case
+  for the rest; everything else is raw UTF-8. Digests are lower-case hex;
 - `snapshot()` computes that digest; if it differs from the ledger's `snapshotDigest`, it advances the
   collection revision and records the digest, through the four-step operation of C2 (op `observe`,
   whose step 2 is empty). The same state enumerated in another order gives the same digest, so no
