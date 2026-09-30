@@ -286,6 +286,21 @@ keys do not restore its size, which is the old last-resize-wins behaviour. What 
 it, opening or refreshing a dashboard console still takes the size, and what already reached herdr's
 scrollback stays. Live only after an aify-env restart.
 
+## A herdr pane's rows can land one column left on Windows (open; fixed in a later 0.7.x)
+
+Leftover letters inside words ("bot-" for "both") and stray box-drawing at column 0, in herdr panes
+only; the dashboard console of the same agent is clean. The agent's PTY is a ConPTY, which moves the
+cursor down with a bare LF meaning "same column". `aify-env attach` writes that stream to herdr's
+pane, itself a Windows console, and two layers turn the LF into CR+LF: libuv's TTY writer
+(`process.stdout`) and the console's auto-return while `DISABLE_NEWLINE_AUTO_RETURN` is clear. Measured
+through the system ConPTY and herdr's bundled 1.24 on 2026-09-30: a raw fd write with that flag set keeps
+the column; any write through `process.stdout`, or with the flag clear, loses it. Translating LF was
+tried four times and withdrawn (aify-env 1736898): an LF and its replacements differ under some parser
+modes (reverse-wrap, the order of BS and LF), so a translation changes some streams. Setting the flag
+from a PowerShell helper worked, but Windows Defender blocked the pattern (`Trojan:Win32/SuspExec.SE`),
+so it was not shipped. The fix planned for a later 0.7.x sets the flag in-process (koffi, optional, like
+node-pty) and writes raw.
+
 ## Attach and typing lag came from one icacls per credential read (aify-env 4044364)
 
 The daemon ran `icacls` on the stored key's file on every plugin call and every HTTP request, and on

@@ -18,13 +18,27 @@ The TUI and dashboard release, plus the fixes found once it ran on this host:
 - an attached pane is drawn over whatever it showed before (the scrambled claude pane);
 - a managed agent can be kept out of herdr (drawer button, Tab in aify-env's start list).
 
+The herdr pane drift on Windows (rows one column left) is NOT fixed in this release: the translation
+attempts were withdrawn (KNOWN_ISSUES.md). It is fixed in a later 0.7.x.
+
+**Versioning, the operator's rule (2026-09-30):** fixes to what shipped stay on 0.7.x; the next piece
+of work below is 0.8.
+
 Done when: comms-senior-dev approves the pinned range, the tags are moved to the reviewed commits,
 the service is rebuilt, aify-env is restarted, and the two live checks pass: a hidden agent starts
-with no herdr space, and a re-attached claude pane matches aify-env's screen in herdr's own grid.
+with no herdr space, and a re-attached claude pane matches aify-env's screen in herdr's own grid (except the known drift).
 
-## Next: aify-env owns the agents
+## Next 0.7.x: the herdr pane drift
 
-Plan it properly once v0.7.7 is installed. The operator's shape, 2026-09-30:
+`aify-env attach` sets `DISABLE_NEWLINE_AUTO_RETURN` in-process (koffi, an optional dependency like
+node-pty) and writes the stream raw, so a bare LF keeps its column. The measurement, and why neither a
+translation nor a PowerShell helper can ship, are in KNOWN_ISSUES.md.
+
+## 0.8: aify-env owns the agents
+
+Planned and under way on the `next/env-owned-agents` branches:
+`docs/superpowers/plans/2026-09-30-aify-env-owns-the-agents.md` and its P0 contracts. The operator's
+shape, 2026-09-30:
 
 - **aify-wrapper** wraps harnesses: it is the agent side, one per harness (claude, codex, hermes).
 - **aify-env** registers those harnesses and manages the agents: which exist, on which harness, in
