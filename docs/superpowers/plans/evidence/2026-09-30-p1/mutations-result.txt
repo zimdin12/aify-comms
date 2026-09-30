@@ -1,4 +1,4 @@
-# P1 mutation battery after the 3aa5df7 review, 2026-09-30T21:45:47Z, aify-env-next on 3aa5df7 + the uncommitted repair
+# P1 mutation battery after the 26878fb review, 2026-09-30T22:14:49Z, aify-env-next on 26878fb + the uncommitted repair
 killed (exit 1)                  S: control set loses C1
                                   not ok 1 - EVERY SHARED CASE gets exactly its expected problems, from the bytes the store reads
 killed (exit 1)                  S: length in UTF-16 units
@@ -78,7 +78,7 @@ killed (exit 1)                  R: arm 3 reported committed
                                   not ok 6 - A REMOVAL MOVED BACK FROM THE TRASH by hand is a file made by hand: a new incarnation
                                   not ok 13 - ARM 3: exactly the before state and no receipt is UNKNOWN, settled forward, never not-committed
                                   not ok 25 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
-                                  not ok 50 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
+                                  not ok 52 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
 killed (exit 1)                  R: arm 3 inferred not committed
                                   not ok 1 - A TORN SET, at every step: committed from step 2 on, unknown and settled forward before it
                                   not ok 2 - A TORN REMOVE and a TORN CREATE settle the same way, and never reuse an incarnation
@@ -88,7 +88,7 @@ killed (exit 1)                  R: arm 3 inferred not committed
                                   not ok 6 - A REMOVAL MOVED BACK FROM THE TRASH by hand is a file made by hand: a new incarnation
                                   not ok 13 - ARM 3: exactly the before state and no receipt is UNKNOWN, settled forward, never not-committed
                                   not ok 25 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
-                                  not ok 50 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
+                                  not ok 52 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
 killed (exit 1)                  R: trash receipt ignored
                                   not ok 2 - A TORN REMOVE and a TORN CREATE settle the same way, and never reuse an incarnation
                                   not ok 12 - ARM 2: the file or the trash carries the operation, so it committed at step 2
@@ -105,18 +105,18 @@ killed (exit 1)                  R: a conflict settled forward
                                   not ok 14 - ARM 4: anything else is a conflict that writes nothing
 killed (exit 1)                  R: an unreadable file is a removal
                                   not ok 17 - ADOPTION: a changed valid file is R+1, a new one a new incarnation, a missing one a removal
-                                  not ok 44 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
+                                  not ok 45 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
 killed (exit 1)                  R: an invalid edit is adopted
                                   not ok 17 - ADOPTION: a changed valid file is R+1, a new one a new incarnation, a missing one a removal
                                   not ok 22 - R3 A KNOWN FILE REPLACED BY A DIRECTORY OR A JUNCTION is invalid, not removed: repaired, it keeps its identity
-                                  not ok 40 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
-                                  not ok 41 - A SYMLINK OR JUNCTION ENTRY is invalid and never followed
-                                  not ok 49 - EDGES: a link entry is not overwritten, an outcome is asked only by operation id, an unreadable intent is not settled
+                                  not ok 41 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
+                                  not ok 42 - A SYMLINK OR JUNCTION ENTRY is invalid and never followed
+                                  not ok 51 - EDGES: a link entry is not overwritten, an outcome is asked only by operation id, an unreadable intent is not settled
 killed (exit 1)                  R: case collisions ignored
                                   not ok 18 - CASE COLLISIONS: the one the ledger holds keeps it, the others are refused
 killed (exit 1)                  R: prototype lookup
                                   not ok 19 - A LEDGER ENTRY is an own property: Object.prototype's members are not agents
-                                  not ok 37 - IDS THAT NAME OBJECT.PROTOTYPE'S MEMBERS are ordinary ids through the whole lifecycle
+                                  not ok 38 - IDS THAT NAME OBJECT.PROTOTYPE'S MEMBERS are ordinary ids through the whole lifecycle
 killed (exit 1)                  D: forward record says committed
                                   not ok 1 - A TORN SET, at every step: committed from step 2 on, unknown and settled forward before it
                                   not ok 3 - A CRASH INSIDE THE FORWARD SETTLEMENT keeps UNKNOWN; an ordinary receipt still reads COMMITTED
@@ -125,33 +125,34 @@ killed (exit 1)                  D: forward leaves the temp body behind
                                   not ok 1 - A TORN SET, at every step: committed from step 2 on, unknown and settled forward before it
                                   not ok 25 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
 killed (exit 1)                  D: a dead holder's lock is taken over
-                                  not ok 45 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
+                                  not ok 46 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
 killed (exit 1)                  D: a stolen lock is not noticed
                                   not ok 20 - R1 A LOCK LOST BETWEEN RENAME RETRIES stops the apply before it happens; an untouched retry still succeeds
-                                  not ok 50 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
+                                  not ok 52 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
 killed (exit 1)                  D: unlock removes a live holder's lock
-                                  not ok 45 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
+                                  not ok 46 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
 killed (exit 1)                  D: compare-and-set checks existence only
                                   not ok 4 - THE BEFORE BYTES PUT BACK after step 2 settle exactly like a crash before it
                                   not ok 24 - R5 A SET RACED BETWEEN ITS READ AND ITS WRITE is refused, never a stale full-body overwrite
-                                  not ok 38 - COMPARE-AND-SET on (incarnation, revision): a stale pair, a recreated id and a duplicate create are refused
+                                  not ok 39 - COMPARE-AND-SET on (incarnation, revision): a stale pair, a recreated id and a duplicate create are refused
 killed (exit 1)                  D: counter exhaustion unchecked
-                                  not ok 47 - AN EXHAUSTED COUNTER is refused before anything is written
+                                  not ok 48 - AN EXHAUSTED COUNTER is refused before anything is written
 killed (exit 1)                  D: not-committed gives back the incarnation
                                   not ok 10 - A NEW ID SETTLED NOT-COMMITTED BY THE OPERATOR still spends the incarnation it was handed
 killed (exit 1)                  D: an incomplete snapshot records its digest
                                   not ok 8 - A RECEIPT REMOVED BY HAND is a conflict: everything kept, snapshots incomplete, until the operator settles it
-                                  not ok 26 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
-                                  not ok 44 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
+                                  not ok 26 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+                                  not ok 27 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
+                                  not ok 45 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
 killed (exit 1)                  D: a link entry is followed
                                   not ok 22 - R3 A KNOWN FILE REPLACED BY A DIRECTORY OR A JUNCTION is invalid, not removed: repaired, it keeps its identity
-                                  not ok 41 - A SYMLINK OR JUNCTION ENTRY is invalid and never followed
-                                  not ok 49 - EDGES: a link entry is not overwritten, an outcome is asked only by operation id, an unreadable intent is not settled
+                                  not ok 42 - A SYMLINK OR JUNCTION ENTRY is invalid and never followed
+                                  not ok 51 - EDGES: a link entry is not overwritten, an outcome is asked only by operation id, an unreadable intent is not settled
 killed (exit 1)                  D: the settlement is not returned
                                   not ok 7 - HAND EDITS AFTER A CRASH: a receipt keeps the lineage, set at R then the edit at R+1
                                   not ok 9 - AN EXISTING ID'S FILE DELETED BEFORE RECOVERY: a conflict without the ledger receipt, a removal with it
                                   not ok 25 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
-                                  not ok 50 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
+                                  not ok 52 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
 killed (exit 1)                  D: set validates only as a candidate
                                   not ok 1 - A TORN SET, at every step: committed from step 2 on, unknown and settled forward before it
                                   not ok 2 - A TORN REMOVE and a TORN CREATE settle the same way, and never reuse an incarnation
@@ -169,31 +170,31 @@ killed (exit 1)                  D: set validates only as a candidate
                                   not ok 23 - R4 ENV KEYS NAMING OBJECT.PROTOTYPE MEMBERS reach the written file through the command, and unset
                                   not ok 24 - R5 A SET RACED BETWEEN ITS READ AND ITS WRITE is refused, never a stale full-body overwrite
                                   not ok 25 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
-                                  not ok 26 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
-                                  not ok 36 - SET, SET, REMOVE, RECREATE: revisions advance, removal ends the incarnation, trash names stay distinct
-                                  not ok 37 - IDS THAT NAME OBJECT.PROTOTYPE'S MEMBERS are ordinary ids through the whole lifecycle
-                                  not ok 38 - COMPARE-AND-SET on (incarnation, revision): a stale pair, a recreated id and a duplicate create are refused
-                                  not ok 39 - A HARNESS WITH NO LAUNCHER, an invalid definition, a bad id and a case twin are refused and write nothing
-                                  not ok 40 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
-                                  not ok 42 - EVERY FILE THE STORE WRITES is a normalized definition carrying the ledger's identity, adoption included
-                                  not ok 43 - SNAPSHOTS: complete and ordered, and any semantic change -- availability included -- advances the revision
-                                  not ok 44 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
-                                  not ok 45 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
-                                  not ok 46 - TWO WRITERS RACING: the second waits for the first and then sees its revision
-                                  not ok 47 - AN EXHAUSTED COUNTER is refused before anything is written
-                                  not ok 50 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
-                                  not ok 55 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
+                                  not ok 26 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+                                  not ok 27 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
+                                  not ok 37 - SET, SET, REMOVE, RECREATE: revisions advance, removal ends the incarnation, trash names stay distinct
+                                  not ok 38 - IDS THAT NAME OBJECT.PROTOTYPE'S MEMBERS are ordinary ids through the whole lifecycle
+                                  not ok 39 - COMPARE-AND-SET on (incarnation, revision): a stale pair, a recreated id and a duplicate create are refused
+                                  not ok 40 - A HARNESS WITH NO LAUNCHER, an invalid definition, a bad id and a case twin are refused and write nothing
+                                  not ok 41 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
+                                  not ok 43 - EVERY FILE THE STORE WRITES is a normalized definition carrying the ledger's identity, adoption included
+                                  not ok 44 - SNAPSHOTS: complete and ordered, and any semantic change -- availability included -- advances the revision
+                                  not ok 45 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
+                                  not ok 46 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
+                                  not ok 47 - TWO WRITERS RACING: the second waits for the first and then sees its revision
+                                  not ok 48 - AN EXHAUSTED COUNTER is refused before anything is written
+                                  not ok 49 - WHERE THE STORE LIVES: the override, else ~/.aify/agent-definitions (seen from where a default store writes)
+                                  not ok 52 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
+                                  not ok 58 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
 killed (exit 1)                  D: adoption keeps a forged incarnation
-                                  not ok 40 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
-                                  not ok 42 - EVERY FILE THE STORE WRITES is a normalized definition carrying the ledger's identity, adoption included
+                                  not ok 41 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
+                                  not ok 43 - EVERY FILE THE STORE WRITES is a normalized definition carrying the ledger's identity, adoption included
 killed (exit 1)                  D: launcher checked before validity
-                                  not ok 55 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
+                                  not ok 58 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
 killed (exit 1)                  C: set ignores the current definition
                                   not ok 23 - R4 ENV KEYS NAMING OBJECT.PROTOTYPE MEMBERS reach the written file through the command, and unset
                                   not ok 24 - R5 A SET RACED BETWEEN ITS READ AND ITS WRITE is refused, never a stale full-body overwrite
-                                  not ok 55 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
-killed (exit 1)                  W: a caller imports a path source
-                                  not ok 51 - ONE WRITER: the path sources are derived, only the store holds one, and the companions are pure
+                                  not ok 58 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
 killed (exit 1)                  R1: the lock is checked once before the retries
                                   not ok 20 - R1 A LOCK LOST BETWEEN RENAME RETRIES stops the apply before it happens; an untouched retry still succeeds
 killed (exit 1)                  R2: ledger numbers judged from the parsed value
@@ -209,13 +210,23 @@ killed (exit 1)                  R5: set without the observed pair
 killed (exit 1)                  R6: the body archived only by the call that wrote the record
                                   not ok 25 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
 killed (exit 1)                  R7: a listing failure throws
-                                  not ok 26 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
+                                  not ok 26 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+                                  not ok 27 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
 killed (exit 1)                  R7: adoption runs from a failed listing
-                                  not ok 26 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
+                                  not ok 26 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+                                  not ok 27 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
 killed (exit 1)                  R8: the store hands its path back
-                                  not ok 51 - ONE WRITER: the path sources are derived, only the store holds one, and the companions are pure
+                                  not ok 53 - ONE WRITER: the store hands its path to nothing, only the store names it, and the companions are pure
+                                  not ok 55 - THE RELAYS THAT PASSED THE OLD GATE now relay nothing: `export *` and a dynamic import of the store yield no path
 killed (exit 1)                  O: snapshot entries ordered by code point
                                   not ok 4 - THE GOLDEN SNAPSHOT VECTORS: entries and problems reordered, the largest safe counters
                                   not ok 5 - A SNAPSHOT DIGEST ignores the order it was enumerated in, and the definition body it carries
-65/65 killed
+killed (exit 1)                  R8: the store exports its path
+                                  not ok 53 - ONE WRITER: the store hands its path to nothing, only the store names it, and the companions are pure
+                                  not ok 55 - THE RELAYS THAT PASSED THE OLD GATE now relay nothing: `export *` and a dynamic import of the store yield no path
+killed (exit 1)                  R7: adoption's listing failure is dropped
+                                  not ok 26 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+killed (exit 1)                  W: a module names the directory
+                                  not ok 53 - ONE WRITER: the store hands its path to nothing, only the store names it, and the companions are pure
+67/67 killed
 exit=0

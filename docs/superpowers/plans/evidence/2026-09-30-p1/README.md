@@ -39,5 +39,15 @@ history.
 | `mutations-result.txt` | 65 mutations, 65 killed, now with the tests that killed each one. Every R1-R8 mutant dies on its own regression; the ordering mutant on the golden vector |
 | `aify-env-full-suite-verdicts-after-review.txt` | npm test at 26878fb: 2255 tests, 2251 pass, 4 skipped, 0 fail |
 
+## After the review of 26878fb (the R7 and R8 residuals)
+
+The repair is aify-env **70f9ace** (tree `9b982590`). `mutations-result.txt` and the suite file were
+rerun on it: 67/67 killed, and `aify-env-full-suite-verdicts-after-review2.txt` holds 2258 tests,
+2254 pass, 4 skipped, 0 fail. `review2-RED-at-26878fb.txt` runs the new regressions against 26878fb:
+the adoption-listing case reports complete, the gate finds `definitionsDir` exported, and the wildcard
+relay relays it. A second R7 guard (no snapshot complete while an entry reads `not-adopted`) was
+written and then removed: nothing but a conflict produces that reading, and a conflict is already
+incomplete, so no test could fail on it.
+
 The driver now decodes test output as UTF-8 and records the failing test names; the first run of
 this round crashed decoding it as code page 1257, and its `finally` restored every file (checked).

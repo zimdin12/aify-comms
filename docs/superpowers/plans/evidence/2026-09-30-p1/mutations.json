@@ -371,13 +371,6 @@
   "test": "ALL"
  },
  {
-  "name": "W: a caller imports a path source",
-  "file": "bin/aify-env-agents.mjs",
-  "old": "import { DefinitionRefused, DefinitionStore, DefinitionStoreError } from \"../lib/agent-definitions.mjs\";",
-  "new": "import { DefinitionRefused, DefinitionStore, DefinitionStoreError, definitionsDir } from \"../lib/agent-definitions.mjs\";",
-  "test": "ALL"
- },
- {
   "name": "R1: the lock is checked once before the retries",
   "file": "lib/agent-definitions.mjs",
   "old": "    for (;;) {\n      this.#checkLock();\n      try {",
@@ -436,7 +429,7 @@
  {
   "name": "R7: adoption runs from a failed listing",
   "file": "lib/agent-definitions.mjs",
-  "old": "    if (enumerationFailed) return;\n",
+  "old": "    if (enumerationFailed) return { enumerationFailed };\n",
   "new": "",
   "test": "ALL"
  },
@@ -453,5 +446,26 @@
   "old": "  const sorted = [...entries].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));",
   "new": "  const sorted = [...entries].sort((a, b) => { const x = [...a.id].map((c) => c.codePointAt(0)); const y = [...b.id].map((c) => c.codePointAt(0)); for (let i = 0; i < Math.min(x.length, y.length); i += 1) if (x[i] !== y[i]) return x[i] - y[i]; return x.length - y.length; });",
   "test": "SCHEMA"
+ },
+ {
+  "name": "R8: the store exports its path",
+  "file": "lib/agent-definitions.mjs",
+  "old": "function definitionsDir(env = process.env) {",
+  "new": "export function definitionsDir(env = process.env) {",
+  "test": "ALL"
+ },
+ {
+  "name": "R7: adoption's listing failure is dropped",
+  "file": "lib/agent-definitions.mjs",
+  "old": "enumerationFailed: adoption.enumerationFailed || read.enumerationFailed",
+  "new": "enumerationFailed: read.enumerationFailed",
+  "test": "ALL"
+ },
+ {
+  "name": "W: a module names the directory",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "const EOL = String.fromCharCode(10);",
+  "new": "const EOL = String.fromCharCode(10);\nconst SECOND = process.env.AIFY_AGENT_DEFINITIONS_DIR;",
+  "test": "ALL"
  }
 ]

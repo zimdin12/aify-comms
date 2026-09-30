@@ -1,0 +1,35 @@
+# the 26878fb-review regressions run against the REVIEWED commit 26878fb (before this repair), 2026-09-30T22:19:00Z
+not ok 1 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+  error: |-
+    the adoption's listing only
+    true !== false
+# pass 0
+# fail 1
+not ok 1 - ONE WRITER: the store hands its path to nothing, only the store names it, and the companions are pure
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    +   exports: [
+    +     'definitionsDir'
+    +   ],
+    -   exports: [],
+    exports:
+    getters:
+    exports:
+    getters:
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+ok 2 - NEGATIVE CONTROLS: a store that hands its path out is caught by derivation, and a module that names it by source
+not ok 3 - THE RELAYS THAT PASSED THE OLD GATE now relay nothing: `export *` and a dynamic import of the store yield no path
+  error: |-
+    export * from
+    + actual - expected
+    +   exports: [
+    +     'definitionsDir'
+    +   ],
+    -   exports: [],
+    exports:
+    getters:
+    exports:
+    getters:
+# pass 1
+# fail 2

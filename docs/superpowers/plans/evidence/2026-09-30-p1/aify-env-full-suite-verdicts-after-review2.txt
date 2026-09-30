@@ -1,0 +1,2263 @@
+# aify-env npm test with the 26878fb-review repair, 2026-09-30T22:20:05Z: every verdict line and the totals
+ok 1 - the two bytes of é, in two reads, reach the process as é
+ok 2 - a checkpoint of the alternate screen leaves nothing of what the viewer showed before
+ok 3 - CONTROL: the raw alternate-screen serializer output does leave stale cells
+ok 4 - a checkpoint of the main screen leaves nothing of what the viewer showed before
+ok 5 - CONTROL: the raw main-screen serializer output does leave stale cells
+ok 6 - an unchanged file is asked about once
+ok 7 - a moved ctime (an ACL change) or a moved inode (a replacement) asks again
+ok 8 - an answer older than the TTL is asked again even for an unchanged file
+ok 9 - a clock that goes BACKWARDS expires the answer instead of stretching it (review 2026-09-29)
+ok 10 - the default clock is monotonic: a wall clock jumping ahead does not expire a fresh answer
+ok 11 - a failed read is not kept: empty, or a reader that throws, is asked again next time
+ok 12 - concurrent reads of a cold file share one icacls
+ok 13 - two files are two entries
+ok 14 - through the store: one icacls for repeated reads, and a rotated key is presented at once
+ok 15 - through the store: an ACL widened after a good read refuses the very next read
+ok 16 - every credential read in the daemon carries the cached reading options
+ok 17 - a record with unparseable json is preserved, not overwritten
+ok 18 - a record with not an array is preserved, not overwritten
+ok 19 - a record with entries in an unknown shape is preserved, not overwritten
+ok 20 - an ordinary spawn also preserves it, because recordStarted writes too
+ok 21 - recordStopped preserves it as well
+ok 22 - a healthy record is rewritten in place, with nothing kept aside
+ok 23 - an empty array is healthy, not damaged
+ok 24 - a missing file is the ordinary first run
+ok 25 - a partly-readable record is NOT preserved, because nothing is lost
+ok 26 - stop() checks liveness BEFORE either kill
+ok 27 - each blocking call is ANNOUNCED before it is made
+ok 28 - the predicate that gates it can say BOTH answers
+ok 29 - stopping an id the runner never had is a no-op, not a throw
+ok 30 - the shutdown WAITS for the stops, but not for ever
+ok 31 - the input socket is closed before the daemon exits, not whenever it gets round to it
+ok 32 - closing the listener does not touch the socket at all
+ok 33 - a host that never opened a socket still shuts down
+ok 34 - the parts are read when the signal arrives, not when this is built
+ok 35 - a FAILED stream is reopened once the pause has passed
+ok 36 - it is not hammered: no retry inside the pause
+ok 37 - CONTROL: an EXITED or GONE stream is final and is not reopened
+ok 38 - THE COLLISION: two instances do not mint the same handle
+ok 39 - and the handle says which instance it came from
+ok 40 - ids stay monotonic and readable within one instance
+ok 41 - the counter belongs to the registry, not the module
+ok 42 - THE INSTANCE ID IS A FULL UUID, because a short one is only probably unique
+ok 43 - READABILITY IS THE VIEW'S JOB, and the identity stays whole
+ok 44 - the projection never invents a handle it was not given
+ok 45 - a stale handle does not match a live listing
+ok 46 - an empty listing still cannot match a stale handle
+ok 47 - the header of an instance's view says what leaving Herdr does, and to how many workers
+ok 48 - CONTROL: an ordinary daemon's view says nothing of the kind
+ok 49 - the daemon turns it on exactly where it opens a Herdr space per worker
+ok 50 - the view hands the flag to the renderer it draws with
+ok 51 - a key sent over the local socket arrives in the process's stdin
+ok 52 - a process killed from outside is distinguishable from one that exited cleanly
+ok 53 - a clean exit still reports 0, and claims no signal
+ok 54 - a non-zero exit reports its own code
+ok 55 - a subscriber arriving AFTER a signalled death is told, not left on a silent stream
+ok 56 - the terminal branch carries node-pty's signal too
+ok 57 - a terminal that exits cleanly is unchanged
+ok 58 - a late subscriber to a NULL-CODE death is told, which is what the `exited` flag is for
+ok 59 - a process learns a name it did not have at spawn
+ok 60 - relabelling an id the registry never had is a no-op that SAYS so
+ok 61 - the label cap applies to the late writer too
+ok 62 - a non-string label is stored as empty rather than coerced
+ok 63 - POST /processes/:id/label relabels and returns 204
+ok 64 - an empty label is allowed: it is how a caller says 'I no longer know'
+ok 65 - a process this environment does not own is a 404, not a silent success
+ok 66 - a request with no string label is refused
+ok 67 - GET is not a way to relabel
+ok 68 - the label route does not shadow the bare /processes/:id route
+ok 69 - a console joining a long-running PTY is handed a sound screen, and a resize keeps it sound
+ok 70 - the first opening's answer, arriving after a reopen, starts nothing
+ok 71 - CONTROL: the current opening's answer fills the list, and Enter starts from it
+ok 72 - a refusal of the first opening, arriving after a reopen, does not answer the new one
+ok 73 - POSITIVE CONTROL: all three optional packages are installed, so a checkpoint is being tested
+ok 74 - A LATE SUBSCRIBER'S SCREEN MATCHES THE DAEMON'S, cell for cell, while output keeps flowing
+ok 75 - NEGATIVE CONTROL: the comparison detects one live chunk missing, or one delivered twice
+ok 76 - A RESIZE BEFORE THE FIRST BYTE IS PARSED IS APPLIED AFTER THOSE BYTES, not ahead of them
+ok 77 - THE CHECKPOINT IS DISPOSED WHEN THE PROCESS EXITS, and a later subscriber gets the replay
+ok 78 - A PROCESS THAT GOES QUIET INSIDE AN ESCAPE SEQUENCE STILL ANSWERS: the replay, after a bounded wait
+ok 79 - A SCROLL REGION OR A SHIFTED CHARSET IS NOT A CLEAN BOUNDARY: the serializer carries neither
+ok 80 - A SCREEN TOO BIG TO HOLD LETS THE CHECKPOINT GO: one resize must not cost the daemon a gigabyte
+ok 81 - A PROCESS THAT EXITS WHILE A SNAPSHOT IS OUTSTANDING: the subscriber gets the replay and the exit
+ok 82 - WITHOUT A CHECKPOINT, A SUBSCRIBER GETS EXACTLY TODAY'S META AND REPLAY
+ok 83 - A PIPED PROCESS GETS NO CHECKPOINT: it has no screen
+ok 84 - THE WIRE CARRIES checkpoint, and only a literal true is one
+ok 85 - A CHECKPOINT IS A SOUND BASELINE whatever the retained replay was
+ok 86 - PHYSICAL ABSENCE: with any of the three packages missing there is no checkpoint factory
+ok 87 - an entry owned by a different LIVE instance is kept
+ok 88 - an entry owned by a different DEAD instance is not kept -- that is a leftover to clean up
+ok 89 - our OWN entries are not kept, however alive we are
+ok 90 - an entry with no owner is not somebody else's
+ok 91 - an owner probe that throws keeps the entry
+ok 92 - `self` defaults to this process, so a real call needs only the probe
+ok 93 - clearOwned with no keep still empties the record
+ok 94 - clearOwned writes back exactly what it was told to keep
+ok 95 - a keep that is not an array empties rather than corrupting the file
+ok 96 - the round trip preserves the kept entry's fields, not just its id
+ok 97 - an entry whose owner is still running is skipped, and the reason names the owner
+ok 98 - an entry whose owner has DIED is reaped -- that is the whole point of the record
+ok 99 - an entry with NO owner keeps the old behaviour
+ok 100 - a nonsense owner is treated as no owner, not as a live one
+ok 101 - an owner probe that THROWS leaves the process alone
+ok 102 - the owner check runs AFTER the already-gone check, so a dead process is not reported as somebody's
+ok 103 - the owner check runs BEFORE verify, so a live owner's process is never even identity-probed
+ok 104 - ownerIsAlive defaults to isAlive -- it is the same question about a different pid
+ok 105 - entries are judged one at a time -- a live owner's does not protect a dead owner's
+ok 106 - POSITIVE CONTROL: the emulator is installed, so the screen below is real
+ok 107 - A LIVE RESIZE DOES NOT FREEZE A PANE THAT WAS SOUND
+ok 108 - A LATER meta THAT SAYS TRUNCATED DOES NOT FREEZE IT EITHER
+ok 109 - NEGATIVE CONTROL: the FIRST meta's verdict still refuses
+ok 110 - POSITIVE CONTROL: the headless emulator is installed, so a real checkpoint is under test
+ok 111 - the checkpoint hands over its rows as text, with the title and progress the process set
+ok 112 - no checkpoint means no screen, and an unknown process has none either
+ok 113 - a scripted claude screen goes idle, working, blocked, idle -- and each is reported once, in order
+ok 114 - a working screen that goes plainly idle is HELD before idle is reported (Herdr's pending-idle)
+ok 115 - a VISIBLE idle signal is not held: the prompt box is reported at once
+ok 116 - a runtime with no manifest reports nothing, and its liveness frame carries no activity
+ok 117 - the observation goes with the terminal: after exit nothing is evaluated or reported
+ok 118 - a multi-line error body becomes ONE row in the frame
+ok 119 - a notice cannot carry a terminal command onto the screen
+ok 120 - CONTROL: a single-line notice is unchanged
+ok 121 - THE TABLE GUARDS EVERY CELL, so the next unsanitised producer cannot do this again
+ok 122 - start a real daemon on an ephemeral port
+ok 123 - a program can still reach it — the control that makes the refusals mean something
+ok 124 - the simple-request attack is refused
+ok 125 - the refusal happens BEFORE the launcher is even looked at
+ok 126 - a browser DELETE cannot stop a running process
+ok 127 - reading /health from a browser TAB still works
+ok 128 - stop the daemon
+ok 129 - POSITIVE CONTROL: ordinary output is not painting
+ok 130 - a CR spinner is NOT painting — this buffer models that correctly
+ok 131 - COLOUR is not painting either
+ok 132 - positioning and erasing ARE painting
+ok 133 - a real claude frame is recognised
+ok 134 - A LOG STILL RENDERS AS LINES
+ok 135 - A PAINTED SCREEN SHOWS A NOTICE, not fragments
+ok 136 - IT IS THE CONTENT, NOT A LATCH AND NOT A CLOCK
+ok 137 - the notice fits the pane it is given
+ok 138 - height 0 still yields nothing
+ok 139 - A SPLIT ESCAPE IS STILL AN ESCAPE
+ok 140 - NEGATIVE CONTROL: an ordinary log is not a painted screen
+ok 141 - THE NOTICE DOES NOT EXPIRE INTO THE ESCAPE IT WAS HIDING
+ok 142 - R8: THE NOTICE NAMES THE COMMAND THAT WORKS, and promises nothing Enter does not do
+ok 143 - A PAINTING PROCESS WITH NO EMULATOR REFUSES INPUT, not just the picture
+ok 144 - AND WITH AN EMULATOR IT DOES NOT REFUSE, so the gate is not simply always closed
+ok 145 - A CONCEALING LOG REFUSES INPUT TOO, and that branch was silent as well
+ok 146 - AN UNTRUSTWORTHY SCREEN STILL REFUSES, which is the branch the gate already knew
+ok 147 - POSITIVE CONTROL: an ordinary log refuses nothing
+ok 148 - on the list, a paste split anywhere moves nothing, attaches nothing and quits nothing
+ok 149 - CONTROL: the same keys typed, not pasted, do act
+ok 150 - in the menu and the start list, a paste split anywhere chooses nothing
+ok 151 - a stop confirmation is not answered by a pasted y
+ok 152 - attached, a paste split anywhere reaches the agent whole, markers and all, when it asked for them
+ok 153 - attached to an agent that never asked for bracketed paste, it gets the text without the markers
+ok 154 - CONTROL: typing around a paste still types, and the detach key alone still detaches
+ok 155 - in find, a paste is text for the filter, never Enter or Ctrl+]
+ok 156 - the view turns bracketed paste on while it owns the terminal, and off with the screen
+ok 157 - a paste whose end never arrives is closed once the terminal goes quiet, as one unit
+ok 158 - an end marker arriving after its paste was closed is dropped, not typed at the agent
+ok 159 - the agent's own bracketed-paste mode is read off its emulated screen
+ok 160 - a held tail that turns out not to be a marker is typed, in order, however it ends
+ok 161 - attached, a lone ESC reaches the agent once the terminal has gone quiet
+ok 162 - a paste that pauses is given up in part AS PASTE, and the rest is paste too
+ok 163 - attached, a paused paste never sends its later lines as keys
+ok 164 - an end marker that never comes is given up after PASTE_LOST_MS, and the keyboard types again
+ok 165 - the detach key alone ends a paste given up in part; inside more text it is paste
+ok 166 - the view times the lost end too: after PASTE_LOST_MS a typed Enter is a key again
+ok 167 - a pane showing a refusal notice says input is paused, and why
+ok 168 - a pane whose stream is not live says input is paused
+ok 169 - CONTROL: a clean streaming pane still says typing here, and keys go through
+ok 170 - the hint line agrees with the title
+ok 171 - a --port 0 start leaves a running instance's processes AND its record alone
+ok 172 - the ephemeral instance says it left the process alone, and names the owner
+ok 173 - the coreutils directory comes FIRST, because that is the one that was missing
+ok 174 - a bash living UNDER usr/bin is handled, because that layout is real too
+ok 175 - ONLY DIRECTORIES THAT EXIST are offered
+ok 176 - an interpreter in no recognisable layout contributes NOTHING
+ok 177 - on Linux this is INERT
+ok 178 - THE DIRECTORIES ARE PREPENDED, not appended
+ok 179 - a `Path` key is REPLACED by `PATH`, never left beside it
+ok 180 - directories ALREADY on PATH are not duplicated
+ok 181 - a trailing separator does not defeat the duplicate check
+ok 182 - an env with NO path at all still gets one
+ok 183 - nothing to add means the env is returned UNTOUCHED
+ok 184 - a process that PRINTS is recorded as having spoken, and reads as working
+ok 185 - THE STAMP REACHES list(), which is what /health serves the view from
+ok 186 - an unknown id is a no-op, because output can outlive its entry by a tick
+ok 187 - a non-numeric moment is refused rather than stored
+ok 188 - THE CAPTURE HAS NO ESCAPE BYTE — the negative control for everything below
+ok 189 - the frames are read as OUTPUT, not as something unreadable
+ok 190 - A REAL FRAME DECODES TO A TERMINAL SCREEN
+ok 191 - CURSOR-FORWARD IS PRESENT, because claude does not print spaces
+ok 192 - applyFrame appends output and does not end the stream
+ok 193 - a frame split across reads is not lost
+ok 194 - A REAL PAINTED CAPTURE RENDERS THROUGH THE EMULATOR
+ok 195 - THE EMULATOR AND THE LINE BUFFER DISAGREE ON A PAINTED STREAM
+ok 196 - AND THEY AGREE ON A STREAM THAT DOES NOT PAINT
+ok 197 - THE REGISTRY SEAL IS A PATH, never empty
+ok 198 - the sealed path does not exist, so a daemon reading it finds no services
+ok 199 - A TEST MAY STILL POINT SOMEWHERE DELIBERATELY
+ok 200 - THE DAEMON READS IT WITH `||`, which is what makes empty dangerous
+ok 201 - advertising off does not imply claiming off
+ok 202 - the daemon resolves the registry in exactly ONE place
+ok 203 - a second start takes over, and the first stops serving
+ok 204 - the predecessor's processes are reaped by the replacement, not stranded
+ok 205 - something that is not an aify-env is left alone, and named
+ok 206 - a stranger that serves a HEALTHY body with a pid is still left alone
+ok 207 - a working agent is not reported as shell from one frame
+ok 208 - a working agent is not reported as idle (the control) from one frame
+ok 209 - a turn that carries on is never reported as finished at all
+ok 210 - a start chosen after the menu was closed by an empty poll performs nothing on alpha
+ok 211 - CONTROL: with no flap, the same start performs nothing either
+ok 212 - CONTROL: a stop confirmed in an open menu still names its process
+ok 213 - THE DEFECT: a child given the daemon's pane identity does not keep it
+ok 214 - AND ONE THAT INHERITS THE DAEMON'S ENVIRONMENT does not keep it either
+ok 215 - THE PTY BRANCH gets the same environment
+ok 216 - NEGATIVE CONTROL: with nothing to remove, the environment is handed over untouched
+ok 217 - NO HERDR, NO OPENER: an ordinary daemon grows nothing
+ok 218 - A HERDR THAT IS NOT THIS INVOCATION'S IS NEVER DRIVEN
+ok 219 - THE DEFECT: a started worker gets a space, attached to the worker that is already running
+ok 220 - ON A POSIX HOST THE PANE GETS A POSIX COMMAND, not the Windows one it cannot run
+ok 221 - a worker with no terminal gets no pane, because there is nothing to attach to
+ok 222 - A PANE THAT WILL NOT OPEN NEVER FAILS THE START
+ok 223 - THE CALL SITE: PluginProcesses runs the opener after the start, and survives a throwing one
+ok 224 - space: false STARTS THE SAME PROCESS WITH NO SPACE, and the Runner never sees the field
+ok 225 - THE SECOND DEFECT: the worker's PANE closes when the worker goes, and nothing else does
+ok 226 - A PANE THAT WILL NOT CLOSE IS TRIED ONCE MORE, then reported -- never thrown
+ok 227 - A PANE THAT IS ALREADY GONE IS NOT A FAILURE
+ok 228 - A PANE MADE BEFORE A LATER STEP FAILED IS CLOSED, not left empty
+ok 229 - A WORKER ALREADY RELEASED BY THE TIME IT IS WATCHED STILL LOSES ITS PANE
+ok 230 - NOTHING IS WATCHED WHEN NO SPACE WAS OPENED
+ok 231 - A WORKER'S OWN PANE SHOWS ITS STATUS, and its launcher is told which pane that is
+ok 232 - A STATUS REPORT HERDR REFUSES LEAVES THE PANE OPEN, with no pane file
+ok 233 - THE DAEMON BUILDS ONE, read rather than run, because importing it STARTS a daemon
+ok 234 - CONTROL: the fixture offers both agents, so the menu below has rows to paint
+ok 235 - the start menu shows each agent's status dot in the dashboard's colour for it
+ok 236 - an agent printing output gets no status colour: printing is not working
+ok 237 - no status hue is spent on selection, ids or the title
+ok 238 - every hue in the table is one the terminal can paint
+ok 239 - a process still alive after the kill is not stopped, and the answer names its pid
+ok 240 - a process that dies within the settle time is stopped
+ok 241 - an id this environment does not hold is stopped already, as the route has always said
+ok 242 - a pid that cannot be checked is not claimed stopped
+ok 243 - the daemon's view reports a survivor as a failed stop
+ok 244 - CONTROL: the daemon's view still reports a stop that took
+ok 245 - DELETE /processes/:id answers 500 with the reason when the process survived
+ok 246 - aify-env tui reports the daemon's reason for a stop that did not take
+ok 247 - a key from the STORE reaches a real beat, with none in the daemon's environment
+ok 248 - NEGATIVE CONTROL: with the stored file gone, no key reaches the wire
+ok 249 - through the DISPATCHER it stores the key and prints the reference
+ok 250 - CONTROL: the direct entry point behaves identically
+ok 251 - the two paths agree on the reference they produce
+ok 252 - an idle environment is not in the way
+ok 253 - running processes are what a takeover would cost
+ok 254 - --force is the operator saying they meant it
+ok 255 - a list that is not a list does not manufacture work
+ok 256 - a second start REFUSES while the first is running agents, and touches nothing
+ok 257 - THE VIEW OPENS ONLY IN A TERMINAL, and only when the dashboard is wanted
+ok 258 - nothing but a real terminal counts as one
+ok 259 - only the exact opt-out opts out
+ok 260 - A PIPE KEEPS THE REFUSAL EXACTLY AS IT WAS — explanation, pointer, exit 69
+ok 261 - AIFY_NO_DASHBOARD=1 keeps the old shape even in a terminal
+ok 262 - --force takes over anyway, which is what makes refusing safe
+ok 263 - an idle environment is still superseded without ceremony
+ok 264 - the scan finds the files that start a daemon
+ok 265 - the seal turns advertising OFF and names no real registry
+ok 266 - a test can still opt back in deliberately
+ok 267 - it carries the rest of the environment through
+ok 268 - the wire says what its bytes are, and an older caller still means text
+ok 269 - a typed e-acute reaches a real process as c3a9
+ok 270 - the dashboard's text still travels as text
+ok 271 - an encoding this daemon does not implement is refused, not written
+ok 272 - the real client SAYS its bytes are bytes
+ok 273 - a process that emitted just now is working
+ok 274 - a process silent past the window is quiet
+ok 275 - the boundary itself counts as working
+ok 276 - NO EVIDENCE IS NOT QUIET: a process that has never emitted is unknown
+ok 277 - a daemon too old to report the field is unknown, not quiet
+ok 278 - a stamp from the FUTURE is unknown rather than working
+ok 279 - an unreadable clock is unknown, and never a guess
+ok 280 - the window is a real duration, not a placeholder
+ok 281 - the three states are distinct values
+ok 282 - THIS TIER HAS NO OPINION ABOUT BLOCKED
+ok 283 - kind is read from the host, in the order the bridge reads it
+ok 284 - kind and os are DIFFERENT questions, and wsl is where that shows
+ok 285 - availability carries the reason, and an unfound runtime is not dropped
+ok 286 - it FAILS CLOSED, inheriting the detector's own rule
+ok 287 - client names travel as-is, because the vocabulary already has one owner
+ok 288 - the advertisement sends NO id — the service joins the facts itself
+ok 289 - the hostname keeps its casing, because the live rows were written that way
+ok 290 - no runtime CAPABILITY flag is advertised
+ok 291 - terminalRuntimes is the available subset, not a second list to keep in step
+ok 292 - the fingerprint is stable under reordering
+ok 293 - the fingerprint moves when a runtime appears or its reason changes
+ok 294 - the fingerprint IGNORES the instance, or it would report a change every beat
+ok 295 - re-detection is due at the interval, and always on the first pass
+ok 296 - targets are built from the registry, one per service
+ok 297 - one unreachable service does not stop the others being told
+ok 298 - a non-2xx is reported as a failure rather than swallowed
+ok 299 - a harness counts when its launcher carries the contract marker
+ok 300 - the NAME is not the evidence — an unmarked file is not a wrapper
+ok 301 - it FAILS CLOSED on a file it could not read
+ok 302 - a marker-carrying file that is not a launcher is ignored
+ok 303 - the shims beside a launcher do not become second harnesses
+ok 304 - the rows feed runtimeAvailability unchanged
+ok 305 - NO label travels, because it is the operator's name and not a host fact
+ok 306 - an unset cwdRoots is OMITTED, not sent as an empty list
+ok 307 - roots ARE sent when this host was given some
+ok 308 - machineIdFor reproduces the bridge's format
+ok 309 - a WSL host gets `wsl`, not `linux`, or it collides with the Windows host beside it
+ok 310 - the environment names the host before os.hostname() does
+ok 311 - a host it cannot name is `unknown-host`, never an empty half
+ok 312 - advertising means armed AND with somewhere to post
+ok 313 - a target list that is not a list is not a target
+ok 314 - advertising is ON unless a host says otherwise
+ok 315 - and an explicit off hands the job back to the bridge
+ok 316 - a 200 makes this service advertised
+ok 317 - a 401 or 500 does NOT -- the bridge must keep describing the host
+ok 318 - an accepted beat EXPIRES, so a daemon that stops being heard resumes the bridge
+ok 319 - success to ANOTHER service does not stand this one down
+ok 320 - a future acceptance stamp does not count as fresh
+ok 321 - disabled means not advertising, whatever was accepted
+ok 322 - targets keep their registry name so a result can be attributed
+ok 323 - the staleness window is derived from the beat interval, not a second constant
+ok 324 - the key is resolved from the environment by the names the registry declares
+ok 325 - no declared names, or names nothing set, means no credential -- not an empty one
+ok 326 - advertiseTo hands each target's own credential to the poster
+ok 327 - a target with no key still gets its advertisement
+ok 328 - the registry gives targets their key NAMES, and never a key value
+ok 329 - one accepted and one refused on the SAME endpoint: only the accepted NAME is fresh
+ok 330 - an acceptance does not survive the service being renamed or moved
+ok 331 - no two distinct identities can collapse onto one acceptance key
+ok 332 - credentialReadiness reports WHETHER a key is held, never the key
+ok 333 - a variable that is set but EMPTY is not a credential
+ok 334 - a target whose registry entry declares NO key variable can never be given one
+ok 335 - attemptsByService keeps the last outcome per service, and NO response body
+ok 336 - a target never beaten to is NULL, not a zeroed attempt
+ok 337 - attempts are keyed by SERVICE identity, so two services on one endpoint do not share one
+ok 338 - THE BEAT USES THE INJECTED RESOLVER, which is what makes the store deliver
+ok 339 - and WITHOUT one it still reads the environment, so existing callers are untouched
+ok 340 - a 401 REVOKES a standing acceptance immediately, a 500 does not
+ok 341 - A TORN SET, at every step: committed from step 2 on, unknown and settled forward before it
+ok 342 - A TORN REMOVE and a TORN CREATE settle the same way, and never reuse an incarnation
+ok 343 - A CRASH INSIDE THE FORWARD SETTLEMENT keeps UNKNOWN; an ordinary receipt still reads COMMITTED
+ok 344 - THE BEFORE BYTES PUT BACK after step 2 settle exactly like a crash before it
+ok 345 - A NEW ID CREATED THEN DELETED BY HAND settles like one never created: absent, its incarnation spent
+ok 346 - A REMOVAL MOVED BACK FROM THE TRASH by hand is a file made by hand: a new incarnation
+ok 347 - HAND EDITS AFTER A CRASH: a receipt keeps the lineage, set at R then the edit at R+1
+ok 348 - A RECEIPT REMOVED BY HAND is a conflict: everything kept, snapshots incomplete, until the operator settles it
+ok 349 - AN EXISTING ID'S FILE DELETED BEFORE RECOVERY: a conflict without the ledger receipt, a removal with it
+ok 350 - A NEW ID SETTLED NOT-COMMITTED BY THE OPERATOR still spends the incarnation it was handed
+ok 351 - ARM 1: the ledger carries the operation, so it committed through step 3
+ok 352 - ARM 2: the file or the trash carries the operation, so it committed at step 2
+ok 353 - ARM 3: exactly the before state and no receipt is UNKNOWN, settled forward, never not-committed
+ok 354 - ARM 4: anything else is a conflict that writes nothing
+ok 355 - A RECORD IS READ FIRST: the settlement's own ledger receipt never turns unknown into committed
+ok 356 - AN OBSERVE has no step 2: arm 1, or arm 2's outcome
+ok 357 - ADOPTION: a changed valid file is R+1, a new one a new incarnation, a missing one a removal
+ok 358 - CASE COLLISIONS: the one the ledger holds keeps it, the others are refused
+ok 359 - A LEDGER ENTRY is an own property: Object.prototype's members are not agents
+ok 360 - R1 A LOCK LOST BETWEEN RENAME RETRIES stops the apply before it happens; an untouched retry still succeeds
+ok 361 - R2 THE LEDGER'S COUNTERS obey the raw-number law: a fraction, an exponent, past the safe range
+ok 362 - R3 A KNOWN FILE REPLACED BY A DIRECTORY OR A JUNCTION is invalid, not removed: repaired, it keeps its identity
+ok 363 - R4 ENV KEYS NAMING OBJECT.PROTOTYPE MEMBERS reach the written file through the command, and unset
+ok 364 - R5 A SET RACED BETWEEN ITS READ AND ITS WRITE is refused, never a stale full-body overwrite
+ok 365 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
+ok 366 - R7 (26878fb) A LISTING THAT FAILS FOR ADOPTION OR FOR THE READ leaves the snapshot incomplete and records nothing
+ok 367 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
+ok 368 - EVERY SHARED CASE gets exactly its expected problems, from the bytes the store reads
+ok 369 - ONE DESIRED BODY, TWO POPULATIONS: identity is ignored for adoption and required once normalized
+ok 370 - THE GOLDEN AGENT VECTORS: the exact canonical bytes and sha-256 Python computed
+ok 371 - THE GOLDEN SNAPSHOT VECTORS: entries and problems reordered, the largest safe counters
+ok 372 - A SNAPSHOT DIGEST ignores the order it was enumerated in, and the definition body it carries
+ok 373 - COUNTERS are safe integers from 1, never rounded
+ok 374 - THE STORE'S FORMATTING is stable: formatting a formatted file changes nothing
+ok 375 - THE PIECES OTHER MODULES USE: the id rule alone, number tokens, digests, operation ids, the version
+ok 376 - A SNAPSHOT ENTRY: valid and available, valid without its launcher, invalid
+ok 377 - SET, SET, REMOVE, RECREATE: revisions advance, removal ends the incarnation, trash names stay distinct
+ok 378 - IDS THAT NAME OBJECT.PROTOTYPE'S MEMBERS are ordinary ids through the whole lifecycle
+ok 379 - COMPARE-AND-SET on (incarnation, revision): a stale pair, a recreated id and a duplicate create are refused
+ok 380 - A HARNESS WITH NO LAUNCHER, an invalid definition, a bad id and a case twin are refused and write nothing
+ok 381 - HAND EDITS are a second writer: a valid edit is R+1, an invalid one is left as written, a new file is a new id
+ok 382 - A SYMLINK OR JUNCTION ENTRY is invalid and never followed
+ok 383 - EVERY FILE THE STORE WRITES is a normalized definition carrying the ledger's identity, adoption included
+ok 384 - SNAPSHOTS: complete and ordered, and any semantic change -- availability included -- advances the revision
+ok 385 - AN UNREADABLE ENTRY makes the snapshot incomplete, and is never read as a removal
+ok 386 - THE LOCK is never taken over: a live holder waits then fails, a dead one is reported with the remedy
+ok 387 - TWO WRITERS RACING: the second waits for the first and then sees its revision
+ok 388 - AN EXHAUSTED COUNTER is refused before anything is written
+ok 389 - WHERE THE STORE LIVES: the override, else ~/.aify/agent-definitions (seen from where a default store writes)
+ok 390 - WHO COUNTS AS RUNNING
+ok 391 - EDGES: a link entry is not overwritten, an outcome is asked only by operation id, an unreadable intent is not settled
+ok 392 - A LOCK TAKEN FROM A RUNNING OPERATION stops it at the next step, and the next open settles it
+ok 393 - ONE WRITER: the store hands its path to nothing, only the store names it, and the companions are pure
+ok 394 - NEGATIVE CONTROLS: a store that hands its path out is caught by derivation, and a module that names it by source
+ok 395 - THE RELAYS THAT PASSED THE OLD GATE now relay nothing: `export *` and a dynamic import of the store yield no path
+ok 396 - POSITIVE CONTROL: the list route answers with what the capability returned
+ok 397 - A HOST WITH NO SUCH PLUGIN ANSWERS 503, not an empty list
+ok 398 - THE LIST BODY ALWAYS CARRIES BOTH FIELDS, so a view has one shape to render
+ok 399 - POSITIVE CONTROL: the start route passes the id through and reports a start
+ok 400 - A REFUSED START IS 409 AND SAYS WHY, so neither signal alone misleads
+ok 401 - STARTING NEEDS A NAME: `/agents//start` is not a route
+ok 402 - `/agents/startable` IS NOT READ AS AN AGENT CALLED `startable`
+ok 403 - THE VERBS ARE PINNED: a GET cannot start and a POST cannot list
+ok 404 - A CAPABILITY IS ONLY OFFERED BY A STARTED PLUGIN
+ok 405 - POSITIVE CONTROL: a started plugin's capability is found by name
+ok 406 - A CAPABILITY CANNOT BE THE PLUGIN'S OWN LIFECYCLE METHOD
+ok 407 - THE ROUTE PASSES THE CAPABILITY'S OWN NAME THROUGH, and invents none
+ok 408 - THE REFUSAL SUMMARY SURVIVES THE WIRE, in both shapes
+ok 409 - POSITIVE CONTROL: a startable agent is started, and the control names its session
+ok 410 - THE ROSTER IS READ AGAIN AT THE MOMENT OF ACTING, not taken from the caller's snapshot
+ok 411 - AN AGENT THAT CAME UP IN BETWEEN IS REFUSED, by the roster and by the session list separately
+ok 412 - NO CONTROL IS SENT FOR AN AGENT THIS HOST MAY NOT START
+ok 413 - THE CONTROL CARRIES NO BRIEF, because a brief becomes a message the new worker answers
+ok 414 - A REFUSAL ANSWERED WITH 200 IS STILL A REFUSAL
+ok 415 - IT NEVER THROWS, from any of the three calls, because a keyboard handler is upstream
+ok 416 - POSITIVE CONTROL: the list names the startable agents on this host
+ok 417 - AN UNREACHABLE SERVICE SAYS SO, rather than looking like a host with nothing to start
+ok 418 - AN UNKNOWN MACHINE IDENTITY IS REPORTED, and starts nothing
+ok 419 - A STARTER WITH NO API REFUSES TO EXIST, rather than failing on first use
+ok 420 - a bridge identity is minted once and is not derived from the machine
+ok 421 - the heartbeat carries the bridgeId, which is the whole reason it exists
+ok 422 - the credential is read on EVERY call, not captured at construction
+ok 423 - no key means no header, rather than an empty one
+ok 424 - a claim asks for one request and says how long it may wait
+ok 425 - the claim wait is shorter than the claim timeout
+ok 426 - a report names the request and the claimer that is reporting
+ok 427 - UNREACHABLE and REFUSED are distinguishable
+ok 428 - a 204 is a success with no body, not a parse failure
+ok 429 - the endpoint is refused when missing, rather than building a relative URL
+ok 430 - a trailing slash on the endpoint does not produce a double slash
+ok 431 - an advertisement's own metadata survives the bridge fields
+ok 432 - the roster and the session listing are plain reads, with no body
+ok 433 - A SESSION CONTROL CARRIES NO BRIEF, AND THAT IS THE MOST EXPENSIVE LINE IN THIS FILE
+ok 434 - THE PRECONDITION TRAVELS when the caller states one
+ok 435 - AND ANYTHING BUT A LITERAL TRUE IS UNCONDITIONAL, because a truthy value is not a claim
+ok 436 - the control's action travels, so a future verb cannot silently become a restart
+ok 437 - a refused control raises a CommsApiError carrying the status, like every other call here
+ok 438 - a workspace inside an advertised root is allowed
+ok 439 - a workspace outside every root is refused
+ok 440 - a prefix that is not a path segment does not count
+ok 441 - backslashes are normalised, so a Windows path matches a forward-slash root
+ok 442 - case folding is Windows-only
+ok 443 - an empty workspace is refused, not treated as the root
+ok 444 - nothing to claim is idle, not an error
+ok 445 - a service that is down is reported, never thrown
+ok 446 - a claimed request outside the roots is REPORTED failed, not silently dropped
+ok 447 - A CLAIM REGISTERS A WARM AGENT AND STARTS NOTHING
+ok 448 - the report carries THIS DAEMON'S pid, not a worker's
+ok 449 - the report names the environment and request, and invents nothing else
+ok 450 - a service that refuses the running report leaves the outcome FAILED, not silently registered
+ok 451 - every path that claims a request also reports it
+ok 452 - a refused STARTING report ends the pass, not the loop
+ok 453 - a refused STARTING report does NOT go on to register the agent
+ok 454 - a refused FAILED report still returns the refusal
+ok 455 - NO report failure can throw out of a pass, over every status the pass sends
+ok 456 - a root of / admits every absolute workspace
+ok 457 - THE CLAIM NAMES THE MACHINE, because the service writes it onto the agent row
+ok 458 - CONTROL — a pass told no machine sends none rather than inventing one
+ok 459 - the heartbeat interval sits well inside the service's freshness window
+ok 460 - starting registers this host as a CLAIMER, which is the whole point
+ok 461 - a service that is DOWN does not stop the plugin starting
+ok 462 - a REFUSED heartbeat is named with its status, not collapsed into unreachable
+ok 463 - a claimed request REGISTERS a warm agent and starts NOTHING
+ok 464 - stopping tells the service it is no longer a claimer
+ok 465 - a service unreachable on the way down does not break teardown
+ok 466 - the plugin satisfies the host's own plugin contract
+ok 467 - the claim loop never spins, however fast the service answers
+ok 468 - A THROWING PASS COSTS ONE INTERVAL, NEVER THE LOOP
+ok 469 - a pass that threw is REPORTED, not swallowed
+ok 470 - A REFUSED CLAIMER BACKS OFF INSTEAD OF ASKING FOUR TIMES A SECOND
+ok 471 - a refused claimer RESUMES on its own when the service accepts it again
+ok 472 - standing down does NOT stop the workers this host is running
+ok 473 - an unreachable service backs off further than an idle one
+ok 474 - state is reported so silence can be explained
+ok 475 - a beat the service DISCARDED is reported, not counted as success
+ok 476 - an ACCEPTED beat says nothing, because a line every 30s trains an operator to skim
+ok 477 - a service too old to answer is UNKNOWN, never a refusal
+ok 478 - a control loop pass that THREW is reported, and the loop keeps going
+ok 479 - A FAILED REPORT DOES NOT END TERMINAL CONTROL
+ok 480 - the plugin OFFERS an agents capability, and it is not a lifecycle method
+ok 481 - BEFORE START THE CAPABILITY SAYS THE PLUGIN IS NOT RUNNING, rather than throwing
+ok 482 - AFTER START IT REACHES THE REAL SERVICE CALLS, not a stub that answers politely
+ok 483 - THE CAPABILITY IS SCOPED TO THIS HOST'S MACHINE, which is the only scope it can honour
+ok 484 - THE PLUGIN NAMES ITSELF ON THE CAPABILITY, because the host tier cannot
+ok 485 - THE PLUGIN'S OWN MACHINE ID REACHES THE CLAIM, not just the pass that accepts one
+ok 486 - THE ARGUMENTS: each verb's shape, and anything else refused with a reason
+ok 487 - A NEW DEFINITION gets the stated defaults; an existing one keeps what the changes do not touch
+ok 488 - THE COMMAND end to end: set, list, show, remove, and a refusal that exits 65 with the problems
+ok 489 - HERDR_BIN_PATH is authoritative -- it names the binary that opened this pane
+ok 490 - the standalone package under HERDR_HOME, or ~/.herdr, is found without PATH
+ok 491 - a release directory is used when the `current` link is missing
+ok 492 - of two releases, the NEWER one is tried first, by version and not by spelling
+ok 493 - HERDR_INSTALL_DIR replaces the default bin directory
+ok 494 - CONTROL: the default Windows bin and PATH still work, and nothing found is null
+ok 495 - a refusal can say where it looked
+ok 496 - a file carrying the contract marker may run, and its version is read
+ok 497 - a file without the marker is refused, and the refusal says why
+ok 498 - an empty file is refused
+ok 499 - a COMMENTED-OUT marker does not enrol a file
+ok 500 - an EMPTY marker value does not enrol a file
+ok 501 - binary content is refused rather than throwing
+ok 502 - null and undefined are refused, not crashed on
+ok 503 - the marker may sit anywhere in the file, including after a long preamble
+ok 504 - markerOf returns null rather than an empty string when there is no marker
+ok 505 - DECIDING IS PURE: nothing is executed, spawned, or read from disk
+ok 506 - an UNSUBSTITUTED placeholder is not a version, so the file is refused
+ok 507 - POSITIVE CONTROL: a REAL rendered launcher is accepted
+ok 508 - the launcher fixture carries nothing from the machine that rendered it
+ok 509 - a file with the marker but NO shebang is refused
+ok 510 - REGRESSION: this repo's own README is refused
+ok 511 - a real launcher, which has both, is still accepted
+ok 512 - the shebang must be the FIRST line, not merely present somewhere
+ok 513 - an AbortError from the request, with no stop, leaves the follower FAILED
+ok 514 - an AbortError in the middle of the stream, with no stop, leaves the follower FAILED
+ok 515 - the pane reconnects after an abort nobody asked for
+ok 516 - Tab switches the highlighted agent, the list says so, and the outcome line reports it
+ok 517 - a refused setting is reported with its reason, and the row is left as it was
+ok 518 - Tab in an empty start list does nothing, and never types into the search
+ok 519 - the startable row carries the service's setting; only an explicit false hides the space
+ok 520 - the plugin stores it through the service, and a service error is an answer, not a throw
+ok 521 - the daemon route checks its body, and its status agrees with the answer
+ok 522 - setAgentHerdrSpace posts the choice to the daemon and reads its answer
+ok 523 - over HTTP: resize and keystroke carry one viewer, and two clients carry two
+ok 524 - over the local socket: the keystroke carries the viewer too
+ok 525 - the cell under a visible cursor is drawn inverse when the cursor is asked for
+ok 526 - CONTROL: without being asked, no caret is drawn
+ok 527 - a HIDDEN cursor is not drawn, and showing it again brings it back
+ok 528 - the console asks for the cursor only when the keyboard is attached
+ok 529 - the registry counts what it has started, not what it holds
+ok 530 - a reaper's second pass does not move a timestamp it did not cause
+ok 531 - a caller that does not care about the time may still remove
+ok 532 - idle says so, and says how much this environment has run
+ok 533 - never asked reads differently from idle, because it is a different fact
+ok 534 - an idle environment that has never lost one yet omits the exit clause
+ok 535 - a missing clock produces no age rather than an invented one
+ok 536 - a snapshot with no history at all still renders
+ok 537 - none of this appears when something IS running
+ok 538 - a valid but empty registry PASSES, and never advises a repair
+ok 539 - POSITIVE CONTROL: damaged text still FAILS, with the repair that does not lose other services
+ok 540 - a registry with services still reports them
+ok 541 - absent and unreadable keep their own distinct answers
+ok 542 - THE EXIT MARKER WAITS FOR THE OUTPUT ALREADY QUEUED
+ok 543 - AND IT STILL CARRIES THE STATUS AND THE EXIT CODE
+ok 544 - AND THE SENDER RELEASES THE DEAD TERMINAL
+ok 545 - A LOGGER THAT THROWS CANNOT SUPPRESS THE MARKER OR THE RELEASE
+ok 546 - A SERVICE THAT STOPS ANSWERING DOES NOT HOLD THE MARKER FOR EVER
+ok 547 - a clean exit is remembered as code 0, with the agent that owned it
+ok 548 - a non-zero exit keeps its number
+ok 549 - a process killed from outside is not recorded as a clean exit
+ok 550 - a STOP records no code, because nobody watched it end
+ok 551 - the ring is bounded and keeps the NEWEST
+ok 552 - removing an id it never had records nothing
+ok 553 - the exits are COPIES, like the process list
+ok 554 - an observed exit is recorded as `exited`, with its code
+ok 555 - a STOP is recorded as `stopped`, and a reap as `reaped`
+ok 556 - the panel says WHO removed it, not just that nothing was reported
+ok 557 - a process that printed before dying has its last words kept
+ok 558 - terminal chrome is stripped so a human can read it
+ok 559 - a silent death records an empty string, which is itself the finding
+ok 560 - the tail is CLIPPED, and keeps the END
+ok 561 - this file's own source carries no raw control bytes
+ok 562 - a REAPED death keeps its last words, even though it has no exit code
+ok 563 - a STOP keeps them too, and still claims no code
+ok 564 - an idle prompt whose footer shows a background shell reads shell
+ok 565 - several shells, and the item at the end of the footer, count too
+ok 566 - CONTROL: the same idle prompt without the footer item stays idle
+ok 567 - the transcript's `still running` line alone never reads as the footer
+ok 568 - a working or blocked verdict is never refined, and neither is another runtime
+ok 569 - a screen NO RULE recognised is not renamed, however its footer reads
+ok 570 - it carries `visibleIdle`, it does not claim it
+ok 571 - CONTROL: the live idle console, with no dock, reads idle from hermes' own title
+ok 572 - an idle prompt with live subagents in the dock reads shell
+ok 573 - the collapsed dock, running processes and a /bg task read shell too
+ok 574 - a dock holding only finished work stays idle
+ok 575 - the transcript talking about background work is not the dock
+ok 576 - a dock line quoted in the transcript near the prompt is not the dock
+ok 577 - the dock where hermes draws it, one column in, still reads shell
+ok 578 - mid-turn with live agents is working, not shell: the screenshot's own screen
+ok 579 - the heartbeat is invisible to every reader of the stream
+ok 580 - an open stream gets a heartbeat each period, well inside fetch's body timeout
+ok 581 - a closed stream stops beating, and nothing is written after it ends
+ok 582 - THE CALL SITE: the daemon starts a heartbeat on the output stream
+ok 583 - over a real socket, a quiet stream carries heartbeats and no output
+ok 584 - an environment that did not answer is UNKNOWN, not idle
+ok 585 - CONTROL: an environment that answered with nothing running is still called idle
+ok 586 - A LINE FEED KEEPS ITS COLUMN, AND ONE ON THE BOTTOM ROW STILL SCROLLS
+ok 587 - CONTROL: the same bytes untranslated land at column 1 on this console
+ok 588 - THE TRANSLATION LEAVES AN EMULATOR IN THE SAME STATE, whole and split
+ok 589 - CONTROL: the console model shows a bare LF losing its column
+ok 590 - CONTROL: the parity gate fails a blanket replace
+ok 591 - THE PORTED TABLE IS XTERM'S TABLE, entry for entry
+ok 592 - THE HOLD CEILING applies only to a sequence still unfinished at the end of a chunk
+ok 593 - Index replaces an LF at ground and nothing else there changes
+ok 594 - THE FIRST CHUNK LANDS ON AN EMPTY, NORMAL, UNSTYLED SCREEN
+ok 595 - A REPLAY THAT DOES NOT POSITION ITSELF STARTS AT THE TOP LEFT
+ok 596 - NEGATIVE CONTROL: without the reset the old rows ghost under the replay
+ok 597 - THE RESET IS WRITTEN ONCE, IMMEDIATELY BEFORE THE FIRST CHUNK, and never with no output
+ok 598 - SCROLLBACK IS LEFT ALONE: it is the operator's, and it never overlaps live cells
+ok 599 - THE ATTACH CLIENT USES IT
+ok 600 - an agent name resolves to its process
+ok 601 - an id resolves too, because that is what a script would pass
+ok 602 - AN ID WINS OVER A LABEL, so an exact handle is never ambiguous
+ok 603 - A DUPLICATE LABEL IS REFUSED AND THE IDS ARE NAMED
+ok 604 - case does not decide it
+ok 605 - an unknown name NAMES WHAT IS RUNNING
+ok 606 - NO NAME AT ALL is answered with the candidates, not with usage
+ok 607 - an empty host says so rather than listing nothing
+ok 608 - junk in the list cannot become a target
+ok 609 - a list that is not a list is refused, not iterated
+ok 610 - whitespace is not a name
+ok 611 - the rule accepts what this package owns and rejects what it does not
+ok 612 - every declared bin is named after this package
+ok 613 - every declared bin points at a file that exists and is executable by node
+ok 614 - a cross-origin POST from a page is refused
+ok 615 - Sec-Fetch-Site alone is enough, with no Origin at all
+ok 616 - a page cannot dress itself up as a program by lowering its own headers
+ok 617 - a state-changing request from ANY page is refused, whatever the site relation says
+ok 618 - the Node client, which sends none of these, is allowed
+ok 619 - reading /health in a browser tab still works
+ok 620 - a cross-site GET is still refused, because reading is a leak of its own
+ok 621 - a malformed or missing header block does not throw
+ok 622 - the literal "null" origin is refused too
+ok 623 - sec-fetch-mode: cors is NOT a browser signal — Node's own fetch sends it
+ok 624 - POSITIVE CONTROL: a confirmed stop reaches the daemon
+ok 625 - ONLY `stop` REACHES THE WIRE, because a verb that becomes a stop is the worst kind of wrong
+ok 626 - NO TARGET SENDS NOTHING, rather than deleting a URL with an empty id
+ok 627 - THE ID IS ENCODED, so an id with a slash cannot address another route
+ok 628 - A REDIRECT IS NEVER FOLLOWED, because a DELETE is not a request to repeat elsewhere
+ok 629 - A TRAILING SLASH ON THE ENDPOINT DOES NOT DOUBLE UP
+ok 630 - IT NEVER THROWS, because this runs inside a keyboard handler
+ok 631 - the client offers what it can perform, and restart is not on that list
+ok 632 - POSITIVE CONTROL: the startable list is read from the daemon
+ok 633 - A 503 STILL CARRIES ITS REASON, because the body is the part that says what to do
+ok 634 - AN UNREACHABLE DAEMON IS NOT AN EMPTY LIST
+ok 635 - POSITIVE CONTROL: starting an agent posts to its own route
+ok 636 - NO BRIEF TRAVELS FROM THE CLIENT EITHER
+ok 637 - A REFUSED START IS REPORTED WITH ITS REASON, not as a success
+ok 638 - THE AGENT ID IS ENCODED, and an unnamed agent sends nothing
+ok 639 - NEITHER CALL THROWS, because both run inside a keyboard handler
+ok 640 - WHAT THE HOST REFUSED REACHES A CLIENT TOO
+ok 641 - POSITIVE CONTROL: the sequence that disclosed is detected
+ok 642 - CONCEAL IS FOUND WHEREVER IT SITS IN A COMPOUND SGR
+ok 643 - A PALETTE COLOUR OF 8 IS NOT A CONCEAL, or the log path is gutted to close a disclosure
+ok 644 - NEGATIVE CONTROL: ordinary output and ordinary escapes conceal nothing
+ok 645 - A PRIVATE SEQUENCE IS NOT AN SGR
+ok 646 - A SEQUENCE SPLIT ACROSS CHUNKS IS STILL ONE SEQUENCE
+ok 647 - THE CARRY IS BOUNDED, so a stream of lone escapes cannot grow it
+ok 648 - A LONE ESC AT THE END OF A CHUNK IS CARRIED, not misread
+ok 649 - A NON-CSI ESCAPE IS SKIPPED WITHOUT SWALLOWING WHAT FOLLOWS
+ok 650 - the first process list opens a follower for the selection
+ok 651 - AN UNCHANGED LIST DOES NOT CHURN THE STREAM
+ok 652 - a list that changes AROUND the selection still does not churn it
+ok 653 - moving the selection CLOSES the old stream before opening the new one
+ok 654 - THE PROCESS UNDER THE SELECTION CHANGING re-points the follower
+ok 655 - an empty list closes the stream and selects nothing
+ok 656 - the selection CLAMPS when the list shrinks under it, rather than resetting to the top
+ok 657 - junk in place of a process list is survived, not thrown on
+ok 658 - moving up and down walks the list
+ok 659 - quit and interrupt are reported SEPARATELY, not decided in here
+ok 660 - input meant for the process comes back as toPty, not written from in here
+ok 661 - the pane carries what the composer needs, including the follower's own status
+ok 662 - the pane says whether input is going to the process
+ok 663 - THE PANE IS HIDDEN UNTIL ASKED FOR, so the agent list gets the whole screen
+ok 664 - attaching opens the pane even when it was hidden
+ok 665 - ATTACHMENT FOLLOWS THE PROCESS WHEN A ROW ABOVE IT DISAPPEARS
+ok 666 - attachment survives a REORDER, not just a removal
+ok 667 - but when the ATTACHED process itself goes, the keyboard fails CLOSED
+ok 668 - A PANE THE TERMINAL CANNOT DRAW OPENS NO STREAM EITHER
+ok 669 - WIDENING OPENS IT AND NARROWING CLOSES IT, so the gate is not one-way
+ok 670 - A HIDDEN PANE OPENS NO FOLLOWER, because a stream nobody is reading is pure cost
+ok 671 - SHOWING IT opens one, and hiding it again closes it
+ok 672 - moving the selection while hidden still opens nothing
+ok 673 - A TOO-NARROW TERMINAL REFUSES THE ATTACH rather than typing blind
+ok 674 - RESIZING BELOW THE MINIMUM detaches an attachment that was legitimate
+ok 675 - NOTHING IS FORWARDED UNTIL A PANE FRAME ACTUALLY RENDERED
+ok 676 - A NEW FOLLOWER DOES NOT INHERIT THE OLD PANE'S READINESS
+ok 677 - A RENDERED REFUSAL IS NOT A TERMINAL, so it takes no input either
+ok 678 - A STREAM THAT IS NOT LIVE TAKES NO INPUT, however well the pane renders
+ok 679 - A FRAME THAT STOPS RENDERING REVOKES THE ATTACHMENT
+ok 680 - POSITIVE CONTROL: a wide enough terminal still attaches and forwards
+ok 681 - AN UNREPORTED VIEWPORT FAILS CLOSED, because a guard that passes on missing input is decoration
+ok 682 - A DESTRUCTIVE ACTION REACHES THE CALLER ONLY AFTER A YES
+ok 683 - A CONFIRMED STOP FOLLOWS THE AGENT IT WAS OPENED ON, not the cursor
+ok 684 - IF THE TARGET ITSELF IS GONE, THE ACTION IS REFUSED rather than redirected
+ok 685 - NEGATIVE CONTROL: an unchanged list still stops the agent it named
+ok 686 - CANCELLING HANDS OUT NOTHING
+ok 687 - A NON-DESTRUCTIVE CHOICE NEEDS NO YES, and attach is PERFORMED rather than handed out
+ok 688 - THE PROCESS IS RESOLVED WHEN THE ACTION IS, not looked up later
+ok 689 - stop() closes the stream and is safe twice
+ok 690 - a follower that throws on stop does not take the session down
+ok 691 - a follower whose start REJECTS does not reject into the render loop
+ok 692 - HIDING AND SHOWING THE PANE REBUILDS A DEAD FOLLOWER, which is the only way back
+ok 693 - every follower state has its own mark, and they are all distinct
+ok 694 - an unknown state gets a blank rather than a wrong mark
+ok 695 - the title names the process, so a pane is never anonymous
+ok 696 - an unlabelled process falls back to its id, then to a visible placeholder
+ok 697 - AN EXIT CODE IS IN THE TITLE, because that is the thing being waited for
+ok 698 - a signalled death names the SIGNAL, not a fabricated code
+ok 699 - the title is clipped to the pane width, never wider
+ok 700 - with no pane the dashboard is returned untouched
+ok 701 - with a pane every row carries both columns
+ok 702 - A NARROW WINDOW GETS ONE READABLE COLUMN, not two useless ones
+ok 703 - at the threshold exactly, the pane appears
+ok 704 - NO ROW IS WIDER THAN THE WINDOW -- a wrap would break the divider alignment
+ok 705 - THE PANE IS SIZED TO THE SCREEN, not to its content
+ok 706 - the header and its rule come out of the pane's own budget
+ok 707 - a pane with nothing to show still renders its title
+ok 708 - a pane object with no lines() is survived rather than thrown on
+ok 709 - a zero-row screen produces no rows rather than a negative slice
+ok 710 - THE TITLE SAYS WHEN THE PANE IS SHOWING ONLY PART OF THE SCREEN
+ok 711 - NEGATIVE CONTROL: a screen that FITS gains no furniture
+ok 712 - AN UNKNOWN WIDTH CLAIMS NOTHING, rather than assuming 80
+ok 713 - paneWillBeDrawn IS THE ONE ANSWER both the compositor and the reporter ask
+ok 714 - the compositor AGREES with the predicate, which is the point of having one
+ok 715 - HEIGHT COUNTS: a terminal with room for only the header draws no pane
+ok 716 - THE HEADER COST IS ONE NUMBER, not two literals that can drift
+ok 717 - A PARTIAL INSTALL IS SAID, because it measures columns differently
+ok 718 - THE UNICODE WARNING SURVIVES EVERY WIDTH A PANE IS DRAWN AT, whole or not at all
+ok 719 - THE CROP NOTE IS DROPPED BEFORE THE WARNING IS, because they say different things
+ok 720 - THE AGENT IS STILL NAMED, so the header does not become a warning with no subject
+ok 721 - NEGATIVE CONTROL: a healthy pane gains no furniture
+ok 722 - A FLAG THAT WOULD CARRY THE KEY IS REFUSED BY NAME, not merely unsupported
+ok 723 - set REQUIRES --stdin, so the value-passing path cannot be reached by accident
+ok 724 - an action or service that is missing is a usage error, not a guess
+ok 725 - a --ref the grammar refuses is rejected at parse time
+ok 726 - the reference is the caller's if given, else derived from the service name
+ok 727 - exactly ONE trailing line ending is removed from stdin, and nothing else
+ok 728 - set prints the REFERENCE and never the key, and status does not either
+ok 729 - the stored file holds exactly the key that was piped in
+ok 730 - a key the store refuses fails loudly and writes nothing
+ok 731 - remove deletes exactly the named credential and reports it
+ok 732 - status on an empty store says so rather than failing
+ok 733 - a usage error exits with the usage code and prints how to do it right
+ok 734 - importing the module does NOT run the command
+ok 735 - stdin is BOUNDED while it streams, not after it has all arrived
+ok 736 - stdin is decoded STRICTLY, so a mis-encoded key is refused rather than mangled
+ok 737 - status exits NON-ZERO when any stored credential is faulted
+ok 738 - the root is beside services.json, not anywhere a caller chooses
+ok 739 - a reference resolves inside the root, and a hostile one resolves nowhere
+ok 740 - a written credential reads back exactly, and carries a content identity
+ok 741 - A FILE WITH ORDINARY PERMISSIONS IS REFUSED, not read with a warning
+ok 742 - a missing file is MISSING, which is not the same answer as absent or unreadable
+ok 743 - a reference the grammar refuses never reaches the filesystem
+ok 744 - a value that cannot be encoded is refused BEFORE anything is written
+ok 745 - no temp file survives a write
+ok 746 - the custody rules refuse a link, a non-file, an oversized file and a shared one
+ok 747 - POSIX modes beyond the owner are refused, and 0600 is not
+ok 748 - a file owned by another uid is refused even when its mode is right
+ok 749 - on Windows the DACL decides, and an unreadable one is a refusal
+ok 750 - the POSIX mode check is NOT applied on Windows, where it proves nothing
+ok 751 - the root is created private and the modes are the documented ones
+ok 752 - listing shows only names the grammar accepts, so junk cannot be read as a credential
+ok 753 - removing a credential is exact, and removing an absent one is not an error
+ok 754 - the Windows owner is domain-qualified when the environment says so
+ok 755 - UNREADABLE and INSECURE are distinct states, and neither is absence
+ok 756 - A ROOT THAT IS A LINK IS REFUSED, before the store is used at all
+ok 757 - a root that exists and is not a directory is refused
+ok 758 - NOTHING IS WRITTEN WHEN THE ROOT CANNOT BE PROVEN PRIVATE
+ok 759 - on Windows an owner that cannot be determined stops the write rather than guessing
+ok 760 - a FAILED lockdown stops the write, and leaves the previous credential intact
+ok 761 - the staged file is inspected through the SAME reader as a public read
+ok 762 - a lockdown that fails ON THE TEMP FILE stops the write, and writes no credential
+ok 763 - the custody verdict passes the PATH to the ACL parser, which matters off this host
+ok 764 - and the READER actually passes it -- driven through inspect, not asserted on the verdict
+ok 765 - TWO REFERENCES DIFFERING ONLY IN CASE CANNOT SHARE ONE FILE
+ok 766 - A COLLIDING WRITE IS REFUSED BEFORE IT CAN REPLACE ANOTHER SERVICE'S FILE
+ok 767 - AN UNREADABLE STORE IS NOT AN EMPTY ONE
+ok 768 - a store that was never created IS empty, and says so without complaint
+ok 769 - a key written to the store is the key a beat would carry
+ok 770 - the environment overrides the store, because exporting a key is a choice
+ok 771 - environment and store DISAGREEING sends no key at all
+ok 772 - A BROKEN STORE WINS OVER AN ENVIRONMENT KEY, so the fault cannot hide
+ok 773 - NO reference is not a fault -- a keyless service is a valid deployment
+ok 774 - the first NAME the registry declares wins, in the order it declares them
+ok 775 - readiness reports names, states and a boolean -- and NEVER the key
+ok 776 - readiness explains a FAULT and stays quiet on a plain absence
+ok 777 - an INSECURE file is a fault, not a key
+ok 778 - A ROTATED KEY IS PICKED UP ON THE VERY NEXT READ
+ok 779 - an ENVIRONMENT key with stray whitespace is REFUSED, never quietly trimmed
+ok 780 - a reference is ONE NAME, so traversal is unrepresentable rather than defended against
+ok 781 - `.` and `..` match the character class and are refused ANYWAY
+ok 782 - Windows device names are refused whatever their extension
+ok 783 - a hidden or oversized reference is refused
+ok 784 - the default reference makes an accidental collision vanishingly unlikely
+ok 785 - the default reference stays readable and stays valid
+ok 786 - two references that differ only in case are treated as one file
+ok 787 - the canonical file is the key and exactly one newline
+ok 788 - decode removes ONE terminal newline and salvages nothing else
+ok 789 - decode rejects invalid UTF-8 rather than substituting replacement characters
+ok 790 - decode bounds the file size
+ok 791 - absent bytes are MISSING, which is not the same answer as invalid
+ok 792 - the environment overrides the file, but a DISAGREEMENT is refused
+ok 793 - no credential anywhere is ABSENT, a valid configuration and not a fault
+ok 794 - every fault state is distinct from ABSENT and from each other
+ok 795 - a value with a control character or surrounding whitespace is never stored
+ok 796 - the store directory name is fixed, so two readers cannot look in different places
+ok 797 - an orphan is a secret nothing references; a dangling ref is a service that will fail
+ok 798 - matching is CASE-FOLDED, so a live key is never reported as unreferenced
+ok 799 - an empty store and an empty registry agree without complaint
+ok 800 - Ctrl+C in the MENU closes the menu
+ok 801 - Ctrl+C in the START list closes the list
+ok 802 - Ctrl+C in the PICKER cancels the search
+ok 803 - in a view that CONFIRMS its interrupt, Ctrl+C on the dashboard is a question
+ok 804 - CONTROL: a view that does not confirm (the tui client) still interrupts at once
+ok 805 - the session reports no interrupt until the question is answered with y
+ok 806 - THE QUESTION SURVIVES A REFRESH ON AN IDLE HOST
+ok 807 - the prompt names what is at stake: the environment and how many workers
+ok 808 - the daemon's dashboard says what Ctrl+C does, and the tui client's does not
+ok 809 - THROUGH THE VIEW: Ctrl+C asks, y stops, anything else leaves the environment running
+ok 810 - the DAEMON'S view asks; it is the caller that turns the question on
+ok 811 - POSITIVE CONTROL: the shutdown runs and exits at all
+ok 812 - THE TERMINAL IS OUT OF RAW MODE BEFORE THE PROCESS EXITS
+ok 813 - ...even when stopping the plugins takes real time
+ok 814 - THE SECOND Ctrl+C ALSO LEAVES A USABLE TERMINAL
+ok 815 - the screen is released before the plugins are asked to stop
+ok 816 - it binds LOOPBACK, and announces the address it actually got
+ok 817 - GET /health answers with this environment's own report
+ok 818 - a launcher without the marker is REFUSED over the wire, with a reason
+ok 819 - an unknown route is 404 rather than anything happening
+ok 820 - malformed JSON is a 400, not a crash
+ok 821 - it SAYS whether terminals are available, at startup
+ok 822 - END TO END: a real launcher starts, is owned, and is forgotten when it exits
+ok 823 - STREAM: a service can watch a process's output over the wire
+ok 824 - STREAM: watching a process that does not exist is a 404
+ok 825 - the daemon's SWEEP actually runs, and does not disturb a healthy environment
+ok 826 - WITHOUT `input` NO PROCESS STREAM IS OPENED
+ok 827 - WITH `input` a process stream IS opened, which is what makes the test above mean something
+ok 828 - with `input` the terminal goes raw, and stop() GIVES IT BACK
+ok 829 - A TERMINAL ALREADY IN RAW MODE IS LEFT IN IT
+ok 830 - stop() removes the listener, so a late keypress cannot reach a stopped view
+ok 831 - stop() is safe to call twice
+ok 832 - a quit key calls onQuit rather than exiting from inside the library
+ok 833 - keys meant for a process are HANDED BACK, not written from inside the view
+ok 834 - moving the selection does not call onInput
+ok 835 - a handler that throws does not take the view down
+ok 836 - A CONFIRMED ACTION REACHES onAction, through the real key path
+ok 837 - NEGATIVE CONTROL: with no handler the menu is inert and nothing throws
+ok 838 - A FRAME THAT WAS NEVER WRITTEN IS NOT CACHED AS DRAWN
+ok 839 - A KEYSTROKE REDRAWS WITHOUT ASKING THE DAEMON ANYTHING
+ok 840 - THE REFRESH TIMER STILL COLLECTS, which is the only thing that ever asks
+ok 841 - INPUT IS REFUSED WHILE THE FRAME ON SCREEN STILL SAYS CONNECTING
+ok 842 - AND INPUT OPENS ONCE A STREAMING FRAME HAS ACTUALLY BEEN DRAWN
+ok 843 - PANE PROGRESS IS COALESCED, so a chatty producer does not redraw per chunk
+ok 844 - A SUPERSEDED FOLLOWER'S PROGRESS DRAWS NOTHING
+ok 845 - PROGRESS THAT ARRIVES AFTER stop() DRAWS NOTHING
+ok 846 - piped output keeps the plain banner and prints no escapes
+ok 847 - a terminal gets the view
+ok 848 - AIFY_NO_DASHBOARD keeps a terminal on the plain banner
+ok 849 - an environment that is not answering is said out loud, not blanked
+ok 850 - an unreadable registry means no services, not a crash
+ok 851 - knock turns a timeout into a stated reason rather than an exception
+ok 852 - knock reports a connection error by its code
+ok 853 - knock treats an unparseable body as no body, not as a failure
+ok 854 - the first frame is drawn before the caller is resumed
+ok 855 - once means once: nothing is scheduled
+ok 856 - stop halts the redraw
+ok 857 - it registers no signal handler of its own
+ok 858 - a frame that throws does not kill the loop
+ok 859 - the FIRST frame clears, because the screen's contents are unknown
+ok 860 - A REDRAW OF AN UNCHANGED SCREEN IS SILENT
+ok 861 - A PIPE IS NOT A SCREEN: redirected output keeps the plain full write
+ok 862 - actual dedicated daemon obeys isolation in owned Windows Jobs
+ok 863 - keys typed just before Ctrl+] still reach the process
+ok 864 - drainedWithin says whether the queue emptied in time, and never waits past its bound
+ok 865 - detaching turns the cursor back on for the operator's shell
+ok 866 - the leave sequence resets every mode an agent commonly sets
+ok 867 - detaching pops a keyboard level the agent pushed
+ok 868 - detaching pops nothing when the agent pushed nothing
+ok 869 - an agent that pushed nothing gets no pop, so the operator's own level survives
+ok 870 - a pushed level is popped on the way out
+ok 871 - levels the agent popped itself are not popped again
+ok 872 - a push split across two reads at any point is still counted
+ok 873 - a level pushed on the alternate screen is popped there, before the screen is left
+ok 874 - a level pushed on the main screen is popped on the main screen
+ok 875 - a level left on the alternate screen after the agent went back to main is still popped there
+ok 876 - --json emits the three-state shape with an exit code inside it
+ok 877 - without --strict the exit is 0, even with failures to report
+ok 878 - --strict exits non-zero when a check FAILED
+ok 879 - --strict does NOT exit 0 when a registered service is merely SILENT
+ok 880 - a registered service is actually probed, not assumed
+ok 881 - a host with NO registry still produces a report
+ok 882 - every failed check carries a fix
+ok 883 - the human output names the state of every check
+ok 884 - an unreadable-version registry yields no per-service rows to contradict it
+ok 885 - a SUPPORTED-version registry still produces its per-service rows
+ok 886 - BOTH DIRECTIONS: the environment check passes against a live one and fails without it
+ok 887 - against a live environment, owned processes are reported as PASSED rather than unanswered
+ok 888 - a live environment plus an unreachable SERVICE gives passed AND unanswered in one report
+ok 889 - PROVEN ON A REAL DAEMON: code-current passes, and the two identities it compares AGREE
+ok 890 - NEGATIVE CONTROL, ON THE SAME REAL DAEMON: change the disk and the row goes FAILED
+ok 891 - real roster pipeline accepts valid empty data with every doctor row green
+ok 892 - real roster pipeline rejects invalid JSON without another doctor failure
+ok 893 - real roster pipeline rejects null body without another doctor failure
+ok 894 - real roster pipeline rejects missing roster without another doctor failure
+ok 895 - real roster pipeline rejects null roster without another doctor failure
+ok 896 - real roster pipeline rejects array roster without another doctor failure
+ok 897 - real roster pipeline rejects scalar roster without another doctor failure
+ok 898 - real roster pipeline rejects body refusal without another doctor failure
+ok 899 - real roster pipeline rejects no-content response without another doctor failure
+ok 900 - real roster pipeline rejects HTTP refusal without another doctor failure
+ok 901 - real roster pipeline rejects transport exception without another doctor failure
+ok 902 - picker readiness requires a finite HTTP status
+ok 903 - doctor fails readiness when a healthy daemon's picker lacks machine identity
+ok 904 - an empty but working picker passes readiness
+ok 905 - missing plugin and refused picker replies fail readiness
+ok 906 - unreachable or malformed picker evidence never passes
+ok 907 - pickerReadinessCheck leaves the evidence unchanged
+ok 908 - doctor does not query a picker when no environment answered
+ok 909 - a host with a terminal passes
+ok 910 - a host WITHOUT a terminal FAILS, and says what stops working
+ok 911 - a readable registry passes, naming how many services it found
+ok 912 - an ABSENT registry passes: a host with no service is a legitimate host
+ok 913 - an UNREADABLE registry FAILS, because we know it is wrong
+ok 914 - a registry we could not READ AT ALL is unanswered, not failed
+ok 915 - owned processes pass with a count
+ok 916 - owning nothing is a pass, not a problem
+ok 917 - processes the reaper could not judge make this UNANSWERED
+ok 918 - a registry declaring a NEWER version is unanswered, not read with today's assumptions
+ok 919 - a newer registry is never answered with advice to delete the shared file
+ok 920 - a genuinely CORRUPT registry does not advise deleting the shared file either
+ok 921 - a real aify-env answer passes
+ok 922 - a FOREIGN service answering /health does not pass as an environment
+ok 923 - a NON-2xx answer is not an environment either
+ok 924 - nothing listening is still a failure that says to start one
+ok 925 - a body that is not an object at all is refused rather than probed
+ok 926 - the terminal row says where it was measured, not just what it found
+ok 927 - advertiseAttemptCause separates a refusal from an outage
+ok 928 - only a 401/403 blames the credential
+ok 929 - a credential that IS set and still refused is named as WRONG, not missing
+ok 930 - advertising switched OFF is a configuration, not a missing credential
+ok 931 - a daemon that did not answer is UNANSWERED, never a tidy zero
+ok 932 - no advertisement targets needs no credential
+ok 933 - A STORE THAT COULD NOT BE READ IS UNANSWERED, never clean
+ok 934 - a dangling reference outranks an orphan, because it is the one breaking something now
+ok 935 - an orphan is REPORTED, and the fix says why it is not deleted
+ok 936 - a store whose every file is referenced passes, and an empty one says so
+ok 937 - the scan sees modules and exports — neither side is empty
+ok 938 - POSITIVE CONTROL: the extractor finds what is unmistakably in allowlist.mjs
+ok 939 - NEGATIVE CONTROL: the extractor does not invent exports
+ok 940 - no export is named by no test
+ok 941 - the FIRST frame clears, because the screen's contents are unknown
+ok 942 - AN UNCHANGED FRAME WRITES NOTHING AT ALL
+ok 943 - one changed row touches ONLY that row
+ok 944 - the line is erased AFTER the text, so a changed row never blanks first
+ok 945 - A SHORTER FRAME ERASES WHAT IS BELOW IT
+ok 946 - a LONGER frame writes its new rows
+ok 947 - the cursor is parked below the frame, not left mid-screen
+ok 948 - changedRowCount separates 'flickering' from 'repainting one row'
+ok 949 - nothing here is decorative: every escape emitted is one of the declared ones
+ok 950 - a check carries its state, its id, and a detail a human can act on
+ok 951 - all passed is exit 0
+ok 952 - any failure is exit 1, even beside passes
+ok 953 - UNANSWERED is not a pass, and gets its own exit status
+ok 954 - a real failure outranks an unanswered one
+ok 955 - NO CHECKS AT ALL is unanswered, never ok
+ok 956 - the summary NAMES what failed and what went unanswered
+ok 957 - unanswered cannot be constructed with a blank reason
+ok 958 - failed cannot be constructed without a fix
+ok 959 - the JSON shape carries the three states distinctly
+ok 960 - endpoint and socket validation fail closed before network activity
+ok 961 - selection rejects non-PTY, ambiguous and malformed targets
+ok 962 - encoded PowerShell arguments retain metacharacters as single-quoted data
+ok 963 - a POSIX attach refuses a node path env would read as an assignment
+ok 964 - on a POSIX host every shell present runs the attach command with its arguments intact # SKIP needs POSIX shells
+ok 965 - known Windows install detection is passive and needs no PATH entry
+ok 966 - unsupported shell receives no command or destructive rollback
+ok 967 - dispatcher rejects install and unknown arguments without starting anything
+ok 968 - HerdrClient correlates real socket replies and refuses mismatched ids
+ok 969 - listWorkers uses the process route and refuses redirects and malformed lists
+ok 970 - shipped dispatcher refuses vanished initial choice: old-p1
+ok 971 - shipped dispatcher refuses vanished initial choice: lead
+ok 972 - final shipped attach --id refuses label collision, ordinary label still resolves
+ok 973 - fixture ownership is creation-bound, never acquired from logs
+ok 974 - real job supervisor contains a detached child and rejects unowned membership
+ok 975 - input written to a process ARRIVES, observed by what it echoes back
+ok 976 - writing to an unknown id is refused, not silently dropped
+ok 977 - writing to a process that has EXITED is refused
+ok 978 - resize on a PIPED process reports that it did not apply
+ok 979 - resize on a TERMINAL-backed process applies, with the numbers it was given
+ok 980 - THE SIZE A PROCESS IS STARTED AT REACHES THE PTY
+ok 981 - an UNKNOWN size is omitted, so the opener's own default still applies
+ok 982 - START HANDS BACK THE SIZE THE PTY ACTUALLY HAS, read off the pty
+ok 983 - a PIPED process hands back no size, because it has no terminal
+ok 984 - the opener still receives cwd and env, which this change must not have displaced
+ok 985 - nonsense dimensions are refused rather than passed through
+ok 986 - a terminal whose resize THROWS is reported, not propagated
+ok 987 - a missing credential is ASKED for, which is the whole point
+ok 988 - a credential already stored is NOT asked for again
+ok 989 - with no terminal it says what will break, rather than hanging or passing quietly
+ok 990 - an unattended run that cannot ask reports INCOMPLETE, so it fails rather than lying
+ok 991 - a service this host cannot host work for is NAMED, not silently skipped
+ok 992 - several services are decided independently
+ok 993 - no registered services is a clean, explained outcome
+ok 994 - a nameless registry entry is ignored rather than asked about
+ok 995 - the description says what will happen, in the operator's terms
+ok 996 - bootstrap rejects a context changed while owner authorization is pending
+ok 997 - private ready publication is exclusive and transport-only
+ok 998 - context import and reads are inert; host identity stays physical
+ok 999 - invalid context fields fail closed without creating runtime artifacts
+ok 1000 - junction roots and multiply-linked context files are refused
+ok 1001 - CLI context option is exact and cannot combine with force or subcommands
+ok 1002 - on a unix host the launcher runs itself
+ok 1003 - on WINDOWS a shebang script is run through its interpreter
+ok 1004 - the interpreter comes from the SHEBANG, not from an extension
+ok 1005 - env-style shebangs resolve to the program, not to env
+ok 1006 - a file with NO shebang is run directly, on every platform
+ok 1007 - shebang arguments are preserved before the script path
+ok 1008 - the interpreter is RESOLVED to a real path, because node-pty does no PATH lookup
+ok 1009 - extra args are appended AFTER the script, never before it
+ok 1010 - a shebang line that is empty or malformed falls back to running the file directly
+ok 1011 - an absolute path is returned unchanged
+ok 1012 - a bare name is looked up on PATH
+ok 1013 - PATHEXT is tried, so bash.exe is found on Windows
+ok 1014 - a name that cannot be found comes back UNCHANGED, not null
+ok 1015 - an exists probe that throws does not abort the search
+ok 1016 - POSITIVE CONTROL: bash resolves to a real absolute path on this machine
+ok 1017 - the System32 WSL bash is skipped when resolving a POSIX shell on Windows
+ok 1018 - a host with only the System32 bash gets the name back rather than a shell that cannot work
+ok 1019 - System32 is only special for POSIX shells, not for every executable
+ok 1020 - a Windows launcher path reaches bash with no backslashes in it
+ok 1021 - the launcher's own arguments keep their order after the path
+ok 1022 - an argument that legitimately contains a backslash is left alone
+ok 1023 - a POSIX path is unchanged, because it has nothing to convert
+ok 1024 - off Windows the launcher is spawned directly and is not rewritten
+ok 1025 - a WindowsApps bash is skipped in favour of a real one further down PATH
+ok 1026 - both WSL entry points are skipped, in either order
+ok 1027 - with ONLY a WSL bash available the bare name comes back, rather than nothing
+ok 1028 - a non-shell in WindowsApps is not skipped
+ok 1029 - the plugin's request carries the key and refuses to follow a redirect
+ok 1030 - the daemon's advertisement fetch refuses to follow a redirect
+ok 1031 - an advertisement pass that throws is logged, never an unhandled rejection
+ok 1032 - a chunk is split into keys: escape sequences whole, everything else one character at a time
+ok 1033 - only the cursor keys count as navigation
+ok 1034 - two arrows in one read move the selection twice
+ok 1035 - `jj` in one read moves twice, on the dashboard and in the menu
+ok 1036 - A PASTE ON THE LIST DOES NOTHING: only a read made of navigation keys is split
+ok 1037 - CONTROL: in a confirmation a multi-key chunk still cancels, and the picker takes text whole
+ok 1038 - THROUGH THE VIEW: a coalesced read moves the cursor on screen
+ok 1039 - a key typed before the handshake finishes still reaches the daemon
+ok 1040 - an empty host selects nothing rather than index 0
+ok 1041 - BOTH RECONCILE PATHS RETURN THE SAME SHAPE, which three fields have now been dropped from
+ok 1042 - the selection is CLAMPED when the process list shrinks, not reset
+ok 1043 - when the last process goes, the pane closes rather than pointing at nothing
+ok 1044 - reconciling keeps pty mode while there is still something to show
+ok 1045 - EVERY MODE SURVIVES A REDRAW -- the list of survivors was typed by hand and lost two
+ok 1046 - A SURVIVING CONFIRMATION KEEPS ITS SUBJECT
+ok 1047 - AN EMPTY LIST CLOSES THE MENU, because its actions all name a process
+ok 1048 - A MENU OFFERS WHAT ITS CALLER CAN PERFORM, and attach alone by default
+ok 1049 - THE MENU CURSOR WRAPS ON THE OFFER, not on the vocabulary
+ok 1050 - POSITIVE CONTROL: `m` opens the menu on a real selection
+ok 1051 - NOTHING SELECTED OPENS NOTHING, because the actions all name a process
+ok 1052 - STOP IS NEVER REPORTED FROM ONE KEYSTROKE -- it becomes a QUESTION
+ok 1053 - ANYTHING THAT IS NOT YES IS NO, because a guard whose default is 'do it' is not a guard
+ok 1054 - `y` IS THE ONLY YES, and it does not leak into the next state
+ok 1055 - CHOOSING ATTACH FROM THE MENU ACTUALLY ATTACHES
+ok 1056 - ATTACH NEEDS NO CONFIRMATION, so the guard is not just refusing everything
+ok 1057 - THE MENU'S CURSOR IS ITS OWN, and the process selection never moves under it
+ok 1058 - the menu wraps, like every other list on this screen
+ok 1059 - EVERY OTHER KEY IS SWALLOWED, so the list behind the menu cannot be acted on
+ok 1060 - Ctrl+] CLOSES THE MENU, which is the one way back from every mode
+ok 1061 - Ctrl+C BACKS OUT of a menu rather than stopping the environment (v0.7, F1)
+ok 1062 - CONFIRMATION IS DERIVED FROM A PROPERTY, not from a second list
+ok 1063 - the pane starts HIDDEN, which is the operator's stated priority
+ok 1064 - `p` shows the pane, and `p` again hides it
+ok 1065 - toggling changes NOTHING else -- not the mode, the selection or the query
+ok 1066 - THE TOGGLE SURVIVES A REFRESH, which is where a new field goes to die
+ok 1067 - a state that predates this field gets the DEFAULT, not undefined
+ok 1068 - ATTACHING SHOWS THE PANE, because typing into one nobody can see is not a feature
+ok 1069 - a refresh cannot re-hide the pane while ATTACHED
+ok 1070 - `p` is a LETTER in the picker and in the pane, not a toggle
+ok 1071 - arrows and jk move the selection, and it WRAPS
+ok 1072 - Enter attaches to the selected process
+ok 1073 - Enter with NOTHING to attach to does nothing at all
+ok 1074 - q and Ctrl+C are DIFFERENT actions, and the daemon depends on that
+ok 1075 - an unbound key in dashboard mode is ignored, not forwarded anywhere
+ok 1076 - CTRL+C REACHES THE PROCESS, it does not quit the dashboard
+ok 1077 - q reaches the process too — it is a letter, not a command, once attached
+ok 1078 - arrow keys reach the process WHOLE, never as three separate bytes
+ok 1079 - Ctrl+] detaches, and hands the keyboard back to the dashboard
+ok 1080 - THE DETACH KEY IS NOT ESCAPE, because ESC begins every arrow key
+ok 1081 - a PASTE containing the detach byte is data, not a command
+ok 1082 - a multi-character paste is forwarded in one piece
+ok 1083 - empty input changes nothing
+ok 1084 - a missing state does not throw — it falls back to an empty dashboard
+ok 1085 - an address is a pipe on Windows and a socket file elsewhere
+ok 1086 - frames are split on newlines, and a malformed one is skipped rather than fatal
+ok 1087 - a sender that never ends a frame cannot grow the buffer without limit
+ok 1088 - a frame without a usable path is not turned into a request
+ok 1089 - keystrokes reach the router in order, through one socket
+ok 1090 - the deps builder is called per frame, as the HTTP server calls it per request
+ok 1091 - a refusal travels back, so typing into a process that has gone is not silent
+ok 1092 - a keystroke that landed gets no answer at all
+ok 1093 - connecting to an address nobody is listening on answers null, not an error
+ok 1094 - a socket that dies mid-session says so, and refuses further sends
+ok 1095 - the server survives a client that sends rubbish
+ok 1096 - stopping the server does not wait for an attached client
+ok 1097 - frames keep their order even when the router awaits, across chunks
+ok 1098 - this socket carries input and resize, and refuses everything else
+ok 1099 - the allowlist is a shape, not a list of ids
+ok 1100 - windows kills the whole tree, forcibly, in one call
+ok 1101 - posix targets the process GROUP first, then the process
+ok 1102 - darwin behaves like linux
+ok 1103 - a pid that is not a positive integer plans nothing
+ok 1104 - the same guard holds on windows
+ok 1105 - windows runs taskkill and reports that it tried
+ok 1106 - posix signals the group and then the process
+ok 1107 - a group that is not ours does not stop the direct kill
+ok 1108 - nothing is signalled for a pid that failed the guard
+ok 1109 - a throwing runner is reported, not propagated
+ok 1110 - a runner that REJECTS is reported, not propagated
+ok 1111 - this environment's own pid is never tree-killed
+ok 1112 - the parent is protected too, because ending it ends this environment
+ok 1113 - 0 and 1 are refused on every platform
+ok 1114 - an ordinary child pid is still planned normally
+ok 1115 - killTree carries out nothing for a protected pid
+ok 1116 - the kill does not hold the event loop
+ok 1117 - a command that cannot be spawned is reported, not thrown
+ok 1118 - a kill that never finishes is abandoned, and the child is killed
+ok 1119 - a kill that finishes resolves as attempted
+ok 1120 - a spawn error resolves rather than rejecting
+ok 1121 - the first outcome wins: a close after a timeout does not resolve twice
+ok 1122 - A REPAINT LEAVES NO LAST WORDS, and says so by leaving the field empty
+ok 1123 - but an error printed AFTER the teardown survives, which is the case this field exists for
+ok 1124 - a plain process is untouched, including across newlines
+ok 1125 - COLOUR IS NOT A CURSOR MOVE
+ok 1126 - a one-character remnant is dropped rather than shown as a message
+ok 1127 - a long tail is still clipped to its END
+ok 1128 - nothing at all is still nothing, not a crash
+ok 1129 - POSITIVE CONTROL: a launcher on PATH is found, with its text
+ok 1130 - ONLY NAMES THAT COULD BE LAUNCHERS ARE READ, because PATH is large
+ok 1131 - AN UNREADABLE DIRECTORY DOES NOT END THE WALK
+ok 1132 - AN UNREADABLE FILE IS ABSENT, NEVER PRESENT WITH EMPTY TEXT
+ok 1133 - ONE ENTRY PER FILE, though a directory may appear on PATH twice
+ok 1134 - THE PATH SEPARATOR FOLLOWS THE PLATFORM, or every entry is one unreadable directory
+ok 1135 - AN EMPTY OR ABSENT PATH IS AN EMPTY LIST, not a throw at daemon start
+ok 1136 - CONTROL: the stripper keeps code and drops comments
+ok 1137 - CONTROL: the stripper can still SEE a backtick in real code
+ok 1138 - no shell script here contains command substitution by backtick
+ok 1139 - the scan looked at a real population
+ok 1140 - the scan finds source files at all
+ok 1141 - the scan EXCLUDES tests, which are long on purpose
+ok 1142 - no source file reaches 1000 lines
+ok 1143 - REPORT: the largest files, so drift is visible before it is a defect
+ok 1144 - THE SCAN CAN SEE A HARDCODED PORT AT ALL
+ok 1145 - AND IT DOES NOT FIRE ON A PORT THAT IS ONLY NAMED, OR ON PORT 0
+ok 1146 - NO TEST BINDS A HARDCODED PORT
+ok 1147 - THE SCAN FINDS A DAEMON SPAWN AT ALL
+ok 1148 - EVERY TEST-SPAWNED DAEMON IS SEALED AGAINST THE OPERATOR'S REGISTRY
+ok 1149 - the seal names a path that cannot exist, rather than an empty one
+ok 1150 - THE WIDENED SCAN REACHES spawnSync AND ENTRY-NAMED SPAWNS
+ok 1151 - A SPAWN THAT PASSES NO ENV IS ALWAYS AN OFFENDER
+ok 1152 - AN EMPTY REGISTRY PATH IS NOT A SEAL
+ok 1153 - a spawn quoted inside another gate's fixture is not accused
+ok 1154 - 0 process(es) and twenty notices fit a 24-row terminal, TRAFFIC included
+ok 1155 - 1 process(es) and twenty notices fit a 24-row terminal, TRAFFIC included
+ok 1156 - 2 process(es) and twenty notices fit a 24-row terminal, TRAFFIC included
+ok 1157 - exactly one command is published
+ok 1158 - `aify-env doctor` runs the doctor
+ok 1159 - `aify-env doctor --strict` still acts on the answer
+ok 1160 - `aify-env doctor --json` is still machine-readable
+ok 1161 - an unknown subcommand says so instead of silently starting a daemon
+ok 1162 - the old binaries are gone from the package
+ok 1163 - the probe says YES on a WSL kernel
+ok 1164 - the probe says NO on an ordinary linux kernel
+ok 1165 - the probe is platform-gated
+ok 1166 - an unreadable /proc fails CLOSED
+ok 1167 - THE REGRESSION: a WSL host with no WSL_DISTRO_NAME is `wsl`, not `linux`
+ok 1168 - without the probe that same host is `linux`, which is what shipped
+ok 1169 - the variable still answers on its own
+ok 1170 - an explicit kind still wins outright
+ok 1171 - WSL still beats container, which is a declared precedence
+ok 1172 - CONTRADICTION ARM: a docker container running ON WSL2 stays `docker`
+ok 1173 - the machine id follows the same probe, so kind and id cannot disagree
+ok 1174 - hostIdentityFacts answers kind, os and machineId from ONE isWsl
+ok 1175 - THE OLD SHAPE IS UNAVAILABLE: kind and machineId cannot disagree about WSL
+ok 1176 - kind and os stay different questions here too
+ok 1177 - it carries the precedences rather than re-deciding them
+ok 1178 - a host with nothing set still gets a usable id shape
+ok 1179 - a refresh that is still collecting is not joined by another
+ok 1180 - the scan finds the declarations that are definitely there
+ok 1181 - every declared version is a version
+ok 1182 - and they all agree
+ok 1183 - a disagreement would actually be caught
+ok 1184 - CONTROL: the scanner can see service knowledge where it is allowed to be
+ok 1185 - CONTROL: comments are stripped, so prose about a service is not coupling
+ok 1186 - a URL is not mistaken for a comment
+ok 1187 - only a plugin knows a service
+ok 1188 - the known crossings still cross, so the list cannot rot
+ok 1189 - the boundary is measured against a real population, not an empty one
+ok 1190 - a recorded process that is still alive is reaped
+ok 1191 - a recorded process that is already gone is not reaped, and not an error
+ok 1192 - a pid that VERIFY rejects is skipped — this is the pid-reuse guard
+ok 1193 - each entry is judged on its own
+ok 1194 - an empty record plans nothing
+ok 1195 - a verify that THROWS is treated as a rejection, not as permission
+ok 1196 - an isAlive that throws is treated as gone, not as alive
+ok 1197 - a record with no launcher is never confirmed — there is nothing to match
+ok 1198 - windows: a command line containing the launcher confirms it
+ok 1199 - windows: a DIFFERENT command line is refused — the pid was recycled
+ok 1200 - an empty command line is refused rather than treated as a match
+ok 1201 - a probe that throws is refused
+ok 1202 - an unsupported platform confirms nothing, so nothing is killed there
+ok 1203 - a process outlives a KILLED environment, and the next one reaps it
+ok 1204 - a graceful stop takes its processes with it # SKIP SIGTERM from another process is TerminateProcess on Windows; no handler can run
+ok 1205 - a GRANDCHILD dies too — killing the launcher is not enough
+ok 1206 - THE COUNT IS SCOPED TO ONE LAUNCHER, so a sibling test file cannot defeat it
+ok 1207 - an output frame lands in the buffer and the stream continues
+ok 1208 - an exit frame FINISHES the stream, so a dead process never looks like a thinking one
+ok 1209 - a signalled death keeps its null code and its signal
+ok 1210 - AN UNREADABLE FRAME IS COUNTED, NOT PRINTED
+ok 1211 - a null frame changes nothing
+ok 1212 - it reads output off the stream into the pane
+ok 1213 - frames split across chunks arrive whole
+ok 1214 - A MULTI-BYTE CHARACTER SPLIT ACROSS CHUNKS is not corrupted
+ok 1215 - an exit frame sets the status and the code, and stops reading
+ok 1216 - A 404 IS `gone`, NOT AN EMPTY CONSOLE
+ok 1217 - another error status is `failed` and names the code
+ok 1218 - a connection that never opens is `failed`, with the cause
+ok 1219 - A STREAM THAT ENDS WITHOUT AN EXIT IS `failed`, not `exited`
+ok 1220 - an ABORT CAUSED BY stop() is not a failure -- a closed pane must not read as a broken one
+ok 1221 - stop() is safe before start, and twice
+ok 1222 - A NON-EMPTY BUFFER WINS OVER THE STATUS -- last words are usually the cause of death
+ok 1223 - an empty pane always says WHY, and never renders as blank
+ok 1224 - before connecting it says so, rather than looking like a quiet process
+ok 1225 - the URL encodes the id, so a handle with odd characters still resolves
+ok 1226 - unreadable frames are counted on the follower, so a view can say the feed is broken
+ok 1227 - PROGRESS IS REPORTED WHEN THE PARSER HAS APPLIED, NOT WHEN THE BYTES ARRIVED
+ok 1228 - A STATUS-ONLY TRANSITION REPORTS, so a 404 does not leave 'connecting' on screen
+ok 1229 - A FAILED RESPONSE REPORTS TOO, and every transition goes through one setter
+ok 1230 - A STATUS RE-ASSERTED AS ITSELF REPORTS NOTHING
+ok 1231 - A META FRAME THAT WRITES NOTHING STILL REPORTS, because it changes what may be drawn
+ok 1232 - A BACKLOG NOTHING WILL READ IS RELEASED, not held for the life of the follower
+ok 1233 - A BACKLOG THE SCREEN WILL READ IS NOT DISCARDED
+ok 1234 - A REJECTED SCREEN CREATION ALSO RELEASES THE BACKLOG
+ok 1235 - a subscriber attached AFTER output was produced still sees it
+ok 1236 - a subscriber receives output produced after it attached
+ok 1237 - unsubscribing stops delivery, and does not disturb other subscribers
+ok 1238 - subscribing to an unknown id returns null rather than pretending
+ok 1239 - the replay buffer is BOUNDED
+ok 1240 - the buffer keeps the MOST RECENT output, not the oldest
+ok 1241 - a subscriber that THROWS does not stop the process or the other subscribers
+ok 1242 - buffers do not outlive the processes they belong to
+ok 1243 - a subscriber is told when the process exits, and with what code
+ok 1244 - a subscriber attached AFTER the exit is told immediately, not left waiting
+ok 1245 - an exit listener that throws does not disturb the others
+ok 1246 - subscribing without an exit listener is still allowed
+ok 1247 - THE DEFECT ITSELF, so this file cannot pass by describing something that does not happen
+ok 1248 - a character split across two chunks reaches a subscriber WHOLE
+ok 1249 - a chunk that is ALREADY a string is passed through untouched
+ok 1250 - A STDERR CHUNK BETWEEN TWO STDOUT READS does not corrupt either
+ok 1251 - A STREAM THAT CLOSES MID-CHARACTER SAYS SO, rather than ending in silence
+ok 1252 - a started process is written down, and reads back
+ok 1253 - the writing instance stamps itself as the OWNER, without being asked
+ok 1254 - an explicit owner is honoured over the default
+ok 1255 - several processes accumulate, and stopping removes only its own
+ok 1256 - stopping something unknown is not an error
+ok 1257 - a missing file is no processes, not an error
+ok 1258 - a CORRUPT record reads as empty rather than throwing
+ok 1259 - entries that are not process records are dropped, not trusted
+ok 1260 - clearOwned empties the record
+ok 1261 - recording survives a reader that never saw the file created
+ok 1262 - a chunk of whole lines splits into them, with nothing carried
+ok 1263 - A LINE SPLIT ACROSS CHUNKS is one line, not two
+ok 1264 - a line split across THREE chunks still arrives once
+ok 1265 - a trailing partial line is carried, never emitted early
+ok 1266 - CARRIAGE RETURN REWRITES THE LINE -- it does not end one
+ok 1267 - CRLF ends a line WITH its content -- the cursor moved, it did not erase
+ok 1268 - a carriage return OVERWRITES across a chunk boundary, leaving the tail it did not cover
+ok 1269 - a CRLF SPLIT ACROSS CHUNKS still ends the line with its content
+ok 1270 - empty lines are real lines and are kept
+ok 1271 - junk arguments do not throw and do not invent content
+ok 1272 - it shows the BOTTOM of the output, which is where a console is read
+ok 1273 - fewer lines than the pane is fine -- it does not pad to height
+ok 1274 - THE UNTERMINATED LINE IS SHOWN, or a waiting prompt looks like a dead console
+ok 1275 - the unterminated line is REPLACED in place when the rest arrives, not appended
+ok 1276 - A CHATTY PROCESS CANNOT GROW THE BUFFER -- the ring is bounded
+ok 1277 - the ring trims correctly when ONE chunk overflows it by itself
+ok 1278 - a nonsense maxLines falls back rather than producing a zero-length ring
+ok 1279 - lines are CLIPPED to the pane width, never wrapped
+ok 1280 - A CLIPPED COLOUR IS CLOSED, so it cannot bleed into the divider
+ok 1281 - an escape costs no columns, so colour does not steal room from text
+ok 1282 - a height of zero shows nothing and does not throw
+ok 1283 - length counts the unterminated line, because view would show it
+ok 1284 - clear forgets everything INCLUDING the carry
+ok 1285 - append returns the buffer, so a replay and the live feed chain
+ok 1286 - A SOUND SCREEN IS DRAWN, which is the whole point of the emulator
+ok 1287 - AN UNSOUND SCREEN IS NOT DRAWN, and the pane says what it is waiting for
+ok 1288 - it distinguishes 'nothing painted yet' from 'a partial screen'
+ok 1289 - WITH NO SCREEN AT ALL the pane says exactly what it always said
+ok 1290 - A NON-PAINTING PROCESS IGNORES THE SCREEN ENTIRELY
+ok 1291 - a screen is clipped to the pane, like every other row
+ok 1292 - A LINE THAT NEVER ENDS IS CAPPED, because maxLines bounds LINES and not bytes
+ok 1293 - THE COLUMN KEEPS COUNTING PAST THE CAP, which is what makes discarding safe
+ok 1294 - NEGATIVE CONTROL: an ordinary line is untouched by the cap
+ok 1295 - THE LINE CAP HOLDS FOR EVERY SCRIPT, not just for Latin text
+ok 1296 - AND THE MEMORY IT COSTS IS BOUNDED TOO, which is what the cap is for
+ok 1297 - A CARRIAGE RETURN OVERWRITES WIDE CHARACTERS BY CELL, not by unit
+ok 1298 - A COLUMN IS A CODE POINT WHEN THE CARRY ARRIVES AS A BARE STRING
+ok 1299 - the right pane gets what is left after the left column, two gaps and the divider
+ok 1300 - a terminal too narrow to split yields zero, not a negative width
+ok 1301 - NO right pane is a byte-for-byte no-op
+ok 1302 - a terminal too narrow to split falls back to the dashboard alone
+ok 1303 - the divider lands in the same column on every row
+ok 1304 - A COLOURED LEFT LINE DOES NOT MOVE THE DIVIDER
+ok 1305 - the taller side decides the height; neither side is truncated to the other
+ok 1306 - a left line wider than its column is CLIPPED, never allowed to push the divider
+ok 1307 - with no leftWidth given it measures the widest left line
+ok 1308 - trailing whitespace is trimmed, because the differential writer pays for every byte
+ok 1309 - junk lines are rendered as empty rather than the string 'undefined'
+ok 1310 - it counts printable characters, not bytes
+ok 1311 - AN ESCAPE IS NEVER CUT IN HALF
+ok 1312 - a clipped coloured line is RESET, so the colour does not tint the divider
+ok 1313 - escapes cost no width, so a fully-coloured short line survives whole
+ok 1314 - a COLOURED left line keeps all its visible characters, not just its first bytes
+ok 1315 - a served registry starts its plugins and says so
+ok 1316 - a service with no plugin is NAMED, not passed over in silence
+ok 1317 - a plugin that fails to start does not stop the others, and is reported
+ok 1318 - an unreadable registry is reported, and this host keeps running
+ok 1319 - a malformed plugin is refused and named, rather than failing at teardown
+ok 1320 - the report says nothing when there is nothing to say
+ok 1321 - startServicePlugins never throws, whatever the build does
+ok 1322 - a credential RESOLUTION is not a key, and the difference 401s everything
+ok 1323 - anything that is not a string becomes empty, never the word 'undefined'
+ok 1324 - a bare string is accepted, so a simpler resolver is not broken by this
+ok 1325 - daemon plugin currency on the wire
+ok 1326 - no --port means the default
+ok 1327 - a real port is taken
+ok 1328 - PORT 0 IS LEGAL, and this is the case the guard must not eat
+ok 1329 - --port WITH NOTHING AFTER IT is refused, not passed on as NaN
+ok 1330 - a value that is not a port is refused, and quoted back
+ok 1331 - `--port` as the LAST argument of several is still seen
+ok 1332 - production bootstrap supplies canonical win32/false identity to picker
+ok 1333 - production bootstrap supplies canonical linux/true identity to picker
+ok 1334 - production bootstrap preserves fail-closed behavior if the identity producer cannot answer
+ok 1335 - GET /health reports what this environment owns
+ok 1336 - GET /health NEVER reports agent status
+ok 1337 - POST /processes starts one for the named service
+ok 1338 - a request naming NO service is refused
+ok 1339 - REGISTRATION IS NOT AUTHORISATION: a refused launcher is refused from a known service
+ok 1340 - a launcher that cannot be READ is refused, not assumed fine
+ok 1341 - DELETE /processes/:id stops it
+ok 1342 - stopping something unknown is 204 too, because stopping is idempotent
+ok 1343 - GET /processes lists what is owned, with the service that owns each
+ok 1344 - an unknown route is 404 rather than a default action
+ok 1345 - an unsupported method on a known route is 405, not a silent GET
+ok 1346 - a body that is not an object is refused rather than coerced
+ok 1347 - the error body always carries a human reason
+ok 1348 - GET /health reports terminal support, so a consumer need not guess
+ok 1349 - GET /health reports this environment's OWN traffic
+ok 1350 - POST /processes/:id/input delivers the data
+ok 1351 - input to a process that is gone is a 404, not a silent success
+ok 1352 - input without string data is refused rather than coerced
+ok 1353 - POST /processes/:id/resize applies the dimensions
+ok 1354 - resizing a process with NO TERMINAL is 409, not 404
+ok 1355 - resizing a process that does not exist is 404
+ok 1356 - a nonsense dimension is refused with a reason
+ok 1357 - GET on the input route is 405, not a silent read
+ok 1358 - a bare launcher NAME is refused, even when it is on PATH
+ok 1359 - a process started on a REAL terminal runs, streams, and is released
+ok 1360 - the smoke script exits by itself, which is what makes this test possible
+ok 1361 - keys queued behind a send in flight, for two agents, are sent before the drain says done
+ok 1362 - a daemon that stopped answering cannot hold the terminal past the bound
+ok 1363 - quitting gives the screen back first, then drains, then exits
+ok 1364 - aify-env tui quits through quitView, with its own input's drain
+ok 1365 - a dead process is RELEASED through the runner, not merely forgotten
+ok 1366 - and it does NOT kill: a pid proved dead is never tree-killed
+ok 1367 - a live process is left alone
+ok 1368 - a process the probe could not judge is NOT stopped
+ok 1369 - the reaper reads the runner's CURRENT list on every sweep
+ok 1370 - a release that THROWS does not break the sweep for the others
+ok 1371 - release frees what stop frees, minus the kill
+ok 1372 - a pid that is not alive is DEAD
+ok 1373 - a pid that is alive is kept
+ok 1374 - a probe that THROWS makes the entry UNKNOWN, never dead
+ok 1375 - a probe returning something that is not a boolean is UNKNOWN
+ok 1376 - an entry with no usable pid is UNKNOWN, not dead
+ok 1377 - a mixed set is split three ways in one pass
+ok 1378 - a process that died without anyone calling stop() is still forgotten
+ok 1379 - a live process is left alone
+ok 1380 - an UNKNOWN entry is kept and reported, not reaped
+ok 1381 - sweeping twice is safe and reaps nothing the second time
+ok 1382 - POSITIVE CONTROL: the default probe says THIS process is alive
+ok 1383 - NEGATIVE CONTROL: the default probe says an impossible pid is not alive
+ok 1384 - defaultIsAlive says YES for this very process
+ok 1385 - defaultIsAlive says NO for a pid that cannot exist
+ok 1386 - defaultIsAlive treats EPERM as ALIVE, because it is
+ok 1387 - defaultIsAlive rethrows anything it cannot interpret
+ok 1388 - the reopened list shows that it is asking, not the old rows
+ok 1389 - Enter before the new answer starts nothing
+ok 1390 - CONTROL: once the new answer lands, Enter starts from it
+ok 1391 - IT EXITS NON-ZERO when nothing answers, because the wrapper execs it
+ok 1392 - AND IT SAYS WHERE IT LOOKED, so the reader can tell 'down' from 'wrong address'
+ok 1393 - IT DOES NOT START AN ENVIRONMENT TO SATISFY ITSELF
+ok 1394 - THE SAME REFUSAL THROUGH THE DISPATCHER, which is the path a wrapper takes
+ok 1395 - the start request CARRIES the caller's environment
+ok 1396 - it forwards names it has never heard of, because it knows no service
+ok 1397 - it does NOT forward what addresses the daemon itself
+ok 1398 - EVERY host-only name is actually dropped, derived from the list rather than sampled
+ok 1399 - an EMPTY environment is omitted, because {} would mean something else entirely
+ok 1400 - terminalSupport gives a DEFINITE answer, never a shrug
+ok 1401 - a started process appears in the registry with a pid, and leaves when it exits
+ok 1402 - output is streamed to a consumer
+ok 1403 - a file the allowlist refuses NEVER reaches spawn
+ok 1404 - the terminal path is taken when a terminal factory is available
+ok 1405 - without a terminal the runner still starts, and SAYS it fell back
+ok 1406 - stop() is idempotent and leaves the registry empty
+ok 1407 - two services' processes are both owned, and each knows whose it is
+ok 1408 - the registry hands out distinct ids
+ok 1409 - removing an unknown id is a no-op, not an error
+ok 1410 - list() returns a COPY, so a caller cannot mutate the registry through it
+ok 1411 - an OSC 0 title is picked out of a chunk
+ok 1412 - OSC 2 sets a title too
+ok 1413 - the LAST title in a chunk wins, because it is the current one
+ok 1414 - a string terminator ends a title as well as a bell
+ok 1415 - output with no title yields null, not an empty title
+ok 1416 - a sequence split across chunks is skipped rather than half-read
+ok 1417 - POSITIVE CONTROL: every sequence this module claims is a repaint is detected
+ok 1418 - ONLY RIS COUNTS, and the three sequences that used to are each a measured defect
+ok 1419 - MALFORMED METADATA FAILS CLOSED, because absent evidence is not evidence of completeness
+ok 1420 - NEGATIVE CONTROL: ordinary output is not a repaint
+ok 1421 - A CURSOR MOVE IS NOT A REPAINT, and this is the rule that would quietly break the module
+ok 1422 - A COMPLETE HISTORY IS SOUND FROM THE FIRST BYTE
+ok 1423 - A TRUNCATED HISTORY IS NOT SOUND UNTIL SOMETHING REPAINTS
+ok 1424 - NO META IS NOT SOUND, because no evidence must not read as fine
+ok 1425 - the reason is written for an operator, not for a protocol reader
+ok 1426 - A DECLARED RESIZE IS NOT SOUND, whatever the history says about completeness
+ok 1427 - A FULL REPAINT CLEARS A MOVED GEOMETRY, like every other reason to wait
+ok 1428 - THE REASON NAMES THE RESIZE, because 'output was dropped' would send an operator to the wrong place
+ok 1429 - SILENCE ABOUT A RESIZE IS NOT A CLAIM THAT NONE HAPPENED
+ok 1430 - POSITIVE CONTROL: the package is present and this file is testing the real thing
+ok 1431 - A PAINTED SCREEN KEEPS ITS POSITIONS, which a line buffer cannot
+ok 1432 - AN EMPTY CELL IS A SPACE, or every gap collapses and positioning is destroyed
+ok 1433 - CONCEALED TEXT NEVER LEAVES THIS MODULE, and the row does not shift
+ok 1434 - A CONCEALED WIDE GLYPH KEEPS ITS FOOTPRINT, or everything after it shifts left
+ok 1435 - UNICODE 11 IS ACTIVE, because the browser's terminal uses it and a default headless one does not
+ok 1436 - AN ESCAPE SPLIT ACROSS CHUNKS is reassembled, because a byte stream splits them
+ok 1437 - A WRITE IN FLIGHT STOPS COUNTING AT dispose(), because its callback still fires
+ok 1438 - GEOMETRY IS THE PRODUCER'S: the same bytes at two widths are two different screens
+ok 1439 - resize follows the producer, and a disposed screen ignores it
+ok 1440 - COLOUR SURVIVES THE ROUND TRIP, read back off the REAL cell API
+ok 1441 - NEGATIVE CONTROL: without colour the row carries NO escapes at all
+ok 1442 - NO ROW ENDS WITH A STYLE STILL OPEN, or it colours the pane beside it
+ok 1443 - a style is emitted ONCE PER RUN, not once per cell
+ok 1444 - ESC[2J IS NOT A BASELINE: it discloses text the real screen conceals
+ok 1445 - ESC[3J IS NOT A BASELINE: it clears scrollback, not the display
+ok 1446 - ESC[?1049h IS NOT A BASELINE: the normal screen underneath was never reconstructed
+ok 1447 - POSITIVE CONTROL: RIS IS a baseline -- the two screens agree
+ok 1448 - THE ADDON IS SEPARATELY OPTIONAL, and its absence is a THIRD acceptance arm
+ok 1449 - PHYSICAL ABSENCE: with the package unresolvable, create() returns null rather than throwing
+ok 1450 - A COMPLETE HISTORY CAN STILL DISCLOSE THROUGH THE LOG PATH, and the pane must refuse it
+ok 1451 - A FULL RESET RELEASES THE REFUSAL, so one conceal does not cost a process its pane for ever
+ok 1452 - A CONCEAL AFTER A RESET IN THE SAME CHUNK STILL LATCHES
+ok 1453 - RE-POINTING A PANE FORGETS THE PREVIOUS PROCESS'S CONCEAL
+ok 1454 - NEGATIVE CONTROL: an ordinary coloured log is still drawn as a log
+ok 1455 - A LATE SUBSCRIBER'S GEOMETRY: the retained bytes and the current size are not one moment
+ok 1456 - POSITIVE CONTROL: a painted screen comes back as its rows, in order
+ok 1457 - TRAILING blanks go: fifteen empty rows tell the reader nothing
+ok 1458 - LEADING blanks STAY, and that asymmetry is the whole rule
+ok 1459 - a gap in the MIDDLE survives
+ok 1460 - NEGATIVE CONTROL: an all-blank screen yields no lines
+ok 1461 - screenIsBlank answers from the ROWS, not from what fits
+ok 1462 - the screen keeps its LAST painted rows when it is taller than the pane
+ok 1463 - rows are clipped by VISIBLE COLUMNS, not by character count
+ok 1464 - a missing or non-string row is an empty one, not a crash
+ok 1465 - a zero-sized pane asks for nothing
+ok 1466 - nothing at all is no lines, and blank
+ok 1467 - the three vendored manifests load by runtime name, and anything else has none
+ok 1468 - every rule in every vendored manifest compiles, so none is silently skipped
+ok 1469 - known_agent_no_match_defaults_to_idle_fallback
+ok 1470 - rule_semantics_apply_gates_priority_and_line_regex
+ok 1471 - a priority tie goes to the rule that comes first (this project's, from manifest.rs)
+ok 1472 - bottom_non_empty_lines_uses_bottom_occurrence_for_repeated_text
+ok 1473 - top_non_empty_lines_uses_top_occurrence_for_repeated_text
+ok 1474 - top_non_empty_lines_requires_a_canonical_positive_bounded_count
+ok 1475 - engine details upstream's fixtures do not pin (this project's, each read from manifest.rs)
+ok 1476 - screen text is trimmed rows joined by newline, trailing blank rows dropped (terminal.rs)
+ok 1477 - claude_idle_prompt_with_background_shell_is_idle
+ok 1478 - claude_background_shell_without_foreground_evidence_is_idle_fallback
+ok 1479 - claude_live_turn_with_background_shell_remains_working
+ok 1480 - claude_blocker_with_background_shell_remains_blocked
+ok 1481 - claude_bash_prompt_with_dont_ask_again_option_matches_bash_rule
+ok 1482 - claude_permission_prompt_matches_at_every_cursor_position
+ok 1483 - claude_osc_title_braille_prefix_is_working
+ok 1484 - claude_osc_title_half_circle_frames_are_working
+ok 1485 - claude_osc_title_static_prefix_is_idle
+ok 1486 - claude_osc_progress_4_3_alone_does_not_force_working
+ok 1487 - claude_blocker_screen_outranks_stale_osc_progress
+ok 1488 - claude_osc_progress_4_0_is_idle
+ok 1489 - claude_blocker_screen_outranks_osc_idle_title
+ok 1490 - claude_mcp_elicitation_is_blocked
+ok 1491 - claude_empty_osc_empty_screen_is_idle_fallback
+ok 1492 - codex_osc_title_braille_spinner_is_working
+ok 1493 - codex_osc_title_action_required_is_blocked
+ok 1494 - codex_osc_title_plain_is_idle
+ok 1495 - codex_trust_directory_requires_live_top_region
+ok 1496 - codex_startup_update_requires_complete_live_chooser
+ok 1497 - codex_background_terminal_screen_does_not_override_osc_idle
+ok 1498 - codex_screen_working_fallback_handles_static_osc_title
+ok 1499 - codex_osc_working_remains_preferred_over_screen_fallback
+ok 1500 - codex_screen_blocker_outranks_working_fallback
+ok 1501 - codex_weak_blocker_without_current_prompt_is_blocked
+ok 1502 - codex_current_prompt_keeps_weak_text_from_overriding_working_fallback
+ok 1503 - codex_weak_blocker_ignores_finished_response_above_current_prompt
+ok 1504 - codex_weak_blocker_ignores_wrapped_current_prompt_text
+ok 1505 - codex_transcript_viewer_outranks_working_fallback
+ok 1506 - codex_screen_working_fallback_ignores_stale_and_prompt_text
+ok 1507 - codex_screen_working_fallback_ignores_interrupted_short_terminal
+ok 1508 - codex_osc_working_beats_weak_blocker_screen
+ok 1509 - hermes titles: hourglass is working, warning is blocked, check is idle, with or without a variation selector
+ok 1510 - hermes screen: an interrupt hint in the bottom lines is working, and a stale one above them is not
+ok 1511 - POSITIVE CONTROL: a change produces an escape, so the tests below are not measuring silence
+ok 1512 - NOTHING CHANGED MEANS NOTHING EMITTED, which is the whole cost argument
+ok 1513 - RETURNING TO PLAIN IS A RESET, not a restatement of every default
+ok 1514 - THE LOW SIXTEEN USE THEIR SHORT FORMS, and the rest use the long one
+ok 1515 - A 24-BIT COLOUR IS UNPACKED, because the cell API hands it over packed
+ok 1516 - A BACKGROUND IS ITS OWN RANGE, and default is 39/49 rather than absent
+ok 1517 - ATTRIBUTES ARE RESTATED IN FULL, which is why turning one OFF needs no rule of its own
+ok 1518 - sameStyle compares APPEARANCE, not identity
+ok 1519 - BIT FLAGS ARE TRUTHY, NOT TRUE, and reading them strictly would silently render nothing
+ok 1520 - A CELL MISSING A PREDICATE LOSES AN ATTRIBUTE, not the whole view
+ok 1521 - a default colour reports as DEFAULT rather than as index 0, which is black
+ok 1522 - the process view exposes what a plugin needs and nothing else
+ok 1523 - CONTROL: the fake Runner really has the methods the view withholds
+ok 1524 - the view passes calls straight through, holding no state of its own
+ok 1525 - a view without a Runner is refused rather than failing on first use
+ok 1526 - a half-declared plugin is refused at registration
+ok 1527 - two plugins cannot share a name
+ok 1528 - one plugin failing to start does not stop the others
+ok 1529 - every plugin is stopped even when one throws
+ok 1530 - stopping twice does not stop a plugin twice
+ok 1531 - a plugin that never started is never stopped
+ok 1532 - the credential is fetched per use, not captured at start
+ok 1533 - a host without a process view is refused
+ok 1534 - services are read with their endpoints, sorted
+ok 1535 - an ABSENT registry means no services, not an error
+ok 1536 - a MALFORMED registry yields no services rather than throwing
+ok 1537 - a service without an endpoint is skipped rather than half-read
+ok 1538 - fields aify-env does not use are IGNORED, not validated
+ok 1539 - a service that answers is reported as PASSED, carrying what it said
+ok 1540 - a service that does not answer is UNANSWERED, never failed
+ok 1541 - a service that answers UNHEALTHY is reported as FAILED, in its own words
+ok 1542 - a service answering with something that is not a health report is UNANSWERED
+ok 1543 - aify-env never reports agent status, whatever a service sends
+ok 1544 - COMPATIBILITY: a registry as aify-comms writes it is readable here
+ok 1545 - the declared version is read back as a number
+ok 1546 - a registry that declares no version says so, rather than claiming the current one
+ok 1547 - unparseable text has no version, so corruption is not reported as a version mismatch
+ok 1548 - the supported version is the one both writers declare
+ok 1549 - a build identifier is relayed beside the version when a service supplies one
+ok 1550 - a service that supplies no build is reported exactly as before
+ok 1551 - a non-string build is ignored rather than rendered
+ok 1552 - every managed process is stopped BEFORE the process exits
+ok 1553 - the server stops accepting before the processes are torn down
+ok 1554 - the exit does not wait on server.close's callback
+ok 1555 - the record is cleared only after the stops were attempted
+ok 1556 - one process that refuses to die does not strand the others
+ok 1557 - a second signal does not start a second teardown
+ok 1558 - a second signal AFTER the stops were issued exits instead of being swallowed
+ok 1559 - stops are entered one at a time, so a synchronous wedge still names its process
+ok 1560 - a stop that throws SYNCHRONOUSLY does not strand the processes after it
+ok 1561 - it says how many processes it is taking with it
+ok 1562 - a server that was never listening is not a reason to leak processes
+ok 1563 - anything that must stop first stops before the processes do
+ok 1564 - a decoration that fails to stop does not leave agents running
+ok 1565 - each process is NAMED before it is stopped, so a wedged stop says which one
+ok 1566 - a stop that never resolves still exits, and says which process wedged
+ok 1567 - when every stop returns, the record is cleared and nothing is reported stuck
+ok 1568 - a stop that REJECTS is not a wedge
+ok 1569 - the teardown names each blocking call BEFORE making it
+ok 1570 - a teardown that works does not narrate its last phase
+ok 1571 - the phase reported for a wedged process is the last one it ENTERED
+ok 1572 - a stop that ignores the phase hook is still reported, as starting
+ok 1573 - the exit WAITS for what must happen before the stops, when it takes a real round trip
+ok 1574 - a beforeStop that NEVER settles costs its budget, then the processes still stop and it exits
+ok 1575 - a second signal WHILE WAITING skips the wait and still stops the processes
+ok 1576 - an output frame decodes to the text the process printed
+ok 1577 - A NEWLINE INSIDE A CHUNK SURVIVES, which is the whole reason the wire is JSON
+ok 1578 - the single space after the colon is stripped, and only that one
+ok 1579 - an exit frame is TYPED, so an exit is never printed as output
+ok 1580 - A NULL EXIT CODE IS PRESERVED -- it is what a signalled death looks like
+ok 1581 - an absent signal stays ABSENT, so 'nothing killed it' is distinguishable
+ok 1582 - multiple data lines are joined per SSE, so a split payload FAILS LOUDLY
+ok 1583 - A FRAME THAT CANNOT BE READ IS REPORTED, never dropped
+ok 1584 - an output frame whose data is not a string is unreadable, not coerced
+ok 1585 - an exit frame whose data is not an object is unreadable
+ok 1586 - a frame with no data field carries nothing and is not invented into one
+ok 1587 - whole frames in one chunk all arrive, in order
+ok 1588 - A FRAME SPLIT MID-JSON IS NOT PARSED EARLY
+ok 1589 - a frame split BETWEEN the event line and its data line still reads as an exit
+ok 1590 - a frame split INSIDE the blank-line delimiter is still one frame
+ok 1591 - one byte at a time still yields exactly the frames that were sent
+ok 1592 - output and exit arriving together keep their order
+ok 1593 - an empty chunk changes nothing and does not throw
+ok 1594 - keep-alive blank lines between frames do not invent empty output
+ok 1595 - A NEWLINE IN THE OUTPUT DOES NOT END THE FRAME, which is why the payload is encoded
+ok 1596 - A NAMED FRAME IS INVISIBLE to a consumer that reads only `data:` as output
+ok 1597 - `signal` IS OMITTED RATHER THAN SENT EMPTY, so 'nothing killed it' stays distinguishable
+ok 1598 - EVERYTHING THIS FILE WRITES, THIS FILE READS BACK -- byte for byte, one byte at a time
+ok 1599 - A META FRAME ROUND-TRIPS, and it did NOT when the writer shipped without the reader
+ok 1600 - A META FRAME THAT DOES NOT MENTION A RESIZE IS READ AS ONE, not as a stable geometry
+ok 1601 - meta NUMBERS ARE COERCED ONCE, here, and zero survives as a real answer
+ok 1602 - a meta frame whose data is not an object is unreadable, not coerced
+ok 1603 - NEGATIVE CONTROL: the round trip can FAIL, so passing it means something
+ok 1604 - POSITIVE CONTROL: `s` opens the start list from the dashboard
+ok 1605 - `start` IS A DECLARED MODE, so reconciling cannot drop it by hand-typed omission
+ok 1606 - IT OPENS EVEN WITH NOTHING TO SHOW, unlike the actions menu
+ok 1607 - THE START CURSOR NEVER MOVES THE PROCESS SELECTION
+ok 1608 - ENTER ON AN EMPTY LIST REPORTS NOTHING, rather than choosing row 0 of nothing
+ok 1609 - STARTING DOES NOT CONFIRM, and that follows the rule rather than excusing itself from it
+ok 1610 - EVERY OTHER KEY IS TEXT FOR THE SEARCH, so nothing acts on the dashboard behind it
+ok 1611 - THE MODE SURVIVES AN EMPTY PROCESS LIST, which is the host it exists for
+ok 1612 - THE CURSOR AND THE COUNT SURVIVE A REDRAW, which this rebuild has dropped three fields to
+ok 1613 - POSITIVE CONTROL: a supplied list becomes the count the router wraps on
+ok 1614 - ENTER NAMES THE AGENT UNDER THE CURSOR, not the first one
+ok 1615 - A CHOICE IS NOT A `perform`, because that one carries a PROCESS
+ok 1616 - AN UNANSWERED LIST IS NOT AN EMPTY ONE, and opening it marks it unanswered again
+ok 1617 - THE CURSOR IS CLAMPED WHEN THE LIST SHRINKS, not reset
+ok 1618 - ROWS WITHOUT AN ID ARE DROPPED, because a row nobody can start is a row nobody should choose
+ok 1619 - POSITIVE CONTROL: the agents are drawn, with the cursor on the chosen row
+ok 1620 - AN UNANSWERED LIST SAYS SO, rather than claiming there is nothing to start
+ok 1621 - A PROBLEM IS DRAWN INSTEAD OF A FALSE 'NOTHING TO START'
+ok 1622 - IT DRAWS ON A HOST RUNNING NOTHING, which is the host most likely to want it
+ok 1623 - NOTHING IS DRAWN IN ANY OTHER MODE, so the list cannot leak onto the dashboard
+ok 1624 - THE REFUSALS ARE DRAWN UNDER THE OFFERS, so the rule is visible rather than asserted
+ok 1625 - AND ON AN EMPTY LIST TOO, which is the state that raises the question hardest
+ok 1626 - A ZERO OR A NAMELESS GROUP IS NOT A ROW
+ok 1627 - A LONG START LIST SCROLLS WITH ITS CURSOR and the way back stays on screen (0 processes)
+ok 1628 - A LONG START LIST SCROLLS WITH ITS CURSOR and the way back stays on screen (2 processes)
+ok 1629 - a good launcher becomes a spec the Runner can start
+ok 1630 - the launcher path survives beside the command that will run it
+ok 1631 - the caller's own args are carried through
+ok 1632 - a launcher that cannot be read FAILS CLOSED
+ok 1633 - a launcher with no shebang is refused, with the reason
+ok 1634 - a launcher with no harness marker is refused
+ok 1635 - an empty or binary file is refused before anything reads meaning into it
+ok 1636 - a request naming no service or no launcher is refused before any file is touched
+ok 1637 - on Windows a command that is not a path is refused with what to do about it
+ok 1638 - cwd and env are passed only when they are the right shape
+ok 1639 - UNDEFINED KEEPS MEANING INHERIT, even though a toolchain may now be added
+ok 1640 - the label is the caller's own name for the work, and nothing reads meaning into it
+ok 1641 - POSITIVE CONTROL: a managed agent on this host with no worker is offered
+ok 1642 - A LIVE WORKER IS NEVER OFFERED, because starting one gives the agent two
+ok 1643 - `starting` IS REFUSED THOUGH IT HAS NO WORKER, which liveness alone would get wrong
+ok 1644 - `misconfigured` IS REFUSED, because it is a row that could only ever fail
+ok 1645 - AN UNKNOWN STATUS FAILS CLOSED, so a word invented later is not silently offered
+ok 1646 - A RESIDENT IS NEVER OFFERED, because restarting one forks a managed twin
+ok 1647 - ANOTHER MACHINE'S AGENT IS NOT OFFERED, and the reason names where it does run
+ok 1648 - AN UNKNOWN MACHINE IDENTITY OFFERS NOTHING, rather than matching everything
+ok 1649 - MACHINE IDS COMPARE CASE-INSENSITIVELY, because one side lowercases and the other does not
+ok 1650 - AVAILABLE COMES FIRST AND THE ORDER IS STABLE, so an arrow key does not land on a different row
+ok 1651 - A MALFORMED ROSTER IS AN EMPTY LIST, not a throw inside a keyboard handler
+ok 1652 - THE TWO STATUS MAPS ARE DISJOINT, so no status has two answers
+ok 1653 - POSITIVE CONTROL: an agent with one dead session names it
+ok 1654 - A LIVE SESSION REFUSES, because the roster this list was built from is a snapshot
+ok 1655 - NO SESSION AT ALL NAMES THE REMEDY, because it is a normal state rather than a failure
+ok 1656 - THE MOST RECENTLY SEEN SESSION WINS, not whichever the service listed first
+ok 1657 - A LISTING THAT IS NOT A LIST REFUSES, and says the service did not answer with one
+ok 1658 - RESIDENTS ARE REFUSED, and the refusal is counted where a view can draw it
+ok 1659 - the summary's words are the REFUSAL's own, so the two cannot drift apart
+ok 1660 - NOTHING TO SUMMARISE IS AN EMPTY LIST, never a row saying zero
+ok 1661 - a REFUSED start is reported, with the service's reason
+ok 1662 - an accepted start says it is starting
+ok 1663 - a FAILED stop is reported, and a successful one too
+ok 1664 - the outcome words, from the two shapes the tiers answer in
+ok 1665 - THE DAEMON'S handlers hand the outcome back instead of dropping it
+ok 1666 - an attach refused on a narrow terminal says why (external review, T2)
+ok 1667 - the outcome stays above the hint, and a start says so again when its worker appears (v0.7.7)
+ok 1668 - a refusal too long for four lines keeps its opening and its cause, and says what it left out
+ok 1669 - a refusal longer than the terminal is wrapped, so its reason is read whole (2026-09-29)
+ok 1670 - THE CHUNKS ARRIVE IN ORDER even when the first POST is slow
+ok 1671 - a failed POST does not stop the next chunk
+ok 1672 - TWO TERMINALS DO NOT BLOCK EACH OTHER
+ok 1673 - PENDING OUTPUT IS BOUNDED, and the OLDEST is what goes
+ok 1674 - a forgotten terminal stops holding memory
+ok 1675 - A BURST OF CHUNKS BECOMES TWO POSTS, however big the burst is
+ok 1676 - AND A SERVICE THAT ANSWERS INSTANTLY DOES NOT COALESCE
+ok 1677 - A THROWING log() IS CONTAINED — a caller's logger cannot strand output or reject unhandled
+ok 1678 - POSITIVE CONTROL: plain ASCII is one column per character
+ok 1679 - EAST ASIAN WIDE IS TWO COLUMNS — the defect
+ok 1680 - an emoji is two columns however many code units it is
+ok 1681 - a combining mark costs nothing — it is drawn on the character before it
+ok 1682 - colour costs no columns
+ok 1683 - control characters draw nothing
+ok 1684 - AMBIGUOUS-WIDTH GLYPHS ARE NARROW, and this view is built out of them
+ok 1685 - pad measures what will be seen
+ok 1686 - clipping counts columns, so a budget of 4 fits two CJK characters
+ok 1687 - A WIDE CHARACTER THAT WOULD STRADDLE THE EDGE IS DROPPED, not half-drawn
+ok 1688 - a grapheme is never split
+ok 1689 - clip marks a shortening, clipToWidth does not, and both respect the budget
+ok 1690 - a cut inside colour closes it
+ok 1691 - a zero budget yields nothing, and never a stray escape
+ok 1692 - EMOJI PRESENTATION IS TWO CELLS, whatever the base character is
+ok 1693 - A FLAG IS ONE GRAPHEME AND TWO CELLS
+ok 1694 - the ranges the table was missing
+ok 1695 - CLIPPING SEGMENTS THE SAME BYTES WIDTH MEASURES
+ok 1696 - the ASCII fast path agrees with the general path on every character it claims
+ok 1697 - the fast path is refused for every string it must not answer for
+ok 1698 - the remembered widths are bounded, and eviction does not corrupt an answer
+ok 1699 - a string too long to be worth remembering is measured but not cached
+ok 1700 - a cached key does not hold on to the string it was sliced out of
+ok 1701 - wrapToWidth fills lines by display width and gives an overlong word its own line
+ok 1702 - at 100x24 with 12 agents, every agent row, the outcome and the hint are on screen
+ok 1703 - a collapsed HEALTH still says how many checks failed and how many are unknown
+ok 1704 - a frame with room is not collapsed
+ok 1705 - the outcome line survives any amount of fitting
+ok 1706 - no outcome, no line
+ok 1707 - the same bytes always produce the same build
+ok 1708 - the order files are listed in does not change the build
+ok 1709 - one changed byte changes the build
+ok 1710 - renaming a module changes the build even when every byte is the same
+ok 1711 - a name and its content cannot be confused for a shorter name and a longer content
+ok 1712 - the same code installed in two places reports one build
+ok 1713 - the build is short enough to compare by eye and long enough to mean something
+ok 1714 - the file list is DERIVED from the tree, so a new module counts
+ok 1715 - IT RECURSES, because the failure it warns about happened one directory down
+ok 1716 - EVERY bin entry point counts, not just the daemon
+ok 1717 - node_modules is NOT part of this program's identity
+ok 1718 - a directory that cannot be read contributes nothing, AND THE WALK SAYS SO
+ok 1719 - an ABSENT directory is complete, because a smaller program is not an unmeasured one
+ok 1720 - an empty tree yields an empty list rather than an invented entry
+ok 1721 - /health reports the build, so the banner describes the PROCESS and not the disk
+ok 1722 - a daemon that reports no build still answers /health
+ok 1723 - the banner shows the build beside the version
+ok 1724 - a missing build renders nothing rather than a placeholder
+ok 1725 - CONTROL: an unchanged tree reports the two identities EQUAL
+ok 1726 - an edited file moves onDisk and leaves boot alone
+ok 1727 - a file added under lib/plugins/ moves it, because the walk recurses
+ok 1728 - within the cache window the tree is not re-read
+ok 1729 - the DEFAULT window is the one the constant declares
+ok 1730 - an unreadable tree answers boot rather than throwing
+ok 1731 - THE MECHANISM: zero files is an absence, not the empty digest
+ok 1732 - the advertisement CARRIES the pair, which is the half an operator never sees otherwise
+ok 1733 - A PARTIAL walk is an absence, not a smaller program
+ok 1734 - CONTROL: an ABSENT directory is a complete answer, not an unreadable one
+ok 1735 - A READ THAT THROWS AT BOOT does not take the daemon down
+ok 1736 - it is OFF unless the environment asks for it
+ok 1737 - an explicit 1 turns it on, whitespace and all
+ok 1738 - the DLL this switch selects actually ships with the package
+ok 1739 - the branch it avoids is the one that kills a whole console
+ok 1740 - POSIX never sees the option, so this is safe to set anywhere
+ok 1741 - terminalSupport reports which kill path this environment will use
+ok 1742 - the view names the backend ONLY when it is the non-default one
+ok 1743 - POSITIVE CONTROL: a field that already travelled still travels
+ok 1744 - THE DEFECT: the three advertise fields reach the body
+ok 1745 - THE WHOLE POINT: the check can now answer, instead of reading ?? forever
+ok 1746 - a REFUSED credential now reaches the doctor as a failure, not as a shrug
+ok 1747 - a daemon that reports nothing is UNANSWERED, not a pass
+ok 1748 - advertising switched OFF is a pass, not a failure
+ok 1749 - a booted daemon posts an advertisement to every registered service
+ok 1750 - it sends NO id and NO cwdRoots, which are the two the service owns
+ok 1751 - the runtimes it advertises are the wrappers actually installed on this host
+ok 1752 - a 401 from the only service means NOT advertising, so its bridge keeps the job
+ok 1753 - a 500 is treated the same as a 401 -- any non-2xx is not an acceptance
+ok 1754 - an ACCEPTED advertisement does report as advertising, per service
+ok 1755 - a REAL daemon sends the credential the registry names, from its own environment
+ok 1756 - with no key in its environment the daemon sends NO header, not an empty one
+ok 1757 - a REAL advertisement carries NO bridge* key, at any depth
+ok 1758 - THE RING KEEPS A MESSAGE AND STAMPS IT
+ok 1759 - A REPEAT IS COUNTED, not stacked into another row
+ok 1760 - a DIFFERENT message opens a new row
+ok 1761 - IT IS BOUNDED, because this runs for the life of the daemon
+ok 1762 - blank messages are not rows
+ok 1763 - THE MESSAGE THE OPERATOR SAW REACHES THE VIEW, driven through startDashboard
+ok 1764 - A QUIET ENVIRONMENT SHOWS NO SECTION AT ALL
+ok 1765 - THE VIEW STILL RENDERS EVERYTHING ELSE, which is the control
+ok 1766 - THE SINK IS ROUTED, NOT DUPLICATED: the daemon writes stderr only when it owns no screen
+ok 1767 - POSITIVE CONTROL: with a screen and a keyboard, a view is actually started
+ok 1768 - Ctrl+C runs the DAEMON'S shutdown, not a view's exit
+ok 1769 - THE MENU OFFERS ONLY WHAT THIS TIER CAN DO -- stop, never restart
+ok 1770 - A CONFIRMED STOP REACHES THE RUNNER, which is the executor that was missing
+ok 1771 - AN ACTION THIS TIER CANNOT PERFORM DOES NOTHING, rather than stopping something
+ok 1772 - A RUNNER THAT REJECTS DOES NOT BECOME AN UNHANDLED REJECTION
+ok 1773 - `q` IS NOT WIRED, and that is what stops a stray keystroke reaping the fleet
+ok 1774 - keystrokes go straight to the runner, not over our own loopback port
+ok 1775 - a keystroke with nothing selected writes nowhere
+ok 1776 - NO KEYBOARD when stdin is a pipe, even though stdout is a screen
+ok 1777 - NO VIEW AT ALL when stdout is redirected
+ok 1778 - AIFY_NO_DASHBOARD opts a terminal out
+ok 1779 - a view that CANNOT DRAW does not stop the environment serving
+ok 1780 - the notices ring and the terminal size are handed to the view
+ok 1781 - BOTH CADENCES REACH THE VIEW, because a knob nothing passes has no hand on it
+ok 1782 - AND AN UNSET PANE CADENCE LEAVES THE VIEW'S OWN DEFAULT ALONE
+ok 1783 - (a) stopping the daemon view removes its resize listener
+ok 1784 - the one receipt whose daemon answers with its own pid and instance is found
+ok 1785 - a receipt whose port now answers as someone else is not believed
+ok 1786 - two live daemons are left unresolved, not guessed between
+ok 1787 - only the newest receipts are probed, and the rest are counted as unchecked
+ok 1788 - receipts are read newest first, and a non-loopback endpoint is never a candidate
+ok 1789 - only the newest receipts are READ, however many invocations there are (review, T3)
+ok 1790 - launches that never became ready cannot crowd out an older live daemon (review, T3 round 2)
+ok 1791 - content opens are capped whatever the receipts hold, and the rest is unchecked (review, T3 round 3)
+ok 1792 - eight malformed newer receipts leave an older live one unchecked, and say so
+ok 1793 - a live daemon found among the checked receipts is judged, and unchecked older ones are named (review, T3 round 3)
+ok 1794 - a live daemon older than eight valid stale receipts is reported as unchecked, not as none
+ok 1795 - a receipt or an answer without a real pid and instance authorizes nothing (review, T3)
+ok 1796 - the doctor judges the discovered daemon when the configured address is silent, and adds nothing when all were checked
+ok 1797 - nothing found and nothing unchecked is still a plain failure
+ok 1798 - running the code on disk PASSES, and says which build
+ok 1799 - a daemon behind its own disk FAILS, and prints BOTH identities
+ok 1800 - no aify-env answering is UNANSWERED, not current
+ok 1801 - a daemon too old to report the pair is UNANSWERED, not current
+ok 1802 - THE ROW IS ACTUALLY COLLECTED, in both branches of the report
+ok 1803 - an ACCEPTED claim passes and names the service
+ok 1804 - a REFUSED claim FAILS and names who holds the row
+ok 1805 - NO plugin at all FAILS — nothing here claims, so spawns are refused
+ok 1806 - a plugin that has NOT been told yet is UNANSWERED, never a quiet pass
+ok 1807 - a daemon too old to report plugins is UNANSWERED, not broken
+ok 1808 - RUNNING-BUT-SILENT and NOTHING-RUNNING do not print the same sentence
+ok 1809 - no aify-env answering is UNANSWERED, and says so
+ok 1810 - ACCEPTED and REFUSED are DISTINGUISHABLE — the control
+ok 1811 - one accepted and one silent passes, and still NAMES the silent one
+ok 1812 - a refusal WINS over an acceptance, because the failure is the actionable half
+ok 1813 - POSITIVE CONTROL: an unknown id has no meta, which is how 404 stays distinguishable
+ok 1814 - A PIPED PROCESS REPORTS ZERO SIZE, which is a fact rather than a missing value
+ok 1815 - THE PRODUCER'S GEOMETRY IS ON THE WIRE, asked of the pty rather than assumed
+ok 1816 - A TRUNCATED REPLAY SAYS SO, and keeps saying so afterwards
+ok 1817 - NEGATIVE CONTROL: a replay that FITS is not reported as truncated
+ok 1818 - THE FLAG IS SET WHERE THE LOSS HAPPENS, not inferred from a full-looking buffer
+ok 1819 - A RESIZE IS ANNOUNCED, because geometry is a stream and not a fact read once
+ok 1820 - NEGATIVE CONTROL: a subscriber that wants no geometry still gets its output
+ok 1821 - A RESIZE INSIDE THE REPLAY WINDOW IS DECLARED
+ok 1822 - A REFUSED RESIZE DECLARES NOTHING, because the geometry did not move
+ok 1823 - IT IS A WINDOW QUESTION AND NOT A LATCH, or one console resize costs a pane for ever
+ok 1824 - every declared export resolves to a file that exists
+ok 1825 - every declared export actually imports
+ok 1826 - the host API a service plugin is built against is declared
+ok 1827 - the daemon entry point is NOT part of the importable surface
+ok 1828 - package.json is exported, because tooling reads it
+ok 1829 - the published files include everything the exports point into
+ok 1830 - with no file and no environment, the local socket is on
+ok 1831 - the file turns it off, and says so when asked where the value came from
+ok 1832 - the environment beats the file, in both directions
+ok 1833 - a file that cannot be used yields the default rather than throwing
+ok 1834 - a flag the operator wrote as a word is read as that word, not as no opinion
+ok 1835 - only words that mean something are read from the environment
+ok 1836 - writing a setting keeps every other key the file holds
+ok 1837 - writing a setting into a damaged file starts a sound one rather than failing
+ok 1838 - another tier's `version` survives an aify-env install
+ok 1839 - a file nobody has stamped still gets a version
+ok 1840 - the installer leaves an operator's value alone, whatever type they wrote it as
+ok 1841 - a start control RUNS what the service asked for, with its argv
+ok 1842 - an agent the operator keeps out of herdr is started with space: false, and only then
+ok 1843 - THE SIZE THE PTY OPENED AT IS REPORTED BACK, beside the pid
+ok 1844 - a process with NO terminal reports no size at all
+ok 1845 - reporting the size did not displace the handle or the pid beside it
+ok 1846 - THE SERVICE'S ENVIRONMENT WINS OVER AN INHERITED ONE
+ok 1847 - WHAT THE SERVICE SAYS A WORKER MUST NEVER INHERIT IS REMOVED from this host's environment
+ok 1848 - launchEnv ignores an unsetEnv that is not a list of names
+ok 1849 - the SHIM is refused and the launcher beside it is used
+ok 1850 - when NO candidate is accepted, every file it looked at is named
+ok 1851 - a command that resolves to nothing is refused, and says so
+ok 1852 - A WORKSPACE OUTSIDE THE ADVERTISED ROOTS IS REFUSED, and nothing starts
+ok 1853 - a terminal with NO argv is refused rather than split from its command string
+ok 1854 - input, resize and stop reach the host and are reported
+ok 1855 - A REFUSED WRITE IS REPORTED AS FAILED, not as delivered
+ok 1856 - A REFUSED RESIZE IS REPORTED AS FAILED, so no geometry is stored that nothing accepted
+ok 1857 - A RUNNER THAT ANSWERS NOTHING IS STILL A SUCCESS, so the guard fires on a CLAIM
+ok 1858 - an action this host does not implement is NAMED, not dropped
+ok 1859 - a start that THROWS is reported with the host's own reason
+ok 1860 - EVERY PATH THAT CLAIMS A CONTROL ALSO REPORTS IT
+ok 1861 - a service that cannot be reached does not stop the next pass
+ok 1862 - ONE BAD CONTROL DOES NOT HIDE THE ONES BEHIND IT
+ok 1863 - an empty queue is IDLE, which is the usual case and must be cheap
+ok 1864 - a started terminal is subscribed BY THE RUNNER'S OWN ID, not the terminal id
+ok 1865 - A SUBSCRIPTION THAT ATTACHED TO NOTHING FAILS THE CONTROL
+ok 1866 - output is CARRIED to the service, not merely listened for
+ok 1867 - THE EXIT IS REPORTED, with its code and signal kept apart
+ok 1868 - a SIGNALLED exit keeps its signal and reports no code
+ok 1869 - a failed OUTPUT post does not stop the next chunk
+ok 1870 - the subscription happens BEFORE the control is reported complete
+ok 1871 - a control for a terminal this host never started is REFUSED with that reason
+ok 1872 - STOPPING FORGETS THE TERMINAL, so a stale handle cannot be reused
+ok 1873 - the book answers EMPTY for an unknown terminal, never the terminal id
+ok 1874 - EVERY PASS REPORTS THE TERMINALS THIS HOST IS RUNNING
+ok 1875 - the liveness frame is EMPTY and carries NO status
+ok 1876 - AN EXITED TERMINAL IS NOT REPORTED ALIVE
+ok 1877 - a failed liveness report does not stop the pass
+ok 1878 - A GIVEN-UP TERMINAL IS ADOPTED, NOT DUPLICATED AND NOT KILLED
+ok 1879 - a terminal the service NO LONGER HAS is adopted too
+ok 1880 - A LIVE TERMINAL IS STILL REFUSED — adoption must not become a takeover
+ok 1881 - AN OUTAGE IS NOT PERMISSION — an unreadable answer refuses
+ok 1882 - the adopted terminal CARRIES OUTPUT, and the given-up one no longer does
+ok 1883 - an adoption reports the handle and the PID, so the host and the fleet can be matched
+ok 1884 - a runner that has forgotten the process FAILS the control rather than claiming success
+ok 1885 - A SECOND WORKER IS REFUSED — THE LIVE SESSION WINS
+ok 1886 - the refusal NAMES the live terminal, so the caller can act on it
+ok 1887 - A RESTART STILL WORKS: stop first, then start
+ok 1888 - a worker that EXITED does not block its own replacement
+ok 1889 - a DIFFERENT agent's worker is never refused or touched
+ok 1890 - the same terminal restarting is NOT treated as a duplicate of itself
+ok 1891 - A TERMINAL THE SERVICE NO LONGER HAS GETS ITS WORKER STOPPED
+ok 1892 - it says WHY it stopped one, because an unexplained kill is worse than a leak
+ok 1893 - A TERMINAL THE SERVICE REPORTS STOPPED GETS ITS WORKER STOPPED
+ok 1894 - every END status the service uses is acted on, not just the one that was measured
+ok 1895 - A LIVE STATUS IS LEFT ALONE — this is the direction that kills working sessions
+ok 1896 - an answer with NO terminal at all changes nothing
+ok 1897 - A WORKER THAT IS STILL PRODUCING IS NEVER STOPPED, whatever the service says
+ok 1898 - OUTPUT RESETS THE CLOCK, and the stream is what resets it
+ok 1899 - a FRESH worker is never a candidate, even reported failed
+ok 1900 - A DELETED TERMINAL IS STOPPED ONCE IT HAS GONE QUIET
+ok 1901 - A DELETED TERMINAL THAT IS STILL WRITING IS LEFT ALONE
+ok 1902 - it says WHY it stopped one on an end status too
+ok 1903 - AN OUTAGE IS NOT A 404 — a worker survives the service being down
+ok 1904 - a failure to stop the orphan still forgets it, so the pass cannot loop on it
+ok 1905 - a process the reaper RELEASES tells its exit listeners, exactly once
+ok 1906 - a process that EXITED on its own is not reported again by a later release
+ok 1907 - a terminal is HELD only while the runner still runs its process
+ok 1908 - liveness frames go ONLY to terminals the host holds a process for
+ok 1909 - a started terminal is HELD before the service is told it started
+ok 1910 - the heartbeat carries heldTerminals INSIDE metadata, beside the identity
+ok 1911 - a heartbeat that was given NO list sends none -- absent is not empty
+ok 1912 - the plugin's heartbeat names what it holds, and stops naming what the runner dropped
+ok 1913 - stopping sends an OFFLINE beat holding nothing, and waits for an exit marker in flight
+ok 1914 - switched off, nothing is attempted at all
+ok 1915 - on Windows it opens a named pipe and does not touch the filesystem
+ok 1916 - a Windows pipe name cannot be guessed, because nothing else about it is private
+ok 1917 - on POSIX it clears a stale socket file first and locks the new one to this user
+ok 1918 - the socket is BORN locked, not locked a moment after it is born
+ok 1919 - a socket that could not be locked is never advertised
+ok 1920 - the mode is READ BACK, so a chmod that succeeded and did nothing is still caught
+ok 1921 - a directory other accounts can write to gets no socket at all
+ok 1922 - a directory owned by another account gets no socket, even at mode 700 # SKIP no uids on this platform
+ok 1923 - a directory that is a symbolic link gets no socket, even when its target is ours # SKIP the unix branch needs real unix symlinks
+ok 1924 - the directory is this user's own, never the shared temp root
+ok 1925 - a stale file that cannot be removed does not stop the attempt
+ok 1926 - a socket that cannot listen is reported and the daemon carries on
+ok 1927 - the frame ceiling is a real bound, not a suggestion
+ok 1928 - the host config path sits beside the registry, not inside it
+ok 1929 - askIncumbent answers null unless an aify-env identifies itself by what it owns
+ok 1930 - POSITIVE CONTROL: a bare digit still jumps
+ok 1931 - A MULTI-CHARACTER CHUNK IS NOT A DIGIT KEY
+ok 1932 - a NaN selection is healed by the thing whose job is reconciling it
+ok 1933 - A POISONED SELECTION CANNOT ATTACH, and Ctrl+C still stops the daemon
+ok 1934 - WHEN THE ATTACHED PROCESS EXITS, THE KEYBOARD LETS GO
+ok 1935 - NEGATIVE CONTROL: an unrelated process exiting does NOT detach
+ok 1936 - AN ESCAPE SEQUENCE IS DROPPED WHEREVER IT STARTS IN THE CHUNK
+ok 1937 - ACCEPTING A SEARCH THAT MATCHES NOTHING DOES NOT MOVE THE SELECTION
+ok 1938 - and attaching after that empty search reaches the agent they were on
+ok 1939 - ATTACHING FROM THE MENU GOES TO THE AGENT THE MENU NAMED, not to the cursor
+ok 1940 - AND ON A PANE THAT IS ALREADY FOLLOWING SOMETHING, which is where the reconcile undid it
+ok 1941 - A REVEALED PANE ATTACHING TO WHAT IT IS ALREADY WATCHING KEEPS WATCHING IT
+ok 1942 - A TARGET THAT VANISHED REFUSES THE ATTACH, rather than taking whoever replaced it
+ok 1943 - ATTACHING FROM THE DASHBOARD STILL FOLLOWS THE CURSOR
+ok 1944 - THE MENU'S SUBJECT IS RELEASED BY ATTACHING, like every other way out of it
+ok 1945 - A RECOVERED STREAM DOES NOT UNLOCK INPUT UNTIL A FRAME SHOWING IT HAS BEEN DRAWN
+ok 1946 - A STREAM THAT BREAKS AFTER A GOOD FRAME STOPS INPUT IMMEDIATELY
+ok 1947 - POSITIVE CONTROL: every declared key actually does something when pressed
+ok 1948 - EVERY KEY THE ROUTER BINDS TO A FEATURE IS DECLARED
+ok 1949 - EVERY DECLARED KEY IS IN `aify-env --help` AND IN THE README
+ok 1950 - A HINT NEVER NAMES A KEY THAT DOES NOTHING IN THAT MODE
+ok 1951 - NEGATIVE CONTROL: the hint reader can actually see a key in a hint
+ok 1952 - AN IDLE HOST IS STILL OFFERED THE ONE KEY THAT HELPS IT
+ok 1953 - NO HINT IS EVER CUT MID-ITEM, at any width a terminal can be
+ok 1954 - `q quit` SURVIVES EVERY WIDTH, because it is the one that says how to leave
+ok 1955 - THE UNDISCOVERABLE KEYS OUTLAST THE OBVIOUS ONES
+ok 1956 - THE HINT NEVER EXCEEDS THE TERMINAL, which is what a wrapped row costs here
+ok 1957 - THE WAIT NAMES WHOEVER ANSWERED, and nobody when it was not told
+ok 1958 - THE README NAMES NO ACTION THIS TIER CANNOT PERFORM
+ok 1959 - WHERE NO PANE CAN BE DRAWN the hint offers neither the console nor attach (external review, T2)
+ok 1960 - on Windows the EXTENSIONLESS launcher is offered before the .cmd shim
+ok 1961 - the shim is still OFFERED, not discarded
+ok 1962 - on Linux there is one path and this is inert
+ok 1963 - PATH is searched in ORDER, so an earlier directory wins
+ok 1964 - a command that resolves to NOTHING returns an empty list, never a guessed path
+ok 1965 - a PATH-shaped argument is taken as given and never searched for
+ok 1966 - a named path that does not exist yields nothing rather than itself
+ok 1967 - an empty PATH is survivable and returns nothing
+ok 1968 - preferLauncherOverShim offers the sibling only when it is really there
+ok 1969 - a filesystem that THROWS is treated as absent, not as present
+ok 1970 - POSITIVE CONTROL: the fixture really does put starttime in field 22
+ok 1971 - the start time is boot time plus starttime ticks
+ok 1972 - A COMM CONTAINING SPACES AND PARENS DOES NOT SHIFT THE FIELDS
+ok 1973 - A START TIME IS AFTER BOOT, WHICH IS THE PROPERTY THE OLD PROBE FAILED
+ok 1974 - an unreadable or malformed source answers null rather than a wrong number
+ok 1975 - every menu row carries a one-line description
+ok 1976 - the stop confirmation states the consequence, under the question
+ok 1977 - on a narrow terminal the explanation is what gets clipped, never how to refuse
+ok 1978 - every action in the vocabulary has a description, so a new one cannot arrive bare
+ok 1979 - a mode switch, a reset, a scroll region and a clipboard write do not reach the terminal
+ok 1980 - CONTROL: a plain line is unchanged and colour is kept
+ok 1981 - CONTROL: a line that moves the cursor is still refused, not printed
+ok 1982 - displayable keeps text and colour, turns line breaks into spaces, and drops every other control
+ok 1983 - a 20-row pane on a 40-row screen shows the prompt
+ok 1984 - CONTROL: a pane tall enough for the whole screen shows both ends
+ok 1985 - a short screen with blank rows below it is not pushed off the top
+ok 1986 - the painted rows of a screen run to its last non-blank row, whatever is blank above it
+ok 1987 - the title says when the producer has painted more rows than the pane
+ok 1988 - a tall PTY with few painted rows, all shown, claims no crop
+ok 1989 - painted rows beyond the pane's body are claimed, with how many are out of view
+ok 1990 - exactly as many painted rows as the body holds is not a crop
+ok 1991 - POSITIVE CONTROL: with no query every process is visible
+ok 1992 - typing in the picker narrows the list
+ok 1993 - THE PANE FOLLOWS THE FILTER, not the old index
+ok 1994 - the match reads label, title and id — everything on screen
+ok 1995 - matching is case-insensitive, because nobody types an agent id in caps
+ok 1996 - a query matching NOTHING selects nothing, and the pane lets go
+ok 1997 - accepting keeps the chosen process and restores the whole list
+ok 1998 - Ctrl+] abandons the search and goes back to where it started
+ok 1999 - a digit jumps within the WHOLE list when no picker is open
+ok 2000 - a process exiting under a filter clamps the selection into the narrowed list
+ok 2001 - a spawn request becomes a REGISTERED WARM AGENT, with only aify-env involved
+ok 2002 - a request outside the advertised roots is refused over the wire, and nothing starts
+ok 2003 - the route hands the runner the launcher it was asked to start
+ok 2004 - and the runner writes THAT into the record, not the interpreter it spawned
+ok 2005 - a caller that names no launcher still gets a record, and the old value
+ok 2006 - verifying against the interpreter matches a process that is not ours
+ok 2007 - verifying against the launcher does not
+ok 2008 - and our own process still verifies, so reaping is narrowed rather than disabled
+ok 2009 - separator spelling does not decide whether a process may be killed
+ok 2010 - an entry with no launcher is never reaped
+ok 2011 - A SIBLING AGENT on a recycled pid is REFUSED, though its launcher matches exactly
+ok 2012 - and OUR OWN process still verifies, so this narrows rather than disables the reaper
+ok 2013 - a start time that cannot be read means NO KILL
+ok 2014 - a record with NO start time is never reaped either
+ok 2015 - the tolerance is a real number, and it is what the sibling test turns on
+ok 2016 - Ctrl+L is a declared view key, and pressing it redraws
+ok 2017 - a control key is named the way the documents write it
+ok 2018 - Ctrl+L is in `aify-env --help` and in the README table
+ok 2019 - POSITIVE CONTROL: both anchors are present, so this test is measuring something
+ok 2020 - THE LISTENER IS REGISTERED BEFORE THE WAIT, not after it
+ok 2021 - there is exactly ONE never-resolving await, so 'before it' is unambiguous
+ok 2022 - POSITIVE CONTROL: the emulator is installed, so these tests are not measuring its absence
+ok 2023 - A SCREEN IS BUILT AT THE PRODUCER'S SIZE, from the meta frame that arrives first
+ok 2024 - A PIPED PROCESS GETS NO SCREEN, because 0x0 is not a terminal
+ok 2025 - BYTES THAT ARRIVE WHILE THE EMULATOR IS LOADING ARE NOT LOST
+ok 2026 - THE PANE DRAWS THE SCREEN once the baseline is sound
+ok 2027 - A TRUNCATED REPLAY IS NOT DRAWN, because it may be confidently wrong
+ok 2028 - A FULL REPAINT RESCUES IT, which is what stops this being a permanent refusal
+ok 2029 - A SPLIT RESET IS STILL SEEN, because a socket breaks wherever it likes
+ok 2030 - THE SCREEN IS NOT CALLED SOUND BEFORE THE PARSER HAS APPLIED THE RESET
+ok 2031 - A CHUNK IS JUDGED ONCE, or a replay can INVENT a reset that never arrived
+ok 2032 - A TRUNCATED SUFFIX IS REFUSED EVEN WHEN IT LOOKS LIKE A LOG
+ok 2033 - A TRUNCATED REPLAY IS REFUSED WITH NO SCREEN AT ALL, which is the case without an emulator
+ok 2034 - UNKNOWN METADATA REFUSES TOO, and this reverses a call I made
+ok 2035 - NEGATIVE CONTROL: a COMPLETE log is still shown, or the fix has removed the feature
+ok 2036 - NEGATIVE CONTROL: a piped process with a complete history still shows its output
+ok 2037 - A LATER meta RESIZES THE SCREEN, so the reconstruction follows the producer
+ok 2038 - A RESIZE AFTER THE SCREEN EXISTS ALSO FOLLOWS, which is the ordinary case
+ok 2039 - NEGATIVE CONTROL: a meta that repeats the SAME size does not disturb the screen
+ok 2040 - A RESIZE CANNOT OVERTAKE OUTPUT ALREADY QUEUED, on either arm
+ok 2041 - STOP DISPOSES THE SCREEN, so it cannot outlive its pane
+ok 2042 - A SCREEN STILL LOADING WHEN THE PANE CLOSES IS DISPOSED ON ARRIVAL
+ok 2043 - stop() is safe twice, and a follower that never built a screen stops cleanly
+ok 2044 - letters type into the search, j and k included; arrows move
+ok 2045 - typing puts the cursor back on the first match
+ok 2046 - backspace deletes, and an escape sequence is not typed
+ok 2047 - Ctrl+] closes the list and forgets the search
+ok 2048 - the search survives a redraw, with and without processes
+ok 2049 - both lists match a search the same way
+ok 2050 - Enter starts the agent under the cursor in the FILTERED list
+ok 2051 - a search that matches nothing starts nothing
+ok 2052 - a paste is typed into the search
+ok 2053 - the list replaces the table, echoes the search and counts N of M
+ok 2054 - q quits only where the router quits, so the hint cannot promise it inside a search
+ok 2055 - typedText keeps what precedes an escape and drops control characters
+ok 2056 - a row is searched on what it shows: name, id, status and runtime
+ok 2057 - the list says what is off screen, and nothing when all of it is on
+ok 2058 - a search that matches nothing says so instead of 'nothing to start'
+ok 2059 - `aify-env tui` is still on screen seconds later
+ok 2060 - `--once` still renders one frame and leaves
+ok 2061 - the refusal path stops this process describing the host
+ok 2062 - AND THE FIRST BEAT IS GUARDED TOO, not just the timer
+ok 2063 - POSITIVE CONTROL: the dashboard still routes the keys it always did
+ok 2064 - a digit selects that row outright
+ok 2065 - a digit past the end of the list does NOTHING, rather than clamping
+ok 2066 - a digit SELECTS and does not attach
+ok 2067 - 0 is not a jump, because there is no row zero on a 1-based list
+ok 2068 - g opens the picker with an empty query
+ok 2069 - typing builds the query, backspace takes it back
+ok 2070 - j and k are TEXT in the picker, not movement
+ok 2071 - digits are text in the picker too
+ok 2072 - arrows still move in the picker
+ok 2073 - an escape sequence is not typed into the query
+ok 2074 - Enter accepts: the picker closes and the selection is kept
+ok 2075 - Ctrl+] closes the picker and drops the filter
+ok 2076 - a picker over an empty list stays open
+ok 2077 - Ctrl+C is an INTERRUPT and q is a QUIT, in every dashboard state
+ok 2078 - Ctrl+C in the PICKER cancels the search (v0.7, F1)
+ok 2079 - NEGATIVE CONTROL: Ctrl+C inside the PANE still reaches the process
+ok 2080 - NEGATIVE CONTROL: digits and g inside the PANE reach the process untouched
+ok 2081 - initialFocus carries a query, so a picker has somewhere to start
+ok 2082 - an environment reporting terminals UNAVAILABLE is reported unavailable
+ok 2083 - an environment reporting terminals AVAILABLE is reported available
+ok 2084 - the conpty backend flag survives into the snapshot
+ok 2085 - a missing or malformed block is UNAVAILABLE with a reason, not available
+ok 2086 - an environment that did not answer at all says so
+ok 2087 - POSITIVE CONTROL: a frame that already fits is returned untouched
+ok 2088 - THE FRAME IS NEVER TALLER THAN THE TERMINAL
+ok 2089 - THE SELECTION STAYS VISIBLE, which is the whole point of the window
+ok 2090 - the window says how much it is hiding
+ok 2091 - no `rows` means unbounded, which is what a pipe and `--once` want
+ok 2092 - windowAround centres, then clamps at both ends
+ok 2093 - composeConsole clamps whatever it is handed
+ok 2094 - A CLIPPED CELL CLOSES ITS COLOUR, so the style cannot bleed down the frame
+ok 2095 - colour costs no columns
+ok 2096 - clip marks a shortening; clipToWidth does not
+ok 2097 - THE DASHBOARD IS DRAWN FOR THE WIDTH IT WILL GET
+ok 2098 - A PROCESS'S OWN TITLE CANNOT MOVE OR CLEAR THE SCREEN
+ok 2099 - NEGATIVE CONTROL: an ordinary title is untouched
+ok 2100 - the length cap is applied AFTER stripping
+ok 2101 - the hint is shown even when NOTHING is running
+ok 2102 - A NARROW TERMINAL IS A LAYOUT, NOT AN INPUT TO OVERRIDE
+ok 2103 - THE TABLE DOES NOT OVERSHOOT, even when the fixed columns nearly fill the screen
+ok 2104 - the terminals line is clipped like everything else
+ok 2105 - AN ATTACHED PANE SAYS SO IN ITS HEADER
+ok 2106 - the pane header still fits its column when it says so
+ok 2107 - no phantom column when there is no keyboard
+ok 2108 - one unknown process is described in the singular
+ok 2109 - the view reads at least the columns the operator asked for
+ok 2110 - EVERY FIELD THE VIEW RENDERS IS SUPPLIED BY /health
+ok 2111 - A MANAGED AGENT IS NAMED, which is the whole ask
+ok 2112 - uptime is DERIVED here, because the view is pure and holds no clock
+ok 2113 - a process with no start time reports NULL uptime rather than a number
+ok 2114 - nothing about what the agent is DOING crosses this boundary
+ok 2115 - an empty list is empty, not absent
+ok 2116 - a process ending by any path releases a live view's screen and keyboard
+ok 2117 - a view that was stopped leaves no exit listener behind
+ok 2118 - CONTROL: a one-shot render takes no screen and listens for nothing
+ok 2119 - an uncaught exception in the process still hands the screen back
+ok 2120 - aify-env tui leaves on Ctrl+Break and a hangup as well as SIGINT and SIGTERM
+ok 2121 - a row as wide as or wider than the one it replaces is not followed by an erase
+ok 2122 - CONTROL: a row SHORTER than the one it replaces is still erased after its text
+ok 2123 - the first frame clears the screen once and erases no row after it
+ok 2124 - the live view enters an alternate screen with the cursor hidden, and leaves it on stop
+ok 2125 - CONTROL: a single --once frame stays on the operator's screen
+ok 2126 - a signalled death is named, and named loudly
+ok 2127 - a clean exit says so, and is not mistaken for silence
+ok 2128 - a non-zero exit carries its number
+ok 2129 - an unobserved death says so rather than inventing a zero
+ok 2130 - the newest death is at the TOP
+ok 2131 - an environment that has lost nothing shows no panel at all
+ok 2132 - a process with no label still gets a row
+ok 2133 - POSITIVE CONTROL: the process table renders at all
+ok 2134 - with a keyboard, the view says what to press
+ok 2135 - THE HINT IS MODE-AWARE, because the same key does three different things
+ok 2136 - WITHOUT a keyboard there is no hint, because there is nothing to press
+ok 2137 - the DAEMON'S view does not offer `q`, and the client's does
+ok 2138 - no hint when nothing is running, because there is nothing to move through
+ok 2139 - a lane that just emitted is marked as producing
+ok 2140 - a lane that has gone silent is marked differently
+ok 2141 - NO EVIDENCE RENDERS AS NOTHING, not as quiet
+ok 2142 - the mark does not displace the columns that were already there
+ok 2143 - THE VIEW STILL CLAIMS NOTHING ABOUT AGENTS
+ok 2144 - THE STATUS TRAVELS — a lossy knock reports a healthy environment as failed
+ok 2145 - the view carries the doctor's verdicts
+ok 2146 - A HEALTHY HOST READS HEALTHY, not failed
+ok 2147 - the panel renders a passing count, and says so plainly when all pass
+ok 2148 - ONLY THE FAILURES ARE LISTED, because the panel is for what needs attention
+ok 2149 - NOT COLLECTED is not the same as HEALTHY
+ok 2150 - a failing check is marked differently from an unanswered one
+ok 2151 - the view does not re-judge a verdict
+ok 2152 - collecting the checks costs NO extra requests
+ok 2153 - a check that throws leaves a view rather than no view
+ok 2154 - COLLECTION IS PURE OF THE HOST — every input is injected
+ok 2155 - an absent environment is FAILED and its contents UNANSWERED, never zero
+ok 2156 - the checks arrive in READING order
+ok 2157 - THE DETAIL DROPS AN ENDPOINT THE ROW ALREADY SHOWS
+ok 2158 - an endpoint INSIDE a sentence is left alone, not mangled
+ok 2159 - POSITIVE CONTROL: the dashboard still routes its ordinary keys
+ok 2160 - Ctrl+L asks for a repaint from the dashboard and from the picker
+ok 2161 - a repaint does not move the selection or leave the mode
+ok 2162 - NEGATIVE CONTROL: inside a pane Ctrl+L belongs to the PROCESS
+ok 2163 - THE DAEMON'S VIEW HEARS ITS TERMINAL RESIZE
+ok 2164 - a view that DECLINED to start registers no listener
+ok 2165 - a view whose start THREW registers no listener either
+ok 2166 - an older view with no resize method does not throw on a resize
+ok 2167 - a key from a viewer that is not the owner gives the terminal that viewer's size FIRST
+ok 2168 - the owner typing again resizes nothing
+ok 2169 - ownership moves back and forth with whoever types
+ok 2170 - a viewer that never declared a size types without resizing anything
+ok 2171 - an UNNAMED resize still applies and takes ownership, so the next named viewer to type takes it back
+ok 2172 - a REFUSED resize makes nobody the owner of a size the terminal does not have
+ok 2173 - the viewer arrives through the protocol on both routes, and a malformed one is refused
+ok 2174 - a terminal remembers a bounded number of viewers, forgetting the least recently active
+ok 2175 - the dashboard's path, through PluginProcesses, carries the viewer to the runner
+ok 2176 - viewerFrom: an older client that names no viewer is accepted as the unnamed one
+ok 2177 - Runner: a refused owed resize withholds the key and says why
+ok 2178 - protocol: the withheld key is a 409, not a 204
+ok 2179 - dashboard control: a key withheld from the dashboard is reported FAILED
+ok 2180 - viewerOfControl: the dashboard's surfaces are one viewer, every other requester none
+ok 2181 - an auto-answer through the real control path types without resizing the pane's terminal
+ok 2182 - keys typed into one agent arrive in the order they were typed
+ok 2183 - one agent's slow send does not hold another agent's keys
+ok 2184 - no target, no request
+ok 2185 - THE CLIENT USES IT: bin/aify-env-tui.mjs routes its keys through createClientInput
+ok 2186 - postJson resolves on 2xx and THROWS on a non-2xx answer or a dead connection
+ok 2187 - BOTH DIRECTIONS: the view shows a live environment, and says so when there is none
+ok 2188 - a process started through the daemon APPEARS in the view
+ok 2189 - the view reports the environment's own traffic, and it is NOT zero after use
+ok 2190 - THE ACTIVITY DOT'S COLUMN IS NAMED, so a grey circle is not read as 'offline'
+ok 2191 - THE MENU NAMES THE AGENT IT WILL ACT ON
+ok 2192 - THE TARGET COMES FROM THE FULL LIST, not the visible window
+ok 2193 - THE PROMPT NAMES THE BOUND TARGET, not whatever the cursor is on now
+ok 2194 - A TARGET THAT HAS GONE IS SAID, not silently replaced
+ok 2195 - THE CONFIRMATION STATES THE VERB AND THE SUBJECT, and how to refuse
+ok 2196 - `q quit` IS NOT OFFERED where q does not quit
+ok 2197 - the hints say what each mode actually accepts
+ok 2198 - NEGATIVE CONTROL: no menu is drawn in ordinary dashboard mode
+ok 2199 - registered services are listed with what they said about themselves
+ok 2200 - a SILENT service is shown as unanswered, not as down
+ok 2201 - owned processes are shown with pid and owning service
+ok 2202 - THE VIEW CLAIMS NO AGENT STATUS, whatever is in the snapshot
+ok 2203 - processes the reaper could not judge are shown, not hidden
+ok 2204 - no terminal support is stated in the view, not left to be discovered
+ok 2205 - traffic is this environment's OWN io, and is labelled as such
+ok 2206 - an empty host renders without throwing and says it is empty
+ok 2207 - rendering is pure: the same snapshot renders identically twice
+ok 2208 - a process row names the agent the caller gave it
+ok 2209 - a process with no label renders a placeholder, not an empty column
+ok 2210 - the terminal title the process set is shown
+ok 2211 - uptime is rendered from the field the collector supplies
+ok 2212 - no escape sequence appears when colour is off
+ok 2213 - colour is applied only when asked for
+ok 2214 - columns line up once escapes are removed
+ok 2215 - a long value is clipped rather than allowed to wrap
+ok 2216 - the same snapshot renders identically twice, with and without colour
+ok 2217 - A BURST OF NOTICES DOES NOT COST THE AGENT LIST
+ok 2218 - WHEN IT IS GENUINELY TIGHT, NOTICES GO FIRST AND THE AGENTS STAY
+ok 2219 - POSITIVE CONTROL: notices are shown when there is room
+ok 2220 - the heading says the count is a window, not the whole ring
+ok 2221 - NEWEST FIRST, so a cap keeps the ones being asked about
+ok 2222 - typed keys arrive in order even when each send is slower than the next keystroke
+ok 2223 - CONTROL: sending each key as its own unordered request DOES scramble, same delays
+ok 2224 - keys typed while a request is out are coalesced into the next one, in order
+ok 2225 - a paste of many bytes is one request, and its bytes keep their order
+ok 2226 - a failed send is dropped, never retried, and the next keys still arrive in order
+ok 2227 - writing nothing sends nothing
+ok 2228 - drained() resolves for a sender that was never written to
+ok 2229 - EVERY ARGUMENT THE DAEMON READS IS DECLARED
+ok 2230 - both help flags are recognised
+ok 2231 - NEGATIVE CONTROL: an ordinary run is not asking for help
+ok 2232 - the usage text names every subcommand and every key
+ok 2233 - the header no longer carries a second copy of the command list
+ok 2234 - AN UNKNOWN OPTION IS REFUSED RATHER THAN STARTING A DAEMON
+ok 2235 - NEGATIVE CONTROL: every legitimate invocation is allowed through
+ok 2236 - `--port` swallows its value, so the number is not read as an option
+ok 2237 - EVERYTHING AFTER `--` BELONGS TO THE CHILD
+ok 2238 - a child's unknown flags are not refused on its behalf
+ok 2239 - `--` with nothing after it is still a separator
+ok 2240 - A DAEMON THAT OPENS SPACES offers no attach and no console
+ok 2241 - THE DAEMON PASSES WHETHER IT OPENS SPACES, read rather than run because importing it starts one
+ok 2242 - `p` AND ENTER DO NOTHING without a console, and no stream is opened
+ok 2243 - THE HINTS DO NOT OFFER what the keys will not do
+ok 2244 - the FIRST entry shares a line with the path and is still parsed
+ok 2245 - a locked file parses to exactly one entry, not inherited
+ok 2246 - the summary lines are not mistaken for entries
+ok 2247 - the DEFAULT permissions on this host are REFUSED, naming who can read the key
+ok 2248 - a private DACL is accepted
+ok 2249 - SYSTEM is allowed beside the owner; the Administrators GROUP is not
+ok 2250 - broad principals are refused under every spelling they arrive in
+ok 2251 - NO ENTRIES IS A REFUSAL, not a clean bill of health
+ok 2252 - the principal leaf is the last component, lowercased
+ok 2253 - the lockdown REMOVES inheritance rather than only stopping it
+ok 2254 - AN UNQUALIFIED PRINCIPAL ON THE FIRST LINE needs the path, and gets it
+ok 2255 - a domain-qualified principal still parses with the path supplied
+ok 2256 - a principal containing SPACES parses with the path supplied
+# tests 2258
+# pass 2254
+# fail 0
+# cancelled 0
+# skipped 4
+exit=0
