@@ -1,6 +1,7 @@
 # aify-env owns the agents
 
-The next tag after v0.7.7. The operator's shape (docs/ROADMAP.md, "Next"), 2026-09-30:
+Release 0.8.0 in all three repos (the operator, 2026-09-30: fixes to what shipped stay on 0.7.x, this
+work is 0.8). The operator's shape (docs/ROADMAP.md, "Next"), 2026-09-30:
 
 > aify-wrapper is like wrapper for harnesses, aify-env registers these harnesses, basically for
 > management, aify-comms connects with aify-env and gets agents from there, same with aify-dashboard,
@@ -140,7 +141,12 @@ that have no definition.
 
 **D13. aify-dashboard is its owner's.** This tag publishes the contract (the file schema, the daemon
 routes, the push route) and tells dashboard-manager. D6 means its plugin, when written, switches on the
-same way.
+same way. dashboard-manager's answer (2026-09-30): its plugin pushes a C3-shaped snapshot to the
+dashboard's OWN route (`PUT /api/v1/host/:hostKey/agent-definitions`), because the dashboard runs
+without aify-comms and mounts no host folders; so the plugin side of C3 is per service, never tied to
+aify-comms' path. Until that plugin exists the dashboard mirrors aify-comms' agent list, which P3 makes
+carry each agent's definition state, incarnation, revision and owner machine. The dashboard will not
+queue definition edits of its own, which keeps one pending request per agent true across services.
 
 ## Phases, each reviewed before the next
 
@@ -149,11 +155,11 @@ same way.
 | P0 | plan | the contracts: [P0](2026-09-30-aify-env-owns-the-agents-P0.md) C1-C11 | reviewed before any code |
 | P1 | aify-env | `lib/agent-definitions.mjs` (C1 schema, C2 store, C3 snapshot), the shared fixture, `aify-env agents` list/show/set/remove | C1/C2 witnesses: identifiers, case collision, symlink, torn write, concurrent writers, live-holder lock, hand edit adoption, invalid file, trash |
 | P2 | aify-env | plugins follow the registry (C8) | C8 witnesses with the real comms plugin and fakes |
-| P3 | aify-comms | `agent_definitions`, the push route (C3), dispositions (C5), withdrawal (C6), revision binding (C7), `definition_requests` (C4), dashboard | the role reset RED first; C3, C4, C5, C6 witnesses |
+| P3 | aify-comms | `agent_definitions`, the push route (C3), dispositions (C5), withdrawal (C6), revision binding (C7), `definition_requests` (C4), dashboard; the agent list carries definition state, incarnation, revision and owner machine (D13) | the role reset RED first; C3, C4, C5, C6 witnesses |
 | P4 | aify-env | the plugin pushes, applies requests, checks at the start boundary (C7); start list from definitions | an offline request -> file -> push -> service readback test across both repos |
 | P5 | aify-env | `agents import` (C10) and the doctor row | dry run writes nothing; conflicts listed; env reported unavailable |
 | P6 | aify-wrapper | C9 | precedence, missing, invalid, mismatch |
-| P7 | all | docs (TARGET_ARCHITECTURE, AIFY_ENV_BOUNDARY, DECISIONS, ROADMAP, READMEs, skills), version bumps, mixed-version check (C11), whole-diff review | every suite in all three repos; deploy, migration and the operator's restart stay separate |
+| P7 | all | docs (TARGET_ARCHITECTURE, AIFY_ENV_BOUNDARY, DECISIONS, ROADMAP, READMEs, skills), the `~/.aify/services.json` entry schema published as a contract (another service's installer writes its own entry, D6), version bumps to 0.8.0, mixed-version check (C11), whole-diff review | every suite in all three repos; deploy, migration and the operator's restart stay separate |
 
 ## Not in this tag
 

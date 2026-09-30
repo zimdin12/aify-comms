@@ -1,0 +1,57 @@
+# P1 mutation battery, 2026-09-30T19:59:33Z, aify-env-next working tree on 0cf8795 + uncommitted P1
+killed (exit 1)                  S: control set loses C1
+killed (exit 1)                  S: length in UTF-16 units
+killed (exit 1)                  S: lone surrogates admitted
+killed (exit 1)                  S: multiline id pattern
+killed (exit 1)                  S: device name only as whole id
+killed (exit 1)                  S: drive-relative workspace admitted
+killed (exit 1)                  S: instructions counted in characters
+killed (exit 1)                  S: AIFY_ prefix case-sensitive
+killed (exit 1)                  S: NUL admitted in env
+killed (exit 1)                  S: unknown agent fields admitted
+killed (exit 1)                  S: unnameable key echoed
+killed (exit 1)                  S: problems unsorted
+killed (exit 1)                  S: canonical keys unsorted
+killed (exit 1)                  S: unsafe integers accepted by the encoder
+killed (exit 1)                  S: numbers read from the parsed value only
+killed (exit 1)                  S: exponent accepted as integer
+killed (exit 1)                  S: unsafe integer token admitted
+killed (exit 1)                  S: string contents scanned as numbers
+killed (exit 1)                  S: lenient UTF-8
+killed (exit 1)                  S: BOM stripped
+killed (exit 1)                  S: normalized population ignores identity
+killed (exit 1)                  S: operation id any string
+killed (exit 1)                  S: candidate checks counters
+killed (exit 1)                  S: store-owned incarnation required of a candidate
+killed (exit 1)                  S: boolean counter accepted
+killed (exit 1)                  N: snapshot entries unsorted
+killed (exit 1)                  N: snapshot digests the definition body
+killed (exit 1)                  N: unavailableReason always present
+killed (exit 1)                  R: a record is not read first
+killed (exit 1)                  R: arm 3 reported committed
+killed (exit 1)                  R: arm 3 inferred not committed
+killed (exit 1)                  R: trash receipt ignored
+killed (exit 1)                  R: file receipt ignored
+killed (exit 1)                  R: a conflict settled forward
+killed (exit 1)                  R: an unreadable file is a removal
+killed (exit 1)                  R: an invalid edit is adopted
+killed (exit 1)                  R: case collisions ignored
+killed (exit 1)                  R: prototype lookup
+killed (exit 1)                  D: forward record says committed
+killed (exit 1)                  D: forward leaves the temp body behind
+killed (exit 1)                  D: a dead holder's lock is taken over
+killed (exit 1)                  D: a stolen lock is not noticed
+killed (exit 1)                  D: unlock removes a live holder's lock
+killed (exit 1)                  D: compare-and-set checks existence only
+killed (exit 1)                  D: counter exhaustion unchecked
+killed (exit 1)                  D: not-committed gives back the incarnation
+killed (exit 1)                  D: an incomplete snapshot records its digest
+killed (exit 1)                  D: a link entry is followed
+killed (exit 1)                  D: the settlement is not returned
+killed (exit 1)                  D: set validates only as a candidate
+killed (exit 1)                  D: adoption keeps a forged incarnation
+killed (exit 1)                  D: launcher checked before validity
+killed (exit 1)                  C: set ignores the current definition
+killed (exit 1)                  W: a caller imports fs
+54/54 killed
+exit=0

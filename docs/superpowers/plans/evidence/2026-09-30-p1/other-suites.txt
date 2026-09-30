@@ -1,0 +1,31 @@
+# aify-comms (next worktree, main b8addd47 + plan docs) and aify-wrapper-next suites, AIFY_ENV_REPO=aify-env-next at fd2f8bd, 2026-09-30
+## python
+===================================================== short test summary info =====================================================
+FAILED service/tests/test_version_is_not_an_already_released_tag.py::VersionIsNotAnAlreadyReleasedTagTests::test_VERSION_DOES_NOT_NAME_A_TAG_THIS_TREE_IS_PAST
+SUBFAILED(client='hermes') service/tests/test_a_reinstall_leaves_a_running_launcher_its_own_text.py::AReinstallReplacesEveryLauncher::test_a_second_render_puts_a_new_file_at_every_launcher_path
+2 failed, 4908 passed, 27 skipped, 8 warnings, 10479 subtests passed in 1046.60s (0:17:26)
+## bridge
+# skipped 0
+# todo 0
+# duration_ms 12601.1306
+
+[run-all] 1 suite(s) FAILED:
+  - tests\a-default-argument-is-evaluated-in-production.test.js (exit 1)
+## dashboard
+# tests 1886
+# pass 1886
+# fail 0
+## aify-wrapper
+# tests 575
+# pass 509
+# fail 0
+# skipped 66
+
+## reading of the three failures
+- test_VERSION_DOES_NOT_NAME_A_TAG_THIS_TREE_IS_PAST: the documented release gate, red until HEAD is tagged.
+- test_a_reinstall_leaves_a_running_launcher_its_own_text (hermes subtest) and the bridge file
+  a-default-argument-is-evaluated-in-production.test.js: each PASSES run alone against the same trees
+  (2 passed + 4 subtests in 34 s; 3/3). The loaded run took the python suite 17 min against its usual
+  3. The bridge test lists processes through Get-CimInstance with a 10 s timeout; that query measured
+  1.5-2.8 s afterwards (939 processes). A timeout under load is the likely reading, NOT proven. Neither
+  file reads anything P1 changed.

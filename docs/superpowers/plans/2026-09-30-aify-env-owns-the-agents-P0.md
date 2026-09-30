@@ -17,7 +17,9 @@ in both, and the shared fixture carries it. Refused, never repaired: no trim, no
 refused: a Windows reserved device name as the whole id or before its first dot, in any case (`CON`,
 `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), and an id whose lower case equals an existing
 definition's lower case (`x` is refused while `X.json` exists, on every OS, so the directory means the
-same thing on Windows and Linux). This is the only identifier authority; the plan points here.
+same thing on Windows and Linux). That rule is per directory: across machines the service compares
+ids exactly (C3 ownership), so its union can hold `X` from one host and `x` from another as two agents.
+This is the only identifier authority; the plan points here.
 
 **Where.** `~/.aify/agent-definitions/<id>.json`, the directory overridable by
 `AIFY_AGENT_DEFINITIONS_DIR` for tests. `~/.aify/agents/` stays aify-wrapper's lease directory.
@@ -360,6 +362,15 @@ A, A can never be accepted again, however late its push arrives. Returning a mac
 for that machine. A push already in flight is decided by this table when it arrives; the plugin's
 "retry with the next snapshot" only means it never re-sends an old body itself.
 
+**The machine is `machineId`, and two stores must never share one silently.** aify-env derives it as
+`<platform, or wsl>:<host>` lower-cased (`lib/advertise.mjs` `machineIdFor`), so the Windows and WSL
+installs on one PC are `win32:stevenz-l` and `wsl:stevenz-l`: two machines, two stores, no retirement.
+An `AIFY_MACHINE_ID` override set alike on two installs makes them one machine, and the table above
+would then let each retire the other (raised by dashboard-manager, 2026-09-30). So a retired store's
+push is refused with the store that retired it and when, and a retired store that keeps pushing is
+reported in `aify-env doctor` and on the dashboard as "two stores claim machine <id>", never only
+logged.
+
 **Application**, in one transaction:
 
 - a `valid` entry whose id is unowned or owned by this machine: stored in `agent_definitions`
@@ -384,7 +395,9 @@ recreated store, then a delayed A (A refused as retired, B current); publisher r
 bridgeId refused); unchanged definition bytes through available, unavailable, available (each an
 ordered revision, no withdrawal, no conflict); valid, invalid, repaired (previous kept while invalid,
 no withdrawal); the same state enumerated in two orders (same digest); a directory read failure
-(nothing pushed, nothing withdrawn); an intentional empty snapshot (all withdrawn). Each checks
+(nothing pushed, nothing withdrawn); an intentional empty snapshot (all withdrawn); two stores under
+one machineId alternating (the second retires the first, the first is refused naming the second, and
+the doctor row names both). Each checks
 `agent_definitions` membership and owner after the step, not only the HTTP status.
 
 ## C4. Change requests: compare-and-set on lifetime and revision, idempotent, fenced
