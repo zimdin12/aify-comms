@@ -317,12 +317,12 @@ refused at the claim.
 1. The request's store id is not this store's: `refused` ("made for another store").
 2. The file's `appliedRequest` equals this request's id: already applied (a crash after commit, or a
    lost acknowledgement): `done` with the current incarnation and revision; nothing written.
-3. For a removal: `.trash/` holds a file whose name ends in `.<requestId>.json`: already applied, `done`.
+3. For a removal: `.trash/` holds a file named `<id>.<incarnation>.<revision>.<requestId>.<operation>.json` for this request: already applied, `done`.
 4. The file's `(incarnation, revision)` differs from the expected pair: `refused` ("changed on the host
    since you asked"). A removal made for an earlier lifetime of a recreated id lands here even when the
    revision numbers are equal, because the incarnation differs.
 5. Otherwise commit (a set with `revision + 1` and `appliedRequest = requestId`, or a removal to
-   `.trash/<id>.<incarnation>.<revision>.<requestId>.json`), report `done` with the result pair, then
+   `.trash/<id>.<incarnation>.<revision>.<requestId>.<operation>.json`), report `done` with the result pair, then
    push.
 
 **Outcomes.** `pending -> claimed -> done | refused | expired`. `done` carries the result pair; the
