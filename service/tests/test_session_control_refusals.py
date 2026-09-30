@@ -263,6 +263,25 @@ class SessionControlRefusalTests(FastApiTestCase):
         response = self._control_if_idle("restart")
         self.assertFalse(self._refused_for_liveness(response), response.text)
 
+    def test_the_sweep_settles_the_same_Running_row_the_guard_reads_dead(self):
+        """ONE RULE MEANS THE SWEEP ACTS ON IT TOO (review of fbb4776a): the sweep SELECTed a
+        `Running ` row with a stopped terminal and then its UPDATE, matching the raw status, changed
+        nothing. The row must end stopped, not merely be selected."""
+        from service.reconcilers.dead_session_status import _reconcile_dead_session_status
+
+        self._seed_session()
+        self._write("UPDATE agent_sessions SET status = ? WHERE id = ?", ("Running ", SESSION_ID))
+        self._seed_terminal("stopped")
+
+        async def sweep():
+            async with aiosqlite.connect(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                return await _reconcile_dead_session_status(db, lease_seconds=150)
+
+        self.assertGreaterEqual(asyncio.run(sweep()), 1, "the sweep changed no row")
+        self.assertEqual(self._read("SELECT status FROM agent_sessions WHERE id = ?", (SESSION_ID,))["status"],
+                         "stopped")
+
     def _seed_running_dispatch(self, run_id: str = "run-live") -> None:
         """A run this route would INTERRUPT, which is the thing the ordering test watches for."""
         self._write(

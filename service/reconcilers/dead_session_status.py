@@ -130,7 +130,7 @@ async def _reconcile_dead_session_status(db, *, lease_seconds: int, limit: int =
             f"""
             UPDATE agent_sessions
             SET status = 'stopped', ended_at = ?
-            WHERE id IN ({id_ph}) AND status IN ({state_ph})
+            WHERE id IN ({id_ph}) AND LOWER(TRIM(status)) IN ({state_ph})
             """,
             [now, *dead_a_ids, *live_states],
         )
