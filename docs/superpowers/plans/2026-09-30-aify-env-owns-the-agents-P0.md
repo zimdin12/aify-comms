@@ -49,12 +49,20 @@ the rule, whose body `agent.id` equals that name exactly. Anything else in the d
 | `agent.herdrSpace` | boolean | |
 | `updatedAt` | ISO-8601 UTC | informational only; never used for ordering |
 | `appliedRequest` | string or absent | the last service change request this revision applied (C4) |
+| `operation` | string | the id of the store operation that last wrote this file: its commit receipt (C2) |
+
+**Numbers.** `incarnation`, `revision`, the ledger's `revision` and `nextIncarnation` are integers in
+`[1, 2^53 - 1]` (JavaScript's safe integers). Both languages refuse a value outside that range, or not
+an integer, as invalid; neither rounds or wraps one.
 
 **One schema, two languages.** aify-env (JavaScript) and aify-comms (Python) each validate it. Both
 suites run one shared fixture, `test/fixtures/agent-definitions/cases.json` in aify-env (valid and
 invalid bodies with the expected problem, `agent\n` and `agent\r\n` among the ids), which aify-comms
 reads as a sibling checkout the way its other cross-repo tests do. A case one side accepts and the
-other refuses fails both suites.
+other refuses fails both suites. The fixture also carries GOLDEN CANONICAL VECTORS for C3: snapshot
+inputs with their exact canonical bytes and sha-256, including non-ASCII field values, an `env` whose
+keys arrive out of order, problems listed out of order, and the largest safe integers; both encoders
+must produce those bytes exactly.
 
 **Fields left out, stated narrowly.** `systemPrompt`, `profile`, `channelIds` and the three policies
 are stored in `spawn_specs`, serialized (`spawn_requests_io.py:88-96`) and copied by cold-start
@@ -72,9 +80,11 @@ this section is the store's own contract.
 **Ledger.** `.collection.json`:
 
 ```
-{ version: 1, storeId, revision, nextIncarnation, snapshotDigest,
+{ version: 1, storeId, revision, nextIncarnation, snapshotDigest, lastOperation,
   ids: { <id>: { incarnation, revision, fileDigest } } }
 ```
+
+- `lastOperation`: the id of the last operation whose ledger this is: the ledger's commit receipt.
 
 - `storeId`: a UUID made once, when the ledger is first created.
 - `revision`: the collection's counter; advances on every committed operation and every change of the
@@ -94,27 +104,57 @@ operation if its own nonce is no longer there; the intent record (below) makes t
 
 **One operation, four steps**, under the lock:
 
-1. Write `.intent.json` (temp, fsync, rename): `{op: "set"|"remove", id, incarnation, revision,
-   requestId?, fileDigest?, trashName?, ledgerAfter}` where `ledgerAfter` is the complete ledger the
-   operation commits.
-2. Apply: for `set`, write `<id>.json.<pid>.<nonce>.tmp`, fsync, rename over `<id>.json`; for
-   `remove`, rename `<id>.json` to `.trash/<trashName>`.
+1. Write `.intent.json` (temp, fsync, rename): `{operation, op: "set"|"remove"|"observe", id,
+   incarnation, revision, requestId?, before, fileDigest?, trashName?, ledgerAfter}`. `operation` is a
+   fresh UUID. `before` is what the operation found: the file's digest, or `absent`. `ledgerAfter` is
+   the complete ledger the operation commits, with `lastOperation = operation`.
+2. Apply: for `set`, write `<id>.json.<pid>.<nonce>.tmp` with `operation` in its body, fsync, rename
+   over `<id>.json`; for `remove`, rename `<id>.json` to `.trash/<trashName>`, whose name ends in the
+   operation id (below).
 3. Write `.collection.json` = `ledgerAfter` (temp, fsync, rename).
 4. Delete `.intent.json`.
+
+The file and the ledger each carry the operation id in the same atomic rename that commits them. That
+receipt, not a digest, is what says a step ran: a digest that no longer matches may mean a hand edit
+AFTER the step, not that the step never happened.
 
 On POSIX the directory is fsynced after each rename; Windows has no directory fsync from Node, and
 relies on NTFS metadata journaling for the rename. A rename over a file another process has open can
 fail on Windows (EPERM, EBUSY): retried with backoff for up to 2 s, then the operation fails at that
 step and recovery settles it.
 
-**Recovery**, run under the lock before any other work, every time the store is opened:
+**Recovery**, run under the lock before any other work, every time the store is opened. With an
+intent present, the first arm that holds decides:
 
-- no `.intent.json`: nothing to do;
-- `.intent.json` present, and step 2 is visible (the file's digest equals `fileDigest`, or
-  `.trash/<trashName>` exists): the operation COMMITTED; write `ledgerAfter` (idempotent) and delete
-  the intent;
-- step 2 not visible: the operation DID NOT COMMIT; delete stray temp files named in it and the intent;
-- an `observe` intent (C3: only the ledger changes) has no step 2, so it is always settled as committed.
+| arm | evidence | outcome |
+|---|---|---|
+| 1 | the ledger's `lastOperation` is the intent's `operation` | COMMITTED through step 3: delete the intent |
+| 2 | the file's body carries `operation` = the intent's, or `.trash/` holds the name ending in it | COMMITTED at step 2: write `ledgerAfter`, delete the intent |
+| 3 | the current state is exactly the intent's `before` (the file's digest equals it, or the file is absent where `before` is `absent`) and no trash file carries the operation | NOT COMMITTED: delete the temp files and the intent |
+| 4 | none of the above | RECOVERY CONFLICT (below) |
+
+- An `observe` intent (C3: only the ledger changes) has no step 2: arm 1 or, failing it, arm 2's
+  outcome (write `ledgerAfter`).
+- In arm 2 a file hand-edited after step 2 keeps its operator's bytes: the ledger records the digest
+  the operation wrote, so the next snapshot adopts the hand edit as its own later revision (the lineage
+  is set R, then hand edit R+1, never folded into one).
+- In every arm `nextIncarnation` ends at least one past any incarnation the intent allocated, so an
+  incarnation handed to an operation is never reused, committed or not.
+
+**RECOVERY CONFLICT** is the answer when the bytes cannot prove the outcome: a file hand-edited in a
+way that removed its receipt, or deleted, or replaced by something that is neither the before nor the
+after state. The store then:
+
+- deletes nothing and overwrites nothing: the intent, the current file, any temp file named in the
+  intent and the trash stay exactly as found;
+- refuses every operation, and every snapshot is `complete: false`, so nothing is pushed and nothing
+  is withdrawn;
+- reports the conflict in `aify-env doctor` and `aify-env agents list`, showing the intent, the
+  before and intended digests, and the current bytes;
+- is settled only by the operator: `aify-env agents recover --as-committed` (write `ledgerAfter`; the
+  current file stays and is adopted as a later revision if it differs) or `--as-not-committed`
+  (discard the intent; the current file stays and is adopted as a hand edit). Either keeps the
+  incarnation rule above and any request's `appliedRequest` exactly as found in the file.
 
 An operation's outcome is `committed` only once step 4 has run, or when recovery has settled it as
 committed. A caller that crashed mid-operation learns the outcome from the ledger, or for a request
@@ -140,12 +180,21 @@ snapshot, each file's digest is compared with the ledger:
   ledger keeps the last good incarnation and revision;
 - a file removed by hand is a removal (ledger entry dropped, collection revision advanced).
 
-**Trash names are unique:** `.trash/<id>.<incarnation>.<revision>.<requestId or "local-" + nonce>.json`,
-so a removal is undoable by hand and a replayed removal request is recognisable (C4).
+**Trash names are unique:** `.trash/<id>.<incarnation>.<revision>.<requestId or "local">.<operation>.json`,
+so a removal is undoable by hand, a replayed removal request is recognisable (C4), and recovery can
+find the operation that made it.
 
-**Witnesses (P1).** Identifiers (every C1 case from the shared fixture); case collision; symlink and
-junction entries; a torn write (crash between each pair of steps: the next open settles committed or
-not-committed, and the ledger, file and trash agree); two writers racing (the second waits, then sees
+**Witnesses (P1).** Identifiers (every C1 case from the shared fixture); the golden canonical vectors;
+case collision; symlink and junction entries; a torn write (crash between each pair of steps, with no
+hand edit: the next open settles committed or not-committed, and the ledger, file and trash agree);
+recovery with a hand edit, each reading back the ledger, file, intent, trash and returned outcome:
+interrupted after the file rename and before the ledger, then a valid hand edit to `name` (arm 2: set
+at R, hand edit adopted as R+1); interrupted after the ledger and before the intent's deletion, then
+the same edit (arm 1, then adoption); the receipt removed by hand (arm 4, everything kept, snapshot
+incomplete, then each `recover` choice); the file deleted before recovery (arm 4 when the ledger lacks
+the receipt, arm 1 when it has it); the before bytes restored exactly (arm 3); a new id interrupted
+in each arm (its incarnation never reused); a request's set interrupted (its `appliedRequest` read
+back as found); two writers racing (the second waits, then sees
 the first's revision); a lock whose holder is alive is never taken; a lock whose holder is gone is
 reported with the unlock remedy and still not taken; `unlock` removes only a dead holder's lock; a
 hand edit adopted; an invalid hand edit reported and left as written; remove then recreate the same id
