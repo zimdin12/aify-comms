@@ -78,13 +78,13 @@ hosts without the new aify-env). Nothing is migrated without the operator runnin
 
 **D2. `~/.aify/agent-definitions/<id>.json`, not `~/.aify/agents/`.** That directory is aify-wrapper's
 lease files (live state: pid, startedAt, attached; `agent-lease.mjs`). One writer per file, so
-definitions get their own directory. Ids follow the lease rule `^[A-Za-z0-9._-]+$`, no leading dot.
+definitions get their own directory. The identifier rule is P0 C1 and nowhere else.
 
-**D3. One writer at a time: `DefinitionStore` (aify-env, host core).** Lock file (`wx`), temp file,
-fsync, rename, the pattern aify-wrapper's lease already proves. The daemon and the CLI both go through
-it. It reads the directory on every call (no cache to go stale), refuses an unknown `version`, and
-reports an unreadable file as invalid rather than rewriting it. A hand edit is allowed: the next read
-sees it, and an invalid one shows in `aify-env doctor` and is neither offered nor pushed.
+**D3. One writer at a time: `DefinitionStore` (aify-env, host core).** The daemon and the CLI both go
+through it; its lock, intent record, recovery and revisions are P0 C2. It reads the directory on every
+call (no cache to go stale). A hand edit is allowed and is adopted or reported (P0 C2). An invalid
+file's body is never pushed, but its id and problems are: the snapshot carries an invalid marker, so
+the service keeps the last good definition instead of reading the absence as a removal (P0 C3).
 
 **D4. A single definition owner per agent, for this tag.** The definition lives on the host where the
 agent runs, and a service's fleet view is the union of what every host's aify-env pushes. Two hosts

@@ -1,21 +1,23 @@
 # P0: the contracts, frozen before any code
 
-Companion to [2026-09-30-aify-env-owns-the-agents.md](2026-09-30-aify-env-owns-the-agents.md). The plan
-review of 2026-09-30 (comms-senior-dev, R1-R7) found that the plan named the owners but not the
-transitions between them. This file fixes those transitions. Every later phase implements one section
-here and its witnesses; a phase that needs to change a rule here changes this file first, in its own
-reviewed commit.
+Companion to [2026-09-30-aify-env-owns-the-agents.md](2026-09-30-aify-env-owns-the-agents.md). Two plan
+reviews on 2026-09-30 (comms-senior-dev: R1-R7 on the plan, then five closures and four integration
+points on this file at 22748507) found transitions the plan named but did not fix. This file fixes
+them. Every later phase implements one section here and its witnesses; a phase that needs to change a
+rule here changes this file first, in its own reviewed commit.
 
-Source bases: aify-comms b8addd47, aify-env 0557d21, aify-wrapper 9f45a5a.
+Source bases: aify-comms b8addd47, aify-env 0557d21 (bfacc7a on main since), aify-wrapper 9f45a5a.
 
-## C1. Identity and the file (R4)
+## C1. Identity and the file
 
-**Agent id.** `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, the service's own rule (`SAFE_NAME_RE`,
-`service/api_core/validation.py:36`). Refused, never repaired: no trim, no case folding. Also refused:
-a Windows reserved device name as the whole id or before its first dot, in any case (`CON`, `PRN`,
-`AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), and an id whose lower case equals an existing definition's
-lower case (`x` is refused while `X.json` exists, on every OS, so the directory means the same thing on
-Windows and Linux).
+**Agent id.** Admitted by a FULL-STRING match of `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`: in Python
+`re.fullmatch` (the service's own `SAFE_NAME_RE` ends in `\Z` for this reason,
+`service/api_core/validation.py:36`); in JavaScript `^...$` without the `m` flag. `agent\n` is refused
+in both, and the shared fixture carries it. Refused, never repaired: no trim, no case folding. Also
+refused: a Windows reserved device name as the whole id or before its first dot, in any case (`CON`,
+`PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), and an id whose lower case equals an existing
+definition's lower case (`x` is refused while `X.json` exists, on every OS, so the directory means the
+same thing on Windows and Linux). This is the only identifier authority; the plan points here.
 
 **Where.** `~/.aify/agent-definitions/<id>.json`, the directory overridable by
 `AIFY_AGENT_DEFINITIONS_DIR` for tests. `~/.aify/agents/` stays aify-wrapper's lease directory.
@@ -23,8 +25,8 @@ Windows and Linux).
 **What a file may be.** A regular file (checked with `lstat`: a symlink, junction or directory entry is
 an invalid entry, never followed), directly inside the directory, named `<id>.json` where `<id>` passes
 the rule, whose body `agent.id` equals that name exactly. Anything else in the directory that ends in
-`.json` and does not start with `.` is reported as an invalid entry. Names starting with `.` belong to
-the store (`.collection.json`, `.lock`, `.trash/`).
+`.json` and does not start with `.` is an invalid entry. Names starting with `.` belong to the store
+(`.collection.json`, `.intent.json`, `.lock`, `.trash/`).
 
 **Schema v1.** A file is always written complete; a reader applies no defaults to a stored file, so
 "absent" means invalid, not default.
@@ -32,25 +34,27 @@ the store (`.collection.json`, `.lock`, `.trash/`).
 | field | type | rule |
 |---|---|---|
 | `version` | 1 | anything else: invalid entry, file untouched |
-| `revision` | integer >= 1 | this definition's own counter (C2) |
+| `incarnation` | integer >= 1 | which lifetime of this id this is (C2); assigned by the store, never reused |
+| `revision` | integer >= 1 | this incarnation's own counter (C2) |
 | `agent.id` | string | C1 rule, equals the filename |
 | `agent.name` | string | 1-128 chars, no control characters |
-| `agent.role` | string | `SAFE_NAME_RE` |
+| `agent.role` | string | the id rule |
 | `agent.harness` | `claude` \| `codex` \| `hermes` | the supported launchers; pi and opencode are not definable |
 | `agent.mode` | `managed` \| `resident` | |
 | `agent.workspace` | string | absolute path on this host, not checked for existence at write |
 | `agent.model` | string | `""` means the harness's own default |
 | `agent.effort` | string | `""` means the harness's own default |
 | `agent.instructions` | string | at most 64 KiB |
-| `agent.env` | object | the service's spawn-env rules exactly (`spawn_env.py`): names `[A-Za-z_][A-Za-z0-9_]{0,127}`, none starting `AIFY_` in any case, at most 32, string values of at most 4096 bytes |
+| `agent.env` | object | the service's spawn-env rules exactly (`spawn_env.py`): names full-match `[A-Za-z_][A-Za-z0-9_]{0,127}`, none starting `AIFY_` in any case, at most 32, string values of at most 4096 bytes |
 | `agent.herdrSpace` | boolean | |
 | `updatedAt` | ISO-8601 UTC | informational only; never used for ordering |
 | `appliedRequest` | string or absent | the last service change request this revision applied (C4) |
 
 **One schema, two languages.** aify-env (JavaScript) and aify-comms (Python) each validate it. Both
 suites run one shared fixture, `test/fixtures/agent-definitions/cases.json` in aify-env (valid and
-invalid bodies with the expected problem), which aify-comms reads as a sibling checkout the way its
-other cross-repo tests do. A case one side accepts and the other refuses fails both suites.
+invalid bodies with the expected problem, `agent\n` and `agent\r\n` among the ids), which aify-comms
+reads as a sibling checkout the way its other cross-repo tests do. A case one side accepts and the
+other refuses fails both suites.
 
 **Fields left out, stated narrowly.** `systemPrompt`, `profile`, `channelIds` and the three policies
 are stored in `spawn_specs`, serialized (`spawn_requests_io.py:88-96`) and copied by cold-start
@@ -58,48 +62,105 @@ are stored in `spawn_specs`, serialized (`spawn_requests_io.py:88-96`) and copie
 v1. For a defined agent, a spawn's `spawn_specs` row is written with them empty; an undefined agent's
 spawns keep today's behaviour exactly.
 
-## C2. The store: one writer at a time (R4)
+## C2. The store: one writer, crash-recoverable
 
 `DefinitionStore` (aify-env `lib/agent-definitions.mjs`) is the only code that writes the directory. A
 test derives that from the source (every `fs` write call under `lib/` and `bin/` whose path can reach
-the directory is in that module).
+the directory is in that module). The borrowed lease pattern is NOT claimed as a transaction proof;
+this section is the store's own contract.
 
-**Lock.** `.lock`, created with `wx`, holding `{pid, atMs, nonce}`. Held only for the duration of one
-read-modify-write (milliseconds). A lock is taken over only when its holder pid is not running; a lock
-held by a live pid is never taken, however old: the writer waits up to 5 s and then fails with the
-lock's path and holder in the message. Takeover renames the lock away and puts it back if it changed
-in between (the lease's protocol, `agent-lease.mjs:500-521`). A pid that was reused leaves a lock the
-store will not take; the operator removes it, and the error says so.
+**Ledger.** `.collection.json`:
 
-**Write.** Under the lock: read the current file, check the caller's expected revision (compare-and-set:
-a mismatch is a refusal naming both revisions), write `<id>.json.<pid>.tmp`, fsync, rename over the
-file. On Windows a rename over a file another process has open can fail with EPERM/EBUSY: retried with
-backoff for up to 2 s, then the write fails and the old file stands. A reader never sees a partial file
-(it reads whole files replaced by rename).
+```
+{ version: 1, storeId, revision, nextIncarnation, snapshotDigest,
+  ids: { <id>: { incarnation, revision, fileDigest } } }
+```
 
-**Collection record.** `.collection.json` `{version:1, storeId, revision, entries:{<id>: digest}}`.
-`storeId` is a UUID made once, when the record is first created. `revision` is the collection's own
-counter, advanced by one on every change of membership or content under the lock. `entries` holds the
-sha-256 of each file's bytes as the store last wrote or adopted them.
+- `storeId`: a UUID made once, when the ledger is first created.
+- `revision`: the collection's counter; advances on every committed operation and every change of the
+  semantic snapshot (C3).
+- `nextIncarnation`: store-wide, only ever increases, so an incarnation is never reused, even for an id
+  that was removed and made again.
+- `ids`: for each live definition, its incarnation, revision and the sha-256 of its file as the store
+  last wrote or adopted it.
 
-**Hand edits are a second writer, and are adopted, not trusted blindly.** A snapshot (C3) compares every
-file's digest with `entries`. A changed valid file is adopted: the store rewrites it in its own
-formatting with `revision = old + 1` and the operator's values unchanged, and the collection revision
-advances. A changed invalid file is left exactly as the operator wrote it and reported invalid.
-A file that appeared by hand is adopted the same way (revision starts at its own value, or 1). A file
-removed by hand is a removal. Adoption happens under the lock, so it cannot interleave with a store
-write.
+**Lock.** `.lock`, created with `wx`, holding `{pid, atMs, nonce}`, held for one operation
+(milliseconds). **The store never takes a lock over.** A lock that exists makes the caller wait up to 5 s
+and then fail with the lock's path and holder. If the holder is not running, the error says so and
+names the remedy: `aify-env agents unlock`, an operator command that removes the lock only when its
+holder pid is not running and after telling the operator what it is about to remove. Exclusivity is
+never inferred by the store itself. Every durable step below re-reads `.lock` first and aborts the
+operation if its own nonce is no longer there; the intent record (below) makes that abort recoverable.
 
-**Removal** moves the file to `.trash/<id>.<revision>.<requestId or "local">.json` (one rename), so a
-removal is undoable by hand and a replayed removal request can be recognised (C4).
+**One operation, four steps**, under the lock:
 
-## C3. Snapshots: complete, ordered, fenced (R1)
+1. Write `.intent.json` (temp, fsync, rename): `{op: "set"|"remove", id, incarnation, revision,
+   requestId?, fileDigest?, trashName?, ledgerAfter}` where `ledgerAfter` is the complete ledger the
+   operation commits.
+2. Apply: for `set`, write `<id>.json.<pid>.<nonce>.tmp`, fsync, rename over `<id>.json`; for
+   `remove`, rename `<id>.json` to `.trash/<trashName>`.
+3. Write `.collection.json` = `ledgerAfter` (temp, fsync, rename).
+4. Delete `.intent.json`.
 
-**What a snapshot is.** Produced by `store.snapshot()` under the lock:
+On POSIX the directory is fsynced after each rename; Windows has no directory fsync from Node, and
+relies on NTFS metadata journaling for the rename. A rename over a file another process has open can
+fail on Windows (EPERM, EBUSY): retried with backoff for up to 2 s, then the operation fails at that
+step and recovery settles it.
+
+**Recovery**, run under the lock before any other work, every time the store is opened:
+
+- no `.intent.json`: nothing to do;
+- `.intent.json` present, and step 2 is visible (the file's digest equals `fileDigest`, or
+  `.trash/<trashName>` exists): the operation COMMITTED; write `ledgerAfter` (idempotent) and delete
+  the intent;
+- step 2 not visible: the operation DID NOT COMMIT; delete stray temp files named in it and the intent;
+- an `observe` intent (C3: only the ledger changes) has no step 2, so it is always settled as committed.
+
+An operation's outcome is `committed` only once step 4 has run, or when recovery has settled it as
+committed. A caller that crashed mid-operation learns the outcome from the ledger, or for a request
+from `appliedRequest` or the trash name (C4). A snapshot always runs recovery first, so it never
+publishes a half-applied operation.
+
+**Incarnations and revisions.**
+
+- A new id (store write, or a file that appeared by hand) gets `incarnation = nextIncarnation`,
+  `revision = 1`, and `nextIncarnation` advances.
+- A set on an existing id keeps its incarnation and advances its revision.
+- A removal ends the incarnation; defining the id again starts a new one.
+- A caller's compare-and-set is on the pair `(incarnation, revision)`.
+
+**Hand edits are a second writer, adopted under the lock, never trusted for identity.** At every
+snapshot, each file's digest is compared with the ledger:
+
+- a changed file that is valid is adopted: rewritten in the store's formatting with the ledger's
+  incarnation for that id and `revision + 1`. An `incarnation` or `revision` typed into the file by hand
+  is ignored; the ledger is the authority;
+- a file with no ledger entry (made by hand) is a new id: new incarnation, as above;
+- a changed file that is invalid is left exactly as the operator wrote it and reported invalid; the
+  ledger keeps the last good incarnation and revision;
+- a file removed by hand is a removal (ledger entry dropped, collection revision advanced).
+
+**Trash names are unique:** `.trash/<id>.<incarnation>.<revision>.<requestId or "local-" + nonce>.json`,
+so a removal is undoable by hand and a replayed removal request is recognisable (C4).
+
+**Witnesses (P1).** Identifiers (every C1 case from the shared fixture); case collision; symlink and
+junction entries; a torn write (crash between each pair of steps: the next open settles committed or
+not-committed, and the ledger, file and trash agree); two writers racing (the second waits, then sees
+the first's revision); a lock whose holder is alive is never taken; a lock whose holder is gone is
+reported with the unlock remedy and still not taken; `unlock` removes only a dead holder's lock; a
+hand edit adopted; an invalid hand edit reported and left as written; remove then recreate the same id
+gives a new incarnation; repeated local removals leave distinct trash files.
+
+## C3. Snapshots: complete, ordered, fenced
+
+**What a snapshot is.** Produced by `store.snapshot({installedHarnesses})` under the lock, after
+recovery. `installedHarnesses` is passed in (the launcher scan the daemon already does), so the store
+reads no service and no PATH itself.
 
 ```
 { storeId, revision, complete: true|false,
-  entries: [ {id, state: "valid",   revision, digest, definition, available, unavailableReason?}
+  entries: [ {id, state: "valid", incarnation, revision, definitionDigest, definition,
+              available, unavailableReason?}
            | {id, state: "invalid", problems: [...]} ] }
 ```
 
@@ -110,58 +171,81 @@ removal is undoable by hand and a replayed removal request can be recognised (C4
   definition still exists; it is not startable.
 - An empty directory that enumerates cleanly is `complete: true, entries: []`: an intentional empty set.
 
+**Every semantic change is ordered.** The snapshot's canonical digest covers everything the service
+acts on, so a change in availability or validity advances the revision like a change in a file:
+
+- canonical form: entries sorted by id (by UTF-16 code unit, which is what JavaScript's default sort
+  and a Python sort of `str` both give for this ASCII-only alphabet); each entry's keys sorted; JSON
+  with no whitespace; UTF-8;
+- the fields in it: `id`, `state`, and for a valid entry `incarnation`, `revision`, `definitionDigest`
+  (sha-256 of the canonical JSON of `agent`), `available`, `unavailableReason`; for an invalid entry
+  `problems`, sorted;
+- `snapshot()` computes that digest; if it differs from the ledger's `snapshotDigest`, it advances the
+  collection revision and records the digest, through the four-step operation of C2 (op `observe`,
+  whose step 2 is empty). The same state enumerated in another order gives the same digest, so no
+  conflict arises from filesystem order.
+
 **The push.** `PUT /api/v1/environments/{envId}/agent-definitions`, body
-`{bridgeId, machineId, storeId, revision, entries}` (a complete snapshot only).
+`{bridgeId, machineId, storeId, revision, snapshotDigest, entries}` (complete snapshots only).
 
 **Admission.** Authenticated as every host call is (the service API key). Then fenced: `bridgeId` must
-be the environment row's current accepted claimer (the same arbitration the heartbeat already makes,
-`routers/environments.py:450-530`), and `machineId` must be the environment's machine. A superseded
-aify-env's push is refused with the current claimer's id.
+be the environment row's current accepted claimer (the heartbeat's own arbitration,
+`routers/environments.py:450-530`), and `machineId` the environment's machine. A superseded aify-env's
+push is refused with the current claimer's id. The service recomputes the canonical digest from
+`entries` and refuses a body whose digest does not match `snapshotDigest`.
 
-**Ordering.** The service keeps, per machine, `(storeId, revision, digest-of-snapshot)`.
+**Ordering.** The service keeps, per machine, the current `(storeId, revision, snapshotDigest)` and
+the set of RETIRED store ids.
 
-| incoming vs held | outcome |
+| incoming | outcome |
 |---|---|
-| same storeId, higher revision | applied |
-| same storeId, same revision, same snapshot digest | 200, no change (a replay) |
-| same storeId, same revision, different digest | 409: a store bug or a forged push; nothing applied |
-| same storeId, lower revision | 409 stale; nothing applied |
-| different storeId | applied, and becomes the machine's storeId (a recreated store, e.g. the directory was deleted); any later push from the old storeId is refused as stale |
+| current storeId, higher revision | applied |
+| current storeId, same revision, same digest | 200, no change (a replay) |
+| current storeId, same revision, different digest | 409: a store bug or a forged push; nothing applied |
+| current storeId, lower revision | 409 stale; nothing applied |
+| a retired storeId | 409 retired; nothing applied |
+| a storeId never seen for this machine | applied; the previous current storeId is retired, permanently |
+| no current storeId yet | applied; becomes current |
 
-Per-definition revisions are carried for C4 and for display; they never order membership.
+A store id is identity, not order, so order across stores comes from retirement: once B has replaced
+A, A can never be accepted again, however late its push arrives. Returning a machine to an older store
+(two definition directories used in turn) is an operator action:
+`POST /api/v1/environments/{envId}/definition-store/reset` (operator-authorized) clears the retired set
+for that machine. A push already in flight is decided by this table when it arrives; the plugin's
+"retry with the next snapshot" only means it never re-sends an old body itself.
 
 **Application**, in one transaction:
 
 - a `valid` entry whose id is unowned or owned by this machine: stored in `agent_definitions`
-  (C5), owner = this machine;
+  (C5), owner = this machine, with its incarnation and revision; `available` recorded;
 - a `valid` entry whose id another machine owns: refused for that id, reported back in the response
   (`refused: [{id, reason: "defined on <machine>"}]`), and shown on the dashboard; the rest applies;
 - an `invalid` entry: the previously accepted definition for that id (if any) is kept, marked
   `hostState: invalid` with the problems; never withdrawn;
-- an id this machine owned that is absent from a complete snapshot: withdrawn (C6).
+- an id this machine owned that is absent from the snapshot: withdrawn (C6).
 
 **Ownership (single definition owner for this tag).** The first accepted definition of an id takes
-ownership for that machine. Ownership passes only when the owner withdraws the id (its complete
-snapshot without it), or when the operator releases it explicitly:
-`POST /api/v1/agent-definitions/{id}/release` (operator-authorized, `operator_authz.py`), for a host
-that is gone. A withdrawal and a new owner are separate transactions; nothing is rewritten in
+ownership for that machine. Ownership passes only when the owner withdraws the id, or when the operator
+releases it for a host that is gone: `POST /api/v1/agent-definitions/{id}/release`
+(operator-authorized). A withdrawal and a new owner are separate transactions; nothing is rewritten in
 historical sessions. This is a limitation of this tag, not an answer to the multi-machine question.
 
-**When the plugin pushes.** On plugin start, after every store write it makes, and every 60 s. A push
-that fails is retried with the NEXT snapshot, never the old body, so a delayed retry cannot carry stale
-membership.
+**When the plugin pushes.** On plugin start, after every store operation it makes, and every 60 s.
 
-**Witnesses.** Reversed delivery (S2 then S1: S1 refused, B still defined); stale retry after a removal
-(refused, id stays withdrawn); publisher replacement (old bridgeId refused after a new claimer); an
-invalid hand edit (previous definition kept, marked invalid); a directory read failure (nothing pushed,
-nothing withdrawn); a launcher removed (definition kept, unavailable); an intentional empty snapshot
-(all withdrawn). Each checks `agent_definitions` membership and owner after the step, not only the
-HTTP status.
+**Witnesses (P1 for the store half, P3 for the service half).** Reversed delivery (S2 then S1: S1
+refused, B still defined); stale retry after a removal (refused, id stays withdrawn); A, then B from a
+recreated store, then a delayed A (A refused as retired, B current); publisher replacement (old
+bridgeId refused); unchanged definition bytes through available, unavailable, available (each an
+ordered revision, no withdrawal, no conflict); valid, invalid, repaired (previous kept while invalid,
+no withdrawal); the same state enumerated in two orders (same digest); a directory read failure
+(nothing pushed, nothing withdrawn); an intentional empty snapshot (all withdrawn). Each checks
+`agent_definitions` membership and owner after the step, not only the HTTP status.
 
-## C4. Change requests: compare-and-set, idempotent, fenced (R3)
+## C4. Change requests: compare-and-set on lifetime and revision, idempotent, fenced
 
-**Row.** `definition_requests {id, agent_id, machine_id, expected_revision, patch, requested_by,
-status, outcome, created_at, claimed_at, finished_at}`.
+**Row.** `definition_requests {id, agent_id, machine_id, store_id, expected_incarnation,
+expected_revision, patch, requested_by, status, outcome, result_incarnation, result_revision,
+created_at, claimed_at, finished_at}`.
 
 **Who may ask.** Operator-authorized only (`authorize_operator`), from the dashboard or the API. Agents
 cannot request definition changes this tag.
@@ -170,35 +254,46 @@ cannot request definition changes this tag.
 means "set to the schema's neutral value" (`""`, `{}`, or `true` for herdrSpace); anything else is the
 new value, validated by C1 on the host before it is written. `{"remove": true}` is the only other shape.
 
-**Admission at the service.** The agent must be defined, `machine_id` is its owner, and
-`expected_revision` is the definition revision the service holds now. One pending request per agent:
-a second is refused while the first is pending (409), so two edits from the same revision cannot both
-queue.
+**Admission at the service.** The agent must be defined; `machine_id` and `store_id` are its owner and
+that machine's current store; `expected_incarnation` and `expected_revision` are what the service holds
+now. One pending request per agent: a second is refused while the first is pending (409).
 
 **Claim.** `POST /api/v1/environments/{envId}/definition-requests/claim` with `bridgeId`: fenced to the
-owning machine's current claimer, as C3. A request not claimed within 10 minutes expires.
+owning machine's current claimer, as C3, and only requests whose `store_id` is that machine's current
+store. A request not claimed within 10 minutes expires; one whose store id was retired meanwhile is
+refused at the claim.
 
-**Apply, on the host.** `store.apply(request)` under the lock:
+**Apply, on the host**, as one C2 operation:
 
-1. If the file's `appliedRequest` equals this request's id: already applied (a crash after commit, or a
-   lost acknowledgement). Report `done` with the current revision; write nothing.
-2. For a removal: if `.trash/` holds `<id>.*.<requestId>.json`, already applied; report `done`.
-3. If the file's revision differs from `expected_revision`: `refused` ("changed on the host since you
-   asked: expected R, now R'"). A stale removal of a recreated definition lands here.
-4. Otherwise write the patched file with `revision + 1` and `appliedRequest = requestId` in the same
-   atomic write (or move it to trash for a removal), then report `done` with the new revision, then push.
+1. The request's store id is not this store's: `refused` ("made for another store").
+2. The file's `appliedRequest` equals this request's id: already applied (a crash after commit, or a
+   lost acknowledgement): `done` with the current incarnation and revision; nothing written.
+3. For a removal: `.trash/` holds a file whose name ends in `.<requestId>.json`: already applied, `done`.
+4. The file's `(incarnation, revision)` differs from the expected pair: `refused` ("changed on the host
+   since you asked"). A removal made for an earlier lifetime of a recreated id lands here even when the
+   revision numbers are equal, because the incarnation differs.
+5. Otherwise commit (a set with `revision + 1` and `appliedRequest = requestId`, or a removal to
+   `.trash/<id>.<incarnation>.<revision>.<requestId>.json`), report `done` with the result pair, then
+   push.
 
-**Outcomes.** `pending -> claimed -> done | refused | expired`. `done` carries the resulting revision;
-the dashboard shows "applied in aify-env, waiting for sync" until a snapshot at that revision or later
-lands, then the new value. A request delivered after its agent's ownership moved is refused at the
-claim (the claimer is not the owner).
+**Outcomes.** `pending -> claimed -> done | refused | expired`. `done` carries the result pair; the
+dashboard shows "applied in aify-env, waiting for sync" until a snapshot carrying that pair or later
+lands, then the new value.
 
-**Witnesses.** Two edits from one revision (second refused at admission); a local edit then a queued
-service edit (refused, file unchanged); crash after commit (replay reports done, no second write); lost
-acknowledgement (same); stale removal after recreation (refused, file kept); delivery after transfer
-(refused at claim).
+**The service's own consequences are fenced too.** A removal request's `done` runs the existing
+destructive agent removal ONLY when, in that transaction, the service still holds the definition at
+the request's expected `(store_id, incarnation)` or already saw it withdrawn by that store at exactly
+that lifetime, and no other machine owns the id. A delayed `done` that finds a different incarnation,
+store or owner records the host outcome and removes nothing, and says so on the request.
 
-## C5. What the service holds: desired, effective, live (R2, R6)
+**Witnesses (P3/P4).** Two edits from one pair (second refused at admission); a local edit then a
+queued service edit (refused, file unchanged); crash after commit (replay reports done, no second
+write); lost acknowledgement (same); a removal queued for incarnation 1 at revision 1, the id removed
+and recreated locally at incarnation 2 revision 1 (refused at step 4, file kept); a delayed `done` for
+that old removal (the service removes nothing); delivery after transfer or store retirement (refused
+at the claim).
+
+## C5. What the service holds: desired, descriptive, effective
 
 **Three kinds of field**, and who writes each:
 
@@ -208,12 +303,14 @@ acknowledgement (same); stale removal after recreation (refused, file kept); del
 | descriptive, applied at once | name, role, instructions, herdr_space | `agents` columns | C3 push (and nothing else, for a defined agent) |
 | effective (what the running process is) | runtime, session_mode, cwd, model, runtime_config.effort, session_handle, capabilities, driver_state | `agents` columns | the paths that write them today: registration, running settlement, handle and lease routes |
 
-Descriptive fields change nothing about delivery, so they apply as soon as a push lands; that is what
-lets an operator fix a role or instructions without a restart. Execution fields are desired in
-`agent_definitions` and effective in `agents`; **a desired change to them takes effect at the next
-start** and never rewrites the effective columns of a live run. `execution_mode.py:37-83` keeps
-reading the effective columns, so routing always describes the process that is actually running. The
-dashboard shows "changes on next start" when desired and effective differ.
+Descriptive fields apply as soon as a push lands. They do not change which execution backend or driver
+owns a run, but they are not inert: `role` selects recipients of role-addressed messages
+(`dispatch_messages/shared.py:168-173`), so a role change re-routes future `toRole` sends at once, which
+is what an operator changing a role means. Execution fields are desired in `agent_definitions` and
+effective in `agents`; **a desired change to them takes effect at the next start** and never rewrites
+the effective columns of a live run. `execution_mode.py:37-83` keeps reading the effective columns, so
+routing to a backend always describes the process that is actually running. The dashboard shows
+"changes on next start" when desired and effective differ.
 
 **Per-path dispositions for a defined agent** (undefined agents: every path unchanged):
 
@@ -222,8 +319,8 @@ dashboard shows "changes on next start" when desired and effective differ.
 | registration, upsert branch (`agent_registration_writes.py:195`) | writes role, name, instructions, managed_by, and the effective fields | keeps the descriptive columns as the definition set them; writes the effective ones as today |
 | registration, adopt branch (`:109`) and adopted-terminal handling | writes role, runtime | same rule as the upsert branch |
 | running settlement (`running_spawn.py:73-118`) | copies role/name/instructions from the request, effective fields from request/spec | descriptive columns from the CURRENT definition row, not the request; effective fields from the request, as today |
-| cold-start (`dispatch_start.py`) | role `coder`, name = id, spec copied from history | request and spec built from the current definition; its revision recorded on the request (C7) |
-| restart / recreate (`session_restart.py`) | copies from `agents` | built from the current definition, revision recorded |
+| cold-start (`dispatch_start.py`) | role `coder`, name = id, spec copied from history | request and spec built from the current definition; its store id, incarnation and revision recorded on the request (C7) |
+| restart / recreate (`session_restart.py`) | copies from `agents` | built from the current definition, the same three recorded |
 | direct spawn (`POST /spawn-requests`) | new spec from the body | refused for a defined agent (409, "defined in aify-env on <machine>; start it"); unchanged otherwise |
 | environment assign (`POST /agents/{id}/environment`) | rewrites cwd/model/runtime/sessions | becomes a change request (C4) for workspace/model/harness; historical sessions are no longer rewritten for a defined agent |
 | session-mode switch (`PATCH .../session-mode`) | rewrites mode and effective fields | becomes a change request for `mode` |
@@ -232,17 +329,17 @@ dashboard shows "changes on next start" when desired and effective differ.
 | herdr-space (`PATCH .../herdr-space`) | writes `herdr_space` | becomes a change request |
 | favorite, description, usage-source (`config.py:44-64`) | service-owned | unchanged (not definition fields; usage-source already preserves the rest of runtime_config) |
 | rename | copies the row | refused (409, "rename it in aify-env": not in this tag) |
-| remove (`DELETE /agents/{id}`) | tombstone, cancel runs, delete row | a removal request (C4); on `done`, the existing removal runs |
+| remove (`DELETE /agents/{id}`) | tombstone, cancel runs, delete row | a removal request (C4); on a fenced `done`, the existing removal runs |
 
 Guards sit in the transaction that writes, keyed on a row in `agent_definitions` read in that same
 transaction, so a push racing a registration cannot interleave.
 
-**Witnesses.** The role reset reproduced RED on today's code first. Then, for each row above, the
+**Witnesses (P3).** The role reset reproduced RED on today's code first. Then, for each row above, the
 defined-agent control (descriptive fields preserved) and the undefined-agent control (unchanged
 behaviour), plus the live controls: a defined agent's heartbeat, handle, lease and quota updates still
 land.
 
-## C6. Withdrawal is not removal (R3)
+## C6. Withdrawal is not removal
 
 A withdrawn definition (absent from its owner's complete snapshot, or released by the operator):
 
@@ -256,47 +353,62 @@ A withdrawn definition (absent from its owner's complete snapshot, or released b
 Defining it again (on any host, once unowned) restores `defined` with the new owner. Operator removal
 of the agent itself is the separate, existing destructive path, reached through a removal request.
 
-## C7. A start is bound to one definition revision (R2)
+## C7. A start is bound to one definition lifetime and revision
 
-- A cold-start, restart or aify-env start of a defined agent records `definition_revision` and
-  `store_id` on the spawn request, and builds the spawn (spec, role, name, workspace, model, effort,
-  env) from that revision only.
-- The launch payload (`GET /terminals/{id}/launch`) carries `definitionRevision` and `storeId`.
+- A start of a defined agent never needs a prior session. The service's start for a defined agent
+  (the agent-level start, `POST /agents/{id}/control` with `start`) builds a spawn request from the
+  current definition whether or not the agent has any history; that is how a newly defined id first
+  runs. aify-env's start for a defined agent calls that route; its session-based restart
+  (`restartTargetFor`, `agent-starter.mjs:130-137`) stays for undefined agents only.
+- The spawn request records `definition_store_id`, `definition_incarnation` and `definition_revision`,
+  and builds the spawn (spec, role, name, workspace, model, effort, env) from that revision only.
+- The launch payload (`GET /terminals/{id}/launch`) carries the same three.
 - **At the process-start boundary** (aify-env `terminal-controls.mjs` `startTerminal`, before the
   process starts; `claim.mjs` starts no process): the plugin reads the local definition. It refuses the
-  control when the file is absent ("withdrawn on this host"), invalid, of another storeId, or at a
-  different revision ("changed since this start was queued: R -> R'; start it again"), or when its
-  harness does not match the launch's runtime. A refusal is reported on the control, as refusals are
+  control when the file is absent ("withdrawn on this host"), invalid, of another store or incarnation,
+  or at a different revision ("changed since this start was queued: R -> R'; start it again"), or when
+  its harness does not match the launch's runtime. A refusal is reported on the control, as refusals are
   today, and the spawn fails with that reason. No worker starts from a mix of two revisions.
-- An undefined agent's launch carries no revision, and the host does no check.
+- A `resident` definition is never started by the service: residents are started by the operator
+  through a launcher (C9). A definition changed from managed to resident while a managed worker runs
+  leaves that worker running; once it stops, the agent is no longer offered for a managed start.
+- An undefined agent's launch carries none of the three, and the host does no check.
 
-## C8. Plugins follow the registry without pretending the host stopped (R5)
+**Witnesses (P3/P4).** The first start of a newly defined id with no agent row and no session; a
+definition changed between queue and launch (refused at the boundary); a withdrawal between queue and
+launch (refused); managed to resident while running (worker untouched, then not offered); resident to
+managed (offered for a managed start from then on).
+
+## C8. Plugins follow the registry without pretending the host stopped
 
 Two operations, never one:
 
 - **Host shutdown** (`plugin.stop()`, as today, `index.mjs:392-414`): offline beat with
   `heldTerminals: []`, because the host's workers go with it.
-- **Configuration detach** (`plugin.detach()`, new): stop starting claim and control cycles, wait for
-  the in-flight long-poll to return (at most its `waitMs`), process whatever it returned while still
-  attached, and send nothing else. No offline beat, no empty `heldTerminals`.
+- **Configuration detach** (`plugin.detach()`, new): first the plugin enters QUIESCING, in which a
+  claimed control that would start a process is refused on the control ("this service is being
+  detached from this host"), and no new claim or control cycle begins; then it waits for the in-flight
+  long-poll to return (at most its `waitMs`) and handles what it returned under the quiescing rule; then
+  it re-evaluates custody. No offline beat, no empty `heldTerminals`.
 
-**Policy when the registry changes:**
+**Policy when the registry changes**, decided AFTER the quiescing drain, on what the plugin holds then:
 
 | change | plugin holds no workers | plugin holds workers |
 |---|---|---|
 | service added | start its plugin | n/a |
-| service removed | `detach()` | **kept**: the plugin keeps serving its workers; `aify-env doctor` and the TUI show "registry change pending: N workers still held"; applied when the last one ends |
-| endpoint changed | `detach()` the old plugin, start the new | **kept** on the old endpoint, same report; applied when the last worker ends |
+| service removed | detach completes | **kept**: the plugin stays attached serving its workers, back out of quiescing for everything except starts; `aify-env doctor` and the TUI show "registry change pending: N workers still held"; detach is retried when the last one ends |
+| endpoint changed | the old plugin detaches, the new starts | **kept** on the old endpoint, the same report; applied when the last worker ends |
 
 No worker is killed or declared gone by a configuration change. A daemon restart applies everything at
 once, as today.
 
-**Witnesses** use the real aify-comms plugin with an injected fake transport and fake processes: a
+**Witnesses (P2)** use the real aify-comms plugin with an injected fake transport and fake processes: a
 held worker across a registry removal (still reported held, no offline beat); an endpoint change with a
-claim in flight (the returned work is processed, then detach); a delayed reply from the old endpoint
-after detach (ignored); and daemon shutdown still sending the offline beat.
+claim in flight that returns a START control (refused, nothing started, then detach); the same with a
+non-start control (handled, then detach); a delayed reply from the old endpoint after detach (ignored);
+and daemon shutdown still sending the offline beat.
 
-## C9. The launcher and its definition (R7)
+## C9. The launcher and its definition
 
 - `claude-aify`, `codex-aify`, `hermes-aify` with an agent id and no managed launch
   (`AIFY_MANAGED_VIA_WRAPPER` unset) read `~/.aify/agent-definitions/<id>.json` if it exists.
@@ -312,7 +424,7 @@ after detach (ignored); and daemon shutdown still sending the offline beat.
 - Managed launches take everything from the launch payload and do not read the file (the host already
   checked it, C7).
 
-## C10. Import shows what it does not know (R7)
+## C10. Import shows what it does not know
 
 `aify-env agents import` is an operator-requested pull, the one exception to "the host pushes": it
 asks each registered service offering the `agents` capability for this machine's agents.
@@ -329,11 +441,15 @@ asks each registered service offering the `agents` capability for this machine's
 - Harness mapping from the service's runtime: `claude-code -> claude`, `codex -> codex`,
   `hermes -> hermes`; anything else is listed as not importable.
 
-## C11. Mixed versions
+## C11. Mixed versions and persisted state
 
-- An aify-env without definitions and a new aify-comms: no pushes, so no defined agents; everything
-  behaves as today.
-- A new aify-env and an old aify-comms: the push route 404s; the plugin logs it once, keeps its other
-  loops, and `aify-env doctor` reports "service does not accept definitions". Local list/show/validate
-  work regardless.
-- aify-dashboard: unchanged this tag.
+The service's definition rows outlive whoever pushed them, so each arm says what happens to them.
+
+| arm | outcome |
+|---|---|
+| new service, no aify-env ever pushed | no definitions; everything behaves as today |
+| new aify-env, old service | the push route 404s; the plugin logs it once, keeps its other loops; `aify-env doctor` reports "service does not accept definitions"; local list/show/validate work regardless |
+| definitions accepted, then that machine's aify-env downgraded (or its new claimer never pushes) | the rows stay as last pushed and keep governing: descriptive fields, dispositions (C5) and withdrawal (C6) still apply; after 10 minutes with no push from the machine's current claimer, the dashboard and the service doctor show "definitions from <machine> not refreshed since <time>" |
+| a start of a defined agent through an aify-env that does no C7 check | the service still builds the spawn from the definition it holds and still records the three binding fields; the old host ignores them. That is the one arm where the boundary check is absent, and the doctor row above names it |
+| a withdrawn agent under an old aify-env | stays withdrawn; cold-starts refused as C6 until it is defined again or the operator releases it, after which it is an ordinary undefined agent |
+| aify-dashboard | unchanged this tag |
