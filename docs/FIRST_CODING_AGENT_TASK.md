@@ -8,7 +8,7 @@ You are the first implementation agent for the dashboard/control-plane lifecycle
 
 ## Objective
 
-Implement Slice 1 from [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md): environment registry.
+Implement Slice 1 from [IMPLEMENTATION_ROADMAP.md](history/IMPLEMENTATION_ROADMAP.md): environment registry.
 
 Do not rewrite messaging, dispatch, or the dashboard broadly. Add the smallest useful environment layer that future spawn work can build on.
 

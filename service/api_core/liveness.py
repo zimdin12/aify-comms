@@ -1,6 +1,6 @@
 """Liveness: how long before something counts as dead, and the predicates that decide. Leaf module.
 
-THE OLDEST OUTSTANDING ITEM IN THE SERIES. docs/ROADMAP.md has carried "Post-v0.5 — the consolidation
+THE OLDEST OUTSTANDING ITEM IN THE SERIES. docs/history/ROADMAP-2026-08.md has carried "Post-v0.5 — the consolidation
 the borrows are waiting for" since v0.5.0, reviewer-ordered as **liveness family first**. This is it.
 
 TEN predicates and the FOUR staleness thresholds they apply, which until now lived up to 4,900 lines

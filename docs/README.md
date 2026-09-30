@@ -36,7 +36,7 @@ the file is listed as UNCLASSIFIED rather than guessed at.
 | [`SKILLS.md`](SKILLS.md) | What the skill trees are and where they install to. |
 | [`TEAMWORK_STRATEGY.md`](TEAMWORK_STRATEGY.md) | How a multi-agent team is meant to work here. |
 | [`UNINSTALL.md`](UNINSTALL.md) | Removing it cleanly. |
-| [`ROADMAP.md`](ROADMAP.md) | What shipped and what is next. Part record, part plan: the live half is the "next" section. |
+| [`ROADMAP.md`](ROADMAP.md) | What is being finished now, what comes next and in which order, and older goals kept to pick from. The 2026-08 roadmap is in `history/`. |
 
 ## Finished work — kept as evidence, not as instruction
 

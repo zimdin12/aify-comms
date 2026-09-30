@@ -1,6 +1,6 @@
 """The periodic sweep's step ORDER is load-bearing, and nothing enforced it.
 
-PRE-MOVE WORK for the reconciler extraction (`docs/ROADMAP.md`). That release moves 43 functions out
+PRE-MOVE WORK for the reconciler extraction (`docs/history/ROADMAP-2026-08.md`). That release moves 43 functions out
 of `api_v2.py` in 10 slices with an intentionally empty behaviour changelog. The sweep in `main.py`
 imports 28 of them and calls them in a specific order — and several of those orderings are the
 *fix* for a past incident, recorded only as a prose comment beside the call:
