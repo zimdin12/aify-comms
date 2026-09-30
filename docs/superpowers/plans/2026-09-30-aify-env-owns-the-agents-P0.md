@@ -87,7 +87,7 @@ this section is the store's own contract.
 - `lastOperation`: the id of the last operation whose ledger this is: the ledger's commit receipt.
 
 - `storeId`: a UUID made once, when the ledger is first created.
-- `revision`: the collection's counter; advances on every committed operation and every change of the
+- `revision`: the collection's counter; advances on every settled operation (committed or unknown) and every change of the
   semantic snapshot (C3).
 - `nextIncarnation`: store-wide, only ever increases, so an incarnation is never reused, even for an id
   that was removed and made again.
@@ -124,7 +124,10 @@ fail on Windows (EPERM, EBUSY): retried with backoff for up to 2 s, then the ope
 step and recovery settles it.
 
 **Recovery**, run under the lock before any other work, every time the store is opened. With an
-intent present, the first arm that holds decides:
+intent present, it first reads `.recovered/<operation>.json`: when that record exists, the operation's
+outcome is the one it records, and the arm that holds below only finishes the settlement. A ledger
+receipt written by a settlement is bookkeeping, not evidence that the original step 2 ran. Otherwise
+the first arm that holds decides:
 
 | arm | evidence | outcome |
 |---|---|---|
@@ -142,7 +145,8 @@ edit.
 1. Write `.recovered/<operation>.json` (temp, fsync, rename): the intent verbatim, `requestId`
    included, with `outcome: "unknown"`. A temp file the intent names, if one exists, is moved to
    `.recovered/<operation>.body.json`. Nothing is deleted.
-2. Continue as arm 2: write `ledgerAfter`, delete the intent. A crash between the two reopens in arm 1.
+2. Continue as arm 2: write `ledgerAfter`, delete the intent. A crash between the two reopens in arm 1,
+   which deletes the intent; the outcome stays UNKNOWN, because the record is read first.
 3. Adopt. Every open ends its recovery, intent or not, with the snapshot's adoption pass, under the
    lock and before any other operation, so a crash after step 2 still reaches this. It finds the file
    differing from the ledger and records it as the later state: a set's restored bytes become revision
@@ -180,10 +184,20 @@ after state. The store then:
   intent to `.recovered/<operation>.json` with the operator's choice as its `outcome`, and keeps the
   incarnation rule above and any request's `appliedRequest` exactly as found in the file.
 
-An operation's outcome is `committed` only once step 4 has run, or when recovery has settled it as
-committed or as unknown. A caller that crashed mid-operation learns the outcome from the ledger, or for a request
-from `appliedRequest` or the trash name (C4). A snapshot always runs recovery first, so it never
-publishes a half-applied operation.
+**Outcomes.** Settling an operation, which is what recovery always does, is not the same as the
+operation having committed. An operation's outcome is exactly one of:
+
+- `committed`: step 4 ran, or recovery found the operation's own receipt (arm 1 or 2) and no
+  `.recovered/` record for it;
+- `unknown`: `.recovered/<operation>.json` records it (arm 3). The store's state is accounted for; the
+  operation is not claimed to have applied;
+- the operator's choice, as recorded in `.recovered/<operation>.json` (arm 4).
+
+`.recovered/` carries the outcome of every interrupted operation that recovery could not prove, with
+its request. A record there is created once and never rewritten, including by a later restart. A caller
+that crashed mid-operation reads `.recovered/` first, then the ledger, or for a request its
+`appliedRequest` or the trash name (C4). A snapshot always runs recovery first, so it never publishes a
+half-applied operation.
 
 **Incarnations and revisions.**
 
@@ -211,8 +225,10 @@ find the operation that made it.
 **Witnesses (P1).** Identifiers (every C1 case from the shared fixture); the golden canonical vectors;
 case collision; symlink and junction entries; a torn write (crash between each pair of steps, with no
 hand edit: the next open settles committed, or unknown and forward when the crash came before step 2,
-and the ledger, file, trash and `.recovered/` agree; a crash inside the forward settlement reopens in
-arm 1 with the record already written);
+and the ledger, file, trash and `.recovered/` agree; a crash inside the forward settlement, after the
+record, after the ledger, and after the intent's deletion, each reads back `unknown` with the adopted
+file and ledger; and, as the positive control, an ordinary crash after step 3 with no record reads back
+`committed` from arm 1);
 recovery with a hand edit, each reading back the ledger, file, intent, trash and returned outcome:
 interrupted after the file rename and before the ledger, then a valid hand edit to `name` (arm 2: set
 at R, hand edit adopted as R+1); interrupted after the ledger and before the intent's deletion, then
