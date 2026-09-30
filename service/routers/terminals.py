@@ -38,7 +38,7 @@ from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.console_prompts import forget_terminal as _forget_answered_prompts
 from service.api_core.launch_env import NEVER_INHERITED, launches_via_wrapper, managed_launch_env
-from service.api_core.records import _terminal_session_to_dict
+from service.api_core.records import _terminal_session_to_dict, herdr_space_of
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
 from service.api_core.virtual_rpc import VIRTUAL_RPC_COMMAND_SET
@@ -240,6 +240,7 @@ async def get_terminal_launch(terminal_id: str):
                     "runtimeState": _json_loads_or(
                         agent_row["runtime_state"] if "runtime_state" in keys else "", {},
                     ),
+                    "herdrSpace": herdr_space_of(agent_row),
                 }
 
         # THE SPAWN'S OWN envVars, reached the way the restart path reaches a spec: terminal ->
@@ -278,6 +279,8 @@ async def get_terminal_launch(terminal_id: str):
                 # REMOVED from the host's own environment before `env` goes on top: an overlay can
                 # set a name but never unset one (`launch_env.NEVER_INHERITED` says why that matters).
                 "unsetEnv": list(NEVER_INHERITED),
+                # The operator's per-agent choice; false starts the worker without a herdr space.
+                "herdrSpace": agent.get("herdrSpace", True),
             },
         }
     finally:

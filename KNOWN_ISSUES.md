@@ -295,6 +295,17 @@ keystroke echo waited behind it, worse when agents produced more output. Now rea
 the file (device, inode, ctime; 60 s TTL). Measured in a harness: loop delay max 567 ms before,
 17.7 ms after. Not yet measured on the live daemon, which needs an aify-env restart to load it.
 
+## The session list calls a starting session with no terminal yet `stopped` (review, 2026-09-30)
+
+`GET /sessions` serves a derived status (`_compute_session_display_status`,
+`service/reconcilers/sessions.py`). For a managed session it reads `stopped` whenever the agent has no
+live console, including a session still starting that has no terminal row yet. The conditional restart
+guard (`_live_session_for`) correctly counts that session as live and refuses a second start with 409,
+so the list and the guard disagree for that window. Reproduced offline by comms-senior-dev in review of
+fbb4776a. The guard stays as it is: weakening it to match the list would allow a double start. Fix the
+display on its own; its caller that matters is aify-env's start, which reads the list and then asks the
+guard.
+
 ## Rare wrong statuses for a managed claude (traced 2026-09-26)
 
 An unwatched console is NOT one: aify-env reads every terminal's output and reports its screen whether

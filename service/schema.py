@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS agents (
     runtime_config TEXT DEFAULT '{}',
     runtime_state TEXT DEFAULT '{}',
     favorited INTEGER NOT NULL DEFAULT 0,
+    herdr_space INTEGER NOT NULL DEFAULT 1,
     registered_at TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );

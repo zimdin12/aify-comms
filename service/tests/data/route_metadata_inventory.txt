@@ -65,6 +65,7 @@ JsonApiRoute GET /api/v1/usage/consumption name=get_usage_consumption status=- r
 JsonApiRoute PATCH /api/v1/agents/{agent_id} name=update_agent status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/agents/{agent_id}/description name=update_agent_description status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/agents/{agent_id}/favorite name=update_agent_favorite status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute PATCH /api/v1/agents/{agent_id}/herdr-space name=update_agent_herdr_space status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/agents/{agent_id}/ready name=update_agent_ready status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/agents/{agent_id}/runtime-state name=update_agent_runtime_state status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/agents/{agent_id}/session-handle name=update_agent_session_handle status=- response_model=- tags=api deps=0 in_schema=True

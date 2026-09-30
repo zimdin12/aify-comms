@@ -215,6 +215,10 @@ class AgentFavoriteUpdate(BaseModel):
     favorited: bool
 
 
+class AgentHerdrSpaceUpdate(BaseModel):
+    show: bool
+
+
 class AgentStatusUpdate(BaseModel):
     status: str
     note: Optional[str] = None

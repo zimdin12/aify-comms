@@ -29,7 +29,7 @@ from service.db import get_db
 
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
-from service.models import AgentDescribeRequest, AgentFavoriteUpdate, AgentStatusUpdate
+from service.models import AgentDescribeRequest, AgentFavoriteUpdate, AgentHerdrSpaceUpdate, AgentStatusUpdate
 
 router = domain_router()
 
@@ -120,5 +120,30 @@ async def update_agent_favorite(agent_id: str, req: AgentFavoriteUpdate, request
         if ws:
             await ws.broadcast("agent_favorite_updated", {"agentId": agent_id, "favorited": bool(flag)})
         return {"ok": True, "agentId": agent_id, "favorited": bool(flag)}
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/herdr-space")
+async def update_agent_herdr_space(agent_id: str, req: AgentHerdrSpaceUpdate, request: Request):
+    """Whether this managed agent is started with a herdr space of its own. Applies from its next start.
+
+    One value per agent, stored here because the host tier, aify-comms' dashboard and aify-dashboard
+    all already read this service's agents; the launch route hands it to the host that starts the
+    worker. `last_seen` is not stamped: an operator's setting is not the agent being here.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        show = bool(req.show)
+        await db.execute("UPDATE agents SET herdr_space = ? WHERE id = ?", (1 if show else 0, agent_id))
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_herdr_space_updated", {"agentId": agent_id, "herdrSpace": show})
+        return {"ok": True, "agentId": agent_id, "herdrSpace": show}
     finally:
         await db.close()

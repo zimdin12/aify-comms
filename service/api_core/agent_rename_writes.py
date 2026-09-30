@@ -31,12 +31,12 @@ async def _rewrite_agent_references_for_rename(db, agent_id, new_agent_id, now, 
             INSERT INTO agents (
                 id, role, name, cwd, model, description, instructions, status, status_note,
                 runtime, machine_id, launch_mode, session_mode, session_handle, managed_by,
-                capabilities, runtime_config, runtime_state, registered_at, last_seen
+                capabilities, runtime_config, runtime_state, favorited, herdr_space, registered_at, last_seen
             )
             SELECT ?, role, CASE WHEN name = id THEN ? ELSE name END, cwd, model, description,
                    instructions, status, status_note, runtime, machine_id, launch_mode,
                    session_mode, session_handle, managed_by, capabilities, runtime_config,
-                   runtime_state, registered_at, ?
+                   runtime_state, favorited, herdr_space, registered_at, ?
             FROM agents
             WHERE id = ?
             """,

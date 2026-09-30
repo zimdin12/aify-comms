@@ -25,7 +25,7 @@ import { renderStatusChip, statusWhyContext } from './status.js';
 import { byId } from './ui.js';
 import { esc, relTimeHtml } from './util.js';
 import { api } from './api-client.mjs';
-import { startOffer } from './agent-click-handlers.mjs';
+import { herdrSpaceButton, startOffer } from './agent-click-handlers.mjs';
 import { AGENT_PROCESSES_ID, loadAgentProcesses, processesReadFailed } from './agent-processes.mjs';
 import { AGENT_RUNS_ID, fillAgentRuns } from './agent-runs.mjs';
 import { AGENT_SHARING_ID, fillSessionSharing } from './agent-session-sharing.mjs';
@@ -66,6 +66,7 @@ export function openAgentDrawer(agentId) {
     sid ? `<button class="ghost" data-agent-compact="${esc(sid)}">Compact</button>` : '',
     sid ? `<button class="ghost" data-agent-continue="${esc(sid)}">Continue as…</button>` : '',
     `<button class="ghost" data-agent-mode="${esc(otherMode)}" data-agent="${esc(id)}">Switch to ${esc(otherMode)}</button>`,
+    mode === 'managed' ? herdrSpaceButton(agent) : '',
     `<button class="ghost" data-agent-edit="${esc(id)}">Edit…</button>`,
     `<button class="ghost" data-agent-history="${esc(id)}">History</button>`,
     sid ? `<button class="ghost" data-agent-open-sessions="${esc(sid)}">Open in Sessions</button>` : '',

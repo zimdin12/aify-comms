@@ -71,6 +71,9 @@ AGENT_MIGRATIONS = {
     # favorited agents on top). Per-deployment marker; not synced
     # across remote dashboards.
     "favorited": "ALTER TABLE agents ADD COLUMN favorited INTEGER NOT NULL DEFAULT 0",
+    # Operator-set: 0 starts this managed agent without a herdr space of its own. The launch route
+    # hands it to the host tier, which skips the space; the agent runs and is attachable either way.
+    "herdr_space": "ALTER TABLE agents ADD COLUMN herdr_space INTEGER NOT NULL DEFAULT 1",
     # WHEN THE AGENT ITSELF WAS LAST HERE, which `last_seen` stopped answering long ago: Stop,
     # Resume, a description edit and a favourite toggle all stamp that column, so an operator
     # touching a row made the agent look present. The away briefing measures an absence, and

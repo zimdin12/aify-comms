@@ -354,6 +354,12 @@ def _status_with_dispatch(status: str, dispatch_state: Optional[dict[str, Any]])
     return status
 
 
+def herdr_space_of(row) -> bool:
+    """Whether a managed agent is started with a herdr space. A row predating the column shows one."""
+    value = row["herdr_space"] if row is not None and "herdr_space" in row.keys() else None
+    return True if value is None else bool(int(value))
+
+
 def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optional[dict[str, Any]] = None, *, live_reason: Optional[str] = None, outbound: Optional[dict[str, Any]] = None):
     runtime = _normalize_runtime(row["runtime"] or "generic")
     session_mode = _normalize_session_mode(row["session_mode"] or "resident")
@@ -418,6 +424,7 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         # that absence caused. Empty dict when unknown — never a fabricated timestamp.
         "outbound": outbound or {},
         "favorited": bool(int((row["favorited"] if "favorited" in row.keys() else 0) or 0)),
+        "herdrSpace": herdr_space_of(row),
         # Dashboard rendering hint: resident sessions live in an
         # operator-launched terminal outside aify's PTY tracking — the
         # dashboard's "Start Console" button can't open or attach to

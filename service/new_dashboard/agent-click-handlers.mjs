@@ -11,6 +11,7 @@
 import { api } from './api-client.mjs';
 import { resolveStatus } from './status.js';
 import { toast } from './ui.js';
+import { esc } from './util.js';
 
 /**
  * Whether the dashboard offers Start for this agent, and why not when it does not (v0.7.7).
@@ -32,6 +33,33 @@ export function startOffer(agent) {
   if (status === 'starting') return { start: false, why: 'already starting' };
   if (status === 'misconfigured') return { start: false, why: 'misconfigured: fix its configuration first' };
   return { start: false, why: '' };
+}
+
+/**
+ * The drawer's herdr-space switch for a managed agent (2026-09-30). `herdrSpace` false starts the agent
+ * without a herdr space of its own; it still runs, shows here, and can be attached from aify-env.
+ * A record from a service without the field shows a space, as the service defaults it.
+ */
+export function herdrSpaceButton(agent) {
+  const shown = agent?.herdrSpace !== false;
+  const id = String(agent?.id || '');
+  const title = 'Applies from its next start. The agent still runs, shows here, and can be attached from aify-env.';
+  return `<button class="ghost" data-agent-herdr-space="${esc(id)}" data-show="${shown ? 'false' : 'true'}" title="${title}">${shown ? 'Hide from herdr' : 'Show in herdr'}</button>`;
+}
+
+export function setHerdrSpace(button, refreshSoon) {
+  const id = button.dataset.agentHerdrSpace;
+  const show = button.dataset.show === 'true';
+  button.disabled = true;
+  return api(`/agents/${encodeURIComponent(id)}/herdr-space`, { method: 'PATCH', body: JSON.stringify({ show }) })
+    .then(() => {
+      toast(show ? `${id} gets a herdr space from its next start` : `${id} starts without a herdr space from its next start`, 'ok');
+      refreshSoon();
+    })
+    .catch((err) => {
+      toast(`Herdr setting failed: ${err?.message || err}`, 'error');
+      button.disabled = false;
+    });
 }
 
 export function startColdAgent(agentAction, refreshSoon) {

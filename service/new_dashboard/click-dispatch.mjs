@@ -18,7 +18,7 @@
 //
 // Five injected names remain — the rest of what this dispatches to is now a sibling's export.
 
-import { runAgentControl, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
+import { runAgentControl, setHerdrSpace, startColdAgent, switchAgentModeFromRow, switchModeFromChip, toggleFavouriteRow } from './agent-click-handlers.mjs';
 import { openAgentDrawer } from './agent-drawer.mjs';
 import { openStartDialog } from './start-dialog.mjs';
 import { deleteSessionById, openAgentChat, removeAgent, requestBulkSessionControl, requestSessionControl, resolveAgentSession, stopAgentWorker, submitAgentEdit, submitContinue, switchAgentSessionMode } from './agent-session-actions.mjs';
@@ -255,6 +255,11 @@ export function dispatchClick(event) {
   const agentAction = event.target.closest('[data-agent-action="start"]');
   if (agentAction) {
     startColdAgent(agentAction, refreshSoon);
+    return;
+  }
+  const herdrSpace = event.target.closest('[data-agent-herdr-space]');
+  if (herdrSpace) {
+    setHerdrSpace(herdrSpace, refreshSoon);
     return;
   }
   const analyticsRange = event.target.closest('[data-analytics-range]');

@@ -10,7 +10,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  herdrSpaceButton,
   runAgentControl,
+  setHerdrSpace,
   startColdAgent,
   startOffer,
   switchAgentModeFromRow,
@@ -248,4 +250,34 @@ test("startOffer: Start for a managed agent the service would start, and a reaso
   assert.match(startOffer({ sessionMode: "managed", status: "misconfigured" }).why, /configuration/);
   assert.match(startOffer({ sessionMode: "managed", status: "starting" }).why, /starting/);
   assert.equal(startOffer({ sessionMode: "managed", status: "working" }).start, false);
+});
+
+test("herdrSpaceButton offers the opposite of the agent's setting, and a record without it shows a space", () => {
+  // The service defaults the field to a space; a missing field must read the same, not as hidden.
+  assert.match(herdrSpaceButton({ id: "a" }), /data-show="false"[^>]*>Hide from herdr</);
+  assert.match(herdrSpaceButton({ id: "a", herdrSpace: true }), /data-show="false"[^>]*>Hide from herdr</);
+  assert.match(herdrSpaceButton({ id: "a", herdrSpace: false }), /data-show="true"[^>]*>Show in herdr</);
+  assert.match(herdrSpaceButton({ id: 'x"><b>' }), /data-agent-herdr-space="x&quot;&gt;&lt;b&gt;"/, "the id is not escaped");
+});
+
+test("setHerdrSpace PATCHes the value the button declares, and refreshes", () => {
+  return withFetch({ body: {} }, async (calls) => {
+    const btn = { disabled: false, dataset: { agentHerdrSpace: "sc/lead", show: "false" } };
+    let refreshed = 0;
+    await setHerdrSpace(btn, () => { refreshed += 1; });
+    assert.equal(calls[0].method, "PATCH");
+    assert.match(calls[0].url, /\/agents\/sc%2Flead\/herdr-space$/);
+    assert.deepEqual(JSON.parse(calls[0].body), { show: false });
+    assert.equal(refreshed, 1);
+  });
+});
+
+test("a failed herdr setting re-enables the button and does not refresh", () => {
+  return withFetch({ reject: true }, async () => {
+    const btn = { disabled: false, dataset: { agentHerdrSpace: "a", show: "true" } };
+    let refreshed = 0;
+    await setHerdrSpace(btn, () => { refreshed += 1; });
+    assert.equal(btn.disabled, false, "the button stays dead after a failure");
+    assert.equal(refreshed, 0);
+  });
 });
