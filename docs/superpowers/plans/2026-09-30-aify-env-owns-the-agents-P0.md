@@ -65,11 +65,13 @@ fixture carries each:
 - `updatedAt` matches `YYYY-MM-DDTHH:MM:SS(.1-9 digits)?Z`.
 - A key the table does not name, at the top level or in `agent`, is invalid (`unknown-field`), so a
   left-out field cannot come back in by hand.
-- `incarnation`, `revision` and `operation` are the store's: every file the store writes has them, a
-  hand-made or hand-edited file may omit or change them, and adoption assigns them from the ledger (C2).
-  Validity is decided without them.
+- `incarnation`, `revision`, `operation` and `updatedAt` are the store's: every file the store writes
+  has them, a hand-made or hand-edited file may omit or change them, and adoption assigns them from the
+  ledger (C2). Validity is decided without them (`updatedAt` is still checked when present).
 - A problem is `<field>: <code>`, the same string in both languages, from the vocabulary the fixture
-  lists; a file's problems are sorted.
+  lists; a file's problems are sorted. A problem is always ASCII: an unknown key is named only when it
+  matches `[A-Za-z0-9_.-]{1,64}`, otherwise the problem is `file: unknown-field` or
+  `agent: unknown-field`, so no problem can carry text the two languages encode or sort apart.
 
 **Numbers.** `incarnation`, `revision`, the ledger's `revision` and `nextIncarnation` are integers in
 `[1, 2^53 - 1]` (JavaScript's safe integers). Both languages refuse a value outside that range, or not
