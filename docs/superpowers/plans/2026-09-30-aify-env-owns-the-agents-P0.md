@@ -119,12 +119,14 @@ spawns keep today's behaviour exactly.
 
 ## C2. The store: one writer, crash-recoverable
 
-`DefinitionStore` (aify-env `lib/agent-definitions.mjs`) is the only code that writes the directory. A
-module can write there only if it can name the directory, so a test rules out both ways to name it:
-nothing the store module exports, and no getter of a store instance, hands the path back (derived by
-calling them, so no relay can pass a path on, whatever import grammar it uses), and no other module
-under `lib/` or `bin/` names the folder or its override variable. A name spelled some other way on
-purpose is outside what a source test can see. The borrowed lease pattern is NOT claimed as a transaction proof;
+`DefinitionStore` (aify-env `lib/agent-definitions.mjs`) is the only code that writes the directory.
+What the test checks, and no more: nothing the store module exports and no getter of a store instance
+hands the path back (derived by calling them, so no relay can forward such an export, whatever import
+grammar it uses), and no other module under `lib/` or `bin/` names the folder or its override variable.
+What it does NOT check: a caller that recovers the path from a diagnostic the store returns (a
+held-lock error carries `lockPath`; several messages name a file), or a name spelled some other way.
+Diagnostics keep their paths because the operator needs them; that a caller does not write through
+one is a review obligation on each new caller, not something this test proves. The borrowed lease pattern is NOT claimed as a transaction proof;
 this section is the store's own contract.
 
 **Ledger.** `.collection.json`:
