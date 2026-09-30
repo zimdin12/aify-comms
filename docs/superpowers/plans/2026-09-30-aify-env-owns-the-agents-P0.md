@@ -26,7 +26,7 @@ same thing on Windows and Linux). This is the only identifier authority; the pla
 an invalid entry, never followed), directly inside the directory, named `<id>.json` where `<id>` passes
 the rule, whose body `agent.id` equals that name exactly. Anything else in the directory that ends in
 `.json` and does not start with `.` is an invalid entry. Names starting with `.` belong to the store
-(`.collection.json`, `.intent.json`, `.lock`, `.trash/`).
+(`.collection.json`, `.intent.json`, `.lock`, `.trash/`, `.recovered/`).
 
 **Schema v1.** A file is always written complete; a reader applies no defaults to a stored file, so
 "absent" means invalid, not default.
@@ -130,8 +130,31 @@ intent present, the first arm that holds decides:
 |---|---|---|
 | 1 | the ledger's `lastOperation` is the intent's `operation` | COMMITTED through step 3: delete the intent |
 | 2 | the file's body carries `operation` = the intent's, or `.trash/` holds the name ending in it | COMMITTED at step 2: write `ledgerAfter`, delete the intent |
-| 3 | the current state is exactly the intent's `before` (the file's digest equals it, or the file is absent where `before` is `absent`) and no trash file carries the operation | NOT COMMITTED: delete the temp files and the intent |
+| 3 | the current state is exactly the intent's `before` (the file's digest equals it, or the file is absent where `before` is `absent`) and no trash file carries the operation | OUTCOME UNKNOWN: settled forward (below), with no operator step |
 | 4 | none of the above | RECOVERY CONFLICT (below) |
+
+**Arm 3 is never NOT COMMITTED.** Restoring the before bytes (or deleting a new id's file) is an
+allowed hand edit, and it erases the only receipt, so "step 2 never ran" and "step 2 ran, then the
+operator put the before state back" leave identical bytes. Recovery records the one lineage true of
+both: the operation's revision, or its incarnation, is spent, and the state on disk now is a later hand
+edit.
+
+1. Write `.recovered/<operation>.json` (temp, fsync, rename): the intent verbatim, `requestId`
+   included, with `outcome: "unknown"`. A temp file the intent names, if one exists, is moved to
+   `.recovered/<operation>.body.json`. Nothing is deleted.
+2. Continue as arm 2: write `ledgerAfter`, delete the intent. A crash between the two reopens in arm 1.
+3. Adopt. Every open ends its recovery, intent or not, with the snapshot's adoption pass, under the
+   lock and before any other operation, so a crash after step 2 still reaches this. It finds the file
+   differing from the ledger and records it as the later state: a set's restored bytes become revision
+   R+1 of the same incarnation, R being the revision the operation reserved; a new id whose file is
+   absent is a hand removal, its incarnation spent; a removal whose file is back is a file made by
+   hand, so a new id with a new incarnation.
+
+A snapshot runs recovery and adoption before it reads anything, so no snapshot ever carries the
+unknown operation's revision. A request replayed after this finds neither its `appliedRequest` nor its
+trash name, and a pair that moved, so C4 refuses it at step 4; its id and outcome stay in
+`.recovered/`. A real crash before step 2 costs one revision number or one incarnation, which is the
+price of never inferring that a step did not run.
 
 - An `observe` intent (C3: only the ledger changes) has no step 2: arm 1 or, failing it, arm 2's
   outcome (write `ledgerAfter`).
@@ -153,11 +176,12 @@ after state. The store then:
   before and intended digests, and the current bytes;
 - is settled only by the operator: `aify-env agents recover --as-committed` (write `ledgerAfter`; the
   current file stays and is adopted as a later revision if it differs) or `--as-not-committed`
-  (discard the intent; the current file stays and is adopted as a hand edit). Either keeps the
+  (discard the intent; the current file stays and is adopted as a hand edit). Either first writes the
+  intent to `.recovered/<operation>.json` with the operator's choice as its `outcome`, and keeps the
   incarnation rule above and any request's `appliedRequest` exactly as found in the file.
 
 An operation's outcome is `committed` only once step 4 has run, or when recovery has settled it as
-committed. A caller that crashed mid-operation learns the outcome from the ledger, or for a request
+committed or as unknown. A caller that crashed mid-operation learns the outcome from the ledger, or for a request
 from `appliedRequest` or the trash name (C4). A snapshot always runs recovery first, so it never
 publishes a half-applied operation.
 
@@ -186,15 +210,21 @@ find the operation that made it.
 
 **Witnesses (P1).** Identifiers (every C1 case from the shared fixture); the golden canonical vectors;
 case collision; symlink and junction entries; a torn write (crash between each pair of steps, with no
-hand edit: the next open settles committed or not-committed, and the ledger, file and trash agree);
+hand edit: the next open settles committed, or unknown and forward when the crash came before step 2,
+and the ledger, file, trash and `.recovered/` agree; a crash inside the forward settlement reopens in
+arm 1 with the record already written);
 recovery with a hand edit, each reading back the ledger, file, intent, trash and returned outcome:
 interrupted after the file rename and before the ledger, then a valid hand edit to `name` (arm 2: set
 at R, hand edit adopted as R+1); interrupted after the ledger and before the intent's deletion, then
 the same edit (arm 1, then adoption); the receipt removed by hand (arm 4, everything kept, snapshot
 incomplete, then each `recover` choice); the file deleted before recovery (arm 4 when the ledger lacks
-the receipt, arm 1 when it has it); the before bytes restored exactly (arm 3); a new id interrupted
-in each arm (its incarnation never reused); a request's set interrupted (its `appliedRequest` read
-back as found); two writers racing (the second waits, then sees
+the receipt, arm 1 when it has it); the before bytes restored exactly after step 2, and the same
+crash before step 2 with no edit (both arm 3, both ending at revision R+1 with the before body and
+the same `.recovered/` record, so the two histories are settled identically); a new id created then
+its file deleted before recovery, and the same id interrupted before step 2 (both arm 3: absent, its
+incarnation spent and never reused); a removal whose file was moved back from the trash (arm 3: a new
+incarnation); a request's set interrupted then restored (its `requestId` read back from `.recovered/`,
+its replay refused at C4 step 4); two writers racing (the second waits, then sees
 the first's revision); a lock whose holder is alive is never taken; a lock whose holder is gone is
 reported with the unlock remedy and still not taken; `unlock` removes only a dead holder's lock; a
 hand edit adopted; an invalid hand edit reported and left as written; remove then recreate the same id
