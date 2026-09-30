@@ -12,6 +12,7 @@ import { api } from './api-client.mjs';
 import { resolveStatus } from './status.js';
 import { toast } from './ui.js';
 import { esc } from './util.js';
+import { state } from './state.mjs';
 
 /**
  * Whether the dashboard offers Start for this agent, and why not when it does not (v0.7.7).
@@ -47,13 +48,25 @@ export function herdrSpaceButton(agent) {
   return `<button class="ghost" data-agent-herdr-space="${esc(id)}" data-show="${shown ? 'false' : 'true'}" title="${title}">${shown ? 'Hide from herdr' : 'Show in herdr'}</button>`;
 }
 
+/**
+ * THE ACKNOWLEDGED VALUE IS SHOWN AT ONCE (review of 896abb17). Leaving the button to the next roster
+ * fetch left it disabled and offering the old choice whenever that fetch failed: the refresh keeps the
+ * old roster, and the drawer does not repaint unchanged markup. So the agent in `state` and this
+ * button both take the value the service answered with, and the button is usable again.
+ */
 export function setHerdrSpace(button, refreshSoon) {
   const id = button.dataset.agentHerdrSpace;
   const show = button.dataset.show === 'true';
   button.disabled = true;
   return api(`/agents/${encodeURIComponent(id)}/herdr-space`, { method: 'PATCH', body: JSON.stringify({ show }) })
-    .then(() => {
-      toast(show ? `${id} gets a herdr space from its next start` : `${id} starts without a herdr space from its next start`, 'ok');
+    .then((answer) => {
+      const stored = typeof answer?.herdrSpace === 'boolean' ? answer.herdrSpace : show;
+      const agent = state.agents.find((a) => a.id === id);
+      if (agent) agent.herdrSpace = stored;
+      button.dataset.show = stored ? 'false' : 'true';
+      button.textContent = stored ? 'Hide from herdr' : 'Show in herdr';
+      button.disabled = false;
+      toast(stored ? `${id} gets a herdr space from its next start` : `${id} starts without a herdr space from its next start`, 'ok');
       refreshSoon();
     })
     .catch((err) => {

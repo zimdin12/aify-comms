@@ -19,6 +19,7 @@ import {
   switchModeFromChip,
   toggleFavouriteRow,
 } from "./agent-click-handlers.mjs";
+import { state } from "./state.mjs";
 
 /** A button double recording what the handler did to it. */
 function button(id = "coder-1") {
@@ -279,5 +280,24 @@ test("a failed herdr setting re-enables the button and does not refresh", () => 
     await setHerdrSpace(btn, () => { refreshed += 1; });
     assert.equal(btn.disabled, false, "the button stays dead after a failure");
     assert.equal(refreshed, 0);
+  });
+});
+
+test("after a 200 the button shows the acknowledged value and works again, with no roster refresh behind it", () => {
+  // REVIEW of 896abb17: the button stayed disabled with the old choice until a roster fetch landed,
+  // and a failed fetch keeps the old roster. Here `refreshSoon` fetches nothing, which is that case.
+  return withFetch({ body: { ok: true, herdrSpace: false } }, async (calls) => {
+    state.agents = [{ id: "sc-lead", herdrSpace: true }];
+    const btn = { disabled: false, textContent: "Hide from herdr", dataset: { agentHerdrSpace: "sc-lead", show: "false" } };
+    await setHerdrSpace(btn, () => {});
+    assert.equal(btn.disabled, false, "the only toggle is dead until a later refresh");
+    assert.equal(btn.textContent, "Show in herdr");
+    assert.equal(btn.dataset.show, "true", "the next press would repeat the choice already made");
+    assert.equal(state.agents[0].herdrSpace, false, "a repaint from the kept roster would show the old value");
+    assert.match(herdrSpaceButton(state.agents[0]), />Show in herdr</);
+
+    // AND THE REVERSE, from the same button.
+    await setHerdrSpace(btn, () => {});
+    assert.deepEqual(JSON.parse(calls[1].body), { show: true });
   });
 });
