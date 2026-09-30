@@ -1,0 +1,37 @@
+# the review regressions run against the REVIEWED commit 3aa5df7 (before the repair), 2026-09-30T21:50:38Z
+# R1, R6 and R7 fail here because their seam or boundary does not exist at 3aa5df7; their reason-bound REDs are the R1/R6/R7 mutants in mutations-result.txt
+not ok 1 - R1 A LOCK LOST BETWEEN RENAME RETRIES stops the apply before it happens; an untouched retry still succeeds
+  ---
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+not ok 2 - R2 THE LEDGER'S COUNTERS obey the raw-number law: a fraction, an exponent, past the safe range
+  ---
+  error: 'Missing expected rejection: 9007199254740990.5'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+not ok 3 - R3 A KNOWN FILE REPLACED BY A DIRECTORY OR A JUNCTION is invalid, not removed: repaired, it keeps its identity
+  ---
+  error: |-
+    directory: the ledger keeps its last good identity
+    
+not ok 4 - R4 ENV KEYS NAMING OBJECT.PROTOTYPE MEMBERS reach the written file through the command, and unset
+  ---
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+not ok 5 - R5 A SET RACED BETWEEN ITS READ AND ITS WRITE is refused, never a stale full-body overwrite
+  ---
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+not ok 6 - R6 A RECORD WHOSE BODY WAS NOT YET ARCHIVED: the next open archives it, and the outcome stays unknown
+  ---
+  error: 'the temp is still where the set left it'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+not ok 7 - R7 A DIRECTORY THAT CANNOT BE LISTED makes the snapshot incomplete; not an error, not an empty set
+  ---
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected

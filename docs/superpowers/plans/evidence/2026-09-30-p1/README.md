@@ -26,3 +26,18 @@ Two defects the tests found in the work in progress, both fixed before the commi
 `set` reported a missing harness as "the undefined launcher is not installed".
 
 To rerun: `python mutate.py <aify-env checkout> mutations.json`.
+
+## After the review of 3aa5df7 (R1-R8 and the canonical-order gap)
+
+The repair is aify-env **26878fb** (tree `647be4a8`); the contract change it carries is C3's ordering
+rule in this commit. The files above were rerun on that tree; the first round's results are in git
+history.
+
+| file | what it is |
+|---|---|
+| `review-regressions-RED-at-3aa5df7.txt` | `tests/agent-definition-review-regressions.test.js` run against 3aa5df7, before the repair: 7/7 fail. R2-R5 fail on their findings' own assertions. R1, R6 and R7 fail because their injection seam or boundary does not exist at 3aa5df7, so their reason-bound REDs are the mutants below |
+| `mutations-result.txt` | 65 mutations, 65 killed, now with the tests that killed each one. Every R1-R8 mutant dies on its own regression; the ordering mutant on the golden vector |
+| `aify-env-full-suite-verdicts-after-review.txt` | npm test at 26878fb: 2255 tests, 2251 pass, 4 skipped, 0 fail |
+
+The driver now decodes test output as UTF-8 and records the failing test names; the first run of
+this round crashed decoding it as code page 1257, and its `finally` restored every file (checked).

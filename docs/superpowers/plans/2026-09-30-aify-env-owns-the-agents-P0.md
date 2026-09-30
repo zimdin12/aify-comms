@@ -316,9 +316,11 @@ reads no service and no PATH itself.
 **Every semantic change is ordered.** The snapshot's canonical digest covers everything the service
 acts on, so a change in availability or validity advances the revision like a change in a file:
 
-- canonical form: entries sorted by id (by UTF-16 code unit, which is what JavaScript's default sort
-  and a Python sort of `str` both give for this ASCII-only alphabet); each entry's keys sorted; JSON
-  with no whitespace; UTF-8;
+- canonical form: entries sorted by id by UTF-16 code unit, for EVERY entry. A valid id is ASCII, but
+  an invalid entry's id is its filename and can hold any character, and there Python's `str` order
+  (by code point) differs from JavaScript's: U+1F600 sorts before U+E000 by code unit and after it by
+  code point. Python sorts by `id.encode("utf-16-be")`; the fixture carries that pair as a golden
+  vector (found in review, 2026-10-01). Each entry's keys sorted; JSON with no whitespace; UTF-8;
 - the fields in it: `id`, `state`, and for a valid entry `incarnation`, `revision`, `definitionDigest`
   (sha-256 of the canonical JSON of `agent`), `available`, `unavailableReason`; for an invalid entry
   `problems`, sorted;
