@@ -95,3 +95,26 @@ async def _count_spawns_masked_by_live_sibling(db, end_statuses):
         (*_terminal_end_statuses_ordered(), *_terminal_end_statuses_ordered()),
     )).fetchone()
     return masked_row
+
+
+def spawn_worker_ended_sql(spawn: str = "s") -> tuple[str, tuple[str, ...]]:
+    """SQL true when a spawn's OWN worker came and went, and the parameters it binds.
+
+    ITS OWN: a terminal created at or after the spawn, on its session. A restart reuses the session,
+    so the previous worker's dead terminal is there too, and counting it would call a restart still
+    waiting for its first terminal finished, which is how one agent gets two workers. A spawn with no
+    terminal of its own yet is still coming up.
+
+    WHY IT EXISTS (2026-09-30): the finalizer settles such a spawn only after a 45 s grace plus a sweep,
+    about 90 s in practice, and until then the agent read `starting` and aify-env refused to start it.
+    The status and the booting check ask this at decision time instead. Ended means the finalizer's own
+    end statuses, so the two cannot disagree about which terminals are gone.
+    """
+    ends = _terminal_end_statuses_ordered()
+    placeholders = ",".join("?" for _ in ends)
+    own = (f"t.session_id = {spawn}.session_id AND t.id NOT LIKE 'vterm_%' "
+           f"AND t.created_at >= {spawn}.created_at")
+    sql = (f"(EXISTS (SELECT 1 FROM terminal_sessions t WHERE {own}) "
+           f"AND NOT EXISTS (SELECT 1 FROM terminal_sessions t WHERE {own} "
+           f"AND LOWER(COALESCE(t.status, '')) NOT IN ({placeholders})))")
+    return sql, ends

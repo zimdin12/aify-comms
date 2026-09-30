@@ -212,9 +212,12 @@ class SpawnDeadTerminalFinalizeTests(_SpawnSeedMixin, FastApiTestCase):
         which is the state a just-died worker is actually in.
         """
         self._seed("respawn-me", spawn_updated_at=_now())
-        self.assertTrue(
+        # SINCE 2026-09-30 NOT EVEN BEFORE THE FINALIZER RUNS. This used to assert the dead worker's
+        # spawn still looked in-flight here, which was the ~90 s window the operator hit: the check
+        # now asks whether the spawn's own worker came and went, so the respawn is free at once.
+        self.assertFalse(
             self._has_pending_spawn("respawn-me"),
-            "precondition: the dead worker's spawn must look in-flight before the fix runs",
+            "a dead worker's spawn suppresses its respawn until the finalizer's grace has passed",
         )
         self.assertEqual(self._finalize(), 1)
         self.assertFalse(

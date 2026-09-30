@@ -215,7 +215,11 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
         self.db.row_factory = __import__("sqlite3").Row
         await self.db.execute(
             "CREATE TABLE spawn_requests (id TEXT, agent_id TEXT, status TEXT, "
-            "started_at TEXT, updated_at TEXT, created_at TEXT)"
+            "started_at TEXT, updated_at TEXT, created_at TEXT, session_id TEXT DEFAULT 'sess-1', "
+            "finished_at TEXT DEFAULT '')"
+        )
+        await self.db.execute(
+            "CREATE TABLE terminal_sessions (id TEXT, session_id TEXT, status TEXT, created_at TEXT)"
         )
 
     async def asyncTearDown(self):
@@ -226,7 +230,8 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
 
         stamp = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - age_seconds))
         await self.db.execute(
-            "INSERT INTO spawn_requests VALUES (?,?,?,?,?,?)",
+            "INSERT INTO spawn_requests (id, agent_id, status, started_at, updated_at, created_at) "
+            "VALUES (?,?,?,?,?,?)",
             ("s1", "a1", status, stamp if started else "", stamp, stamp),
         )
         await self.db.commit()
@@ -254,10 +259,45 @@ class SpawnStartingWindowTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_running_row_with_no_timestamp_is_not_starting(self):
         """An age we cannot measure must not buy an unbounded `starting`."""
         await self.db.execute(
-            "INSERT INTO spawn_requests VALUES ('s2','a1','running','','','')"
+            "INSERT INTO spawn_requests (id, agent_id, status, started_at, updated_at, created_at) "
+            "VALUES ('s2','a1','running','','','')"
         )
         await self.db.commit()
         self.assertFalse(await self._starting())
+
+    async def _terminal(self, status, *, age_seconds=0, term_id="t1"):
+        import time as _t
+
+        stamp = _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime(_t.time() - age_seconds))
+        await self.db.execute("INSERT INTO terminal_sessions VALUES (?,?,?,?)", (term_id, "sess-1", status, stamp))
+        await self.db.commit()
+
+    async def _booting(self):
+        from service.api_core.managed_env import _has_pending_or_booting_spawn_request
+
+        return await _has_pending_or_booting_spawn_request(self.db, "a1")
+
+    async def test_a_spawn_whose_own_worker_came_and_went_is_not_starting_or_booting(self):
+        """2026-09-30: a stopped worker's spawn stays `running` until the finalizer's grace passes,
+        about 90 s, and the agent read `starting` and aify-env refused to start it meanwhile."""
+        await self._add(age_seconds=60)
+        await self._terminal("stopped", age_seconds=30)
+        self.assertFalse(await self._starting())
+        self.assertFalse(await self._booting())
+
+    async def test_CONTROL_a_spawn_whose_worker_is_up_still_counts(self):
+        await self._add(age_seconds=60)
+        await self._terminal("attached", age_seconds=30)
+        self.assertTrue(await self._starting())
+        self.assertTrue(await self._booting())
+
+    async def test_a_restart_waiting_for_its_first_terminal_is_still_starting(self):
+        """A restart reuses the session, so the PREVIOUS worker's dead terminal is on it. That
+        terminal predates the spawn and is not its worker; counting it would allow a second start."""
+        await self._terminal("stopped", age_seconds=3600, term_id="t-old")
+        await self._add(age_seconds=5)
+        self.assertTrue(await self._starting())
+        self.assertTrue(await self._booting())
 
     async def test_no_spawn_at_all(self):
         self.assertFalse(await self._starting())

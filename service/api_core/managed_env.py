@@ -20,6 +20,7 @@ import time
 from typing import Any, Optional
 
 from service.api_core.terminal_status import TERMINAL_LIVE_FILTER_SQL
+from service.api_core.dead_terminal_spawn_query import spawn_worker_ended_sql
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.runtime import (
     _normalize_runtime,
@@ -230,17 +231,21 @@ async def _managed_spawn_is_starting(db, agent_id: str) -> bool:
     was wrong all morning. Requires a claim (`started_at`), so a queued-but-unclaimed spawn — which
     nothing is starting yet — does not qualify either.
     """
+    # AND ITS WORKER HAS NOT ALREADY COME AND GONE (2026-09-30): a stopped worker's spawn stays
+    # `running` until the finalizer's grace passes, and read as `starting` for that long.
+    ended, ended_params = spawn_worker_ended_sql("s")
     row = await (await db.execute(
-        """
-        SELECT started_at, updated_at, created_at
-        FROM spawn_requests
-        WHERE agent_id = ?
-          AND status = 'running'
-          AND COALESCE(started_at, '') != ''
-        ORDER BY created_at DESC
+        f"""
+        SELECT s.started_at, s.updated_at, s.created_at
+        FROM spawn_requests s
+        WHERE s.agent_id = ?
+          AND s.status = 'running'
+          AND COALESCE(s.started_at, '') != ''
+          AND NOT {ended}
+        ORDER BY s.created_at DESC
         LIMIT 1
         """,
-        (agent_id,),
+        (agent_id, *ended_params),
     )).fetchone()
     if not row:
         return False
@@ -395,22 +400,26 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
     # arm so a concurrent coldstart in that sub-second window can't duplicate.
     # `running` rows with finished_at set are KNOWN-DEAD workers (report_terminal_dead
     # stamps them) — a dead worker must not suppress the respawn it just made necessary.
+    # A spawn whose own worker already came and went is not booting (2026-09-30), whatever its row
+    # says until the finalizer settles it; counting it refused the start that death made necessary.
+    ended, ended_params = spawn_worker_ended_sql("s")
     row = await (await db.execute(
-        """
-        SELECT id
-        FROM spawn_requests
-        WHERE agent_id = ?
+        f"""
+        SELECT s.id
+        FROM spawn_requests s
+        WHERE s.agent_id = ?
           AND (
-            status IN ('queued', 'claimed')
+            s.status IN ('queued', 'claimed')
             OR (
-              status IN ('starting', 'running')
-              AND COALESCE(finished_at, '') = ''
-              AND COALESCE(NULLIF(updated_at, ''), created_at) >= ?
+              s.status IN ('starting', 'running')
+              AND COALESCE(s.finished_at, '') = ''
+              AND COALESCE(NULLIF(s.updated_at, ''), s.created_at) >= ?
+              AND NOT {ended}
             )
           )
         LIMIT 1
         """,
-        (agent_id, running_cutoff),
+        (agent_id, running_cutoff, *ended_params),
     )).fetchone()
     return bool(row)
 
