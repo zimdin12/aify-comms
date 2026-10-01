@@ -20,6 +20,7 @@ import {
   resolveGatewayPort,
 } from "./hermes-endpoint.js";
 import { TMP_DIR } from "./hermes-env.mjs";
+import { startSessionEffort } from "./hermes-session-effort.mjs";
 import { startGatewayLivenessProbe } from "./hermes-gateway-liveness.js";
 import {
   activeListRowsOrNull,
@@ -160,6 +161,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     // Clock seam for the cold-start grace (loopStartedAt is captured from this).
     // Injectable so tests can drive the grace window deterministically.
     now = Date.now,
+    // The effort hermes-aify resolved for this agent, set on each live session (hermes-session-effort.mjs).
+    sessionEffort = process.env.AIFY_HERMES_SESSION_EFFORT || "",
+    startEffort = startSessionEffort,
   } = deps;
   const id = String(agentId || "").trim();
   // Cold-start grace anchor: the moment the delivery loop began. An empty
@@ -193,6 +197,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // session so a restart resumes it instead of minting a fresh "(untitled)" one. Best-effort,
   // unref()'d — it dies with this `run` process on teardown/procExit (no explicit stop needed).
   startResumeMarkerSync({ agentId: id, tempDir: markerDir });
+  // REASONING EFFORT: hermes has no launch-time lever for it on this path, so it is set per live session.
+  startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
 
   // Teardown state shared between the SIGTERM handler and the terminal/release
   // self-exit so teardown runs at most once. `makeTeardown` kills the gateway

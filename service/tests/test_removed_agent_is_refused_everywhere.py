@@ -47,6 +47,7 @@ BODIES: dict[str, dict] = {
     "/api/v1/agents/{agent_id}/environment": {"environmentId": "linux:test-host:default"},
     "/api/v1/agents/{agent_id}/favorite": {"favorited": True},
     "/api/v1/agents/{agent_id}/herdr-space": {"show": False},
+    "/api/v1/agents/{agent_id}/effort": {"effort": "high"},
     "/api/v1/agents/{agent_id}/heartbeat": {"status": "online"},
     "/api/v1/agents/{agent_id}/ready": {"ready": True},
     "/api/v1/agents/{agent_id}/rename": {"newAgentId": "lc-renamed"},

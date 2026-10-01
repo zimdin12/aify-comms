@@ -1,0 +1,102 @@
+killed (exit 1)                  R2 claude: a launcher without the reader starts as though the file were missing
+                                  not ok 12 - CLAUDE: A LAUNCHER THAT CANNOT RUN THE READER refuses with 78; ignoring the definition, or a managed launch, starts
+killed (exit 1)                  R2 claude: a launcher without the reader refuses (resume path)
+                                  not ok 4 - claude-aify --resume REFUSES when it cannot run the reader for the recovered agent
+killed (exit 1)                  R2 codex: a launcher without the reader starts as though the file were missing
+                                  not ok 13 - CODEX: A LAUNCHER THAT CANNOT RUN THE READER refuses with 78; ignoring the definition, or a managed launch, starts
+killed (exit 1)                  R2 codex: a launcher without the reader refuses (resume path)
+                                  not ok 8 - codex-aify --resume REFUSES when it cannot run the reader for the recovered agent
+killed (exit 1)                  R2 hermes: a launcher without the reader starts as though the file were missing
+                                  not ok 14 - HERMES: A LAUNCHER THAT CANNOT RUN THE READER refuses with 78; ignoring the definition, or a managed launch, starts
+killed (exit 1)                  R2 hermes: a launcher without the reader refuses (resume path)
+                                  not ok 12 - hermes-aify --resume REFUSES when it cannot run the reader for the recovered agent
+killed (exit 1)                  R3 claude: an id the resume handle names is not read
+                                  not ok 1 - claude-aify --resume applies the RECOVERED agent's definition
+                                  not ok 3 - claude-aify --resume REFUSES the recovered agent's invalid definition, and starts nothing
+                                  not ok 4 - claude-aify --resume REFUSES when it cannot run the reader for the recovered agent
+killed (exit 1)                  R3 claude: the second read keeps the first read's defaulted role as though it were given
+                                  not ok 1 - claude-aify --resume applies the RECOVERED agent's definition
+killed (exit 1)                  R3 claude: model and effort are added before the recovered id is read
+                                  not ok 1 - claude-aify --resume applies the RECOVERED agent's definition
+killed (exit 1)                  R3 codex: the resolved id is not read after recovery
+                                  not ok 5 - codex-aify --resume applies the RECOVERED agent's definition
+                                  not ok 6 - CONTROL: a role flag still beats the recovered codex agent's definition
+                                  not ok 7 - codex-aify --resume REFUSES the recovered agent's invalid definition, and starts nothing
+                                  not ok 8 - codex-aify --resume REFUSES when it cannot run the reader for the recovered agent
+killed (exit 1)                  R4 codex: --check reports the environment's role over a flag
+                                  not ok 3 - CODEX ROLE PRECEDENCE: a flag in either spelling, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  R4 codex: a flag loses to the definition
+                                  not ok 3 - CODEX ROLE PRECEDENCE: a flag in either spelling, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  R4 codex: --aify-role= is not read by the loop
+                                  not ok 3 - CODEX ROLE PRECEDENCE: a flag in either spelling, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  R1 codex: the definition's model loses to nothing (precedence swapped with the environment)
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+                                  not ok 5 - CONTROL: no definition and no managed values add nothing, and a quote in a value stays inside its TOML string
+killed (exit 1)                  R1 codex: the effort is not resolved
+                                  not ok 1 - THE DEFINITION'S model and effort reach the app-server as -c pairs, and never the TUI
+                                  not ok 2 - A MANAGED LAUNCH's model and effort reach the app-server; it reads no file
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+                                  not ok 4 - THE OPERATOR'S OWN -m or -c is theirs: nothing is added beside it
+killed (exit 1)                  R1 codex: --check does not report the model
+                                  not ok 10 - CODEX: --check takes the role from the definition
+killed (exit 1)                  R3 hermes: the resolved id is not read after recovery
+                                  not ok 9 - hermes-aify --resume applies the RECOVERED agent's definition
+                                  not ok 10 - CONTROL: a role flag still beats the recovered hermes agent's definition
+                                  not ok 11 - hermes-aify --resume REFUSES the recovered agent's invalid definition, and starts nothing
+                                  not ok 12 - hermes-aify --resume REFUSES when it cannot run the reader for the recovered agent
+killed (exit 1)                  R4 hermes: --check reports the environment's role over a flag
+                                  not ok 4 - HERMES ROLE PRECEDENCE: a flag in either spelling, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  R4 hermes: a flag loses to the definition
+                                  not ok 4 - HERMES ROLE PRECEDENCE: a flag in either spelling, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  R4 hermes: --aify-role= is not read by the loop
+                                  not ok 4 - HERMES ROLE PRECEDENCE: a flag in either spelling, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  R1 hermes: the definition's model loses to nothing (precedence swapped with the environment)
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+                                  not ok 5 - CONTROL: no definition sets nothing, and an inherited effort never applies
+killed (exit 1)                  R1 hermes: the effort is not resolved
+                                  not ok 1 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 2 - A MANAGED LAUNCH's values are used; it reads no file
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+killed (exit 1)                  R1 hermes: --check does not report the model
+                                  not ok 11 - HERMES: --check takes the role from the definition
+killed (exit 1)                  R1 codex: the app-server is not given its configuration (the line this host runs, no setsid)
+                                  not ok 1 - THE DEFINITION'S model and effort reach the app-server as -c pairs, and never the TUI
+                                  not ok 2 - A MANAGED LAUNCH's model and effort reach the app-server; it reads no file
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+                                  not ok 4 - THE OPERATOR'S OWN -m or -c is theirs: nothing is added beside it
+                                  not ok 5 - CONTROL: no definition and no managed values add nothing, and a quote in a value stays inside its TOML string
+killed (exit 1)                  R1 codex: the configuration goes to the TUI instead
+                                  not ok 1 - THE DEFINITION'S model and effort reach the app-server as -c pairs, and never the TUI
+                                  not ok 2 - A MANAGED LAUNCH's model and effort reach the app-server; it reads no file
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+                                  not ok 4 - THE OPERATOR'S OWN -m or -c is theirs: nothing is added beside it
+                                  not ok 5 - CONTROL: no definition and no managed values add nothing, and a quote in a value stays inside its TOML string
+killed (exit 1)                  R1 codex: a backslash is not escaped
+                                  not ok 5 - CONTROL: no definition and no managed values add nothing, and a quote in a value stays inside its TOML string
+killed (exit 1)                  R1 codex: a double quote is not escaped
+                                  not ok 5 - CONTROL: no definition and no managed values add nothing, and a quote in a value stays inside its TOML string
+killed (exit 1)                  R1 codex: --model= is not the operator's
+                                  not ok 4 - THE OPERATOR'S OWN -m or -c is theirs: nothing is added beside it
+killed (exit 1)                  R1 codex: -c model_reasoning_effort= is not the operator's
+                                  not ok 4 - THE OPERATOR'S OWN -m or -c is theirs: nothing is added beside it
+killed (exit 1)                  R1 codex: -c model= is not the operator's
+                                  not ok 4 - THE OPERATOR'S OWN -m or -c is theirs: nothing is added beside it
+killed (exit 1)                  R1 hermes: the model is not exported
+                                  not ok 1 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 2 - A MANAGED LAUNCH's values are used; it reads no file
+                                  not ok 3 - AIFY_MANAGED_* beats the definition on a launch that does read it
+killed (exit 1)                  R1 hermes: the effort is written only when set, so an inherited one applies
+                                  not ok 4 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+                                  not ok 5 - CONTROL: no definition sets nothing, and an inherited effort never applies
+killed (exit 1)                  R1 hermes: the environment's model is not the operator's
+                                  not ok 4 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  R1 hermes: --reasoning is not the operator's
+                                  not ok 4 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  R1 hermes: -m is not the operator's
+                                  not ok 4 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  CHANNEL claude: the user's words come straight after the channel
+                                  not ok 1 - claude-aify --safe do x: the channel's value is followed by a one-value flag, then the user's words
+                                  not ok 2 - claude-aify --aify-agent lead --safe -p do x: the channel's value is followed by a one-value flag, then the user's words
+                                  not ok 3 - claude-aify do x: the channel's value is followed by a one-value flag, then the user's words
+36/36 killed
+exit=0

@@ -1,0 +1,10 @@
+killed (exit 1)                  R1 bridge: a session is set again on every pass
+killed (exit 1)                  R1 bridge: a refusal is said on every pass
+killed (exit 1)                  R1 bridge: the token reaches the log
+killed (exit 1)                  R1 bridge: no effort still sets one
+killed (exit 1)                  R1 bridge: the loop never starts it
+                                  not ok 26 - runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client
+killed (exit 1)                  R1 bridge: the loop gives it the real gateway client
+                                  not ok 26 - runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client
+6/6 killed
+exit=0

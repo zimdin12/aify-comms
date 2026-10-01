@@ -1,0 +1,101 @@
+{
+ "codex": "see `codex --version`",
+ "results": [
+  {
+   "label": "A: -c on the app-server only",
+   "tuiMethods": [
+    "initialize",
+    "initialized",
+    "account/read",
+    "model/list",
+    "configRequirements/read",
+    "collaborationMode/list",
+    "hooks/list",
+    "config/read",
+    "thread/start",
+    "thread/loaded/list",
+    "thread/list",
+    "skills/list",
+    "plugin/list"
+   ],
+   "threadRequest": {
+    "method": "thread/start",
+    "model": "srv-model",
+    "config": {
+     "model_reasoning_effort": "low",
+     "web_search": "cached"
+    }
+   },
+   "threadAnswer": {
+    "model": "srv-model",
+    "reasoningEffort": "low",
+    "error": null
+   },
+   "screenTail": "-probe-1bzQpu\u001b]0;aify-comms-next\u0007C:\\Dockeraify-coms-next To get started, describe a task or try one of these commands:/init - create an AGENTS.md file with instructions for Codex/status - show current session configuration/permissions - choose what Codex is allowed to do/model - choose what model and reasoning effort to use/review - review any changes and find issues low · C:\\Docker\\ify-comms-next"
+  },
+  {
+   "label": "B: -c on the TUI only",
+   "tuiMethods": [
+    "initialize",
+    "initialized",
+    "account/read",
+    "model/list",
+    "configRequirements/read",
+    "collaborationMode/list",
+    "hooks/list",
+    "config/read",
+    "thread/start",
+    "thread/loaded/list",
+    "thread/list",
+    "skills/list",
+    "plugin/list"
+   ],
+   "threadRequest": {
+    "method": "thread/start",
+    "model": "tui-model",
+    "config": {
+     "model_reasoning_effort": "high",
+     "web_search": "cached"
+    }
+   },
+   "threadAnswer": {
+    "model": "tui-model",
+    "reasoningEffort": "high",
+    "error": null
+   },
+   "screenTail": "probe-d4fjlO\u001b]0;aify-comms-next\u0007C:\\Dockeraify-coms-next To get started, describe a task or try one of these commands:/init - create an AGENTS.md file with instructions for Codex/status - show current session configuration/permissions - choose what Codex is allowed to do/model - choose what model and reasoning effort to use/review - review any changes and find issues high · C:\\Docker\\aify-omms-next"
+  },
+  {
+   "label": "C: -c on the app-server, -m on the TUI",
+   "tuiMethods": [
+    "initialize",
+    "initialized",
+    "account/read",
+    "model/list",
+    "configRequirements/read",
+    "collaborationMode/list",
+    "hooks/list",
+    "config/read",
+    "thread/start",
+    "thread/loaded/list",
+    "thread/list",
+    "skills/list",
+    "plugin/list"
+   ],
+   "threadRequest": {
+    "method": "thread/start",
+    "model": "flag-model",
+    "config": {
+     "model_reasoning_effort": "low",
+     "web_search": "cached"
+    }
+   },
+   "threadAnswer": {
+    "model": "flag-model",
+    "reasoningEffort": "low",
+    "error": null
+   },
+   "screenTail": "-probe-Sey04Z\u001b]0;aify-comms-next\u0007C:\\Dockeraify-coms-next To get started, describe a task or try one of these commands:/init - create an AGENTS.md file with instructions for Codex/status - show current session configuration/permissions - choose what Codex is allowed to do/model - choose what model and reasoning effort to use/review - review any changes and find issues low · C:\\Docker\\ify-comms-next"
+  }
+ ]
+}

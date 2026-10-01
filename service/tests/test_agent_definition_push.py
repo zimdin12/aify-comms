@@ -354,6 +354,16 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         self.assertEqual((listed["plain"]["definitionState"], listed["plain"]["definition"]["state"]), ("", ""),
                          "never defined: no state, nothing owned")
 
+    def test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with(self):
+        """P0 C12: the definition's model and effort, after the host changed them, over what the record holds."""
+        self.ok(self.push("s1", 1, [valid("coder", model="opus", effort="")]))
+        self.ok(self.push("s1", 2, [valid("coder", revision=2, model="sonnet", effort="high")]))
+        detail = self.ok(self.client.get("/api/v1/agents/coder"))["agent"]["runsWith"]
+        self.assertEqual(detail, {"model": {"value": "sonnet", "from": "definition"}, "effort": {"value": "high", "from": "definition"}})
+        self.assertEqual(self.ok(self.client.get("/api/v1/agents"))["agents"]["coder"]["runsWith"], detail)
+        self.assertEqual(self.rows("SELECT model FROM agents WHERE id = 'coder'"), [{"model": "opus"}],
+                         "positive control: the record still holds the first push's model, so the answer is the definition's")
+
     def test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only(self):
         """A push creates agent rows, so it refuses what registration refuses, entry by entry."""
         self.client.post("/api/v1/agents", json={"agentId": "retired-one", "role": "coder"}).raise_for_status()

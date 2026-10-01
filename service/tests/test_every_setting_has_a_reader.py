@@ -40,6 +40,16 @@ SPEC = "service/api_core/settings_spec.py"
 DELIBERATELY_UNREAD: set = set()
 
 
+def read_through_harness_defaults() -> set:
+    """Keys `service/api_core/harness_defaults.py` reads by a name it BUILDS from the runtime
+    (`managed_<runtime>_model` / `_effort`), so no literal of them exists for the scan below to find.
+    Derived from the same function, and proven READ, value for value, by
+    test_harness_defaults.py::test_every_defaulted_runtimes_two_settings_are_read."""
+    from service.api_core.harness_defaults import defaulted_runtimes
+    from service.runtimes import settings_name
+    return {f"managed_{settings_name(r)}_{field}" for r in defaulted_runtimes() for field in ("model", "effort")}
+
+
 def _sources() -> dict[str, str]:
     out = {}
     for path in REPO.rglob("*"):
@@ -101,7 +111,7 @@ class EverySettingHasAReaderTests(unittest.TestCase):
     def test_every_declared_setting_is_read_by_something(self):
         unread = sorted(
             key for key in self.declared
-            if key not in DELIBERATELY_UNREAD and not self._readers(key)
+            if key not in DELIBERATELY_UNREAD and key not in read_through_harness_defaults() and not self._readers(key)
         )
         self.assertEqual(unread, [], (
             "these settings are declared and consulted by nothing:\n  "

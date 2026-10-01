@@ -58,7 +58,8 @@ from service.env_status import (
     BRIDGE_STAMP_INVALID, BRIDGE_STAMP_SKEW_TOLERANCE_SECONDS, SPAWN_CLAIMER_FRESH_SECONDS,
     bridge_stamp_state as _bridge_stamp_state,
 )
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.harness_defaults import with_defaults
+from service.api_core.settings import _load_settings
 from service.api_core.spawn_env import spawn_env_problems
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -339,23 +340,7 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         if not workspace and workspace_root:
             workspace = workspace_root
         settings = await _load_settings(db)
-        model = str(req.model or "").strip()
-        if not model:
-            if normalized_runtime == "codex":
-                model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
-            elif normalized_runtime == "claude-code":
-                model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
-            elif normalized_runtime == "pi":
-                model = str(settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"])).strip()
-        runtime_config = req.runtimeConfig or {}
-        if normalized_runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
-            runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
-        elif normalized_runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
-            runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
-        elif normalized_runtime == "pi" and not str(runtime_config.get("effort") or runtime_config.get("thinking") or "").strip():
-            pi_effort = str(settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]).strip()
-            if pi_effort:
-                runtime_config = {**runtime_config, "effort": pi_effort}
+        model, runtime_config = with_defaults(settings, normalized_runtime, str(req.model or "").strip(), req.runtimeConfig or {})
         metadata = req.metadata or {}
         if runtime_config:
             metadata = {**metadata, "runtimeConfig": runtime_config}

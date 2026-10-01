@@ -1,0 +1,16 @@
+[
+ {
+  "name": "install bakes the session fragment empty",
+  "file": "install.sh",
+  "old": "  text=\"${text//@@SESSION_MCP_B64@@/${_AIFY_FRAGMENTS#* }}\"\n",
+  "new": "  text=\"${text//@@SESSION_MCP_B64@@/}\"\n",
+  "test": "cd mcp/stdio && node --test tests/install-bakes-the-registry-fragments.test.js"
+ },
+ {
+  "name": "the fragment script swallows the package's refusal (both verbs: they share one parser, so one alone is equivalent)",
+  "file": "scripts/registry-fragment.sh",
+  "old": "\"$(for_node \"$registry\")\")\" || exit $?\nsession=\"$(node \"$(for_node \"$cli\")\" session-fragment-b64 \"$(for_node \"$registry\")\")\" || exit $?\n",
+  "new": "\"$(for_node \"$registry\")\")\" || strict=\"\"\nsession=\"$(node \"$(for_node \"$cli\")\" session-fragment-b64 \"$(for_node \"$registry\")\")\" || session=\"\"\n",
+  "test": "cd mcp/stdio && node --test tests/install-bakes-the-registry-fragments.test.js"
+ }
+]

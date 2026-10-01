@@ -178,7 +178,7 @@ const CEILINGS = {
   // comment went, paying for install.sh reading back the installed aify-env endpoint (B2).
   // 2768 -> 2754 on 2026-09-28: the Windows user-PATH write moved to scripts/add-to-user-path.sh, which
   // writes only for this profile's own ~/.local/bin.
-  "install.sh": 2747,  // 2754 -> 2747 on 2026-09-29: the prebuild dry run exits in one line. 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
+  "install.sh": 2746,  // 2747 -> 2746 on 2026-10-01: the registry fragments cost three lines, three redundant chmods paid them and one more. 2754 -> 2747 on 2026-09-29: the prebuild dry run exits in one line. 2950 -> 2958 on 2026-08-20: resolving templates from the pinned
   // aify-wrapper package instead of a sibling directory. RAISED DELIBERATELY, and the trade is
   // the justification: those 8 lines removed 1,887 lines of duplicated templates and 143 lines
   // of drift gates from the repo. The deletion is in the same commit, so this is not a promise.

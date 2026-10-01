@@ -1,4 +1,4 @@
-"""Three small PATCHes on an agent row: status, description, favourite.
+"""Small PATCHes on an agent row: status, description, favourite, herdr space, effort.
 
 Extracted from `service/routers/agents/identity.py` in v0.5.4. Closure measured before the move —
 `api_core` and `service` leaves only, nothing local, nothing borrowed from `agents/shared.py`.
@@ -18,10 +18,13 @@ of the bounded SQLite write-lock retry.
 
 from __future__ import annotations
 
+import json
+
 from fastapi import HTTPException, Request
 
 from service.api_core.agent_sessions import _mark_agent_present
 from service.api_core.definition_guard import DEFINED_SQL
+from service.api_core.serialization import _json_loads_or
 from service.api_core.definition_requests import queued_for_its_host
 from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
@@ -32,7 +35,9 @@ from service.db import get_db
 
 # Imported for ANNOTATIONS as well as calls: under postponed evaluation a missing model does not fail
 # import, it silently demotes the request body to a query parameter and the endpoint 422s.
-from service.models import AgentDescribeRequest, AgentFavoriteUpdate, AgentHerdrSpaceUpdate, AgentStatusUpdate
+from service.models import (
+    AgentDescribeRequest, AgentEffortUpdate, AgentFavoriteUpdate, AgentHerdrSpaceUpdate, AgentStatusUpdate,
+)
 
 router = domain_router()
 
@@ -156,5 +161,47 @@ async def update_agent_herdr_space(agent_id: str, req: AgentHerdrSpaceUpdate, re
         if ws:
             await ws.broadcast("agent_herdr_space_updated", {"agentId": agent_id, "herdrSpace": show})
         return {"ok": True, "agentId": agent_id, "herdrSpace": show}
+    finally:
+        await db.close()
+
+
+@router.patch("/agents/{agent_id}/effort")
+async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Request):
+    """The reasoning effort this agent starts with from its NEXT start (P0 C12); "" is the runtime's own.
+
+    Whoever owns what the agent's start reads is who changes it. A DEFINED agent's effort is its
+    definition's, so the change is a request its host applies (C5). An undefined MANAGED agent's is its
+    record's, which its managed start reads (launch_env.py). An undefined RESIDENT's launcher reads
+    neither, so the change is refused with the way to define it rather than accepted and ignored.
+    """
+    validate_name(agent_id, "agent ID")
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT id, session_mode, runtime_config FROM agents WHERE id = ?",
+                                      (agent_id,))).fetchone()
+        if not row:
+            raise HTTPException(404, f"Agent '{agent_id}' not found")
+        config = _json_loads_or(row["runtime_config"], {})
+        config = {**(config if isinstance(config, dict) else {}), "effort": req.effort}
+        config.pop("thinking", None)  # the launch reads effort, then thinking: one value, or the old one wins
+        # The guard is the UPDATE's own WHERE, as for the herdr space: a push cannot land between a check
+        # and the write. Resident rows are left out of it and refused below.
+        cursor = await db.execute(
+            f"UPDATE agents SET runtime_config = ? WHERE id = ? AND NOT {DEFINED_SQL} AND session_mode = 'managed'",
+            (json.dumps(config), agent_id))
+        if not cursor.rowcount:
+            await db.rollback()
+            defined = await (await db.execute(f"SELECT 1 FROM agents WHERE id = ? AND {DEFINED_SQL}", (agent_id,))).fetchone()
+            if not defined:
+                raise HTTPException(409, f'"{agent_id}" is a resident agent that no host defines: its launcher reads '
+                                         f"only a definition. Define it (aify-env agents import), then change its effort.")
+            actor = recorded_operator_actor(None, request, action="changing a defined agent as the operator")
+            queued = await queued_for_its_host(db, agent_id, {"effort": req.effort}, actor, _now())
+            return {**queued, "appliesAt": "next start"}
+        await db.commit()
+        ws = await _get_ws(request)
+        if ws:
+            await ws.broadcast("agent_effort_updated", {"agentId": agent_id, "effort": req.effort})
+        return {"ok": True, "agentId": agent_id, "effort": req.effort, "appliesAt": "next start"}
     finally:
         await db.close()

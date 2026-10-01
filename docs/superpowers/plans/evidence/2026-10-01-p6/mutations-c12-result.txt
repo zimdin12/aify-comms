@@ -1,0 +1,27 @@
+killed (exit 1)                  C12 defaults: a runtime without settings counts as defaulted
+                                  FAILED service/tests/test_harness_defaults.py::test_a_runtime_has_defaults_exactly_when_its_settings_are_declared - AssertionErro...
+                                  FAILED service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config
+killed (exit 1)                  C12 defaults: thinking is not an effort
+                                  FAILED service/tests/test_harness_defaults.py::test_an_empty_value_is_filled_and_a_given_one_kept - AssertionError: thinking is a...
+killed (exit 1)                  C12 defaults: an empty default fills an empty effort
+                                  FAILED service/tests/test_harness_defaults.py::test_a_saved_empty_effort_falls_back_to_the_declared_default_and_an_empty_default_fills_nothing
+killed (exit 1)                  C12 defaults: a given model is replaced
+                                  FAILED service/tests/test_harness_defaults.py::test_an_empty_value_is_filled_and_a_given_one_kept - AssertionError: assert ('gpt-...
+killed (exit 1)                  C12 runsWith: a resident runs with its record
+                                  FAILED service/tests/test_runs_with.py::test_an_undefined_resident_runs_with_the_runtimes_own_whatever_its_record_holds - Asserti...
+killed (exit 1)                  C12 runsWith: a withdrawn definition still decides
+                                  FAILED service/tests/test_runs_with.py::test_a_withdrawn_definition_is_not_what_it_runs_with - AssertionError: assert {'from': 'd...
+killed (exit 1)                  C12 runsWith: an empty value is shown as from its source
+                                  FAILED service/tests/test_runs_with.py::test_an_empty_value_is_the_runtimes_own_never_shown_as_a_value - AssertionError: assert {...
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_empty_is_the_runtimes_own
+killed (exit 1)                  C12 effort route: a resident is written and ignored
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_an_undefined_resident_is_refused_with_the_way_to_define_it
+killed (exit 1)                  C12 effort route: a stale thinking is kept
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_an_undefined_managed_agent_starts_with_the_new_effort
+killed (exit 1)                  C12 effort route: a defined agent is written here
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_a_defined_agents_change_is_a_request_for_its_host_and_writes_nothing_here
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_an_undefined_resident_is_refused_with_the_way_to_define_it
+killed (exit 1)                  C12 effort: any value is accepted
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_an_effort_is_one_word_and_an_unknown_agent_is_404
+11/11 killed
+exit=0

@@ -14,6 +14,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from service.api_core.harness_defaults import defaulted_runtimes
 from service.db import get_db, init_db
 from service import main as service_main
 from service.reconcilers import status_cache
@@ -727,7 +728,21 @@ class ApiV2RegressionTests(FastApiTestCase):
                 "running": {"machineId": "linux:test-host"},
                 "model": "gpt-5.5", "effort": "high",
             },
+            {
+                "runtime": "hermes", "agent": "default-hermes", "role": "coder",
+                "environment": {
+                    "id": "linux:test-host:hermes",
+                    "runtimes": [{"runtime": "hermes", "modes": ["managed-warm"], "capabilities": {"interrupt": True}}],
+                },
+                "workspace": "/workspace/project",
+                "settings": {"managed_hermes_model": "anthropic/claude-sonnet-4.6", "managed_hermes_effort": "low"},
+                "running": {"machineId": "linux:test-host"},
+                "model": "anthropic/claude-sonnet-4.6", "effort": "low",
+            },
         ]
+        # EVERY runtime the settings give defaults to has a case: a list typed here would miss the next
+        # one, as the three service sites missed hermes (P0 C12).
+        self.assertEqual(sorted(case["runtime"] for case in cases), sorted(defaulted_runtimes()))
         for case in cases:
             with self.subTest(runtime=case["runtime"]):
                 environment_id = case["environment"]["id"]
@@ -761,6 +776,12 @@ class ApiV2RegressionTests(FastApiTestCase):
                 )
                 self.assertEqual(agent["model"], case["model"])
                 self.assertEqual(json.loads(agent["runtime_config"])["effort"], case["effort"])
+                # AND AGENT INFO SAYS SO (P0 C12): what this managed agent's next start uses, from its record.
+                shown = self.client.get(f"/api/v1/agents/{case['agent']}").json()["agent"]["runsWith"]
+                self.assertEqual(shown, {"model": {"value": case["model"], "from": "agent"},
+                                         "effort": {"value": case["effort"], "from": "agent"}})
+                listed = self.client.get("/api/v1/agents").json()["agents"][case["agent"]]["runsWith"]
+                self.assertEqual(listed, shown)
                 if case["runtime"] == "pi":
                     self.assertIn("steer", json.loads(agent["capabilities"]))
 

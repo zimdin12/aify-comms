@@ -1,0 +1,254 @@
+[
+ {
+  "name": "R2 claude: a launcher without the reader starts as though the file were missing",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ] || ! _out=\"$(node \"$_reader\" \"$_id\" claude)\"; then\n",
+  "new": "  if [ ! -f \"$_reader\" ]; then return 0; fi\n  if ! _out=\"$(node \"$_reader\" \"$_id\" claude)\"; then\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R2 claude: a launcher without the reader refuses (resume path)",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ] || ! _out=\"$(node \"$_reader\" \"$_id\" claude)\"; then\n",
+  "new": "  if [ ! -f \"$_reader\" ]; then return 0; fi\n  if ! _out=\"$(node \"$_reader\" \"$_id\" claude)\"; then\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R2 codex: a launcher without the reader starts as though the file were missing",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ] || ! _out=\"$(node \"$_reader\" \"$_id\" codex)\"; then\n",
+  "new": "  if [ ! -f \"$_reader\" ]; then return 0; fi\n  if ! _out=\"$(node \"$_reader\" \"$_id\" codex)\"; then\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R2 codex: a launcher without the reader refuses (resume path)",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ] || ! _out=\"$(node \"$_reader\" \"$_id\" codex)\"; then\n",
+  "new": "  if [ ! -f \"$_reader\" ]; then return 0; fi\n  if ! _out=\"$(node \"$_reader\" \"$_id\" codex)\"; then\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R2 hermes: a launcher without the reader starts as though the file were missing",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ] || ! _out=\"$(node \"$_reader\" \"$_id\" hermes)\"; then\n",
+  "new": "  if [ ! -f \"$_reader\" ]; then return 0; fi\n  if ! _out=\"$(node \"$_reader\" \"$_id\" hermes)\"; then\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R2 hermes: a launcher without the reader refuses (resume path)",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ] || ! _out=\"$(node \"$_reader\" \"$_id\" hermes)\"; then\n",
+  "new": "  if [ ! -f \"$_reader\" ]; then return 0; fi\n  if ! _out=\"$(node \"$_reader\" \"$_id\" hermes)\"; then\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R3 claude: an id the resume handle names is not read",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "if [ \"$CLAUDE_AIFY_AGENT_ID\" != \"$CLAUDE_AIFY_DEFAULTS_FOR\" ]; then claude_aify_defaults; fi\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R3 claude: the second read keeps the first read's defaulted role as though it were given",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "  CLAUDE_AIFY_ROLE=\"${CLAUDE_AIFY_ROLE_GIVEN:-${AIFY_DEF_ROLE:-coder}}\"\n",
+  "new": "  CLAUDE_AIFY_ROLE=\"${CLAUDE_AIFY_ROLE:-${AIFY_DEF_ROLE:-coder}}\"\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R3 claude: model and effort are added before the recovered id is read",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "if [ \"$CLAUDE_AIFY_AGENT_ID\" != \"$CLAUDE_AIFY_DEFAULTS_FOR\" ]; then claude_aify_defaults; fi\nif [ -n \"$CLAUDE_AIFY_MODEL\" ]; then CLAUDE_ARGS+=(--model \"$CLAUDE_AIFY_MODEL\"); fi\n",
+  "new": "if [ -n \"$CLAUDE_AIFY_MODEL\" ]; then CLAUDE_ARGS+=(--model \"$CLAUDE_AIFY_MODEL\"); fi\nif [ \"$CLAUDE_AIFY_AGENT_ID\" != \"$CLAUDE_AIFY_DEFAULTS_FOR\" ]; then claude_aify_defaults; fi\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R3 codex: the resolved id is not read after recovery",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "# Read for the resolved id, a recovered one included, before anything is exported or started (P6 R3).\ncodex_aify_defaults\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R4 codex: --check reports the environment's role over a flag",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  echo \"  role      : $CODEX_AIFY_ROLE\"\n",
+  "new": "  echo \"  role      : ${HARNESS_ROLE:-${AIFY_DEF_ROLE:-coder}}\"\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R4 codex: a flag loses to the definition",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  CODEX_AIFY_ROLE=\"${CODEX_AIFY_ROLE_GIVEN:-${AIFY_DEF_ROLE:-coder}}\"\n",
+  "new": "  CODEX_AIFY_ROLE=\"${AIFY_DEF_ROLE:-${CODEX_AIFY_ROLE_GIVEN:-coder}}\"\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R4 codex: --aify-role= is not read by the loop",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  --aify-role=*)\n    CODEX_AIFY_ROLE=\"${ARG#*=}\"\n    continue\n    ;;\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R1 codex: the definition's model loses to nothing (precedence swapped with the environment)",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "CODEX_AIFY_MODEL=\"${AIFY_MANAGED_MODEL:-$AIFY_DEF_MODEL}\"; fi\n",
+  "new": "CODEX_AIFY_MODEL=\"${AIFY_DEF_MODEL:-$AIFY_MANAGED_MODEL}\"; fi\n",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: the effort is not resolved",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "CODEX_AIFY_EFFORT=\"${AIFY_MANAGED_EFFORT:-$AIFY_DEF_EFFORT}\"; fi\n",
+  "new": "CODEX_AIFY_EFFORT=\"\"; fi\n",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: --check does not report the model",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  echo \"  model     : $([ \"$CODEX_HAS_MODEL\" = true ]",
+  "new": "  echo \"  model     : $([ true = true ]",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R3 hermes: the resolved id is not read after recovery",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "# Read for the resolved id, a recovered one included, before anything is exported or started (P6 R3).\nhermes_aify_defaults\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 --test-name-pattern=\"/recovered/i\" tests/a-resumed-session-finds-its-agent-through-the-bridge.test.js"
+ },
+ {
+  "name": "R4 hermes: --check reports the environment's role over a flag",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  echo \"  role      : $HERMES_AIFY_ROLE\"\n",
+  "new": "  echo \"  role      : ${HARNESS_ROLE:-${AIFY_DEF_ROLE:-coder}}\"\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R4 hermes: a flag loses to the definition",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  HERMES_AIFY_ROLE=\"${HERMES_AIFY_ROLE_GIVEN:-${AIFY_DEF_ROLE:-coder}}\"\n",
+  "new": "  HERMES_AIFY_ROLE=\"${AIFY_DEF_ROLE:-${HERMES_AIFY_ROLE_GIVEN:-coder}}\"\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R4 hermes: --aify-role= is not read by the loop",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  --aify-role=*)\n    HERMES_AIFY_ROLE=\"${ARG#*=}\"\n    continue\n    ;;\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R1 hermes: the definition's model loses to nothing (precedence swapped with the environment)",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_AIFY_MODEL=\"${AIFY_MANAGED_MODEL:-$AIFY_DEF_MODEL}\"; fi\n",
+  "new": "HERMES_AIFY_MODEL=\"${AIFY_DEF_MODEL:-$AIFY_MANAGED_MODEL}\"; fi\n",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "R1 hermes: the effort is not resolved",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_AIFY_EFFORT=\"${AIFY_MANAGED_EFFORT:-$AIFY_DEF_EFFORT}\"; fi\n",
+  "new": "HERMES_AIFY_EFFORT=\"\"; fi\n",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "R1 hermes: --check does not report the model",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  echo \"  model     : $([ \"$HERMES_HAS_MODEL\" = true ]",
+  "new": "  echo \"  model     : $([ true = true ]",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=600000 tests/a-launcher-takes-defaults-from-its-definition.test.js"
+ },
+ {
+  "name": "R1 codex: the app-server is not given its configuration (the line this host runs, no setsid)",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  codex \"${CODEX_PERMISSION_FLAGS[@]}\" \"${CODEX_HERDR_HOOKS[@]}\" \"${CODEX_APP_SERVER_CONFIG[@]}\" app-server",
+  "new": "  codex \"${CODEX_PERMISSION_FLAGS[@]}\" \"${CODEX_HERDR_HOOKS[@]}\" app-server",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: the configuration goes to the TUI instead",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  codex \"${CODEX_PERMISSION_FLAGS[@]}\" \"${CODEX_HERDR_HOOKS[@]}\" \"${CODEX_APP_SERVER_CONFIG[@]}\" app-server",
+  "new": "  CODEX_ARGS+=(\"${CODEX_APP_SERVER_CONFIG[@]}\")\n  codex \"${CODEX_PERMISSION_FLAGS[@]}\" \"${CODEX_HERDR_HOOKS[@]}\" app-server",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: a backslash is not escaped",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  _v=\"${_v//\"$_bs\"/\"$_bs$_bs\"}\"\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: a double quote is not escaped",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  _v=\"${_v//\"$_dq\"/\"$_bs$_dq\"}\"\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: --model= is not the operator's",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "    -m|--model|--model=*|--config=model=*) CODEX_HAS_MODEL=true ;;\n",
+  "new": "    -m|--model|--config=model=*) CODEX_HAS_MODEL=true ;;\n",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: -c model_reasoning_effort= is not the operator's",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "    \"-c model_reasoning_effort=\"*|\"--config model_reasoning_effort=\"*) CODEX_HAS_EFFORT=true ;;\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 codex: -c model= is not the operator's",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "    \"-c model=\"*|\"--config model=\"*) CODEX_HAS_MODEL=true ;;\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/codex-takes-model-and-effort-on-its-app-server.test.js"
+ },
+ {
+  "name": "R1 hermes: the model is not exported",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ -n \"$HERMES_AIFY_MODEL\" ]; then export HERMES_INFERENCE_MODEL=\"$HERMES_AIFY_MODEL\"; fi\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "R1 hermes: the effort is written only when set, so an inherited one applies",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "export AIFY_HERMES_SESSION_EFFORT=\"$HERMES_AIFY_EFFORT\"\n",
+  "new": "if [ -n \"$HERMES_AIFY_EFFORT\" ]; then export AIFY_HERMES_SESSION_EFFORT=\"$HERMES_AIFY_EFFORT\"; fi\n",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "R1 hermes: the environment's model is not the operator's",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ -n \"${HERMES_INFERENCE_MODEL:-}${HERMES_MODEL:-}\" ]; then HERMES_HAS_MODEL=true; fi\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "R1 hermes: --reasoning is not the operator's",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "    --reasoning|--reasoning=*) HERMES_HAS_EFFORT=true ;;\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "R1 hermes: -m is not the operator's",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "    -m|--model|--model=*) HERMES_HAS_MODEL=true ;;\n",
+  "new": "",
+  "test": "node --test --test-timeout=600000 tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "CHANNEL claude: the user's words come straight after the channel",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "claude --dangerously-load-development-channels server:@@SERVICE_NAME@@-channel \"${CLAUDE_MCP_FLAGS[@]}\" \"${CLAUDE_PERMISSION_FLAGS[@]}\" \"${CLAUDE_ARGS[@]}\"",
+  "new": "claude --dangerously-load-development-channels server:@@SERVICE_NAME@@-channel \"${CLAUDE_ARGS[@]}\" \"${CLAUDE_MCP_FLAGS[@]}\" \"${CLAUDE_PERMISSION_FLAGS[@]}\"",
+  "test": "node --test --test-timeout=600000 tests/claude-user-arguments-are-never-a-channel-name.test.js"
+ }
+]

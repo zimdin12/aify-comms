@@ -219,6 +219,20 @@ class AgentHerdrSpaceUpdate(BaseModel):
     show: bool
 
 
+class AgentEffortUpdate(BaseModel):
+    """An agent's reasoning effort from its next start (P0 C12). "" is the runtime's own. One word: it
+    reaches a runtime's command line or its configuration, never a shell."""
+    effort: str
+
+    @field_validator("effort")
+    @classmethod
+    def _one_word(cls, value: str) -> str:
+        value = str(value or "").strip().lower()
+        if not re.fullmatch(r"[a-z]{0,16}", value):
+            raise ValueError("effort is one lowercase word (low, medium, high, xhigh, ...) or empty")
+        return value
+
+
 class AgentStatusUpdate(BaseModel):
     status: str
     note: Optional[str] = None

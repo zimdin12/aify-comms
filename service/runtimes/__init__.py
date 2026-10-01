@@ -67,8 +67,19 @@ def supported_runtimes() -> list[str]:
     return list(_REGISTRY.keys())
 
 
+def settings_name(name: str | None) -> str:
+    """The short name a runtime's settings are keyed by (`managed_<name>_model`): its adapter module,
+    so `claude-code` is `claude`. ValueError for a runtime no adapter knows."""
+    key = str(name if name is not None else "").strip().lower()
+    canonical = _ALIASES.get(key, key)
+    if canonical not in _REGISTRY:
+        raise ValueError(f'Unknown runtime "{name}". Known: {", ".join(_REGISTRY.keys())}')
+    return _REGISTRY[canonical][0]
+
+
 __all__ = [
     "RuntimeAdapter",
     "adapter_for",
+    "settings_name",
     "supported_runtimes",
 ]

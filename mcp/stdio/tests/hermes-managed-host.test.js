@@ -784,6 +784,21 @@ test("runDeliveryLoop: initial WS connect refused → self-corrects ONCE via res
   assert.equal(lostCalls.length, 1, "gateway-dead self-correct must fire exactly once across repeated failed connects");
 });
 
+test("runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client", async () => {
+  // The call site of hermes-session-effort.mjs: a green helper suite says nothing about whether the loop runs it.
+  const { spawn } = makeFakeSpawn();
+  const { httpCall } = makeAifyHttp();
+  const started = [];
+  const openWs = async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); };
+  await runDeliveryLoop("sc-hermes", {
+    httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), openWs, installTeardown: () => {}, sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
+    sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => {}; },
+  });
+  assert.equal(started.length, 1);
+  assert.deepEqual([started[0].agentId, started[0].effort, started[0].tempDir, started[0].openWs], ["sc-hermes", "xhigh", MARKER_DIR, openWs]);
+});
+
 // ---------------------------------------------------------------------------
 // waitForActiveSession — native-session-id resolution (2026-06-03 Task 3).
 // PRIMARY: match the agent's bound REAL session id (from the marker) against an

@@ -1,0 +1,79 @@
+[
+ {
+  "name": "C12 defaults: a runtime without settings counts as defaulted",
+  "file": "service/api_core/harness_defaults.py",
+  "old": "    return [runtime for runtime in supported_runtimes() if _keys(runtime)]",
+  "new": "    return list(supported_runtimes())",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 defaults: thinking is not an effort",
+  "file": "service/api_core/harness_defaults.py",
+  "old": "not str(config.get(\"effort\") or config.get(\"thinking\") or \"\").strip()",
+  "new": "not str(config.get(\"effort\") or \"\").strip()",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 defaults: an empty default fills an empty effort",
+  "file": "service/api_core/harness_defaults.py",
+  "old": "    if default_effort and not str(",
+  "new": "    if not str(",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 defaults: a given model is replaced",
+  "file": "service/api_core/harness_defaults.py",
+  "old": "    return (str(model or \"\").strip() or default_model), config",
+  "new": "    return default_model or model, config",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 runsWith: a resident runs with its record",
+  "file": "service/api_core/definition_records.py",
+  "old": "    elif _normalize_session_mode(agent_row[\"session_mode\"] or \"resident\") == \"managed\":",
+  "new": "    elif True:",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 runsWith: a withdrawn definition still decides",
+  "file": "service/api_core/definition_records.py",
+  "old": "    if state == \"defined\" and definition_row is not None:",
+  "new": "    if definition_row is not None:",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 runsWith: an empty value is shown as from its source",
+  "file": "service/api_core/definition_records.py",
+  "old": "if str(value).strip() else {\"value\": \"\", \"from\": \"runtime\"}",
+  "new": "if True else None",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 effort route: a resident is written and ignored",
+  "file": "service/routers/agents/attributes.py",
+  "old": "AND NOT {DEFINED_SQL} AND session_mode = 'managed'\",",
+  "new": "AND NOT {DEFINED_SQL}\",",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 effort route: a stale thinking is kept",
+  "file": "service/routers/agents/attributes.py",
+  "old": "        config.pop(\"thinking\", None)",
+  "new": "        pass",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 effort route: a defined agent is written here",
+  "file": "service/routers/agents/attributes.py",
+  "old": "WHERE id = ? AND NOT {DEFINED_SQL} AND session_mode = 'managed'\",",
+  "new": "WHERE id = ? AND session_mode IN ('managed', 'resident')\",",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ },
+ {
+  "name": "C12 effort: any value is accepted",
+  "file": "service/models.py",
+  "old": "        if not re.fullmatch(r\"[a-z]{0,16}\", value):",
+  "new": "        if False:",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py service/tests/test_api_v2_regressions.py::ApiV2RegressionTests::test_managed_spawn_uses_settings_defaults_and_persists_runtime_config \"service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_say_what_a_defined_agent_runs_with\""
+ }
+]

@@ -1,0 +1,44 @@
+[
+ {
+  "name": "R1 bridge: a session is set again on every pass",
+  "file": "mcp/stdio/hermes-session-effort.mjs",
+  "old": "      set.add(sessionId);\n",
+  "new": "",
+  "test": "cd mcp/stdio && node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "R1 bridge: a refusal is said on every pass",
+  "file": "mcp/stdio/hermes-session-effort.mjs",
+  "old": "      if (!said.has(why)) {\n",
+  "new": "      {\n",
+  "test": "cd mcp/stdio && node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "R1 bridge: the token reaches the log",
+  "file": "mcp/stdio/hermes-session-effort.mjs",
+  "old": ".replace(/token=[^&\\s]*/g, \"token=<redacted>\")",
+  "new": "",
+  "test": "cd mcp/stdio && node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "R1 bridge: no effort still sets one",
+  "file": "mcp/stdio/hermes-session-effort.mjs",
+  "old": "  if (!id || !level ||",
+  "new": "  if (!id ||",
+  "test": "cd mcp/stdio && node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "R1 bridge: the loop never starts it",
+  "file": "mcp/stdio/hermes-delivery-loop.mjs",
+  "old": "  startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });\n",
+  "new": "",
+  "test": "cd mcp/stdio && node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "R1 bridge: the loop gives it the real gateway client",
+  "file": "mcp/stdio/hermes-delivery-loop.mjs",
+  "old": "tempDir: markerDir, openWs });\n",
+  "new": "tempDir: markerDir });\n",
+  "test": "cd mcp/stdio && node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ }
+]

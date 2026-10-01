@@ -27,6 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpDir } from "./_tmpdir.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -39,7 +40,7 @@ function renderHermesWrapper() {
     execFileSync(
       "bash",
       [INSTALL_SH, "--client", "hermes", "--emit-hermes-wrappers", dir],
-      { stdio: "ignore" },
+      { stdio: "ignore", env: sealedChildEnv({ AIFY_HOME: path.resolve(HERE, "..", "..", "..") }) },
     );
     const wrapperPath = path.join(dir, "hermes-aify");
     assert.ok(fs.existsSync(wrapperPath), "install.sh --emit-hermes-wrappers must emit hermes-aify");

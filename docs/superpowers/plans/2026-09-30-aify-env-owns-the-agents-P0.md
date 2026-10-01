@@ -816,20 +816,35 @@ and daemon shutdown still sending the offline beat.
 - Managed launches take everything from the launch payload and do not read the file (the host already
   checked it, C7).
 
-**Settled while building P6** (2026-10-01, aify-wrapper):
+**Settled while building P6** (2026-10-01, aify-wrapper), revised after its review (P6 R1-R4):
 
+- **Owner ruling, 2026-10-01** (Steven, in the session that built P6): every agent has a model and an
+  effort, on all three harnesses; agent info shows both; effort can be changed for any agent; there are
+  defaults per harness; built in 0.8 with the rest of this tag. A role-only slice for codex and hermes is
+  therefore not an option. The launcher half is below; the agent-info, change and per-harness-default
+  half is C12.
 - **One validator, copied.** aify-wrapper carries aify-env's `agent-definition-schema.mjs` byte for byte,
   held by a test that compares the bytes and runs the shared fixture through it. A launcher reads the
   one file through `bin/aify-definition.mjs`; it never asks aify-env's store, whose recovery writes.
-- **What is applied.** claude-aify applies role, model and effort. codex-aify and hermes-aify apply the
-  role and say they do not apply the definition's model and effort: neither launcher handles them today,
-  and where they would take effect on codex's app-server path and hermes's gateway-host path is not
-  verified. Open for the operator.
-- **An install without the reader** launches as before and says the definition is not applied, rather
-  than refusing every agent-id launch. A reader that is present and refuses, or fails, stops the launch
-  with 78.
-- **Read for the id known at the start** (flag or environment). An id recovered later from a resume
-  handle gets no defaults.
+- **Where each launcher applies model and effort**, each mechanism observed on the runtime, not read off
+  its help:
+  - claude: `--model` / `--effort` on its command line.
+  - codex: `-c model=...` and `-c model_reasoning_effort=...` on the APP-SERVER's command line, never the
+    TUI's. The TUI reads its configuration from the app-server and starts its thread with that model; a
+    `-m` given to the TUI still beats it (codex-cli 0.159.3, `evidence/2026-10-01-p6/codex-model-probe.mjs`).
+  - hermes: the model as `HERMES_INFERENCE_MODEL`, which seeds the session a hermes builds, the gateway
+    host's included; the effort through aify-comms' delivery loop, which sets it on each live session
+    with a session-scoped `config.set reasoning`, once per session. hermes has no launch-time effort lever
+    on the gateway path (hermes 0.21.5, `evidence/2026-10-01-p6/hermes-model-probe.mjs`). A resumed hermes
+    session keeps the model it was stored with, and a running gateway host keeps the seed it started with.
+  - Precedence is the same everywhere: the operator's own argument or runtime variable > a managed
+    launch's `AIFY_MANAGED_MODEL` / `AIFY_MANAGED_EFFORT` > the definition > the runtime's own default.
+- **A launcher that cannot run the reader** refuses with 78, as an invalid file does: not being able to
+  look is not finding nothing. `--aify-ignore-definition` and a managed launch start without it.
+- **The definition is read for the resolved id.** An id a resume handle names is read after recovery and
+  gets the same defaults and the same refusal as one given by a flag. `--check` resolves through the same
+  function after the same argument loop, so it reports what the launch would use; it does not look up a
+  resume handle, so such an id is not shown there.
 
 ## C10. Import shows what it does not know
 
@@ -884,6 +899,36 @@ never-failed removals first, so a failing prefix cannot starve the rest (second 
 
 **Settled with P5, for C11:** the sync logs each failure once per channel (requests, push) until it
 changes or clears, so an old service's 404s are two log lines, not two every 10 s.
+
+## C12. Model and effort for every agent
+
+The owner ruling of 2026-10-01 (C9): every agent has a model and an effort, agent info shows both, effort
+can be changed for any agent, and there are defaults per harness. What exists already, measured on
+`next/env-owned-agents`: an agent record carries `model` and `runtimeConfig.effort`; the service has
+per-harness defaults for NEW managed workers (`managed_claude_*`, `managed_codex_*`, `managed_pi_*`, none
+for hermes), resolved by three hand copies (`spawn_requests.py`, `agents/environment_assignment.py`,
+`routers/settings.py`); a defined agent's effort changes through a definition change request (C5).
+
+- **Defaults per harness** stay where they are, the service's settings, which the dashboard already edits:
+  one entry per harness DERIVED from the runtime adapters, hermes added, and one function that resolves a
+  runtime's default, called by all three sites instead of each listing the runtimes. They fill a new
+  agent's empty model or effort when the agent is created or assigned, so every agent then carries its own
+  values. Alternative: defaults on the aify-env host beside the definitions, which would reach agents
+  defined by aify-env's CLI; one move away if wanted.
+- **Agent info** (`GET /agents`, `GET /agents/{id}`) carries `runsWith: {model, effort}`, each
+  `{value, from}`: what the agent's NEXT start uses and who decides it. `from` is `definition` for a
+  defined agent, `agent` for an undefined managed agent (its record, which its managed start reads), and
+  `runtime` when nothing applies a value, with `value` "". An undefined resident is always `runtime`: its
+  launcher reads only a definition. What a runtime is actually running is NOT shown, because nothing
+  observes it: no bridge reports a running model (`auto-registration.mjs` echoes the service's own value
+  back), so a "reported model" field would be a label with no observation behind it.
+- **Changing effort** is `PATCH /agents/{id}/effort {effort}`, one lowercase word or "" for the runtime's
+  own. A defined agent's change is a definition change request its host applies (C4/C5), nothing written
+  here; an undefined managed agent's is written to its record (and a stale `thinking` removed, since the
+  launch reads effort then thinking); an undefined resident's is refused (409) with the way to define it
+  (`aify-env agents import`). Every answer says `appliesAt: "next start"`.
+- **Split with the dashboard work:** the service routes and agent-info fields are this tag's; the
+  dashboard controls are dashboard-manager's, agreed before either is built.
 
 ## C11. Mixed versions and persisted state
 

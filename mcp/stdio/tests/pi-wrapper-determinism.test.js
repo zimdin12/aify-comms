@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpDir } from "./_tmpdir.js";
 import { runWrapper } from "./wrapper-harness.mjs";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -29,7 +30,7 @@ function renderPiWrappers() {
     execFileSync(
       "bash",
       [INSTALL_SH, "--client", "pi", "http://127.0.0.1:8899", "--emit-pi-wrappers", dir],
-      { stdio: "ignore" },
+      { stdio: "ignore", env: sealedChildEnv({ AIFY_HOME: path.resolve(HERE, "..", "..", "..") }) },
     );
     return { dir, files: fs.readdirSync(dir) };
   } catch (err) {

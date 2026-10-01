@@ -22,10 +22,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpDir } from "./_tmpdir.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, "..", "..", "..");
 export const INSTALL_SH = path.join(REPO, "install.sh");
+/**
+ * The environment a launcher is RENDERED with: this checkout as the native base, so the launcher's bridge
+ * directory is this checkout's `mcp/stdio`, which carries the pinned aify-wrapper and its definition
+ * reader. install.sh's default is the operator's installed `~/.aify-comms/mcp/stdio`: an ambient input
+ * that decided these tests by whatever was installed, and since P6 (a launcher that cannot run the reader
+ * refuses with 78) would have made them read the operator's real agent definitions once it was installed.
+ * `runWrapper` seals HOME and USERPROFILE, so the reader looks in a definitions directory of its own, and
+ * the render itself carries no live carrier (`sealedChildEnv`: the registry is pointed away too).
+ */
+export const RENDER_ENV = sealedChildEnv({ AIFY_HOME: REPO });
 
 // Rendered into the wrapper as its baked-in endpoint. A literal so the text is identical on every
 // machine, and deliberately NOT the operator's 8800.
@@ -62,7 +73,7 @@ export function renderWrapper(client, { url = RENDER_URL } = {}) {
   const cached = rendered.get(key);
   if (cached) return cached;
   const dir = tmpDir(`aify-${client}-wrapper-`);
-  execFileSync("bash", [INSTALL_SH, "--client", client, url, "--emit-wrappers", dir], { stdio: "ignore" });
+  execFileSync("bash", [INSTALL_SH, "--client", client, url, "--emit-wrappers", dir], { stdio: "ignore", env: RENDER_ENV });
   rendered.set(key, dir);
   return dir;
 }

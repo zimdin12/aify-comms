@@ -20,7 +20,8 @@ from service.api_core.definition_guard import DEFINED_SQL
 from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
-from service.api_core.settings import DEFAULT_SETTINGS, _invalidate_settings_cache, _load_settings
+from service.api_core.harness_defaults import defaulted_runtimes, defaults_for
+from service.api_core.settings import _invalidate_settings_cache, _load_settings
 from service.api_core.settings_spec import GROUPS, SETTINGS, SettingError, validate_update
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -47,14 +48,8 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> int:
     relaunched them on the default. Saving a default now changes only what NEW workers get.
     """
     skipped = 0
-    defaults = [
-        ("claude-code", settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"]), settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
-        ("codex", settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"]), settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
-        ("pi", settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"]), settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]),
-    ]
-    for runtime, model, effort in defaults:
-        model = str(model or "").strip()
-        effort = str(effort or "").strip()
+    for runtime in defaulted_runtimes():
+        model, effort = defaults_for(settings, runtime)
         skipped += (await (await db.execute(
             f"SELECT COUNT(*) FROM agents WHERE {_MANAGED_OF_RUNTIME} AND {DEFINED_SQL}", (runtime,))).fetchone())[0]
         await db.execute(

@@ -34,7 +34,8 @@ from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _runtime_capability_for_environment
 from service.api_core.runtime_state import _runtime_handle_from_state, _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or, _normalize_machine_id
-from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
+from service.api_core.harness_defaults import with_defaults
+from service.api_core.settings import _load_settings
 from service.api_core.spawn_spec_assignment import _upsert_spawn_spec_for_assignment
 from service.api_core.validation import validate_name
 from service.api_core.workspace import _workspace_for_environment
@@ -89,25 +90,9 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
             raise HTTPException(400, f'Environment "{environment_id}" does not advertise runtime "{runtime}"')
         workspace, workspace_root = _workspace_for_environment(environment, req.workspace, agent["cwd"] or "")
         settings = await _load_settings(db)
-        model = str(req.model if req.model is not None else (agent["model"] or "")).strip()
-        if not model:
-            if runtime == "codex":
-                model = str(settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"])).strip()
-            elif runtime == "claude-code":
-                model = str(settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"])).strip()
-            elif runtime == "pi":
-                model = str(settings.get("managed_pi_model", DEFAULT_SETTINGS["managed_pi_model"])).strip()
-        existing_runtime_config = _json_loads_or(agent["runtime_config"], {})
-        requested_runtime_config = req.runtimeConfig or {}
-        runtime_config = {**existing_runtime_config, **requested_runtime_config}
-        if runtime == "codex" and not str(runtime_config.get("effort") or "").strip():
-            runtime_config = {**runtime_config, "effort": str(settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]).strip()}
-        elif runtime == "claude-code" and not str(runtime_config.get("effort") or "").strip():
-            runtime_config = {**runtime_config, "effort": str(settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]).strip()}
-        elif runtime == "pi" and not str(runtime_config.get("effort") or runtime_config.get("thinking") or "").strip():
-            pi_effort = str(settings.get("managed_pi_effort") or DEFAULT_SETTINGS["managed_pi_effort"]).strip()
-            if pi_effort:
-                runtime_config = {**runtime_config, "effort": pi_effort}
+        model, runtime_config = with_defaults(
+            settings, runtime, str(req.model if req.model is not None else (agent["model"] or "")).strip(),
+            {**_json_loads_or(agent["runtime_config"], {}), **(req.runtimeConfig or {})})
         now = _now()
         previous_runtime = _normalize_runtime(agent["runtime"] or runtime)
         latest_session = await (await db.execute(

@@ -1,0 +1,13 @@
+Full suites for the P6 revision + C12 + the registry fragments, run in sequence on 2026-10-01.
+AIFY_ENV_REPO = aify-env-next (0f0a2fa), AIFY_WRAPPER_REPO = aify-wrapper-next (9455583), comms pin 9455583.
+
+TIME_WAIT before: 299
+python exit=0 :: 5032 passed, 27 skipped, 10921 subtests passed in 450.50s (0:07:30)
+bridge (first run): 1 file failed, child-processes-cannot-inherit-live-carriers: the four determinism renders spread process.env; now sealedChildEnv
+dashboard exit=0 :: # pass 1889 # fail 0 
+wrapper exit=0 :: # tests 633 # pass 567 # fail 0 # skipped 66 
+env exit=0 :: # tests 2337 # pass 2333 # fail 0 # skipped 4 
+credential mtime: 2026-09-29 18:37:10.548244700 +0300
+bridge (rerun after that fix): all 368 suite(s) passed, 2 test(s) skipped in 2 files
+
+An earlier run of the same tree before the comms fixture repair: python reported 11 failed, its FAILED lines naming 7 tests (route snapshot, removed-agent census, setting-reader gate, refusal gate x2, all for the new route/settings; two install_state 30 s subprocess timeouts under -n 8, which passed alone and did not recur here), bridge 7 files (launchers rendered against the installed bridge, which has no reader).

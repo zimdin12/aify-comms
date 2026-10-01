@@ -22,6 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpDir } from "./_tmpdir.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -34,7 +35,7 @@ function renderCodexWrapper() {
     execFileSync(
       "bash",
       [INSTALL_SH, "--client", "codex", "--emit-codex-wrappers", dir],
-      { stdio: "ignore" },
+      { stdio: "ignore", env: sealedChildEnv({ AIFY_HOME: path.resolve(HERE, "..", "..", "..") }) },
     );
     const wrapperPath = path.join(dir, "codex-aify");
     assert.ok(fs.existsSync(wrapperPath), "install.sh --emit-codex-wrappers must emit codex-aify");
@@ -73,7 +74,7 @@ test("codex-aify wrapper: bypass flags reach BOTH the app-server line and the fo
   // The app-server launch applies the permission-flags array (both setsid and the
   // no-setsid fallback path).
   assert.ok(
-    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?app-server --listen "\$APP_SERVER_URL"/.test(text),
+    /codex "\$\{CODEX_PERMISSION_FLAGS\[@\]\}" (?:"\$\{CODEX_HERDR_HOOKS\[@\]\}" )?(?:"\$\{CODEX_APP_SERVER_CONFIG\[@\]\}" )?app-server --listen "\$APP_SERVER_URL"/.test(text),
     "the app-server launch must apply ${CODEX_PERMISSION_FLAGS[@]}",
   );
   // The foreground (fresh) TUI launch applies the permission-flags array.

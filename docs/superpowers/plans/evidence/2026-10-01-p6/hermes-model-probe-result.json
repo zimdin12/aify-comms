@@ -1,0 +1,88 @@
+{
+ "hermes": "Hermes Agent v0.21.5+4694.g7cadfaa (2026.9.24) · upstream 7cadfaa6\r",
+ "port": 60849,
+ "steps": [
+  {
+   "step": "1 session.create {} with HERMES_INFERENCE_MODEL=probe/env-model",
+   "answer": {
+    "session_id": "f638bab6",
+    "model": "probe/env-model",
+    "resultKeys": [
+     "session_id",
+     "stored_session_id",
+     "message_count",
+     "messages",
+     "info"
+    ],
+    "infoKeys": [
+     "model",
+     "tools",
+     "skills",
+     "cwd",
+     "branch",
+     "project",
+     "lazy",
+     "desktop_contract",
+     "profile_name"
+    ]
+   }
+  },
+  {
+   "step": "2 session.create {model, reasoning_effort: low}",
+   "answer": {
+    "session_id": "7d6d208d",
+    "model": "probe/param-model",
+    "resultKeys": [
+     "session_id",
+     "stored_session_id",
+     "message_count",
+     "messages",
+     "info"
+    ],
+    "infoKeys": [
+     "model",
+     "tools",
+     "skills",
+     "cwd",
+     "branch",
+     "project",
+     "lazy",
+     "desktop_contract",
+     "profile_name"
+    ]
+   }
+  },
+  {
+   "step": "3 config.set reasoning xhigh on session 1",
+   "before": "medium",
+   "answer": {
+    "key": "reasoning",
+    "value": "xhigh"
+   },
+   "after": "xhigh",
+   "session2": "low",
+   "sessionInfoAfter": null
+  },
+  {
+   "step": "4 config.set reasoning max on an unknown session",
+   "answer": {
+    "error": {
+     "code": 4001,
+     "message": "session not found"
+    }
+   },
+   "hostWideBefore": "medium",
+   "hostWideAfter": "medium"
+  }
+ ],
+ "methodsSeen": [
+  "event",
+  "result",
+  "error"
+ ],
+ "eventTypes": [
+  "gateway.ready",
+  "error",
+  "projects.changed"
+ ]
+}

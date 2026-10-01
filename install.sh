@@ -497,8 +497,6 @@ render_wrapper_template() {
   # calls the aify-wrapper package's own tool so the two ends cannot disagree about what one is.
   [ -n "${_AIFY_REGISTRY_FP:-}" ] || _AIFY_REGISTRY_FP="$(bash "$SCRIPT_DIR/scripts/registry-fingerprint.sh" "$AIFY_SERVICE_REGISTRY")"
   text="${text//@@REGISTRY_FINGERPRINT@@/$_AIFY_REGISTRY_FP}"
-  # Empty is accurate here, and unlike the fingerprint "unknown" would be WRONG: the launcher
-  # branches on this being non-empty and would try to base64-decode it.
   # THE TRANSPORT BRANCH: both arms are in every template and this picks the live one. Unsubstituted
   # until 2026-08-24, so every launcher carried the literal `@@MCP_TRANSPORT@@`, compared it to "sse",
   # and took the stdio arm by accident -- while aify-wrapper's installer had substituted it all along.
@@ -506,7 +504,11 @@ render_wrapper_template() {
   # WHICH SERVICE THIS LAUNCHER IS FOR. Same shape as the line above, one parameter later, which is
   # why no-unsubstituted-placeholder.test.js derives the check instead of listing known placeholders.
   text="${text//@@SERVICE_NAME@@/aify-comms}"
-  text="${text//@@STRICT_EXTRA_MCP_B64@@/}"
+  # The registry's two MCP fragments, from the pinned package's own verbs, once per run. A registry they
+  # refuse stops the install (set -e, with the verb's 78): rendered empty it would read as nothing opted in.
+  [ -n "${_AIFY_FRAGMENTS:-}" ] || _AIFY_FRAGMENTS="$(bash "$SCRIPT_DIR/scripts/registry-fragment.sh" "$AIFY_SERVICE_REGISTRY")"
+  text="${text//@@STRICT_EXTRA_MCP_B64@@/${_AIFY_FRAGMENTS%% *}}"
+  text="${text//@@SESSION_MCP_B64@@/${_AIFY_FRAGMENTS#* }}"
   text="${text//@@BRIDGE_DIR@@/$AIFY_BRIDGE_DIR}"
   text="${text//@@NATIVE_BASE@@/$AIFY_NATIVE_BASE}"
   text="${text//@@SCRIPT_DIR@@/$SCRIPT_DIR}"
@@ -534,7 +536,6 @@ install_claude_wrapper() {
   # see — isProcessAlive would auto-delete the marker on first read and
   # every claude-aify session on Windows fell back to claude-needs-channel.
   render_wrapper_template "claude-aify.sh.in" "$wrapper_path"
-  chmod +x "$wrapper_path"
   install_windows_cmd_shim "claude-aify" "$wrapper_dir"
 }
 
@@ -550,7 +551,6 @@ install_codex_wrapper() {
   local wrapper_path="$wrapper_dir/codex-aify"
   mkdir -p "$wrapper_dir"
   render_wrapper_template "codex-aify.sh.in" "$wrapper_path"
-  chmod +x "$wrapper_path"
   # In emit mode stop after the wrapper text: no Windows shim, no MCP config, no launch.
   if [ -n "$EMIT_WRAPPERS_DIR" ]; then
     return 0
@@ -564,7 +564,6 @@ install_pi_wrapper() {
   local alias_path="$wrapper_dir/omp-aify"
   mkdir -p "$wrapper_dir"
   render_wrapper_template "pi-aify.sh.in" "$wrapper_path"
-  chmod +x "$wrapper_path"
   render_wrapper_template "pi-aify.sh.in" "$alias_path"
   install_windows_cmd_shim "pi-aify" "$wrapper_dir"
   install_windows_cmd_shim "omp-aify" "$wrapper_dir"

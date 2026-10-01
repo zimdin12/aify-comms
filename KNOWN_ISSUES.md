@@ -424,6 +424,10 @@ Found by dashboard-manager while checking where per-session MCP injection would 
 fixed in 0.8 with that injection's placeholder (`@@SESSION_MCP_B64@@`), both computed through the pinned
 aify-wrapper's `registry-cli.mjs` and failing the install on a refusal, once that verb has passed review.
 
+**Fixed on next/env-owned-agents (0.8), still open on main.** `scripts/registry-fragment.sh` computes both
+fragments with the pinned package's verbs and fails on a refusal, and install.sh bakes them
+(`mcp/stdio/tests/install-bakes-the-registry-fragments.test.js`). A host takes it at its 0.8 install.
+
 ## Open backlog, re-checked 2026-09-25
 
 Each item below was read against the code on 2026-09-25; none has been seen misbehave live.

@@ -1,0 +1,5 @@
+killed (exit 1)                  install bakes the session fragment empty
+                                  not ok 1 - AN OPTED-IN SERVICE is baked into the launcher as the session fragment the pinned package computes
+killed (exit 1)                  the fragment script swallows the package's refusal (both verbs: they share one parser, so one alone is equivalent)
+                                  not ok 3 - A REGISTRY THE PACKAGE REFUSES stops the install, and no launcher is written
+2/2 killed

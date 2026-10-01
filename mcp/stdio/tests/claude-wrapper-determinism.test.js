@@ -31,6 +31,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpDir } from "./_tmpdir.js";
+import { sealedChildEnv } from "./_child-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
@@ -46,7 +47,7 @@ function renderClaudeWrapper() {
     execFileSync(
       "bash",
       [INSTALL_SH, "--client", "claude", RENDER_URL, "--emit-claude-wrappers", dir],
-      { stdio: "ignore" },
+      { stdio: "ignore", env: sealedChildEnv({ AIFY_HOME: path.resolve(HERE, "..", "..", "..") }) },
     );
     const wrapperPath = path.join(dir, "claude-aify");
     assert.ok(fs.existsSync(wrapperPath), "install.sh --emit-claude-wrappers must emit claude-aify");
