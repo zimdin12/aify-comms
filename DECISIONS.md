@@ -6,6 +6,22 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## One launcher per harness on Windows too: hermes' PowerShell launcher is gone (2026-10-01, 0.8)
+
+**Decision.** `hermes-aify.cmd` runs the bash `hermes-aify` through Git Bash, as `claude-aify.cmd` and
+`codex-aify.cmd` do, and `install.sh` no longer writes `hermes-aify.ps1` (it removes one an earlier
+install left). That file was a second, handwritten hermes launcher in about 490 lines of PowerShell
+inside `install.sh`, chosen on 2026-06-04 ("PS1 is the wrapper Windows actually runs") to keep hermes'
+TUI on a console. By 0.8 it was the launcher nothing used: aify-env starts every hermes agent through
+the bash file (five live on the operator's host, all `bash.exe ... hermes-aify`), and the copy had none
+of what the bash file gained since: no definition, model or effort, no agent lease (review of P6r, H1).
+
+**Why it is safe.** The console was the reason, and it holds: a native program started through the
+`.cmd` and Git Bash sees a TTY on stdin and stdout, the same as one started directly, while a piped
+control does not (`docs/superpowers/plans/evidence/2026-10-01-p6r2/cmd-to-bash-keeps-a-console.mjs`,
+in a pseudo-console; a classic console window and hermes itself were not run). hermes' TUI decides on
+exactly that check (`hermes_cli/main_tui_launch.py`, `_resolve_use_tui`).
+
 ## Four tool surfaces removed: fewer, clearer tools (2026-09-27, v0.7.5)
 
 **Decision (operator ruling).** Fewer, clearer tools. Removed on both transports: `comms_dispatch`

@@ -94,7 +94,7 @@ const CEILINGS = {
   "aify-comms-debug/references/dispatch-bridges.md": 5_903,
   "aify-comms-debug/references/dispatch-delivery.md": 6_774,
   "aify-comms-debug/references/dispatch-launch.md": 5_031,
-  "aify-comms-debug/references/hermes.md": 8_959,
+  "aify-comms-debug/references/hermes.md": 8_847,
   "aify-comms-debug/references/lifecycle.md": 6_198,
   "aify-comms-debug/references/pi.md": 2_152,
   "aify-comms-debug/references/status-model.md": 10_059,

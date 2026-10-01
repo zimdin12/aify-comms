@@ -115,8 +115,7 @@ If `mcp_aify_comms_comms_register` succeeds but `comms_agent_info` shows
 A Responses-API streaming edge case (the stream ends with a `null` output list), not an aify
 registration error. The aify plugin handles it by rebuilding the output from the streamed items.
 Check that the wrapper loads the plugin (`grep AIFY_HERMES_PLUGIN ~/.local/bin/hermes-aify`), rerun
-`bash install.sh --client hermes`, and relaunch. On native Windows `hermes-aify.cmd` must call
-`hermes-aify.ps1`; a `hermes-tui: no TTY` exit means it does not. The TUI's active-session file is
+`bash install.sh --client hermes`, and relaunch. The TUI's active-session file is
 `${TMPDIR:-/tmp}/aify-hermes-active-<agent>.json`. `AIFY_HERMES_DISABLE_PLUGIN=1 hermes-aify`
 runs upstream hermes without the plugin for comparison.
 

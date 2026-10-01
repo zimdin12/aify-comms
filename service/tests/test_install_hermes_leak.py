@@ -1,7 +1,6 @@
 """hermes-aify wrapper — process-leak reap clauses (fix/hermes-leak).
 
-Static-text smoke checks against install.sh's emitted hermes-aify (bash) and
-hermes-aify.ps1 (PowerShell) wrappers. Same pattern as
+Static-text smoke checks against install.sh's emitted hermes-aify wrapper. Same pattern as
 test_install_hermes_session_rediscover.py — we pin the emitted code shape
 because a real hermes gateway can't be spun up in CI.
 
@@ -31,7 +30,7 @@ def _read_install_sh() -> str:
 #
 # Added 2026-08-19 (v0.6 Phase 2), when the wrapper body moved out of install.sh into
 # wrappers/hermes-aify.sh.in. Tests that assert on the WRAPPER read this; tests that assert on the
-# INSTALLER (the .ps1 shim, plugin patches, config rewrites) keep reading install.sh, because that is
+# INSTALLER (plugin patches, config rewrites) keep reading install.sh, because that is
 # still where those live. A location pin breaks on a move and stays green on a defect — asking the
 # artifact an operator installs is immune to both.
 def _read_hermes_wrapper() -> str:
@@ -68,31 +67,6 @@ def test_bash_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
     # Scoped: never a blanket `pkill -f 'hermes --tui'` with no handle.
     assert "pkill -f \"hermes --tui\"" not in fn
     assert "pkill -f 'hermes --tui'" not in fn
-
-
-def test_powershell_kill_prior_reaps_prior_resume_tui_pre_spawn_only():
-    """PowerShell Invoke-AifyHermesKillPrior must reap a prior `hermes(.exe)?
-    --tui --resume <pinnedSession>` matched on the EXACT pinned handle, gated to
-    the pre-spawn call ($ExcludeLoopPid -le 0)."""
-    text = _read_install_sh()
-    fn_idx = text.find("function Invoke-AifyHermesKillPrior {")
-    assert fn_idx > 0, "Invoke-AifyHermesKillPrior helper not found"
-    fn = text[fn_idx : fn_idx + 4200]
-    # MC3 (2026-06-06): read the prior session's REAL id from the marker for the match.
-    assert "readSessionIdMarker" in fn, (
-        "kill-prior must read the real session id from the marker to match the prior TUI"
-    )
-    # Matches a hermes(.exe) process whose command line carries the exact
-    # `--tui --resume <realId>`.
-    assert "--tui --resume" in fn, "kill-prior must match `--tui --resume <realId>`"
-    # Match the REAL resume id on the command line regardless of host exe name.
-    assert "[regex]::Escape(\\$priorId" in fn, (
-        "the resume-TUI match must escape the exact real resume id (agent-scoped)"
-    )
-    # PRE-spawn only: gated behind the $ExcludeLoopPid -le 0 guard.
-    assert "if (\\$ExcludeLoopPid -le 0)" in fn, (
-        "the resume-TUI reap must be gated to the pre-spawn call ($ExcludeLoopPid -le 0)"
-    )
 
 
 # --- P3: resident branch tears down its daemon on TUI exit ------------------
@@ -150,33 +124,4 @@ def test_bash_resident_branch_tears_down_daemon_on_tui_exit():
     # runs as a child, then the wrapper calls _aify_hermes_on_exit + exits).
     assert "_aify_hermes_on_exit\n    exit $?" in branch or "_aify_hermes_on_exit\n  exit $?" in branch, (
         "resident branch must reap the loop (its gateway host) after the TUI exits"
-    )
-
-
-def test_powershell_resident_branch_tears_down_daemon_on_tui_exit():
-    """The PowerShell resident/managed hermes branch must reap its background
-    delivery loop (and the gateway host it owns) after the TUI Invoke returns.
-
-    Updated 2026-06-03 (native-session-id model): the api_server `ensure-daemon`
-    path was retired in favor of the unified gateway-host branch, which spawns a
-    detached delivery loop (`hermes-managed-host.js run <agent>`) and captures its
-    PID (`$hermesLoopPid`). Since `Invoke-HermesRuntime` runs-then-returns, the TUI
-    is wrapped in try/finally so closing it ALWAYS Stop-Process's the loop — the
-    PowerShell parity of the bash EXIT/INT/TERM trap. Without this the loop + its
-    hidden gateway host orphan and the agent stays falsely online.
-    """
-    text = _read_install_sh()
-    idx = text.find("if (\\$HermesAifyAgentId -and \\$HermesArgs.Count -eq 0) {")
-    assert idx > 0, "PowerShell gateway-host (resident/managed) branch not found"
-    branch = text[idx : idx + 12000]
-    # Native-session-id model (2026-06-03): resume the resolved real session id,
-    # not the retired synthetic `aify-<agentId>` pin.
-    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$hermesResumeRealId) + \\$HermesPermissionFlags)" in branch
-    # The TUI Invoke must be wrapped so its exit always reaps the loop.
-    assert "} finally {" in branch, (
-        "resident branch must wrap the TUI Invoke in try/finally so exit reaps the loop"
-    )
-    # It must Stop-Process the captured delivery-loop PID after the TUI returns.
-    assert "Stop-Process -Id \\$hermesLoopPid -Force" in branch, (
-        "resident branch must reap the delivery loop (its gateway host) on TUI exit"
     )

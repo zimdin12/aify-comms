@@ -16,12 +16,13 @@ shape; the failure path is non-fatal and exercised live by the operator.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from service.tests._launchers import launcher
+from service.tests._launchers import NOWHERE_URL, bash, launcher, render
 
 REPO = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO / "install.sh"
@@ -47,18 +48,11 @@ def _read_install_sh() -> str:
 #
 # Added 2026-08-19 (v0.6 Phase 2), when the wrapper body moved out of install.sh into
 # wrappers/hermes-aify.sh.in. Tests that assert on the WRAPPER read this; tests that assert on the
-# INSTALLER (the .ps1 shim, plugin patches, config rewrites) keep reading install.sh, because that is
+# INSTALLER (plugin patches, config rewrites) keep reading install.sh, because that is
 # still where those live. A location pin breaks on a move and stays green on a defect — asking the
 # artifact an operator installs is immune to both.
 def _read_hermes_wrapper() -> str:
     return launcher("hermes")
-
-
-# The rendered PowerShell TUI shim. Hermes is the only runtime needing a `.ps1` at all — it carries
-# the visible-TUI requirement on Windows — and `--emit-wrappers` writes it beside the bash wrapper,
-# so it comes out of the same render.
-def _read_hermes_ps1() -> str:
-    return launcher("hermes", name="hermes-aify.ps1")
 
 
 def _defines(text: str, name: str) -> bool:
@@ -156,25 +150,36 @@ def test_hermes_wrapper_forces_utf8_python_io():
     assert 'export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"' in text
 
 
-def test_hermes_windows_shim_uses_powershell_not_git_bash_for_tui():
-    """Windows PowerShell launches must keep native Hermes attached to console."""
-    text = _read_install_sh()
-    # DEFINED *and* CALLED. The bare token is satisfied by `install_hermes_windows_tui_shim() {`
-    # alone, so deleting the invocation would leave this green while Windows hermes fell back to the
-    # git-bash launch this test exists to prevent. Same shape as the claude turn-hook check fixed in
-    # b3cdcd46; a call here takes arguments, so it is "the name at line start followed by something
-    # other than `()`".
-    assert _defines(text, "install_hermes_windows_tui_shim")
-    assert _calls(text, "install_hermes_windows_tui_shim"), (
-        "the shim installer is defined but never invoked — the wrapper would not be written"
-    )
-    assert "hermes-aify.ps1" in text
-    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0hermes-aify.ps1" %*' in text
-    # The PS fallback launches the native Hermes TUI resuming the explicit handle.
-    # The permission-bypass flags are appended via `(@(...) + $HermesPermissionFlags)`,
-    # so match the resume invocation up to the array close.
-    assert "Invoke-HermesRuntime (@('--tui', '--resume', \\$HermesSessionHandle) + \\$HermesPermissionFlags)" in text
-    assert "exit (Invoke-HermesRuntime" not in text
+@pytest.mark.skipif(sys.platform != "win32", reason="install.sh writes the .cmd shims only under Git Bash on Windows")
+def test_hermes_cmd_runs_the_one_bash_launcher():
+    """`hermes-aify.cmd` runs the bash launcher through Git Bash, as claude's and codex's do (0.8).
+
+    A handwritten PowerShell copy ran instead until then, and had drifted from the launcher it copied:
+    no definition, model or effort, and no agent lease (review of P6r, H1). It existed to keep hermes'
+    TUI on a console; a native program started through this `.cmd` keeps one
+    (docs/superpowers/plans/evidence/2026-10-01-p6r2/cmd-to-bash-keeps-a-console.mjs).
+    """
+    files = render("hermes")
+    assert "hermes-aify" in files and "hermes-aify.cmd" in files, sorted(files)
+    assert "hermes-aify.ps1" not in files, "no second launcher is written"
+    cmd = files["hermes-aify.cmd"]
+    assert '"%~dp0hermes-aify" %*' in cmd and "bash.exe" in cmd, cmd
+    assert "powershell" not in cmd.lower(), cmd
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="install.sh writes the .cmd shims only under Git Bash on Windows")
+def test_an_earlier_installs_powershell_launcher_is_removed(tmp_path):
+    """The .cmd an earlier install wrote ran `hermes-aify.ps1`; the file it leaves behind goes."""
+    stale = tmp_path / "hermes-aify.ps1"
+    stale.write_text("# an earlier install's launcher", encoding="utf-8")
+    keep = tmp_path / "unrelated.ps1"
+    keep.write_text("# not ours", encoding="utf-8")
+    result = subprocess.run([bash(), INSTALL_SH.as_posix(), "--client", "hermes", NOWHERE_URL,
+                             "--emit-wrappers", tmp_path.as_posix()], capture_output=True, text=True, timeout=600)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "hermes-aify.cmd").exists(), "positive control: the render wrote into this directory"
+    assert not stale.exists()
+    assert keep.exists(), "only the launcher's own file is removed"
 
 
 def test_hermes_visible_bind_falls_back_to_single_active_session():
@@ -201,15 +206,9 @@ def test_hermes_wrapper_pins_stable_resume_session():
     converged against the live gateway's `resolve-session` ground truth
     (`HERMES_RESUME_REAL_ID`) — and passes it as `hermes --tui --resume <id>`, so
     a relaunch reuses the SAME transcript with no duplication and the session id is
-    known before launch (superseding active-session-file discovery). The PowerShell
-    wrapper was brought to PARITY on 2026-06-03: the synthetic `aify-<agentId>`
-    pin (`$env:HERMES_TUI_RESUME = $pinnedSession` + `--resume $pinnedSession`) was
-    retired. The PS1 managed branch now reads the agent's real native id from the
-    marker (`readSessionIdMarker`), converges it against the gateway's
-    `resolve-session` ground truth (`$hermesResumeRealId`), and resumes that real
-    id (explicit operator `--resume` still wins, fresh session otherwise). Either
-    way the resume target is deterministic, not discovered, and is honored via an
-    explicit `--resume` flag (the env var alone is stripped).
+    known before launch (superseding active-session-file discovery). The resume
+    target is deterministic, not discovered, and is honored via an explicit
+    `--resume` flag (the env var alone is stripped).
     """
     text = _read_hermes_wrapper()
     # Bash: deterministic real-native-session-id resume, resolved up-front.
@@ -222,39 +221,10 @@ def test_hermes_wrapper_pins_stable_resume_session():
     )
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason=(
-    "install.sh writes hermes-aify.ps1 only when the wrapper directory maps to a drive-letter path "
-    "(install_hermes_windows_tui_shim), which the render's temp directory does only on Windows"
-))
-def test_hermes_ps1_wrapper_resumes_the_same_real_session():
-    """The PowerShell half of the contract above: parity with the bash wrapper since 2026-06-03."""
-    ps = _read_hermes_ps1()
-    # PowerShell: native-session-id model parity (2026-06-03). The synthetic
-    # pinned-session pin is GONE; the managed branch resumes the resolved real id.
-    assert '$env:HERMES_TUI_RESUME = $pinnedSession' not in ps, (
-        "PowerShell wrapper must NOT pin a synthetic HERMES_TUI_RESUME session anymore"
-    )
-    assert "$pinnedSession = 'aify-' +" not in ps, (
-        "PowerShell wrapper must NOT build a synthetic 'aify-<agentId>' resume handle anymore"
-    )
-    assert "node $AifyHermesManagedHostJs resolve-session $HermesAifyAgentId" in ps, (
-        "PowerShell wrapper must converge the resume id against the live gateway (resolve-session)"
-    )
-    assert "Invoke-HermesRuntime (@('--tui', '--resume', $hermesResumeRealId) + $HermesPermissionFlags)" in ps, (
-        "PowerShell wrapper must resume the resolved real session id via an explicit --resume"
-    )
-    # PowerShell: re-export the gateway URL so the MCP child registers a real
-    # ws:// gatewayUrl (parity with bash AIFY_HERMES_GATEWAY_URL fix).
-    assert "$env:AIFY_HERMES_GATEWAY_URL = $hermesHost.wsUrl" in ps, (
-        "PowerShell wrapper must re-export AIFY_HERMES_GATEWAY_URL for resident-run registration"
-    )
-    assert "--resume" in ps, "wrapper must pass --resume so the session id is honored (env var alone is stripped)"
-
-
 def test_hermes_installer_patches_codex_stream_nonetype_fallback():
     """Hermes openai-codex stream bugs should fall back to raw create stream."""
     text = _read_install_sh()
-    # Same reason as the shim above: the patch must be APPLIED, not merely defined. A definition
+    # The patch must be APPLIED, not merely defined. A definition
     # with no call means the NoneType stream bug returns and this test still passes.
     assert _defines(text, "patch_hermes_codex_stream_none_fallback")
     assert _calls(text, "patch_hermes_codex_stream_none_fallback"), (
@@ -267,8 +237,9 @@ def test_hermes_installer_patches_codex_stream_nonetype_fallback():
 
 def test_hermes_wrapper_loads_aify_plugin_by_default():
     """hermes-aify should load the durable aify plugin unless explicitly disabled."""
-    text = _read_install_sh()
+    text = _read_hermes_wrapper()
     assert "AIFY_HERMES_PLUGIN" in text
-    assert "integrations/hermes-aify-plugin" in text
+    # The rendered path: a native Windows hermes is given it with backslashes.
+    assert re.search(r"integrations[\\/]hermes-aify-plugin", text)
     assert "AIFY_HERMES_DISABLE_PLUGIN" in text
     assert "PYTHONPATH" in text

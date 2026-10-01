@@ -188,7 +188,7 @@ for s in aify-comms aify-comms-debug aify-comms-install; do
   rm -rf "${HERMES_HOME:-$HOME/.hermes}/skills/autonomous-ai-agents/$s"
 done
 rm -f "$HOME/.local/bin/hermes-aify" "$HOME/.local/bin/hermes-aify.cmd"
-rm -f "$HOME/.local/bin/hermes-aify.ps1"   # hermes is the only client with a PowerShell launcher
+rm -f "$HOME/.local/bin/hermes-aify.ps1"   # left by an install from before 0.8
 ```
 
 The skills go under `HERMES_HOME` (default `~/.hermes`), which is the one path here that does not
@@ -252,10 +252,9 @@ claude-aify
 claude-aify.cmd
 hermes-aify
 hermes-aify.cmd
-hermes-aify.ps1
 ```
 
-and, from an older install, `omp-aify`, `omp-aify.cmd`, `pi-aify` and `pi-aify.cmd`.
+and, from an older install, `hermes-aify.ps1`, `omp-aify`, `omp-aify.cmd`, `pi-aify` and `pi-aify.cmd`.
 
 The installer may have added `%USERPROFILE%\.local\bin` to the user `Path`. Remove it from Windows environment variables only if no other tools there are needed.
 
