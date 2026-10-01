@@ -14,7 +14,7 @@ not ok 3 - R3 A KNOWN FILE REPLACED BY A DIRECTORY OR A JUNCTION is invalid, not
   ---
   error: |-
     directory: the ledger keeps its last good identity
-    
+
 not ok 4 - R4 ENV KEYS NAMING OBJECT.PROTOTYPE MEMBERS reach the written file through the command, and unset
   ---
   error: |-

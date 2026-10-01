@@ -572,6 +572,23 @@ Two operations, never one:
 No worker is killed or declared gone by a configuration change. A daemon restart applies everything at
 once, as today.
 
+**Settled while building P2** (2026-10-01):
+
+- **Held means the claim loop stays off.** "Everything except starts" is the control loop: input,
+  resize and stop for the held workers. A claimed spawn is a start the plugin would have to refuse, so
+  it claims none.
+- **Only a registry that parses is followed.** `readServices` reads an unparseable file as no services,
+  which is right for advertising and wrong for detaching: a typo would detach every plugin.
+  `registryIsReadable` gates the follow.
+- **A reverted change resumes.** If the registry names the held plugin's endpoint again, the plugin
+  goes back to running and claims again; without this it would refuse starts until a daemon restart.
+- **Where "registry change pending" shows:** the plugin logs it once on becoming held, and its state
+  carries `phase` and `heldWorkers`. The doctor's `claiming` row fails on a held plugin, even though its
+  claimer is accepted, and the TUI renders that row as the doctor wrote it.
+- **"A reply after detach"** is a heartbeat answer or failure arriving after the plugin detached;
+  both are dropped. A control long-poll cannot arrive late: detach waits for the whole in-flight pass,
+  including its setup, and a pass re-reads the phase after its setup.
+
 **Witnesses (P2)** use the real aify-comms plugin with an injected fake transport and fake processes: a
 held worker across a registry removal (still reported held, no offline beat); an endpoint change with a
 claim in flight that returns a START control (refused, nothing started, then detach); the same with a

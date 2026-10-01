@@ -1,0 +1,24 @@
+aify-comms-next (docs only on this branch) with AIFY_ENV_REPO=~/projects/aify-env-next and AIFY_WRAPPER_REPO=~/projects/aify-wrapper-next, aify-env at 998b2e2 plus the uncommitted P2 tree:
+
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile
+FAILED service/tests/test_no_trailing_whitespace_in_tracked_text.py::test_no_tracked_text_file_offends - AssertionError: these wo...
+FAILED service/tests/test_version_is_not_an_already_released_tag.py::VersionIsNotAnAlreadyReleasedTagTests::test_VERSION_DOES_NOT_NAME_A_TAG_THIS_TREE_IS_PAST
+2 failed, 4907 passed, 27 skipped, 8 warnings, 10480 subtests passed in 251.90s (0:04:11)
+
+mcp/stdio: node tests/run-all.mjs
+[run-all] all 365 suite(s) passed — 2 test(s) skipped in 2 files
+
+service/new_dashboard: node --test *.test.mjs
+# tests 1886
+# pass 1886
+# fail 0
+
+aify-wrapper-next: npm test
+# tests 575
+# pass 509
+# fail 0
+# skipped 66
+
+rerun after fixing the P1 evidence whitespace, with the P2 evidence staged:
+python -m pytest service/tests/test_no_trailing_whitespace_in_tracked_text.py -q
+4 passed in 2.53s

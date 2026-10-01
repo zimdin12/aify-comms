@@ -1,0 +1,261 @@
+[
+ {
+  "name": "C8: starts are never refused while detaching",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "const refuseStarts = () => (phase === \"running\" ? \"\" : DETACHING);",
+  "new": "const refuseStarts = () => \"\";",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the control pass ignores the refusal",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "const refusal = String(control?.action || \"\").trim() === \"start\" ? refuseStarts() : \"\";",
+  "new": "const refusal = \"\";",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the refusal covers every action, not only start",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "const refusal = String(control?.action || \"\").trim() === \"start\" ? refuseStarts() : \"\";",
+  "new": "const refusal = refuseStarts();",
+  "test": "P2"
+ },
+ {
+  "name": "C8: an operator start is not refused while detaching",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "start: async (agentId) => (starter && phase === \"running\"",
+  "new": "start: async (agentId) => (starter",
+  "test": "P2"
+ },
+ {
+  "name": "C8: a heartbeat reply after detach is applied",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      if (phase === \"detached\") return;\n      state.lastHeartbeat",
+  "new": "      state.lastHeartbeat",
+  "test": "P2"
+ },
+ {
+  "name": "C8: a heartbeat failure after detach is applied",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      if (phase === \"detached\") return;\n      // NAMED",
+  "new": "      // NAMED",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the claim loop keeps claiming while held",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      while (!stopped && phase === \"running\") {",
+  "new": "      while (!stopped && phase !== \"detached\") {",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the claim pass does not re-read the phase after its setup",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "            if (phase !== \"running\") return { outcome: \"detaching\" };\n            return runClaimPass({",
+  "new": "            return runClaimPass({",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the control pass does not re-read the phase after its setup",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "            if (phase !== \"running\" && phase !== \"held\") return { outcome: \"detaching\" };",
+  "new": "",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the control loop stops while held",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      while (!stopped && (phase === \"running\" || phase === \"held\")) {",
+  "new": "      while (!stopped && phase === \"running\") {",
+  "test": "P2"
+ },
+ {
+  "name": "C8: detach does not wait for the in-flight passes",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      await Promise.all([claimPass, controlPass]);",
+  "new": "",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the control pass is not tracked",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "          controlPass = pass.catch(() => {});",
+  "new": "          pass.catch(() => {});",
+  "test": "P2"
+ },
+ {
+  "name": "C8: held workers are not counted, so the plugin detaches under them",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      const held = heldTerminalIds(handles, host?.processes).length;\n      if (held > 0) {",
+  "new": "      const held = 0;\n      if (held > 0) {",
+  "test": "P2"
+ },
+ {
+  "name": "C8: the pending notice is repeated on every detach",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "        if (!wasHeld) {",
+  "new": "        if (true) {",
+  "test": "P2"
+ },
+ {
+  "name": "C8: a held plugin stops serving its workers",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "        phase = \"held\";\n        controlForever()",
+  "new": "        phase = \"detached\";\n        controlForever()",
+  "test": "P2"
+ },
+ {
+  "name": "C8: detach sends the offline beat",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      await handles.exitMarkersSettled();\n      return { detached: true, held: 0 };",
+  "new": "      await api.heartbeat({ status: \"offline\" }, { heldTerminals: [] });\n      await handles.exitMarkersSettled();\n      return { detached: true, held: 0 };",
+  "test": "P2"
+ },
+ {
+  "name": "C8 plan: an endpoint change is not a detach",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "named.get(plugin.name)?.endpoint !== plugin.endpoint",
+  "new": "!named.has(plugin.name)",
+  "test": "P2"
+ },
+ {
+  "name": "C8 plan: a service is added while its name is still held",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "service.endpoint && !staying.has(service.name)",
+  "new": "service.endpoint",
+  "test": "P2"
+ },
+ {
+  "name": "C8 plan: a service with no endpoint is added",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "service.endpoint && !staying.has(service.name)",
+  "new": "!staying.has(service.name)",
+  "test": "P2"
+ },
+ {
+  "name": "C8 follow: a plugin is built while its name is taken",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "    if (taken.has(service.name)) continue;\n",
+  "new": "",
+  "test": "P2"
+ },
+ {
+  "name": "C8 follow: a held plugin is logged on every beat",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "export function followReport({ added = [], detached = [], resumed = [], failed = [] } = {}) {\n  return [",
+  "new": "export function followReport({ added = [], detached = [], resumed = [], failed = [], held = [] } = {}) {\n  return [\n    ...held.map((h) => `registry: ${h.name} held`),",
+  "test": "P2"
+ },
+ {
+  "name": "C8 registry: a held plugin leaves the registry",
+  "file": "lib/service-plugins.mjs",
+  "old": "    if (result?.detached) {\n      this.#plugins",
+  "new": "    if (true) {\n      this.#plugins",
+  "test": "P2"
+ },
+ {
+  "name": "C8 registry: running() includes a plugin with no endpoint",
+  "file": "lib/service-plugins.mjs",
+  "old": ".filter((plugin) => typeof plugin.endpoint === \"string\" && plugin.endpoint)",
+  "new": ".filter(() => true)",
+  "test": "P2"
+ },
+ {
+  "name": "C8 registry: a failed start keeps the name taken",
+  "file": "lib/service-plugins.mjs",
+  "old": "      this.#plugins = this.#plugins.filter((p) => p !== plugin);\n      return { error };",
+  "new": "      return { error };",
+  "test": "P2"
+ },
+ {
+  "name": "C8 registry: a plugin without detach() is dropped",
+  "file": "lib/service-plugins.mjs",
+  "old": "      return { detached: false, held: 0, problem: `plugin \"${name}\" cannot be detached while this host runs` };",
+  "new": "      return { detached: true, held: 0 };",
+  "test": "P2"
+ },
+ {
+  "name": "C8 readable: an unparseable registry reads as readable",
+  "file": "lib/services.mjs",
+  "old": "    return isPlainObject(parsed) && isPlainObject(parsed.services);",
+  "new": "    return true;",
+  "test": "P2"
+ },
+ {
+  "name": "C8 readable: a registry without a services object reads as readable",
+  "file": "lib/services.mjs",
+  "old": "    return isPlainObject(parsed) && isPlainObject(parsed.services);",
+  "new": "    return isPlainObject(parsed);",
+  "test": "P2"
+ },
+ {
+  "name": "C8 daemon: an unreadable registry is followed",
+  "file": "bin/aify-env.mjs",
+  "old": "  if (registryIsReadable(registryText)) followServices?.(readServices(registryText));",
+  "new": "  followServices?.(readServices(registryText));",
+  "test": "P2"
+ },
+ {
+  "name": "C8 resume: a held plugin never resumes",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      if (stopped || phase !== \"held\") return false;",
+  "new": "      return false;",
+  "test": "P2"
+ },
+ {
+  "name": "C8 resume: any plugin resumes, not only a held one",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      if (stopped || phase !== \"held\") return false;",
+  "new": "      if (stopped) return false;",
+  "test": "P2"
+ },
+ {
+  "name": "C8 resume: the claim loop is not restarted",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      phase = \"running\";\n      claimForever().catch((error) => host?.log?.(`aify-comms claim loop stopped: ${error?.message || error}`));\n      return true;",
+  "new": "      phase = \"running\";\n      return true;",
+  "test": "P2"
+ },
+ {
+  "name": "C8 follow: a reverted change is not resumed",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "    if (!plan.detach.includes(name) && registry.resume(name)) outcome.resumed.push(name);",
+  "new": "",
+  "test": "P2"
+ },
+ {
+  "name": "C8 follow: a plugin planned for detach is resumed",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "    if (!plan.detach.includes(name) && registry.resume(name)) outcome.resumed.push(name);",
+  "new": "    if (registry.resume(name)) outcome.resumed.push(name);",
+  "test": "P2"
+ },
+ {
+  "name": "C8 follow: a resume is not logged",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "    ...resumed.map((name) => `registry: resumed the plugin for ${name}`),\n",
+  "new": "",
+  "test": "P2"
+ },
+ {
+  "name": "C8 registry: resume reports true whatever the plugin said",
+  "file": "lib/service-plugins.mjs",
+  "old": "plugin.resume() === true : false;",
+  "new": "(plugin.resume(), true) : false;",
+  "test": "P2"
+ },
+ {
+  "name": "C8 doctor: a held plugin reads as claiming",
+  "file": "lib/environment-checks.mjs",
+  "old": "    if (entry?.state?.phase && entry.state.phase !== \"running\") {",
+  "new": "    if (false) {",
+  "test": "P2"
+ },
+ {
+  "name": "C8 doctor: a state with no phase reads as held",
+  "file": "lib/environment-checks.mjs",
+  "old": "    if (entry?.state?.phase && entry.state.phase !== \"running\") {",
+  "new": "    if (entry?.state?.phase !== \"running\") {",
+  "test": "P2"
+ }
+]
