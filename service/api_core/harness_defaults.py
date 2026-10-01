@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from service.api_core.model_effort import record_effort, record_model, with_effort
 from service.api_core.settings import DEFAULT_SETTINGS
 from service.runtimes import settings_name, supported_runtimes
 
@@ -47,13 +48,14 @@ def defaults_for(settings: dict[str, Any], runtime: str) -> Optional[tuple[str, 
 def with_defaults(settings: dict[str, Any], runtime: str, model: str, runtime_config: dict) -> tuple[str, dict]:
     """`model` and `runtime_config` with an empty model or effort filled from the runtime's defaults.
 
-    An effort counts as given when `runtimeConfig` carries `effort` or `thinking`, the two keys the
-    launch reads it from (launch_env.py). An empty default fills nothing."""
+    A value counts as given when `model_effort`, the reader the launch uses, finds one. An empty default
+    fills nothing."""
     defaults = defaults_for(settings, runtime)
     if not defaults:
         return model, runtime_config
     default_model, default_effort = defaults
     config = dict(runtime_config or {})
-    if default_effort and not str(config.get("effort") or config.get("thinking") or "").strip():
-        config["effort"] = default_effort
-    return (str(model or "").strip() or default_model), config
+    if default_effort and not record_effort(config):
+        config = with_effort(config, default_effort)
+    # A model given only as `runtimeConfig.model` is given: filling the column would outrank it.
+    return (str(model or "").strip() or ("" if record_model(model, config) else default_model)), config

@@ -28,6 +28,17 @@ def test_an_empty_value_is_filled_and_a_given_one_kept():
         "thinking is an effort: the launch reads it as one"
 
 
+def test_given_means_what_the_launch_reads():
+    """The review of 3ada3809 (C3): a blank effort beside `thinking` was overwritten by the default, and a
+    model given as `runtimeConfig.model` was outranked by a default written into the model column."""
+    settings = {"managed_codex_model": "gpt-d", "managed_codex_effort": "medium"}
+    assert with_defaults(settings, "codex", "", {"effort": " ", "thinking": "low"}) == \
+        ("gpt-d", {"effort": " ", "thinking": "low"}), "the launch reads low: it is given"
+    assert with_defaults(settings, "codex", "", {"model": "own"}) == ("", {"model": "own", "effort": "medium"})
+    assert with_defaults(settings, "codex", "", {"effort": " "}) == ("gpt-d", {"effort": "medium"}), \
+        "control: a blank with nothing behind it is filled"
+
+
 def test_a_saved_empty_effort_falls_back_to_the_declared_default_and_an_empty_default_fills_nothing():
     assert defaults_for({"managed_claude_effort": ""}, "claude-code") == ("", DEFAULT_SETTINGS["managed_claude_effort"])
     assert with_defaults({}, "hermes", "", {}) == ("", {}), "hermes' own configuration decides"

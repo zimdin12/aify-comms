@@ -21,6 +21,7 @@ from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
 from service.api_core.harness_defaults import defaulted_runtimes, defaults_for
+from service.api_core.model_effort import with_effort
 from service.api_core.settings import _invalidate_settings_cache, _load_settings
 from service.api_core.settings_spec import GROUPS, SETTINGS, SettingError, validate_update
 from service.api_core.ws import _get_ws
@@ -36,6 +37,17 @@ router = domain_router()
 #: model and effort are its definition's (P0 C5), so it is skipped and counted.
 _MANAGED_OF_RUNTIME = "runtime = ? AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')"
 _UNDEFINED_SPEC = "agent_id NOT IN (SELECT agent_id FROM agent_definitions)"
+
+
+def _defaulted(runtime_config: Any, effort: str) -> dict:
+    """A record's runtime config holding the default effort as its only effort, and no model of its own.
+
+    The launch reads `thinking` after `effort` and `runtimeConfig.model` after the model column
+    (model_effort.py), so either one left behind beat an empty default: "the runtime's own" launched at
+    the old value."""
+    config = with_effort(runtime_config, effort)
+    config.pop("model", None)
+    return config
 
 
 async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> int:
@@ -57,8 +69,7 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> int:
         cursor = await db.execute(
             f"SELECT id, runtime_config FROM agents WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}", (runtime,))
         for row in await cursor.fetchall():
-            runtime_config = _json_loads_or(row["runtime_config"], {})
-            runtime_config["effort"] = effort
+            runtime_config = _defaulted(_json_loads_or(row["runtime_config"], {}), effort)
             await db.execute(
                 "UPDATE agents SET runtime_config = ? WHERE id = ?",
                 (json.dumps(runtime_config), row["id"]),
@@ -68,9 +79,8 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> int:
             f"SELECT id, metadata FROM spawn_specs WHERE runtime = ? AND {_UNDEFINED_SPEC}", (runtime,))
         for row in await spec_cursor.fetchall():
             metadata = _json_loads_or(row["metadata"], {})
-            runtime_config = metadata.get("runtimeConfig") if isinstance(metadata.get("runtimeConfig"), dict) else {}
-            runtime_config = {**runtime_config, "effort": effort}
-            metadata = {**metadata, "runtimeConfig": runtime_config}
+            metadata = metadata if isinstance(metadata, dict) else {}
+            metadata = {**metadata, "runtimeConfig": _defaulted(metadata.get("runtimeConfig"), effort)}
             await db.execute(
                 "UPDATE spawn_specs SET metadata = ?, updated_at = ? WHERE id = ?",
                 (json.dumps(metadata), _now(), row["id"]),

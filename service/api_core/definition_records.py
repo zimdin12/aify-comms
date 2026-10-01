@@ -5,10 +5,11 @@ revision come from `agent_definitions`, read once for a whole list.
 """
 from __future__ import annotations
 
-import json
 from typing import Any, Optional
 
+from service.api_core.model_effort import record_effort, record_model
 from service.api_core.runtime import _normalize_session_mode
+from service.api_core.serialization import _json_loads_or
 
 
 async def definition_rows(db, agent_ids: list[str]) -> dict[str, Any]:
@@ -37,7 +38,7 @@ def definition_of(agent_row, definition_row: Optional[Any]) -> dict[str, Any]:
         "incarnation": definition_row["incarnation"],
         "revision": definition_row["revision"],
         "hostState": definition_row["host_state"],
-        "hostProblems": json.loads(definition_row["host_problems"] or "[]"),
+        "hostProblems": _json_loads_or(definition_row["host_problems"], []),
         "available": bool(definition_row["available"]),
         "unavailableReason": definition_row["unavailable_reason"] or "",
     }
@@ -51,16 +52,19 @@ def runs_with(agent_row, definition_row: Optional[Any]) -> dict[str, Any]:
     nothing applies a value, so the runtime's own configuration decides; `value` is then "". An undefined
     resident's launcher reads no record, so a value on its record is not what it runs with. What a
     runtime is actually running is not observed: no bridge reports it.
+
+    A managed record is read by `model_effort`, the reader its launch uses. Stored JSON is decoded
+    tolerantly: one damaged row must not take down the list of every agent.
     """
     state = str((agent_row["definition_state"] if "definition_state" in agent_row.keys() else "") or "")
     if state == "defined" and definition_row is not None:
-        agent = json.loads(definition_row["body"] or "{}")
-        model, effort, source = agent.get("model") or "", agent.get("effort") or "", "definition"
+        body = _json_loads_or(definition_row["body"], {})
+        body = body if isinstance(body, dict) else {}
+        model, effort, source = record_model(body.get("model"), {}), record_effort({"effort": body.get("effort")}), "definition"
     elif _normalize_session_mode(agent_row["session_mode"] or "resident") == "managed":
-        config = json.loads(agent_row["runtime_config"] or "{}") if agent_row["runtime_config"] else {}
-        config = config if isinstance(config, dict) else {}
-        model, effort, source = agent_row["model"] or "", config.get("effort") or config.get("thinking") or "", "agent"
+        config = _json_loads_or(agent_row["runtime_config"], {})
+        model, effort, source = record_model(agent_row["model"], config), record_effort(config), "agent"
     else:
         model, effort, source = "", "", "runtime"
-    said = lambda value: {"value": str(value), "from": source} if str(value).strip() else {"value": "", "from": "runtime"}
+    said = lambda value: {"value": value, "from": source} if value else {"value": "", "from": "runtime"}
     return {"model": said(model), "effort": said(effort)}

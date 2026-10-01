@@ -26,6 +26,7 @@ from service.api_core.agent_sessions import _mark_agent_present
 from service.api_core.definition_guard import DEFINED_SQL
 from service.api_core.serialization import _json_loads_or
 from service.api_core.definition_requests import queued_for_its_host
+from service.api_core.model_effort import with_effort
 from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
@@ -165,30 +166,47 @@ async def update_agent_herdr_space(agent_id: str, req: AgentHerdrSpaceUpdate, re
         await db.close()
 
 
+async def _respecify_effort(db, agent_id: str, effort: str) -> None:
+    """Every spawn spec of this agent carries `effort`, so its next start does.
+
+    A restart starts from the agent's stored spec, and a start going running copies that spec's
+    `runtimeConfig` over the agent's (running_spawn.py). Changing only the agent's record was undone by
+    the very start it was for. The apply-defaults route writes both for the same reason (settings.py).
+    """
+    specs = await (await db.execute("SELECT id, metadata FROM spawn_specs WHERE agent_id = ?", (agent_id,))).fetchall()
+    for spec in specs:
+        metadata = _json_loads_or(spec["metadata"], {})
+        metadata = metadata if isinstance(metadata, dict) else {}
+        metadata = {**metadata, "runtimeConfig": with_effort(metadata.get("runtimeConfig"), effort)}
+        await db.execute("UPDATE spawn_specs SET metadata = ?, updated_at = ? WHERE id = ?",
+                         (json.dumps(metadata), _now(), spec["id"]))
+
+
 @router.patch("/agents/{agent_id}/effort")
 async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Request):
     """The reasoning effort this agent starts with from its NEXT start (P0 C12); "" is the runtime's own.
 
     Whoever owns what the agent's start reads is who changes it. A DEFINED agent's effort is its
     definition's, so the change is a request its host applies (C5). An undefined MANAGED agent's is its
-    record's, which its managed start reads (launch_env.py). An undefined RESIDENT's launcher reads
+    record's and its spawn specs', which its managed starts read. An undefined RESIDENT's launcher reads
     neither, so the change is refused with the way to define it rather than accepted and ignored.
     """
     validate_name(agent_id, "agent ID")
     db = await get_db()
     try:
+        # THE WRITE LOCK BEFORE THE READ, as `usage-source` takes it: this rewrites the whole runtime
+        # config, so a sibling edit committed between this read and the write was lost behind two 200s.
+        await db.execute("BEGIN IMMEDIATE")
         row = await (await db.execute("SELECT id, session_mode, runtime_config FROM agents WHERE id = ?",
                                       (agent_id,))).fetchone()
         if not row:
+            await db.rollback()
             raise HTTPException(404, f"Agent '{agent_id}' not found")
-        config = _json_loads_or(row["runtime_config"], {})
-        config = {**(config if isinstance(config, dict) else {}), "effort": req.effort}
-        config.pop("thinking", None)  # the launch reads effort, then thinking: one value, or the old one wins
         # The guard is the UPDATE's own WHERE, as for the herdr space: a push cannot land between a check
         # and the write. Resident rows are left out of it and refused below.
         cursor = await db.execute(
             f"UPDATE agents SET runtime_config = ? WHERE id = ? AND NOT {DEFINED_SQL} AND session_mode = 'managed'",
-            (json.dumps(config), agent_id))
+            (json.dumps(with_effort(_json_loads_or(row["runtime_config"], {}), req.effort)), agent_id))
         if not cursor.rowcount:
             await db.rollback()
             defined = await (await db.execute(f"SELECT 1 FROM agents WHERE id = ? AND {DEFINED_SQL}", (agent_id,))).fetchone()
@@ -198,6 +216,7 @@ async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Re
             actor = recorded_operator_actor(None, request, action="changing a defined agent as the operator")
             queued = await queued_for_its_host(db, agent_id, {"effort": req.effort}, actor, _now())
             return {**queued, "appliesAt": "next start"}
+        await _respecify_effort(db, agent_id, req.effort)
         await db.commit()
         ws = await _get_ws(request)
         if ws:

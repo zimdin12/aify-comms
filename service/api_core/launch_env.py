@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from service.api_core.model_effort import as_text as _text, record_effort, record_model
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.spawn_env import spawn_env_overlay
 from service.api_core.start_intent import START, normalize_start_intent
@@ -91,6 +92,11 @@ NEVER_INHERITED = (
     # The lease of whichever agent's launcher started the host (aify-wrapper's agent lease). Inherited, a
     # start of that agent reads as nested inside its own live instance and is refused, replace or not.
     "AIFY_AGENT_LEASE",
+    # The model and effort this launch chose, written below only when it chose one. Inherited, a launch
+    # whose agent's effort was cleared (P0 C12: the runtime's own) still started at whatever value the
+    # host's own environment held.
+    "AIFY_MANAGED_MODEL",
+    "AIFY_MANAGED_EFFORT",
     # The Claude Code session a host was started inside, as Claude Code sets it for its children
     # (measured in a live session, 2026-09-26). Each names THAT session, not the worker's: CLAUDECODE
     # makes claude treat itself as nested, and the messaging socket and token reach the host session's
@@ -142,10 +148,6 @@ def launches_via_wrapper(settings: dict[str, Any], runtime: str) -> bool:
     return _managed_via_wrapper_for_runtime(settings, runtime_n)
 
 
-def _text(value: Any) -> str:
-    return str(value if value is not None else "").strip()
-
-
 def managed_launch_env(
     *,
     terminal: dict[str, Any],
@@ -177,8 +179,8 @@ def managed_launch_env(
     if not isinstance(runtime_state, dict):
         runtime_state = {}
 
-    model = _text(agent.get("model")) or _text(runtime_config.get("model"))
-    effort = _text(runtime_config.get("effort")) or _text(runtime_config.get("thinking"))
+    model = record_model(agent.get("model"), runtime_config)
+    effort = record_effort(runtime_config)
     resume_policy = _text(runtime_state.get("resumePolicy")).lower()
     # A Reset asks for a fresh context. Composing the stored handle beside that flag made every
     # launcher that did not read the flag resume the session the operator had just discarded --
