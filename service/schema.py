@@ -512,6 +512,9 @@ CREATE TABLE IF NOT EXISTS definition_stores (
     revision INTEGER NOT NULL,
     snapshot_digest TEXT NOT NULL,
     environment_id TEXT DEFAULT '',
+    -- What the current revision left unresolved ({"refused", "invalid", "kept"}): a replay of it
+    -- returns this, so a refusal is not lost when the host sends the same revision again.
+    outcome TEXT DEFAULT '{}',
     updated_at TEXT NOT NULL
 );
 

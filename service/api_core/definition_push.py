@@ -56,9 +56,10 @@ async def _id_refusal(db, agent_id: str, owner: str, machine_id: str) -> str:
 
 
 async def _ensure_agent_row(db, entry: dict, machine_id: str, now: str) -> None:
+    # ADMITTED BY C1 (definition_schema.py): every field is present and of its type, so nothing here
+    # supplies a default the host never wrote.
     agent = entry["definition"]
-    descriptive = (str(agent.get("name") or entry["id"]), str(agent.get("role") or ""),
-                   str(agent.get("instructions") or ""), 1 if agent.get("herdrSpace", True) else 0)
+    descriptive = (agent["name"], agent["role"], agent["instructions"], 1 if agent["herdrSpace"] else 0)
     row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (entry["id"],))).fetchone()
     if row:
         await db.execute(
@@ -67,14 +68,12 @@ async def _ensure_agent_row(db, entry: dict, machine_id: str, now: str) -> None:
             (*descriptive, entry["id"]),
         )
         return
-    effort = str(agent.get("effort") or "")
     await db.execute(
         "INSERT INTO agents (id, name, role, instructions, herdr_space, runtime, session_mode, cwd, model, "
         "machine_id, runtime_config, definition_state, registered_at, last_seen) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'defined', ?, ?)",
-        (entry["id"], *descriptive, HARNESS_RUNTIME.get(str(agent.get("harness") or ""), "generic"),
-         str(agent.get("mode") or "managed"), str(agent.get("workspace") or ""), str(agent.get("model") or ""),
-         machine_id, json.dumps({"effort": effort} if effort else {}), now, now),
+        (entry["id"], *descriptive, HARNESS_RUNTIME[agent["harness"]], agent["mode"], agent["workspace"],
+         agent["model"], machine_id, json.dumps({"effort": agent["effort"]} if agent["effort"] else {}), now, now),
     )
 
 
@@ -99,7 +98,7 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
 
     store_id, revision = body["storeId"].strip(), body["revision"]
     current_row = await (await db.execute(
-        "SELECT store_id, revision, snapshot_digest FROM definition_stores WHERE machine_id = ?", (machine_id,),
+        "SELECT store_id, revision, snapshot_digest, outcome FROM definition_stores WHERE machine_id = ?", (machine_id,),
     )).fetchone()
     current = dict(current_row) if current_row else None
     retired_rows = await (await db.execute(
@@ -122,7 +121,7 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         raise HTTPException(409, f"conflict: store {store_id} revision {revision} was already applied with "
                                  f"another digest; nothing applied")
     if order is PushOrder.REPLAY:
-        return {"outcome": "replay", "applied": [], "kept": [], "withdrawn": [], "refused": [], "invalid": []}
+        return await _replayed(db, machine_id, json.loads(current["outcome"] or "{}"))
 
     if order is PushOrder.NEW_STORE:
         await db.execute(
@@ -136,7 +135,29 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         "environment_id = excluded.environment_id, updated_at = excluded.updated_at",
         (machine_id, store_id, revision, body["snapshotDigest"], str(environment.get("id") or ""), now),
     )
-    return await _apply_entries(db, machine_id, store_id, entries, now)
+    result = await _apply_entries(db, machine_id, store_id, entries, now)
+    unresolved = {"refused": [r["id"] for r in result["refused"]], "invalid": result["invalid"], "kept": result["kept"]}
+    await db.execute("UPDATE definition_stores SET outcome = ? WHERE machine_id = ?", (json.dumps(unresolved), machine_id))
+    return result
+
+
+#: A refused id that has since become free. A replay never takes it (C3: a replay changes nothing).
+FREE_SINCE = "free since this revision was applied; a fresh revision defines it"
+
+
+async def _replayed(db, machine_id: str, unresolved: dict) -> dict:
+    """THE SAME REVISION GETS THE SAME ANSWER, re-judged and never re-applied. What the revision left
+    unresolved is reported again, so a refusal is not lost when a host repeats its push. A refused id
+    is judged as it stands now, read-only: one that has become free says so, and the host defines it
+    with a fresh revision (P0 C3)."""
+    owners = {row["agent_id"]: row["machine_id"] for row in await (await db.execute(
+        "SELECT agent_id, machine_id FROM agent_definitions")).fetchall()}
+    # A stored refusal cannot have become this machine's own: only a fresh revision or a new store
+    # defines an id here, and either one replaces the stored outcome.
+    refused = [{"id": agent_id, "reason": await _id_refusal(db, agent_id, owners.get(agent_id), machine_id) or FREE_SINCE}
+               for agent_id in unresolved.get("refused", [])]
+    return {"outcome": "replay", "applied": [], "withdrawn": [], "refused": refused,
+            "invalid": unresolved.get("invalid", []), "kept": unresolved.get("kept", [])}
 
 
 async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict], now: str) -> dict:

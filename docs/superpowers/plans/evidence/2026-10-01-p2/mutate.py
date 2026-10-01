@@ -58,8 +58,9 @@ for m in mutations:
             continue
         # WHICH TESTS killed it, not only that something did: the verdict alone cannot show the
         # mutant died for the reason its name claims.
-        # `not ok` is node's TAP; `FAILED` is pytest's short summary (P3a's battery is pytest).
-        failed = [line for line in stdout.splitlines() if line.startswith(("not ok ", "FAILED "))]
+        # `not ok` is node's TAP; `FAILED` is pytest's short summary (P3a's battery is pytest), and
+        # `SUBFAILED(...)` names a failing subtest, which pytest 9 lists apart from its parent.
+        failed = [line for line in stdout.splitlines() if line.startswith(("not ok ", "FAILED ", "SUBFAILED"))]
         results.append((m["name"], "SURVIVED" if proc.returncode == 0 else f"killed (exit {proc.returncode})", failed))
     finally:
         shutil.copyfile(backup, path)

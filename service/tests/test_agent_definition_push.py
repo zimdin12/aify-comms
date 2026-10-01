@@ -11,6 +11,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import threading
 import unittest
 from pathlib import Path
 
@@ -200,6 +201,8 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         [row] = self.rows("SELECT host_state, host_problems, body FROM agent_definitions")
         self.assertEqual((row["host_state"], json.loads(row["host_problems"])), ("invalid", ["agent.role: type"]))
         self.assertEqual(json.loads(row["body"])["role"], "reviewer", "the last good body stays")
+        self.assertEqual(self.ok(self.push("s1", 2, [invalid("coder", "agent.role: type")]))["kept"], ["coder"],
+                         "a replay repeats what its revision kept")
         self.ok(self.push("s1", 3, [valid("coder", revision=2, role="lead")]))
         [row] = self.rows("SELECT host_state, body FROM agent_definitions")
         self.assertEqual((row["host_state"], json.loads(row["body"])["role"]), ("valid", "lead"))
@@ -232,7 +235,8 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         bad_digest = self.push("s1", 1, [valid("coder")], snapshotDigest="0" * 64)
         self.assertEqual(bad_digest.status_code, 422, bad_digest.text)
         lying = valid("coder")
-        lying["definition"]["role"] = "changed after digesting"
+        # A role C1 admits, so only the digest can refuse it.
+        lying["definition"]["role"] = "lead"
         self.assertEqual(self.push("s1", 1, [lying]).status_code, 422)
         self.assertEqual(self.push("s1", 1, [valid("coder"), valid("coder")]).status_code, 422)
         self.assertEqual(self.push("s1", 0, [valid("coder")]).status_code, 422)
@@ -250,15 +254,72 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         self.assertEqual(self.push("s1", 1, [elsewhere]).status_code, 422, "a definition names its own id")
         self.assertEqual(self.owners(), {})
 
+    def test_a_definition_c1_refuses_is_refused_here_and_writes_nothing(self):
+        """R2: the service admits by C1 itself; a matching digest is not admission."""
+        def entry_with(agent_id="coder", drop=(), **over):
+            definition = agent(agent_id, **over)
+            for key in drop:
+                del definition[key]
+            return {"id": agent_id, "state": "valid", "incarnation": 1, "revision": 1, "available": True,
+                    "definition": definition, "definitionDigest": definition_digest(definition)}
+        id_only = entry_with()
+        id_only["definition"] = {"id": "coder"}
+        id_only["definitionDigest"] = definition_digest(id_only["definition"])
+        shapes = {
+            "missing name": (entry_with(drop=("name",)), "coder: agent.name: missing"),
+            "id-only desired object": (id_only, "coder: agent.harness: missing"),
+            "newline id": (entry_with("coder\n"), "id: pattern"),
+            "reserved device name": (entry_with("CON"), "CON: id: reserved-name"),
+            "pi harness": (entry_with(harness="pi"), "coder: agent.harness: unsupported"),
+            "impossible mode": (entry_with(mode="detached"), "coder: agent.mode: unsupported"),
+            "relative workspace": (entry_with(workspace="work"), "coder: agent.workspace: not-absolute"),
+            "reserved env prefix": (entry_with(env={"AIFY_AGENT_ID": "x"}), "coder: agent.env.AIFY_AGENT_ID: reserved"),
+            "unknown field": (entry_with(colour="red"), "coder: agent.colour: unknown-field"),
+            "string herdrSpace": (entry_with(herdrSpace="yes"), "coder: agent.herdrSpace: type"),
+        }
+        for label, (entry, problem) in shapes.items():
+            with self.subTest(shape=label):
+                refused = self.push("s1", 1, [entry])
+                self.assertEqual(refused.status_code, 422, refused.text)
+                self.assertIn(problem, refused.json()["detail"])
+        self.assertEqual((self.owners(), self.rows("SELECT id FROM agents"), self.rows("SELECT * FROM definition_stores")),
+                         ({}, [], []), "a refused push writes nothing")
+        self.assertEqual(self.ok(self.push("s1", 1, [entry_with()]))["applied"], ["coder"], "control: the valid body applies")
+
+    def test_a_missing_or_malformed_digest_is_named_and_writes_nothing(self):
+        """R3: presence, type and domain are checked before anything indexes or hashes the digest."""
+        for label, value in (("missing", None), ("number", 7), ("upper case", "A" * 64), ("short", "ab")):
+            with self.subTest(digest=label):
+                entry = valid("coder")
+                if value is None:
+                    del entry["definitionDigest"]
+                else:
+                    entry["definitionDigest"] = value
+                # Sent as built: `push()` would digest the entry first, and this one has no digest to read.
+                refused = self.client.put(f"/api/v1/environments/{A['env']}/agent-definitions", json={
+                    "bridgeId": A["bridge"], "machineId": A["machine"], "storeId": "s1", "revision": 1,
+                    "snapshotDigest": "0" * 64, "entries": [entry]})
+                self.assertEqual(refused.status_code, 422, refused.text)
+                self.assertIn("coder: definitionDigest must be lower-case sha-256 hex", refused.json()["detail"])
+        self.assertEqual((self.owners(), self.rows("SELECT * FROM definition_stores")), ({}, []))
+
     def test_release_and_reset_are_the_operators(self):
         self.ok(self.push("s1", 1, [valid("coder")]))
-        refused = self.client.post("/api/v1/agent-definitions/coder/release", json={"requestedBy": "some-agent"})
+        def release(agent_id, **body):
+            return self.client.post(f"/api/v1/agent-definitions/{agent_id}/release", json=body)
+        refused = release("coder", requestedBy="some-agent", machineId=A["machine"])
         self.assertEqual(refused.status_code, 403, refused.text)
         self.assertIn("only the operator may release an agent definition", refused.text)
-        ghost = self.client.post("/api/v1/agent-definitions/ghost/release", json={"requestedBy": "dashboard"})
+        ghost = release("ghost", requestedBy="dashboard", machineId=A["machine"])
         self.assertEqual((ghost.status_code, ghost.json()["detail"]), (404, '"ghost" has no definition to release'))
+        unnamed = release("coder", requestedBy="dashboard")
+        self.assertEqual((unnamed.status_code, unnamed.json()["detail"]),
+                         (422, "machineId: name the machine whose definition is being released"))
+        wrong = release("coder", requestedBy="dashboard", machineId=B["machine"])
+        self.assertEqual((wrong.status_code, wrong.json()["detail"]),
+                         (409, '"coder" is defined on win32:host-a, not win32:host-b; nothing released'))
         self.assertEqual(self.owners(), {"coder": A["machine"]})
-        released = self.client.post("/api/v1/agent-definitions/coder/release", json={"requestedBy": "dashboard"})
+        released = release("coder", requestedBy="dashboard", machineId=A["machine"])
         self.assertEqual(released.status_code, 200, released.text)
         self.assertEqual(self.state("coder")[0]["definition_state"], "withdrawn", "released: no host defines it")
         self.assertEqual(self.ok(self.push("t1", 1, [valid("coder")], host=B))["applied"], ["coder"])
@@ -309,9 +370,53 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         self.ok(self.push("s1", 1, [valid("coder")]))
         renamed = self.client.post("/api/v1/agents/coder/rename", json={"newAgentId": "lead", "requestedBy": "dashboard"})
         self.assertEqual(renamed.status_code, 409, renamed.text)
-        how = "; rename it there: `aify-env agents set` the new id, then `aify-env agents remove` this one"
-        self.assertEqual(renamed.json()["detail"], 'Agent "coder" is defined on win32:host-a' + how)
+        how = (", and a defined id is not renamed; on that host, define the new id with the fields you want (`aify-env agents set`), then withdraw this one (`aify-env agents remove`). Its history and any running worker stay under \"")
+        self.assertEqual(renamed.json()["detail"], 'Agent "coder" is defined on win32:host-a' + how + 'coder"')
         self.assertEqual([r["id"] for r in self.rows("SELECT id FROM agents WHERE id IN ('coder', 'lead')")], ["coder"])
         self.client.post("/api/v1/agents", json={"agentId": "plain", "role": "coder"}).raise_for_status()
         control = self.client.post("/api/v1/agents/plain/rename", json={"newAgentId": "plain2", "requestedBy": "dashboard"})
         self.assertEqual(control.status_code, 200, "control: an undefined agent still renames")
+
+    def test_a_release_racing_a_custody_change_releases_nothing_it_did_not_name(self):
+        """R1: the owner is read inside the release's write transaction, so a change of custody that
+        commits first is seen, and the new owner's definition survives."""
+        self.ok(self.push("s1", 1, [valid("coder")]))
+        holder = sqlite3.connect(str(self._db_path), isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        outcome = {}
+        worker = threading.Thread(target=lambda: outcome.update(response=self.client.post(
+            "/api/v1/agent-definitions/coder/release", json={"requestedBy": "dashboard", "machineId": A["machine"]})))
+        worker.start()
+        worker.join(0.6)
+        self.assertTrue(worker.is_alive(), "control: the release is waiting on the write lock")
+        # Custody moves while the release waits: A's definition goes, B's arrives.
+        holder.execute("UPDATE agent_definitions SET machine_id = ?, store_id = 't1' WHERE agent_id = 'coder'", (B["machine"],))
+        holder.execute("COMMIT")
+        holder.close()
+        worker.join(10)
+        response = outcome["response"]
+        self.assertEqual((response.status_code, response.json()["detail"]),
+                         (409, '"coder" is defined on win32:host-b, not win32:host-a; nothing released'))
+        self.assertEqual(self.owners(), {"coder": B["machine"]}, "the new owner's definition survives")
+        self.assertEqual(self.state("coder")[0]["definition_state"], "defined")
+
+    def test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id(self):
+        """R4: a replay repeats what its revision left unresolved, judged as it stands now, and never
+        applies; a released id is taken by the refused machine's next fresh revision."""
+        self.ok(self.push("s1", 1, [valid("coder")]))
+        first = self.ok(self.push("t1", 1, [valid("coder"), valid("helper")], host=B))
+        self.assertEqual(first["refused"], [{"id": "coder", "reason": "defined on win32:host-a"}])
+        replay = self.ok(self.push("t1", 1, [valid("coder"), valid("helper")], host=B))
+        self.assertEqual((replay["outcome"], replay["refused"]), ("replay", first["refused"]), "the refusal is not lost")
+        released = self.client.post("/api/v1/agent-definitions/coder/release",
+                                    json={"requestedBy": "dashboard", "machineId": A["machine"]})
+        self.assertEqual(released.status_code, 200, released.text)
+        after_release = self.ok(self.push("t1", 1, [valid("coder"), valid("helper")], host=B))
+        self.assertEqual(after_release["refused"], [
+            {"id": "coder", "reason": "free since this revision was applied; a fresh revision defines it"}])
+        self.assertEqual(self.ok(self.push("s1", 1, [valid("coder")]))["outcome"], "replay")
+        self.assertEqual(self.owners(), {"helper": B["machine"]}, "no replay took the released id, A's included")
+        fresh = self.ok(self.push("t1", 2, [valid("coder"), valid("helper")], host=B))
+        self.assertEqual((fresh["applied"], fresh["refused"]), (["coder", "helper"], []))
+        self.assertEqual(self.ok(self.push("t1", 2, [valid("coder"), valid("helper")], host=B))["refused"], [],
+                         "a resolved refusal is not repeated")

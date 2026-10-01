@@ -62,17 +62,33 @@ async def reset_definition_store(environment_id: str, request: Request):
 
 @router.post("/agent-definitions/{agent_id}/release")
 async def release_agent_definition(agent_id: str, request: Request):
-    """Operator: release an id whose owner is gone, so another machine may define it (C3, C6)."""
+    """Operator: release an id from the machine named in `machineId`, whose owner is gone, so another
+    machine may define it (C3, C6). Only that machine's definition is released.
+
+    THE OWNER IS READ INSIDE THE WRITE TRANSACTION. Read outside it, a push could move the id to
+    another machine between the read and the delete, and the release deleted the new owner's
+    definition while reporting the old one (review of P3a, R1).
+    """
     body = await json_object_body(request, lenient=True)
     _require_operator(body, request, "release an agent definition")
+    expected = str(body.get("machineId") or "").strip()
+    if not expected:
+        raise HTTPException(422, "machineId: name the machine whose definition is being released")
     db = await get_db()
     try:
+        await db.execute("BEGIN IMMEDIATE")
         row = await (await db.execute("SELECT machine_id FROM agent_definitions WHERE agent_id = ?", (agent_id,))).fetchone()
         if not row:
+            await db.rollback()
             raise HTTPException(404, f'"{agent_id}" has no definition to release')
+        if row["machine_id"] != expected:
+            await db.rollback()
+            raise HTTPException(409, f'"{agent_id}" is defined on {row["machine_id"]}, not {expected}; nothing released')
         await db.execute("DELETE FROM agent_definitions WHERE agent_id = ?", (agent_id,))
         await db.execute("UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?", (agent_id,))
         await db.commit()
     finally:
         await db.close()
-    return {"ok": True, "agentId": agent_id, "releasedFrom": row["machine_id"]}
+    # A RELEASE DOES NOT ADVANCE ANY HOST'S REVISION (P0 C3): a machine whose push was refused this id
+    # takes it with its next fresh revision; replaying the revision it already sent does not.
+    return {"ok": True, "agentId": agent_id, "releasedFrom": expected}

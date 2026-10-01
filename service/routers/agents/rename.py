@@ -64,8 +64,10 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
         defined = await defined_on(db, agent_id)
         if defined:
             await db.rollback()
-            raise HTTPException(409, f'Agent "{agent_id}" is defined on {defined}; '
-                                     f'rename it there: `aify-env agents set` the new id, then `aify-env agents remove` this one')
+            raise HTTPException(409, f'Agent "{agent_id}" is defined on {defined}, and a defined id is not renamed; '
+                                     f'on that host, define the new id with the fields you want (`aify-env agents set`), '
+                                     f'then withdraw this one (`aify-env agents remove`). Its history and any running '
+                                     f'worker stay under "{agent_id}"')
         existing = await (await db.execute("SELECT id FROM agents WHERE id = ?", (new_agent_id,))).fetchone()
         if existing:
             await db.rollback()

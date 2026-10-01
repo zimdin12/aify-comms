@@ -25,6 +25,133 @@ killed (exit 1)                  C3 shape: an unavailable entry need not say why
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
 killed (exit 1)                  C3 shape: a definition may name another id
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+                                  SUBFAILED(case='the body names another id') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R1: release reads the owner before its write transaction
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_release_racing_a_custody_change_releases_nothing_it_did_not_name
+killed (exit 1)                  R1: release does not check the owner it names
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_release_racing_a_custody_change_releases_nothing_it_did_not_name
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - KeyErro...
+killed (exit 1)                  R1: release needs no owner named
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  R2: a valid entry is not admitted by C1
+                                  SUBFAILED(shape='missing name') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='id-only desired object') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='newline id') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='reserved device name') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='pi harness') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='impossible mode') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='relative workspace') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='reserved env prefix') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='unknown field') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='string herdrSpace') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  R2 C1: an unknown agent field is admitted
+                                  SUBFAILED(shape='unknown field') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='an unknown agent field') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='an unknown key that cannot be named') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a missing agent field is admitted
+                                  SUBFAILED(shape='missing name') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(shape='id-only desired object') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='model missing') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: an absent agent object reads as the wrong type
+                                  SUBFAILED(case='agent missing') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: the pi harness is definable
+                                  SUBFAILED(shape='pi harness') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='an unsupported harness') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='several problems, listed out of order') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: any mode is admitted
+                                  SUBFAILED(shape='impossible mode') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+killed (exit 1)                  R2 C1: a relative workspace is admitted
+                                  SUBFAILED(shape='relative workspace') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='a relative workspace') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a drive-relative workspace') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a server with no share') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a reserved env prefix is admitted
+                                  SUBFAILED(shape='reserved env prefix') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='an aify_ name in lower case') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='several problems, listed out of order') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: the reserved prefix is case-sensitive
+                                  SUBFAILED(case='an aify_ name in lower case') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='several problems, listed out of order') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a bad env name is admitted
+                                  SUBFAILED(case='an env name starting with a digit') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='an env name with a newline') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: too many env vars are admitted
+                                  SUBFAILED(case='33 env vars') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a NUL in an env value is admitted
+                                  SUBFAILED(case='a NUL in a value') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: an oversized env value is admitted
+                                  SUBFAILED(case='a 4097-byte value') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a Windows device name is admitted
+                                  SUBFAILED(shape='reserved device name') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='a device name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a device name before a dot, lower case') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='LPT9 before a dot, mixed case') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a device name is matched only in its own case
+                                  SUBFAILED(case='a device name before a dot, lower case') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='LPT9 before a dot, mixed case') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: an id is matched by prefix, not whole
+                                  SUBFAILED(shape='newline id') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='agent with LF') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='agent with CRLF') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a 129-character id') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a role with a space') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a lone surrogate is well formed
+                                  SUBFAILED(case='a lone surrogate in the name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a lone surrogate in instructions') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a control character in a name is admitted
+                                  SUBFAILED(case='a C1 control (NEL) in the name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='a tab in the name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='DEL in the name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  FAILED service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: an empty name is admitted
+                                  SUBFAILED(case='an empty name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='several problems, listed out of order') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a name of 129 code points is admitted
+                                  SUBFAILED(case='a 129-emoji name') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: oversized instructions are admitted
+                                  SUBFAILED(case='instructions one byte over') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+                                  SUBFAILED(case='instructions over in bytes, under in characters') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a string herdrSpace is admitted
+                                  SUBFAILED(shape='string herdrSpace') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  SUBFAILED(case='herdrSpace as a string') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: an unnameable unknown key is named
+                                  SUBFAILED(case='an unknown key that cannot be named') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R2 C1: a role is not held to the id rule
+                                  SUBFAILED(case='a role with a space') service/tests/test_definition_schema_matches_aify_env.py::TheServiceAdmitsAsAifyEnvDoes::test_every_fixture_body_gets_the_same_agent_problems
+killed (exit 1)                  R3: a missing digest is indexed before it is checked
+                                  SUBFAILED(digest='missing') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_missing_or_malformed_digest_is_named_and_writes_nothing
+                                  SUBFAILED(digest='number') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_missing_or_malformed_digest_is_named_and_writes_nothing
+                                  SUBFAILED(digest='upper case') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_missing_or_malformed_digest_is_named_and_writes_nothing
+                                  SUBFAILED(digest='short') service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_missing_or_malformed_digest_is_named_and_writes_nothing
+killed (exit 1)                  R4: a push's unresolved outcome is not stored
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_invalid_file_keeps_the_last_good_definition_until_it_is_repaired
+killed (exit 1)                  R4: a replay reports nothing unresolved
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_invalid_file_keeps_the_last_good_definition_until_it_is_repaired
+killed (exit 1)                  R4: a replay repeats a stale reason
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
+killed (exit 1)                  R4: a replay is applied again
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
+killed (exit 1)                  R4: a replay drops a kept definition's report
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_invalid_file_keeps_the_last_good_definition_until_it_is_repaired
 killed (exit 1)                  C3 shape: a body that disagrees with its digest is accepted
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
 killed (exit 1)                  C3 shape: an id may appear twice
@@ -52,12 +179,15 @@ killed (exit 1)                  C3 order: an older revision is applied
 killed (exit 1)                  C3 order: the same revision is applied again
                                   FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.APPLY:...
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
 killed (exit 1)                  C3 order: a conflict reads as a replay
                                   FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.REPLAY...
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
 killed (exit 1)                  C3 order: a replay reads as a conflict
                                   FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.CONFLI...
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_invalid_file_keeps_the_last_good_definition_until_it_is_repaired
 killed (exit 1)                  C3 push: the revision is not required
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
 killed (exit 1)                  C3 push: a retired store's refusal is not counted
@@ -68,12 +198,14 @@ killed (exit 1)                  C3 push: a replaced store is not retired
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
 killed (exit 1)                  C3 push: an id another machine owns is overwritten
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
 killed (exit 1)                  C3 push: a definition may take an operator name
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
 killed (exit 1)                  C3 push: a definition may bring back a removed id
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
 killed (exit 1)                  C3 push: a refused entry is applied anyway
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
 killed (exit 1)                  C3 rename: a defined agent is renamed here
@@ -113,6 +245,7 @@ killed (exit 1)                  C3 route: anyone may release a definition
 killed (exit 1)                  C3 route: anyone may reset a machine's retired stores
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
 killed (exit 1)                  C3 route: a release keeps the definition
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
 killed (exit 1)                  C3 route: a released agent still reads defined
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
@@ -126,4 +259,4 @@ killed (exit 1)                  D13: the agent detail carries no definition
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
 killed (exit 1)                  D13: a serialized agent carries no definition state
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
-54/54 killed
+87/87 killed

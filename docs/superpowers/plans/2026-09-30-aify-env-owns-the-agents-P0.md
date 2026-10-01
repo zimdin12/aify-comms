@@ -416,12 +416,29 @@ historical sessions. This is a limitation of this tag, not an answer to the mult
   would otherwise fail to encode it, or digest it differently.
 - **The service checks that each valid entry's `definition` digests to its `definitionDigest`**, so a
   push cannot carry a body that differs from the digest the snapshot was ordered by.
+- **The service admits a valid entry by C1 itself** (review of P3a, R2). Its id, counters and
+  complete `agent` object are checked by `definition_schema.py`, a port of aify-env's validator held
+  to aify-env's fixture case for case, before the digest is compared. Nothing is defaulted. Only what
+  the wire carries is checked: the file's `version`, `operation`, `updatedAt` and byte rules stay with
+  the host.
+- **A replay gets its revision's answer again** (R4). Each applied push stores what it left
+  unresolved (refused ids, invalid entries, kept definitions). A replay returns that, with each refused
+  id judged as it stands now and read-only. An id that has since become free reads `free since this
+  revision was applied; a fresh revision defines it`. A replay never applies anything, so a release
+  never hands an id to whichever machine replays first. A release does not advance any host's
+  revision: the refused machine takes the id with its next fresh revision. P4 decides when aify-env
+  publishes one on seeing that reason.
+- **A release names the machine it releases from** (R1). Its owner is read inside the release's write
+  transaction. If custody moved, the release refuses (409, naming the current owner) and changes
+  nothing.
 - **A push refuses, per entry, what registration refuses**: an operator name (`dashboard`,
   `operator`) and an id the operator removed (tombstoned). The rest of the snapshot applies, as with
   an id another machine owns.
 - **A defined agent cannot be renamed on the service.** Its id is its host's file name, so a rename
   here would split it from its definition, and the next push would define the old id again. The 409
-  names the host-side way: `aify-env agents set` the new id, then `aify-env agents remove` the old.
+  names the host-side way, which is a replacement and not a rename: define the new id with the fields
+  wanted (`aify-env agents set`), then withdraw the old (`aify-env agents remove`). History and any
+  running worker stay under the old id.
 - **No event of its own.** The dashboard learns of a push from the change feed, which reports the
   tables a commit wrote; the agents slice names `agent_definitions`.
 - **The agent list and detail carry `definition`** (state, owner machine, store, incarnation, revision,

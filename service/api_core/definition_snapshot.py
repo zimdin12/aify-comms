@@ -19,6 +19,8 @@ import re
 from enum import Enum
 from typing import Any, Optional
 
+from service.api_core.definition_schema import MISSING, agent_problems
+
 #: Why a valid definition cannot start on its host, as the host words it.
 UNAVAILABLE_HARNESS = "harness-not-installed"
 
@@ -75,9 +77,10 @@ def is_counter(value: Any) -> bool:
 def entry_problems(entry: Any) -> list[str]:
     """What is wrong with one pushed entry's SHAPE, or [] when it can be applied.
 
-    The host has already judged the definition against C1; the service checks only what it relies on,
-    and that a valid entry's definition is the one its digest names, so a push cannot carry a body that
-    disagrees with the digest the snapshot was ordered by.
+    A VALID ENTRY IS ADMITTED BY C1 HERE TOO, not taken on the host's word: its id, counters and
+    complete `agent` object (`definition_schema.py`, held to aify-env's own fixture), and a digest that
+    names that body, so a push cannot carry one that disagrees with the digest the snapshot was ordered
+    by. An invalid entry's id is a file name the host could not admit, so only its type is checked.
     """
     if not isinstance(entry, dict):
         return ["entry: not an object"]
@@ -99,9 +102,14 @@ def entry_problems(entry: Any) -> list[str]:
         found.append(f"{entry['id']}: available must be true or false")
     elif not entry["available"] and entry.get("unavailableReason") != UNAVAILABLE_HARNESS:
         found.append(f"{entry['id']}: an unavailable entry says why ({UNAVAILABLE_HARNESS})")
-    definition = entry.get("definition")
-    if not isinstance(definition, dict) or definition.get("id") != entry["id"]:
-        found.append(f"{entry['id']}: definition must be an object naming the same id")
+    definition = entry.get("definition", MISSING)
+    digest = entry.get("definitionDigest")
+    admission = agent_problems(definition, entry["id"])
+    if admission:
+        found += [f"{entry['id']}: {problem}" for problem in admission]
+    elif not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        # PRESENCE, TYPE AND DOMAIN, before anything indexes or hashes it: a missing digest was a 500.
+        found.append(f"{entry['id']}: definitionDigest must be lower-case sha-256 hex")
     elif definition_digest(definition) != entry["definitionDigest"]:
         found.append(f"{entry['id']}: definitionDigest does not match the definition")
     return found

@@ -27,3 +27,12 @@ aify-env-next: npm test
 
 Credential file ~/.aify/credentials/aify-comms-6b1e649c84bd.key still reads 2026-09-29 18:37:10
 after the runs.
+
+SUCCESSOR (the review of 4af344c5, R1-R4), on the staged tree, run one after another, P3b included:
+  python: 4947 passed, 27 skipped, 10694 subtests passed in 211.65s (no deselection; the cold-start
+    test is on this branch since the 0.7.8 merge)
+  mcp/stdio run-all: 366 files, exit 0
+  dashboard: 1886 tests, 1886 pass
+  aify-wrapper-next: 575 tests, 509 pass, 66 skipped
+  aify-env-next: 2272 tests, 2268 pass, 4 skipped
+  Credential file still 2026-09-29 18:37:10.

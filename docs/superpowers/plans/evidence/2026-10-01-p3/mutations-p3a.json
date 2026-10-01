@@ -1,110 +1,611 @@
 [
- {"name": "C3 canonical: a lone surrogate is left raw", "file": "service/api_core/definition_snapshot.py",
-  "old": "    return _LONE_SURROGATE.sub(", "new": "    return text or _LONE_SURROGATE.sub(", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: a lone surrogate is escaped upper case", "file": "service/api_core/definition_snapshot.py",
-  "old": "%04x\" % ord", "new": "%04X\" % ord", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: keys are not sorted", "file": "service/api_core/definition_snapshot.py",
-  "old": "ensure_ascii=False, sort_keys=True", "new": "ensure_ascii=False, sort_keys=False", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: non-ASCII is escaped", "file": "service/api_core/definition_snapshot.py",
-  "old": "ensure_ascii=False, sort_keys=True", "new": "ensure_ascii=True, sort_keys=True", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: entries ordered by code point, not UTF-16 unit", "file": "service/api_core/definition_snapshot.py",
-  "old": "return text.encode(\"utf-16-be\", \"surrogatepass\")", "new": "return text.encode(\"utf-32-be\", \"surrogatepass\")", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: entries are not ordered at all", "file": "service/api_core/definition_snapshot.py",
-  "old": "ordered = sorted(entries, key=lambda entry: _utf16_order(entry[\"id\"]))", "new": "ordered = entries", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: an invalid entry's problems are digested unsorted", "file": "service/api_core/definition_snapshot.py",
-  "old": "\"state\": \"invalid\", \"problems\": sorted(entry[\"problems\"])}", "new": "\"state\": \"invalid\", \"problems\": entry[\"problems\"]}", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 canonical: the unavailable reason is left out of the digest", "file": "service/api_core/definition_snapshot.py",
-  "old": "        digested[\"unavailableReason\"] = entry[\"unavailableReason\"]", "new": "        pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: a counter may be zero", "file": "service/api_core/definition_snapshot.py",
-  "old": "1 <= value <= 2 ** 53 - 1", "new": "0 <= value <= 2 ** 53 - 1", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: a counter may be a boolean", "file": "service/api_core/definition_snapshot.py",
-  "old": "isinstance(value, int) and not isinstance(value, bool) and", "new": "isinstance(value, int) and", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: an invalid entry may name no problem", "file": "service/api_core/definition_snapshot.py",
-  "old": "or not problems or", "new": "or", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: an unavailable entry need not say why", "file": "service/api_core/definition_snapshot.py",
-  "old": "    elif not entry[\"available\"] and entry.get(\"unavailableReason\") != UNAVAILABLE_HARNESS:", "new": "    elif False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: a definition may name another id", "file": "service/api_core/definition_snapshot.py",
-  "old": "if not isinstance(definition, dict) or definition.get(\"id\") != entry[\"id\"]:", "new": "if not isinstance(definition, dict):", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: a body that disagrees with its digest is accepted", "file": "service/api_core/definition_snapshot.py",
-  "old": "    elif definition_digest(definition) != entry[\"definitionDigest\"]:", "new": "    elif False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: an id may appear twice", "file": "service/api_core/definition_snapshot.py",
-  "old": "    if len(set(ids)) != len(ids):", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 shape: the snapshot digest is not checked", "file": "service/api_core/definition_snapshot.py",
-  "old": "    if snapshot_digest(entries) != snapshot_digest_claimed:", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 fence: an environment with no claimer lets anyone push", "file": "service/api_core/definition_snapshot.py",
-  "old": "        return \"this environment has no accepted claimer yet; beat first\"", "new": "        return \"\"", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 fence: a replaced publisher may push", "file": "service/api_core/definition_snapshot.py",
-  "old": "    if current != str(bridge_id or \"\").strip():", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 fence: the machine is not checked", "file": "service/api_core/definition_snapshot.py",
-  "old": "    if str(environment.get(\"machine_id\") or \"\").strip() != str(machine_id or \"\").strip():", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 order: a retired store is applied", "file": "service/api_core/definition_snapshot.py",
-  "old": "    if store_id in retired:", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 order: a new store does not retire the current one", "file": "service/api_core/definition_snapshot.py",
-  "old": "        return PushOrder.NEW_STORE", "new": "        return PushOrder.APPLY", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 order: an older revision is applied", "file": "service/api_core/definition_snapshot.py",
-  "old": "        return PushOrder.STALE", "new": "        return PushOrder.APPLY", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 order: the same revision is applied again", "file": "service/api_core/definition_snapshot.py",
-  "old": "if revision > current[\"revision\"]:", "new": "if revision >= current[\"revision\"]:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 order: a conflict reads as a replay", "file": "service/api_core/definition_snapshot.py",
-  "old": "return PushOrder.REPLAY if digest == current[\"snapshot_digest\"] else PushOrder.CONFLICT", "new": "return PushOrder.REPLAY", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 order: a replay reads as a conflict", "file": "service/api_core/definition_snapshot.py",
-  "old": "return PushOrder.REPLAY if digest == current[\"snapshot_digest\"] else PushOrder.CONFLICT", "new": "return PushOrder.CONFLICT", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: the revision is not required", "file": "service/api_core/definition_push.py",
-  "old": "    if not is_counter(body.get(\"revision\")):", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a retired store's refusal is not counted", "file": "service/api_core/definition_push.py",
-  "old": "SET refused_count = refused_count + 1,", "new": "SET refused_count = refused_count,", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a retired store's refusal does not name the two-store problem", "file": "service/api_core/definition_push.py",
-  "old": ": two stores claim machine {machine_id}\"", "new": "\"", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a replaced store is not retired", "file": "service/api_core/definition_push.py",
-  "old": "    if order is PushOrder.NEW_STORE:", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: an id another machine owns is overwritten", "file": "service/api_core/definition_push.py",
-  "old": "    if owner and owner != machine_id:", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a definition may take an operator name", "file": "service/api_core/definition_push.py",
-  "old": "    if is_operator_actor(agent_id):", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a definition may bring back a removed id", "file": "service/api_core/definition_push.py",
-  "old": "    if await _agent_tombstone(db, agent_id):", "new": "    if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a refused entry is applied anyway", "file": "service/api_core/definition_push.py",
-  "old": "            result[\"refused\"].append({\"id\": entry[\"id\"], \"reason\": refusal})\n            continue", "new": "            result[\"refused\"].append({\"id\": entry[\"id\"], \"reason\": refusal})", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 rename: a defined agent is renamed here", "file": "service/routers/agents/rename.py",
-  "old": "        if defined:\n", "new": "        if False:\n", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: an invalid file drops the last good definition's report", "file": "service/api_core/definition_push.py",
-  "old": "            if owner == machine_id:", "new": "            if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C5 push: an existing agent's effective runtime is rewritten", "file": "service/api_core/definition_push.py",
-  "old": "\"UPDATE agents SET name = ?, role = ?,", "new": "\"UPDATE agents SET runtime = 'claude-code', name = ?, role = ?,", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C5 push: an existing agent's role is not updated", "file": "service/api_core/definition_push.py",
-  "old": "            (*descriptive, entry[\"id\"]),", "new": "            (descriptive[0], \"\", *descriptive[2:], entry[\"id\"]),", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a redefined agent stays withdrawn", "file": "service/api_core/definition_push.py",
-  "old": "herdr_space = ?, definition_state = 'defined' \"", "new": "herdr_space = ?, definition_state = definition_state \"", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: a new claude agent is filed under the wrong runtime", "file": "service/api_core/definition_push.py",
-  "old": "\"claude\": \"claude-code\"", "new": "\"claude\": \"claude\"", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 push: availability is stored as always available", "file": "service/api_core/definition_push.py",
-  "old": "canonical(entry[\"definition\"]), 1 if entry[\"available\"] else 0,", "new": "canonical(entry[\"definition\"]), 1,", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C6 push: a dropped id is not withdrawn", "file": "service/api_core/definition_push.py",
-  "old": "        if owner == machine_id and agent_id not in present:", "new": "        if False:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C6 push: a push withdraws another machine's agents", "file": "service/api_core/definition_push.py",
-  "old": "        if owner == machine_id and agent_id not in present:", "new": "        if agent_id not in present:", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C6 push: withdrawal removes the agent", "file": "service/api_core/definition_push.py",
-  "old": "            await db.execute(\"UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?\", (agent_id,))", "new": "            await db.execute(\"DELETE FROM agents WHERE id = ?\", (agent_id,))", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C6 push: a withdrawn id keeps its definition", "file": "service/api_core/definition_push.py",
-  "old": "            await db.execute(\"DELETE FROM agent_definitions WHERE agent_id = ?\", (agent_id,))", "new": "            pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 route: a retired store's count is rolled back with its refusal", "file": "service/routers/agent_definitions.py",
-  "old": "            await db.commit()\n            raise", "new": "            raise", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 route: anyone may release a definition", "file": "service/routers/agent_definitions.py",
-  "old": "    _require_operator(body, request, \"release an agent definition\")", "new": "    pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 route: anyone may reset a machine's retired stores", "file": "service/routers/agent_definitions.py",
-  "old": "    _require_operator(body, request, \"reset a machine's retired definition stores\")", "new": "    pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 route: a release keeps the definition", "file": "service/routers/agent_definitions.py",
-  "old": "        await db.execute(\"DELETE FROM agent_definitions WHERE agent_id = ?\", (agent_id,))", "new": "        pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 route: a released agent still reads defined", "file": "service/routers/agent_definitions.py",
-  "old": "        await db.execute(\"UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?\", (agent_id,))", "new": "        pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "C3 route: a reset clears nothing", "file": "service/routers/agent_definitions.py",
-  "old": "\"DELETE FROM definition_stores_retired WHERE machine_id = ?\"", "new": "\"SELECT 1 FROM definition_stores_retired WHERE machine_id = ?\"", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "D13: the owner machine is not listed", "file": "service/api_core/definition_records.py",
-  "old": "\"ownerMachineId\": definition_row[\"machine_id\"],", "new": "\"ownerMachineId\": None,", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "D13: the agent list carries no definition", "file": "service/routers/agents/identity.py",
-  "old": "            payload[\"definition\"] = definition_of(row, definitions.get(aid))", "new": "            pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "D13: the agent detail carries no definition", "file": "service/routers/agents/identity.py",
-  "old": "        payload[\"definition\"] = definition_of(row, (await definition_rows(db, [agent_id])).get(agent_id))", "new": "        pass", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"},
- {"name": "D13: a serialized agent carries no definition state", "file": "service/api_core/records.py",
-  "old": "        \"definitionState\": str((row[\"definition_state\"] if \"definition_state\" in row.keys() else \"\") or \"\"),", "new": "", "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"}
+ {
+  "name": "C3 canonical: a lone surrogate is left raw",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    return _LONE_SURROGATE.sub(",
+  "new": "    return text or _LONE_SURROGATE.sub(",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: a lone surrogate is escaped upper case",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "%04x\" % ord",
+  "new": "%04X\" % ord",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: keys are not sorted",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "ensure_ascii=False, sort_keys=True",
+  "new": "ensure_ascii=False, sort_keys=False",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: non-ASCII is escaped",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "ensure_ascii=False, sort_keys=True",
+  "new": "ensure_ascii=True, sort_keys=True",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: entries ordered by code point, not UTF-16 unit",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "return text.encode(\"utf-16-be\", \"surrogatepass\")",
+  "new": "return text.encode(\"utf-32-be\", \"surrogatepass\")",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: entries are not ordered at all",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "ordered = sorted(entries, key=lambda entry: _utf16_order(entry[\"id\"]))",
+  "new": "ordered = entries",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: an invalid entry's problems are digested unsorted",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "\"state\": \"invalid\", \"problems\": sorted(entry[\"problems\"])}",
+  "new": "\"state\": \"invalid\", \"problems\": entry[\"problems\"]}",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 canonical: the unavailable reason is left out of the digest",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "        digested[\"unavailableReason\"] = entry[\"unavailableReason\"]",
+  "new": "        pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: a counter may be zero",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "1 <= value <= 2 ** 53 - 1",
+  "new": "0 <= value <= 2 ** 53 - 1",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: a counter may be a boolean",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "isinstance(value, int) and not isinstance(value, bool) and",
+  "new": "isinstance(value, int) and",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: an invalid entry may name no problem",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "or not problems or",
+  "new": "or",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: an unavailable entry need not say why",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    elif not entry[\"available\"] and entry.get(\"unavailableReason\") != UNAVAILABLE_HARNESS:",
+  "new": "    elif False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: a definition may name another id",
+  "file": "service/api_core/definition_schema.py",
+  "old": "return problems or ([\"agent.id: mismatch\"] if value != agent_id else [])",
+  "new": "return problems",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R1: release reads the owner before its write transaction",
+  "file": "service/routers/agent_definitions.py",
+  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        row = await (await db.execute(\"SELECT machine_id FROM agent_definitions WHERE agent_id = ?\", (agent_id,))).fetchone()",
+  "new": "        row = await (await db.execute(\"SELECT machine_id FROM agent_definitions WHERE agent_id = ?\", (agent_id,))).fetchone()\n        await db.execute(\"BEGIN IMMEDIATE\")",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R1: release does not check the owner it names",
+  "file": "service/routers/agent_definitions.py",
+  "old": "        if row[\"machine_id\"] != expected:",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R1: release needs no owner named",
+  "file": "service/routers/agent_definitions.py",
+  "old": "    if not expected:\n",
+  "new": "    if False:\n",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2: a valid entry is not admitted by C1",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    admission = agent_problems(definition, entry[\"id\"])",
+  "new": "    admission = []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: an unknown agent field is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "    problems += [_unknown_agent_field(key) for key in agent if key not in AGENT_FIELDS]",
+  "new": "    problems += []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a missing agent field is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "else [f\"agent.{field}: missing\"]",
+  "new": "else []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: an absent agent object reads as the wrong type",
+  "file": "service/api_core/definition_schema.py",
+  "old": "        return sorted(problems + [\"agent: missing\"])",
+  "new": "        return sorted(problems + [\"agent: type\"])",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: the pi harness is definable",
+  "file": "service/api_core/definition_schema.py",
+  "old": "HARNESSES = (\"claude\", \"codex\", \"hermes\")",
+  "new": "HARNESSES = (\"claude\", \"codex\", \"hermes\", \"pi\")",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: any mode is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "MODES = (\"managed\", \"resident\")",
+  "new": "MODES = (\"managed\", \"resident\", \"detached\")",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a relative workspace is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "lambda t: [] if _ABSOLUTE_PATH.match(t) else [\"agent.workspace: not-absolute\"]",
+  "new": "lambda t: []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a reserved env prefix is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "        if name.upper().startswith(_RESERVED_ENV_PREFIX):",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: the reserved prefix is case-sensitive",
+  "file": "service/api_core/definition_schema.py",
+  "old": "        if name.upper().startswith(_RESERVED_ENV_PREFIX):",
+  "new": "        if name.startswith(_RESERVED_ENV_PREFIX):",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a bad env name is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "        if not _ENV_NAME.fullmatch(name):",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: too many env vars are admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "if len(env) > _MAX_ENV_VARS else []",
+  "new": "if False else []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a NUL in an env value is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "([f\"{field}: nul\"] if \"\\x00\" in text else [])",
+  "new": "([])",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: an oversized env value is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "if _utf8_bytes(text) > _MAX_ENV_VALUE_BYTES else []",
+  "new": "if False else []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a Windows device name is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "    if value.split(\".\")[0].upper() in _RESERVED_DEVICE_NAMES:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a device name is matched only in its own case",
+  "file": "service/api_core/definition_schema.py",
+  "old": "    if value.split(\".\")[0].upper() in _RESERVED_DEVICE_NAMES:",
+  "new": "    if value.split(\".\")[0] in _RESERVED_DEVICE_NAMES:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: an id is matched by prefix, not whole",
+  "file": "service/api_core/definition_schema.py",
+  "old": "    if not _ID.fullmatch(value):",
+  "new": "    if not _ID.match(value):",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a lone surrogate is well formed",
+  "file": "service/api_core/definition_schema.py",
+  "old": "    return not any(0xD800 <= ord(c) <= 0xDFFF for c in text)",
+  "new": "    return True",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a control character in a name is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "+ ([\"agent.name: control\"] if _CONTROL.search(text) else [])",
+  "new": "+ ([])",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: an empty name is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "if not 1 <= len(text) <= _MAX_NAME_CODE_POINTS",
+  "new": "if not 0 <= len(text) <= _MAX_NAME_CODE_POINTS",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a name of 129 code points is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "if not 1 <= len(text) <= _MAX_NAME_CODE_POINTS",
+  "new": "if not 1 <= len(text) <= _MAX_NAME_CODE_POINTS + 1",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: oversized instructions are admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "if _utf8_bytes(t) > _MAX_INSTRUCTIONS_BYTES else []",
+  "new": "if False else []",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a string herdrSpace is admitted",
+  "file": "service/api_core/definition_schema.py",
+  "old": "[] if isinstance(v, bool) else [\"agent.herdrSpace: type\"]",
+  "new": "[]",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: an unnameable unknown key is named",
+  "file": "service/api_core/definition_schema.py",
+  "old": "return f\"agent.{key}: unknown-field\" if _NAMEABLE_KEY.fullmatch(key) else \"agent: unknown-field\"",
+  "new": "return f\"agent.{key}: unknown-field\"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R2 C1: a role is not held to the id rule",
+  "file": "service/api_core/definition_schema.py",
+  "old": "\"role\": lambda v, _: id_problems(v, \"agent.role\"),",
+  "new": "\"role\": lambda v, _: [],",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R3: a missing digest is indexed before it is checked",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    elif not isinstance(digest, str) or not re.fullmatch(r\"[0-9a-f]{64}\", digest):",
+  "new": "    elif False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R4: a push's unresolved outcome is not stored",
+  "file": "service/api_core/definition_push.py",
+  "old": "    await db.execute(\"UPDATE definition_stores SET outcome = ? WHERE machine_id = ?\", (json.dumps(unresolved), machine_id))",
+  "new": "    pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R4: a replay reports nothing unresolved",
+  "file": "service/api_core/definition_push.py",
+  "old": "        return await _replayed(db, machine_id, json.loads(current[\"outcome\"] or \"{}\"))",
+  "new": "        return await _replayed(db, machine_id, {})",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R4: a replay repeats a stale reason",
+  "file": "service/api_core/definition_push.py",
+  "old": "\"reason\": await _id_refusal(db, agent_id, owners.get(agent_id), machine_id) or FREE_SINCE}",
+  "new": "\"reason\": FREE_SINCE}",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R4: a replay is applied again",
+  "file": "service/api_core/definition_push.py",
+  "old": "    if order is PushOrder.REPLAY:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R4: a replay drops a kept definition's report",
+  "file": "service/api_core/definition_push.py",
+  "old": "\"invalid\": unresolved.get(\"invalid\", []), \"kept\": unresolved.get(\"kept\", [])}",
+  "new": "\"invalid\": unresolved.get(\"invalid\", []), \"kept\": []}",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: a body that disagrees with its digest is accepted",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    elif definition_digest(definition) != entry[\"definitionDigest\"]:",
+  "new": "    elif False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: an id may appear twice",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    if len(set(ids)) != len(ids):",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 shape: the snapshot digest is not checked",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    if snapshot_digest(entries) != snapshot_digest_claimed:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 fence: an environment with no claimer lets anyone push",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "        return \"this environment has no accepted claimer yet; beat first\"",
+  "new": "        return \"\"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 fence: a replaced publisher may push",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    if current != str(bridge_id or \"\").strip():",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 fence: the machine is not checked",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    if str(environment.get(\"machine_id\") or \"\").strip() != str(machine_id or \"\").strip():",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 order: a retired store is applied",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "    if store_id in retired:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 order: a new store does not retire the current one",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "        return PushOrder.NEW_STORE",
+  "new": "        return PushOrder.APPLY",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 order: an older revision is applied",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "        return PushOrder.STALE",
+  "new": "        return PushOrder.APPLY",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 order: the same revision is applied again",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "if revision > current[\"revision\"]:",
+  "new": "if revision >= current[\"revision\"]:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 order: a conflict reads as a replay",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "return PushOrder.REPLAY if digest == current[\"snapshot_digest\"] else PushOrder.CONFLICT",
+  "new": "return PushOrder.REPLAY",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 order: a replay reads as a conflict",
+  "file": "service/api_core/definition_snapshot.py",
+  "old": "return PushOrder.REPLAY if digest == current[\"snapshot_digest\"] else PushOrder.CONFLICT",
+  "new": "return PushOrder.CONFLICT",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: the revision is not required",
+  "file": "service/api_core/definition_push.py",
+  "old": "    if not is_counter(body.get(\"revision\")):",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a retired store's refusal is not counted",
+  "file": "service/api_core/definition_push.py",
+  "old": "SET refused_count = refused_count + 1,",
+  "new": "SET refused_count = refused_count,",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a retired store's refusal does not name the two-store problem",
+  "file": "service/api_core/definition_push.py",
+  "old": ": two stores claim machine {machine_id}\"",
+  "new": "\"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a replaced store is not retired",
+  "file": "service/api_core/definition_push.py",
+  "old": "    if order is PushOrder.NEW_STORE:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: an id another machine owns is overwritten",
+  "file": "service/api_core/definition_push.py",
+  "old": "    if owner and owner != machine_id:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a definition may take an operator name",
+  "file": "service/api_core/definition_push.py",
+  "old": "    if is_operator_actor(agent_id):",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a definition may bring back a removed id",
+  "file": "service/api_core/definition_push.py",
+  "old": "    if await _agent_tombstone(db, agent_id):",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a refused entry is applied anyway",
+  "file": "service/api_core/definition_push.py",
+  "old": "            result[\"refused\"].append({\"id\": entry[\"id\"], \"reason\": refusal})\n            continue",
+  "new": "            result[\"refused\"].append({\"id\": entry[\"id\"], \"reason\": refusal})",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 rename: a defined agent is renamed here",
+  "file": "service/routers/agents/rename.py",
+  "old": "        if defined:\n",
+  "new": "        if False:\n",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: an invalid file drops the last good definition's report",
+  "file": "service/api_core/definition_push.py",
+  "old": "            if owner == machine_id:",
+  "new": "            if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 push: an existing agent's effective runtime is rewritten",
+  "file": "service/api_core/definition_push.py",
+  "old": "\"UPDATE agents SET name = ?, role = ?,",
+  "new": "\"UPDATE agents SET runtime = 'claude-code', name = ?, role = ?,",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 push: an existing agent's role is not updated",
+  "file": "service/api_core/definition_push.py",
+  "old": "            (*descriptive, entry[\"id\"]),",
+  "new": "            (descriptive[0], \"\", *descriptive[2:], entry[\"id\"]),",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a redefined agent stays withdrawn",
+  "file": "service/api_core/definition_push.py",
+  "old": "herdr_space = ?, definition_state = 'defined' \"",
+  "new": "herdr_space = ?, definition_state = definition_state \"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: a new claude agent is filed under the wrong runtime",
+  "file": "service/api_core/definition_push.py",
+  "old": "\"claude\": \"claude-code\"",
+  "new": "\"claude\": \"claude\"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 push: availability is stored as always available",
+  "file": "service/api_core/definition_push.py",
+  "old": "canonical(entry[\"definition\"]), 1 if entry[\"available\"] else 0,",
+  "new": "canonical(entry[\"definition\"]), 1,",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C6 push: a dropped id is not withdrawn",
+  "file": "service/api_core/definition_push.py",
+  "old": "        if owner == machine_id and agent_id not in present:",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C6 push: a push withdraws another machine's agents",
+  "file": "service/api_core/definition_push.py",
+  "old": "        if owner == machine_id and agent_id not in present:",
+  "new": "        if agent_id not in present:",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C6 push: withdrawal removes the agent",
+  "file": "service/api_core/definition_push.py",
+  "old": "            await db.execute(\"UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?\", (agent_id,))",
+  "new": "            await db.execute(\"DELETE FROM agents WHERE id = ?\", (agent_id,))",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C6 push: a withdrawn id keeps its definition",
+  "file": "service/api_core/definition_push.py",
+  "old": "            await db.execute(\"DELETE FROM agent_definitions WHERE agent_id = ?\", (agent_id,))",
+  "new": "            pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 route: a retired store's count is rolled back with its refusal",
+  "file": "service/routers/agent_definitions.py",
+  "old": "            await db.commit()\n            raise",
+  "new": "            raise",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 route: anyone may release a definition",
+  "file": "service/routers/agent_definitions.py",
+  "old": "    _require_operator(body, request, \"release an agent definition\")",
+  "new": "    pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 route: anyone may reset a machine's retired stores",
+  "file": "service/routers/agent_definitions.py",
+  "old": "    _require_operator(body, request, \"reset a machine's retired definition stores\")",
+  "new": "    pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 route: a release keeps the definition",
+  "file": "service/routers/agent_definitions.py",
+  "old": "        await db.execute(\"DELETE FROM agent_definitions WHERE agent_id = ?\", (agent_id,))",
+  "new": "        pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 route: a released agent still reads defined",
+  "file": "service/routers/agent_definitions.py",
+  "old": "        await db.execute(\"UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?\", (agent_id,))",
+  "new": "        pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 route: a reset clears nothing",
+  "file": "service/routers/agent_definitions.py",
+  "old": "\"DELETE FROM definition_stores_retired WHERE machine_id = ?\"",
+  "new": "\"SELECT 1 FROM definition_stores_retired WHERE machine_id = ?\"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "D13: the owner machine is not listed",
+  "file": "service/api_core/definition_records.py",
+  "old": "\"ownerMachineId\": definition_row[\"machine_id\"],",
+  "new": "\"ownerMachineId\": None,",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "D13: the agent list carries no definition",
+  "file": "service/routers/agents/identity.py",
+  "old": "            payload[\"definition\"] = definition_of(row, definitions.get(aid))",
+  "new": "            pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "D13: the agent detail carries no definition",
+  "file": "service/routers/agents/identity.py",
+  "old": "        payload[\"definition\"] = definition_of(row, (await definition_rows(db, [agent_id])).get(agent_id))",
+  "new": "        pass",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "D13: a serialized agent carries no definition state",
+  "file": "service/api_core/records.py",
+  "old": "        \"definitionState\": str((row[\"definition_state\"] if \"definition_state\" in row.keys() else \"\") or \"\"),",
+  "new": "",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ }
 ]

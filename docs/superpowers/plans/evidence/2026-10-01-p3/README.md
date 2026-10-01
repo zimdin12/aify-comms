@@ -41,10 +41,28 @@ The driver gained one line for this battery: it now records pytest's `FAILED` li
 result is unchanged. Each run checked the seven mutated sources against SHA-256 hashes taken before
 it; all matched.
 
-### Held back on purpose
+### The review of 4af344c5 (REVISE, four findings) and the successor
 
-`service/tests/test_a_cold_start_keeps_the_agents_role.py` stays uncommitted and deselected. It is RED
-by design until P3b (C5 dispositions), and `role-reset-RED-before-P3.txt` records that red.
+The same battery grew to 87 mutants after the fixes. It is killed 87/87, each kill named, including
+subtest kills (`SUBFAILED`, which the driver now also records):
+- R1: release reads its owner inside its write transaction and names the machine it releases.
+- R2: the service admits a valid entry by C1. `definition_schema.py` is checked against aify-env's
+  fixture, 75 bodies; the C1 rule mutants are its own.
+- R3: the digest's presence, type and domain are checked first.
+- R4: a replay repeats its revision's unresolved outcome, re-judged and never applied.
+
+Three runs left survivors, each decided on its own:
+- A mutant removing a `type(v) is str` guard on harness and mode was equivalent: no non-string
+  equals a string in Python. The guard and that mutant were removed.
+- A replay's `kept` report had no witness; it has one now.
+- The digest-mismatch mutant survived because admission refused the test's lie for its role, not its
+  digest. The lie now uses a role C1 admits.
+
+### The cold-start role test
+
+`service/tests/test_a_cold_start_keeps_the_agents_role.py` was held back while it was red. It turned
+out to cover every agent, defined or not, so its fix went to main as 0.7.8 (6c2367bf) and reached
+this branch by merge. `role-reset-RED-before-P3.txt` records the red on the code before that fix.
 
 ### Suites
 

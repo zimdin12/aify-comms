@@ -34,7 +34,7 @@ AGENT_ID = "lc-removed"
 #: request reaches the HANDLER: a 422 from the request model proves nothing about the tombstone, and
 #: a census that counted 422 as "refused" would pass with every guard deleted.
 BODIES: dict[str, dict] = {
-    "/api/v1/agent-definitions/{agent_id}/release": {"requestedBy": "dashboard"},
+    "/api/v1/agent-definitions/{agent_id}/release": {"requestedBy": "dashboard", "machineId": "linux:test-host"},
     "/api/v1/agents/{agent_id}": {"status": "active", "description": "x"},
     "/api/v1/agents/{agent_id}/background-work": {"count": 1},
     "/api/v1/agents/{agent_id}/claimer-lease": {"action": "acquire", "bridgeId": "b1"},
