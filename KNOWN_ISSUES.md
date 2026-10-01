@@ -414,6 +414,16 @@ Related: the same "a fix landed on some copies of a duplicated helper and missed
 pi-side comments date the buffer design to bug-hunt audit **B-C1**; whether the gateway was in scope
 for that audit is unresolved.
 
+## A registry entry with `strictMcp: true` never reaches a launcher this installer renders (2026-10-01)
+
+`render_wrapper_template` in `install.sh` substitutes `@@STRICT_EXTRA_MCP_B64@@` with nothing (line 509
+on main 6c2367bf and on next), while aify-wrapper's own installer computes it with `registry-cli.mjs
+strict-fragment-b64` and stops on a refusal. So on a host installed through this repo, claude-aify's
+strict-MCP mode (`AIFY_CLAUDE_STRICT_MCP=1`) loads only aify-comms' bridge, whatever the registry opts in.
+Found by dashboard-manager while checking where per-session MCP injection would have to land. To be
+fixed in 0.8 with that injection's placeholder (`@@SESSION_MCP_B64@@`), both computed through the pinned
+aify-wrapper's `registry-cli.mjs` and failing the install on a refusal, once that verb has passed review.
+
 ## Open backlog, re-checked 2026-09-25
 
 Each item below was read against the code on 2026-09-25; none has been seen misbehave live.
