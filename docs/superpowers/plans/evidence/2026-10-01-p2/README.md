@@ -60,7 +60,7 @@ with only `fetch` replaced and synthetic keys:
 - `claimer-answer.mjs`: `claimerFromAnswer`, a pure function. The answer comes in; the claimer state
   and the line to log come out.
 
-`index.mjs` keeps the wiring and is now 424 lines. Its behaviour is unchanged: the 42 earlier mutations
+`index.mjs` keeps the wiring: 424 lines at d2ce11f, and 428 with the `DETACHING` re-export at ca4cdea. Its behaviour is unchanged: the 42 earlier mutations
 were retargeted to where each rule now lives, and all still die on the same witnesses.
 
 Seven new mutations break the parts and the split itself:
