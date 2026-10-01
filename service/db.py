@@ -369,6 +369,7 @@ BRIDGE_INSTANCE_MIGRATIONS = {
 
 CONSOLE_SIGNAL_MIGRATIONS = {
     "subagents_at": "ALTER TABLE agent_console_signal ADD COLUMN subagents_at TEXT DEFAULT ''",
+    "background_at": "ALTER TABLE agent_console_signal ADD COLUMN background_at TEXT DEFAULT ''",
 }
 
 

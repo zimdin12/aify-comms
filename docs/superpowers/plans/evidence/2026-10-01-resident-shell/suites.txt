@@ -1,0 +1,25 @@
+Every suite on the tree committed with this file (aify-comms main, uncommitted change at the time, then committed unchanged):
+
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile
+4917 passed, 24 skipped, 20 warnings, 10504 subtests passed in 422.41s (0:07:02)
+
+mcp/stdio: node tests/run-all.mjs
+[run-all] all 366 suite(s) passed — 2 test(s) skipped in 2 files
+
+service/new_dashboard: node --test *.test.mjs
+# tests 1886
+# pass 1886
+# fail 0
+
+aify-env main 1736898: npm test
+# tests 2191
+# pass 2186
+# fail 1
+# skipped 4
+The one failure: tests/an-attach-client-names-itself-as-a-viewer.test.js failed as a file in the full run and passed alone twice (2/2 each). It reads no aify-comms source. Cause unproven; not this change.
+
+aify-wrapper main 9f45a5a: npm test
+# tests 575
+# pass 509
+# fail 0
+# skipped 66

@@ -95,6 +95,11 @@ CASES: dict[str, dict] = {
                                     activity_heard=OLD),
     "managed-host-blocked-in-turn": dict(mode="managed", session=True, terminal=True, in_turn=1,
                                          activity="blocked"),
+    # A RESIDENT'S BACKGROUND WORK (operator, 2026-10-01). Both producers read the lease through one
+    # helper; fresh and stale make it vary, and the in-turn case shows it beside a turn.
+    "resident-background-fresh": dict(mode="resident", session=True, background="now"),
+    "resident-background-stale": dict(mode="resident", session=True, background=OLD),
+    "resident-background-in-turn": dict(mode="resident", session=True, in_turn=1, background="now"),
 }
 #: KNOWN DIVERGENCE, pinned rather than hidden (M2, 2026-08-18). `_gather_status_inputs` sets
 #: `config_defect` for a resident whose wake mode ends in `-missing-handle`; the cheap producer does
@@ -168,6 +173,13 @@ class StatusInputsProducersAgreeTests(FastApiTestCase):
                      # The anchor carries the age now; the matrix varies `last_event` to mean
                      # "how old is this turn", and that meaning moved columns.
                      kw.get("last_event", FRESH)))
+            if "background" in kw:
+                # Stamped NOW for "now", for the reason the host activity below is.
+                stamp = kw["background"] if kw["background"] != "now" else _dt.datetime.now(
+                    _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                conn.execute(
+                    "INSERT INTO agent_console_signal (agent_id, working_at, background_at) VALUES (?, '', ?)",
+                    (agent_id, stamp))
             if kw.get("session"):
                 eid, sid, tid = f"e_{agent_id}", f"s_{agent_id}", f"t_{agent_id}"
                 conn.execute(

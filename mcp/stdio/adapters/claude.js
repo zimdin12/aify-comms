@@ -163,6 +163,12 @@ export class ClaudeAdapter extends RuntimeAdapter {
     return path.join(projDir, `${sid}.jsonl`);
   }
 
+  // This agent's own transcript path, scoped exactly as `transcriptTail` scopes it, or null. Read by
+  // the background-work reporter, which follows the file rather than its tail.
+  transcriptPath(opts = {}) {
+    return this._resolveTranscriptPath(opts);
+  }
+
   // Structural summary of THIS agent's OWN transcript TAIL — the turn-end
   // signal (pure-event-status change #1 rewrite, 2026-06-02). Returns null when
   // the session id can't be resolved or the file can't be read (same scoping as

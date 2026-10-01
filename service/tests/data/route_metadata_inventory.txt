@@ -78,6 +78,7 @@ JsonApiRoute PATCH /api/v1/environments/{environment_id:path}/roots name=update_
 JsonApiRoute PATCH /api/v1/spawn-requests/{spawn_request_id} name=update_spawn_request status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/terminals/controls/{control_id} name=update_terminal_control status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents name=register_agent status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/agents/{agent_id}/background-work name=agent_background_work status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/claimer-lease name=post_claimer_lease status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/compact/native name=post_agent_native_compact status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/console-working name=agent_console_working status=- response_model=- tags=api deps=0 in_schema=True

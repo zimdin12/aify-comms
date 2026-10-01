@@ -137,7 +137,7 @@ test("the two DIRECT posters are started only when IS_REMOTE, and take the owned
   assert.match(turnStart, /__isEntrypoint/, "the turn-busy heartbeat must not start on IMPORT");
 });
 
-test("the eight callback guards now ask IS_REMOTE — the question they meant", () => {
+test("the nine callback guards ask IS_REMOTE — the question they meant", () => {
   // They read `!__serverUrl` and could not fire. Counted, because "some were converted" is the failure this
   // catches: a leftover would be a guard that still cannot fire, sitting next to seven that can.
   //
@@ -152,7 +152,8 @@ test("the eight callback guards now ask IS_REMOTE — the question they meant", 
     converted += (src.match(/if \(!IS_REMOTE\) return;/g) || []).length;
     assert.doesNotMatch(src, /!__serverUrl\) return;/, "no guard anywhere may still test the deleted derivation");
   }
-  assert.equal(converted, 8, `all eight guards must be converted, found ${converted}`);
+  // NINE since 2026-10-01: the background-work reporter's post joined, written in the converted form.
+  assert.equal(converted, 9, `all nine guards must ask IS_REMOTE, found ${converted}`);
 });
 
 test("IS_REMOTE's meaning for TOOLS is unchanged", () => {

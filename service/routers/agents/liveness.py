@@ -16,6 +16,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.operator_authz import refuse_an_unproven_operator_claim
 from service.api_core.request_body import json_object_body
+from service.api_core.background_work import record_background_work
 from service.api_core.agent_revision import agent_revision
 from service.api_core.bridge_liveness_beat import _upsert_bridge_liveness_beat
 from service.api_core.turn_busy_signal import _apply_turn_busy_signal
@@ -379,3 +380,32 @@ async def agent_console_working(agent_id: str, request: Request):
     finally:
         await db.close()
     return {"ok": True}
+
+
+@router.post("/agents/{agent_id}/background-work")
+async def agent_background_work(agent_id: str, request: Request):
+    """A resident bridge's count of background shells and agents still running from its session.
+
+    Above zero it stamps a short lease the bridge refreshes while the work runs; zero clears it.
+    `derive()` reads the lease as `shell` for a resident idle at its prompt
+    (`api_core/background_work.py`).
+    """
+    body = await json_object_body(request, lenient=True)
+    count = body.get("count")
+    # A COUNT, NOT A FLAG. `True` is an int in Python, so it is refused by name: a body that sent a
+    # boolean was written against a different contract than this one.
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise HTTPException(422, "count must be a whole number of background tasks, 0 or more")
+    db = await get_db()
+    try:
+        agent_row = await (await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))).fetchone()
+        if not agent_row:
+            raise HTTPException(404, f'Agent "{agent_id}" not found')
+        await record_background_work(db, agent_id, count, _now())
+        await _invalidate_agent_live_state(db, agent_id)
+        await db.commit()
+        settings = await _load_settings(db)
+        await _broadcast_engine_status(await _get_ws(request), db, agent_id, settings=settings)
+    finally:
+        await db.close()
+    return {"ok": True, "count": count}

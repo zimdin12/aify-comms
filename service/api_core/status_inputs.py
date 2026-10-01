@@ -71,6 +71,7 @@ from service.api_core.terminal_text import (
 from service.terminal_snapshot import live_screen_text
 from service.clock import iso_to_epoch as _iso_to_epoch, now as _now
 from service.api_core.status_signal_prefetch import status_signals_or_live
+from service.api_core.background_work import background_work_for, background_work_from_row
 from service.env_status import environment_effective_status as _environment_effective_status
 from service.reconcilers.status_cache import _status_refresh_after
 from service.status_engine import StatusInputs, derive
@@ -288,7 +289,8 @@ async def _gather_status_inputs(db, agent_row, *, settings=None) -> StatusInputs
                         worker_present=worker_present, env_reachable=True, disabled=disabled,
                         bridge_stale=(not worker_present) or missing_handle, has_live_session=worker_present,
                         console_booting=False,
-                        config_defect=await _agent_config_defect(db, agent_row, mode, missing_handle=missing_handle))
+                        config_defect=await _agent_config_defect(db, agent_row, mode, missing_handle=missing_handle),
+                        background_work=(await background_work_for(db, aid))[0])
 
 
 async def engine_status(db, agent_row, *, settings=None) -> str:
@@ -340,8 +342,10 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
     console_working_lease = False
     console_lease_iso = ""
     subagents_active = False
+    #: The console signal row, read ONCE: the resident branch below takes its background lease from it.
+    console_row = None
     try:
-        _cw = await signals.console_signal(db, agent_row["id"])
+        _cw = console_row = await signals.console_signal(db, agent_row["id"])
         if _cw:
             _cw_iso = str(_cw["working_at"] or "").strip()
             _seen = _iso_to_epoch(_cw_iso)
@@ -726,12 +730,18 @@ async def _compute_live_status_cache(db, agent_row, *, settings: Optional[dict[s
         _si_fresh = bool(resident_bridge_fresh)
         # Phase I flip parity (see _gather_status_inputs): a *-missing-handle resident → stale.
         _si_missing_handle = str(_agent_wake_mode(agent_row) or "").endswith("-missing-handle")
+        # The SAME helper as the authoritative builder, on the row already read above. A fresh lease
+        # expires with nothing to tell this cache, so it recomputes when the lease would.
+        _si_background, _si_background_until = background_work_from_row(console_row)
+        if _si_background:
+            refresh_after = min([v for v in (refresh_after, _si_background_until) if v])
         status_inputs = StatusInputs(
             mode=agent_session_mode, alive=_si_fresh, in_turn=_si_in_turn,
             awaiting_input=_si_awaiting, worker_present=_si_fresh,
             env_reachable=True, disabled=_si_disabled,
             bridge_stale=(not _si_fresh) or _si_missing_handle, has_live_session=_si_fresh,
             console_booting=False,
+            background_work=_si_background,
             # config_defect is DELIBERATELY NOT SET on the resident side, and this is a pinned open
             # question rather than an oversight. `_gather_status_inputs` DOES set it for a
             # `*-missing-handle` resident, so the two producers genuinely disagree here: the
