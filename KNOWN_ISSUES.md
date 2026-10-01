@@ -428,6 +428,19 @@ aify-wrapper's `registry-cli.mjs` and failing the install on a refusal, once tha
 fragments with the pinned package's verbs and fails on a refusal, and install.sh bakes them
 (`mcp/stdio/tests/install-bakes-the-registry-fragments.test.js`). A host takes it at its 0.8 install.
 
+## A claude MCP server inherits every variable the launcher holds, a neighbour service's key included (2026-10-01)
+
+Claude Code's MCP `env` block is key-scoped (since 2.1.236): a variable it does not name is inherited by
+the MCP server process from the launching environment. So any MCP server a claude-aify session starts,
+aify-comms' bridge and a per-session one (`sessionInject`) alike, sees whatever the launcher's environment
+holds, and that would include another service's key if something exported one there. The per-session
+document itself never carries a key: aify-wrapper's `sessionMcpEntriesFor` binds each `endpointEnv` name to
+the entry's endpoint and reads no environment (lib/registry.mjs at 1498037, asserted in
+tests/session-mcp.test.js and in comms-senior-dev's review of 1498037). Measured by dashboard-manager. NOT
+traced: whether any path exports a service key into a launcher's environment today; aify-comms' own entry
+carries no `keyEnv`. The verb is not the place to fix it, since it predates the verb and applies to every
+MCP server Claude starts.
+
 ## Open backlog, re-checked 2026-09-25
 
 Each item below was read against the code on 2026-09-25; none has been seen misbehave live.
