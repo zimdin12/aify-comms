@@ -16,6 +16,9 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 
+from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.definition_guard import defined_on
+from service.api_core.definition_push import RUNTIME_HARNESS
 from service.api_core.definition_schema import AGENT_FIELDS
 from service.api_core.definition_snapshot import fence_refusal, is_counter
 from service.api_core.serialization import _iso_add_seconds
@@ -51,6 +54,7 @@ def request_record(row) -> dict:
         "outcome": row["outcome"] or "", "resultIncarnation": row["result_incarnation"],
         "resultRevision": row["result_revision"], "createdAt": row["created_at"], "expiresAt": row["expires_at"],
         "claimedAt": row["claimed_at"] or "", "finishedAt": row["finished_at"] or "",
+        "consequence": row["consequence"] or "",
     }
 
 
@@ -84,6 +88,49 @@ async def admit(db, agent_id: str, patch: Any, requested_by: str, now: str) -> d
         (request_id, agent_id, held["machine_id"], held["store_id"], held["incarnation"], held["revision"],
          json.dumps(patch), requested_by, now, _iso_add_seconds(now, REQUEST_TTL_SECONDS)))
     return await request_by_id(db, request_id)
+
+
+def assignment_patch(agent_id: str, owner: str, env_machine: str, *, workspace: Optional[str], runtime: str,
+                     model: Optional[str], runtime_config: Optional[dict]) -> dict:
+    """PURE. The patch an environment assignment of an agent defined on `owner` becomes (C5): the fields
+    it names, as the definition spells them. Its environment can only be one on that machine."""
+    if env_machine != owner:
+        raise HTTPException(409, f'"{agent_id}" is defined on {owner}; assign it an environment on that machine, '
+                                 f'not on {env_machine or "an unknown machine"}')
+    patch = {}
+    if runtime:
+        if runtime not in RUNTIME_HARNESS:
+            raise HTTPException(422, f'runtime "{runtime}" is not a harness a definition can name '
+                                     f'({", ".join(sorted(RUNTIME_HARNESS))})')
+        patch["harness"] = RUNTIME_HARNESS[runtime]
+    if workspace is not None:
+        patch["workspace"] = workspace
+    if model is not None:
+        patch["model"] = model
+    if (runtime_config or {}).get("effort") is not None:
+        patch["effort"] = runtime_config["effort"]
+    return patch
+
+
+async def queue_if_defined(db, agent_id: str, patch: Any, requested_by: str, now: str) -> Optional[dict]:
+    """THE C5 ROWS: an operator's edit of a DEFINED agent becomes a request its host applies, queued
+    here; None for an agent no host defines, whose edit applies directly as it always has. The check
+    and the queueing are one write transaction. The caller must hold no open transaction."""
+    await db.execute("BEGIN IMMEDIATE")
+    if not await defined_on(db, agent_id):
+        await db.rollback()
+        return None
+    queued = await admit(db, agent_id, patch, requested_by, now)
+    await db.commit()
+    return queued
+
+
+async def queued_for_its_host(db, agent_id: str, patch: Any, requested_by: str, now: str) -> dict:
+    """What a route that edits agents answers for a DEFINED one: its edit, queued for the host."""
+    queued = await queue_if_defined(db, agent_id, patch, requested_by, now)
+    if queued is None:
+        raise HTTPException(409, f'"{agent_id}" stopped being defined while this was asked; ask again')
+    return {"ok": True, "agentId": agent_id, "request": queued}
 
 
 async def request_by_id(db, request_id: str) -> Optional[dict]:
@@ -153,14 +200,17 @@ def report_problems(body: dict) -> list[str]:
 
 
 async def report(db, environment: Optional[dict], request_id: str, body: dict, now: str) -> dict:
-    """Record what the host did with a request it claimed. Reporting the same result again is a no-op,
-    so a lost acknowledgement costs nothing; a different result for a finished request is refused."""
+    """Record what the host did with a request it CLAIMED. Reporting the same result again changes
+    nothing, so a lost acknowledgement costs nothing; a different result for a finished request is
+    refused. A `done` removal leaves the service's own consequence `pending` in the same write, so it
+    is owed until it is settled, whichever report finds it (`settle_removal`)."""
     refusal = fence_refusal(environment, body.get("bridgeId", ""), body.get("machineId", ""))
     if refusal:
         raise HTTPException(409, f"definition request report refused: {refusal}")
     problems = report_problems(body)
     if problems:
         raise HTTPException(422, "; ".join(problems))
+    await expire_unclaimed(db, now)
     row = await (await db.execute("SELECT * FROM definition_requests WHERE id = ?", (request_id,))).fetchone()
     if not row:
         raise HTTPException(404, f"no definition request {request_id}")
@@ -171,16 +221,24 @@ async def report(db, environment: Optional[dict], request_id: str, body: dict, n
         if (row["status"], row["result_incarnation"], row["result_revision"]) == (body["status"], *result):
             return request_record(row)
         raise HTTPException(409, f"definition request {request_id} is already {row['status']}")
+    if row["status"] != "claimed":
+        # A HOST REPORTS ONLY WHAT IT CLAIMED: the claim is where a request it can no longer apply is
+        # refused, so a report that skipped it would apply what the claim would have refused.
+        raise HTTPException(409, f"definition request {request_id} was never claimed; claim it first")
+    owed = "pending" if body["status"] == "done" and is_removal(json.loads(row["patch"])) else ""
     await db.execute(
         "UPDATE definition_requests SET status = ?, outcome = ?, result_incarnation = ?, result_revision = ?, "
-        "finished_at = ? WHERE id = ?", (body["status"], body.get("outcome", ""), *result, now, request_id))
+        "finished_at = ?, consequence = ? WHERE id = ?",
+        (body["status"], body.get("outcome", ""), *result, now, owed, request_id))
     return await request_by_id(db, request_id)
 
 
-async def note_not_removed(db, request_id: str, why: str) -> None:
-    """Say on the request that its host removed the definition and the service removed nothing (C4)."""
-    await db.execute("UPDATE definition_requests SET outcome = TRIM(outcome || ' ' || ?) WHERE id = ?",
-                     (f"[service: {why}]", request_id))
+async def settle_removal(db, request_id: str, why: str) -> None:
+    """Record what the service did about a `done` removal: `removed`, or why nothing was (C4: it says so
+    on the request). Two reports that both found it pending settle the same fact: the second's fence
+    finds the first's tombstone and allows, so it records `removed` too."""
+    await db.execute("UPDATE definition_requests SET consequence = ? WHERE id = ?",
+                     ("removed" if not why else f"nothing removed: {why}", request_id))
 
 
 async def removal_refusal(db, request: dict) -> str:
@@ -196,9 +254,13 @@ async def removal_refusal(db, request: dict) -> str:
         found = {"machineId": held["machine_id"], "storeId": held["store_id"], "incarnation": held["incarnation"]}
         return "" if found == expected else (
             f"the definition is now {found['machineId']} store {found['storeId']} lifetime {found['incarnation']}, "
-            f"not the one this removal was for; nothing removed")
+            f"not the one this removal was for")
     agent = await (await db.execute(
         "SELECT definition_withdrawn FROM agents WHERE id = ?", (request["agentId"],))).fetchone()
     if agent and json.loads(agent["definition_withdrawn"] or "{}") == expected:
         return ""
-    return "the definition this removal was for ended another way; nothing removed"
+    if agent is None and await _agent_tombstone(db, request["agentId"]):
+        # ALREADY REMOVED: a removal that deleted the row and crashed before settling, with the host's
+        # withdrawal landing since. The row that recorded the withdrawal is the row it deleted.
+        return ""
+    return "the definition this removal was for ended another way"

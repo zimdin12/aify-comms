@@ -531,8 +531,35 @@ store or owner records the host outcome and removes nothing, and says so on the 
   against. It reads the definition still held, or the record of the store that withdrew it
   (`agents.definition_withdrawn`, written at withdrawal; a release writes none). It is asked before a
   managed worker is told to stop, and again inside the transaction that deletes. A refusal at either
-  asking appends `[service: <why>]` to the request's outcome and removes nothing. The removal itself
+  asking removes nothing, and the request's `consequence` says why. The removal itself
   is the DELETE route's own (`api_core/agent_remove.py`), moved out of the route so both use it.
+
+- **A host reports only what it claimed** (review of 12766276). A report on a pending request is 409:
+  the claim is where an undeliverable request is refused. A report also expires what is due first.
+- **The service's own consequence is owed until it is settled.** The report that records a `done`
+  removal sets `definition_requests.consequence` to `pending` in the same write. Whichever report finds
+  it pending runs the removal and settles it as `removed` or `nothing removed: <why>`. So a crash after
+  the host's answer is recorded is finished by the next report, and a settled one is never run again:
+  a replay changes no byte. The host's own `outcome` is kept as the host wrote it. A tombstoned agent
+  with no row counts as already removed, because the row that recorded its withdrawal is the row the
+  removal deleted. `consequence` is added by a migration, since 12766276 made the table without it.
+- **The fence and the stop are one transaction.** With a fence, the removal's first asking and the
+  stop it writes share one BEGIN IMMEDIATE, so a stop never reaches another owner's worker. The
+  second asking, inside the deleting transaction, exists only after a managed worker's stop
+  committed. Without a stop, the first asking covers the delete in the same transaction.
+- **The edit routes queue for a defined agent** (C5's table):
+  - herdr-space queues `{herdrSpace}`. Its guard is the UPDATE's own WHERE, so no check precedes the
+    write.
+  - session-mode queues `{mode}`.
+  - Environment assign queues the harness, workspace, model and effort it names. It refuses an
+    environment on another machine (409) and a runtime no definition can name (422), and queues
+    nothing when nothing changes.
+  - DELETE queues `{remove: true}`, its fence refusing a defined agent before any stop.
+  - Each records its actor through `recorded_operator_actor`, so with an operator key only the
+    operator queues a change.
+  - The session-mode and environment checks precede their writes. An agent defined in between is
+    edited as before; those writes touch only effective columns, and its definition governs its next
+    start (C7).
 
 **Witnesses (P3/P4).** Two edits from one pair (second refused at admission); a local edit then a
 queued service edit (refused, file unchanged); crash after commit (replay reports done, no second

@@ -1,66 +1,373 @@
 [
- {"name": "C4 patch: a truthy remove is a removal", "file": "service/api_core/definition_requests.py",
-  "old": "list(patch) == [\"remove\"] and patch[\"remove\"] is True", "new": "list(patch) == [\"remove\"] and patch[\"remove\"]", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 patch: remove with other fields is a removal", "file": "service/api_core/definition_requests.py",
-  "old": "list(patch) == [\"remove\"] and patch[\"remove\"] is True", "new": "\"remove\" in patch and patch[\"remove\"] is True", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 patch: any field may be patched", "file": "service/api_core/definition_requests.py",
-  "old": "            if key not in EDITABLE_FIELDS]", "new": "            if False]", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 patch: the id may be patched", "file": "service/api_core/definition_requests.py",
-  "old": "EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field != \"id\")", "new": "EDITABLE_FIELDS = tuple(AGENT_FIELDS)", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 patch: an empty patch is queued", "file": "service/api_core/definition_requests.py",
-  "old": "    if not isinstance(patch, dict) or not patch:", "new": "    if not isinstance(patch, dict):", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 expiry: a pending request never expires", "file": "service/api_core/definition_requests.py",
-  "old": "WHERE status = 'pending' AND expires_at <= ?\", (now, now))", "new": "WHERE status = 'pending' AND expires_at <= '0' AND ? != ''\", (now, now))", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 expiry: a request expires the moment it is made", "file": "service/api_core/definition_requests.py",
-  "old": "_iso_add_seconds(now, REQUEST_TTL_SECONDS)", "new": "now", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 admission: an undefined agent is queued", "file": "service/api_core/definition_requests.py",
-  "old": "    if not held:\n        raise HTTPException(404", "new": "    if False:\n        raise HTTPException(404", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 admission: a second request is queued beside the first", "file": "service/api_core/definition_requests.py",
-  "old": "    if waiting:", "new": "    if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 admission: the expected pair is swapped", "file": "service/api_core/definition_requests.py",
-  "old": "(request_id, agent_id, held[\"machine_id\"], held[\"store_id\"], held[\"incarnation\"], held[\"revision\"],", "new": "(request_id, agent_id, held[\"machine_id\"], held[\"store_id\"], held[\"revision\"], held[\"incarnation\"],", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 admission: anyone may ask", "file": "service/routers/definition_requests.py",
-  "old": "    require_operator(body, request, \"change an agent definition\")", "new": "    pass", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 claim: an unfenced claimer is handed requests", "file": "service/api_core/definition_requests.py",
-  "old": "    if refusal:\n        raise HTTPException(409, f\"definition request claim refused: {refusal}\")", "new": "    if False:\n        raise HTTPException(409, f\"definition request claim refused: {refusal}\")", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 claim: every machine's requests are judged by one claimer", "file": "service/api_core/definition_requests.py",
-  "old": "f\"SELECT * FROM definition_requests WHERE machine_id = ? AND status IN {_OPEN_SQL} ORDER BY created_at, id\",\n        (machine_id,))", "new": "f\"SELECT * FROM definition_requests WHERE ? != '' AND status IN {_OPEN_SQL} ORDER BY created_at, id\",\n        (machine_id,))", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 claim: a claimed, unreported request is not handed out again", "file": "service/api_core/definition_requests.py",
-  "old": "f\"SELECT * FROM definition_requests WHERE machine_id = ? AND status IN {_OPEN_SQL} ORDER BY created_at, id\",\n        (machine_id,))", "new": "f\"SELECT * FROM definition_requests WHERE machine_id = ? AND status = 'pending' ORDER BY created_at, id\",\n        (machine_id,))", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 claim: a request for a replaced store is delivered", "file": "service/api_core/definition_requests.py",
-  "old": "    if row[\"store_id\"] != current_store:", "new": "    if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 claim: a request for a moved definition is delivered", "file": "service/api_core/definition_requests.py",
-  "old": "    if held[\"machine_id\"] != row[\"machine_id\"] or held[\"store_id\"] != row[\"store_id\"]:", "new": "    if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 claim: a refused request is delivered anyway", "file": "service/api_core/definition_requests.py",
-  "old": "\"WHERE id = ?\", (reason, now, row[\"id\"]))\n            continue", "new": "\"WHERE id = ?\", (reason, now, row[\"id\"]))", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 report: an unfenced reporter is heard", "file": "service/api_core/definition_requests.py",
-  "old": "    if refusal:\n        raise HTTPException(409, f\"definition request report refused: {refusal}\")", "new": "    if False:\n        raise HTTPException(409, f\"definition request report refused: {refusal}\")", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 report: any status is recorded", "file": "service/api_core/definition_requests.py",
-  "old": "    if status not in (\"done\", \"refused\"):", "new": "    if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 report: a done names no result pair", "file": "service/api_core/definition_requests.py",
-  "old": "    if status == \"done\" and not (", "new": "    if False and not (", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 report: another machine reports a request", "file": "service/api_core/definition_requests.py",
-  "old": "    if row[\"machine_id\"] != str(body[\"machineId\"]).strip():", "new": "    if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 report: the same report twice is refused", "file": "service/api_core/definition_requests.py",
-  "old": "        if (row[\"status\"], row[\"result_incarnation\"], row[\"result_revision\"]) == (body[\"status\"], *result):", "new": "        if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 report: a finished request is overwritten", "file": "service/api_core/definition_requests.py",
-  "old": "        raise HTTPException(409, f\"definition request {request_id} is already {row['status']}\")", "new": "        pass", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 removal: a done removal removes nothing", "file": "service/routers/definition_requests.py",
-  "old": "        if reported[\"status\"] == \"done\" and is_removal(reported[\"patch\"]):", "new": "        if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 removal: a done removal is not fenced", "file": "service/routers/definition_requests.py",
-  "old": "refusal=lambda conn: removal_refusal(conn, reported))", "new": "refusal=None)", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 removal: the request does not say why nothing was removed", "file": "service/routers/definition_requests.py",
-  "old": "                await note_not_removed(db, request_id, why)", "new": "                pass", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 fence: a held definition of another lifetime is removed", "file": "service/api_core/definition_requests.py",
-  "old": "        return \"\" if found == expected else (", "new": "        return \"\" if True else (", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 fence: a withdrawal at that lifetime is not recognised", "file": "service/api_core/definition_requests.py",
-  "old": "    if agent and json.loads(agent[\"definition_withdrawn\"] or \"{}\") == expected:", "new": "    if False:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 fence: any withdrawal or release allows the removal", "file": "service/api_core/definition_requests.py",
-  "old": "    if agent and json.loads(agent[\"definition_withdrawn\"] or \"{}\") == expected:", "new": "    if agent:", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 withdrawal: the lifetime withdrawn is recorded wrong", "file": "service/api_core/definition_push.py",
-  "old": "                         \"incarnation\": held[agent_id][\"incarnation\"]}", "new": "                         \"incarnation\": 0}", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 remove: the fence is not asked inside the deleting transaction", "file": "service/api_core/agent_remove.py",
-  "old": "    if refusal is not None:\n        await db.execute(\"BEGIN IMMEDIATE\")", "new": "    if False:\n        await db.execute(\"BEGIN IMMEDIATE\")", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"},
- {"name": "C4 remove: the fence is not asked before the worker is stopped", "file": "service/api_core/agent_remove.py",
-  "old": "    if refusal is not None:\n        why = await refusal(db)\n        if why:\n            return 0, why", "new": "    if False:\n        why = await refusal(db)\n        if why:\n            return 0, why", "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py -q -p no:cacheprovider"}
+ {
+  "name": "C4 patch: a truthy remove is a removal",
+  "file": "service/api_core/definition_requests.py",
+  "old": "list(patch) == [\"remove\"] and patch[\"remove\"] is True",
+  "new": "list(patch) == [\"remove\"] and patch[\"remove\"]",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 patch: remove with other fields is a removal",
+  "file": "service/api_core/definition_requests.py",
+  "old": "list(patch) == [\"remove\"] and patch[\"remove\"] is True",
+  "new": "\"remove\" in patch and patch[\"remove\"] is True",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 patch: any field may be patched",
+  "file": "service/api_core/definition_requests.py",
+  "old": "            if key not in EDITABLE_FIELDS]",
+  "new": "            if False]",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 patch: the id may be patched",
+  "file": "service/api_core/definition_requests.py",
+  "old": "EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field != \"id\")",
+  "new": "EDITABLE_FIELDS = tuple(AGENT_FIELDS)",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 patch: an empty patch is queued",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if not isinstance(patch, dict) or not patch:",
+  "new": "    if not isinstance(patch, dict):",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 expiry: a pending request never expires",
+  "file": "service/api_core/definition_requests.py",
+  "old": "WHERE status = 'pending' AND expires_at <= ?\", (now, now))",
+  "new": "WHERE status = 'pending' AND expires_at <= '0' AND ? != ''\", (now, now))",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 expiry: a request expires the moment it is made",
+  "file": "service/api_core/definition_requests.py",
+  "old": "_iso_add_seconds(now, REQUEST_TTL_SECONDS)",
+  "new": "now",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 admission: an undefined agent is queued",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if not held:\n        raise HTTPException(404",
+  "new": "    if False:\n        raise HTTPException(404",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 admission: a second request is queued beside the first",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if waiting:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 admission: the expected pair is swapped",
+  "file": "service/api_core/definition_requests.py",
+  "old": "(request_id, agent_id, held[\"machine_id\"], held[\"store_id\"], held[\"incarnation\"], held[\"revision\"],",
+  "new": "(request_id, agent_id, held[\"machine_id\"], held[\"store_id\"], held[\"revision\"], held[\"incarnation\"],",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 admission: anyone may ask",
+  "file": "service/routers/definition_requests.py",
+  "old": "    require_operator(body, request, \"change an agent definition\")",
+  "new": "    pass",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 claim: an unfenced claimer is handed requests",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if refusal:\n        raise HTTPException(409, f\"definition request claim refused: {refusal}\")",
+  "new": "    if False:\n        raise HTTPException(409, f\"definition request claim refused: {refusal}\")",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 claim: every machine's requests are judged by one claimer",
+  "file": "service/api_core/definition_requests.py",
+  "old": "f\"SELECT * FROM definition_requests WHERE machine_id = ? AND status IN {_OPEN_SQL} ORDER BY created_at, id\",\n        (machine_id,))",
+  "new": "f\"SELECT * FROM definition_requests WHERE ? != '' AND status IN {_OPEN_SQL} ORDER BY created_at, id\",\n        (machine_id,))",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 claim: a claimed, unreported request is not handed out again",
+  "file": "service/api_core/definition_requests.py",
+  "old": "f\"SELECT * FROM definition_requests WHERE machine_id = ? AND status IN {_OPEN_SQL} ORDER BY created_at, id\",\n        (machine_id,))",
+  "new": "f\"SELECT * FROM definition_requests WHERE machine_id = ? AND status = 'pending' ORDER BY created_at, id\",\n        (machine_id,))",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 claim: a request for a replaced store is delivered",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if row[\"store_id\"] != current_store:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 claim: a request for a moved definition is delivered",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if held[\"machine_id\"] != row[\"machine_id\"] or held[\"store_id\"] != row[\"store_id\"]:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 claim: a refused request is delivered anyway",
+  "file": "service/api_core/definition_requests.py",
+  "old": "\"WHERE id = ?\", (reason, now, row[\"id\"]))\n            continue",
+  "new": "\"WHERE id = ?\", (reason, now, row[\"id\"]))",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 report: an unfenced reporter is heard",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if refusal:\n        raise HTTPException(409, f\"definition request report refused: {refusal}\")",
+  "new": "    if False:\n        raise HTTPException(409, f\"definition request report refused: {refusal}\")",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 report: any status is recorded",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if status not in (\"done\", \"refused\"):",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 report: a done names no result pair",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if status == \"done\" and not (",
+  "new": "    if False and not (",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 report: another machine reports a request",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if row[\"machine_id\"] != str(body[\"machineId\"]).strip():",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 report: the same report twice is refused",
+  "file": "service/api_core/definition_requests.py",
+  "old": "        if (row[\"status\"], row[\"result_incarnation\"], row[\"result_revision\"]) == (body[\"status\"], *result):",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 report: a finished request is overwritten",
+  "file": "service/api_core/definition_requests.py",
+  "old": "        raise HTTPException(409, f\"definition request {request_id} is already {row['status']}\")",
+  "new": "        pass",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 removal: a done removal removes nothing",
+  "file": "service/routers/definition_requests.py",
+  "old": "        if reported[\"consequence\"] == \"pending\":",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 removal: a done removal is not fenced",
+  "file": "service/routers/definition_requests.py",
+  "old": "refusal=lambda conn: removal_refusal(conn, reported))",
+  "new": "refusal=None)",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 removal: the request does not say why nothing was removed",
+  "file": "service/routers/definition_requests.py",
+  "old": "            await settle_removal(db, request_id, why)",
+  "new": "            pass",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 fence: a held definition of another lifetime is removed",
+  "file": "service/api_core/definition_requests.py",
+  "old": "        return \"\" if found == expected else (",
+  "new": "        return \"\" if True else (",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 fence: a withdrawal at that lifetime is not recognised",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if agent and json.loads(agent[\"definition_withdrawn\"] or \"{}\") == expected:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 fence: any withdrawal or release allows the removal",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if agent and json.loads(agent[\"definition_withdrawn\"] or \"{}\") == expected:",
+  "new": "    if agent:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 withdrawal: the lifetime withdrawn is recorded wrong",
+  "file": "service/api_core/definition_push.py",
+  "old": "                         \"incarnation\": held[agent_id][\"incarnation\"]}",
+  "new": "                         \"incarnation\": 0}",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 remove: the fence is not asked inside the deleting transaction",
+  "file": "service/api_core/agent_remove.py",
+  "old": "    if refusal is not None and not fenced_and_open:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 remove: the fence is not asked before the worker is stopped",
+  "file": "service/api_core/agent_remove.py",
+  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        why = await refusal(db)\n        if why:\n            await db.rollback()\n            return 0, why\n    fenced_and_open = refusal is not None",
+  "new": "    fenced_and_open = False",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 herdr-space: a defined agent's setting is written directly",
+  "file": "service/routers/agents/attributes.py",
+  "old": "UPDATE agents SET herdr_space = ? WHERE id = ? AND NOT {DEFINED_SQL}",
+  "new": "UPDATE agents SET herdr_space = ? WHERE id = ? AND 1",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 herdr-space: an unproven caller queues a change",
+  "file": "service/routers/agents/attributes.py",
+  "old": "            actor = recorded_operator_actor(None, request, action=\"changing a defined agent as the operator\")",
+  "new": "            actor = \"dashboard\"",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 session-mode: a defined agent switches directly",
+  "file": "service/routers/agents/session_mode.py",
+  "old": "        if await defined_on(db, agent_id):\n            return await queued_for_its_host(db, agent_id, {\"mode\": new_mode}",
+  "new": "        if False:\n            return await queued_for_its_host(db, agent_id, {\"mode\": new_mode}",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: a defined agent is assigned directly",
+  "file": "service/routers/agents/environment_assignment.py",
+  "old": "        if owner:\n            patch = assignment_patch(",
+  "new": "        if False:\n            patch = assignment_patch(",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: a nothing-to-change assignment is queued",
+  "file": "service/routers/agents/environment_assignment.py",
+  "old": "            if not patch:\n                return {\"ok\": True, \"agentId\": agent_id, \"request\": None}\n",
+  "new": "",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: another machine's environment is accepted",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if env_machine != owner:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: an unnameable runtime is not refused by name",
+  "file": "service/api_core/definition_requests.py",
+  "old": "        if runtime not in RUNTIME_HARNESS:",
+  "new": "        if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: the workspace is dropped from the patch",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if workspace is not None:\n        patch[\"workspace\"] = workspace",
+  "new": "    if False:\n        patch[\"workspace\"] = workspace",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: the model is dropped from the patch",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if model is not None:\n        patch[\"model\"] = model",
+  "new": "    if False:\n        patch[\"model\"] = model",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: the effort is dropped from the patch",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if (runtime_config or {}).get(\"effort\") is not None:",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 environment: the harness is dropped from the patch",
+  "file": "service/api_core/definition_requests.py",
+  "old": "        patch[\"harness\"] = RUNTIME_HARNESS[runtime]",
+  "new": "        pass",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 removal: a defined agent is removed directly",
+  "file": "service/routers/agents/identity.py",
+  "old": "refusal=defined_elsewhere)",
+  "new": "refusal=None)",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 removal: an unproven caller queues a removal",
+  "file": "service/routers/agents/identity.py",
+  "old": "            actor = recorded_operator_actor(None, request, action=\"removing a defined agent as the operator\")",
+  "new": "            actor = \"dashboard\"",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 queue: an agent no longer defined is queued anyway",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if not await defined_on(db, agent_id):\n        await db.rollback()\n        return None",
+  "new": "    if False:\n        await db.rollback()\n        return None",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-1: a report of an unclaimed request finishes it",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if row[\"status\"] != \"claimed\":",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-1: a report does not expire what is due",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    await expire_unclaimed(db, now)\n    row = await (await db.execute(\"SELECT * FROM definition_requests WHERE id = ?\", (request_id,))).fetchone()",
+  "new": "    row = await (await db.execute(\"SELECT * FROM definition_requests WHERE id = ?\", (request_id,))).fetchone()",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-3: the first fence is asked outside the stop's transaction",
+  "file": "service/api_core/agent_remove.py",
+  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        why = await refusal(db)\n        if why:\n            await db.rollback()\n            return 0, why\n    fenced_and_open = refusal is not None",
+  "new": "        why = await refusal(db)\n        if why:\n            return 0, why\n    fenced_and_open = False",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-2: a done removal owes nothing",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    owed = \"pending\" if body[\"status\"] == \"done\" and is_removal(json.loads(row[\"patch\"])) else \"\"",
+  "new": "    owed = \"\"",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-2: a settled removal reads as removed whatever happened",
+  "file": "service/api_core/definition_requests.py",
+  "old": "(\"removed\" if not why else f\"nothing removed: {why}\", request_id)",
+  "new": "(\"removed\", request_id)",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-2: a tombstoned agent is not recognised as already removed",
+  "file": "service/api_core/definition_requests.py",
+  "old": "    if agent is None and await _agent_tombstone(db, request[\"agentId\"]):",
+  "new": "    if False:",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "R12766276-2: init does not migrate definition_requests",
+  "file": "service/db.py",
+  "old": "        await _migrate_definition_requests_table(db)\n",
+  "new": "",
+  "test": "python -m pytest service/tests/test_a_p3a_database_gains_the_replay_outcome.py -q -p no:cacheprovider"
+ }
 ]

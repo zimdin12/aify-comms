@@ -45,3 +45,13 @@ P3c + REVIEW FIXES N1/N2 (the review of a171e8a3 / b5ac1de3), on the staged tree
   aify-wrapper-next: 575 tests, 509 pass, 66 skipped
   aify-env-next: 2272 tests, 2268 pass, 4 skipped
   Credential file still 2026-09-29 18:37:10.
+
+P3c REVIEW FIXES (the review of 12766276: R1 claim/expiry, R2 durable consequence, R3 atomic fence)
++ P3c-2 (the edit routes queue for a defined agent), on the staged tree, one after another:
+  batteries: P3a 90/90, P3b 19/19, P3c 53/53, sources restored (sha256 checked)
+  python: 4977 passed, 27 skipped, 10770 subtests passed in 151.85s
+  mcp/stdio run-all: 366 files, exit 0
+  dashboard: 1889 tests, 1889 pass
+  aify-wrapper-next: 575 tests, 509 pass, 66 skipped
+  aify-env-next: 2272 tests, 2268 pass, 4 skipped
+  Credential file still 2026-09-29 18:37:10.

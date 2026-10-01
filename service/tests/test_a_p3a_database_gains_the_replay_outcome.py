@@ -66,3 +66,22 @@ class AP3aDatabaseGainsTheReplayOutcome(FastApiTestCase):
         self.assertEqual(fresh.json()["refused"], [{"id": "coder", "reason": "defined on win32:host-a"}])
         again = self.push(B, "t1", 2, [valid("coder"), valid("helper")]).json()
         self.assertEqual((again["outcomeRecorded"], again["refused"]), (True, fresh.json()["refused"]))
+
+    def test_a_12766276_database_gains_the_removal_consequence(self):
+        """The same, for `definition_requests.consequence`, which 12766276 made the table without."""
+        self.assertEqual(self.push(A, "s1", 1, [valid("coder")]).status_code, 200)
+        asked = self.client.post("/api/v1/agent-definitions/coder/requests",
+                                 json={"patch": {"remove": True}, "requestedBy": "dashboard"})
+        request_id = asked.json()["request"]["id"]
+        conn = sqlite3.connect(str(self._db_path))
+        conn.execute("ALTER TABLE definition_requests DROP COLUMN consequence")
+        conn.commit()
+        conn.close()
+        init = getattr(db_module, "_real_init_db", None) or db_module.init_db
+        for _ in range(2):
+            asyncio.run(init(self._db_path))
+        self.client.post(f"/api/v1/environments/{A['env']}/definition-requests/claim",
+                         json={"bridgeId": A["bridge"], "machineId": A["machine"]}).raise_for_status()
+        done = self.client.post(f"/api/v1/environments/{A['env']}/definition-requests/{request_id}/result", json={
+            "bridgeId": A["bridge"], "machineId": A["machine"], "status": "done", "resultIncarnation": 1, "resultRevision": 1})
+        self.assertEqual((done.status_code, done.json()["request"]["consequence"]), (200, "removed"), done.text)

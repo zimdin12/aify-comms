@@ -27,6 +27,8 @@ from service.api_core.operator_authz import is_operator_actor
 
 #: The harness a definition names, as the runtime this service files agents under.
 HARNESS_RUNTIME = {"claude": "claude-code", "codex": "codex", "hermes": "hermes"}
+#: The other way: the harness a definition names for a runtime this service files agents under.
+RUNTIME_HARNESS = {runtime: harness for harness, runtime in HARNESS_RUNTIME.items()}
 
 
 def push_body_problems(body: dict) -> list[str]:

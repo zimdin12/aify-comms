@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import threading
 
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_definition_push import A, B, snapshot_digest, valid
@@ -167,7 +168,7 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         request_id = self.ask("coder", {"remove": True}).json()["request"]["id"]
         self.claim()
         done = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
-        self.assertEqual((done.status_code, done.json()["removed"]), (200, True), done.text)
+        self.assertEqual((done.status_code, done.json()["request"]["consequence"]), (200, "removed"), done.text)
         self.assertEqual(self.rows("SELECT id FROM agents WHERE id = 'coder'"), [])
         self.assertEqual(len(self.rows("SELECT agent_id FROM agent_tombstones WHERE agent_id = 'coder'")), 1)
 
@@ -177,7 +178,7 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         self.claim()
         self.push("s1", 2, [valid("other")])
         done = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
-        self.assertEqual(done.json()["removed"], True, done.text)
+        self.assertEqual(done.json()["request"]["consequence"], "removed", done.text)
 
     def _remove(self, agent_id, answers):
         """`remove_agent` with a fence that gives these answers in turn, on the service's own connection."""
@@ -199,13 +200,22 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
 
         return asyncio.run(go()), len(asked)
 
-    def test_the_removal_fence_is_asked_again_inside_the_deleting_transaction(self):
-        self.client.post("/api/v1/agents", json={"agentId": "kept", "role": "coder"}).raise_for_status()
+    def test_the_removal_fence_is_asked_again_after_a_managed_workers_stop(self):
+        """A managed agent's stop commits and waits for its host, so custody can move before the delete:
+        the fence is asked again inside the deleting transaction."""
+        self.client.post("/api/v1/agents", json={"agentId": "kept", "role": "coder", "runtime": "codex",
+                                                  "sessionMode": "managed"}).raise_for_status()
         (deleted, why), asked = self._remove("kept", ["", "custody moved"])
         self.assertEqual((deleted, why, asked), (0, "custody moved", 2))
         self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'kept'")), 1, "a late refusal removes nothing")
         (deleted, why), _ = self._remove("kept", [""])
         self.assertEqual((deleted, why), (1, ""), "control: a fence that allows it removes the agent")
+
+    def test_with_no_stop_one_asking_covers_the_delete(self):
+        """An unmanaged agent has no stop to wait for: the fence and the delete are one transaction."""
+        self.client.post("/api/v1/agents", json={"agentId": "plain", "role": "coder"}).raise_for_status()
+        (deleted, why), asked = self._remove("plain", [""])
+        self.assertEqual((deleted, why, asked), (1, "", 1))
 
     def test_a_removal_refused_at_the_first_asking_stops_no_worker(self):
         self.client.post("/api/v1/agents", json={"agentId": "worker", "role": "coder", "runtime": "codex",
@@ -217,6 +227,113 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
                          "the managed worker was not told to stop")
         self.assertNotEqual(before, "stopped", "control: the worker was not stopped to begin with")
 
+    def test_a_report_skips_no_claim(self):
+        """Review of 12766276, 1: the claim is where an undeliverable request is refused, so a report of
+        a request nobody claimed, or one that expired unclaimed, finishes nothing and removes nothing."""
+        self.push("s1", 1, [valid("coder"), valid("other")])
+        unclaimed = self.ask("coder", {"remove": True}).json()["request"]["id"]
+        skipped = self.report(unclaimed, status="done", resultIncarnation=1, resultRevision=1)
+        self.assertEqual((skipped.status_code, skipped.json()["detail"]),
+                         (409, f"definition request {unclaimed} was never claimed; claim it first"))
+        self.execute("UPDATE definition_requests SET expires_at = '2000-01-01T00:00:00Z' WHERE id = ?", (unclaimed,))
+        expired = self.report(unclaimed, status="done", resultIncarnation=1, resultRevision=1)
+        self.assertEqual((expired.status_code, expired.json()["detail"]),
+                         (409, f"definition request {unclaimed} is already expired"))
+        self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1, "nothing was removed")
+
+    def test_a_repeated_report_runs_its_consequences_once(self):
+        """Review of 12766276, 2: the same report again changes no byte of the request."""
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.ask("coder", {"remove": True}).json()["request"]["id"]
+        self.claim()
+        self.client.post("/api/v1/agent-definitions/coder/release",
+                         json={"requestedBy": "dashboard", "machineId": A["machine"]}).raise_for_status()
+        first = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
+        self.assertTrue(first.json()["request"]["consequence"].startswith("nothing removed: "), first.text)
+        recorded = self.rows("SELECT * FROM definition_requests WHERE id = ?", (request_id,))
+        again = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(self.rows("SELECT * FROM definition_requests WHERE id = ?", (request_id,)), recorded)
+
+    def test_a_removal_interrupted_after_its_done_was_recorded_is_finished_by_the_next_report(self):
+        """Review of 12766276: the consequence is owed until settled. A failure between recording the
+        host's `done` and removing the agent leaves it pending, and the repeated report finishes it."""
+        import service.routers.definition_requests as result_route
+
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.ask("coder", {"remove": True}).json()["request"]["id"]
+        self.claim()
+        real = result_route.remove_agent
+
+        async def interrupted(*args, **kwargs):
+            raise RuntimeError("the service went away before the removal")
+
+        result_route.remove_agent = interrupted
+        try:
+            failed = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
+        finally:
+            result_route.remove_agent = real
+        self.assertEqual(failed.status_code, 500, "control: the removal step failed after the done was recorded")
+        [row] = self.rows("SELECT status, consequence FROM definition_requests WHERE id = ?", (request_id,))
+        self.assertEqual(row, {"status": "done", "consequence": "pending"}, "the host's done is recorded, the removal owed")
+        self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1)
+        finished = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
+        self.assertEqual(finished.json()["request"]["consequence"], "removed", finished.text)
+        self.assertEqual(self.rows("SELECT id FROM agents WHERE id = 'coder'"), [])
+
+    def test_a_removal_that_deleted_and_crashed_before_settling_settles_as_removed(self):
+        """The row it deleted held the withdrawal record, so its tombstone is what says it was removed."""
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.ask("coder", {"remove": True}).json()["request"]["id"]
+        self.claim()
+        # What the interrupted report left: the host's done recorded, the agent deleted and tombstoned,
+        # the consequence never settled. Then the host's withdrawal lands.
+        self.execute("UPDATE definition_requests SET status = 'done', result_incarnation = 1, result_revision = 1, "
+                     "consequence = 'pending' WHERE id = ?", (request_id,))
+        self.execute("DELETE FROM agents WHERE id = 'coder'")
+        self.execute("INSERT INTO agent_tombstones (agent_id, removed_at, removed_by, reason) "
+                     "VALUES ('coder', '2026-10-01T00:00:00Z', 'aify-env', 'definition_removed')")
+        self.push("s1", 2, [])
+        settled = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
+        self.assertEqual(settled.json()["request"]["consequence"], "removed", settled.text)
+
+    def test_a_removal_racing_a_change_of_custody_stops_nothing(self):
+        """Review of 12766276, 3: the fence and the stop are one transaction, so custody that moves while
+        the removal waits for the lock is seen before any worker is told to stop."""
+        from service.api_core.agent_remove import remove_agent
+        from service.api_core.definition_requests import removal_refusal
+        from service.db import get_db
+
+        self.push("s1", 1, [valid("worker")])
+        self.client.post("/api/v1/agents", json={"agentId": "worker", "role": "coder", "runtime": "codex",
+                                                  "sessionMode": "managed"}).raise_for_status()
+        made_for = {"agentId": "worker", "machineId": A["machine"], "storeId": "s1", "expectedIncarnation": 1}
+        holder = sqlite3.connect(str(self._db_path), isolation_level=None)
+        self.addCleanup(lambda: holder.close())
+        holder.execute("BEGIN IMMEDIATE")
+        outcome = {}
+
+        async def removal():
+            db = await get_db()
+            try:
+                return await remove_agent(db, "worker", actor="test", reason="test",
+                                          refusal=lambda conn: removal_refusal(conn, made_for))
+            finally:
+                await db.close()
+
+        worker = threading.Thread(target=lambda: outcome.update(result=asyncio.run(removal())))
+        worker.start()
+        worker.join(0.6)
+        self.assertTrue(worker.is_alive(), "control: the removal is waiting on the write lock")
+        holder.execute("DELETE FROM agent_definitions WHERE agent_id = 'worker'")
+        holder.execute("COMMIT")
+        holder.close()
+        worker.join(10)
+        deleted, why = outcome["result"]
+        self.assertEqual((deleted, why), (0, "the definition this removal was for ended another way"))
+        [row] = self.rows("SELECT status FROM agents WHERE id = 'worker'")
+        self.assertNotEqual(row["status"], "stopped", "no worker was told to stop")
+
     def test_a_removal_whose_definition_was_released_removes_nothing(self):
         """A release is the operator's, not the store's: a host's later `done` finds no withdrawal by
         that store at that lifetime, and removes nothing."""
@@ -226,9 +343,8 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         self.client.post("/api/v1/agent-definitions/coder/release",
                          json={"requestedBy": "dashboard", "machineId": A["machine"]}).raise_for_status()
         done = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
-        self.assertEqual(done.json()["removed"], False, done.text)
-        self.assertEqual(done.json()["request"]["outcome"],
-                         "[service: the definition this removal was for ended another way; nothing removed]")
+        self.assertEqual(done.json()["request"]["consequence"],
+                         "nothing removed: the definition this removal was for ended another way", done.text)
         self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1)
 
     def test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so(self):
@@ -239,8 +355,8 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         self.push("s1", 2, [])
         self.push("s1", 3, [valid("coder", incarnation=2)])
         done = self.report(request_id, status="done", outcome="removed", resultIncarnation=1, resultRevision=1)
-        self.assertEqual((done.status_code, done.json()["removed"]), (200, False), done.text)
-        self.assertEqual(done.json()["request"]["outcome"],
-                         "removed [service: the definition is now win32:host-a store s1 lifetime 2, not the one this "
-                         "removal was for; nothing removed]")
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertEqual((done.json()["request"]["outcome"], done.json()["request"]["consequence"]),
+                         ("removed", "nothing removed: the definition is now win32:host-a store s1 lifetime 2, "
+                                     "not the one this removal was for"), "the host's outcome is kept as it said it")
         self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1, "the new lifetime's agent stays")

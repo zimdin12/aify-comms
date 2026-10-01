@@ -8,7 +8,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.agent_remove import remove_agent
 from service.api_core.definition_requests import (
-    admit, claim, is_removal, note_not_removed, removal_refusal, report, request_by_id, requests_for,
+    admit, claim, removal_refusal, report, request_by_id, requests_for, settle_removal,
 )
 from service.api_core.operator_authz import require_operator
 from service.api_core.request_body import json_object_body
@@ -75,15 +75,15 @@ async def report_definition_change(environment_id: str, request_id: str, request
         await db.execute("BEGIN IMMEDIATE")
         reported = await report(db, await _environment(db, environment_id), request_id, body, _now())
         await db.commit()
-        removed = {}
-        if reported["status"] == "done" and is_removal(reported["patch"]):
-            deleted, why = await remove_agent(db, reported["agentId"], actor="aify-env", reason="definition_removed",
-                                              refusal=lambda conn: removal_refusal(conn, reported))
-            if why:
-                await note_not_removed(db, request_id, why)
-                await db.commit()
-                reported = await request_by_id(db, request_id)
-            removed = {"removed": deleted > 0}
+        # OWED UNTIL SETTLED: a removal whose `done` was recorded and whose service consequence did not
+        # finish (a crash, a lost connection) is finished by whichever report finds it still pending,
+        # and one already settled is never run again.
+        if reported["consequence"] == "pending":
+            _, why = await remove_agent(db, reported["agentId"], actor="aify-env", reason="definition_removed",
+                                        refusal=lambda conn: removal_refusal(conn, reported))
+            await settle_removal(db, request_id, why)
+            await db.commit()
+            reported = await request_by_id(db, request_id)
     finally:
         await db.close()
-    return {"ok": True, "request": reported, **removed}
+    return {"ok": True, "request": reported}

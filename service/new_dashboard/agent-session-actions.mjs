@@ -13,6 +13,7 @@
 
 import { openAgentDrawer } from './agent-drawer.mjs';
 import { api, apiResponse } from './api-client.mjs';
+import { requestedInAifyEnv } from './definition-request-note.mjs';
 import { briefIsStale, loadHandoffBrief } from './handoff-brief.mjs';
 import { sessionAgentId, sessionEnvironmentId, sessionId, sessionRuntime } from './record-fields.mjs';
 import { renderSessionRail, selectedSessionIds } from './session-rail.mjs';
@@ -67,6 +68,12 @@ export async function switchAgentSessionMode(agentId, targetMode, { force = fals
     toast(`Mode switch failed: ${body?.detail || body?.error || res.status}`, 'error');
     return null;
   }
+  const requested = requestedInAifyEnv(body, agentId);
+  if (requested) {
+    toast(requested, 'ok');
+    refreshSoon();
+    return body;
+  }
   const updatedMode = String(body?.mode || targetMode);
   const existingAgent = state.agents.find((agent) => String(agent.id || '') === String(agentId));
   if (existingAgent && body?.agent) Object.assign(existingAgent, body.agent);
@@ -101,18 +108,20 @@ export async function submitAgentEdit(agentId) {
       await api(`/agents/${encodeURIComponent(agentId)}/session-handle`, { method: 'PATCH', body: JSON.stringify({ sessionHandle: handle }) });
     }
     const envId = byId('edit-agent-env')?.value.trim() || '';
+    let requested = '';
     if (envId) {
       const runtime = byId('edit-agent-runtime')?.value.trim() || '';
       const workspace = byId('edit-agent-workspace')?.value.trim() || '';
       const body = { environmentId: envId };
       if (runtime) body.runtime = runtime;
       if (workspace) body.workspace = workspace;
-      await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) });
+      requested = requestedInAifyEnv(
+        await api(`/agents/${encodeURIComponent(agentId)}/environment`, { method: 'POST', body: JSON.stringify(body) }), agentId);
     }
     if (willRename) {
       await api(`/agents/${encodeURIComponent(agentId)}/rename`, { method: 'POST', body: JSON.stringify({ newAgentId: newId }) });
     }
-    toast('Agent updated', 'ok');
+    toast(requested || 'Agent updated', 'ok');
     closeInspector();
     await refresh();
   } catch (err) { toast(`Edit failed: ${err?.message || err}`, 'error'); }
@@ -201,8 +210,8 @@ export async function removeAgent(agentId) {
   if (!agentId) return;
   if (!await uiConfirm(`Remove agent "${agentId}"? This tombstones the identity.`, { tone: 'danger' })) return;
   try {
-    await api(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
-    toast(`Removed ${agentId}`, 'ok');
+    const answer = await api(`/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+    toast(requestedInAifyEnv(answer, agentId) || `Removed ${agentId}`, 'ok');
     closeInspector();
     refreshSoon();
   } catch (err) { toast(`Remove failed: ${err?.message || err}`, 'error'); }

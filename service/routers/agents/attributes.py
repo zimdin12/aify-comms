@@ -21,6 +21,9 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service.api_core.agent_sessions import _mark_agent_present
+from service.api_core.definition_guard import DEFINED_SQL
+from service.api_core.definition_requests import queued_for_its_host
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -139,7 +142,15 @@ async def update_agent_herdr_space(agent_id: str, req: AgentHerdrSpaceUpdate, re
         if not row:
             raise HTTPException(404, f"Agent '{agent_id}' not found")
         show = bool(req.show)
-        await db.execute("UPDATE agents SET herdr_space = ? WHERE id = ?", (1 if show else 0, agent_id))
+        # A DEFINED AGENT'S HERDR SPACE IS ITS DEFINITION'S (P0 C5): the edit becomes a request for its
+        # host. The guard is the UPDATE's own WHERE, so no push can land between a check and the write:
+        # the row exists (above), so an UPDATE that changed nothing found it defined.
+        cursor = await db.execute(f"UPDATE agents SET herdr_space = ? WHERE id = ? AND NOT {DEFINED_SQL}",
+                                  (1 if show else 0, agent_id))
+        if not cursor.rowcount:
+            await db.rollback()
+            actor = recorded_operator_actor(None, request, action="changing a defined agent as the operator")
+            return await queued_for_its_host(db, agent_id, {"herdrSpace": show}, actor, _now())
         await db.commit()
         ws = await _get_ws(request)
         if ws:

@@ -112,3 +112,19 @@ competing definition committed. It sees exactly one read, after the commit, then
 request and no spec. A spawn-first control queues and then the definition applies.
 
 The batteries grew: P3a has three N1 mutants (90), P3b has one N2 mutant (19).
+
+## The review of 12766276 (three P3c failures) and P3c-2 (the C5 edit routes)
+
+Witnesses in `service/tests/test_definition_change_requests.py`, each red on an exact 12766276
+worktree:
+- `test_a_report_skips_no_claim`;
+- `test_a_repeated_report_runs_its_consequences_once`;
+- `test_a_removal_racing_a_change_of_custody_stops_nothing`, which holds the write lock from outside
+  while custody moves.
+
+The edit routes: `service/tests/test_editing_a_defined_agent_becomes_a_request.py`, each defined case
+paired with an undefined control. The dashboard says "requested in aify-env" for an answer carrying a
+request (`service/new_dashboard/definition-request-note.mjs`, tested in Node; the four call sites are
+DOM glue).
+
+`mutations-p3c.json` grew to 50, covering the conversions and the three fixes.

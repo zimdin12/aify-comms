@@ -1,0 +1,29 @@
+The review witnesses of 12766276, run on that exact tree (git worktree at 1276627640a1baeff1d2d9b4d5b48456ba305bb5).
+Only the test file is new; backport-witnesses-to-12766276.py first rewrites the reads of what that tree
+never had (the consequence field and column, the refusal's old wording), so each fails on its behaviour.
+
+== test_a_report_skips_no_claim
+E       AssertionError: Tuples differ: (200, None) != (409, 'definition request defreq_179084006[44 chars]rst')
+E       First differing element 0:
+E       200
+E       409
+
+== test_a_repeated_report_runs_its_consequences_once
+E       AssertionError: Lists differ: [{'id[320 chars]oved] [service: the definition this removal wa[239 chars]2Z'}] != [{'id[320 chars]oved]', 'result_incarnation': 1, 'result_revis[157 chars]2Z'}]
+E       First differing element 0:
+E       {'id'[319 chars]oved] [service: the definition this removal wa[238 chars]22Z'}
+E       {'id'[319 chars]oved]', 'result_incarnation': 1, 'result_revis[156 chars]22Z'}
+
+== test_a_removal_racing_a_change_of_custody_stops_nothing
+E       AssertionError: 'stopped' == 'stopped' : no worker was told to stop
+1 failed, 1 warning in 1.54s
+
+== test_a_removal_interrupted_after_its_done_was_recorded_is_finished_by_the_next_report
+1 passed, 1 warning in 0.76s
+
+R1 red: an unclaimed report was accepted (200, not 409).
+R2 red: the replay appended a second note to the stored outcome.
+R3 red: custody moved while the removal waited, and the worker was stopped anyway.
+The interruption witness PASSES on 12766276: that tree recorded done and removed in one transaction, so a
+crash rolled both back. It guards the split this commit makes (done recorded, consequence owed), not a
+defect of 12766276.

@@ -9,6 +9,7 @@
 // propagation before doing anything.
 
 import { api } from './api-client.mjs';
+import { requestedInAifyEnv } from './definition-request-note.mjs';
 import { resolveStatus } from './status.js';
 import { toast } from './ui.js';
 import { esc } from './util.js';
@@ -60,6 +61,13 @@ export function setHerdrSpace(button, refreshSoon) {
   button.disabled = true;
   return api(`/agents/${encodeURIComponent(id)}/herdr-space`, { method: 'PATCH', body: JSON.stringify({ show }) })
     .then((answer) => {
+      const requested = requestedInAifyEnv(answer, id);
+      if (requested) {
+        button.disabled = false;
+        toast(requested, 'ok');
+        refreshSoon();
+        return;
+      }
       const stored = typeof answer?.herdrSpace === 'boolean' ? answer.herdrSpace : show;
       const agent = state.agents.find((a) => a.id === id);
       if (agent) agent.herdrSpace = stored;

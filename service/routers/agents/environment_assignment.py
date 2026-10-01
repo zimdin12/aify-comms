@@ -38,6 +38,8 @@ from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.spawn_spec_assignment import _upsert_spawn_spec_for_assignment
 from service.api_core.validation import validate_name
 from service.api_core.workspace import _workspace_for_environment
+from service.api_core.definition_guard import defined_on
+from service.api_core.definition_requests import assignment_patch, queued_for_its_host
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
@@ -53,7 +55,7 @@ router = domain_router()
 @router.post("/agents/{agent_id}/environment")
 async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignRequest, request: Request):
     # spawn_spec_assignment.py records an omitted name as `dashboard`.
-    recorded_operator_actor(req.requestedBy, request, action="assigning an agent's environment as the operator")
+    requested_by = recorded_operator_actor(req.requestedBy, request, action="assigning an agent's environment as the operator")
     validate_name(agent_id, "agent ID")
     environment_id = str(req.environmentId or "").strip()
     if not environment_id:
@@ -72,6 +74,18 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         environment = _environment_record_to_dict(env_row)
         if str(environment.get("status") or "").lower() != "online":
             raise HTTPException(409, f'Environment "{environment_id}" is {environment.get("status") or "unknown"}, not online')
+        # A DEFINED AGENT RUNS WHERE IT IS DEFINED (P0 C5): its workspace, model, harness and effort are
+        # its definition's, so the assignment becomes a request for its host, and no session is
+        # rewritten. An agent defined after this check is assigned as before; that writes only effective
+        # columns and sessions, and its definition governs its next start (C7).
+        owner = await defined_on(db, agent_id)
+        if owner:
+            patch = assignment_patch(agent_id, owner, str(env_row["machine_id"] or ""), workspace=req.workspace,
+                                     runtime=_normalize_runtime(req.runtime) if req.runtime else "",
+                                     model=req.model, runtime_config=req.runtimeConfig)
+            if not patch:
+                return {"ok": True, "agentId": agent_id, "request": None}
+            return await queued_for_its_host(db, agent_id, patch, requested_by, _now())
 
         runtime = _normalize_runtime(req.runtime or agent["runtime"] or "generic")
         if not _runtime_capability_for_environment(environment, runtime):

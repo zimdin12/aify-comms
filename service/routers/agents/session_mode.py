@@ -20,6 +20,8 @@ from service.api_core.session_mode_writes import _apply_session_mode_switch_to_a
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
 from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.definition_guard import defined_on
+from service.api_core.definition_requests import queued_for_its_host
 from service.api_core.routing import domain_router
 
 logger = logging.getLogger("aify_comms.routers.agents.session_mode")
@@ -98,6 +100,12 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
             if tombstone:
                 raise HTTPException(410, f"Agent '{agent_id}' was intentionally removed")
             raise HTTPException(404, f"Agent '{agent_id}' not found")
+        # A DEFINED AGENT'S MODE IS ITS DEFINITION'S (P0 C5): the switch becomes a request for its host.
+        # An agent defined after this check is switched as before: the switch writes only effective
+        # columns, which registration writes for a defined agent too, and its definition's desired
+        # mode is untouched and governs its next start (C7).
+        if await defined_on(db, agent_id):
+            return await queued_for_its_host(db, agent_id, {"mode": new_mode}, requested_by, _now())
 
         current_mode = _normalize_session_mode(row["session_mode"] or "resident")
         runtime = _normalize_runtime(row["runtime"] or "generic")

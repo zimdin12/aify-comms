@@ -26,9 +26,14 @@ async def remove_agent(db, agent_id: str, *, actor: str, reason: str,
     that worker stopped and the agent in place: stopping is undone by starting, a removal is not.
     """
     if refusal is not None:
+        # THE FENCE AND THE STOP ARE ONE TRANSACTION. Asked outside it, a change of custody between the
+        # answer and the stop's write sent the stop to the new owner's worker (review of 12766276).
+        await db.execute("BEGIN IMMEDIATE")
         why = await refusal(db)
         if why:
+            await db.rollback()
             return 0, why
+    fenced_and_open = refusal is not None
     # fix/hermes-leak P2 (REMOVE): for a MANAGED agent, tear the triad down by
     # signalling the bridge BEFORE the agent record is gone. We cannot use a
     # terminal_control here: deleting the agent cascades agents → agent_sessions
@@ -52,6 +57,7 @@ async def remove_agent(db, agent_id: str, *, actor: str, reason: str,
             db, agent_id, requested_by=actor, now=now, reap_triad=True,
         )
         await db.commit()
+        fenced_and_open = False
         # AND WAIT, BRIEFLY, FOR THE HOST TO TAKE IT. The comment above says this path depends on
         # the stop control being "claimed before the tombstone delete" -- and nothing made that
         # true. `terminal_controls` cascades from `terminal_sessions`, which cascades from
@@ -65,7 +71,9 @@ async def remove_agent(db, agent_id: str, *, actor: str, reason: str,
         # worse than the behaviour it replaces. See `_await_stop_claims`.
         if signalled:
             await _await_stop_claims(db, agent_id)
-    if refusal is not None:
+    # Asked again after the stop committed and the wait: custody can have moved meanwhile. With no stop,
+    # the fence asked above still holds, in the transaction that is still open.
+    if refusal is not None and not fenced_and_open:
         await db.execute("BEGIN IMMEDIATE")
         why = await refusal(db)
         if why:
