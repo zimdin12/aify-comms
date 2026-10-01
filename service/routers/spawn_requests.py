@@ -43,6 +43,7 @@ from fastapi import HTTPException, Query, Request
 
 from service import longpoll
 from service.api_core.claim_emptiness import spawn_request_is_empty
+from service.api_core.definition_guard import defined_on
 from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
@@ -250,6 +251,12 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
 
     db = await get_db()
     try:
+        # A DEFINED AGENT IS STARTED FROM ITS DEFINITION (P0 C5, C7). A spawn of its own would run a
+        # spec the host never wrote, under an id the host owns.
+        defined = await defined_on(db, req.agentId)
+        if defined:
+            raise HTTPException(409, f'Agent "{req.agentId}" is defined in aify-env on {defined}; start it, '
+                                     f'and its spawn is built from that definition')
         env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
         env_row = await env_cursor.fetchone()
         if not env_row:

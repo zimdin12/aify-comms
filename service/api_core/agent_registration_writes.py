@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 
 from service.api_core.bridge_registration import _record_bridge_registration
+from service.api_core.definition_guard import kept_when_defined
 from service.api_core.runtime import _normalize_launch_mode, _normalize_session_mode
 from service.api_core.runtime_state import _runtime_state_with_handle
 from service.api_core.serialization import _json_loads_or
@@ -106,10 +107,10 @@ async def _adopt_console_terminal_on_register(db, req, console_terminal, termina
             Everything it needs is passed in; it calls nothing.
             """
             await db.execute(
-                """
+                f"""
                 UPDATE agents
-                SET role = ?,
-                    name = ?,
+                SET {kept_when_defined("role", "?")},
+                    {kept_when_defined("name", "?")},
                     cwd = ?,
                     runtime = ?,
                     -- A BLANK MEANS "I DID NOT SAY", NEVER "IT MOVED" -- the same rule as the
@@ -192,19 +193,21 @@ async def _upsert_registered_agent_row(db, req, row, normalized_runtime: str, no
         It calls nothing; every value is a parameter.
         """
         await db.execute(
-            """
+            f"""
             INSERT INTO agents (
                 id, role, name, cwd, model, description, instructions, status, status_note, runtime, machine_id,
                 launch_mode, session_mode, session_handle, managed_by, capabilities,
                 runtime_config, runtime_state, driver_state, registered_at, last_seen
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
-                role = excluded.role,
-                name = excluded.name,
+                -- A DEFINED AGENT'S DESCRIPTIVE COLUMNS ARE ITS DEFINITION'S (P0 C5): a worker that
+                -- registers as `coder` named after its id leaves them as the host set them.
+                {kept_when_defined("role", "excluded.role")},
+                {kept_when_defined("name", "excluded.name")},
                 cwd = excluded.cwd,
                 model = excluded.model,
                 description = excluded.description,
-                instructions = excluded.instructions,
+                {kept_when_defined("instructions", "excluded.instructions")},
                 status = excluded.status,
                 status_note = excluded.status_note,
                 runtime = excluded.runtime,

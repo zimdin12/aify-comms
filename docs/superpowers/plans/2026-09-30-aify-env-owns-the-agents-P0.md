@@ -532,6 +532,21 @@ routing to a backend always describes the process that is actually running. The 
 Guards sit in the transaction that writes, keyed on a row in `agent_definitions` read in that same
 transaction, so a push racing a registration cannot interleave.
 
+**Settled while building P3b** (2026-10-01):
+
+- **The role reset was older than definitions.** Every cold start wrote `coder` and the id, defined
+  or not, so it was fixed for every agent in 0.7.8 (the cold start reads the agent's row). In 0.8 the
+  guard below covers what 0.7.8 could not: a worker registering `name: <id>` no longer resets a
+  defined agent's name.
+- **One guard, inside each writing statement.** `definition_guard.kept_when_defined` makes a SET
+  clause that keeps the column when `agent_definitions` holds the agent, read by that same statement.
+  It covers role, name and instructions in the registration upsert, the adopt branch and running
+  settlement. `herdr_space` is written by none of them.
+- **The direct spawn refusal** reads `Agent "<id>" is defined in aify-env on <machine>; start it, and
+  its spawn is built from that definition`.
+- **apply-managed-defaults** leaves defined agents and their spawn specs as they are, and returns
+  `skippedDefined`. The dashboard's toast names the count.
+
 **Witnesses (P3).** The role reset reproduced RED on today's code first. Then, for each row above, the
 defined-agent control (descriptive fields preserved) and the undefined-agent control (unchanged
 behaviour), plus the live controls: a defined agent's heartbeat, handle, lease and quota updates still

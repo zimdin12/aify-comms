@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
+from service.api_core.definition_guard import DEFINED_SQL
 from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
@@ -30,14 +31,22 @@ logger = logging.getLogger("aify_comms.routers.settings")
 router = domain_router()
 
 
-async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
-    """Rewrite every existing managed agent's model and effort to the current defaults.
+#: A managed agent of one runtime that no host defines: what the defaults may rewrite. A defined agent's
+#: model and effort are its definition's (P0 C5), so it is skipped and counted.
+_MANAGED_OF_RUNTIME = "runtime = ? AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')"
+_UNDEFINED_SPEC = "agent_id NOT IN (SELECT agent_id FROM agent_definitions)"
+
+
+async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> int:
+    """Rewrite every existing undefined managed agent's model and effort to the current defaults, and
+    return how many defined managed agents it left as their definitions set them.
 
     ONLY ON REQUEST since 2026-09-19. It ran on every save that carried any `managed_` key, and the
     dashboard sent every field on every save, so changing the colour scheme reset the model of every
     managed agent -- including ones spawned with a model of their own -- and the next restart
     relaunched them on the default. Saving a default now changes only what NEW workers get.
     """
+    skipped = 0
     defaults = [
         ("claude-code", settings.get("managed_claude_model", DEFAULT_SETTINGS["managed_claude_model"]), settings.get("managed_claude_effort") or DEFAULT_SETTINGS["managed_claude_effort"]),
         ("codex", settings.get("managed_codex_model", DEFAULT_SETTINGS["managed_codex_model"]), settings.get("managed_codex_effort") or DEFAULT_SETTINGS["managed_codex_effort"]),
@@ -46,24 +55,12 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
     for runtime, model, effort in defaults:
         model = str(model or "").strip()
         effort = str(effort or "").strip()
+        skipped += (await (await db.execute(
+            f"SELECT COUNT(*) FROM agents WHERE {_MANAGED_OF_RUNTIME} AND {DEFINED_SQL}", (runtime,))).fetchone())[0]
         await db.execute(
-            """
-            UPDATE agents
-            SET model = ?
-            WHERE runtime = ?
-              AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')
-            """,
-            (model, runtime),
-        )
+            f"UPDATE agents SET model = ? WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}", (model, runtime))
         cursor = await db.execute(
-            """
-            SELECT id, runtime_config
-            FROM agents
-            WHERE runtime = ?
-              AND (session_mode = 'managed' OR launch_mode = 'managed' OR managed_by != '')
-            """,
-            (runtime,),
-        )
+            f"SELECT id, runtime_config FROM agents WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}", (runtime,))
         for row in await cursor.fetchall():
             runtime_config = _json_loads_or(row["runtime_config"], {})
             runtime_config["effort"] = effort
@@ -71,8 +68,9 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
                 "UPDATE agents SET runtime_config = ? WHERE id = ?",
                 (json.dumps(runtime_config), row["id"]),
             )
-        await db.execute("UPDATE spawn_specs SET model = ? WHERE runtime = ?", (model, runtime))
-        spec_cursor = await db.execute("SELECT id, metadata FROM spawn_specs WHERE runtime = ?", (runtime,))
+        await db.execute(f"UPDATE spawn_specs SET model = ? WHERE runtime = ? AND {_UNDEFINED_SPEC}", (model, runtime))
+        spec_cursor = await db.execute(
+            f"SELECT id, metadata FROM spawn_specs WHERE runtime = ? AND {_UNDEFINED_SPEC}", (runtime,))
         for row in await spec_cursor.fetchall():
             metadata = _json_loads_or(row["metadata"], {})
             runtime_config = metadata.get("runtimeConfig") if isinstance(metadata.get("runtimeConfig"), dict) else {}
@@ -82,6 +80,7 @@ async def _apply_managed_runtime_defaults(db, settings: dict[str, Any]) -> None:
                 "UPDATE spawn_specs SET metadata = ?, updated_at = ? WHERE id = ?",
                 (json.dumps(metadata), _now(), row["id"]),
             )
+    return skipped
 
 
 # Every value is checked against its declaration in settings_spec.py, and a PUT carrying one the
@@ -125,14 +124,15 @@ async def update_settings(request: Request):
 
 @router.post("/settings/apply-managed-defaults")
 async def apply_managed_defaults(request: Request):
-    """Give every existing managed agent the current model and effort defaults. The operator asks."""
+    """Give every existing undefined managed agent the current model and effort defaults, and say how
+    many defined ones it skipped. The operator asks."""
     db = await get_db()
     try:
-        await _apply_managed_runtime_defaults(db, await _load_settings(db))
+        skipped = await _apply_managed_runtime_defaults(db, await _load_settings(db))
         await db.commit()
         ws = await _get_ws(request)
         if ws:
             await ws.broadcast("settings_updated")
-        return {"ok": True}
+        return {"ok": True, "skippedDefined": skipped}
     finally:
         await db.close()

@@ -23,6 +23,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.agent_rename_writes import _rewrite_agent_references_for_rename
 from service.api_core.agent_sessions import _agent_tombstone
+from service.api_core.definition_guard import defined_on
 from service.api_core.liveness import _agent_liveness
 from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
 from service.api_core.routing import domain_router
@@ -60,11 +61,10 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
             raise HTTPException(404, f'Agent "{agent_id}" not found')
         # A DEFINED AGENT'S ID IS ITS HOST'S FILE NAME. Renaming it here would split the agent from its
         # definition, and the host's next push would define the old id again (P0 C3).
-        defined = await (await db.execute(
-            "SELECT machine_id FROM agent_definitions WHERE agent_id = ?", (agent_id,))).fetchone()
+        defined = await defined_on(db, agent_id)
         if defined:
             await db.rollback()
-            raise HTTPException(409, f'Agent "{agent_id}" is defined on {defined["machine_id"]}; '
+            raise HTTPException(409, f'Agent "{agent_id}" is defined on {defined}; '
                                      f'rename it there: `aify-env agents set` the new id, then `aify-env agents remove` this one')
         existing = await (await db.execute("SELECT id FROM agents WHERE id = ?", (new_agent_id,))).fetchone()
         if existing:

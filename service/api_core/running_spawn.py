@@ -34,6 +34,7 @@ from service.api_core.channel_delivery import (
     _apply_channel_routing_to_claude_runs,
     _insert_messages_via_console,
 )
+from service.api_core.definition_guard import kept_when_defined
 from service.api_core.dispatch_runs import _create_dispatch_runs
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.runtime_state import _runtime_state_with_handle
@@ -70,18 +71,20 @@ async def _settle_running_spawn(
                 runtime_config = {}
             agent_capabilities = _default_capabilities_for(row["runtime"], "managed", effective_session_handle, runtime_config)
             await db.execute(
-                """
+                f"""
                 INSERT INTO agents (
                     id, role, name, cwd, model, description, instructions, status, status_note,
                     runtime, machine_id, launch_mode, session_mode, session_handle, managed_by,
                     capabilities, runtime_config, runtime_state, registered_at, last_seen
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
-                    role = excluded.role,
-                    name = excluded.name,
+                    -- A defined agent's descriptive columns come from its definition, never from the
+                    -- request that started it (P0 C5).
+                    {kept_when_defined("role", "excluded.role")},
+                    {kept_when_defined("name", "excluded.name")},
                     cwd = excluded.cwd,
                     model = excluded.model,
-                    instructions = excluded.instructions,
+                    {kept_when_defined("instructions", "excluded.instructions")},
                     status = excluded.status,
                     runtime = excluded.runtime,
                     -- A CLAIM THAT NAMED NO MACHINE MUST NOT ERASE THE ONE ON THE ROW. Measured on

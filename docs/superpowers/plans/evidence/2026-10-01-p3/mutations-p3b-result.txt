@@ -1,0 +1,44 @@
+killed (exit 1)                  C5 registration: the upsert overwrites a defined agent's role
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_registration_keeps_the_definitions_description_and_writes_the_effective_fields
+killed (exit 1)                  C5 registration: the upsert overwrites a defined agent's name
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_registration_keeps_the_definitions_description_and_writes_the_effective_fields
+killed (exit 1)                  C5 registration: the upsert overwrites a defined agent's instructions
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_registration_keeps_the_definitions_description_and_writes_the_effective_fields
+killed (exit 1)                  C5 registration: the adopt branch overwrites a defined agent's role
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_console_adopting_registration_keeps_the_definitions_description
+killed (exit 1)                  C5 registration: the adopt branch overwrites a defined agent's name
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_console_adopting_registration_keeps_the_definitions_description
+killed (exit 1)                  C5 settlement: a request's role overwrites the definition's
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes
+killed (exit 1)                  C5 settlement: a request's name overwrites the definition's
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes
+killed (exit 1)                  C5 settlement: a spec's instructions overwrite the definition's
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes
+killed (exit 1)                  C5 guard: no agent ever reads as defined
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_console_adopting_registration_keeps_the_definitions_description
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_registration_keeps_the_definitions_description_and_writes_the_effective_fields
+killed (exit 1)                  C5 guard: every agent reads as defined (a freeze)
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_console_adopting_registration_keeps_the_definitions_description
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_registration_keeps_the_definitions_description_and_writes_the_effective_fields
+killed (exit 1)                  C5 guard: the kept value is the new one
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_console_adopting_registration_keeps_the_definitions_description
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_spawn_queued_before_the_definition_comes_up_as_the_definition_describes
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_registration_keeps_the_definitions_description_and_writes_the_effective_fields
+killed (exit 1)                  C5 spawn: a defined agent is spawned directly
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_a_defined_agent_is_not_spawned_directly
+killed (exit 1)                  C5 defaults: a defined agent's model is rewritten
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+killed (exit 1)                  C5 defaults: a defined agent's effort is rewritten
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+killed (exit 1)                  C5 defaults: a defined agent's spec model is rewritten
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+killed (exit 1)                  C5 defaults: a defined agent's spec effort is rewritten
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+killed (exit 1)                  C5 defaults: the skipped count is not reported
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+killed (exit 1)                  C5 defaults: the skipped count counts every agent
+                                  FAILED service/tests/test_a_defined_agents_description_is_its_definitions.py::ADefinedAgentsDescriptionIsItsDefinitions::test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so
+18/18 killed

@@ -435,8 +435,10 @@ export function wireSettingsControls({ saveSettings }) {
     if (!event.target.closest('#settings-apply-defaults')) return;
     if (!await uiConfirm('Give every existing managed worker the saved model and effort? Each takes it at its next start.')) return;
     try {
-      await api('/settings/apply-managed-defaults', { method: 'POST' });
-      toast('Applied to existing workers', 'ok');
+      const result = await api('/settings/apply-managed-defaults', { method: 'POST' });
+      // An agent defined in aify-env keeps its definition's model and effort (P0 C5).
+      const skipped = Number(result?.skippedDefined || 0);
+      toast(skipped ? `Applied to existing workers; ${skipped} defined in aify-env kept their own` : 'Applied to existing workers', 'ok');
     } catch (err) {
       toast(`Apply failed: ${err?.message || err}`, 'error');
     }
