@@ -512,9 +512,6 @@ CREATE TABLE IF NOT EXISTS definition_stores (
     revision INTEGER NOT NULL,
     snapshot_digest TEXT NOT NULL,
     environment_id TEXT DEFAULT '',
-    -- What the current revision left unresolved ({"refused", "invalid", "kept"}): a replay of it
-    -- returns this, so a refusal is not lost when the host sends the same revision again.
-    outcome TEXT DEFAULT '{}',
     updated_at TEXT NOT NULL
 );
 
@@ -529,6 +526,31 @@ CREATE TABLE IF NOT EXISTS definition_stores_retired (
     refused_count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (machine_id, store_id)
 );
+
+-- An operator's change to a defined agent, applied by the host that owns it (P0 C4): a compare-and-set
+-- on the lifetime and revision the service held when it was asked. pending -> claimed -> done |
+-- refused | expired. The host is the authority on whether it applied.
+CREATE TABLE IF NOT EXISTS definition_requests (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    machine_id TEXT NOT NULL,
+    store_id TEXT NOT NULL,
+    expected_incarnation INTEGER NOT NULL,
+    expected_revision INTEGER NOT NULL,
+    patch TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    outcome TEXT DEFAULT '',
+    result_incarnation INTEGER,
+    result_revision INTEGER,
+    created_at TEXT NOT NULL,
+    -- A request still pending at this time expires (C4: 10 minutes), judged whenever requests are read.
+    expires_at TEXT NOT NULL,
+    claimed_at TEXT DEFAULT '',
+    finished_at TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_definition_requests_agent ON definition_requests(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_definition_requests_machine ON definition_requests(machine_id, status);
 
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,

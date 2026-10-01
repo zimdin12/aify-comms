@@ -153,6 +153,14 @@ def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> No
     authorize_operator(actor, request, operator_key_from(request), action=action)
 
 
+def require_operator(body: dict, request, action: str) -> None:
+    """Refuse (403) a request whose `requestedBy` is not the operator, on the routes only the operator
+    may call: an agent asking is refused, as is an unproven operator claim when a key is set."""
+    actor = str(body.get("requestedBy") or "").strip()
+    if not authorize_operator(actor, request, operator_key_from(request), action=action):
+        raise HTTPException(403, f"only the operator may {action}")
+
+
 def refuse_a_reserved_agent_id(agent_id: str) -> None:
     """Refuse (400) an agent id that is an operator name, with or without an operator key.
 

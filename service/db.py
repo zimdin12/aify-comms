@@ -91,6 +91,9 @@ AGENT_MIGRATIONS = {
     # 0.8 (P0 C3/C6): '' never defined in aify-env, 'defined' while a host's definition stands,
     # 'withdrawn' once its owner's snapshot no longer has it. Written only by api_core/definition_push.py.
     "definition_state": "ALTER TABLE agents ADD COLUMN definition_state TEXT DEFAULT ''",
+    # The definition a store last withdrew, as {"machineId", "storeId", "incarnation"}: a removal request
+    # whose `done` arrives after its own withdrawal landed is fenced against it (P0 C4).
+    "definition_withdrawn": "ALTER TABLE agents ADD COLUMN definition_withdrawn TEXT DEFAULT ''",
 }
 
 DISPATCH_RUN_MIGRATIONS = {
@@ -398,6 +401,23 @@ async def _migrate_agent_hook_order_table(db: aiosqlite.Connection):
             await db.execute(statement)
 
 
+# 0.8: a database created by P3a (4af344c5) has the table without `outcome`, and its replay was a 500.
+DEFINITION_STORE_MIGRATIONS = {
+    # What the current revision left unresolved ({"refused", "invalid", "kept"}): a replay of it
+    # returns this, so a refusal is not lost when the host sends the same revision again. NULL means
+    # NOT RECORDED (a revision applied before this column), never "nothing unresolved".
+    "outcome": "ALTER TABLE definition_stores ADD COLUMN outcome TEXT",
+}
+
+
+async def _migrate_definition_stores_table(db: aiosqlite.Connection):
+    cursor = await db.execute("PRAGMA table_info(definition_stores)")
+    existing = {row[1] for row in await cursor.fetchall()}
+    for column, statement in DEFINITION_STORE_MIGRATIONS.items():
+        if column not in existing:
+            await db.execute(statement)
+
+
 async def _migrate_bridge_instances_table(db: aiosqlite.Connection):
     cursor = await db.execute("PRAGMA table_info(bridge_instances)")
     existing = {row[1] for row in await cursor.fetchall()}
@@ -571,6 +591,7 @@ async def init_db(db_path: Path = None):
         await _migrate_console_signal_table(db)
         await _migrate_agent_turn_state_table(db)
         await _migrate_agent_hook_order_table(db)
+        await _migrate_definition_stores_table(db)
         await _migrate_agent_status_state_table(db)
         await _migrate_settings_rows(db)
         await _clear_stuck_internal_settings(db)

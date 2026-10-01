@@ -36,3 +36,12 @@ SUCCESSOR (the review of 4af344c5, R1-R4), on the staged tree, run one after ano
   aify-wrapper-next: 575 tests, 509 pass, 66 skipped
   aify-env-next: 2272 tests, 2268 pass, 4 skipped
   Credential file still 2026-09-29 18:37:10.
+
+P3c + REVIEW FIXES N1/N2 (the review of a171e8a3 / b5ac1de3), on the staged tree, one after another:
+  batteries: P3a 90/90, P3b 19/19, P3c 32/32, sources restored (sha256 checked)
+  python: 4963 passed, 27 skipped, 10758 subtests passed in 197.53s
+  mcp/stdio run-all: 366 files, exit 0
+  dashboard: 1886 tests, 1886 pass
+  aify-wrapper-next: 575 tests, 509 pass, 66 skipped
+  aify-env-next: 2272 tests, 2268 pass, 4 skipped
+  Credential file still 2026-09-29 18:37:10.

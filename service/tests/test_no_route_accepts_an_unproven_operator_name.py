@@ -39,6 +39,8 @@ NOT_AN_ACTOR = {
 }
 #: A raw-body handler reading an actor-shaped key: `body.get("requestedBy")` and the like.
 RAW_ACTOR_READ = re.compile(r"""\.get\(\s*["']([a-z]+By|from|from_agent|fromAgent|actor)["']""")
+#: A raw-body handler that delegates the actor read: `require_operator(body, ...)` reads `requestedBy`.
+DELEGATED_ACTOR_READ = re.compile(r"\brequire_operator\(\s*body\b")
 
 
 def is_actor_field(key: str) -> bool:
@@ -82,9 +84,14 @@ def _probes(app):
             if is_actor_field(query.alias) and actor is None:
                 actor = ("query", query.alias)
         if actor is None and not dependant.body_params:
-            read = RAW_ACTOR_READ.search(inspect.getsource(route.endpoint))
+            source = inspect.getsource(route.endpoint)
+            read = RAW_ACTOR_READ.search(source)
             if read and is_actor_field(read.group(1)):
                 actor = ("body", read.group(1))
+            elif DELEGATED_ACTOR_READ.search(source):
+                # The handler hands its body to `require_operator`, which reads `requestedBy` there, out
+                # of this source's sight: the release and reset routes went unprobed that way.
+                actor = ("body", "requestedBy")
         if actor is None:
             continue
         path = re.sub(r"\{[^}]+\}", "no-such-record", route.path)
@@ -109,6 +116,8 @@ class NoRouteAcceptsAnUnprovenOperatorName(FastApiTestCase):
                          "the raw-body reader missed stop-worker, which reads requestedBy by hand")
         self.assertEqual(probes.get(("PATCH", "/api/v1/dispatch/controls/no-such-record")), ("body", "handledBy"),
                          "the shape rule missed handledBy, the field a hand-written list missed")
+        self.assertEqual(probes.get(("POST", "/api/v1/agent-definitions/no-such-record/release")), ("body", "requestedBy"),
+                         "the walk missed a handler that hands its body to require_operator")
         self.assertGreaterEqual(len(probes), 25, f"the walk found only {len(probes)} actor routes")
 
     def test_with_the_key_set_every_route_refuses_an_unproven_dashboard(self):

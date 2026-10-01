@@ -259,4 +259,27 @@ killed (exit 1)                  D13: the agent detail carries no definition
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
 killed (exit 1)                  D13: a serialized agent carries no definition state
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
-87/87 killed
+killed (exit 1)                  N1: init does not migrate definition_stores
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_defined_agent_is_renamed_on_its_host_not_here
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_definition_c1_refuses_is_refused_here_and_writes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_new_id_is_defined_owned_and_listed - Assert...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_release_racing_a_custody_change_releases_nothing_it_did_not_name
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_keeps_its_refusals_and_only_a_fresh_revision_takes_a_released_id
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_stale_retry_after_a_removal_leaves_it_withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_existing_agents_effective_columns_are_left_to_the_paths_that_write_them
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_intentional_empty_snapshot_withdraws_everything_and_removes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_invalid_file_keeps_the_last_good_definition_until_it_is_repaired
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_availability_changes_are_ordered_revisions_and_never_a_withdrawal
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_reversed_delivery_keeps_the_newer_state - Ass...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_init_adds_the_column_and_an_unrecorded_outcome_says_so
+killed (exit 1)                  N1: an unrecorded outcome reads as nothing unresolved
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_init_adds_the_column_and_an_unrecorded_outcome_says_so
+killed (exit 1)                  N1: a replay always claims its outcome was recorded
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_init_adds_the_column_and_an_unrecorded_outcome_says_so
+90/90 killed

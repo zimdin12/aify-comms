@@ -428,6 +428,14 @@ historical sessions. This is a limitation of this tag, not an answer to the mult
   never hands an id to whichever machine replays first. A release does not advance any host's
   revision: the refused machine takes the id with its next fresh revision. P4 decides when aify-env
   publishes one on seeing that reason.
+- **An outcome nobody recorded stays unknown** (review of a171e8a3, N1). `definition_stores.outcome`
+  is added by a migration, so a database P3a created gains it at init. It arrives NULL, meaning not
+  recorded, so the replay of a revision applied before it answers `outcomeRecorded: false` with empty
+  lists. Those lists mean unknown, not resolved. Every replay carries `outcomeRecorded`, and the host's
+  next fresh revision records an outcome. No deployed database holds these tables: the 0.8 branch has
+  only ever run in tests and review scratch.
+- **Every check that guards a write is read inside that write's transaction** (R1 for release, N2 for
+  the direct spawn), or is part of the writing statement itself (the P3b description guard).
 - **A release names the machine it releases from** (R1). Its owner is read inside the release's write
   transaction. If custody moved, the release refuses (409, naming the current owner) and changes
   nothing.
@@ -500,6 +508,31 @@ destructive agent removal ONLY when, in that transaction, the service still hold
 the request's expected `(store_id, incarnation)` or already saw it withdrawn by that store at exactly
 that lifetime, and no other machine owns the id. A delayed `done` that finds a different incarnation,
 store or owner records the host outcome and removes nothing, and says so on the request.
+
+**Settled while building P3c** (2026-10-01):
+
+- **Routes.**
+  - Operator: `POST /agent-definitions/{id}/requests` with `{patch, requestedBy}`. A patch is an object
+    of agent fields other than `id`, or exactly `{"remove": true}`, where `true` is the boolean. The
+    service checks the shape only; the values are the host's to judge by C1.
+  - `GET` on the same path lists the agent's requests.
+  - Host: `POST /environments/{env}/definition-requests/claim` with `{bridgeId, machineId}`, and
+    `POST /environments/{env}/definition-requests/{id}/result` with `{bridgeId, machineId, status:
+    done|refused, outcome, resultIncarnation, resultRevision}`. Both are fenced as a push is.
+- **Expiry needs no sweep.** A request stores `expires_at`. Every read of the queue (admission, claim,
+  list) expires pending requests past it first.
+- **A claimed request that was never reported is handed out again** on the next claim. The host's
+  apply is idempotent (step 2), so a host that crashed between claim and report finishes it.
+- **Refused at the claim** (the service writes the reason): made for a store the machine has since
+  replaced; the definition withdrawn; the definition moved to another machine.
+- **A report is idempotent and final.** The same status and result pair again answers 200 and changes
+  nothing (a lost acknowledgement). Any other report on a finished request is 409.
+- **The removal fence** compares (machine, store, incarnation) with what the request was made
+  against. It reads the definition still held, or the record of the store that withdrew it
+  (`agents.definition_withdrawn`, written at withdrawal; a release writes none). It is asked before a
+  managed worker is told to stop, and again inside the transaction that deletes. A refusal at either
+  asking appends `[service: <why>]` to the request's outcome and removes nothing. The removal itself
+  is the DELETE route's own (`api_core/agent_remove.py`), moved out of the route so both use it.
 
 **Witnesses (P3/P4).** Two edits from one pair (second refused at admission); a local edit then a
 queued service edit (refused, file unchanged); crash after commit (replay reports done, no second

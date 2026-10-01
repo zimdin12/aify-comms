@@ -1,0 +1,90 @@
+killed (exit 1)                  C4 patch: a truthy remove is a removal
+                                  SUBFAILED(patch={'remove': 1}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+killed (exit 1)                  C4 patch: remove with other fields is a removal
+                                  SUBFAILED(patch={'remove': True, 'role': 'x'}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+killed (exit 1)                  C4 patch: any field may be patched
+                                  SUBFAILED(patch={'id': 'other'}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  SUBFAILED(patch={'remove': False}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  SUBFAILED(patch={'remove': True, 'role': 'x'}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  SUBFAILED(patch={'remove': 1}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+killed (exit 1)                  C4 patch: the id may be patched
+                                  SUBFAILED(patch={'id': 'other'}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+killed (exit 1)                  C4 patch: an empty patch is queued
+                                  SUBFAILED(patch={}) service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+killed (exit 1)                  C4 expiry: a pending request never expires
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_an_unclaimed_request_expires_and_frees_the_agent_for_another
+killed (exit 1)                  C4 expiry: a request expires the moment it is made
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_definition_moved_to_another_machine_refuses_the_old_hosts_claim
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_while_the_definition_is_held_removes_the_agent
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_is_a_compare_and_set_on_what_the_service_holds
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_its_host_can_no_longer_apply_is_refused_at_the_claim
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_owning_hosts_current_claimer_claims_it_and_gets_it_again_until_it_reports
+killed (exit 1)                  C4 admission: an undefined agent is queued
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+                                  SUBFAILED(method='POST', path='/api/v1/agent-definitions/{agent_id}/requests') service/tests/test_removed_agent_is_refused_everywhere.py::RemovedAgentIsRefusedEverywhereTests::test_no_write_endpoint_succeeds_against_a_removed_agent
+killed (exit 1)                  C4 admission: a second request is queued beside the first
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_is_a_compare_and_set_on_what_the_service_holds
+killed (exit 1)                  C4 admission: the expected pair is swapped
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_is_a_compare_and_set_on_what_the_service_holds
+killed (exit 1)                  C4 admission: anyone may ask
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
+killed (exit 1)                  C4 claim: an unfenced claimer is handed requests
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_owning_hosts_current_claimer_claims_it_and_gets_it_again_until_it_reports
+killed (exit 1)                  C4 claim: every machine's requests are judged by one claimer
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_owning_hosts_current_claimer_claims_it_and_gets_it_again_until_it_reports
+killed (exit 1)                  C4 claim: a claimed, unreported request is not handed out again
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_owning_hosts_current_claimer_claims_it_and_gets_it_again_until_it_reports
+killed (exit 1)                  C4 claim: a request for a replaced store is delivered
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_its_host_can_no_longer_apply_is_refused_at_the_claim
+killed (exit 1)                  C4 claim: a request for a moved definition is delivered
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_definition_moved_to_another_machine_refuses_the_old_hosts_claim
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_its_host_can_no_longer_apply_is_refused_at_the_claim
+killed (exit 1)                  C4 claim: a refused request is delivered anyway
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_definition_moved_to_another_machine_refuses_the_old_hosts_claim
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_its_host_can_no_longer_apply_is_refused_at_the_claim
+killed (exit 1)                  C4 report: an unfenced reporter is heard
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+killed (exit 1)                  C4 report: any status is recorded
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+killed (exit 1)                  C4 report: a done names no result pair
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+killed (exit 1)                  C4 report: another machine reports a request
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+killed (exit 1)                  C4 report: the same report twice is refused
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+killed (exit 1)                  C4 report: a finished request is overwritten
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+killed (exit 1)                  C4 removal: a done removal removes nothing
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_while_the_definition_is_held_removes_the_agent
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
+killed (exit 1)                  C4 removal: a done removal is not fenced
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
+killed (exit 1)                  C4 removal: the request does not say why nothing was removed
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
+killed (exit 1)                  C4 fence: a held definition of another lifetime is removed
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
+killed (exit 1)                  C4 fence: a withdrawal at that lifetime is not recognised
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
+killed (exit 1)                  C4 fence: any withdrawal or release allows the removal
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
+killed (exit 1)                  C4 withdrawal: the lifetime withdrawn is recorded wrong
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
+killed (exit 1)                  C4 remove: the fence is not asked inside the deleting transaction
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_removal_fence_is_asked_again_inside_the_deleting_transaction
+killed (exit 1)                  C4 remove: the fence is not asked before the worker is stopped
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_refused_at_the_first_asking_stops_no_worker
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_removal_fence_is_asked_again_inside_the_deleting_transaction
+32/32 killed

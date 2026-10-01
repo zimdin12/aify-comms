@@ -121,7 +121,7 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         raise HTTPException(409, f"conflict: store {store_id} revision {revision} was already applied with "
                                  f"another digest; nothing applied")
     if order is PushOrder.REPLAY:
-        return await _replayed(db, machine_id, json.loads(current["outcome"] or "{}"))
+        return await _replayed(db, machine_id, current["outcome"])
 
     if order is PushOrder.NEW_STORE:
         await db.execute(
@@ -145,11 +145,15 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
 FREE_SINCE = "free since this revision was applied; a fresh revision defines it"
 
 
-async def _replayed(db, machine_id: str, unresolved: dict) -> dict:
+async def _replayed(db, machine_id: str, recorded) -> dict:
     """THE SAME REVISION GETS THE SAME ANSWER, re-judged and never re-applied. What the revision left
     unresolved is reported again, so a refusal is not lost when a host repeats its push. A refused id
     is judged as it stands now, read-only: one that has become free says so, and the host defines it
-    with a fresh revision (P0 C3)."""
+    with a fresh revision (P0 C3).
+
+    `outcomeRecorded` is false for a revision applied before outcomes were stored (a P3a database):
+    its empty lists then mean "unknown", and a fresh revision is how the host learns the answer."""
+    unresolved = json.loads(recorded) if recorded is not None else {}
     owners = {row["agent_id"]: row["machine_id"] for row in await (await db.execute(
         "SELECT agent_id, machine_id FROM agent_definitions")).fetchall()}
     # A stored refusal cannot have become this machine's own: only a fresh revision or a new store
@@ -157,12 +161,14 @@ async def _replayed(db, machine_id: str, unresolved: dict) -> dict:
     refused = [{"id": agent_id, "reason": await _id_refusal(db, agent_id, owners.get(agent_id), machine_id) or FREE_SINCE}
                for agent_id in unresolved.get("refused", [])]
     return {"outcome": "replay", "applied": [], "withdrawn": [], "refused": refused,
-            "invalid": unresolved.get("invalid", []), "kept": unresolved.get("kept", [])}
+            "invalid": unresolved.get("invalid", []), "kept": unresolved.get("kept", []),
+            "outcomeRecorded": recorded is not None}
 
 
 async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict], now: str) -> dict:
-    owners = {row["agent_id"]: row["machine_id"] for row in await (await db.execute(
-        "SELECT agent_id, machine_id FROM agent_definitions")).fetchall()}
+    held = {row["agent_id"]: row for row in await (await db.execute(
+        "SELECT agent_id, machine_id, store_id, incarnation FROM agent_definitions")).fetchall()}
+    owners = {agent_id: row["machine_id"] for agent_id, row in held.items()}
     result = {"outcome": "applied", "applied": [], "kept": [], "withdrawn": [], "refused": [], "invalid": []}
     for entry in entries:
         owner = owners.get(entry["id"])
@@ -200,7 +206,10 @@ async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict]
     present = {entry["id"] for entry in entries}
     for agent_id, owner in owners.items():
         if owner == machine_id and agent_id not in present:
+            withdrawn = {"machineId": machine_id, "storeId": held[agent_id]["store_id"],
+                         "incarnation": held[agent_id]["incarnation"]}
             await db.execute("DELETE FROM agent_definitions WHERE agent_id = ?", (agent_id,))
-            await db.execute("UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?", (agent_id,))
+            await db.execute("UPDATE agents SET definition_state = 'withdrawn', definition_withdrawn = ? WHERE id = ?",
+                             (json.dumps(withdrawn), agent_id))
             result["withdrawn"].append(agent_id)
     return result

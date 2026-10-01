@@ -34,14 +34,12 @@ from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.managed_env import load_session_environment_by_agent
 from service.api_core.dispatch_state import _get_dispatch_state_map
 from service.api_core.records import _agent_record_to_dict
-from service.api_core.runtime import _normalize_session_mode
 from service.api_core.settings import _load_settings
 from service.api_core.status_refresh import _refresh_expired_agent_live_states
 from service.api_core.ws import _get_ws
 from service.db import get_db
 from service.reconcilers.managed_workers import _repair_unusable_active_runs
 from service.reconcilers.status_cache import _live_state_get
-from service.clock import now as _now
 import sqlite3
 from service.api_core.tuning import LIST_AGENTS_REFRESH_LIMIT
 from service.routers.agents.shared import logger
@@ -49,11 +47,7 @@ from service.api_core.registration_gates import (
     _enforce_env_reachable_gate,
     _enforce_live_worker_gate,
 )
-from service.api_core.agent_terminal_ops import (
-    _await_stop_claims,
-    _request_stop_agent_terminals,
-)
-from service.api_core.agent_removal import _remove_agent_record
+from service.api_core.agent_remove import remove_agent
 
 router = domain_router()
 
@@ -171,49 +165,7 @@ async def get_agent(agent_id: str, request: Request):
 async def unregister_agent(agent_id: str, request: Request):
     db = await get_db()
     try:
-        # fix/hermes-leak P2 (REMOVE): for a MANAGED agent, tear the triad down by
-        # signalling the bridge BEFORE the agent record is gone. We cannot use a
-        # terminal_control here: deleting the agent cascades agents → agent_sessions
-        # → terminal_sessions → terminal_controls, so any control emitted in this
-        # request is wiped by the same delete. Instead REMOVE drives the triad reap
-        # through the SAME agent-control STOP path (status=stopped + the bridge's
-        # managed-hermes terminal stop reaps the triad), committed in its own
-        # transaction, THEN tombstones. This makes REMOVE = STOP-then-tombstone, so
-        # the surviving stop control (claimed before the tombstone delete) carries
-        # the triad-reap. Resident agents are skipped (operator's own session).
-        cursor = await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))
-        agent_row = await cursor.fetchone()
-        managed = bool(agent_row) and _normalize_session_mode(agent_row["session_mode"] or "resident") == "managed"
-        if managed:
-            now = _now()
-            await db.execute(
-                "UPDATE agents SET status = 'stopped', status_note = ?, launch_mode = 'none', last_seen = ? WHERE id = ?",
-                ("Removed from dashboard; tearing down managed session.", now, agent_id),
-            )
-            signalled = await _request_stop_agent_terminals(
-                db, agent_id, requested_by="api", now=now, reap_triad=True,
-            )
-            await db.commit()
-            # AND WAIT, BRIEFLY, FOR THE HOST TO TAKE IT. The comment above says this path depends on
-            # the stop control being "claimed before the tombstone delete" -- and nothing made that
-            # true. `terminal_controls` cascades from `terminal_sessions`, which cascades from
-            # `agents`, so the delete below WIPES the control this request just wrote. The two
-            # commits are milliseconds apart and it lost three times on 2026-09-07: aify-env streamed
-            # into 404s for ten minutes, correctly refusing to kill workers that were still
-            # producing, until its own silence guard stopped them.
-            #
-            # A BOUND, NOT A GUARANTEE. A host that is not listening cannot block a removal for ever;
-            # the deadline expires and the delete proceeds exactly as it did before, so this is never
-            # worse than the behaviour it replaces. See `_await_stop_claims`.
-            if signalled:
-                await _await_stop_claims(db, agent_id)
-        deleted = await _remove_agent_record(
-            db,
-            agent_id,
-            removed_by="api",
-            reason="delete_agent",
-        )
-        await db.commit()
+        deleted, _ = await remove_agent(db, agent_id, actor="api", reason="delete_agent")
         ws = await _get_ws(request)
         if ws: await ws.broadcast("agent_removed", {"agentId": agent_id})
         return {"ok": deleted > 0, "agentId": agent_id}

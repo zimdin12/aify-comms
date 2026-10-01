@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service.api_core.definition_push import apply_definition_push
-from service.api_core.operator_authz import authorize_operator, operator_key_from
+from service.api_core.operator_authz import require_operator
 from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.clock import now as _now
@@ -37,17 +37,11 @@ async def push_agent_definitions(environment_id: str, request: Request):
     return {"ok": True, **result}
 
 
-def _require_operator(body: dict, request: Request, action: str) -> None:
-    actor = str(body.get("requestedBy") or "").strip()
-    if not authorize_operator(actor, request, operator_key_from(request), action=action):
-        raise HTTPException(403, f"only the operator may {action}")
-
-
 @router.post("/environments/{environment_id:path}/definition-store/reset")
 async def reset_definition_store(environment_id: str, request: Request):
     """Operator: let this machine return to a store it retired (two definition directories used in turn)."""
     body = await json_object_body(request, lenient=True)
-    _require_operator(body, request, "reset a machine's retired definition stores")
+    require_operator(body, request, "reset a machine's retired definition stores")
     db = await get_db()
     try:
         env_row = await (await db.execute("SELECT machine_id FROM environments WHERE id = ?", (environment_id,))).fetchone()
@@ -70,10 +64,8 @@ async def release_agent_definition(agent_id: str, request: Request):
     definition while reporting the old one (review of P3a, R1).
     """
     body = await json_object_body(request, lenient=True)
-    _require_operator(body, request, "release an agent definition")
+    require_operator(body, request, "release an agent definition")
     expected = str(body.get("machineId") or "").strip()
-    if not expected:
-        raise HTTPException(422, "machineId: name the machine whose definition is being released")
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -81,6 +73,9 @@ async def release_agent_definition(agent_id: str, request: Request):
         if not row:
             await db.rollback()
             raise HTTPException(404, f'"{agent_id}" has no definition to release')
+        if not expected:
+            await db.rollback()
+            raise HTTPException(422, "machineId: name the machine whose definition is being released")
         if row["machine_id"] != expected:
             await db.rollback()
             raise HTTPException(409, f'"{agent_id}" is defined on {row["machine_id"]}, not {expected}; nothing released')

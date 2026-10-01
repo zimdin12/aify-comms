@@ -127,6 +127,10 @@ LEFT_BEHIND = {
     #: Never reached: renaming a defined agent is refused (routers/agents/rename.py), because the id
     #: is the host's file name and the host's next push would define the old id again (P0 C3).
     ("agent_definitions", "agent_id"): "a defined agent cannot be renamed here; its host renames it",
+    #: Requests exist only for defined agents, which are never renamed here; and the requester is the
+    #: operator (only the operator may ask), not an agent the rename is about.
+    ("definition_requests", "agent_id"): "a defined agent cannot be renamed here; its host renames it",
+    ("definition_requests", "requested_by"): "requester audit: the operator, not the subject of the rename",
 }
 
 UNRESOLVED: dict[tuple[str, str], str] = {

@@ -252,7 +252,10 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     db = await get_db()
     try:
         # A DEFINED AGENT IS STARTED FROM ITS DEFINITION (P0 C5, C7). A spawn of its own would run a
-        # spec the host never wrote, under an id the host owns.
+        # spec the host never wrote, under an id the host owns. READ INSIDE THE WRITE TRANSACTION: read
+        # before it, a push could define the id between this check and the insert below (review of
+        # b5ac1de3), so the route holds the write lock from here to its one commit.
+        await db.execute("BEGIN IMMEDIATE")
         defined = await defined_on(db, req.agentId)
         if defined:
             raise HTTPException(409, f'Agent "{req.agentId}" is defined in aify-env on {defined}; start it, '

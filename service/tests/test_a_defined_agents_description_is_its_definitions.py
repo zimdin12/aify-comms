@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 
 from service.tests._base import FastApiTestCase
 from service.tests.test_agent_definition_push import A, snapshot_digest, valid
@@ -117,6 +118,54 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
         allowed = self.client.post("/api/v1/spawn-requests", json={
             "agentId": "plain", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})
         self.assertEqual(allowed.status_code, 200, "control: an undefined agent still spawns")
+
+    def test_a_spawn_racing_a_definition_is_refused_once_the_definition_commits(self):
+        """Review of b5ac1de3: the refusal reads `agent_definitions` inside the spawn's write transaction,
+        so a push that commits while the spawn waits is seen, and nothing is queued."""
+        import service.routers.spawn_requests as spawn_route
+        committed, reads, real = threading.Event(), [], spawn_route.defined_on
+
+        async def observed(db, agent_id):
+            # Whether the definition had committed when the owner was read: True only if the read waited.
+            reads.append(committed.is_set())
+            return await real(db, agent_id)
+
+        spawn_route.defined_on = observed
+        self.addCleanup(setattr, spawn_route, "defined_on", real)
+        holder = sqlite3.connect(str(self._db_path), isolation_level=None)
+        # Closed explicitly after its commit, because tearDown deletes the database before cleanups run;
+        # this cleanup only covers a failure before that line.
+        self.addCleanup(lambda: holder.close())
+        holder.execute("BEGIN IMMEDIATE")
+        outcome = {}
+        worker = threading.Thread(target=lambda: outcome.update(response=self.client.post("/api/v1/spawn-requests", json={
+            "agentId": "racer", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})))
+        worker.start()
+        worker.join(0.6)
+        self.assertTrue(worker.is_alive(), "control: the spawn is waiting on the write lock")
+        holder.execute("INSERT INTO agent_definitions (agent_id, machine_id, store_id, incarnation, revision, "
+                       "definition_digest, body, available, updated_at) VALUES ('racer', ?, 's1', 1, 1, 'd', '{}', 1, 'now')",
+                       (A["machine"],))
+        committed.set()
+        holder.execute("COMMIT")
+        holder.close()
+        worker.join(10)
+        response = outcome["response"]
+        self.assertEqual(reads, [True], "the owner was read once, and only after the lock was taken")
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn('Agent "racer" is defined in aify-env on win32:host-a', response.json()["detail"])
+        self.assertEqual(self.rows("SELECT id FROM spawn_requests WHERE agent_id = 'racer'"), [])
+        self.assertEqual(self.rows("SELECT id FROM spawn_specs WHERE agent_id = 'racer'"), [], "no spec either")
+
+    def test_a_spawn_that_commits_first_is_queued_and_the_definition_still_applies(self):
+        """The opposite order: the spawn takes the lock first and queues; the push lands after it."""
+        created = self.client.post("/api/v1/spawn-requests", json={
+            "agentId": "early", "environmentId": A["env"], "runtime": "claude-code", "workspace": "/work"})
+        self.assertEqual(created.status_code, 200, created.text)
+        self.define(valid("early", role="reviewer"))
+        self.assertEqual(len(self.rows("SELECT id FROM spawn_requests WHERE agent_id = 'early'")), 1)
+        self.assertEqual(self.rows("SELECT machine_id FROM agent_definitions WHERE agent_id = 'early'"),
+                         [{"machine_id": A["machine"]}])
 
     def test_applying_the_managed_defaults_skips_a_defined_agent_and_says_so(self):
         self.define(valid("lead", model="opus", effort="high"))

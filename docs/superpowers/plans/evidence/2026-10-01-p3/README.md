@@ -67,3 +67,48 @@ this branch by merge. `role-reset-RED-before-P3.txt` records the red on the code
 ### Suites
 
 `suites-p3a.txt`.
+
+## P3b: a defined agent's description is its definition's (C5)
+
+`mutations-p3b.json`: 18/18 killed, each by the witness for its own path
+(`service/tests/test_a_defined_agents_description_is_its_definitions.py`).
+
+## P3c: change requests, the service's half (C4)
+
+| file | what |
+|---|---|
+| `service/api_core/definition_requests.py` | admission, claim, report, the removal fence |
+| `service/routers/definition_requests.py` | the four routes |
+| `service/api_core/agent_remove.py` | the DELETE route's stop-then-tombstone removal, moved so a removal request's `done` runs it behind the fence |
+
+Witnesses: `service/tests/test_definition_change_requests.py`. `mutations-p3c.json` has 32 mutants,
+32/32 killed on its first run, each by a named test. Three witnesses were added before that run,
+because nothing yet tested what they cover:
+- a patch `{"remove": 1}`, which Python's `1 == True` would read as a removal;
+- the fence's second asking, inside the deleting transaction, shown with a fence that changes its
+  answer;
+- a refusal at the first asking leaving a managed worker running.
+
+## The review of a171e8a3 and b5ac1de3 (REVISE: N1, N2)
+
+**N1, a P3a database.** `p3a-database-upgrade.py` makes a database with 4af344c5's own code (a
+worktree at that commit): A owns coder, and B's revision 1 is applied with coder refused. The
+successor then initialises the same file twice and replays. `p3a-database-upgrade.txt` is that run:
+- the column is absent after 4af344c5 and present after the successor's init;
+- the old revision's replay answers 200 with `outcomeRecorded: false`;
+- revision 2 records the refusal, and its replay reports it.
+
+`service/tests/test_a_p3a_database_gains_the_replay_outcome.py` holds the same check in the suite,
+including the 500 before init.
+
+The live service's database was read on 2026-10-01, read-only, from inside its container:
+`/data/aify.db` has 26 tables, among them `agents`, and none of `agent_definitions`,
+`definition_stores` or `definition_requests`. So no deployed database needs this upgrade; it exists
+for review databases and any other P3a copy.
+
+**N2, the direct spawn.** The spawn route opens BEGIN IMMEDIATE before it reads the owner. The
+witness holds the write lock from outside and records whether the owner was read before or after the
+competing definition committed. It sees exactly one read, after the commit, then a 409 with no
+request and no spec. A spawn-first control queues and then the definition applies.
+
+The batteries grew: P3a has three N1 mutants (90), P3b has one N2 mutant (19).

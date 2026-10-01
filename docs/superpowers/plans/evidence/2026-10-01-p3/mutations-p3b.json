@@ -1,38 +1,135 @@
 [
- {"name": "C5 registration: the upsert overwrites a defined agent's role", "file": "service/api_core/agent_registration_writes.py",
-  "old": "{kept_when_defined(\"role\", \"excluded.role\")}", "new": "role = excluded.role", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 registration: the upsert overwrites a defined agent's name", "file": "service/api_core/agent_registration_writes.py",
-  "old": "{kept_when_defined(\"name\", \"excluded.name\")}", "new": "name = excluded.name", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 registration: the upsert overwrites a defined agent's instructions", "file": "service/api_core/agent_registration_writes.py",
-  "old": "{kept_when_defined(\"instructions\", \"excluded.instructions\")}", "new": "instructions = excluded.instructions", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 registration: the adopt branch overwrites a defined agent's role", "file": "service/api_core/agent_registration_writes.py",
-  "old": "SET {kept_when_defined(\"role\", \"?\")},", "new": "SET role = ?,", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 registration: the adopt branch overwrites a defined agent's name", "file": "service/api_core/agent_registration_writes.py",
-  "old": "{kept_when_defined(\"name\", \"?\")}", "new": "name = ?", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 settlement: a request's role overwrites the definition's", "file": "service/api_core/running_spawn.py",
-  "old": "{kept_when_defined(\"role\", \"excluded.role\")}", "new": "role = excluded.role", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 settlement: a request's name overwrites the definition's", "file": "service/api_core/running_spawn.py",
-  "old": "{kept_when_defined(\"name\", \"excluded.name\")}", "new": "name = excluded.name", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 settlement: a spec's instructions overwrite the definition's", "file": "service/api_core/running_spawn.py",
-  "old": "{kept_when_defined(\"instructions\", \"excluded.instructions\")}", "new": "instructions = excluded.instructions", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 guard: no agent ever reads as defined", "file": "service/api_core/definition_guard.py",
-  "old": "DEFINED_SQL = \"EXISTS (SELECT 1 FROM agent_definitions WHERE agent_definitions.agent_id = agents.id)\"", "new": "DEFINED_SQL = \"0\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 guard: every agent reads as defined (a freeze)", "file": "service/api_core/definition_guard.py",
-  "old": "DEFINED_SQL = \"EXISTS (SELECT 1 FROM agent_definitions WHERE agent_definitions.agent_id = agents.id)\"", "new": "DEFINED_SQL = \"1\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 guard: the kept value is the new one", "file": "service/api_core/definition_guard.py",
-  "old": "THEN agents.{column} ELSE", "new": "THEN {value_sql} ELSE", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 spawn: a defined agent is spawned directly", "file": "service/routers/spawn_requests.py",
-  "old": "        if defined:\n", "new": "        if False:\n", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 defaults: a defined agent's model is rewritten", "file": "service/routers/settings.py",
-  "old": "f\"UPDATE agents SET model = ? WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}\"", "new": "f\"UPDATE agents SET model = ? WHERE {_MANAGED_OF_RUNTIME}\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 defaults: a defined agent's effort is rewritten", "file": "service/routers/settings.py",
-  "old": "f\"SELECT id, runtime_config FROM agents WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}\"", "new": "f\"SELECT id, runtime_config FROM agents WHERE {_MANAGED_OF_RUNTIME}\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 defaults: a defined agent's spec model is rewritten", "file": "service/routers/settings.py",
-  "old": "f\"UPDATE spawn_specs SET model = ? WHERE runtime = ? AND {_UNDEFINED_SPEC}\"", "new": "f\"UPDATE spawn_specs SET model = ? WHERE runtime = ?\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 defaults: a defined agent's spec effort is rewritten", "file": "service/routers/settings.py",
-  "old": "f\"SELECT id, metadata FROM spawn_specs WHERE runtime = ? AND {_UNDEFINED_SPEC}\"", "new": "f\"SELECT id, metadata FROM spawn_specs WHERE runtime = ?\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 defaults: the skipped count is not reported", "file": "service/routers/settings.py",
-  "old": "return {\"ok\": True, \"skippedDefined\": skipped}", "new": "return {\"ok\": True, \"skippedDefined\": 0}", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"},
- {"name": "C5 defaults: the skipped count counts every agent", "file": "service/routers/settings.py",
-  "old": "f\"SELECT COUNT(*) FROM agents WHERE {_MANAGED_OF_RUNTIME} AND {DEFINED_SQL}\"", "new": "f\"SELECT COUNT(*) FROM agents WHERE {_MANAGED_OF_RUNTIME}\"", "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"}
+ {
+  "name": "C5 registration: the upsert overwrites a defined agent's role",
+  "file": "service/api_core/agent_registration_writes.py",
+  "old": "{kept_when_defined(\"role\", \"excluded.role\")}",
+  "new": "role = excluded.role",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 registration: the upsert overwrites a defined agent's name",
+  "file": "service/api_core/agent_registration_writes.py",
+  "old": "{kept_when_defined(\"name\", \"excluded.name\")}",
+  "new": "name = excluded.name",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 registration: the upsert overwrites a defined agent's instructions",
+  "file": "service/api_core/agent_registration_writes.py",
+  "old": "{kept_when_defined(\"instructions\", \"excluded.instructions\")}",
+  "new": "instructions = excluded.instructions",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 registration: the adopt branch overwrites a defined agent's role",
+  "file": "service/api_core/agent_registration_writes.py",
+  "old": "SET {kept_when_defined(\"role\", \"?\")},",
+  "new": "SET role = ?,",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 registration: the adopt branch overwrites a defined agent's name",
+  "file": "service/api_core/agent_registration_writes.py",
+  "old": "{kept_when_defined(\"name\", \"?\")}",
+  "new": "name = ?",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 settlement: a request's role overwrites the definition's",
+  "file": "service/api_core/running_spawn.py",
+  "old": "{kept_when_defined(\"role\", \"excluded.role\")}",
+  "new": "role = excluded.role",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 settlement: a request's name overwrites the definition's",
+  "file": "service/api_core/running_spawn.py",
+  "old": "{kept_when_defined(\"name\", \"excluded.name\")}",
+  "new": "name = excluded.name",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 settlement: a spec's instructions overwrite the definition's",
+  "file": "service/api_core/running_spawn.py",
+  "old": "{kept_when_defined(\"instructions\", \"excluded.instructions\")}",
+  "new": "instructions = excluded.instructions",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 guard: no agent ever reads as defined",
+  "file": "service/api_core/definition_guard.py",
+  "old": "DEFINED_SQL = \"EXISTS (SELECT 1 FROM agent_definitions WHERE agent_definitions.agent_id = agents.id)\"",
+  "new": "DEFINED_SQL = \"0\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 guard: every agent reads as defined (a freeze)",
+  "file": "service/api_core/definition_guard.py",
+  "old": "DEFINED_SQL = \"EXISTS (SELECT 1 FROM agent_definitions WHERE agent_definitions.agent_id = agents.id)\"",
+  "new": "DEFINED_SQL = \"1\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 guard: the kept value is the new one",
+  "file": "service/api_core/definition_guard.py",
+  "old": "THEN agents.{column} ELSE",
+  "new": "THEN {value_sql} ELSE",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 spawn: a defined agent is spawned directly",
+  "file": "service/routers/spawn_requests.py",
+  "old": "        if defined:\n",
+  "new": "        if False:\n",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 defaults: a defined agent's model is rewritten",
+  "file": "service/routers/settings.py",
+  "old": "f\"UPDATE agents SET model = ? WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}\"",
+  "new": "f\"UPDATE agents SET model = ? WHERE {_MANAGED_OF_RUNTIME}\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 defaults: a defined agent's effort is rewritten",
+  "file": "service/routers/settings.py",
+  "old": "f\"SELECT id, runtime_config FROM agents WHERE {_MANAGED_OF_RUNTIME} AND NOT {DEFINED_SQL}\"",
+  "new": "f\"SELECT id, runtime_config FROM agents WHERE {_MANAGED_OF_RUNTIME}\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 defaults: a defined agent's spec model is rewritten",
+  "file": "service/routers/settings.py",
+  "old": "f\"UPDATE spawn_specs SET model = ? WHERE runtime = ? AND {_UNDEFINED_SPEC}\"",
+  "new": "f\"UPDATE spawn_specs SET model = ? WHERE runtime = ?\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 defaults: a defined agent's spec effort is rewritten",
+  "file": "service/routers/settings.py",
+  "old": "f\"SELECT id, metadata FROM spawn_specs WHERE runtime = ? AND {_UNDEFINED_SPEC}\"",
+  "new": "f\"SELECT id, metadata FROM spawn_specs WHERE runtime = ?\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 defaults: the skipped count is not reported",
+  "file": "service/routers/settings.py",
+  "old": "return {\"ok\": True, \"skippedDefined\": skipped}",
+  "new": "return {\"ok\": True, \"skippedDefined\": 0}",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C5 defaults: the skipped count counts every agent",
+  "file": "service/routers/settings.py",
+  "old": "f\"SELECT COUNT(*) FROM agents WHERE {_MANAGED_OF_RUNTIME} AND {DEFINED_SQL}\"",
+  "new": "f\"SELECT COUNT(*) FROM agents WHERE {_MANAGED_OF_RUNTIME}\"",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "N2: the spawn reads the owner before its write transaction",
+  "file": "service/routers/spawn_requests.py",
+  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        defined = await defined_on(db, req.agentId)",
+  "new": "        defined = await defined_on(db, req.agentId)\n        await db.execute(\"BEGIN IMMEDIATE\")",
+  "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+ }
 ]

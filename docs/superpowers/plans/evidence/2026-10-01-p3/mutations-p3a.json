@@ -296,8 +296,8 @@
  {
   "name": "R4: a replay reports nothing unresolved",
   "file": "service/api_core/definition_push.py",
-  "old": "        return await _replayed(db, machine_id, json.loads(current[\"outcome\"] or \"{}\"))",
-  "new": "        return await _replayed(db, machine_id, {})",
+  "old": "        return await _replayed(db, machine_id, current[\"outcome\"])",
+  "new": "        return await _replayed(db, machine_id, \"{}\")",
   "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
  },
  {
@@ -317,8 +317,8 @@
  {
   "name": "R4: a replay drops a kept definition's report",
   "file": "service/api_core/definition_push.py",
-  "old": "\"invalid\": unresolved.get(\"invalid\", []), \"kept\": unresolved.get(\"kept\", [])}",
-  "new": "\"invalid\": unresolved.get(\"invalid\", []), \"kept\": []}",
+  "old": "\"invalid\": unresolved.get(\"invalid\", []), \"kept\": unresolved.get(\"kept\", []),",
+  "new": "\"invalid\": unresolved.get(\"invalid\", []), \"kept\": [],",
   "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py -q -p no:cacheprovider"
  },
  {
@@ -527,7 +527,7 @@
  {
   "name": "C6 push: withdrawal removes the agent",
   "file": "service/api_core/definition_push.py",
-  "old": "            await db.execute(\"UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?\", (agent_id,))",
+  "old": "            await db.execute(\"UPDATE agents SET definition_state = 'withdrawn', definition_withdrawn = ? WHERE id = ?\",\n                             (json.dumps(withdrawn), agent_id))",
   "new": "            await db.execute(\"DELETE FROM agents WHERE id = ?\", (agent_id,))",
   "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
  },
@@ -548,14 +548,14 @@
  {
   "name": "C3 route: anyone may release a definition",
   "file": "service/routers/agent_definitions.py",
-  "old": "    _require_operator(body, request, \"release an agent definition\")",
+  "old": "    require_operator(body, request, \"release an agent definition\")",
   "new": "    pass",
   "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
  },
  {
   "name": "C3 route: anyone may reset a machine's retired stores",
   "file": "service/routers/agent_definitions.py",
-  "old": "    _require_operator(body, request, \"reset a machine's retired definition stores\")",
+  "old": "    require_operator(body, request, \"reset a machine's retired definition stores\")",
   "new": "    pass",
   "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
  },
@@ -607,5 +607,26 @@
   "old": "        \"definitionState\": str((row[\"definition_state\"] if \"definition_state\" in row.keys() else \"\") or \"\"),",
   "new": "",
   "test": "python -m pytest service/tests/test_agent_definition_push.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "N1: init does not migrate definition_stores",
+  "file": "service/db.py",
+  "old": "        await _migrate_definition_stores_table(db)\n",
+  "new": "",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py service/tests/test_a_p3a_database_gains_the_replay_outcome.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "N1: an unrecorded outcome reads as nothing unresolved",
+  "file": "service/db.py",
+  "old": "\"ALTER TABLE definition_stores ADD COLUMN outcome TEXT\"",
+  "new": "\"ALTER TABLE definition_stores ADD COLUMN outcome TEXT DEFAULT '{}'\"",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py service/tests/test_a_p3a_database_gains_the_replay_outcome.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "N1: a replay always claims its outcome was recorded",
+  "file": "service/api_core/definition_push.py",
+  "old": "\"outcomeRecorded\": recorded is not None}",
+  "new": "\"outcomeRecorded\": True}",
+  "test": "python -m pytest service/tests/test_agent_definition_push.py service/tests/test_definition_schema_matches_aify_env.py service/tests/test_a_p3a_database_gains_the_replay_outcome.py -q -p no:cacheprovider"
  }
 ]
