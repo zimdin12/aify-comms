@@ -680,12 +680,16 @@ of the agent itself is the separate, existing destructive path, reached through 
 
 **Settled while building P3d** (2026-10-01):
 
-- **Two inserts, one binding.** Every service start is either the cold start (agent-level start, a
-  message, a channel post, the queued-run backstop, a spec-less restart) or a restart of a session with
-  a spec. Both read `definition_start.start_binding`, and both insert the spawn request through
-  `insert_spawn_request`, whose WHERE asks the same question again. A push or withdrawal between the read
-  and the write therefore inserts nothing ("its definition changed while this start was being made; start
-  it again"); some callers hold the write lock and some do not, and the guard does not depend on which.
+- **One guarded insert.** A service start is the cold start (agent-level start, a message, a channel
+  post, the queued-run backstop, a spec-less restart), a restart or recreate of a session with a spec
+  (built from the definition when there is one, from the session's spec when the agent was never
+  defined), or the direct spawn. Each reads `definition_start.start_binding`, and each writes its spawn
+  request through `insert_spawn_request`, whose WHERE asks the same question again. A push or
+  withdrawal between the read and the write therefore inserts nothing ("its definition changed while
+  this start was being made; start it again"). Some callers hold the write lock and some do not, and the
+  guard does not depend on which. `test_every_start_goes_through_the_guarded_insert.py` holds every
+  product file to that one insert. An earlier version of this note said "two inserts", while the undefined
+  old-spec restart and the direct spawn still wrote their own (review of 8de83233, N6).
 - **Built from the definition only.** Runtime (from the harness), workspace, model, effort (as
   `runtimeConfig.effort`), instructions (`standing_instructions`), env, role and name. Nothing is carried
   from an earlier spec, and an empty model or effort is left empty for the harness to choose rather than

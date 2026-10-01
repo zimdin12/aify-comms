@@ -70,3 +70,14 @@ After the witness for that refusal (one test method, one P3d mutant), rerun:
   python: 5002 passed, 27 skipped, 10810 subtests passed
   (the node suites were not rerun: only a Python test file and the battery JSON changed)
   Credential file still 2026-09-29 18:37:10.
+
+N6 (review of 8de83233) + the exit-2 mutant fixed, on the staged tree, one after another:
+  batteries: P3a 90/90, P3b 19/19, P3c 63/63 (every kill exit 1), P3d 32/34: two mutants NOT APPLIED,
+    because the N6 edit made their anchors match twice. Re-anchored, both killed alone, then P3d rerun
+    whole: 34/34, every kill exit 1, none unapplied. Sources restored (sha256 checked) after each run.
+  python: 5006 passed, 27 skipped, 10824 subtests passed
+  mcp/stdio run-all: 366 files, exit 0 (1 file skipped as before: bridge-exits-when-its-terminal-goes)
+  dashboard: 1889 tests, 1889 pass
+  aify-wrapper-next: 575 tests, 509 pass, 66 skipped
+  aify-env-next: 2272 tests, 2268 pass, 4 skipped
+  Credential file still 2026-09-29 18:37:10.

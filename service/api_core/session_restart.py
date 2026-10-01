@@ -132,39 +132,34 @@ async def _prepare_restart_spawn(db, req, session, session_id: str, agent_id: st
                 workspace = _normalize_workspace_for_environment(environment, spawn_spec_row["workspace"] or session["workspace"] or "")
                 workspace_root = _workspace_root_for(environment, workspace)
                 request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-                resume_policy = "fresh_context" if action == "recreate" else "native_first"
-                request_session_handle = "" if action == "recreate" else (session["session_handle"] or "")
-                await db.execute(
-                    """
-                    INSERT INTO spawn_requests (
-                        id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
-                        workspace, workspace_root, initial_message, priority, subject, mode,
-                        resume_policy, status, session_handle, created_at, updated_at, start_intent
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        request_id,
-                        spec_id,
-                        req.from_agent or "dashboard",
-                        spawn_spec_row["environment_id"],
-                        agent_id,
-                        (agent_row["role"] if agent_row else "") or "coder",
-                        (agent_row["name"] if agent_row else "") or agent_id,
-                        spawn_spec_row["runtime"],
-                        workspace,
-                        workspace_root,
-                        req.body or "",
-                        req.priority or "normal",
-                        req.subject or f"{action.title()} {agent_id}",
-                        spawn_spec_row["mode"] or session["mode"] or "managed-warm",
-                        resume_policy,
-                        "queued",
-                        request_session_handle,
-                        now,
-                        now,
-                        REPLACE,
-                    ),
-                )
+                # GUARDED like every start: the binding read above said "never defined", and a push or
+                # withdrawal landing since must not be answered with a start from this old spec (review
+                # of 8de83233, N6). The route commits once, at the end, so a refusal here undoes its
+                # interrupt as well.
+                inserted = await insert_spawn_request(db, {
+                    "id": request_id,
+                    "spawn_spec_id": spec_id,
+                    "created_by": req.from_agent or "dashboard",
+                    "environment_id": spawn_spec_row["environment_id"],
+                    "agent_id": agent_id,
+                    "role": (agent_row["role"] if agent_row else "") or "coder",
+                    "name": (agent_row["name"] if agent_row else "") or agent_id,
+                    "runtime": spawn_spec_row["runtime"],
+                    "workspace": workspace,
+                    "workspace_root": workspace_root,
+                    "initial_message": req.body or "",
+                    "priority": req.priority or "normal",
+                    "subject": req.subject or f"{action.title()} {agent_id}",
+                    "mode": spawn_spec_row["mode"] or session["mode"] or "managed-warm",
+                    "resume_policy": "fresh_context" if action == "recreate" else "native_first",
+                    "status": "queued",
+                    "session_handle": "" if action == "recreate" else (session["session_handle"] or ""),
+                    "created_at": now,
+                    "updated_at": now,
+                    "start_intent": REPLACE,
+                }, None)
+                if not inserted:
+                    raise HTTPException(409, f'Agent "{agent_id}": {CHANGED_WHILE_STARTING}')
                 spawn_request_row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
                 if action == "recreate":
                     await _forget_native_session(db, agent_id, now)

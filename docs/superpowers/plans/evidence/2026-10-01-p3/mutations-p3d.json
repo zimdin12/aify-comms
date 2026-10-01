@@ -4,230 +4,237 @@
   "file": "service/api_core/definition_start.py",
   "old": "withdrawn = agent is not None and str(agent[\"definition_state\"] or \"\") == \"withdrawn\"",
   "new": "withdrawn = False",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: an invalid definition is started",
   "file": "service/api_core/definition_start.py",
   "old": "if definition[\"host_state\"] != \"valid\":",
   "new": "if False:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a definition its host cannot run is started",
   "file": "service/api_core/definition_start.py",
   "old": "if not definition[\"available\"]:",
   "new": "if False:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a resident definition is started",
   "file": "service/api_core/definition_start.py",
   "old": "if body[\"mode\"] == \"resident\":",
   "new": "if False:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the request records the lifetime as its revision",
   "file": "service/api_core/definition_start.py",
   "old": "\"definition_revision\": binding.revision}",
   "new": "\"definition_revision\": binding.incarnation}",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the model is not the definition's",
   "file": "service/api_core/definition_start.py",
   "old": "\"model\": binding.model,",
   "new": "\"model\": \"\",",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the instructions are not the definition's",
   "file": "service/api_core/definition_start.py",
   "old": "\"standing_instructions\": binding.instructions,",
   "new": "\"standing_instructions\": \"\",",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the env is not the definition's",
   "file": "service/api_core/definition_start.py",
   "old": "\"env_vars\": json.dumps(binding.env),",
   "new": "\"env_vars\": \"{}\",",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the effort is not the definition's",
   "file": "service/api_core/definition_start.py",
   "old": "runtime_config = {\"effort\": binding.effort} if binding.effort else {}",
   "new": "runtime_config = {}",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the write does not ask again",
   "file": "service/api_core/definition_start.py",
   "old": "guard, guard_params = spawn_request_guard(row[\"agent_id\"], binding)",
   "new": "guard, guard_params = \"1\", ()",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the write does not ask again for an undefined reading",
   "file": "service/api_core/definition_start.py",
   "old": "return (\"NOT EXISTS (SELECT 1 FROM agent_definitions WHERE agent_id = ?) AND NOT EXISTS \"\n                \"(SELECT 1 FROM agents WHERE id = ? AND definition_state = 'withdrawn')\", (agent_id, agent_id))",
   "new": "return (\"1\", ())",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a refused write leaves its spec behind",
   "file": "service/api_core/dispatch_start.py",
   "old": "        await db.execute(\"DELETE FROM spawn_specs WHERE id = ?\", (spec_id,))\n",
   "new": "",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the cold start runs the runtime it was passed",
   "file": "service/api_core/dispatch_start.py",
   "old": "normalized_runtime = binding.runtime if binding else _normalize_runtime(runtime or \"\")",
   "new": "normalized_runtime = _normalize_runtime(runtime or \"\")",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the cold start's resident gate reads the effective row for a defined agent",
   "file": "service/api_core/dispatch_start.py",
   "old": "    if binding is None:\n        if _agent_row is not None",
   "new": "    if True:\n        if _agent_row is not None",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a managed worker starts beside a live resident",
   "file": "service/api_core/dispatch_start.py",
   "old": "elif twin := await twin_refusal(db, _agent_row):",
   "new": "elif False:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: any resident row is a twin, live or not",
   "file": "service/api_core/dispatch_start.py",
   "old": "if resident and await _has_live_worker_for(db, agent_row):",
   "new": "if resident:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: an earlier session elsewhere moves a defined agent",
   "file": "service/api_core/dispatch_start.py",
   "old": "                and (binding is None or candidate.get(\"machineId\") == binding.machine_id)\n",
   "new": "",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the cold start takes the fleet's freshest environment",
   "file": "service/api_core/dispatch_start.py",
   "old": "machine_id=binding.machine_id if binding else None,",
   "new": "machine_id=None,",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the selector ignores the machine",
   "file": "service/api_core/managed_env.py",
   "old": "if machine_id is not None and environment.get(\"machineId\") != machine_id:",
   "new": "if False:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the workspace is not the definition's",
   "file": "service/api_core/dispatch_start.py",
   "old": "environment, binding.workspace if binding else None, fallback_workspace)",
   "new": "environment, None, fallback_workspace)",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a restart uses the session's old spec",
   "file": "service/api_core/session_restart.py",
   "old": "            if binding is not None:\n                spawn_request_row, spawn_spec_row = await _bound_restart_spawn(",
   "new": "            if False:\n                spawn_request_row, spawn_spec_row = await _bound_restart_spawn(",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C6: a withdrawn agent is restarted",
   "file": "service/api_core/session_restart.py",
   "old": "            except StartRefused as refused:\n                raise HTTPException(409, str(refused))",
   "new": "            except StartRefused as refused:\n                binding = None",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a restart runs on the session's machine",
   "file": "service/api_core/session_restart.py",
   "old": "                and candidate.get(\"machineId\") == binding.machine_id\n",
   "new": "",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a recreate keeps the native session on the agent",
   "file": "service/api_core/session_restart.py",
   "old": "    if action == \"recreate\":\n        await _forget_native_session(db, agent_id, now)\n    request_row",
   "new": "    request_row",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a recreate resumes",
   "file": "service/api_core/session_restart.py",
-  "old": "\"resume_policy\": \"fresh_context\" if action == \"recreate\" else \"native_first\",",
-  "new": "\"resume_policy\": \"native_first\",",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "old": "        \"resume_policy\": \"fresh_context\" if action == \"recreate\" else \"native_first\", \"status\": \"queued\",",
+  "new": "        \"resume_policy\": \"native_first\", \"status\": \"queued\",",
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a recreate carries the old handle",
   "file": "service/api_core/session_restart.py",
-  "old": "\"session_handle\": \"\" if action == \"recreate\" else (session[\"session_handle\"] or \"\"),",
-  "new": "\"session_handle\": (session[\"session_handle\"] or \"\"),",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "old": "\n        \"session_handle\": \"\" if action == \"recreate\" else (session[\"session_handle\"] or \"\"),",
+  "new": "\n        \"session_handle\": (session[\"session_handle\"] or \"\"),",
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a refused restart write is not reported",
   "file": "service/api_core/session_restart.py",
   "old": "    if not inserted:\n        raise HTTPException(409, f'Agent \"{agent_id}\": {CHANGED_WHILE_STARTING}')\n",
   "new": "",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the launch names an empty definition for an undefined start",
   "file": "service/routers/terminals.py",
   "old": "if bound and bound[\"definition_store_id\"] else None",
   "new": "if bound else None",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the launch carries no definition",
   "file": "service/routers/terminals.py",
   "old": "                \"definition\": {\"storeId\": bound[\"definition_store_id\"],",
   "new": "                \"definition\": None and {\"storeId\": bound[\"definition_store_id\"],",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C6: a withdrawn agent is spawned directly",
   "file": "service/routers/spawn_requests.py",
   "old": "        except StartRefused as refused:\n            raise HTTPException(409, str(refused))\n        if defined:",
   "new": "        except StartRefused as refused:\n            defined = None\n        if defined:",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: the start route reads the effective mode of a defined agent",
   "file": "service/routers/agents/session_ops.py",
   "old": "if binding is None and _normalize_session_mode(agent[\"session_mode\"] or \"resident\") == \"resident\":",
   "new": "if _normalize_session_mode(agent[\"session_mode\"] or \"resident\") == \"resident\":",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C6: the start route starts a withdrawn agent",
   "file": "service/routers/agents/session_ops.py",
   "old": "            except StartRefused as refused:\n                raise HTTPException(409, str(refused))\n            if binding is None",
   "new": "            except StartRefused as refused:\n                binding = None\n            if binding is None",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  },
  {
   "name": "C7: a restart's fallback takes another machine's environment",
   "file": "service/api_core/session_restart.py",
   "old": "db, binding.runtime, offline_seconds=offline_seconds, machine_id=binding.machine_id)",
   "new": "db, binding.runtime, offline_seconds=offline_seconds)",
-  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "N6: an overtaken undefined restart is not refused",
+  "file": "service/api_core/session_restart.py",
+  "old": "                }, None)\n                if not inserted:\n                    raise HTTPException(409, f'Agent \"{agent_id}\": {CHANGED_WHILE_STARTING}')\n",
+  "new": "                }, None)\n",
+  "test": "python -m pytest service/tests/test_a_defined_agent_starts_from_its_definition.py service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py service/tests/test_every_start_goes_through_the_guarded_insert.py -q -p no:cacheprovider"
  }
 ]

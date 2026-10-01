@@ -43,7 +43,7 @@ from fastapi import HTTPException, Query, Request
 
 from service import longpoll
 from service.api_core.claim_emptiness import spawn_request_is_empty
-from service.api_core.definition_start import StartRefused, start_binding
+from service.api_core.definition_start import StartRefused, insert_spawn_request, start_binding
 from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
@@ -392,36 +392,29 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
                 now,
             ),
         )
-        await db.execute(
-            """
-            INSERT INTO spawn_requests (
-                id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
-                workspace, workspace_root, initial_message, priority, subject, mode,
-                resume_policy, status, created_at, updated_at, start_intent
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                request_id,
-                spec_id,
-                created_by,
-                req.environmentId,
-                req.agentId,
-                req.role or "coder",
-                req.name or req.agentId,
-                normalized_runtime,
-                workspace,
-                workspace_root,
-                req.initialMessage or "",
-                req.priority or "normal",
-                req.subject or "",
-                mode,
-                req.resumePolicy or "native_first",
-                "queued",
-                now,
-                now,
-                start_intent_for_spawn(req.createdBy, req.agentId, req.metadata),
-            ),
-        )
+        # Through the one guarded insert every start uses; this route also holds the write lock from its
+        # binding read, so the guard cannot fail here.
+        await insert_spawn_request(db, {
+            "id": request_id,
+            "spawn_spec_id": spec_id,
+            "created_by": created_by,
+            "environment_id": req.environmentId,
+            "agent_id": req.agentId,
+            "role": req.role or "coder",
+            "name": req.name or req.agentId,
+            "runtime": normalized_runtime,
+            "workspace": workspace,
+            "workspace_root": workspace_root,
+            "initial_message": req.initialMessage or "",
+            "priority": req.priority or "normal",
+            "subject": req.subject or "",
+            "mode": mode,
+            "resume_policy": req.resumePolicy or "native_first",
+            "status": "queued",
+            "created_at": now,
+            "updated_at": now,
+            "start_intent": start_intent_for_spawn(req.createdBy, req.agentId, req.metadata),
+        }, None)
         await db.commit()
         row = await (await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (request_id,))).fetchone()
         spec = await (await db.execute("SELECT * FROM spawn_specs WHERE id = ?", (spec_id,))).fetchone()

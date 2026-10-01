@@ -220,7 +220,7 @@
   "name": "C4 remove: the fence is not asked before the worker is stopped",
   "file": "service/api_core/agent_remove.py",
   "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        why = await refusal(db)\n        if why:\n            await db.rollback()\n            return 0, why\n    fenced_and_open = refusal is not None",
-  "new": "    fenced_and_open = False",
+  "new": "        pass\n    fenced_and_open = False",
   "test": "python -m pytest service/tests/test_definition_change_requests.py service/tests/test_agent_definition_push.py service/tests/test_removed_agent_is_refused_everywhere.py service/tests/test_editing_a_defined_agent_becomes_a_request.py service/tests/test_a_p3a_database_gains_the_replay_outcome.py service/tests/test_legacy_removal_receipt.py -q -p no:cacheprovider"
  },
  {

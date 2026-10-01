@@ -1,0 +1,18 @@
+The N6 witnesses, run on the exact tree of 8de83233 (worktree at 8de83233ca433888fb5c4342fdb0949e69abe87b), with only the two test files copied in.
+
+E                   AssertionError: Tuples differ: (200, None) != (409, 'Agent "p-restart-defined": its defi[59 chars]ain')
+E                   AssertionError: Tuples differ: (200, None) != (409, 'Agent "p-restart-withdrawn": its de[61 chars]ain')
+E                   AssertionError: Tuples differ: (200, None) != (409, 'Agent "p-recreate-defined": its def[60 chars]ain')
+E                   AssertionError: Tuples differ: (200, None) != (409, 'Agent "p-recreate-withdrawn": its d[62 chars]ain')
+E       AssertionError: Lists differ: ['api[22 chars]t.py', 'api_core\\session_restart.py', 'router[17 chars].py'] != ['api[22 chars]t.py']
+SUBFAILED(action='restart', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+SUBFAILED(action='restart', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+SUBFAILED(action='recreate', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+SUBFAILED(action='recreate', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+FAILED service/tests/test_every_start_goes_through_the_guarded_insert.py::EveryStartGoesThroughTheGuardedInsert::test_only_the_guarded_insert_writes_a_spawn_request
+5 failed, 20 passed, 1 warning in 2.42s
+
+All four arms answer 200 where the successor answers 409. This run stops at that status assertion;
+the second, unbound request queued from the old spec is the reviewer's observation (review of
+8de83233), not this run's. The two serialised controls (undefined throughout; defined first) pass there too. The gate
+names the two inserts that bypassed the guard: api_core/session_restart.py and routers/spawn_requests.py.

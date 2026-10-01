@@ -126,7 +126,10 @@ killed (exit 1)                  C4 withdrawal: the lifetime withdrawn is record
                                   FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 remove: the fence is not asked inside the deleting transaction
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_removal_fence_is_asked_again_after_a_managed_workers_stop
-killed (exit 2)                  C4 remove: the fence is not asked before the worker is stopped
+killed (exit 1)                  C4 remove: the fence is not asked before the worker is stopped
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_racing_a_change_of_custody_stops_nothing
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_refused_at_the_first_asking_stops_no_worker
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_removal_fence_is_asked_again_after_a_managed_workers_stop
 killed (exit 1)                  C5 herdr-space: a defined agent's setting is written directly
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_herdr_space - K...
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_with_an_operator_key_only_the_operator_queues_a_change

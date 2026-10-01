@@ -212,6 +212,61 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
                          '"claude-code"; start aify-env on that host'))
         self.assertEqual(len(self.spawns("coder")), 1, "B, online on another machine, is not used")
 
+    def test_an_undefined_restart_overtaken_by_a_definition_queues_nothing(self):
+        """Review of 8de83233, N6: the undefined restart from a session's old spec read "never defined",
+        and a push or a withdrawal committing right after that read must not be answered with a start
+        from the old spec, nor a recreate forgetting the agent's native session."""
+        import service.api_core.session_restart as session_restart
+
+        real = session_restart.start_binding
+        self.addCleanup(setattr, session_restart, "start_binding", real)
+        for action in ("restart", "recreate"):
+            for arm in ("defined", "withdrawn"):
+                with self.subTest(action=action, arm=arm):
+                    agent_id, session_id = f"p-{action}-{arm}", f"sess-{action}-{arm}"
+                    self.register_undefined(agent_id)
+                    self.restartable("", agent_id=agent_id, session_id=session_id)
+                    self.execute("UPDATE agents SET session_handle = 'h1' WHERE id = ?", (agent_id,))
+
+                    async def read_then_overtaken(db, read_id, arm=arm):
+                        binding = await real(db, read_id)
+                        if arm == "defined":
+                            self.execute(
+                                "INSERT INTO agent_definitions (agent_id, machine_id, store_id, incarnation, revision, "
+                                "definition_digest, body, available, updated_at) VALUES (?, ?, 's1', 1, 1, 'd', ?, 1, 'now')",
+                                (read_id, A["machine"], json.dumps(valid(read_id)["definition"])))
+                        else:
+                            self.execute("UPDATE agents SET definition_state = 'withdrawn' WHERE id = ?", (read_id,))
+                        return binding
+
+                    session_restart.start_binding = read_then_overtaken
+                    answered = self.client.post(f"/api/v1/sessions/{session_id}/control",
+                                                json={"action": action, "from_agent": "dashboard"})
+                    session_restart.start_binding = real
+                    self.assertEqual((answered.status_code, answered.json().get("detail")),
+                                     (409, f'Agent "{agent_id}": {CHANGED_WHILE_STARTING}'))
+                    self.assertEqual(len(self.spawns(agent_id)), 1, "no start from the old spec")
+                    self.assertEqual(self.rows("SELECT session_handle FROM agents WHERE id = ?", (agent_id,)),
+                                     [{"session_handle": "h1"}], "the agent still names its native session")
+
+    def test_an_undefined_restart_from_its_old_spec_and_one_defined_first(self):
+        """The controls for N6, both orders serialised: undefined throughout, it restarts from its old spec
+        unbound; defined before the restart, it restarts from the definition."""
+        self.register_undefined("plain")
+        self.restartable("", agent_id="plain", session_id="sess-plain")
+        self.execute("UPDATE spawn_specs SET model = 'old-model' WHERE agent_id = 'plain'")
+        plain = self.client.post("/api/v1/sessions/sess-plain/control", json={"action": "restart", "from_agent": "dashboard"})
+        self.assertEqual(plain.status_code, 200, plain.text)
+        latest = self.spawns("plain")[-1]
+        self.assertEqual((latest["store"], latest["revision"], latest["model"]), ("", 0, "old-model"))
+        self.register_undefined("later")
+        self.restartable("", agent_id="later", session_id="sess-later")
+        self.push("s1", 1, [valid("later", model="new-model")])
+        defined = self.client.post("/api/v1/sessions/sess-later/control", json={"action": "restart", "from_agent": "dashboard"})
+        self.assertEqual(defined.status_code, 200, defined.text)
+        latest = self.spawns("later")[-1]
+        self.assertEqual((latest["store"], latest["revision"], latest["model"]), ("s1", 1, "new-model"))
+
     def test_a_restart_runs_on_the_machine_that_defines_it(self):
         self.restartable("m1", environment=B)
         restarted = self.client.post("/api/v1/sessions/sess-1/control", json={"action": "restart", "from_agent": "dashboard"})

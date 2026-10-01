@@ -13,6 +13,7 @@ killed (exit 1)                  C7: the model is not the definition's
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_is_built_from_the_definition_not_the_sessions_spec
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_start_is_built_from_the_current_revision
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_from_its_old_spec_and_one_defined_first
 killed (exit 1)                  C7: the instructions are not the definition's
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
 killed (exit 1)                  C7: the env is not the definition's
@@ -22,8 +23,16 @@ killed (exit 1)                  C7: the effort is not the definition's
 killed (exit 1)                  C7: the write does not ask again
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_changed_while_starting_queues_nothing
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_from_a_definition_that_changed_meanwhile_queues_nothing
+                                  SUBFAILED(action='restart', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='restart', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='recreate', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='recreate', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
 killed (exit 1)                  C7: the write does not ask again for an undefined reading
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_changed_while_starting_queues_nothing
+                                  SUBFAILED(action='restart', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='restart', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='recreate', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='recreate', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
 killed (exit 1)                  C7: a refused write leaves its spec behind
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_changed_while_starting_queues_nothing
 killed (exit 1)                  C7: the cold start runs the runtime it was passed
@@ -47,9 +56,10 @@ killed (exit 1)                  C7: the workspace is not the definition's
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
 killed (exit 1)                  C7: a restart uses the session's old spec
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_recreate_is_built_from_the_definition_and_forgets_the_native_session
-                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_from_a_definition_that_changed_meanwhile_queues_nothing
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_is_built_from_the_definition_not_the_sessions_spec
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_runs_on_the_machine_that_defines_it
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_with_its_machine_offline_says_so_and_does_not_move
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_from_its_old_spec_and_one_defined_first
 killed (exit 1)                  C6: a withdrawn agent is restarted
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_withdrawn_agent_is_not_started_restarted_or_spawned
 killed (exit 1)                  C7: a restart runs on the session's machine
@@ -76,4 +86,9 @@ killed (exit 1)                  C6: the start route starts a withdrawn agent
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_withdrawn_agent_is_not_started_restarted_or_spawned
 killed (exit 1)                  C7: a restart's fallback takes another machine's environment
                                   FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_with_its_machine_offline_says_so_and_does_not_move
-33/33 killed
+killed (exit 1)                  N6: an overtaken undefined restart is not refused
+                                  SUBFAILED(action='restart', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='restart', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='recreate', arm='defined') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+                                  SUBFAILED(action='recreate', arm='withdrawn') service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_undefined_restart_overtaken_by_a_definition_queues_nothing
+34/34 killed

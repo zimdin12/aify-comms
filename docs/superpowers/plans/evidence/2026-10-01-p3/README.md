@@ -198,3 +198,31 @@ from the definition, and for a defined agent its row already holds the definitio
 
 The repo's refusal gate (`test_every_refusal_is_exercised.py`) then found one more: the restart's
 refusal when no environment of the defining machine is online. It has a witness and a mutant (33rd).
+
+## The review of 8de83233 (REVISE: N6)
+
+**N6: the undefined restart from an old spec skipped the guard.** It read "never defined" and then
+wrote its own INSERT, so a push or a withdrawal that committed after the read was answered with a
+start from the old spec. The direct spawn also wrote its own insert; it was safe only because it holds
+the write lock. Both now go through `insert_spawn_request`. The overtaken restart answers 409, and the
+route's single commit means nothing it wrote before is kept. Witnesses
+(`test_a_defined_agent_starts_from_its_definition.py`):
+- `test_an_undefined_restart_overtaken_by_a_definition_queues_nothing`: restart and recreate, each
+  overtaken by a push and by a withdrawal right after the binding read. Each is refused, with no new
+  request and the agent's native session handle kept;
+- `test_an_undefined_restart_from_its_old_spec_and_one_defined_first`: the two serialised orders.
+
+`test_every_start_goes_through_the_guarded_insert.py` walks every product file under `service/` and
+allows a raw `INSERT INTO spawn_requests` only in `definition_start.py`. Its pattern is checked
+against the forms an insert takes. `n6-red-on-8de83233.txt` is the run on 8de83233's exact tree: four
+arms red, both controls green, and the gate naming the two other writers. P3d's battery has 34 mutants,
+the 34th for N6.
+
+**A mutant that killed by syntax error.** P3c's "the fence is not asked before the worker is stopped"
+left an `if` with only comments in its body, so pytest stopped with exit 2: a kill that tests nothing.
+It now replaces the body with `pass`. Run alone, three named custody witnesses fail on behaviour. Every
+recorded kill in the four batteries is now checked to be exit 1.
+
+The first full run after N6 left two P3d mutants NOT APPLIED: N6's edit wrote the same lines into the
+undefined branch, so their anchors matched twice. They are anchored on the bound restart now. Every
+anchor in the four batteries is checked to match exactly once.
