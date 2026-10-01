@@ -816,6 +816,21 @@ and daemon shutdown still sending the offline beat.
 - Managed launches take everything from the launch payload and do not read the file (the host already
   checked it, C7).
 
+**Settled while building P6** (2026-10-01, aify-wrapper):
+
+- **One validator, copied.** aify-wrapper carries aify-env's `agent-definition-schema.mjs` byte for byte,
+  held by a test that compares the bytes and runs the shared fixture through it. A launcher reads the
+  one file through `bin/aify-definition.mjs`; it never asks aify-env's store, whose recovery writes.
+- **What is applied.** claude-aify applies role, model and effort. codex-aify and hermes-aify apply the
+  role and say they do not apply the definition's model and effort: neither launcher handles them today,
+  and where they would take effect on codex's app-server path and hermes's gateway-host path is not
+  verified. Open for the operator.
+- **An install without the reader** launches as before and says the definition is not applied, rather
+  than refusing every agent-id launch. A reader that is present and refuses, or fails, stops the launch
+  with 78.
+- **Read for the id known at the start** (flag or environment). An id recovered later from a resume
+  handle gets no defaults.
+
 ## C10. Import shows what it does not know
 
 `aify-env agents import` is an operator-requested pull, the one exception to "the host pushes": it

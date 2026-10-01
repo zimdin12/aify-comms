@@ -1,0 +1,72 @@
+killed (exit 1)                  C9 reader: an id that is not admitted is never a path
+                                  not ok 14 - readDefinition: found, missing, and every refusal
+killed (exit 1)                  C9 reader: a non-regular file is refused
+                                  not ok 14 - readDefinition: found, missing, and every refusal
+killed (exit 1)                  C9 reader: unreadable is refused, never missing
+                                  not ok 14 - readDefinition: found, missing, and every refusal
+killed (exit 1)                  C9 reader: another harness's definition is refused
+                                  not ok 4 - CLAUDE: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 5 - CODEX: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 6 - HERMES: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 14 - readDefinition: found, missing, and every refusal
+killed (exit 1)                  C9 reader: an invalid file is refused
+                                  not ok 4 - CLAUDE: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 5 - CODEX: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 6 - HERMES: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 14 - readDefinition: found, missing, and every refusal
+                                  not ok 16 - THE COMMAND: assignments and 0, or the problems and EXIT_REFUSED
+killed (exit 1)                  C9 reader: a quote in a value is escaped for bash
+                                  not ok 15 - shellAssignments: quoted for bash, a quote inside a value included
+killed (exit 1)                  C9 reader: the test override names the directory
+                                  not ok 1 - CLAUDE: the definition supplies role, model and effort when nothing above it does
+                                  not ok 4 - CLAUDE: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 5 - CODEX: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 6 - HERMES: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 7 - CODEX: --check takes the role from the definition, and the launch path applies it after the loop
+                                  not ok 8 - HERMES: --check takes the role from the definition, and the launch path applies it after the loop
+                                  not ok 13 - definitionsDir: the test override, else aify-env's default under the home
+                                  not ok 16 - THE COMMAND: assignments and 0, or the problems and EXIT_REFUSED
+killed (exit 1)                  C9 reader: role, model and effort are all handed on
+                                  not ok 1 - CLAUDE: the definition supplies role, model and effort when nothing above it does
+killed (exit 1)                  C9 command: a refusal exits 78
+                                  not ok 16 - THE COMMAND: assignments and 0, or the problems and EXIT_REFUSED
+killed (exit 1)                  C9 claude: the definition sits below flag and env
+                                  not ok 2 - CLAUDE PRECEDENCE: a flag, then HARNESS_*, then AIFY_*, each beats the definition
+killed (exit 1)                  C9 claude: the environment's model beats the definition's
+                                  not ok 2 - CLAUDE PRECEDENCE: a flag, then HARNESS_*, then AIFY_*, each beats the definition
+                                  not ok 3 - CLAUDE: missing is today's behaviour; a managed launch reads no file
+                                  not ok 4 - CLAUDE: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 9 - AN INSTALL WITHOUT THE READER launches as before, and says the definition is not applied
+killed (exit 1)                  C9 claude: the definition's effort is applied
+                                  not ok 1 - CLAUDE: the definition supplies role, model and effort when nothing above it does
+killed (exit 1)                  C9 claude: a managed launch reads no file
+                                  not ok 3 - CLAUDE: missing is today's behaviour; a managed launch reads no file
+killed (exit 1)                  C9 claude: --aify-ignore-definition skips the file
+                                  not ok 4 - CLAUDE: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+killed (exit 1)                  C9 claude: a refused definition stops the launch
+                                  not ok 4 - CLAUDE: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+killed (exit 1)                  C9 claude: a missing reader is a notice, not a refusal
+                                  not ok 9 - AN INSTALL WITHOUT THE READER launches as before, and says the definition is not applied
+killed (exit 1)                  C9 claude: the loop consumes the ignore flag
+                                  not ok 10 - CLAUDE: --aify-ignore-definition is consumed by the argument loop, never handed to the runtime
+killed (exit 1)                  C9 codex: --check reads the definition
+                                  not ok 5 - CODEX: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 7 - CODEX: --check takes the role from the definition, and the launch path applies it after the loop
+killed (exit 1)                  C9 codex: the launch path applies the definition's role
+                                  not ok 7 - CODEX: --check takes the role from the definition, and the launch path applies it after the loop
+killed (exit 1)                  C9 codex: the unapplied model and effort are said
+                                  not ok 7 - CODEX: --check takes the role from the definition, and the launch path applies it after the loop
+killed (exit 1)                  C9 codex: a refused definition stops the launch
+                                  not ok 5 - CODEX: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+killed (exit 1)                  C9 hermes: --check reads the definition
+                                  not ok 6 - HERMES: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+                                  not ok 8 - HERMES: --check takes the role from the definition, and the launch path applies it after the loop
+killed (exit 1)                  C9 hermes: the launch path applies the definition's role
+                                  not ok 8 - HERMES: --check takes the role from the definition, and the launch path applies it after the loop
+killed (exit 1)                  C9 hermes: the unapplied model and effort are said
+                                  not ok 8 - HERMES: --check takes the role from the definition, and the launch path applies it after the loop
+killed (exit 1)                  C9 hermes: a refused definition stops the launch
+                                  not ok 6 - HERMES: an invalid file or another harness's refuses with 78, and --aify-ignore-definition starts without it
+killed (exit 1)                  C9 schema: the copy drifts from aify-env's
+                                  not ok 17 - THE COPY IS aify-env's BYTES
+26/26 killed

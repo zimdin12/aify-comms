@@ -1,0 +1,184 @@
+[
+ {
+  "name": "C9 reader: an id that is not admitted is never a path",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "  if (named.length) return { outcome: \"refused\", file: \"\", problems: named };\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: a non-regular file is refused",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "    if (!io.lstatSync(file).isFile()) return { outcome: \"refused\", file, problems: [\"entry: not-a-regular-file\"] };\n",
+  "new": "    io.lstatSync(file);\n",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: unreadable is refused, never missing",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "return error.code === \"ENOENT\" ? { outcome: \"missing\", file } : unreadable(error);",
+  "new": "return { outcome: \"missing\", file };",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: another harness's definition is refused",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "  if (body.agent.harness !== harness) {",
+  "new": "  if (false) {",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: an invalid file is refused",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "  if (problems.length) return { outcome: \"refused\", file, problems };\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: a quote in a value is escaped for bash",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "replaceAll(\"'\", \"'\\\\''\")",
+  "new": "replaceAll(\"'\", \"'\")",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: the test override names the directory",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "  return env.AIFY_AGENT_DEFINITIONS_DIR || path.join(",
+  "new": "  return path.join(",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 reader: role, model and effort are all handed on",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": "`AIFY_DEF_EFFORT=${quoted(result.effort)}`",
+  "new": "`AIFY_DEF_EFFORT=''`",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 command: a refusal exits 78",
+  "file": "bin/aify-definition.mjs",
+  "old": "    process.exitCode = EXIT_REFUSED;",
+  "new": "    process.exitCode = 1;",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: the definition sits below flag and env",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "CLAUDE_AIFY_ROLE=\"${CLAUDE_AIFY_ROLE:-${AIFY_DEF_ROLE:-coder}}\"",
+  "new": "CLAUDE_AIFY_ROLE=\"${AIFY_DEF_ROLE:-${CLAUDE_AIFY_ROLE:-coder}}\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: the environment's model beats the definition's",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "CLAUDE_AIFY_MODEL=\"${AIFY_MANAGED_MODEL:-$AIFY_DEF_MODEL}\"",
+  "new": "CLAUDE_AIFY_MODEL=\"${AIFY_DEF_MODEL:-$AIFY_MANAGED_MODEL}\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: the definition's effort is applied",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "CLAUDE_AIFY_EFFORT=\"${AIFY_MANAGED_EFFORT:-$AIFY_DEF_EFFORT}\"",
+  "new": "CLAUDE_AIFY_EFFORT=\"${AIFY_MANAGED_EFFORT:-}\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: a managed launch reads no file",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": " || [ \"${AIFY_MANAGED_VIA_WRAPPER:-}\" = \"1\" ]; then\n    return 0",
+  "new": "; then\n    return 0",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: --aify-ignore-definition skips the file",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": " || [ \"$AIFY_IGNORE_DEFINITION\" = true ] ||",
+  "new": " ||",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: a refused definition stops the launch",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "    exit \"$HARNESS_EXIT_CONFIG\"\n  fi\n  eval \"$_out\"",
+  "new": "    return 0\n  fi\n  eval \"$_out\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: a missing reader is a notice, not a refusal",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "  if [ ! -f \"$_reader\" ]; then",
+  "new": "  if false; then",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 claude: the loop consumes the ignore flag",
+  "file": "wrappers/claude-aify.sh.in",
+  "old": "  if [ \"$ARG\" = \"--aify-ignore-definition\" ]; then\n    continue\n  fi\n",
+  "new": "",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 codex: --check reads the definition",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "aify_read_definition \"$_check_identity\"",
+  "new": "true",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 codex: the launch path applies the definition's role",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "CODEX_AIFY_ROLE=\"${CODEX_AIFY_ROLE:-${AIFY_DEF_ROLE:-coder}}\"",
+  "new": "CODEX_AIFY_ROLE=\"${CODEX_AIFY_ROLE:-coder}\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 codex: the unapplied model and effort are said",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "the definition's model and effort are not applied by this launcher",
+  "new": "model and effort ignored",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 codex: a refused definition stops the launch",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "    exit \"$HARNESS_EXIT_CONFIG\"\n  fi\n  eval \"$_out\"",
+  "new": "    return 0\n  fi\n  eval \"$_out\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 hermes: --check reads the definition",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "aify_read_definition \"$_check_identity\"",
+  "new": "true",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 hermes: the launch path applies the definition's role",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_AIFY_ROLE=\"${HERMES_AIFY_ROLE:-${AIFY_DEF_ROLE:-coder}}\"",
+  "new": "HERMES_AIFY_ROLE=\"${HERMES_AIFY_ROLE:-coder}\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 hermes: the unapplied model and effort are said",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "the definition's model and effort are not applied by this launcher",
+  "new": "model and effort ignored",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 hermes: a refused definition stops the launch",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "    exit \"$HARNESS_EXIT_CONFIG\"\n  fi\n  eval \"$_out\"",
+  "new": "    return 0\n  fi\n  eval \"$_out\"",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ },
+ {
+  "name": "C9 schema: the copy drifts from aify-env's",
+  "file": "lib/agent-definition-schema.mjs",
+  "old": "export const SCHEMA_VERSION = 1;",
+  "new": "export const SCHEMA_VERSION = 1; // drifted",
+  "test": "set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& node --test --test-timeout=300000 tests/agent-definition-defaults.test.js tests/a-launcher-takes-defaults-from-its-definition.test.js tests/the-definition-schema-is-aify-envs.test.js"
+ }
+]

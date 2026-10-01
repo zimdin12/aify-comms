@@ -1,0 +1,10 @@
+Full suites after the P6 battery (26/26 killed, sources byte-identical after), run in sequence on 2026-10-01.
+AIFY_ENV_REPO = aify-env-next, AIFY_WRAPPER_REPO = aify-wrapper-next for every suite.
+
+python  5015 passed, 27 skipped, 10879 subtests passed in 241.07s (skips environmental as before)
+bridge  all 366 suite(s) passed -- 2 test(s) skipped in 2 files
+dashboard  pass 1889, fail 0
+aify-wrapper-next (npm test)  tests 594, pass 528, fail 0, skipped 66
+aify-env-next (npm test)      tests 2336, pass 2332, fail 0, skipped 4
+
+~/.aify/credentials/aify-comms-6b1e649c84bd.key mtime after the runs: 2026-09-29 18:37:10.548 (unchanged)
