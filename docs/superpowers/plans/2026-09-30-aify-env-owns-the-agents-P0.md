@@ -859,8 +859,9 @@ asks each registered service offering the `agents` capability for this machine's
   row to definition fields: runtime to harness through the inverted `HARNESS_RUNTIME`, `cwd` to
   workspace, `sessionMode` to mode, and `runtimeConfig.effort`, then `thinking`, to effort (the order
   `launch_env.py` reads them). Only rows whose `machineId` is this host's, compared without case.
-  `env` is always unreported and written `{}`. `herdrSpace` is unreported when an older service omits
-  it.
+  `env` is always unreported and written `{}`. Any other field the row omits or leaves null is
+  unreported too, written as its neutral value and named; an explicitly empty value is reported (review
+  of P5, N5).
 - **The plan is pure** (`lib/agent-import.mjs`). An id defined here is never planned for writing, and
   an unreadable file counts as defined. A service that could not describe an id leaves a note and gets
   no vote. Any field that differs is a conflict, listed with every service's value; `--prefer
@@ -878,6 +879,8 @@ asks each registered service offering the `agents` capability for this machine's
 is still owed in its reconcile pass (`service/reconcilers/owed_removals.py`), through the same fences as
 the report route. The host claims only pending and claimed requests, so an owed removal never comes
 back to it; the first version waited for a repeated report that no host would send.
+A removal that fails is rolled back and stamped (`consequence_failed_at`), and the pass reads
+never-failed removals first, so a failing prefix cannot starve the rest (second revision, N4).
 
 **Settled with P5, for C11:** the sync logs each failure once per channel (requests, push) until it
 changes or clears, so an old service's 404s are two log lines, not two every 10 s.

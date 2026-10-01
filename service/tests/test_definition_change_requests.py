@@ -520,3 +520,36 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         result = asyncio.run(_run_dispatch_reconcile_once())
         self.assertEqual(result.get("finished_owed_removals"), 1, result)
         self.assertEqual(self.consequence(request_id)["consequence"], "removed")
+
+    def test_a_prefix_that_keeps_failing_does_not_starve_a_newer_owed_removal(self):
+        """Review of P4, N4: over the pass's budget, the fifty oldest fail on every pass and one newer
+        removal would succeed. Ordered by age alone, the same fifty were read every pass for ever."""
+        import service.api_core.definition_requests as result_route
+
+        ids = [f"agent-{n:02d}" for n in range(51)]
+        self.push("s1", 1, [valid(agent_id) for agent_id in ids])
+        owed = [self.interrupted_removal(agent_id) for agent_id in ids]
+        failing = set(ids[:50])
+        real = result_route.remove_agent
+
+        async def the_oldest_fail(db, agent_id, **kwargs):
+            if agent_id in failing:
+                await db.execute("BEGIN IMMEDIATE")
+                await db.execute("UPDATE agents SET name = 'half-removed' WHERE id = ?", (agent_id,))
+                raise RuntimeError("still failing")
+            return await real(db, agent_id, **kwargs)
+
+        result_route.remove_agent = the_oldest_fail
+        try:
+            with self.assertLogs("service.reconcilers.owed_removals", level="ERROR"):
+                for _ in range(3):
+                    self.sweep()
+        finally:
+            result_route.remove_agent = real
+        self.assertEqual(self.consequence(owed[50])["consequence"], "removed", "the newer owed removal was reached")
+        self.assertEqual(self.rows("SELECT id FROM agents WHERE id = ?", (ids[50],)), [])
+        self.assertEqual({self.consequence(r)["consequence"] for r in owed[:50]}, {"pending"}, "the failing ones stay owed")
+        self.assertEqual(self.rows("SELECT COUNT(*) AS n FROM agents WHERE name = 'half-removed'"), [{"n": 0}],
+                         "every failed attempt was rolled back")
+        self.sweep()
+        self.assertEqual({self.consequence(r)["consequence"] for r in owed[:50]}, {"removed"}, "and they finish once they can")

@@ -71,3 +71,25 @@ the command a store with an unreadable file. `aify-env-agents-import.test.js` no
 file cannot be read is planned as defined and never written), and that mutant alone was then killed.
 
 `mutations-p5-result.txt` is the whole battery run again after that witness.
+
+
+## Revision after review (REVISE of 29e4f21 / 6e05e5e3): N5
+
+**N5: an absent field became an empty value nobody was told about.** The mapper marked only `env` and an
+absent `herdrSpace` unreported; a roster row without a model, instructions or effort wrote `""` for each,
+and the plan named only `env`. Now provenance is per field: a field the row carries as a string is
+reported, an empty one included; a field the row omits, or leaves null, is unreported, written as its
+neutral value and named. Effort follows the service's own read order: a non-empty `effort`, then
+`thinking`, then an explicitly empty `effort`; neither key is unreported.
+
+Witnesses: `agent-import.test.js` (absent, null and explicitly empty, each effort case, and the plan's
+"not reported by" line naming every substituted field); the roster e2e now carries a service-produced
+`herdrSpace: false`, set through the service's own route, since the mapper's neutral value is true (the
+first version's `true` passed with the value forced), and an agent registered with neither a model nor a
+runtimeConfig. Measured there: registration stores a missing model as `""` (`req.model or ""`), so the
+roster REPORTS it empty, while the missing runtimeConfig leaves effort UNREPORTED. The mapper reads both
+as the service produced them.
+
+`mutations-p5r.json`: the 56 of `mutations-p5.json` with four mapper mutants re-anchored to the rewritten
+mapper, and four N5 mutants; every mapper mutant also runs the roster e2e. Result in
+`mutations-p5r-result.txt`.

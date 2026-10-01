@@ -420,6 +420,10 @@ DEFINITION_STORE_MIGRATIONS = {
 # request has no service consequence; 'pending', then 'removed' or 'nothing removed: <why>'.
 DEFINITION_REQUEST_MIGRATIONS = {
     "consequence": "ALTER TABLE definition_requests ADD COLUMN consequence TEXT DEFAULT ''",
+    # When the reconcile pass last failed to finish this owed removal ('' never): a failing one goes
+    # behind every other owed removal, so a prefix that keeps failing cannot starve the rest (review
+    # of P4, N4).
+    "consequence_failed_at": "ALTER TABLE definition_requests ADD COLUMN consequence_failed_at TEXT DEFAULT ''",
 }
 
 

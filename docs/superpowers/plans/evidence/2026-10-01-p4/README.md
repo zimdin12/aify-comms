@@ -151,3 +151,21 @@ first run killed four: removing the sweep's rollback survived, because the faili
 before opening a transaction. It now fails as `remove_agent` can, inside `BEGIN IMMEDIATE` after a
 write, and the witness checks that write was rolled back; the mutant then failed it, and the rerun
 killed five of five. Results in `mutations-p4r-result.txt` and `mutations-p4r-service-result.txt`.
+
+
+## Second revision (REVISE of 29e4f21 / 6e05e5e3): N4
+
+N1 and N3 were closed, and N2's history repaired. **N4: an owed removal that keeps failing starved the
+newer ones.** The sweep read the oldest fifty by `finished_at, id` every pass, and a failure kept those
+keys, so fifty that kept failing were the fifty read for ever. Now a failed attempt is rolled back and
+then stamped (`definition_requests.consequence_failed_at`, a migration like `consequence`, `''` when it
+never failed), and the sweep reads never-failed removals first and the oldest failure next. Passes stay
+bounded at fifty; the fences and the rollback are unchanged.
+
+Witness (`test_definition_change_requests.py`): fifty-one owed removals over the default budget; the
+fifty oldest fail on every pass inside their own transaction after a write; after three ordinary passes
+the newer one is removed, the fifty stay owed with every partial write rolled back, and a pass after the
+fault clears finishes them. Both mutants (age-only ordering; no stamp) fail exactly that test.
+
+`mutations-p4r2-service.json` is the five N2 mutants and the two N4 mutants; result in
+`mutations-p4r2-service-result.txt`.

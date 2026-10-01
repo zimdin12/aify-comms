@@ -1,0 +1,422 @@
+[
+ {
+  "name": "C10 an id defined here is compared without case",
+  "file": "lib/agent-import.mjs",
+  "old": "if (definedHere.has(id.toLowerCase()))",
+  "new": "if (definedHere.has(id))",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 an id defined here is never planned",
+  "file": "lib/agent-import.mjs",
+  "old": "if (definedHere.has(id.toLowerCase())) return { ...row, decision: DECISION.DEFINED };",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 a conflict is not resolved by registry order",
+  "file": "lib/agent-import.mjs",
+  "old": "const from = conflicts.length ? preferred(id, importable.map((r) => r.service), prefer) : importable[0].service;",
+  "new": "const from = importable[0].service;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 --prefer for one id beats one for every id",
+  "file": "lib/agent-import.mjs",
+  "old": "const named = prefer.find((p) => p.id === id && services.includes(p.service));",
+  "new": "const named = undefined;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 --prefer names only a service that reported the id",
+  "file": "lib/agent-import.mjs",
+  "old": "prefer.find((p) => !p.id && services.includes(p.service))",
+  "new": "prefer.find((p) => !p.id)",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 a service that could not describe an id does not vote",
+  "file": "lib/agent-import.mjs",
+  "old": "const importable = records.filter((r) => !r.notImportable);",
+  "new": "const importable = records;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 an invalid definition is not imported",
+  "file": "lib/agent-import.mjs",
+  "old": "decision: problems.length ? DECISION.INVALID : DECISION.IMPORT,",
+  "new": "decision: DECISION.IMPORT,",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 the unreported fields travel with the row",
+  "file": "lib/agent-import.mjs",
+  "old": "unreported: [...(chosen.unreported ?? [])]",
+  "new": "unreported: []",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 --prefer splits at the last colon",
+  "file": "lib/agent-import.mjs",
+  "old": "const at = value.lastIndexOf(\":\");",
+  "new": "const at = value.indexOf(\":\");",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 the check needs an installed launcher",
+  "file": "lib/agent-import.mjs",
+  "old": "...(installed.has(agent.harness) ? [] :",
+  "new": "...(true ? [] :",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 the check is the store's validity rule",
+  "file": "lib/agent-import.mjs",
+  "old": "...definitionProblems({ version: SCHEMA_VERSION, agent: { ...agent, id } }, id),",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 the lines say what was not reported",
+  "file": "lib/agent-import.mjs",
+  "old": "if (row.unreported.length) {",
+  "new": "if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 the conflict lines name each value",
+  "file": "lib/agent-import.mjs",
+  "old": "lines.push(`      ${conflict.field}: ${conflict.values.map((v) => `${v.service} ${shown(v.value)}`).join(\", \")}`);",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 records: only this machine's agents",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": ".filter(([, row]) => String(row?.machineId || \"\").toLowerCase() === mine)",
+  "new": ".filter(() => true)",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: machine ids compared without case",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "String(row?.machineId || \"\").toLowerCase() === mine",
+  "new": "String(row?.machineId || \"\") === mine",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: no machine id, nothing is this host's",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "  if (!mine) return [];\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: effort falls back to thinking",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "  if (said(config.thinking)) return config.thinking;\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: an unsaid herdrSpace is unreported",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "typeof row.herdrSpace === \"boolean\" ? row.herdrSpace : undefined",
+  "new": "row.herdrSpace !== false",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: herdrSpace false is kept",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "typeof row.herdrSpace === \"boolean\" ? row.herdrSpace : undefined",
+  "new": "typeof row.herdrSpace === \"boolean\" ? true : undefined",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: the harness comes from the runtime table",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "const harness = HARNESS_OF_RUNTIME[row?.runtime];",
+  "new": "const harness = row?.runtime;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 records: cwd is the workspace",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "[\"workspace\", \"cwd\"]",
+  "new": "[\"workspace\", \"workspace\"]",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "C10 capabilities() hands out every plugin",
+  "file": "lib/service-plugins.mjs",
+  "old": "return this.#started.map((plugin) => plugin?.capabilities?.[wanted]).filter(Boolean);",
+  "new": "return [this.capability(wanted)].filter(Boolean);",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 capabilities() only from started plugins",
+  "file": "lib/service-plugins.mjs",
+  "old": "return this.#started.map((plugin) => plugin?.capabilities?.[wanted]).filter(Boolean);",
+  "new": "return this.#plugins.map((plugin) => plugin?.capabilities?.[wanted]).filter(Boolean);",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 route: a failing service is kept as a report",
+  "file": "lib/protocol.mjs",
+  "old": "          services.push({ service, agents: [], problem: String(failure?.message || failure) });\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 route: an unreadable id is still defined",
+  "file": "lib/protocol.mjs",
+  "old": "defined = [...listed.definitions.map((entry) => entry.id), ...listed.unreadable];",
+  "new": "defined = listed.definitions.map((entry) => entry.id);",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 route: no service answers 503",
+  "file": "lib/protocol.mjs",
+  "old": "return ok(503, { services: [], defined, definedProblem, problem: \"no service plugin on this host can report its agents\" });",
+  "new": "return ok(200, { services: [], defined, definedProblem, problem: \"no service plugin on this host can report its agents\" });",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 route: an unreadable store is said",
+  "file": "lib/protocol.mjs",
+  "old": "definedProblem = String(failure?.message || failure);",
+  "new": "definedProblem = \"\";",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 route: only offers that can report are asked",
+  "file": "lib/protocol.mjs",
+  "old": ".filter((offer) => typeof offer?.importable === \"function\");",
+  "new": ".filter(Boolean);",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 client: asks the importable route",
+  "file": "lib/client-actions.mjs",
+  "old": "fetchImpl(`${base}/agents/importable`",
+  "new": "fetchImpl(`${base}/agents/startable`",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 client: a daemon that does not answer is a problem",
+  "file": "lib/client-actions.mjs",
+  "old": "    return none(`the environment did not answer: ${error?.message || error}`);",
+  "new": "    throw error;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: a dry run writes nothing",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "  if (!intent.write) return {",
+  "new": "  if (false) return {",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: a silent service blocks the write",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "  if (silent.length) return { code: EXIT_FAILED, lines: [...lines, \"nothing written: ask again when every service answers\"] };",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: the write is conditional on the id being undefined",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "await store.set(row.id, row.agent, { installed, expect: null });",
+  "new": "await store.set(row.id, row.agent, { installed });",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: only import rows are written",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "rows.filter((candidate) => candidate.decision === DECISION.IMPORT)",
+  "new": "rows.filter((candidate) => candidate.agent)",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: a store awaiting recovery plans nothing",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "  if (listed.conflict) return { code: EXIT_FAILED, lines: [...lines, ...conflictLines(listed.conflict)] };\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: unreadable ids count as defined",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "defined: [...listed.definitions.map((entry) => entry.id), ...listed.unreadable],",
+  "new": "defined: listed.definitions.map((entry) => entry.id),",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: a refused write fails the command",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "return { code: refused ? EXIT_FAILED : EXIT_OK, lines };",
+  "new": "return { code: EXIT_OK, lines };",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: --prefer refuses a flag as its value",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "!String(rest[at + 1] ?? \"\").startsWith(\"--\") && ",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 cli: no daemon fails the command",
+  "file": "bin/aify-env-agents.mjs",
+  "old": "  if (report.problem && !report.services.length) return",
+  "new": "  if (false) return",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C11 a repeated failure is logged once",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    if (this.#said[channel] === message) return;\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C11 a push that succeeds clears its logged failure",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    this.#said.push = \"\";\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C11 a 404 records that the service predates definitions",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    if (error instanceof CommsApiError && error.status === 404) this.state.accepted = false;\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C11 only a 404 means not accepted",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "error instanceof CommsApiError && error.status === 404",
+  "new": "error instanceof CommsApiError",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C11 an answered claim means accepted",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    this.state.accepted = true;\n    let applied = 0;",
+  "new": "    let applied = 0;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: a service that predates definitions is named",
+  "file": "lib/definition-checks.mjs",
+  "old": "if (sync.accepted === false) problems.push(`${name} does not accept definitions: it predates them`);\n    else ",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: nothing published is a failure",
+  "file": "lib/definition-checks.mjs",
+  "old": "    else problems.push(`${name}: nothing published yet`);\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: no publishing plugin is unanswered",
+  "file": "lib/definition-checks.mjs",
+  "old": "  if (!syncing.length) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: a request failure fails the row",
+  "file": "lib/definition-checks.mjs",
+  "old": "    else if (sync.lastRequestError) problems.push(`${name}: change requests not applied (${sync.lastRequestError})`);\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: undefined ids compared without case",
+  "file": "lib/definition-checks.mjs",
+  "old": ".filter((agentId) => !defined.has(String(agentId).toLowerCase()))",
+  "new": ".filter((agentId) => !defined.has(agentId))",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: no service answering is unanswered",
+  "file": "lib/definition-checks.mjs",
+  "old": "silent.length && !body.services.some((service) => !service.problem)",
+  "new": "false",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: an older daemon is said",
+  "file": "lib/definition-checks.mjs",
+  "old": "  if (answer.status === 404) return unanswered(id, \"this aify-env predates definitions, so which agents lack one is unknown\");\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor: the services not asked are named",
+  "file": "lib/definition-checks.mjs",
+  "old": "  const unasked = silent.length ? `; not asked: ${silent.join(\", \")}` : \"\";",
+  "new": "  const unasked = \"\";",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor asks the importable route",
+  "file": "lib/environment-report.mjs",
+  "old": "checks.push(undefinedAgentsCheck(await knock(`${endpoint}/agents/importable`)));",
+  "new": "checks.push(undefinedAgentsCheck(null));",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "D12 doctor reads the plugins' sync state",
+  "file": "lib/environment-report.mjs",
+  "old": "checks.push(definitionsCheck({ answered: true, plugins: envAnswer.body?.plugins ?? null }));",
+  "new": "checks.push(definitionsCheck({ answered: false }));",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 plugin: importable is this machine's",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "importRecords(await api.agents(), machineId)",
+  "new": "importRecords(await api.agents(), \"\")",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "C10 plugin: importable before start says so",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "        importable: async () => (starter\n",
+  "new": "        importable: async () => (true\n",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js"
+ },
+ {
+  "name": "N5 an absent field is presented as reported",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "    unreported.push(name);\n    return neutral;",
+  "new": "    return neutral;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "N5 null counts as a reported value",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "said(row[key]) ? row[key] : undefined",
+  "new": "row[key] !== undefined ? (row[key] ?? \"\") : undefined",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "N5 an explicitly empty effort is unreported",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "  return said(config.effort) ? config.effort : undefined;",
+  "new": "  return undefined;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ },
+ {
+  "name": "N5 an empty effort does not fall to thinking",
+  "file": "lib/plugins/aify-comms/agent-import-records.mjs",
+  "old": "  if (said(config.effort) && config.effort) return config.effort;",
+  "new": "  if (said(config.effort)) return config.effort;",
+  "test": "node --test --test-timeout=120000 tests/agent-import.test.js tests/aify-env-agents-import.test.js tests/the-services-report-this-machines-agents.test.js tests/definition-checks.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/doctor-picker-readiness.test.js tests/aify-env-agents-command.test.js tests/agent-start-routes.test.js && cd /d C:\\Docker\\aify-comms-next && set AIFY_ENV_REPO=C:/Users/Administrator/projects/aify-env-next&& python -m pytest service/tests/e2e/test_the_roster_reads_as_definitions.py -q -p no:warnings"
+ }
+]
