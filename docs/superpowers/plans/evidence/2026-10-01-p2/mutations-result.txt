@@ -1,97 +1,127 @@
 killed (exit 1)                  C8: starts are never refused while detaching
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 60 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 66 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
 killed (exit 1)                  C8: the control pass ignores the refusal
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 60 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 66 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
 killed (exit 1)                  C8: the refusal covers every action, not only start
-                                  not ok 61 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
+                                  not ok 67 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
 killed (exit 1)                  C8: an operator start is not refused while detaching
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
 killed (exit 1)                  C8: a heartbeat reply after detach is applied
-                                  not ok 62 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
+                                  not ok 68 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
 killed (exit 1)                  C8: a heartbeat failure after detach is applied
-                                  not ok 62 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
-SURVIVED                         C8: the claim loop keeps claiming while held
+                                  not ok 68 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
+killed (exit 1)                  C8: the claim loop keeps claiming while held
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
 killed (exit 1)                  C8: the claim pass does not re-read the phase after its setup
-                                  not ok 67 - A PASS WHOSE SETUP OUTLASTS THE DETACH starts nothing: no claim and no long-poll after it
+                                  not ok 73 - A PASS WHOSE SETUP OUTLASTS THE DETACH starts nothing: no claim and no long-poll after it
 killed (exit 1)                  C8: the control pass does not re-read the phase after its setup
-                                  not ok 67 - A PASS WHOSE SETUP OUTLASTS THE DETACH starts nothing: no claim and no long-poll after it
+                                  not ok 73 - A PASS WHOSE SETUP OUTLASTS THE DETACH starts nothing: no claim and no long-poll after it
 killed (exit 1)                  C8: the control loop stops while held
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 2 - A REMOVAL: the held plugin still authenticates to the endpoint it serves
+                                  not ok 3 - A ROTATION reaches a held plugin: the key is read per request, never kept
+                                  not ok 4 - NEGATIVE CONTROL: a resolver that reads the CURRENT registry is caught by the same observation
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
 killed (exit 1)                  C8: detach does not wait for the in-flight passes
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 60 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
-                                  not ok 61 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
-                                  not ok 62 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 66 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
+                                  not ok 67 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
+                                  not ok 68 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
 killed (exit 1)                  C8: the control pass is not tracked
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 60 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
-                                  not ok 61 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
-                                  not ok 62 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 66 - A START CONTROL IN THE IN-FLIGHT POLL is refused and starts nothing; the plugin then detaches
+                                  not ok 67 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
+                                  not ok 68 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
 killed (exit 1)                  C8: held workers are not counted, so the plugin detaches under them
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 61 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 2 - A REMOVAL: the held plugin still authenticates to the endpoint it serves
+                                  not ok 3 - A ROTATION reaches a held plugin: the key is read per request, never kept
+                                  not ok 4 - NEGATIVE CONTROL: a resolver that reads the CURRENT registry is caught by the same observation
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 67 - A NON-START CONTROL IN THE IN-FLIGHT POLL is handled, then the plugin detaches
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8: the pending notice is repeated on every detach
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
 killed (exit 1)                  C8: a held plugin stops serving its workers
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 2 - A REMOVAL: the held plugin still authenticates to the endpoint it serves
+                                  not ok 3 - A ROTATION reaches a held plugin: the key is read per request, never kept
+                                  not ok 4 - NEGATIVE CONTROL: a resolver that reads the CURRENT registry is caught by the same observation
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8: detach sends the offline beat
-                                  not ok 59 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
-                                  not ok 62 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
+                                  not ok 65 - A HELD WORKER ACROSS A REGISTRY REMOVAL: kept and still reported held, starts refused, no offline beat; detached once it ends
+                                  not ok 68 - A REPLY AFTER DETACH is ignored, and HOST SHUTDOWN still sends the offline beat
 killed (exit 1)                  C8 plan: an endpoint change is not a detach
-                                  not ok 63 - THE PLAN: a removed or moved service detaches, a new one is added only once its name is free
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 69 - THE PLAN: a removed or moved service detaches, a new one is added only once its name is free
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 plan: a service is added while its name is still held
-                                  not ok 63 - THE PLAN: a removed or moved service detaches, a new one is added only once its name is free
+                                  not ok 69 - THE PLAN: a removed or moved service detaches, a new one is added only once its name is free
 killed (exit 1)                  C8 plan: a service with no endpoint is added
-                                  not ok 63 - THE PLAN: a removed or moved service detaches, a new one is added only once its name is free
+                                  not ok 69 - THE PLAN: a removed or moved service detaches, a new one is added only once its name is free
 killed (exit 1)                  C8 follow: a plugin is built while its name is taken
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
 killed (exit 1)                  C8 follow: a held plugin is logged on every beat
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
 killed (exit 1)                  C8 registry: a held plugin leaves the registry
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 registry: running() includes a plugin with no endpoint
-                                  not ok 68 - THE REGISTRY'S EDGES: a plugin naming no endpoint is not moved, one without detach() stays, a failed add frees its name
+                                  not ok 74 - THE REGISTRY'S EDGES: a plugin naming no endpoint is not moved, one without detach() stays, a failed add frees its name
 killed (exit 1)                  C8 registry: a failed start keeps the name taken
-                                  not ok 68 - THE REGISTRY'S EDGES: a plugin naming no endpoint is not moved, one without detach() stays, a failed add frees its name
+                                  not ok 74 - THE REGISTRY'S EDGES: a plugin naming no endpoint is not moved, one without detach() stays, a failed add frees its name
 killed (exit 1)                  C8 registry: a plugin without detach() is dropped
-                                  not ok 68 - THE REGISTRY'S EDGES: a plugin naming no endpoint is not moved, one without detach() stays, a failed add frees its name
+                                  not ok 74 - THE REGISTRY'S EDGES: a plugin naming no endpoint is not moved, one without detach() stays, a failed add frees its name
 killed (exit 1)                  C8 readable: an unparseable registry reads as readable
-                                  not ok 65 - AN UNREADABLE REGISTRY IS NOT AN EMPTY ONE: only a parsed registry is followed
+                                  not ok 71 - AN UNREADABLE REGISTRY IS NOT AN EMPTY ONE: only a parsed registry is followed
 killed (exit 1)                  C8 readable: a registry without a services object reads as readable
-                                  not ok 65 - AN UNREADABLE REGISTRY IS NOT AN EMPTY ONE: only a parsed registry is followed
+                                  not ok 71 - AN UNREADABLE REGISTRY IS NOT AN EMPTY ONE: only a parsed registry is followed
 killed (exit 1)                  C8 daemon: an unreadable registry is followed
-                                  not ok 69 - THE DAEMON FOLLOWS ONLY A REGISTRY THAT PARSES: its own statement, run
+                                  not ok 75 - THE DAEMON FOLLOWS ONLY A REGISTRY THAT PARSES: its own statement, run
 killed (exit 1)                  C8 resume: a held plugin never resumes
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 resume: any plugin resumes, not only a held one
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 resume: the claim loop is not restarted
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 follow: a reverted change is not resumed
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 follow: a plugin planned for detach is resumed
-                                  not ok 64 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
+                                  not ok 70 - FOLLOWING THE REGISTRY: an endpoint change waits for the held worker, then the new plugin starts
 killed (exit 1)                  C8 follow: a resume is not logged
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 registry: resume reports true whatever the plugin said
-                                  not ok 66 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
+                                  not ok 72 - A REVERTED CHANGE RESUMES: the held plugin claims and starts again; nothing claims while held
 killed (exit 1)                  C8 doctor: a held plugin reads as claiming
-                                  not ok 95 - a plugin KEPT FOR ITS WORKERS after a registry change FAILS as pending, though it is the accepted claimer
+                                  not ok 101 - a plugin KEPT FOR ITS WORKERS after a registry change FAILS as pending, though it is the accepted claimer
 killed (exit 1)                  C8 doctor: a state with no phase reads as held
-                                  not ok 85 - an ACCEPTED claim passes and names the service
-                                  not ok 86 - a REFUSED claim FAILS and names who holds the row
-                                  not ok 88 - a plugin that has NOT been told yet is UNANSWERED, never a quiet pass
-                                  not ok 92 - ACCEPTED and REFUSED are DISTINGUISHABLE — the control
-                                  not ok 93 - one accepted and one silent passes, and still NAMES the silent one
-                                  not ok 95 - a plugin KEPT FOR ITS WORKERS after a registry change FAILS as pending, though it is the accepted claimer
-36/37 killed
+                                  not ok 91 - an ACCEPTED claim passes and names the service
+                                  not ok 92 - a REFUSED claim FAILS and names who holds the row
+                                  not ok 94 - a plugin that has NOT been told yet is UNANSWERED, never a quiet pass
+                                  not ok 98 - ACCEPTED and REFUSED are DISTINGUISHABLE — the control
+                                  not ok 99 - one accepted and one silent passes, and still NAMES the silent one
+                                  not ok 101 - a plugin KEPT FOR ITS WORKERS after a registry change FAILS as pending, though it is the accepted claimer
+killed (exit 1)                  R1: the plugin asks for no entry's key
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 2 - A REMOVAL: the held plugin still authenticates to the endpoint it serves
+                                  not ok 3 - A ROTATION reaches a held plugin: the key is read per request, never kept
+killed (exit 1)                  R1: the factory drops the plugin's entry
+                                  not ok 1 - A REPOINT: the held plugin keeps sending the old endpoint its own key, never the new service's
+                                  not ok 2 - A REMOVAL: the held plugin still authenticates to the endpoint it serves
+                                  not ok 3 - A ROTATION reaches a held plugin: the key is read per request, never kept
+killed (exit 1)                  R1: the daemon's host hands the resolver no entry
+                                  not ok 5 - THE DAEMON'S OWN WIRING hands the asking plugin's entry to the resolver: its source, run
+killed (exit 1)                  R1: the daemon's resolver ignores the entry it is given
+                                  not ok 5 - THE DAEMON'S OWN WIRING hands the asking plugin's entry to the resolver: its source, run
+killed (exit 1)                  R1: pluginCredential resolves a target for no entry
+                                  not ok 5 - THE DAEMON'S OWN WIRING hands the asking plugin's entry to the resolver: its source, run
+                                  not ok 6 - pluginCredential: the entry's own key, and nothing for no entry
+42/42 killed

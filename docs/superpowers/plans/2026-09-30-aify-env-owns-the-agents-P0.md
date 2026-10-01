@@ -585,6 +585,9 @@ once, as today.
 - **Where "registry change pending" shows:** the plugin logs it once on becoming held, and its state
   carries `phase` and `heldWorkers`. The doctor's `claiming` row fails on a held plugin, even though its
   claimer is accepted, and the TUI renders that row as the doctor wrote it.
+- **A plugin authenticates as the entry it was built from.** Its key is resolved on every request
+  from its own registry entry, never from whatever the registry names now, so a held plugin keeps the
+  old endpoint's key binding, and a rotation of that key still reaches it (review of c1a4596, R1).
 - **"A reply after detach"** is a heartbeat answer or failure arriving after the plugin detached;
   both are dropped. A control long-poll cannot arrive late: detach waits for the whole in-flight pass,
   including its setup, and a pass re-reads the phase after its setup.

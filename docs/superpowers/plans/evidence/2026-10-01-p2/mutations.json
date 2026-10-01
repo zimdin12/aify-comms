@@ -257,5 +257,40 @@
   "old": "    if (entry?.state?.phase && entry.state.phase !== \"running\") {",
   "new": "    if (entry?.state?.phase !== \"running\") {",
   "test": "P2"
+ },
+ {
+  "name": "R1: the plugin asks for no entry's key",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "credential: () => host.credential(service),",
+  "new": "credential: () => host.credential(),",
+  "test": "P2"
+ },
+ {
+  "name": "R1: the factory drops the plugin's entry",
+  "file": "lib/plugins/index.mjs",
+  "old": "plugins.push(factory({ ...shared, endpoint, service }));",
+  "new": "plugins.push(factory({ ...shared, endpoint }));",
+  "test": "P2"
+ },
+ {
+  "name": "R1: the daemon's host hands the resolver no entry",
+  "file": "bin/aify-env.mjs",
+  "old": "credential: async (service) => resolvePluginCredential(service),",
+  "new": "credential: async (service) => resolvePluginCredential(null),",
+  "test": "P2"
+ },
+ {
+  "name": "R1: the daemon's resolver ignores the entry it is given",
+  "file": "bin/aify-env.mjs",
+  "old": "return pluginCredential(service, (target) =>",
+  "new": "return pluginCredential(null, (target) =>",
+  "test": "P2"
+ },
+ {
+  "name": "R1: pluginCredential resolves a target for no entry",
+  "file": "lib/plugin-bootstrap.mjs",
+  "old": "const target = service ? advertisementTargets([service])[0] : null;",
+  "new": "const target = advertisementTargets([service || { name: \"fallback\", endpoint: \"http://fallback.invalid\" }])[0];",
+  "test": "P2"
  }
 ]

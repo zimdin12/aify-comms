@@ -1,23 +1,54 @@
 # P2 evidence: plugins follow the registry (P0 C8)
 
-What was run against aify-env `next/env-owned-agents` at **c1a4596**, which implements P0 C8 with the
-clarifications under "Settled while building P2" in the P0 document. The tree tested is the tree
-committed: nothing changed between the runs below and the commit.
+What was run against aify-env `next/env-owned-agents` at **495524c**: P0 C8 as implemented at c1a4596,
+plus the repairs from its review (R1 and R2, below), with the clarifications under "Settled while
+building P2" in the P0 document. The tree tested is the tree committed: nothing changed between the
+runs below and the commit. The first round's files, at c1a4596, are in git history.
 
 | file | what it is |
 |---|---|
-| `mutations.json` | 37 mutations, each one rule of C8 broken on purpose |
-| `mutate.py` | P1's driver plus the P2 test set, and a hang reported as `HUNG`, never counted as killed |
-| `mutations-result.txt` | the run: 36/37 killed, each with the tests that killed it |
-| `aify-env-full-suite-verdicts.txt` | `npm test` in aify-env: every verdict line and the totals (2262 tests, 2258 pass, 4 skipped, 0 fail) |
+| `mutations.json` | 42 mutations, each one rule of C8 or of the R1 repair broken on purpose |
+| `mutate.py` | P1's driver, plus the P2 test set and a timeout that kills the whole process tree, reporting `HUNG` |
+| `mutations-result.txt` | the run: 42/42 killed, each with the tests that killed it |
+| `aify-env-full-suite-verdicts.txt` | `npm test` in aify-env: every verdict line and the totals (2268 tests, 2264 pass, 4 skipped, 0 fail) |
 | `other-suites.txt` | the aify-comms and aify-wrapper suites with `AIFY_ENV_REPO` pointed at the branch |
 
-## The survivor
+The driver's hang path was proven before this run on a probe whose test hangs through a node child:
+`HUNG` in 6 s, a failing test killed and a passing one survived, the target restored, and no process
+left. That leftover-process count was itself controlled by starting one such process and seeing it
+counted.
 
-"The claim loop keeps claiming while held" survives, and it is equivalent in behaviour: every claim pass
-reads the phase again after its setup and returns before claiming, so a loop that keeps going while
-held claims nothing. The only difference is wasted setup calls, which the control loop also makes while
-held, so no test can tell them apart. The loop condition is kept because it stops those calls.
+## The survivor, and why my first account of it was wrong
+
+In the first round, "the claim loop keeps claiming while held" survived, and I wrote that it was
+equivalent and that no test could tell it apart. The review of c1a4596 showed otherwise. The mutant
+claims nothing, but its claim loop keeps beginning setups while held. A setup in flight then blocks the
+final detach until that setup is released. With the control long-poll open, the correct code begins no
+setup at all.
+
+The held witness now counts workspace-root reads. It first checks, while running, that the count can
+move, then requires it to stay still while held with the long-poll open. It goes red on the mutant, on
+that assertion.
+
+## Review round 1 (c1a4596): the held plugin's key
+
+R1, from the review: a held plugin kept its old endpoint but took its key from the registry's
+current first target (`advertisingTargets[0]`). After a repoint it sent the new service's key to the
+old endpoint, and after a removal it sent no key. The resolver predates P2; P2's held state is what
+exposed it.
+
+The fix: each plugin carries the registry entry it was built from (`pluginsForServices` passes it, and
+the plugin asks `host.credential(entry)`). The daemon resolves that entry fresh on every request through
+`pluginCredential`. Rotation still reaches a plugin, a held plugin keeps its old binding, and no entry
+means no key, never another service's.
+
+Witnesses are in `tests/a-held-plugin-keeps-its-own-key.test.js`. They run the real chain
+(`pluginsForServices`, the plugin, `CommsApi`, `PluginHost`, `pluginCredential`, `credentialForTarget`),
+with only `fetch` replaced and synthetic keys:
+
+- repoint, removal and rotation, with an unrelated service first in the registry throughout;
+- a planted resolver that reads the current registry, which the same observation catches;
+- the daemon's own resolver and host property, taken out of `bin/aify-env.mjs` and run.
 
 ## What the tests found
 
@@ -38,7 +69,16 @@ held, so no test can tell them apart. The loop condition is kept because it stop
 A mutant can kill by hanging. The first run had no hang budget: "detach sends the offline beat" waited
 for ever on a held heartbeat, and the 30-minute background limit stopped the run with that file still
 mutated. It was restored from the driver's own backup and checked byte for byte. Every witness now has
-a 10 s timeout, and the driver reports a subprocess timeout as `HUNG`.
+a 10 s timeout.
+
+In the review round, that was not enough, for two reasons:
+
+- A test file whose plugins keep running never exits, even when every test in it has timed out.
+  Per-test timeouts do not bound the cleanup hooks or the event loop. Each file now stops every
+  plugin it started, the ones `followRegistry` started included.
+- `subprocess.run(..., timeout=)` with a shell kills only the shell on Windows. The node child keeps
+  the pipe open, and the read after the kill blocked: one mutant sat 1054 s past a 300 s timeout.
+  The driver now kills the process tree.
 
 ## What this does not check
 
@@ -47,10 +87,13 @@ a 10 s timeout, and the driver reports a subprocess timeout as `HUNG`.
   `bin/aify-env.mjs` and run. That this statement runs on every advertiser beat is read from the
   source, not tested.
 - **Nothing here ran against a real service or a real registry edit.** Every result above is PASSES
-  IN TESTS: the real aify-comms plugin with a fake transport and fake processes.
-- **`aify-comms`'s Python suite** has two failures:
-  - the version gate, red until HEAD is tagged (VERSION is 0.7.7 on a tree past `v0.7.7`);
-  - the whitespace gate, which caught the P1 files above. It was rerun on the fixed tree, and the
-    result is appended to `other-suites.txt`.
+  IN TESTS: the real aify-comms plugin with a fake transport, or with only `fetch` replaced, and fake
+  processes.
+- **`aify-comms`'s Python suite** has one failure, the version gate. It is red until HEAD is tagged
+  (VERSION is 0.7.7 on a tree past `v0.7.7`) and closes at P7's bump to 0.8.0. One file was
+  deselected: the P3 role-reset test, which is uncommitted and red on purpose.
+- **The daemon's `following ??=` closure** was run by the reviewer in a vm (overlap single-flights,
+  success and rejection both report, and a later beat runs). It drops overlapping registry reads and
+  relies on the next beat. That is the reviewer's evidence, not a test in this repo.
 
 To rerun: `python mutate.py <aify-env checkout> mutations.json`.
