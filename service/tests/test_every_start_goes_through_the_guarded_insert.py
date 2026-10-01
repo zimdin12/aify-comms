@@ -10,8 +10,9 @@ literals from the syntax tree, so adjacent literals arrive concatenated and an f
 literal parts. A literal is an insert into this table when it holds `INSERT [OR <action>] INTO` before
 `spawn_requests`, bare or quoted ("", ``, []). Each one is bound to the function that holds it, and the
 only one allowed is in `insert_spawn_request`, exactly once. SQL assembled at run time (with `+`,
-`join`, or a formatted table name) is outside this grammar; the census in review of 2662ceaa found
-none in the tree.
+`join`, or a formatted table name) is outside this grammar, and its absence is not proved: the review
+of 2662ceaa found one decoded literal carrier, and runtime-constructed writers were not closed by that
+census.
 """
 from __future__ import annotations
 
@@ -52,7 +53,10 @@ def product_inserts() -> list[tuple[str, str]]:
 
 class EveryStartGoesThroughTheGuardedInsert(unittest.TestCase):
     def test_the_grammar_sees_the_forms_an_insert_takes(self):
-        """Each specimen is a false green the first version of this gate passed (review of 2662ceaa)."""
+        """The grammar's forms, each of which must be reported. The quoted table and the adjacent literals are
+        two of the three false greens the first version of this gate passed (review of 2662ceaa); the third,
+        a sibling writer in the allowed file, has its own test below. The plain insert is the form that
+        version already rejected, and the f-string and bracket forms are further cases of this grammar."""
         specimens = {
             "a plain insert": 'async def w(db):\n    await db.execute("INSERT INTO spawn_requests (id) VALUES (?)", ("x",))\n',
             "a quoted table": "async def w(db):\n    await db.execute('INSERT INTO \"spawn_requests\" (id) VALUES (?)')\n",
