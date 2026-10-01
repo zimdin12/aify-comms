@@ -1,0 +1,20 @@
+Full suites after the P5 battery (56/56 killed, sources byte-identical after), run in sequence on 2026-10-01.
+AIFY_ENV_REPO = C:/Users/Administrator/projects/aify-env-next for the aify-comms suites.
+
+python  (python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile)
+        5011 passed, 27 skipped, 10869 subtests passed in 134.18s
+        every skip is environmental: AIFY_UPGRADE_DEPS unset (3), .env absent (2), no _build_stamp.json (1),
+        deprecated pi (3 files, 21 tests)
+        TIME_WAIT before the first run: 446
+        The run before this one read 1 failed: mutations-p5.json had no newline at its end
+        (test_no_trailing_whitespace_in_tracked_text.py); fixed, and this run is after it.
+bridge  (cd mcp/stdio && node tests/run-all.mjs)
+        all 366 suite(s) passed -- 2 test(s) skipped in 2 files
+dashboard (cd service/new_dashboard && node --test *.test.mjs)
+        tests 1889, pass 1889, fail 0, skipped 0
+aify-wrapper (npm test)
+        tests 575, pass 509, fail 0, skipped 66
+aify-env-next (npm test)
+        tests 2328, pass 2324, fail 0, skipped 4
+
+~/.aify/credentials/aify-comms-6b1e649c84bd.key mtime after the runs: 2026-09-29 18:37:10.548 (unchanged)

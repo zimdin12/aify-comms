@@ -1,0 +1,158 @@
+killed (exit 1)                  C10 an id defined here is compared without case
+                                  not ok 4 - AN ID DEFINED HERE is never planned for writing, compared without case as the store compares ids
+killed (exit 1)                  C10 an id defined here is never planned
+                                  not ok 4 - AN ID DEFINED HERE is never planned for writing, compared without case as the store compares ids
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+                                  not ok 33 - AN ID WHOSE FILE CANNOT BE READ is still defined here: planned as such, never written over
+killed (exit 1)                  C10 a conflict is not resolved by registry order
+                                  not ok 2 - TWO SERVICES THAT AGREE are one import naming both; two that differ are a conflict, field by field
+                                  not ok 3 - --prefer decides a conflict: for one id over every id, and never for a service that did not report it
+                                  not ok 8 - THE LINES say each decision, every value to be written, and what was not reported
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 --prefer for one id beats one for every id
+                                  not ok 3 - --prefer decides a conflict: for one id over every id, and never for a service that did not report it
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 --prefer names only a service that reported the id
+                                  not ok 3 - --prefer decides a conflict: for one id over every id, and never for a service that did not report it
+killed (exit 1)                  C10 a service that could not describe an id does not vote
+                                  not ok 5 - NOT IMPORTABLE, INVALID, and a service that could not describe an id another could
+killed (exit 1)                  C10 an invalid definition is not imported
+                                  not ok 5 - NOT IMPORTABLE, INVALID, and a service that could not describe an id another could
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 the unreported fields travel with the row
+                                  not ok 1 - ONE SERVICE: its record is imported as reported, and what it cannot report is said
+                                  not ok 8 - THE LINES say each decision, every value to be written, and what was not reported
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 --prefer splits at the last colon
+                                  not ok 7 - --prefer reads <service> or <service>:<id>, the id after the last colon
+killed (exit 1)                  C10 the check needs an installed launcher
+                                  not ok 6 - THE CHECK is the store's rule for a new definition plus an installed launcher
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 the check is the store's validity rule
+                                  not ok 6 - THE CHECK is the store's rule for a new definition plus an installed launcher
+killed (exit 1)                  C10 the lines say what was not reported
+                                  not ok 8 - THE LINES say each decision, every value to be written, and what was not reported
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 the conflict lines name each value
+                                  not ok 8 - THE LINES say each decision, every value to be written, and what was not reported
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 records: only this machine's agents
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+                                  not ok 69 - THE aify-comms PLUGIN offers this machine's agents from its roster, and says so before it starts
+killed (exit 1)                  C10 records: machine ids compared without case
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+killed (exit 1)                  C10 records: no machine id, nothing is this host's
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+killed (exit 1)                  C10 records: effort falls back to thinking
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+killed (exit 1)                  C10 records: an unsaid herdrSpace is unreported
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+killed (exit 1)                  C10 records: herdrSpace false is kept
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+killed (exit 1)                  C10 records: the harness comes from the runtime table
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+                                  not ok 10 - EVERY HARNESS maps back from its runtime, and any other runtime is not importable
+                                  not ok 69 - THE aify-comms PLUGIN offers this machine's agents from its roster, and says so before it starts
+killed (exit 1)                  C10 records: cwd is the workspace
+                                  not ok 9 - THE ROSTER, read as records: this machine only, harness from runtime, aify-comms' names mapped
+killed (exit 1)                  C10 capabilities() hands out every plugin
+                                  not ok 67 - capabilities() hands out every started plugin's offer; capability() still hands out the first
+killed (exit 1)                  C10 capabilities() only from started plugins
+                                  not ok 67 - capabilities() hands out every started plugin's offer; capability() still hands out the first
+killed (exit 1)                  C10 route: a failing service is kept as a report
+                                  not ok 65 - THE ROUTE asks every service, keeps one that failed as a report, and says what this host defines
+killed (exit 1)                  C10 route: an unreadable id is still defined
+                                  not ok 65 - THE ROUTE asks every service, keeps one that failed as a report, and says what this host defines
+killed (exit 1)                  C10 route: no service answers 503
+                                  not ok 66 - NO SERVICE CAN REPORT: 503 with the reason; an unreadable store is said, not read as none defined
+killed (exit 1)                  C10 route: an unreadable store is said
+                                  not ok 66 - NO SERVICE CAN REPORT: 503 with the reason; an unreadable store is said, not read as none defined
+killed (exit 1)                  C10 route: only offers that can report are asked
+                                  not ok 65 - THE ROUTE asks every service, keeps one that failed as a report, and says what this host defines
+killed (exit 1)                  C10 client: asks the importable route
+                                  not ok 68 - THE CLIENT reads the report, and a daemon that does not answer is a problem, never an empty report
+killed (exit 1)                  C10 client: a daemon that does not answer is a problem
+                                  not ok 30 - NO DAEMON: said, and exit 65
+                                  not ok 68 - THE CLIENT reads the report, and a daemon that does not answer is a problem, never an empty report
+killed (exit 1)                  C10 cli: a dry run writes nothing
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 cli: a silent service blocks the write
+                                  not ok 29 - A SERVICE THAT DID NOT ANSWER: listed, and --write writes nothing, since its conflict cannot show
+killed (exit 1)                  C10 cli: the write is conditional on the id being undefined
+                                  not ok 31 - AN ID DEFINED BETWEEN THE PLAN AND THE WRITE is refused by the store, never overwritten
+killed (exit 1)                  C10 cli: only import rows are written
+                                  not ok 28 - DRY RUN writes nothing; --write defines the import rows only, never a conflict or an existing id
+killed (exit 1)                  C10 cli: a store awaiting recovery plans nothing
+                                  not ok 32 - A STORE AWAITING A RECOVERY DECISION: the import says so and plans nothing
+killed (exit 1)                  C10 cli: unreadable ids count as defined
+                                  not ok 33 - AN ID WHOSE FILE CANNOT BE READ is still defined here: planned as such, never written over
+killed (exit 1)                  C10 cli: a refused write fails the command
+                                  not ok 31 - AN ID DEFINED BETWEEN THE PLAN AND THE WRITE is refused by the store, never overwritten
+killed (exit 1)                  C10 cli: --prefer refuses a flag as its value
+                                  not ok 27 - THE ARGUMENTS: --write and repeated --prefer, and nothing else
+killed (exit 1)                  C10 cli: no daemon fails the command
+                                  not ok 30 - NO DAEMON: said, and exit 65
+killed (exit 1)                  C11 a repeated failure is logged once
+                                  not ok 63 - A SERVICE OLDER THAN DEFINITIONS: its 404s are logged once each, and `accepted` says so (C11)
+                                  not ok 64 - A FAILURE THAT CLEARS is logged again when it returns; one that is not a 404 leaves `accepted` alone
+killed (exit 1)                  C11 a push that succeeds clears its logged failure
+                                  not ok 64 - A FAILURE THAT CLEARS is logged again when it returns; one that is not a 404 leaves `accepted` alone
+killed (exit 1)                  C11 a 404 records that the service predates definitions
+                                  not ok 63 - A SERVICE OLDER THAN DEFINITIONS: its 404s are logged once each, and `accepted` says so (C11)
+killed (exit 1)                  C11 only a 404 means not accepted
+                                  not ok 64 - A FAILURE THAT CLEARS is logged again when it returns; one that is not a 404 leaves `accepted` alone
+killed (exit 1)                  C11 an answered claim means accepted
+                                  not ok 64 - A FAILURE THAT CLEARS is logged again when it returns; one that is not a 404 leaves `accepted` alone
+killed (exit 1)                  D12 doctor: a service that predates definitions is named
+                                  not ok 34 - DEFINITIONS: published passes; a 404 says the service predates them; a failure says which call
+                                  not ok 38 - THE DOCTOR asks for both rows: the plugins' sync state from /health, and /agents/importable
+killed (exit 1)                  D12 doctor: nothing published is a failure
+                                  not ok 34 - DEFINITIONS: published passes; a 404 says the service predates them; a failure says which call
+killed (exit 1)                  D12 doctor: no publishing plugin is unanswered
+                                  not ok 35 - DEFINITIONS UNANSWERED: no aify-env, one too old to report plugins, or no plugin that publishes
+killed (exit 1)                  D12 doctor: a request failure fails the row
+                                  not ok 34 - DEFINITIONS: published passes; a 404 says the service predates them; a failure says which call
+killed (exit 1)                  D12 doctor: undefined ids compared without case
+                                  not ok 36 - UNDEFINED AGENTS are named, compared without case, and pass: they run as before
+killed (exit 1)                  D12 doctor: no service answering is unanswered
+                                  not ok 37 - UNDEFINED AGENTS UNKNOWN: no daemon, an older one, no store answer, or no service that answered
+killed (exit 1)                  D12 doctor: an older daemon is said
+                                  not ok 37 - UNDEFINED AGENTS UNKNOWN: no daemon, an older one, no store answer, or no service that answered
+killed (exit 1)                  D12 doctor: the services not asked are named
+                                  not ok 37 - UNDEFINED AGENTS UNKNOWN: no daemon, an older one, no store answer, or no service that answered
+killed (exit 1)                  D12 doctor asks the importable route
+                                  not ok 38 - THE DOCTOR asks for both rows: the plugins' sync state from /health, and /agents/importable
+                                  not ok 39 - real roster pipeline accepts valid empty data with every doctor row green
+                                  not ok 40 - real roster pipeline rejects invalid JSON without another doctor failure
+                                  not ok 41 - real roster pipeline rejects null body without another doctor failure
+                                  not ok 42 - real roster pipeline rejects missing roster without another doctor failure
+                                  not ok 43 - real roster pipeline rejects null roster without another doctor failure
+                                  not ok 44 - real roster pipeline rejects array roster without another doctor failure
+                                  not ok 45 - real roster pipeline rejects scalar roster without another doctor failure
+                                  not ok 46 - real roster pipeline rejects body refusal without another doctor failure
+                                  not ok 47 - real roster pipeline rejects no-content response without another doctor failure
+                                  not ok 48 - real roster pipeline rejects HTTP refusal without another doctor failure
+                                  not ok 49 - real roster pipeline rejects transport exception without another doctor failure
+                                  not ok 50 - picker readiness requires a finite HTTP status
+                                  not ok 51 - doctor fails readiness when a healthy daemon's picker lacks machine identity
+                                  not ok 52 - an empty but working picker passes readiness
+killed (exit 1)                  D12 doctor reads the plugins' sync state
+                                  not ok 38 - THE DOCTOR asks for both rows: the plugins' sync state from /health, and /agents/importable
+                                  not ok 39 - real roster pipeline accepts valid empty data with every doctor row green
+                                  not ok 40 - real roster pipeline rejects invalid JSON without another doctor failure
+                                  not ok 41 - real roster pipeline rejects null body without another doctor failure
+                                  not ok 42 - real roster pipeline rejects missing roster without another doctor failure
+                                  not ok 43 - real roster pipeline rejects null roster without another doctor failure
+                                  not ok 44 - real roster pipeline rejects array roster without another doctor failure
+                                  not ok 45 - real roster pipeline rejects scalar roster without another doctor failure
+                                  not ok 46 - real roster pipeline rejects body refusal without another doctor failure
+                                  not ok 47 - real roster pipeline rejects no-content response without another doctor failure
+                                  not ok 48 - real roster pipeline rejects HTTP refusal without another doctor failure
+                                  not ok 49 - real roster pipeline rejects transport exception without another doctor failure
+                                  not ok 50 - picker readiness requires a finite HTTP status
+                                  not ok 52 - an empty but working picker passes readiness
+killed (exit 1)                  C10 plugin: importable is this machine's
+                                  not ok 69 - THE aify-comms PLUGIN offers this machine's agents from its roster, and says so before it starts
+killed (exit 1)                  C10 plugin: importable before start says so
+                                  not ok 69 - THE aify-comms PLUGIN offers this machine's agents from its roster, and says so before it starts
+56/56 killed

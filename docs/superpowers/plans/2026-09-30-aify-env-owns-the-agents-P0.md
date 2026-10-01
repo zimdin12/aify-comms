@@ -828,6 +828,35 @@ asks each registered service offering the `agents` capability for this machine's
 - Harness mapping from the service's runtime: `claude-code -> claude`, `codex -> codex`,
   `hermes -> hermes`; anything else is listed as not importable.
 
+**Settled while building P5** (2026-10-01, aify-env):
+
+- **Import asks the running aify-env.** Each plugin holds its service's credential, so the command
+  calls the daemon's `GET /agents/importable`, and the daemon asks every started plugin that offers
+  `agents.importable` (`ServicePlugins.capabilities()`, plural; `capability()` still hands out one for
+  starting). A service that fails is kept as a report carrying its problem. With no aify-env answering,
+  the command says so and exits 65.
+- **The service's vocabulary stays in its plugin.** `agent-import-records.mjs` maps aify-comms' roster
+  row to definition fields: runtime to harness through the inverted `HARNESS_RUNTIME`, `cwd` to
+  workspace, `sessionMode` to mode, and `runtimeConfig.effort`, then `thinking`, to effort (the order
+  `launch_env.py` reads them). Only rows whose `machineId` is this host's, compared without case.
+  `env` is always unreported and written `{}`. `herdrSpace` is unreported when an older service omits
+  it.
+- **The plan is pure** (`lib/agent-import.mjs`). An id defined here is never planned for writing, and
+  an unreadable file counts as defined. A service that could not describe an id leaves a note and gets
+  no vote. Any field that differs is a conflict, listed with every service's value; `--prefer
+  <service>:<id>` beats `--prefer <service>`, and neither applies to a service that did not report the
+  id. Each importable row is checked as the store checks a new definition, plus an installed launcher.
+- **`--write` fails closed.** If any service did not answer, nothing is written, since its conflict
+  cannot show. Each import row is written with `expect: null`, so an id defined between the plan and
+  the write is refused by the store, never overwritten.
+- **The doctor has two rows.** `definitions` reads each plugin's own sync state from `/health`: it fails
+  when a service predates definitions (`accepted: false`, set by a 404), when the last push or request
+  failed, or when nothing has been published. `undefined-agents` names the agents the services know on
+  this host that have no definition here, and PASSES, because they run as they did before.
+
+**Settled with P5, for C11:** the sync logs each failure once per channel (requests, push) until it
+changes or clears, so an old service's 404s are two log lines, not two every 10 s.
+
 ## C11. Mixed versions and persisted state
 
 The service's definition rows outlive whoever pushed them, so each arm says what happens to them.
