@@ -18,7 +18,7 @@ ALIASES = {
     "P2": "node --test tests/plugins-follow-the-registry.test.js tests/aify-comms-plugin.test.js "
           "tests/service-plugins.test.js tests/plugin-bootstrap.test.js tests/production-picker-bootstrap.test.js "
           "tests/aify-comms-claim.test.js tests/the-doctor-says-whether-this-host-claims.test.js "
-          "tests/a-held-plugin-keeps-its-own-key.test.js",
+          "tests/a-held-plugin-keeps-its-own-key.test.js tests/aify-comms-plugin-parts.test.js",
     "SCHEMA": "node --test tests/agent-definition-schema.test.js",
     "ALL": "node --test tests/agent-definition-schema.test.js tests/agent-definition-recovery.test.js "
            "tests/agent-definition-store.test.js tests/agent-definition-crash.test.js "

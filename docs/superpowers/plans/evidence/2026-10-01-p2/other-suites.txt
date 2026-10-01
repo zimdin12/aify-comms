@@ -1,9 +1,9 @@
-aify-comms-next with AIFY_ENV_REPO=~/projects/aify-env-next (495524c) and AIFY_WRAPPER_REPO=~/projects/aify-wrapper-next:
+aify-comms-next with AIFY_ENV_REPO=~/projects/aify-env-next (d2ce11f) and AIFY_WRAPPER_REPO=~/projects/aify-wrapper-next:
 
 python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile --deselect service/tests/test_a_cold_start_keeps_the_agents_role.py
 (deselected: the P3 role-reset test, uncommitted and red on purpose until P3)
 FAILED service/tests/test_version_is_not_an_already_released_tag.py::VersionIsNotAnAlreadyReleasedTagTests::test_VERSION_DOES_NOT_NAME_A_TAG_THIS_TREE_IS_PAST
-1 failed, 4908 passed, 27 skipped, 8 warnings, 10490 subtests passed in 291.00s (0:04:50)
+1 failed, 4908 passed, 27 skipped, 8 warnings, 10490 subtests passed in 472.12s (0:07:52)
 The one failure is the version gate: VERSION 0.7.7 on a tree past v0.7.7. It closes at P7's bump to 0.8.0.
 
 mcp/stdio: node tests/run-all.mjs
@@ -19,6 +19,3 @@ aify-wrapper-next: npm test
 # pass 509
 # fail 0
 # skipped 66
-
-The whitespace gate, rerun after fixing the P1 evidence (first round):
-4 passed in 2.53s

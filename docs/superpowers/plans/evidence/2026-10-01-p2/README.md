@@ -1,16 +1,15 @@
 # P2 evidence: plugins follow the registry (P0 C8)
 
-What was run against aify-env `next/env-owned-agents` at **495524c**: P0 C8 as implemented at c1a4596,
-plus the repairs from its review (R1 and R2, below), with the clarifications under "Settled while
-building P2" in the P0 document. The tree tested is the tree committed: nothing changed between the
-runs below and the commit. The first round's files, at c1a4596, are in git history.
+What was run against aify-env `next/env-owned-agents` at **d2ce11f**: P2 as approved at 495524c, plus the
+split of the aify-comms plugin (below). The tree tested is the tree committed: nothing changed between
+the runs below and the commit. Earlier rounds' files (c1a4596, 495524c) are in git history.
 
 | file | what it is |
 |---|---|
-| `mutations.json` | 42 mutations, each one rule of C8 or of the R1 repair broken on purpose |
+| `mutations.json` | 48 mutations: each rule of C8, the R1 repair, and the split's parts, broken on purpose |
 | `mutate.py` | P1's driver, plus the P2 test set and a timeout that kills the whole process tree, reporting `HUNG` |
-| `mutations-result.txt` | the run: 42/42 killed, each with the tests that killed it |
-| `aify-env-full-suite-verdicts.txt` | `npm test` in aify-env: every verdict line and the totals (2268 tests, 2264 pass, 4 skipped, 0 fail) |
+| `mutations-result.txt` | the run: 48/48 killed, each with the tests that killed it |
+| `aify-env-full-suite-verdicts.txt` | `npm test` in aify-env: every verdict line and the totals (2272 tests, 2268 pass, 4 skipped, 0 fail) |
 | `other-suites.txt` | the aify-comms and aify-wrapper suites with `AIFY_ENV_REPO` pointed at the branch |
 
 The driver's hang path was proven before this run on a probe whose test hangs through a node child:
@@ -49,6 +48,24 @@ with only `fetch` replaced and synthetic keys:
 - repoint, removal and rotation, with an unrelated service first in the registry throughout;
 - a planted resolver that reads the current registry, which the same observation catches;
 - the daemon's own resolver and host property, taken out of `bin/aify-env.mjs` and run.
+
+## The split (after P2's approval at 495524c)
+
+`index.mjs` was 507 lines, past the 400-line signal. Three parts left it:
+
+- `plugin-phase.mjs`: the class `PluginPhase`, which owns C8's phase, the passes in flight and the
+  moves between them.
+- `pass-loop.mjs`: `runPasses`. Both loops carried their own copy of the skeleton, and of the lesson
+  behind it: a throwing pass costs one interval, never the loop.
+- `claimer-answer.mjs`: `claimerFromAnswer`, a pure function. The answer comes in; the claimer state
+  and the line to log come out.
+
+`index.mjs` keeps the wiring and is now 424 lines. Its behaviour is unchanged: the 42 earlier mutations
+were retargeted to where each rule now lives, and all still die on the same witnesses.
+
+Six new mutations break the parts themselves. Each is killed by `aify-comms-plugin-parts.test.js` and
+also by an existing plugin-level test, so the parts tests overlap the plugin's. They add a direct
+statement of each part's contract: the phase transitions, and that `quiesce` waits for a tracked pass.
 
 ## What the tests found
 

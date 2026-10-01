@@ -1,9 +1,9 @@
 [
  {
   "name": "C8: starts are never refused while detaching",
-  "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "const refuseStarts = () => (phase === \"running\" ? \"\" : DETACHING);",
-  "new": "const refuseStarts = () => \"\";",
+  "file": "lib/plugins/aify-comms/plugin-phase.mjs",
+  "old": "  refusal() { return this.#phase === \"running\" ? \"\" : DETACHING; }",
+  "new": "  refusal() { return \"\"; }",
   "test": "P2"
  },
  {
@@ -23,64 +23,64 @@
  {
   "name": "C8: an operator start is not refused while detaching",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "start: async (agentId) => (starter && phase === \"running\"",
+  "old": "start: async (agentId) => (starter && !phase.refusal()",
   "new": "start: async (agentId) => (starter",
   "test": "P2"
  },
  {
   "name": "C8: a heartbeat reply after detach is applied",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      if (phase === \"detached\") return;\n      state.lastHeartbeat",
+  "old": "      if (phase.detached) return;\n      state.lastHeartbeat",
   "new": "      state.lastHeartbeat",
   "test": "P2"
  },
  {
   "name": "C8: a heartbeat failure after detach is applied",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      if (phase === \"detached\") return;\n      // NAMED",
+  "old": "      if (phase.detached) return;\n      // NAMED",
   "new": "      // NAMED",
   "test": "P2"
  },
  {
   "name": "C8: the claim loop keeps claiming while held",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      while (!stopped && phase === \"running\") {",
-  "new": "      while (!stopped && phase !== \"detached\") {",
+  "old": "runs: () => !stopped && phase.claims,",
+  "new": "runs: () => !stopped && !phase.detached,",
   "test": "P2"
  },
  {
   "name": "C8: the claim pass does not re-read the phase after its setup",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "            if (phase !== \"running\") return { outcome: \"detaching\" };\n            return runClaimPass({",
-  "new": "            return runClaimPass({",
+  "old": "          if (!phase.claims) return { outcome: \"detaching\" };\n",
+  "new": "",
   "test": "P2"
  },
  {
   "name": "C8: the control pass does not re-read the phase after its setup",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "            if (phase !== \"running\" && phase !== \"held\") return { outcome: \"detaching\" };",
+  "old": "          if (!phase.controls) return { outcome: \"detaching\" };\n",
   "new": "",
   "test": "P2"
  },
  {
   "name": "C8: the control loop stops while held",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      while (!stopped && (phase === \"running\" || phase === \"held\")) {",
-  "new": "      while (!stopped && phase === \"running\") {",
+  "old": "runs: () => !stopped && phase.controls,",
+  "new": "runs: () => !stopped && phase.claims,",
   "test": "P2"
  },
  {
   "name": "C8: detach does not wait for the in-flight passes",
-  "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      await Promise.all([claimPass, controlPass]);",
+  "file": "lib/plugins/aify-comms/plugin-phase.mjs",
+  "old": "    await Promise.all(this.#passes.values());\n",
   "new": "",
   "test": "P2"
  },
  {
   "name": "C8: the control pass is not tracked",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "          controlPass = pass.catch(() => {});",
-  "new": "          pass.catch(() => {});",
+  "old": "pass: () => phase.track(\"control\", (async () => {",
+  "new": "pass: () => ((async () => {",
   "test": "P2"
  },
  {
@@ -100,8 +100,8 @@
  {
   "name": "C8: a held plugin stops serving its workers",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "        phase = \"held\";\n        controlForever()",
-  "new": "        phase = \"detached\";\n        controlForever()",
+  "old": "        phase.hold();\n        controlForever()",
+  "new": "        phase.detach();\n        controlForever()",
   "test": "P2"
  },
  {
@@ -198,22 +198,22 @@
  {
   "name": "C8 resume: a held plugin never resumes",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      if (stopped || phase !== \"held\") return false;",
+  "old": "      if (stopped || !phase.resume()) return false;",
   "new": "      return false;",
   "test": "P2"
  },
  {
   "name": "C8 resume: any plugin resumes, not only a held one",
-  "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      if (stopped || phase !== \"held\") return false;",
-  "new": "      if (stopped) return false;",
+  "file": "lib/plugins/aify-comms/plugin-phase.mjs",
+  "old": "    if (this.#phase !== \"held\") return false;\n",
+  "new": "",
   "test": "P2"
  },
  {
   "name": "C8 resume: the claim loop is not restarted",
   "file": "lib/plugins/aify-comms/index.mjs",
-  "old": "      phase = \"running\";\n      claimForever().catch((error) => host?.log?.(`aify-comms claim loop stopped: ${error?.message || error}`));\n      return true;",
-  "new": "      phase = \"running\";\n      return true;",
+  "old": "      if (stopped || !phase.resume()) return false;\n      claimForever().catch((error) => host?.log?.(`aify-comms claim loop stopped: ${error?.message || error}`));\n",
+  "new": "      if (stopped || !phase.resume()) return false;\n",
   "test": "P2"
  },
  {
@@ -291,6 +291,48 @@
   "file": "lib/plugin-bootstrap.mjs",
   "old": "const target = service ? advertisementTargets([service])[0] : null;",
   "new": "const target = advertisementTargets([service || { name: \"fallback\", endpoint: \"http://fallback.invalid\" }])[0];",
+  "test": "P2"
+ },
+ {
+  "name": "split: a throwing pass ends the loop",
+  "file": "lib/plugins/aify-comms/pass-loop.mjs",
+  "old": "      result = { outcome: \"unreachable\" };",
+  "new": "      throw error;",
+  "test": "P2"
+ },
+ {
+  "name": "split: a pass's own pause is ignored",
+  "file": "lib/plugins/aify-comms/pass-loop.mjs",
+  "old": "    const pause = settle(result);",
+  "new": "    settle(result); const pause = 0;",
+  "test": "P2"
+ },
+ {
+  "name": "split: quiesce forgets that the plugin was held",
+  "file": "lib/plugins/aify-comms/plugin-phase.mjs",
+  "old": "    const wasHeld = this.#phase === \"held\";",
+  "new": "    const wasHeld = false;",
+  "test": "P2"
+ },
+ {
+  "name": "split: a refusal is logged on every beat",
+  "file": "lib/plugins/aify-comms/claimer-answer.mjs",
+  "old": "      logLine: wasRefused ? \"\" : (",
+  "new": "      logLine: (",
+  "test": "P2"
+ },
+ {
+  "name": "split: an older service's answer reads as a refusal",
+  "file": "lib/plugins/aify-comms/claimer-answer.mjs",
+  "old": "  const claimRefused = Boolean(reported && reported.accepted === false);",
+  "new": "  const claimRefused = !reported || reported.accepted === false;",
+  "test": "P2"
+ },
+ {
+  "name": "split: the holder's id is reported as ours",
+  "file": "lib/plugins/aify-comms/claimer-answer.mjs",
+  "old": "holderBridgeId: reported.bridgeId || \"\", ourBridgeId: String(ourBridgeId || \"\")",
+  "new": "holderBridgeId: reported.bridgeId || \"\", ourBridgeId: reported.bridgeId || \"\"",
   "test": "P2"
  }
 ]
