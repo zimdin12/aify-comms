@@ -55,3 +55,18 @@ P3c REVIEW FIXES (the review of 12766276: R1 claim/expiry, R2 durable consequenc
   aify-wrapper-next: 575 tests, 509 pass, 66 skipped
   aify-env-next: 2272 tests, 2268 pass, 4 skipped
   Credential file still 2026-09-29 18:37:10.
+
+c8029614 REVIEW FIXES (N3, N4, N5) + P3d (C6, C7 service half), on the staged tree, one after another:
+  batteries: P3a 90/90, P3b 19/19, P3c 63/63, P3d 32/32, sources restored (sha256 checked)
+  python: 4999 passed, 2 failed (test_every_refusal_is_exercised: the bound restart's offline refusal
+    had no test), 27 skipped
+  mcp/stdio run-all: 366 files, exit 0
+  dashboard: 1889 tests, 1889 pass
+  aify-wrapper-next: 575 tests, 509 pass, 66 skipped
+  aify-env-next: 2272 tests, 2268 pass, 4 skipped
+  Credential file still 2026-09-29 18:37:10.
+After the witness for that refusal (one test method, one P3d mutant), rerun:
+  batteries: P3d 33/33, sources restored (sha256 checked)
+  python: 5002 passed, 27 skipped, 10810 subtests passed
+  (the node suites were not rerun: only a Python test file and the battery JSON changed)
+  Credential file still 2026-09-29 18:37:10.

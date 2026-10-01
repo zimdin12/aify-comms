@@ -85,3 +85,65 @@ class AP3aDatabaseGainsTheReplayOutcome(FastApiTestCase):
         done = self.client.post(f"/api/v1/environments/{A['env']}/definition-requests/{request_id}/result", json={
             "bridgeId": A["bridge"], "machineId": A["machine"], "status": "done", "resultIncarnation": 1, "resultRevision": 1})
         self.assertEqual((done.status_code, done.json()["request"]["consequence"]), (200, "removed"), done.text)
+
+    def test_a_12766276_database_keeps_what_each_receipt_recorded(self):
+        """Review of c8029614, N5: 12766276 committed a host's `done` before removing, and recorded only a
+        refusal, as a note on the outcome. Its receipts migrate to what they recorded: the note's refusal
+        is kept (even once a fence asked now would allow), a tombstone with no row is `removed`, and a
+        receipt that recorded nothing is owed, so the next report removes. Anything not a done removal
+        is ''. (evidence/2026-10-01-p3/legacy-removal-upgrade.txt makes the same receipts with
+        12766276's own code.)"""
+        import service.api_core.definition_requests as requests_module
+
+        ids_ = ("gone", "keeper", "coder", "other")
+        self.assertEqual(self.push(A, "s1", 1, [valid(agent_id) for agent_id in ids_]).status_code, 200)
+        ids = {}
+        for agent_id in ids_:
+            patch = {"model": "m2"} if agent_id == "other" else {"remove": True}
+            ids[agent_id] = self.client.post(f"/api/v1/agent-definitions/{agent_id}/requests", json={
+                "patch": patch, "requestedBy": "dashboard"}).json()["request"]["id"]
+        self.client.post(f"/api/v1/environments/{A['env']}/definition-requests/claim",
+                         json={"bridgeId": A["bridge"], "machineId": A["machine"]}).raise_for_status()
+        result = lambda agent_id: self.client.post(  # noqa: E731
+            f"/api/v1/environments/{A['env']}/definition-requests/{ids[agent_id]}/result", json={
+                "bridgeId": A["bridge"], "machineId": A["machine"], "status": "done", "resultIncarnation": 1,
+                "resultRevision": 2 if agent_id == "other" else 1})
+        self.assertEqual(result("gone").status_code, 200)
+        self.client.post("/api/v1/agent-definitions/keeper/release",
+                         json={"requestedBy": "dashboard", "machineId": A["machine"]}).raise_for_status()
+        self.assertEqual(result("keeper").status_code, 200)
+        real = requests_module.remove_agent
+
+        async def interrupted(*args, **kwargs):
+            raise RuntimeError("the service went away before the removal")
+
+        requests_module.remove_agent = interrupted
+        try:
+            self.assertEqual(result("coder").status_code, 500, "control: the done committed, the removal did not run")
+        finally:
+            requests_module.remove_agent = real
+        self.assertEqual(result("other").status_code, 200)
+        # The table as 12766276 left it: no column, and its refusal written as a note on the outcome.
+        conn = sqlite3.connect(str(self._db_path))
+        conn.execute("ALTER TABLE definition_requests DROP COLUMN consequence")
+        conn.execute("UPDATE definition_requests SET outcome = '[service: the definition this removal was for "
+                     "ended another way; nothing removed]' WHERE id = ?", (ids["keeper"],))
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.push(A, "s1", 2, [valid("keeper")]).status_code, 200,
+                         "control: the same store defines keeper again at the same lifetime")
+        init = getattr(db_module, "_real_init_db", None) or db_module.init_db
+        for _ in range(2):
+            asyncio.run(init(self._db_path))
+        conn = sqlite3.connect(str(self._db_path))
+        owed = dict(conn.execute("SELECT agent_id, consequence FROM definition_requests").fetchall())
+        conn.close()
+        kept = "nothing removed: the definition this removal was for ended another way"
+        self.assertEqual(owed, {"gone": "removed", "keeper": kept, "coder": "pending", "other": ""})
+        for agent_id in ("gone", "keeper", "coder"):
+            self.assertEqual(result(agent_id).status_code, 200)
+        conn = sqlite3.connect(str(self._db_path))
+        owed = dict(conn.execute("SELECT agent_id, consequence FROM definition_requests").fetchall())
+        present = sorted(row[0] for row in conn.execute("SELECT id FROM agents WHERE id IN ('gone', 'keeper', 'coder')"))
+        conn.close()
+        self.assertEqual((owed, present), ({"gone": "removed", "keeper": kept, "coder": "removed", "other": ""}, ["keeper"]))

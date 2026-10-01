@@ -250,6 +250,12 @@ async def get_terminal_launch(terminal_id: str):
             "SELECT s.env_vars FROM agent_sessions a JOIN spawn_specs s ON s.id = a.spawn_spec_id WHERE a.id = ?",
             (row["session_id"],),
         )).fetchone()
+        # THE DEFINITION THIS START WAS BUILT FROM (P0 C7), reached the same way through the session's
+        # spawn request, so the host refuses to start a worker from any other.
+        bound = await (await db.execute(
+            "SELECT r.definition_store_id, r.definition_incarnation, r.definition_revision FROM agent_sessions a "
+            "JOIN spawn_requests r ON r.id = a.spawn_request_id WHERE a.id = ?", (row["session_id"],),
+        )).fetchone()
         settings = await _load_settings(db)
         runtime = str(terminal.get("runtime") or agent.get("runtime") or "")
         return {
@@ -281,6 +287,11 @@ async def get_terminal_launch(terminal_id: str):
                 "unsetEnv": list(NEVER_INHERITED),
                 # The operator's per-agent choice; false starts the worker without a herdr space.
                 "herdrSpace": agent.get("herdrSpace", True),
+                # null for an undefined agent's start, whose host does no check.
+                "definition": {"storeId": bound["definition_store_id"],
+                               "incarnation": bound["definition_incarnation"],
+                               "revision": bound["definition_revision"]}
+                if bound and bound["definition_store_id"] else None,
             },
         }
     finally:

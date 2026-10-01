@@ -1,0 +1,79 @@
+killed (exit 1)                  C6: a withdrawn agent is started
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_withdrawn_agent_is_not_started_restarted_or_spawned
+killed (exit 1)                  C7: an invalid definition is started
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_its_host_cannot_use_is_not_started
+killed (exit 1)                  C7: a definition its host cannot run is started
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_its_host_cannot_use_is_not_started
+killed (exit 1)                  C7: a resident definition is started
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_resident_definition_is_not_started_and_starts_once_managed_again
+killed (exit 1)                  C7: the request records the lifetime as its revision
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_is_built_from_the_definition_not_the_sessions_spec
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_start_is_built_from_the_current_revision
+killed (exit 1)                  C7: the model is not the definition's
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_is_built_from_the_definition_not_the_sessions_spec
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_start_is_built_from_the_current_revision
+killed (exit 1)                  C7: the instructions are not the definition's
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
+killed (exit 1)                  C7: the env is not the definition's
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
+killed (exit 1)                  C7: the effort is not the definition's
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
+killed (exit 1)                  C7: the write does not ask again
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_changed_while_starting_queues_nothing
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_from_a_definition_that_changed_meanwhile_queues_nothing
+killed (exit 1)                  C7: the write does not ask again for an undefined reading
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_changed_while_starting_queues_nothing
+killed (exit 1)                  C7: a refused write leaves its spec behind
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_changed_while_starting_queues_nothing
+killed (exit 1)                  C7: the cold start runs the runtime it was passed
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_changed_harness_takes_effect_at_the_next_start
+killed (exit 1)                  C7: the cold start's resident gate reads the effective row for a defined agent
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_managed_worker_is_not_started_beside_a_live_resident
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_resident_definition_is_not_started_and_starts_once_managed_again
+killed (exit 1)                  C7: a managed worker starts beside a live resident
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_managed_worker_is_not_started_beside_a_live_resident
+killed (exit 1)                  C7: any resident row is a twin, live or not
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_managed_worker_is_not_started_beside_a_live_resident
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_resident_definition_is_not_started_and_starts_once_managed_again
+killed (exit 1)                  C7: an earlier session elsewhere moves a defined agent
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_an_earlier_session_on_another_machine_does_not_move_a_defined_agent
+killed (exit 1)                  C7: the cold start takes the fleet's freshest environment
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_defined_agent_starts_on_the_machine_that_defines_it
+killed (exit 1)                  C7: the selector ignores the machine
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_defined_agent_starts_on_the_machine_that_defines_it
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_with_its_machine_offline_says_so_and_does_not_move
+killed (exit 1)                  C7: the workspace is not the definition's
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_newly_defined_id_starts_with_no_session_from_its_definition
+killed (exit 1)                  C7: a restart uses the session's old spec
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_recreate_is_built_from_the_definition_and_forgets_the_native_session
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_from_a_definition_that_changed_meanwhile_queues_nothing
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_is_built_from_the_definition_not_the_sessions_spec
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_with_its_machine_offline_says_so_and_does_not_move
+killed (exit 1)                  C6: a withdrawn agent is restarted
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_withdrawn_agent_is_not_started_restarted_or_spawned
+killed (exit 1)                  C7: a restart runs on the session's machine
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_runs_on_the_machine_that_defines_it
+killed (exit 1)                  C7: a recreate keeps the native session on the agent
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_recreate_is_built_from_the_definition_and_forgets_the_native_session
+killed (exit 1)                  C7: a recreate resumes
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_recreate_is_built_from_the_definition_and_forgets_the_native_session
+killed (exit 1)                  C7: a recreate carries the old handle
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_recreate_is_built_from_the_definition_and_forgets_the_native_session
+killed (exit 1)                  C7: a refused restart write is not reported
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_from_a_definition_that_changed_meanwhile_queues_nothing
+killed (exit 1)                  C7: the launch names an empty definition for an undefined start
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_the_launch_carries_the_definition_it_was_built_from
+killed (exit 1)                  C7: the launch carries no definition
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_the_launch_carries_the_definition_it_was_built_from
+killed (exit 1)                  C6: a withdrawn agent is spawned directly
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_withdrawn_agent_is_not_started_restarted_or_spawned
+killed (exit 1)                  C7: the start route reads the effective mode of a defined agent
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_resident_definition_is_not_started_and_starts_once_managed_again
+killed (exit 1)                  C6: the start route starts a withdrawn agent
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_definition_its_host_cannot_use_is_not_started
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_resident_definition_is_not_started_and_starts_once_managed_again
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_withdrawn_agent_is_not_started_restarted_or_spawned
+killed (exit 1)                  C7: a restart's fallback takes another machine's environment
+                                  FAILED service/tests/test_a_defined_agent_starts_from_its_definition.py::ADefinedAgentStartsFromItsDefinition::test_a_restart_with_its_machine_offline_says_so_and_does_not_move
+33/33 killed

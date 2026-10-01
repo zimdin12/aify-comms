@@ -29,9 +29,13 @@ killed (exit 1)                  C4 expiry: a request expires the moment it is m
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_skips_no_claim - AssertionError...
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_is_a_compare_and_set_on_what_the_service_holds
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_request_its_host_can_no_longer_apply_is_refused_at_the_claim
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_owning_hosts_current_claimer_claims_it_and_gets_it_again_until_it_reports
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_gains_the_removal_consequence
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 admission: an undefined agent is queued
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry
                                   SUBFAILED(method='POST', path='/api/v1/agent-definitions/{agent_id}/requests') service/tests/test_removed_agent_is_refused_everywhere.py::RemovedAgentIsRefusedEverywhereTests::test_no_write_endpoint_succeeds_against_a_removed_agent
@@ -68,6 +72,9 @@ killed (exit 1)                  C4 report: the same report twice is refused
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_that_deleted_and_crashed_before_settling_settles_as_removed
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 report: a finished request is overwritten
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_is_fenced_idempotent_and_final
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_skips_no_claim - AssertionError...
@@ -79,10 +86,17 @@ killed (exit 1)                  C4 removal: a done removal removes nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_that_deleted_and_crashed_before_settling_settles_as_removed
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_gains_the_removal_consequence
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 removal: a done removal is not fenced
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 removal: the request does not say why nothing was removed
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
@@ -91,16 +105,25 @@ killed (exit 1)                  C4 removal: the request does not say why nothin
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_that_deleted_and_crashed_before_settling_settles_as_removed
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_gains_the_removal_consequence
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 fence: a held definition of another lifetime is removed
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
 killed (exit 1)                  C4 fence: a withdrawal at that lifetime is not recognised
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 fence: any withdrawal or release allows the removal
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_racing_a_change_of_custody_stops_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 withdrawal: the lifetime withdrawn is recorded wrong
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_done_after_its_own_withdrawal_landed_still_removes_the_agent
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  C4 remove: the fence is not asked inside the deleting transaction
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_removal_fence_is_asked_again_after_a_managed_workers_stop
 killed (exit 2)                  C4 remove: the fence is not asked before the worker is stopped
@@ -112,11 +135,11 @@ killed (exit 1)                  C5 herdr-space: an unproven caller queues a cha
 killed (exit 1)                  C5 session-mode: a defined agent switches directly
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_session_mode - ...
 killed (exit 1)                  C5 environment: a defined agent is assigned directly
-                                  FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_an_assignment_to_a_runtime_no_definition_can_name_is_refused
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_environment_assignment
 killed (exit 1)                  C5 environment: a nothing-to-change assignment is queued
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_environment_assignment
 killed (exit 1)                  C5 environment: another machine's environment is accepted
+                                  FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_an_assignment_after_custody_moved_is_judged_against_the_new_owner
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_environment_assignment
 killed (exit 1)                  C5 environment: an unnameable runtime is not refused by name
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_an_assignment_to_a_runtime_no_definition_can_name_is_refused
@@ -127,6 +150,7 @@ killed (exit 1)                  C5 environment: the model is dropped from the p
 killed (exit 1)                  C5 environment: the effort is dropped from the patch
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_environment_assignment
 killed (exit 1)                  C5 environment: the harness is dropped from the patch
+                                  FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_custody_cannot_move_between_the_owner_read_and_the_queue
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_environment_assignment
 killed (exit 1)                  C5 removal: a defined agent is removed directly
                                   FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_removal - KeyEr...
@@ -149,12 +173,42 @@ killed (exit 1)                  R12766276-2: a done removal owes nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_interrupted_after_its_done_was_recorded_is_finished_by_the_next_report
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_gains_the_removal_consequence
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
 killed (exit 1)                  R12766276-2: a settled removal reads as removed whatever happened
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_delayed_removal_for_an_earlier_lifetime_removes_nothing_and_says_so
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_whose_definition_was_released_removes_nothing
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_repeated_report_runs_its_consequences_once
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
 killed (exit 1)                  R12766276-2: a tombstoned agent is not recognised as already removed
                                   FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_removal_that_deleted_and_crashed_before_settling_settles_as_removed
 killed (exit 1)                  R12766276-2: init does not migrate definition_requests
                                   FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_gains_the_removal_consequence
-53/53 killed
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
+killed (exit 1)                  N5: a done removal from before the column records nothing
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
+killed (exit 1)                  c8029614-2: a settle rewrites a settled consequence
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_does_not_rewrite_a_settled_consequence
+killed (exit 1)                  c8029614-2: a waiting report's removal runs after settlement
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+killed (exit 1)                  c8029614-2: the settled fence is not asked
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes
+killed (exit 1)                  N3: the assignment reads its owner before its write transaction
+                                  FAILED service/tests/test_editing_a_defined_agent_becomes_a_request.py::EditingADefinedAgentBecomesARequest::test_custody_cannot_move_between_the_owner_read_and_the_queue
+killed (exit 1)                  N5: a legacy refusal note is not read
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
+                                  FAILED service/tests/test_legacy_removal_receipt.py::ALegacyReceiptMigratesToWhatItRecorded::test_the_first_trailing_note_is_the_refusal_made
+killed (exit 1)                  N5: a legacy removal is not read from its tombstone
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
+                                  FAILED service/tests/test_legacy_removal_receipt.py::ALegacyReceiptMigratesToWhatItRecorded::test_no_note_is_removed_or_owed_by_what_is_left
+killed (exit 1)                  N5: the last note is taken, not the first
+                                  FAILED service/tests/test_legacy_removal_receipt.py::ALegacyReceiptMigratesToWhatItRecorded::test_the_first_trailing_note_is_the_refusal_made
+killed (exit 1)                  N5: a note mid-text counts
+                                  FAILED service/tests/test_legacy_removal_receipt.py::ALegacyReceiptMigratesToWhatItRecorded::test_a_note_the_host_wrote_mid_text_is_not_the_services
+killed (exit 1)                  N5: the old note's suffix is kept
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
+                                  FAILED service/tests/test_legacy_removal_receipt.py::ALegacyReceiptMigratesToWhatItRecorded::test_the_first_trailing_note_is_the_refusal_made
+63/63 killed

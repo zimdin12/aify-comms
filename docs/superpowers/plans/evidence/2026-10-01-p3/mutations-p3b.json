@@ -128,8 +128,8 @@
  {
   "name": "N2: the spawn reads the owner before its write transaction",
   "file": "service/routers/spawn_requests.py",
-  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        defined = await defined_on(db, req.agentId)",
-  "new": "        defined = await defined_on(db, req.agentId)\n        await db.execute(\"BEGIN IMMEDIATE\")",
+  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        try:\n            defined = await start_binding(db, req.agentId)\n        except StartRefused as refused:\n            raise HTTPException(409, str(refused))\n",
+  "new": "        try:\n            defined = await start_binding(db, req.agentId)\n        except StartRefused as refused:\n            raise HTTPException(409, str(refused))\n        await db.execute(\"BEGIN IMMEDIATE\")\n",
   "test": "python -m pytest service/tests/test_a_defined_agents_description_is_its_definitions.py service/tests/test_a_cold_start_keeps_the_agents_role.py -q -p no:cacheprovider"
  }
 ]

@@ -123,15 +123,15 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
         """Review of b5ac1de3: the refusal reads `agent_definitions` inside the spawn's write transaction,
         so a push that commits while the spawn waits is seen, and nothing is queued."""
         import service.routers.spawn_requests as spawn_route
-        committed, reads, real = threading.Event(), [], spawn_route.defined_on
+        committed, reads, real = threading.Event(), [], spawn_route.start_binding
 
         async def observed(db, agent_id):
             # Whether the definition had committed when the owner was read: True only if the read waited.
             reads.append(committed.is_set())
             return await real(db, agent_id)
 
-        spawn_route.defined_on = observed
-        self.addCleanup(setattr, spawn_route, "defined_on", real)
+        spawn_route.start_binding = observed
+        self.addCleanup(setattr, spawn_route, "start_binding", real)
         holder = sqlite3.connect(str(self._db_path), isolation_level=None)
         # Closed explicitly after its commit, because tearDown deletes the database before cleanups run;
         # this cleanup only covers a failure before that line.
@@ -144,8 +144,8 @@ class ADefinedAgentsDescriptionIsItsDefinitions(FastApiTestCase):
         worker.join(0.6)
         self.assertTrue(worker.is_alive(), "control: the spawn is waiting on the write lock")
         holder.execute("INSERT INTO agent_definitions (agent_id, machine_id, store_id, incarnation, revision, "
-                       "definition_digest, body, available, updated_at) VALUES ('racer', ?, 's1', 1, 1, 'd', '{}', 1, 'now')",
-                       (A["machine"],))
+                       "definition_digest, body, available, updated_at) VALUES ('racer', ?, 's1', 1, 1, 'd', ?, 1, 'now')",
+                       (A["machine"], json.dumps(valid("racer")["definition"])))
         committed.set()
         holder.execute("COMMIT")
         holder.close()

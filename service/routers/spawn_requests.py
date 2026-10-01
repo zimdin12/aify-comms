@@ -43,7 +43,7 @@ from fastapi import HTTPException, Query, Request
 
 from service import longpoll
 from service.api_core.claim_emptiness import spawn_request_is_empty
-from service.api_core.definition_guard import defined_on
+from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
@@ -255,11 +255,15 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
         # spec the host never wrote, under an id the host owns. READ INSIDE THE WRITE TRANSACTION: read
         # before it, a push could define the id between this check and the insert below (review of
         # b5ac1de3), so the route holds the write lock from here to its one commit.
+        # A WITHDRAWN one is not spawned either (C6): it starts again only once it is defined again.
         await db.execute("BEGIN IMMEDIATE")
-        defined = await defined_on(db, req.agentId)
+        try:
+            defined = await start_binding(db, req.agentId)
+        except StartRefused as refused:
+            raise HTTPException(409, str(refused))
         if defined:
-            raise HTTPException(409, f'Agent "{req.agentId}" is defined in aify-env on {defined}; start it, '
-                                     f'and its spawn is built from that definition')
+            raise HTTPException(409, f'Agent "{req.agentId}" is defined in aify-env on {defined.machine_id}; '
+                                     f'start it, and its spawn is built from that definition')
         env_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (req.environmentId,))
         env_row = await env_cursor.fetchone()
         if not env_row:

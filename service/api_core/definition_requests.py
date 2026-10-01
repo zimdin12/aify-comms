@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 
+from service.api_core.agent_remove import remove_agent
 from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.definition_guard import defined_on
 from service.api_core.definition_push import RUNTIME_HARNESS
@@ -123,6 +124,24 @@ async def queue_if_defined(db, agent_id: str, patch: Any, requested_by: str, now
     queued = await admit(db, agent_id, patch, requested_by, now)
     await db.commit()
     return queued
+
+
+async def assignment_for_its_host(db, agent_id: str, env_machine: str, requested_by: str, now: str,
+                                  **fields) -> Optional[dict]:
+    """THE C5 ROW for an environment assignment: what the route answers for a DEFINED agent, or None for
+    one no host defines. The patch depends on the owner (the environment must be on its machine), so the
+    owner is read, the environment judged against it and the patch queued in ONE write transaction: a
+    change of custody before it is judged against the new owner, and none can land inside it (review
+    of c8029614, N3). The caller must hold no open transaction."""
+    await db.execute("BEGIN IMMEDIATE")
+    owner = await defined_on(db, agent_id)
+    if not owner:
+        await db.rollback()
+        return None
+    patch = assignment_patch(agent_id, owner, env_machine, **fields)
+    queued = await admit(db, agent_id, patch, requested_by, now) if patch else None
+    await db.commit()
+    return {"ok": True, "agentId": agent_id, "request": queued}
 
 
 async def queued_for_its_host(db, agent_id: str, patch: Any, requested_by: str, now: str) -> dict:
@@ -235,10 +254,30 @@ async def report(db, environment: Optional[dict], request_id: str, body: dict, n
 
 async def settle_removal(db, request_id: str, why: str) -> None:
     """Record what the service did about a `done` removal: `removed`, or why nothing was (C4: it says so
-    on the request). Two reports that both found it pending settle the same fact: the second's fence
-    finds the first's tombstone and allows, so it records `removed` too."""
-    await db.execute("UPDATE definition_requests SET consequence = ? WHERE id = ?",
+    on the request). ONCE: two reports can both have read it pending, and the world can change between
+    their fences, so only the first to settle records; a settled consequence is never rewritten."""
+    await db.execute("UPDATE definition_requests SET consequence = ? WHERE id = ? AND consequence = 'pending'",
                      ("removed" if not why else f"nothing removed: {why}", request_id))
+
+
+async def finish_removal(db, request: dict) -> None:
+    """Run the service's consequence of a `done` removal that `request` (as its report read it) found
+    still owed: remove the agent behind C4's fence, then settle what happened. Commits."""
+    async def fence(conn):
+        return await settled_refusal(conn, request["id"]) or await removal_refusal(conn, request)
+
+    _, why = await remove_agent(db, request["agentId"], actor="aify-env", reason="definition_removed", refusal=fence)
+    await settle_removal(db, request["id"], why)
+    await db.commit()
+
+
+async def settled_refusal(db, request_id: str) -> str:
+    """Why this report runs no removal because another report of the request has settled it, or "".
+    Asked inside the transaction that decides, so a report that read `pending` and then waited does not
+    run a removal its request no longer owes."""
+    owed = await (await db.execute(
+        "SELECT consequence FROM definition_requests WHERE id = ?", (request_id,))).fetchone()
+    return "" if owed is not None and owed["consequence"] == "pending" else "another report has already settled it"
 
 
 async def removal_refusal(db, request: dict) -> str:

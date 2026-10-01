@@ -9,6 +9,7 @@ from pathlib import Path
 
 from service.change_feed import CHANGE_FEED
 from service.db_pool import ConnectionPool
+from service.legacy_removal_receipt import legacy_removal_consequence
 from service.reconcilers.terminal_controls import _reconcile_terminal_controls
 from service.schema import SCHEMA
 
@@ -186,6 +187,10 @@ TERMINAL_SESSION_MIGRATIONS = {
 
 SPAWN_REQUEST_MIGRATIONS = {
     "start_intent": "ALTER TABLE spawn_requests ADD COLUMN start_intent TEXT DEFAULT 'start'",
+    # The definition a start was built from (P0 C7); '' and 0 for an undefined agent's start.
+    "definition_store_id": "ALTER TABLE spawn_requests ADD COLUMN definition_store_id TEXT DEFAULT ''",
+    "definition_incarnation": "ALTER TABLE spawn_requests ADD COLUMN definition_incarnation INTEGER DEFAULT 0",
+    "definition_revision": "ALTER TABLE spawn_requests ADD COLUMN definition_revision INTEGER DEFAULT 0",
 }
 
 # Plan 4 task 12 (2026-05-25): `ready` records that a worker process completed
@@ -424,6 +429,18 @@ async def _migrate_definition_requests_table(db: aiosqlite.Connection):
     for column, statement in DEFINITION_REQUEST_MIGRATIONS.items():
         if column not in existing:
             await db.execute(statement)
+    if "consequence" not in existing:
+        # A removal already `done` before the column existed keeps what its receipt recorded, and one
+        # whose receipt recorded nothing is owed (`legacy_removal_receipt` says which is which).
+        cursor = await db.execute("SELECT id, agent_id, outcome FROM definition_requests "
+                                  "WHERE status = 'done' AND json_type(patch, '$.remove') = 'true'")
+        for request_id, agent_id, outcome in await cursor.fetchall():
+            present = await (await db.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,))).fetchone()
+            tombstone = await (await db.execute(
+                "SELECT 1 FROM agent_tombstones WHERE agent_id = ?", (agent_id,))).fetchone()
+            await db.execute("UPDATE definition_requests SET consequence = ? WHERE id = ?",
+                             (legacy_removal_consequence(outcome, present is not None, tombstone is not None),
+                              request_id))
 
 
 async def _migrate_definition_stores_table(db: aiosqlite.Connection):

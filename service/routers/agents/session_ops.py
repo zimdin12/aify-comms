@@ -28,6 +28,7 @@ logger = logging.getLogger("aify_comms.routers.agents.session_ops")
 # the endpoint 422s at request time. The route annotation gate caught 17 of these here.
 from service.models import AgentControlRequest
 
+from service.api_core.definition_start import StartRefused, start_binding
 from service.api_core.dispatch_run_state import _append_dispatch_control
 from service.api_core.dispatch_state import _get_dispatch_state_for_agent
 from service.api_core.dispatch_text import _coldstart_refusal_message
@@ -84,7 +85,13 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         # up — resuming the agent's saved session handle when it has one, which for the hermes
         # coders means their existing conversation (lc-coder alone is 12,780 messages).
         if action == "start":
-            if _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
+            # A DEFINED agent's mode is its definition's, and its start is built from it whether or not
+            # it has ever run (P0 C7); a withdrawn one is not started (C6).
+            try:
+                binding = await start_binding(db, agent_id)
+            except StartRefused as refused:
+                raise HTTPException(409, str(refused))
+            if binding is None and _normalize_session_mode(agent["session_mode"] or "resident") == "resident":
                 raise HTTPException(
                     409,
                     f'Agent "{agent_id}" is resident — its terminal is the CLI you launched, '
@@ -126,7 +133,7 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 # Already running — starting again would spawn a duplicate worker.
                 return {"ok": True, "agentId": agent_id, "action": "start", "alreadyRunning": True}
             settings = await _load_settings(db)
-            start_runtime = _normalize_runtime(agent["runtime"] or "")
+            start_runtime = binding.runtime if binding else _normalize_runtime(agent["runtime"] or "")
             # N8 applied to the DASHBOARD START BUTTON. `_coldstart_spawn_request_for_dispatch`
             # refuses for FIVE distinct causes and records which one in `warnings`; this call site
             # passed no list, so the reason was discarded and every cause rendered the same

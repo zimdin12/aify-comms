@@ -543,6 +543,18 @@ store or owner records the host outcome and removes nothing, and says so on the 
   a replay changes no byte. The host's own `outcome` is kept as the host wrote it. A tombstoned agent
   with no row counts as already removed, because the row that recorded its withdrawal is the row the
   removal deleted. `consequence` is added by a migration, since 12766276 made the table without it.
+- **Settled once** (review of c8029614). Two reports can both read `pending`, and custody can move
+  between their fences, so the settle writes only while the consequence is still `pending`, and the
+  removal's fence first asks, inside the deciding transaction, whether another report has settled it. A
+  report that waited therefore neither rewrites the record nor runs a removal the record says was not
+  made.
+- **A receipt from before the column keeps what it recorded** (review of c8029614, N5). 12766276
+  committed the host's `done` before removing and recorded only a refusal, as a trailing
+  `[service: <why>]` note on the outcome. So the migration reads, per done removal: a note is the
+  refusal made (`nothing removed: <why>` from the first trailing note), kept even when a fence asked now
+  would allow; no note with the row gone and a tombstone is `removed`; no note with the agent still
+  there recorded nothing, so it is owed (`pending`) and the next report asks the fence. A host outcome
+  that itself ended in the note's form cannot be told apart in such a receipt.
 - **The fence and the stop are one transaction.** With a fence, the removal's first asking and the
   stop it writes share one BEGIN IMMEDIATE, so a stop never reaches another owner's worker. The
   second asking, inside the deleting transaction, exists only after a managed worker's stop
@@ -553,7 +565,9 @@ store or owner records the host outcome and removes nothing, and says so on the 
   - session-mode queues `{mode}`.
   - Environment assign queues the harness, workspace, model and effort it names. It refuses an
     environment on another machine (409) and a runtime no definition can name (422), and queues
-    nothing when nothing changes.
+    nothing when nothing changes. The patch depends on the owner, so the owner is read, the
+    environment judged against it and the request queued in one write transaction
+    (`assignment_for_its_host`; review of c8029614, N3).
   - DELETE queues `{remove: true}`, its fence refusing a defined agent before any stop.
   - Each records its actor through `recorded_operator_actor`, so with an operator key only the
     operator queues a change.
@@ -663,6 +677,28 @@ of the agent itself is the separate, existing destructive path, reached through 
   through a launcher (C9). A definition changed from managed to resident while a managed worker runs
   leaves that worker running; once it stops, the agent is no longer offered for a managed start.
 - An undefined agent's launch carries none of the three, and the host does no check.
+
+**Settled while building P3d** (2026-10-01):
+
+- **Two inserts, one binding.** Every service start is either the cold start (agent-level start, a
+  message, a channel post, the queued-run backstop, a spec-less restart) or a restart of a session with
+  a spec. Both read `definition_start.start_binding`, and both insert the spawn request through
+  `insert_spawn_request`, whose WHERE asks the same question again. A push or withdrawal between the read
+  and the write therefore inserts nothing ("its definition changed while this start was being made; start
+  it again"); some callers hold the write lock and some do not, and the guard does not depend on which.
+- **Built from the definition only.** Runtime (from the harness), workspace, model, effort (as
+  `runtimeConfig.effort`), instructions (`standing_instructions`), env, role and name. Nothing is carried
+  from an earlier spec, and an empty model or effort is left empty for the harness to choose rather than
+  filled from the service's managed defaults.
+- **On the defining machine.** The environment is an online one whose `machineId` is the definition's
+  (the session's own when it is one), never the fleet's freshest.
+- **Mode.** A defined agent's mode is its definition's. Its `agents.session_mode` keeps saying resident
+  until a managed worker registers, so the twin guard asks whether a resident session is live
+  (`_has_live_worker_for`) rather than reading the effective column.
+- **Refused before any start:** withdrawn (C6), resident, an invalid definition (`hostState: invalid`),
+  and one its host reports it cannot run (`available: false`).
+- **The launch** carries `definition: {storeId, incarnation, revision}`, or `null` for a start built
+  without one, reached through the session's spawn request.
 
 **Witnesses (P3/P4).** The first start of a newly defined id with no agent row and no session; a
 definition changed between queue and launch (refused at the boundary); a withdrawal between queue and

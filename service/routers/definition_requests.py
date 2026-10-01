@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from service.api_core.agent_remove import remove_agent
 from service.api_core.definition_requests import (
-    admit, claim, removal_refusal, report, request_by_id, requests_for, settle_removal,
+    admit, claim, finish_removal, report, request_by_id, requests_for,
 )
 from service.api_core.operator_authz import require_operator
 from service.api_core.request_body import json_object_body
@@ -79,10 +78,7 @@ async def report_definition_change(environment_id: str, request_id: str, request
         # finish (a crash, a lost connection) is finished by whichever report finds it still pending,
         # and one already settled is never run again.
         if reported["consequence"] == "pending":
-            _, why = await remove_agent(db, reported["agentId"], actor="aify-env", reason="definition_removed",
-                                        refusal=lambda conn: removal_refusal(conn, reported))
-            await settle_removal(db, request_id, why)
-            await db.commit()
+            await finish_removal(db, reported)
             reported = await request_by_id(db, request_id)
     finally:
         await db.close()

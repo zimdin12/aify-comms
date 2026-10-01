@@ -1,0 +1,21 @@
+== produce, in a worktree at 1276627640a1baeff1d2d9b4d5b48456ba305bb5 (12766276)
+produce gone: HTTP 200
+produce keeper (released first): HTTP 200
+produce coder (removal fails): HTTP 500
+produce, final (consequence column: False)
+  gone: request={'status': 'done', 'outcome': ''} agent row=False tombstone=True definition=None
+  keeper: request={'status': 'done', 'outcome': '[service: the definition this removal was for ended another way; nothing removed]'} agent row=True tombstone=False definition=('s1', 1)
+  coder: request={'status': 'done', 'outcome': ''} agent row=True tombstone=False definition=None
+
+== upgrade, in the successor working tree (based on c802961482fc83dfbe9c7c16307b31153195de4a)
+upgrade, after 2 inits (consequence column: True)
+  gone: request={'status': 'done', 'outcome': '', 'consequence': 'removed'} agent row=False tombstone=True definition=None
+  keeper: request={'status': 'done', 'outcome': '[service: the definition this removal was for ended another way; nothing removed]', 'consequence': 'nothing removed: the definition this removal was for ended another way'} agent row=True tombstone=False definition=('s1', 1)
+  coder: request={'status': 'done', 'outcome': '', 'consequence': 'pending'} agent row=True tombstone=False definition=None
+upgrade gone: the identical report -> HTTP 200 consequence='removed'
+upgrade keeper: the identical report -> HTTP 200 consequence='nothing removed: the definition this removal was for ended another way'
+upgrade coder: the identical report -> HTTP 200 consequence='removed'
+upgrade, after the identical reports (consequence column: True)
+  gone: request={'status': 'done', 'outcome': '', 'consequence': 'removed'} agent row=False tombstone=True definition=None
+  keeper: request={'status': 'done', 'outcome': '[service: the definition this removal was for ended another way; nothing removed]', 'consequence': 'nothing removed: the definition this removal was for ended another way'} agent row=True tombstone=False definition=('s1', 1)
+  coder: request={'status': 'done', 'outcome': '', 'consequence': 'removed'} agent row=False tombstone=True definition=None

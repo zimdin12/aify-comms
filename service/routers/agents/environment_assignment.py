@@ -38,8 +38,7 @@ from service.api_core.settings import DEFAULT_SETTINGS, _load_settings
 from service.api_core.spawn_spec_assignment import _upsert_spawn_spec_for_assignment
 from service.api_core.validation import validate_name
 from service.api_core.workspace import _workspace_for_environment
-from service.api_core.definition_guard import defined_on
-from service.api_core.definition_requests import assignment_patch, queued_for_its_host
+from service.api_core.definition_requests import assignment_for_its_host
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
 from service.db import get_db
@@ -78,14 +77,12 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         # its definition's, so the assignment becomes a request for its host, and no session is
         # rewritten. An agent defined after this check is assigned as before; that writes only effective
         # columns and sessions, and its definition governs its next start (C7).
-        owner = await defined_on(db, agent_id)
-        if owner:
-            patch = assignment_patch(agent_id, owner, str(env_row["machine_id"] or ""), workspace=req.workspace,
-                                     runtime=_normalize_runtime(req.runtime) if req.runtime else "",
-                                     model=req.model, runtime_config=req.runtimeConfig)
-            if not patch:
-                return {"ok": True, "agentId": agent_id, "request": None}
-            return await queued_for_its_host(db, agent_id, patch, requested_by, _now())
+        assigned = await assignment_for_its_host(
+            db, agent_id, str(env_row["machine_id"] or ""), requested_by, _now(), workspace=req.workspace,
+            runtime=_normalize_runtime(req.runtime) if req.runtime else "", model=req.model,
+            runtime_config=req.runtimeConfig)
+        if assigned is not None:
+            return assigned
 
         runtime = _normalize_runtime(req.runtime or agent["runtime"] or "generic")
         if not _runtime_capability_for_environment(environment, runtime):

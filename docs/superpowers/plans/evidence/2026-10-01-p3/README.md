@@ -127,4 +127,74 @@ paired with an undefined control. The dashboard says "requested in aify-env" for
 request (`service/new_dashboard/definition-request-note.mjs`, tested in Node; the four call sites are
 DOM glue).
 
-`mutations-p3c.json` grew to 50, covering the conversions and the three fixes.
+`mutations-p3c.json` grew to 53 (an earlier draft of this line said 50), covering the conversions
+and the three fixes. `witnesses-red-on-12766276.txt` records the red runs, and corrects its own first
+explanation of the interruption witness.
+
+## The review of c8029614 (REVISE: N3, N4, N5)
+
+Its explanation of the predecessor was also wrong, and is corrected in `witnesses-red-on-12766276.txt`:
+12766276 committed the host's report before removing, so the two were never one transaction.
+
+**N3, an assignment queued against the wrong machine.** The route judged the environment against the
+owner it read, then queued against whoever owned the agent when the queue's transaction ran.
+`assignment_for_its_host` now reads the owner, judges the environment against it and queues, all in one
+write transaction. Witnesses (`test_editing_a_defined_agent_becomes_a_request.py`):
+- `test_custody_cannot_move_between_the_owner_read_and_the_queue`: right after the owner is read, a
+  competing writer cannot take the write lock. The same probe run first, outside the transaction, is
+  the control showing it can report "not blocked";
+- `test_an_assignment_after_custody_moved_is_judged_against_the_new_owner`, where custody moves first;
+- `test_environment_assignment` keeps the same-machine and undefined controls.
+
+**N4, two reports could both settle.** A report that read `pending` and then waited could overwrite
+another report's settled consequence, or run a removal that the settled record says was not made. The
+settle now writes only while the consequence is `pending`. The removal's fence (`finish_removal`, moved
+out of the router) first asks `settled_refusal`, inside the transaction that decides. Witnesses:
+- `test_a_report_that_waited_does_not_rewrite_a_settled_consequence`, the reviewer's schedule: a
+  release, then another machine's acquisition, then the waiting report resumes, and the whole row is
+  unchanged;
+- `test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes`, where the same store pushes
+  the same lifetime again, so the custody fence alone would allow.
+
+The before-removal and after-deletion recoveries keep their witnesses.
+
+**N5, a receipt from before the column.** `service/legacy_removal_receipt.py` reads what each 12766276
+receipt recorded:
+- its trailing `[service: ...]` note is a refusal, kept as the first note says it;
+- a tombstone with no row is `removed`;
+- a receipt that recorded nothing is owed (`pending`).
+
+`legacy-removal-upgrade.py` makes all three receipts with 12766276's own routes, in a worktree at that
+commit. The `keeper` receipt is the reviewer's case: a refusal, then the same store defines the agent
+again at the same lifetime. The script then upgrades the same file with the successor and repeats each
+report. `legacy-removal-upgrade.txt` is that run: the refusal stays and its agent survives, the removed
+one stays removed, and the owed one is removed by the next report.
+
+The suite holds the same cases in `test_a_12766276_database_keeps_what_each_receipt_recorded`, and the
+pure reading in `test_legacy_removal_receipt.py`.
+
+`mutations-p3c.json` now has 63 mutants: the earlier 53, three for N4, one for N3 and six for N5
+(the migration mutant, re-anchored, and five on `legacy_removal_receipt.py`). Two older entries were
+re-anchored where N3 moved their code.
+
+## P3d: a defined agent starts from its definition (C6, C7)
+
+| file | what |
+|---|---|
+| `service/api_core/definition_start.py` | `start_binding` (withdrawn, invalid, unavailable and resident refused), the spec built from the definition, and the guarded insert |
+| `service/api_core/dispatch_start.py` | the cold start: binding, the defining machine, the twin guard (`twin_refusal`) |
+| `service/api_core/session_restart.py` | `_bound_restart_spawn`: a defined agent's restart and recreate |
+| `service/routers/terminals.py` | the launch's `definition` |
+
+Witnesses: `service/tests/test_a_defined_agent_starts_from_its_definition.py`. `mutations-p3d.json`
+has 33 mutants, 33/33 killed. Writing them found four branches that had no witness, each given one:
+- an earlier session on another machine;
+- a restart whose session is on another machine;
+- a stale binding in the restart;
+- a changed harness started from a message.
+
+One branch had no possible witness and was removed: the cold start took a bound start's role and name
+from the definition, and for a defined agent its row already holds the definition's (C5).
+
+The repo's refusal gate (`test_every_refusal_is_exercised.py`) then found one more: the restart's
+refusal when no environment of the defining machine is online. It has a witness and a mutant (33rd).

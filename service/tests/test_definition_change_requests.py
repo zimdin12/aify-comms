@@ -258,7 +258,7 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
     def test_a_removal_interrupted_after_its_done_was_recorded_is_finished_by_the_next_report(self):
         """Review of 12766276: the consequence is owed until settled. A failure between recording the
         host's `done` and removing the agent leaves it pending, and the repeated report finishes it."""
-        import service.routers.definition_requests as result_route
+        import service.api_core.definition_requests as result_route
 
         self.push("s1", 1, [valid("coder")])
         request_id = self.ask("coder", {"remove": True}).json()["request"]["id"]
@@ -296,6 +296,67 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         self.push("s1", 2, [])
         settled = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
         self.assertEqual(settled.json()["request"]["consequence"], "removed", settled.text)
+
+    def a_report_that_waits(self):
+        """Ask, claim and report a removal `done`, stopping the report after it read the consequence
+        `pending` and before it ran it. Returns what that report read, to be resumed later."""
+        import service.routers.definition_requests as result_route
+
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.ask("coder", {"remove": True}).json()["request"]["id"]
+        self.claim()
+        waiting, real = [], result_route.finish_removal
+
+        async def parked(db, request):
+            waiting.append(request)
+
+        result_route.finish_removal = parked
+        try:
+            self.report(request_id, status="done", resultIncarnation=1, resultRevision=1).raise_for_status()
+        finally:
+            result_route.finish_removal = real
+        self.assertEqual(waiting[0]["consequence"], "pending", "control: the waiting report read it owed")
+        return request_id, waiting[0]
+
+    def resume(self, request):
+        from service.api_core.definition_requests import finish_removal
+        from service.db import get_db
+
+        async def run():
+            db = await get_db()
+            try:
+                await finish_removal(db, request)
+            finally:
+                await db.close()
+        asyncio.run(run())
+
+    def test_a_report_that_waited_does_not_rewrite_a_settled_consequence(self):
+        """Review of c8029614, 2: the report that settles first decides; one that read `pending` before it
+        and resumes after the world moved changes no byte of the request."""
+        request_id, waiting = self.a_report_that_waits()
+        self.client.post("/api/v1/agent-definitions/coder/release",
+                         json={"requestedBy": "dashboard", "machineId": A["machine"]}).raise_for_status()
+        settled = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1).json()["request"]
+        self.assertEqual(settled["consequence"], "nothing removed: the definition this removal was for ended another way")
+        self.push("t1", 1, [valid("coder")], host=B)  # another machine defines it now
+        recorded = self.rows("SELECT * FROM definition_requests WHERE id = ?", (request_id,))
+        self.resume(waiting)
+        self.assertEqual(self.rows("SELECT * FROM definition_requests WHERE id = ?", (request_id,)), recorded)
+
+    def test_a_report_that_waited_runs_no_removal_its_request_no_longer_owes(self):
+        """Settled `nothing removed`, then the same store defines the same lifetime again: the waiting
+        report's custody fence would now allow, and the agent the request says was kept would go."""
+        request_id, waiting = self.a_report_that_waits()
+        self.client.post("/api/v1/agent-definitions/coder/release",
+                         json={"requestedBy": "dashboard", "machineId": A["machine"]}).raise_for_status()
+        self.report(request_id, status="done", resultIncarnation=1, resultRevision=1).raise_for_status()
+        self.push("s1", 2, [valid("coder")])
+        self.assertEqual(self.rows("SELECT store_id, incarnation FROM agent_definitions WHERE agent_id = 'coder'"),
+                         [{"store_id": "s1", "incarnation": 1}], "control: the lifetime the removal named is held again")
+        self.resume(waiting)
+        self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1, "nothing was removed")
+        [row] = self.rows("SELECT consequence FROM definition_requests WHERE id = ?", (request_id,))
+        self.assertTrue(row["consequence"].startswith("nothing removed: "), row)
 
     def test_a_removal_racing_a_change_of_custody_stops_nothing(self):
         """Review of 12766276, 3: the fence and the stop are one transaction, so custody that moves while

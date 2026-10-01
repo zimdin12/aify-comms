@@ -425,9 +425,9 @@ async def _has_pending_or_booting_spawn_request(db, agent_id: str) -> bool:
 
 
 async def _select_online_environment_for_runtime(
-    db, runtime: str, *, offline_seconds: int = 90
+    db, runtime: str, *, offline_seconds: int = 90, machine_id: Optional[str] = None
 ) -> Optional[dict[str, Any]]:
-    """Pick the freshest ONLINE environment that advertises `runtime`.
+    """Pick the freshest ONLINE environment that advertises `runtime`, on `machine_id` when one is named.
 
     Used by Phase 2 auto-bind: when a managed agent has no usable session
     environment, bind it to a live env so it can be cold-started on first
@@ -442,6 +442,8 @@ async def _select_online_environment_for_runtime(
     for env_row in await cursor.fetchall():
         environment = _environment_record_to_dict(env_row, offline_seconds=offline_seconds)
         if str(environment.get("status") or "").lower() != "online":
+            continue
+        if machine_id is not None and environment.get("machineId") != machine_id:
             continue
         if not _runtime_capability_for_environment(environment, normalized_runtime):
             continue

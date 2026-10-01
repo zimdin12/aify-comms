@@ -278,6 +278,7 @@ killed (exit 1)                  N1: init does not migrate definition_stores
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_reversed_delivery_keeps_the_newer_state - Ass...
                                   FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
                                   FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_gains_the_removal_consequence
+                                  FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_a_12766276_database_keeps_what_each_receipt_recorded
                                   FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_init_adds_the_column_and_an_unrecorded_outcome_says_so
 killed (exit 1)                  N1: an unrecorded outcome reads as nothing unresolved
                                   FAILED service/tests/test_a_p3a_database_gains_the_replay_outcome.py::AP3aDatabaseGainsTheReplayOutcome::test_init_adds_the_column_and_an_unrecorded_outcome_says_so

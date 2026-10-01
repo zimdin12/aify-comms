@@ -42,7 +42,17 @@ import uuid
 from typing import Any, Optional
 
 
+from fastapi import HTTPException
+
 from service.api_core.agent_sessions import _session_handle_live_owner
+from service.api_core.channel_delivery import _has_live_worker_for
+from service.api_core.definition_start import (
+    CHANGED_WHILE_STARTING,
+    StartRefused,
+    insert_spawn_request,
+    spec_columns,
+    start_binding,
+)
 from service.api_core.dispatch_text import COLDSTART_REFUSED_PREFIX
 from service.api_core.managed_env import (
     _has_pending_or_booting_spawn_request,
@@ -124,7 +134,13 @@ async def _coldstart_spawn_request_for_dispatch(
     owned by a DIFFERENT live agent, an advisory (non-blocking) warning string is
     appended for the caller to surface.
     """
-    normalized_runtime = _normalize_runtime(runtime or "")
+    # A DEFINED AGENT STARTS FROM ITS DEFINITION (P0 C7), and a withdrawn one not at all (C6): its
+    # harness, workspace and spec come from the revision recorded on the request, not from history.
+    try:
+        binding = await start_binding(db, agent_id)
+    except StartRefused as refused:
+        return _coldstart_refusal(warnings, str(refused))
+    normalized_runtime = binding.runtime if binding else _normalize_runtime(runtime or "")
     if normalized_runtime not in LAUNCHABLE_RUNTIMES:
         return _coldstart_refusal(
             warnings, f"runtime {normalized_runtime or '(unset)'!r} is not cold-startable")
@@ -143,12 +159,15 @@ async def _coldstart_spawn_request_for_dispatch(
     #     managed identity behind the operator's back.
     # A deliberate Switch-to-managed flips session_mode to 'managed' BEFORE cold-start,
     # so this never blocks an intentional resident->managed transition.
-    _agent_row = await (await db.execute("SELECT session_mode FROM agents WHERE id = ?", (agent_id,))).fetchone()
-    if _agent_row is not None and str(_agent_row["session_mode"] or "").strip().lower() == "resident":
-        return _coldstart_refusal(
-            warnings,
-            "this agent is RESIDENT — auto-cold-start is refused so a managed twin cannot be "
-            "forked beside a live resident session. Switch it to managed first if that is intended")
+    _agent_row = await (await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))).fetchone()
+    if binding is None:
+        if _agent_row is not None and str(_agent_row["session_mode"] or "").strip().lower() == "resident":
+            return _coldstart_refusal(
+                warnings,
+                "this agent is RESIDENT — auto-cold-start is refused so a managed twin cannot be "
+                "forked beside a live resident session. Switch it to managed first if that is intended")
+    elif twin := await twin_refusal(db, _agent_row):
+        return _coldstart_refusal(warnings, twin)
 
     # Don't pile up duplicate cold-starts — a queued/claimed/recently-running spawn_request
     # is already a (possibly mid-boot) backing for this agent. Bug D fix (2026-07-02): the
@@ -191,6 +210,7 @@ async def _coldstart_spawn_request_for_dispatch(
             if (
                 str(candidate.get("status") or "").lower() == "online"
                 and _runtime_capability_for_environment(candidate, normalized_runtime)
+                and (binding is None or candidate.get("machineId") == binding.machine_id)
             ):
                 environment = candidate
                 fallback_workspace = session["workspace"] or ""
@@ -215,8 +235,10 @@ async def _coldstart_spawn_request_for_dispatch(
     # than silently migrating to a different machine where its workspace may not
     # exist. This fallback only fires when there is no usable bound env to wait for.
     if environment is None:
+        # A defined agent runs on the machine that defines it, which is where its workspace is.
         environment = await _select_online_environment_for_runtime(
-            db, normalized_runtime, offline_seconds=offline_seconds
+            db, normalized_runtime, offline_seconds=offline_seconds,
+            machine_id=binding.machine_id if binding else None,
         )
         if environment is None:
             # WHY, when a host has already said why. An environment that advertises the runtime and
@@ -237,7 +259,11 @@ async def _coldstart_spawn_request_for_dispatch(
     if not environment_id:
         return _coldstart_refusal(warnings, "the resolved environment has no id (corrupt row)")
 
-    workspace, workspace_root = _workspace_for_environment(environment, None, fallback_workspace)
+    try:
+        workspace, workspace_root = _workspace_for_environment(
+            environment, binding.workspace if binding else None, fallback_workspace)
+    except HTTPException as outside:
+        return _coldstart_refusal(warnings, f"its defined workspace cannot be used on {environment_id}: {outside.detail}")
 
     # G1 (2026-06-03): carry the agent's CURRENT native session handle into the
     # cold-start spawn_request so the managed worker RESUMES the existing native
@@ -275,71 +301,66 @@ async def _coldstart_spawn_request_for_dispatch(
 
     now = _now()
     spec_id = f"spec_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    request_id = f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-    await db.execute(
-        """
-        INSERT INTO spawn_specs (
-            id, agent_id, environment_id, runtime, workspace, model, profile, mode,
-            system_prompt, standing_instructions, env_vars, channel_ids, budget_policy,
-            context_policy, restart_policy, metadata, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            spec_id,
-            agent_id,
-            environment_id,
-            normalized_runtime,
-            workspace,
-            str(prior_spec["model"] or "") if prior_spec else "",
-            str(prior_spec["profile"] or "") if prior_spec else "",
-            "managed-warm",
-            str(prior_spec["system_prompt"] or "") if prior_spec else "",
-            str(prior_spec["standing_instructions"] or "") if prior_spec else "",
-            str(prior_spec["env_vars"] or "{}") if prior_spec else "{}",
-            str(prior_spec["channel_ids"] or "[]") if prior_spec else "[]",
-            str(prior_spec["budget_policy"] or "{}") if prior_spec else "{}",
-            str(prior_spec["context_policy"] or "{}") if prior_spec else "{}",
-            str(prior_spec["restart_policy"] or "{}") if prior_spec else "{}",
-            str(prior_spec["metadata"] or "{}") if prior_spec else "{}",
-            now,
-            now,
-        ),
-    )
-    await db.execute(
-        """
-        INSERT INTO spawn_requests (
-            id, spawn_spec_id, created_by, environment_id, agent_id, role, name, runtime,
-            workspace, workspace_root, initial_message, priority, subject, mode,
-            resume_policy, status, session_handle, created_at, updated_at, start_intent
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            request_id,
-            spec_id,
-            requested_by or "dispatch-coldstart",
-            environment_id,
-            agent_id,
-            # WHO IT IS, from its own row. The running transition copies the request's role and name
-            # into `agents`, so a hardcoded `coder` here turned a reviewer woken by a message into a
-            # coder named after its id.
-            str((agent_row["role"] if agent_row else "") or "coder"),
-            str((agent_row["name"] if agent_row else "") or agent_id),
-            normalized_runtime,
-            workspace,
-            workspace_root,
-            "",
-            "normal",
-            f"Cold-start for {agent_id}",
-            "managed-warm",
-            "native_first",
-            "queued",
-            coldstart_session_handle,
-            now,
-            now,
-            normalize_start_intent(start_intent),
-        ),
-    )
+    # A defined agent's spec is its definition's, with nothing carried from an earlier spec.
+    spec = {
+        "id": spec_id, "agent_id": agent_id, "environment_id": environment_id, "workspace": workspace,
+        "created_at": now, "updated_at": now,
+        **(spec_columns(binding) if binding else _carried_from(prior_spec, normalized_runtime)),
+    }
+    await db.execute(f"INSERT INTO spawn_specs ({', '.join(spec)}) VALUES ({', '.join('?' * len(spec))})",
+                     tuple(spec.values()))
+    inserted = await insert_spawn_request(db, {
+        "id": f"spawn_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}",
+        "spawn_spec_id": spec_id,
+        "created_by": requested_by or "dispatch-coldstart",
+        "environment_id": environment_id,
+        "agent_id": agent_id,
+        # WHO IT IS, from its own row, which for a defined agent holds its definition's (C5). The running
+        # transition copies the request's role and name into `agents`, so a hardcoded `coder` here turned
+        # a reviewer woken by a message into a coder named after its id.
+        "role": str((agent_row["role"] if agent_row else "") or "coder"),
+        "name": str((agent_row["name"] if agent_row else "") or agent_id),
+        "runtime": normalized_runtime,
+        "workspace": workspace,
+        "workspace_root": workspace_root,
+        "initial_message": "",
+        "priority": "normal",
+        "subject": f"Cold-start for {agent_id}",
+        "mode": "managed-warm",
+        "resume_policy": "native_first",
+        "status": "queued",
+        "session_handle": coldstart_session_handle,
+        "created_at": now,
+        "updated_at": now,
+        "start_intent": normalize_start_intent(start_intent),
+    }, binding)
+    if not inserted:
+        await db.execute("DELETE FROM spawn_specs WHERE id = ?", (spec_id,))
+        return _coldstart_refusal(warnings, CHANGED_WHILE_STARTING)
     return True
+
+
+def _carried_from(prior_spec, runtime: str) -> dict[str, Any]:
+    """The spec columns an undefined agent's cold start carries from its previous spec, or their empty
+    values when there is none."""
+    defaults = {"model": "", "profile": "", "system_prompt": "", "standing_instructions": "", "env_vars": "{}",
+                "channel_ids": "[]", "budget_policy": "{}", "context_policy": "{}", "restart_policy": "{}",
+                "metadata": "{}"}
+    carried = defaults if prior_spec is None else {
+        column: str(prior_spec[column] or empty) for column, empty in defaults.items()}
+    return {**carried, "runtime": runtime, "mode": "managed-warm"}
+
+
+async def twin_refusal(db, agent_row) -> str:
+    """Why a managed worker may not start beside this agent's live resident session, or "".
+
+    A DEFINED agent's mode is its definition's, which `start_binding` has read as managed. Its row says
+    resident until a managed worker registers, so the twin question is asked of the process instead."""
+    resident = agent_row is not None and str(agent_row["session_mode"] or "").strip().lower() == "resident"
+    if resident and await _has_live_worker_for(db, agent_row):
+        return ("a resident session of this agent is live, and a managed worker beside it would be a twin; "
+                "stop the resident first")
+    return ""
 
 
 # _ensure_managed_pty_for_dispatch moved to service/api_core/managed_pty_for_dispatch.py in

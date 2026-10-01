@@ -24,6 +24,10 @@ E       AssertionError: 'stopped' == 'stopped' : no worker was told to stop
 R1 red: an unclaimed report was accepted (200, not 409).
 R2 red: the replay appended a second note to the stored outcome.
 R3 red: custody moved while the removal waited, and the worker was stopped anyway.
-The interruption witness PASSES on 12766276: that tree recorded done and removed in one transaction, so a
-crash rolled both back. It guards the split this commit makes (done recorded, consequence owed), not a
-defect of 12766276.
+The interruption witness PASSES on 12766276, and the reason first written here was WRONG (corrected after
+review of c8029614). It said that tree recorded done and removed in one transaction. It did not: its
+result route committed the host's report (routers/definition_requests.py:77 at 12766276) before running
+the removal (:80). The witness passed because 12766276 ran the removal again on every repeated `done`
+report, which is R2's own defect. So a 12766276 database can hold a done removal whose agent was never
+removed. The successor's migration now marks such a removal `pending`
+(test_a_12766276_database_still_owes_an_interrupted_removal).

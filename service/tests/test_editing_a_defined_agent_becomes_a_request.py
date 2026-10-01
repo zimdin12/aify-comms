@@ -106,6 +106,54 @@ class EditingADefinedAgentBecomesARequest(FastApiTestCase):
         self.assertEqual(self.rows("SELECT runtime, cwd FROM agents WHERE id = 'plain'"), [{"runtime": "codex", "cwd": "/work/plain"}],
                          "control: an undefined agent is assigned at once")
 
+    def test_an_assignment_after_custody_moved_is_judged_against_the_new_owner(self):
+        """Review of c8029614, N3: custody that moves first is what the assignment is judged against."""
+        self.client.post("/api/v1/agent-definitions/lead/release",
+                         json={"requestedBy": "dashboard", "machineId": A["machine"]}).raise_for_status()
+        entries = [valid("lead")]
+        self.client.put(f"/api/v1/environments/{B['env']}/agent-definitions", json={
+            "bridgeId": B["bridge"], "machineId": B["machine"], "storeId": "t1", "revision": 1,
+            "snapshotDigest": snapshot_digest(entries), "entries": entries}).raise_for_status()
+        refused = self.client.post("/api/v1/agents/lead/environment", json={
+            "environmentId": A["env"], "runtime": "codex", "requestedBy": "dashboard"})
+        self.assertEqual((refused.status_code, refused.json()["detail"]),
+                         (409, '"lead" is defined on win32:host-b; assign it an environment on that machine, not on win32:host-a'))
+        self.assertEqual(self.patches("lead"), [])
+
+    def test_custody_cannot_move_between_the_owner_read_and_the_queue(self):
+        """Review of c8029614, N3: the owner is read inside the assignment's write transaction, so a
+        release or acquisition trying to commit right after that read is held off until the request is
+        queued against the owner it was judged by."""
+        import service.api_core.definition_requests as requests_module
+
+        def another_writer_is_blocked():
+            conn = sqlite3.connect(str(self._db_path), timeout=0.2, isolation_level=None)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("ROLLBACK")
+                return False
+            except sqlite3.OperationalError as locked:
+                return "locked" in str(locked)
+            finally:
+                conn.close()
+
+        self.assertFalse(another_writer_is_blocked(), "control: the probe can say a writer is not blocked")
+        observed, real = [], requests_module.defined_on
+
+        async def owner_then_probe(db, agent_id):
+            owner = await real(db, agent_id)
+            observed.append(another_writer_is_blocked())
+            return owner
+
+        requests_module.defined_on = owner_then_probe
+        self.addCleanup(setattr, requests_module, "defined_on", real)
+        queued = self.client.post("/api/v1/agents/lead/environment", json={
+            "environmentId": A["env"], "runtime": "codex", "requestedBy": "dashboard"})
+        self.assertEqual(queued.status_code, 200, queued.text)
+        self.assertEqual(observed, [True], "a competing writer was held off after the owner was read")
+        self.assertEqual(self.rows("SELECT machine_id, store_id FROM definition_requests WHERE agent_id = 'lead'"),
+                         [{"machine_id": A["machine"], "store_id": "s1"}])
+
     def test_an_assignment_to_a_runtime_no_definition_can_name_is_refused(self):
         refused = self.client.post("/api/v1/agents/lead/environment", json={
             "environmentId": A["env"], "runtime": "pi", "requestedBy": "dashboard"})
