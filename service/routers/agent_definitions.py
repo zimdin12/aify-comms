@@ -12,14 +12,15 @@ from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.clock import now as _now
 from service.db import get_db
+from service.definition_models import DefinitionPush
 
 router = domain_router()
 
 
 @router.put("/environments/{environment_id:path}/agent-definitions")
-async def push_agent_definitions(environment_id: str, request: Request):
+async def push_agent_definitions(environment_id: str, push: DefinitionPush):
     """A host's complete snapshot of its agent definitions: applied, a replay, or refused by name."""
-    body = await json_object_body(request)
+    body = push.model_dump(exclude_unset=True)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")

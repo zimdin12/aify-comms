@@ -14,6 +14,7 @@ from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
 from service.clock import now as _now
 from service.db import get_db
+from service.definition_models import DefinitionClaim, DefinitionResult
 
 router = domain_router()
 
@@ -50,9 +51,9 @@ async def list_definition_changes(agent_id: str):
 
 
 @router.post("/environments/{environment_id:path}/definition-requests/claim")
-async def claim_definition_changes(environment_id: str, request: Request):
+async def claim_definition_changes(environment_id: str, claimed_by: DefinitionClaim):
     """A host's claim of the requests its current store should apply, fenced as a push is."""
-    body = await json_object_body(request)
+    body = claimed_by.model_dump(exclude_unset=True)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -65,10 +66,10 @@ async def claim_definition_changes(environment_id: str, request: Request):
 
 
 @router.post("/environments/{environment_id:path}/definition-requests/{request_id}/result")
-async def report_definition_change(environment_id: str, request_id: str, request: Request):
+async def report_definition_change(environment_id: str, request_id: str, result: DefinitionResult):
     """A host's report of what it did with a request: `done` (with the lifetime and revision it left)
     or `refused`. A removal's `done` removes the agent here only behind C4's fence."""
-    body = await json_object_body(request)
+    body = result.model_dump(exclude_unset=True)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")

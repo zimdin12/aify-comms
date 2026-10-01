@@ -73,8 +73,16 @@ class TheEnvPluginHeldTerminalsReachTheReconciler(FastApiTestCase):
         # that -- so the two repos can land in either order. Such a checkout is SKIPPED BY NAME, not
         # passed: the witness below was never run against it. Keyed on the predicate's export, which
         # is what the harness imports, so a plugin that has it and sends the list wrong still fails.
-        controls = (self.repo / PLUGIN_DIR / "terminal-controls.mjs").read_text(encoding="utf-8")
-        if "export function heldTerminalIds" not in controls:
+        # ASKED OF THE MODULE, not grepped from its text: the predicate moved to handle-book.mjs and is
+        # re-exported, and a text search for its definition skipped a checkout that has it.
+        controls = (self.repo / PLUGIN_DIR / "terminal-controls.mjs").as_uri()
+        probe = subprocess.run(
+            ["node", "--input-type=module", "-e",
+             f"const m = await import({json.dumps(controls)}); console.log(typeof m.heldTerminalIds);"],
+            cwd=self.repo, capture_output=True, text=True)
+        if probe.returncode != 0:
+            raise AssertionError(f"the plugin's terminal-controls.mjs could not be imported: {probe.stderr[-400:]}")
+        if probe.stdout.strip() != "function":
             self.skipTest(f"the aify-env at {self.repo} predates heldTerminalIds, so it sends no "
                           "held-terminals list and this seam was NOT exercised")
 

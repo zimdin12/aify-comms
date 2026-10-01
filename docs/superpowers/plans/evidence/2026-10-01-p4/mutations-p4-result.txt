@@ -1,0 +1,155 @@
+killed (exit 1)                  C4 patch: a truthy remove is a removal
+                                  not ok 21 - A REMOVAL is {remove: true} and nothing else
+killed (exit 1)                  C4 patch: a removal may carry fields
+                                  not ok 21 - A REMOVAL is {remove: true} and nothing else
+killed (exit 1)                  C4 patch: null env is not {}
+                                  not ok 20 - A MERGE PATCH: absent is unchanged, null is the field's neutral value, the id never moves
+                                  not ok 25 - APPLY a change: the file carries the patch, the next revision and the request; applying it again writes nothing
+killed (exit 1)                  C4 patch: null herdrSpace is false
+                                  not ok 20 - A MERGE PATCH: absent is unchanged, null is the field's neutral value, the id never moves
+killed (exit 1)                  C4 patch: the id moves
+                                  not ok 20 - A MERGE PATCH: absent is unchanged, null is the field's neutral value, the id never moves
+killed (exit 1)                  C4 patch: null is written as null
+                                  not ok 20 - A MERGE PATCH: absent is unchanged, null is the field's neutral value, the id never moves
+                                  not ok 25 - APPLY a change: the file carries the patch, the next revision and the request; applying it again writes nothing
+killed (exit 1)                  C4 trash: an id is its first dotted part
+                                  not ok 22 - A TRASH NAME is read from its end, so an id with dots is found and a prefix of it is not
+killed (exit 1)                  C4 trash: any request's file counts
+                                  not ok 22 - A TRASH NAME is read from its end, so an id with dots is found and a prefix of it is not
+killed (exit 1)                  C4 step 1: another store's request applies
+                                  not ok 23 - THE DECISION takes C4's steps in order
+                                  not ok 27 - APPLY refuses, writing nothing: another store, a host edit since, an invalid result, an uninstalled harness
+killed (exit 1)                  C4 step 2: an applied request is applied again
+                                  not ok 23 - THE DECISION takes C4's steps in order
+                                  not ok 25 - APPLY a change: the file carries the patch, the next revision and the request; applying it again writes nothing
+killed (exit 1)                  C4 step 3: any request's trash file means done
+                                  not ok 23 - THE DECISION takes C4's steps in order
+killed (exit 1)                  C4 step 4: an invalid file is patched
+                                  not ok 23 - THE DECISION takes C4's steps in order
+killed (exit 1)                  C4 step 4: another lifetime at the same revision applies
+                                  not ok 23 - THE DECISION takes C4's steps in order
+killed (exit 1)                  C4 step 4: another revision applies
+                                  not ok 23 - THE DECISION takes C4's steps in order
+                                  not ok 27 - APPLY refuses, writing nothing: another store, a host edit since, an invalid result, an uninstalled harness
+                                  not ok 108 - A REFUSED REQUEST is reported refused and changes nothing published
+killed (exit 1)                  C7 boundary: an undefined launch is refused
+                                  not ok 7 - THE DEFINITION IT WAS BUILT FROM: it starts; and a launch with no definition is not checked
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+                                  not ok 101 - THE DEFINITION SYNC runs while the plugin claims, stops while it is held, and turns again on resume
+killed (exit 1)                  C7 boundary: another store's start runs
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+killed (exit 1)                  C7 boundary: a withdrawn definition's start runs
+                                  not ok 9 - A DEFINITION WITHDRAWN refuses the start before any process exists
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+killed (exit 1)                  C7 boundary: an invalid definition's start runs
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+killed (exit 1)                  C7 boundary: an earlier lifetime's start runs
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+killed (exit 1)                  C7 boundary: a changed revision's start runs
+                                  not ok 8 - A DEFINITION CHANGED SINCE IT WAS QUEUED refuses the start before any process exists
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C7 boundary: another runtime's launch runs
+                                  not ok 24 - THE START BOUNDARY refuses a start that no longer matches the definition, and checks nothing without one
+killed (exit 1)                  C7 vocabulary: hermes runs as another runtime
+                                  FAILED service/tests/test_the_host_and_service_share_the_definition_vocabulary.py::TheHostAndServiceShareTheDefinitionVocabulary::test_both_tiers_map_each_harness_to_the_same_runtime
+killed (exit 1)                  C4 store: the file does not say which request wrote it
+                                  not ok 25 - APPLY a change: the file carries the patch, the next revision and the request; applying it again writes nothing
+killed (exit 1)                  C4 store: a refusal throws
+                                  not ok 27 - APPLY refuses, writing nothing: another store, a host edit since, an invalid result, an uninstalled harness
+killed (exit 1)                  C4 store: a set does not name its request
+                                  not ok 25 - APPLY a change: the file carries the patch, the next revision and the request; applying it again writes nothing
+killed (exit 1)                  C4 store: a removal does not name its request
+                                  not ok 26 - APPLY a removal: the trash file names the request, and applying it again is recognised from there
+killed (exit 1)                  C4 store: the trash is not read
+                                  not ok 26 - APPLY a removal: the trash file names the request, and applying it again is recognised from there
+killed (exit 1)                  C3 store: a fresh snapshot advances nothing
+                                  not ok 110 - AN ID FREED SINCE is taken at once: a fresh revision is published, and only one
+killed (exit 1)                  C4 sync: a request is not reported
+                                  not ok 107 - A REQUEST is applied to the file, reported, and only then published
+                                  not ok 108 - A REFUSED REQUEST is reported refused and changes nothing published
+killed (exit 1)                  C4 sync: a refusal counts as applied
+                                  not ok 108 - A REFUSED REQUEST is reported refused and changes nothing published
+killed (exit 1)                  C3 sync: the interval is exceeded, not reached
+                                  not ok 106 - THE FIRST PASS PUBLISHES the complete snapshot, fenced by machine; the next waits for the interval
+killed (exit 1)                  C3 sync: the first pass waits for the interval
+                                  not ok 106 - THE FIRST PASS PUBLISHES the complete snapshot, fenced by machine; the next waits for the interval
+                                  not ok 109 - AN INCOMPLETE SNAPSHOT IS NEVER PUBLISHED: the service would withdraw what it lacks
+                                  not ok 110 - AN ID FREED SINCE is taken at once: a fresh revision is published, and only one
+                                  not ok 111 - THE SERVICE UNREACHABLE: the claim's failure is recorded and the push still tried; a failed push is retried next pass
+killed (exit 1)                  C3 sync: an applied request waits for the interval
+                                  not ok 107 - A REQUEST is applied to the file, reported, and only then published
+killed (exit 1)                  C3 sync: an incomplete snapshot is published
+                                  not ok 109 - AN INCOMPLETE SNAPSHOT IS NEVER PUBLISHED: the service would withdraw what it lacks
+killed (exit 1)                  C3 sync: a freed id is retried for ever
+                                  not ok 110 - AN ID FREED SINCE is taken at once: a fresh revision is published, and only one
+killed (exit 1)                  C3 sync: the retry is not fresh
+                                  not ok 110 - AN ID FREED SINCE is taken at once: a fresh revision is published, and only one
+killed (exit 1)                  C3 sync: a failed push resets the interval
+                                  not ok 111 - THE SERVICE UNREACHABLE: the claim's failure is recorded and the push still tried; a failed push is retried next pass
+killed (exit 1)                  C3 sync: a failed claim is not recorded
+                                  not ok 111 - THE SERVICE UNREACHABLE: the claim's failure is recorded and the push still tried; a failed push is retried next pass
+killed (exit 1)                  C3 sync: the push does not name its machine
+                                  not ok 106 - THE FIRST PASS PUBLISHES the complete snapshot, fenced by machine; the next waits for the interval
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C3 sync: the service's reason is reworded
+                                  FAILED service/tests/test_the_host_and_service_share_the_definition_vocabulary.py::TheHostAndServiceShareTheDefinitionVocabulary::test_the_host_recognises_the_services_free_since_reason
+killed (exit 1)                  C3 api: the push does not name its claimer
+                                  not ok 62 - the definition calls send what the service's routes take
+killed (exit 1)                  C3 api: the push goes to another path
+                                  not ok 62 - the definition calls send what the service's routes take
+killed (exit 1)                  C4 api: the claim does not name its machine
+                                  not ok 62 - the definition calls send what the service's routes take
+killed (exit 1)                  C4 api: a report does not name its claimer
+                                  not ok 62 - the definition calls send what the service's routes take
+killed (exit 1)                  C7 api: a defined start asks for something else
+                                  not ok 62 - the definition calls send what the service's routes take
+killed (exit 1)                  C7 control: the boundary is not asked
+                                  not ok 8 - A DEFINITION CHANGED SINCE IT WAS QUEUED refuses the start before any process exists
+                                  not ok 9 - A DEFINITION WITHDRAWN refuses the start before any process exists
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C7 control: the pass does not hand on the check
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C7 control: a control does not hand on the check
+                                  not ok 8 - A DEFINITION CHANGED SINCE IT WAS QUEUED refuses the start before any process exists
+                                  not ok 9 - A DEFINITION WITHDRAWN refuses the start before any process exists
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C7 plugin: starts are not checked
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C3 plugin: the sync is never built
+                                  not ok 101 - THE DEFINITION SYNC runs while the plugin claims, stops while it is held, and turns again on resume
+                                  not ok 105 - THE DAEMON'S DEFINITION STORE AND INSTALLED HARNESSES reach the plugin it starts (P0 C3, C7)
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C3 plugin: the sync is not started
+                                  not ok 101 - THE DEFINITION SYNC runs while the plugin claims, stops while it is held, and turns again on resume
+                                  not ok 105 - THE DAEMON'S DEFINITION STORE AND INSTALLED HARNESSES reach the plugin it starts (P0 C3, C7)
+                                  not ok 112 - GIVEN THE STORE, the plugin publishes it and refuses a start built from an older revision
+killed (exit 1)                  C3 plugin: a resume does not restart the sync
+                                  not ok 101 - THE DEFINITION SYNC runs while the plugin claims, stops while it is held, and turns again on resume
+killed (exit 1)                  C7 plugin: the starter is not given the store
+                                  not ok 105 - THE DAEMON'S DEFINITION STORE AND INSTALLED HARNESSES reach the plugin it starts (P0 C3, C7)
+killed (exit 1)                  C7 starter: a defined agent restarts a session
+                                  not ok 4 - A DEFINED AGENT STARTS through the agent-level start; an undefined one through its session
+                                  not ok 6 - A DEFINED START the service answers alreadyRunning is not a start, and an unreadable store is said
+killed (exit 1)                  C7 starter: alreadyRunning is a start
+                                  not ok 6 - A DEFINED START the service answers alreadyRunning is not a start, and an unreadable store is said
+killed (exit 1)                  C7 starter: the list ignores the store
+                                  not ok 5 - THE STARTER'S LIST offers what this host defines, by its definition
+killed (exit 1)                  C7 startable: a definition is not consulted
+                                  not ok 2 - A DEFINITION DECIDES: its mode over the roster's, its validity, and the roster's status still
+                                  not ok 3 - THE LIST offers defined agents by their definitions and says which are not published yet
+                                  not ok 4 - A DEFINED AGENT STARTS through the agent-level start; an undefined one through its session
+                                  not ok 5 - THE STARTER'S LIST offers what this host defines, by its definition
+killed (exit 1)                  C7 startable: an invalid definition is offered
+                                  not ok 2 - A DEFINITION DECIDES: its mode over the roster's, its validity, and the roster's status still
+killed (exit 1)                  C7 startable: a resident definition is offered
+                                  not ok 2 - A DEFINITION DECIDES: its mode over the roster's, its validity, and the roster's status still
+killed (exit 1)                  C7 startable: a defined agent elsewhere is not counted
+                                  not ok 3 - THE LIST offers defined agents by their definitions and says which are not published yet
+killed (exit 1)                  C7 startable: an unpublished definition is not said
+                                  not ok 3 - THE LIST offers defined agents by their definitions and says which are not published yet
+killed (exit 1)                  C3 daemon: the plugin is not given the store
+                                  not ok 105 - THE DAEMON'S DEFINITION STORE AND INSTALLED HARNESSES reach the plugin it starts (P0 C3, C7)
+killed (exit 1)                  C3 daemon: the plugin is not told what is installed
+                                  not ok 105 - THE DAEMON'S DEFINITION STORE AND INSTALLED HARNESSES reach the plugin it starts (P0 C3, C7)
+63/63 killed

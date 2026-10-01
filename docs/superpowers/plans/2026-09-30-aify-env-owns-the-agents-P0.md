@@ -714,6 +714,38 @@ definition changed between queue and launch (refused at the boundary); a withdra
 launch (refused); managed to resident while running (worker untouched, then not offered); resident to
 managed (offered for a managed start from then on).
 
+**Settled while building P4** (2026-10-01, aify-env):
+
+- **The boundary is one injected question.** `startTerminal` asks `checkStart(launch)` right after
+  the launch is fetched, before the workspace check and before any process exists. The plugin answers
+  it with `startRefusal(launch, store.list())`, which is pure (`lib/agent-definition-requests.mjs`). A
+  launch with `definition: null` is not checked. The refusals name the reason: another store, withdrawn
+  on this host, invalid here, an earlier lifetime, a changed revision ("start it again"), or a harness
+  whose runtime is not the launch's.
+- **Applying a request is one lock hold** (`DefinitionStore.applyRequest`). The decision
+  (`requestDecision`, C4 steps 1 to 4) and the write it leads to see the same state, so the write takes
+  no second compare-and-set. A refusal is returned as the report, never thrown. An invalid file refuses
+  even a removal: the request was made against the last good definition, not the hand edit since.
+  A request's `null` sets the field's neutral value (`""`, `{}`, `true` for herdrSpace).
+- **The definition sync is the plugin's third loop** (`definition-sync.mjs`). Every 10 s it claims,
+  applies, reports, and only then publishes. It publishes when it applied something or 60 s after the
+  last snapshot it published. The first pass publishes, and a failed push is tried again on the next
+  pass. It runs while the plugin claims, and stops while the plugin is held or detached. An incomplete
+  snapshot is never published.
+- **A freed id is taken at once.** On `FREE_SINCE` the sync publishes one fresh revision
+  (`snapshot({fresh: true})`), and only one per pass. `FREE_SINCE` and the harness-to-runtime table are
+  spelled alike on both tiers, held by `service/tests/test_the_host_and_service_share_the_definition_vocabulary.py`.
+- **The start list follows the host's own definitions.** For an agent this host defines, the mode is
+  the definition's, the machine is this one by definition, and the status is still the roster's. It
+  starts through `POST /agents/{id}/control start`. An `alreadyRunning` answer is a refusal, and a
+  definition the service has not received yet is reported as not published. Every other agent keeps
+  the session restart.
+- **The daemon makes the store outside the statements its bootstrap tests evaluate**, so those tests
+  hand the plugin a stand-in or nothing, never the operator's store.
+- **The proof across both repos** is `service/tests/e2e/test_an_offline_request_reaches_the_hosts_file.py`:
+  the real service as a process, and aify-env's store, client and sync run by node in a fresh process
+  per visit of the host.
+
 ## C8. Plugins follow the registry without pretending the host stopped
 
 Two operations, never one:
