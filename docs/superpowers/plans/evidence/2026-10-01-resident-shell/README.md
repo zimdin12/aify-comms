@@ -34,9 +34,9 @@ from documentation.
 
 | file | what it is |
 |---|---|
-| `mutations.json` | 23 mutations of the service rules, the bridge's parsing, following and reporting, and the arming |
+| `mutations.json` | 28 mutations: the service rules, the bridge's parsing, following and reporting, the arming, and the review's two defects |
 | `mutate.py` | the P2 driver: a process-tree kill on timeout, and the killing tests named for pytest as well as TAP |
-| `mutations-result.txt` | 23/23 killed, each with the tests that killed it |
+| `mutations-result.txt` | the run, each mutant with the tests that killed it |
 
 The first battery left two survivors, and both changed the code or the tests:
 
@@ -52,6 +52,31 @@ The first battery left two survivors, and both changed the code or the tests:
 - **"The reporter is never stopped" survived.** Nothing checked that disarming stops the reporter. A
   new witness arms in a child process, records every interval created and cleared, and requires none
   left after stop. Its controls: the reporter's interval was seen, and the arm took.
+
+## Review round 1 (3d5dc11e): a `shell` that never ends
+
+The review found two ways the reporter kept `shell` alive with no work running. Both reproduce with
+the real follower and reporter.
+
+- **R1:** a new transcript path, or a truncated file, restarted the follower on the new source while
+  the reporter kept its count. The old task's end then landed in a file nobody read, so the count
+  never reached zero.
+- **R2:** an unreadable transcript returned the same empty result as "nothing new", so the reporter
+  renewed the last count every tick and the 20 s lease never expired.
+
+The follower now says which of three things it found, and the reporter has a policy for each:
+
+- **New lines (`LINES`):** applied, as before.
+- **`RESET` (a first look, a new path, or a truncated file):** the old generation is retired and the
+  count starts from empty. A late end from it is an end for an unknown task, which is already ignored.
+  Under-reporting until the next start is a bounded error; a `shell` that never ends was not.
+- **`UNAVAILABLE`:** nothing is sent. Renewing would keep a lease alive on evidence nobody can read,
+  and zero would claim an observation nobody made. Left alone, the lease expires.
+
+Witnesses, through the real follower and reporter: the same-source control `[1, 0]`; a switch whose
+old end is never needed; a truncation; a deleted transcript that goes silent; an unavailable spell that
+recovers and sees the end. Each of the review's defects is a mutation the witnesses kill. So is a tick
+that starts a second read while one is in flight: that survived until a witness held one read open.
 
 ## What this does not show
 

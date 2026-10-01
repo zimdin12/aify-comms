@@ -41,10 +41,11 @@ killed (exit 1)                  migration: an existing database never gains the
                                   FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::TheAnalyticsBoardGetsThePrefetchToo::test_the_pulse_still_ANSWERS
 killed (exit 1)                  bridge: a background shell is not a start
                                   not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
-                                  not ok 4 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
 killed (exit 1)                  bridge: a background agent is not a start
                                   not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
-                                  not ok 4 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
 killed (exit 1)                  bridge: any status ends a task
                                   not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
 killed (exit 1)                  bridge: the dequeue also ends a task
@@ -56,11 +57,26 @@ killed (exit 1)                  follower: starts at the beginning, counting a r
 killed (exit 1)                  follower: a half-written line is dropped
                                   not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
 killed (exit 1)                  reporter: posts zero on every idle tick
-                                  not ok 4 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
 killed (exit 1)                  reporter: never says zero
-                                  not ok 4 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
 killed (exit 1)                  arming: the reporter is never stopped
-                                  not ok 6 - stopping an ARMED detector stops everything arming started, the background reporter included
+                                  not ok 9 - stopping an ARMED detector stops everything arming started, the background reporter included
 killed (exit 1)                  arming: posts without the local-mode guard
-                                  not ok 20 - the nine callback guards ask IS_REMOTE — the question they meant
-23/23 killed
+                                  not ok 23 - the nine callback guards ask IS_REMOTE — the question they meant
+killed (exit 1)                  R1: a reset keeps the old generation's count
+                                  not ok 4 - the live set after a look: lines applied, a reset retires the generation, unavailable changes nothing
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  R2: an unreadable transcript renews the last count
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  R2: an unreadable transcript reads as observed nothing
+                                  not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  R1: a reset reads as nothing new
+                                  not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  reporter: a tick starts a second read while one is in flight
+                                  not ok 7 - ONE READ AT A TIME: a tick during a slow read starts no second one, and hands back the first
+28/28 killed

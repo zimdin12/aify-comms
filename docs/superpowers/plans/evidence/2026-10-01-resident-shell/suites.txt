@@ -23,3 +23,8 @@ aify-wrapper main 9f45a5a: npm test
 # pass 509
 # fail 0
 # skipped 66
+
+After review round 1 (the follower's three outcomes): only mcp/stdio changed, so the bridge suite and the battery were rerun; the other suites above are from 3d5dc11e, whose service code is unchanged.
+mcp/stdio: node tests/run-all.mjs
+[run-all] all 366 suite(s) passed — 2 test(s) skipped in 2 files
+battery: 28/28 killed

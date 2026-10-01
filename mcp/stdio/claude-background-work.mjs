@@ -56,6 +56,13 @@ export function liveAfter(live, lines) {
   return next;
 }
 
+/**
+ * What one look at the transcript found. THREE OUTCOMES, never collapsed: "nothing new" is evidence
+ * that nothing ended, "unavailable" is no evidence at all, and "reset" means the source changed, so
+ * what was counted from the old one can no longer be seen to end (review of 3d5dc11e, R1 and R2).
+ */
+export const READ = Object.freeze({ LINES: "lines", UNAVAILABLE: "unavailable", RESET: "reset" });
+
 /** Reads what is appended to one transcript, whole lines only, starting from where it first looks. */
 export class TranscriptFollower {
   #path = "";
@@ -66,31 +73,34 @@ export class TranscriptFollower {
   constructor({ open = (p) => fs.open(p, "r") } = {}) { this.#open = open; }
 
   /**
-   * The complete lines appended to `path` since the last read. A new path starts at that file's end:
-   * a session that moved on (a /clear starts a new file) is followed from its own present.
+   * @returns {Promise<{status: string, lines: string[]}>}
+   *   LINES with the complete lines appended since the last read (possibly none);
+   *   UNAVAILABLE when the transcript could not be read: no path, or open, stat or read failed;
+   *   RESET on the first look at a path, a new path (a /clear starts a new file), or a file that
+   *   shrank. The follower then starts at the file's end.
    */
   async read(path) {
-    if (!path) return [];
+    if (!path) return { status: READ.UNAVAILABLE, lines: [] };
     let fh;
-    try { fh = await this.#open(path); } catch { return []; }
+    try { fh = await this.#open(path); } catch { return { status: READ.UNAVAILABLE, lines: [] }; }
     try {
       const { size } = await fh.stat();
       if (path !== this.#path || this.#offset < 0 || size < this.#offset) {
         this.#path = path;
         this.#offset = size;
         this.#partial = "";
-        return [];
+        return { status: READ.RESET, lines: [] };
       }
-      if (size === this.#offset) return [];
+      if (size === this.#offset) return { status: READ.LINES, lines: [] };
       const buffer = Buffer.alloc(size - this.#offset);
       await fh.read(buffer, 0, buffer.length, this.#offset);
       this.#offset = size;
       const text = this.#partial + buffer.toString("utf8");
       const lines = text.split("\n");
       this.#partial = lines.pop();
-      return lines.filter((line) => line.trim() !== "");
+      return { status: READ.LINES, lines: lines.filter((line) => line.trim() !== "") };
     } catch {
-      return [];
+      return { status: READ.UNAVAILABLE, lines: [] };
     } finally {
       await fh.close().catch(() => {});
     }
@@ -98,8 +108,27 @@ export class TranscriptFollower {
 }
 
 /**
+ * The live set after one look. PURE.
+ *   LINES: the lines applied.
+ *   RESET: the old generation retired, an empty set. Its ends would land where nobody reads, so a
+ *          count carried over could never reach zero; under-reporting until the next start is the
+ *          bounded error, a `shell` that never ends is not. A late end of a retired task is an end
+ *          for an unknown task, which `liveAfter` already ignores.
+ *   UNAVAILABLE: unchanged, and the caller must not renew it as if it were observed.
+ */
+export function liveAfterRead(live, { status, lines }) {
+  if (status === READ.RESET) return new Set();
+  if (status === READ.LINES) return liveAfter(live, lines);
+  return new Set(live);
+}
+
+/**
  * Follow the transcript and report the count: every tick while work runs (the service holds it as a
  * short lease), and once when it drops to zero. A failed post is retried on the next tick.
+ *
+ * NOTHING IS SENT WHILE THE TRANSCRIPT IS UNAVAILABLE. Renewing the last count would keep a lease
+ * alive on evidence nobody can read, and posting zero would claim an observation nobody made; sent
+ * nothing, the service's lease expires on its own and the agent reads as it otherwise would.
  *
  * @returns {() => void} stop
  */
@@ -109,12 +138,11 @@ export function startBackgroundWorkReporter({
 }) {
   let live = new Set();
   let reported = 0;
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
+  const once = async () => {
     try {
-      live = liveAfter(live, await follower.read(transcriptPath()));
+      const observed = await follower.read(transcriptPath());
+      live = liveAfterRead(live, observed);
+      if (observed.status === READ.UNAVAILABLE) return;
       const count = live.size;
       if (count > 0 || reported > 0) {
         await post(count);
@@ -122,9 +150,14 @@ export function startBackgroundWorkReporter({
       }
     } catch {
       // Unreported: the next tick tries again, and the service's lease bounds what a gap can show.
-    } finally {
-      busy = false;
     }
+  };
+  // ONE READ AT A TIME. A tick that finds one in flight starts no second read; it hands back the one
+  // running, so a caller that awaits a tick knows the look it waited for has finished.
+  let inflight = null;
+  const tick = () => {
+    inflight ??= once().finally(() => { inflight = null; });
+    return inflight;
   };
   const timer = setIntervalImpl(tick, intervalMs);
   timer?.unref?.();
