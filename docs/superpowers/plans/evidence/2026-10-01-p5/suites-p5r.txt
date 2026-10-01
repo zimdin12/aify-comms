@@ -1,0 +1,11 @@
+Full suites after the second P4 revision (N4) and the P5 revision (N5), with aify-comms pinned to aify-wrapper
+57400c7 (P6), run in sequence on 2026-10-01. AIFY_ENV_REPO / AIFY_WRAPPER_REPO = the next checkouts.
+
+python  5016 passed, 27 skipped, 10879 subtests passed in 217.30s (skips environmental as before)
+bridge  all 366 suite(s) passed -- 2 test(s) skipped in 2 files
+        (the run before the pin move read 1 FAILED: the-wrapper-pin-is-not-behind-a-template-change, because
+        57400c7 changes templates this repo consumes; the pin was moved and this is the run after it)
+dashboard  pass 1889, fail 0
+aify-wrapper-next  tests 594, pass 528, fail 0, skipped 66
+aify-env-next      tests 2337, pass 2333, fail 0, skipped 4
+TIME_WAIT after the runs: 318. Credential mtime unchanged: 2026-09-29 18:37:10.548.
