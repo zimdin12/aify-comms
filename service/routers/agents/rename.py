@@ -58,6 +58,14 @@ async def rename_agent(agent_id: str, req: AgentRenameRequest, request: Request)
         if not agent:
             await db.rollback()
             raise HTTPException(404, f'Agent "{agent_id}" not found')
+        # A DEFINED AGENT'S ID IS ITS HOST'S FILE NAME. Renaming it here would split the agent from its
+        # definition, and the host's next push would define the old id again (P0 C3).
+        defined = await (await db.execute(
+            "SELECT machine_id FROM agent_definitions WHERE agent_id = ?", (agent_id,))).fetchone()
+        if defined:
+            await db.rollback()
+            raise HTTPException(409, f'Agent "{agent_id}" is defined on {defined["machine_id"]}; '
+                                     f'rename it there: `aify-env agents set` the new id, then `aify-env agents remove` this one')
         existing = await (await db.execute("SELECT id FROM agents WHERE id = ?", (new_agent_id,))).fetchone()
         if existing:
             await db.rollback()

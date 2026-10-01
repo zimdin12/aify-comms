@@ -26,6 +26,7 @@ from service.routers.stats import router as _stats_router
 from service.routers.shared import router as _shared_router
 from service.routers.analytics import router as _analytics_router
 from service.routers.environments import router as _environments_router
+from service.routers.agent_definitions import router as _agent_definitions_router
 from service.routers.spawn_requests import router as _spawn_requests_router
 from service.routers.channels import router as _channels_router
 from service.routers.sessions import router as _sessions_router
@@ -44,6 +45,7 @@ router.include_router(_stats_router)
 router.include_router(_shared_router)
 router.include_router(_analytics_router)
 router.include_router(_environments_router)
+router.include_router(_agent_definitions_router)
 router.include_router(_spawn_requests_router)
 router.include_router(_channels_router)
 router.include_router(_sessions_router)

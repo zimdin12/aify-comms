@@ -77,6 +77,7 @@ JsonApiRoute PATCH /api/v1/environments/controls/{control_id} name=update_enviro
 JsonApiRoute PATCH /api/v1/environments/{environment_id:path}/roots name=update_environment_roots status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/spawn-requests/{spawn_request_id} name=update_spawn_request status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PATCH /api/v1/terminals/controls/{control_id} name=update_terminal_control status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/agent-definitions/{agent_id}/release name=release_agent_definition status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents name=register_agent status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/claimer-lease name=post_claimer_lease status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/agents/{agent_id}/compact/native name=post_agent_native_compact status=- response_model=- tags=api deps=0 in_schema=True
@@ -110,6 +111,7 @@ JsonApiRoute POST /api/v1/dispatch/runs/{run_id}/control name=request_dispatch_c
 JsonApiRoute POST /api/v1/environments/controls/claim name=claim_environment_control status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/environments/heartbeat name=environment_heartbeat status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/environments/{environment_id:path}/control name=control_environment status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/environments/{environment_id:path}/definition-store/reset name=reset_definition_store status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/messages/cleanup/orphan-unread name=cleanup_orphan_unread_messages status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/messages/conversation/clear name=clear_direct_conversation status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/messages/send name=send_message status=- response_model=- tags=api deps=0 in_schema=True
@@ -129,6 +131,7 @@ JsonApiRoute POST /api/v1/terminals/{terminal_id}/resize name=resize_terminal st
 JsonApiRoute POST /api/v1/terminals/{terminal_id}/stop name=stop_terminal status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/usage name=post_usage status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/usage/consumption name=post_usage_consumption status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute PUT /api/v1/environments/{environment_id:path}/agent-definitions name=push_agent_definitions status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute PUT /api/v1/settings name=update_settings status=- response_model=- tags=api deps=0 in_schema=True
 Route GET /docs name=swagger_ui_html status=- response_model=- tags=- deps=0 in_schema=False
 Route GET /docs/oauth2-redirect name=swagger_ui_redirect status=- response_model=- tags=- deps=0 in_schema=False

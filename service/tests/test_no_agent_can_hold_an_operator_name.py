@@ -29,6 +29,7 @@ RESERVED = ("dashboard", "Dashboard", "operator", "OPERATOR")
 AGENT_ROW_WRITERS = {
     "api_core/agent_registration_writes.py": "POST /agents",
     "api_core/agent_rename_writes.py": "POST /agents/{id}/rename",
+    "api_core/definition_push.py": "PUT /environments/{id}/agent-definitions (refuses that id, for that entry only)",
     "api_core/running_spawn.py": "POST /spawn-requests (the worker registers under the request's agentId)",
 }
 

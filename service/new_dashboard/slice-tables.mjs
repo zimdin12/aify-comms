@@ -14,6 +14,8 @@ export const SLICE_TABLES = Object.freeze({
     'agents', 'agent_sessions', 'agent_turn_state', 'agent_status_state', 'agent_console_signal',
     'agent_tombstones', 'bridge_instances', 'claimer_leases', 'environments', 'terminal_sessions',
     'dispatch_runs', 'dispatch_controls', 'spawn_specs', 'spawn_requests', 'settings',
+    // Each agent's definition: state, owner machine, store, lifetime and revision (P0 D13).
+    'agent_definitions',
     // Unread counts: a message or a read receipt changes the roster.
     'messages', 'read_receipts',
   ]),

@@ -82,6 +82,7 @@ NOT_AGENT_COLUMNS = {
     #: and binds `bridge_id`, the id of the bridge doing the superseding -- so a rename has nothing
     #: to move here, and a rename that DID move it would corrupt the supersession chain.
     "superseded_by": "holds a bridge instance id, not an agent id",
+    "retired_by": "holds the definition store that replaced this one (definition_stores_retired)",
 }
 
 REPOINTED = {
@@ -123,6 +124,9 @@ LEFT_BEHIND = {
     #: Who asked for the spawn, not who it is for. `spawn_requests.agent_id` is the subject and IS
     #: repointed.
     ("spawn_requests", "created_by"): "requester audit, not the subject of the rename",
+    #: Never reached: renaming a defined agent is refused (routers/agents/rename.py), because the id
+    #: is the host's file name and the host's next push would define the old id again (P0 C3).
+    ("agent_definitions", "agent_id"): "a defined agent cannot be renamed here; its host renames it",
 }
 
 UNRESOLVED: dict[tuple[str, str], str] = {

@@ -1,0 +1,29 @@
+P3a suites, 2026-10-01, run one after another on the tree committed with this file.
+Sibling checkouts: aify-env-next ca4cdea, aify-wrapper-next 9f45a5a (AIFY_ENV_REPO / AIFY_WRAPPER_REPO).
+
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile
+  --deselect service/tests/test_a_cold_start_keeps_the_agents_role.py   (RED until P3b, uncommitted)
+  4930 passed, 27 skipped, 10541 subtests passed in 297.43s
+  The version gate is green: VERSION is now 0.8.0, which names no tag.
+
+mcp/stdio: node tests/run-all.mjs
+  365 files, exit 0; skipped and named as unverified: bridge-exits-when-its-terminal-goes,
+  runtime-launch-helpers (both platform skips).
+  The FIRST run failed one file, tests/resume-recovery-sends-the-key.test.js, which P3a does not
+  touch. The assertion was `bound.launched` at line 76. That file took 88.0 s in the run against
+  21.1 s and 22.6 s alone (both pass), and its three launches share runWrapper's 30 s per-launch
+  budget. About 29 s per launch at concurrency 6 against about 7 s alone fits a budget below its own
+  cost under load. That fit is an inference, not a cause proven in this run. The second full run was
+  green (46.0 s for that file). Reported separately; not fixed here.
+
+service/new_dashboard: node --test *.test.mjs
+  1886 tests, 1886 pass, 0 fail, 0 cancelled, 0 skipped
+
+aify-wrapper-next: npm test
+  575 tests, 509 pass, 0 fail, 66 skipped
+
+aify-env-next: npm test
+  2272 tests, 2268 pass, 0 fail, 4 skipped
+
+Credential file ~/.aify/credentials/aify-comms-6b1e649c84bd.key still reads 2026-09-29 18:37:10
+after the runs.

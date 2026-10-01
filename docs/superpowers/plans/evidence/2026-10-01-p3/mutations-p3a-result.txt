@@ -1,0 +1,129 @@
+killed (exit 1)                  C3 canonical: a lone surrogate is left raw
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_a_lone_surrogate_is_escaped_as_javascript_escapes_it
+killed (exit 1)                  C3 canonical: a lone surrogate is escaped upper case
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_a_lone_surrogate_is_escaped_as_javascript_escapes_it
+killed (exit 1)                  C3 canonical: keys are not sorted
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_aify_envs_golden_vectors - AssertionError: '014ab896a7...
+killed (exit 1)                  C3 canonical: non-ASCII is escaped
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_aify_envs_golden_vectors - AssertionError: '26225cf524...
+killed (exit 1)                  C3 canonical: entries ordered by code point, not UTF-16 unit
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_aify_envs_golden_vectors - AssertionError: '28053e1793...
+killed (exit 1)                  C3 canonical: entries are not ordered at all
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_aify_envs_golden_vectors - AssertionError: '28053e1793...
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_same_state_in_another_order_has_the_same_digest - ...
+killed (exit 1)                  C3 canonical: an invalid entry's problems are digested unsorted
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_aify_envs_golden_vectors - AssertionError: 'eb2b8f31c4...
+killed (exit 1)                  C3 canonical: the unavailable reason is left out of the digest
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_aify_envs_golden_vectors - AssertionError: '9097448624...
+killed (exit 1)                  C3 shape: a counter may be zero
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: a counter may be a boolean
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: an invalid entry may name no problem
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: an unavailable entry need not say why
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: a definition may name another id
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: a body that disagrees with its digest is accepted
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: an id may appear twice
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 shape: the snapshot digest is not checked
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 fence: an environment with no claimer lets anyone push
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_fence_fails_closed_and_checks_the_machine
+killed (exit 1)                  C3 fence: a replaced publisher may push
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_publisher_is_refused_with_the_current_claimer
+killed (exit 1)                  C3 fence: the machine is not checked
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_fence_fails_closed_and_checks_the_machine
+killed (exit 1)                  C3 order: a retired store is applied
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.NEW_ST...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 order: a new store does not retire the current one
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.APPLY:...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 order: an older revision is applied
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.APPLY:...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_stale_retry_after_a_removal_leaves_it_withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_reversed_delivery_keeps_the_newer_state - Ass...
+killed (exit 1)                  C3 order: the same revision is applied again
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.APPLY:...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+killed (exit 1)                  C3 order: a conflict reads as a replay
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.REPLAY...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+killed (exit 1)                  C3 order: a replay reads as a conflict
+                                  FAILED service/tests/test_agent_definition_push.py::TheCanonicalForm::test_the_ordering_table - AssertionError: <PushOrder.CONFLI...
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replay_changes_nothing_and_a_conflict_applies_nothing
+killed (exit 1)                  C3 push: the revision is not required
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_malformed_push_is_refused_and_applies_nothing
+killed (exit 1)                  C3 push: a retired store's refusal is not counted
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+killed (exit 1)                  C3 push: a retired store's refusal does not name the two-store problem
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+killed (exit 1)                  C3 push: a replaced store is not retired
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 push: an id another machine owns is overwritten
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
+killed (exit 1)                  C3 push: a definition may take an operator name
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
+killed (exit 1)                  C3 push: a definition may bring back a removed id
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
+killed (exit 1)                  C3 push: a refused entry is applied anyway
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only
+killed (exit 1)                  C3 rename: a defined agent is renamed here
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_defined_agent_is_renamed_on_its_host_not_here
+killed (exit 1)                  C3 push: an invalid file drops the last good definition's report
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_invalid_file_keeps_the_last_good_definition_until_it_is_repaired
+killed (exit 1)                  C5 push: an existing agent's effective runtime is rewritten
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_existing_agents_effective_columns_are_left_to_the_paths_that_write_them
+killed (exit 1)                  C5 push: an existing agent's role is not updated
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_existing_agents_effective_columns_are_left_to_the_paths_that_write_them
+killed (exit 1)                  C3 push: a redefined agent stays withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_stale_retry_after_a_removal_leaves_it_withdrawn
+killed (exit 1)                  C3 push: a new claude agent is filed under the wrong runtime
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_new_id_is_defined_owned_and_listed - Assert...
+killed (exit 1)                  C3 push: availability is stored as always available
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_availability_changes_are_ordered_revisions_and_never_a_withdrawal
+killed (exit 1)                  C6 push: a dropped id is not withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_stale_retry_after_a_removal_leaves_it_withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_intentional_empty_snapshot_withdraws_everything_and_removes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+killed (exit 1)                  C6 push: a push withdraws another machine's agents
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
+killed (exit 1)                  C6 push: withdrawal removes the agent
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_stale_retry_after_a_removal_leaves_it_withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_intentional_empty_snapshot_withdraws_everything_and_removes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+killed (exit 1)                  C6 push: a withdrawn id keeps its definition
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_stale_retry_after_a_removal_leaves_it_withdrawn
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_id_another_machine_owns_is_refused_for_that_id_only
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_an_intentional_empty_snapshot_withdraws_everything_and_removes_nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+killed (exit 1)                  C3 route: a retired store's count is rolled back with its refusal
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_a_replaced_store_is_retired_for_good_and_its_late_push_names_the_replacement
+killed (exit 1)                  C3 route: anyone may release a definition
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 route: anyone may reset a machine's retired stores
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 route: a release keeps the definition
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 route: a released agent still reads defined
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  C3 route: a reset clears nothing
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_release_and_reset_are_the_operators - Asserti...
+killed (exit 1)                  D13: the owner machine is not listed
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+killed (exit 1)                  D13: the agent list carries no definition
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+killed (exit 1)                  D13: the agent detail carries no definition
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+killed (exit 1)                  D13: a serialized agent carries no definition state
+                                  FAILED service/tests/test_agent_definition_push.py::AHostPushesItsDefinitions::test_the_agent_list_and_detail_carry_the_definition
+54/54 killed

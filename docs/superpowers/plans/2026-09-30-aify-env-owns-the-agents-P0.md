@@ -399,6 +399,34 @@ historical sessions. This is a limitation of this tag, not an answer to the mult
 
 **When the plugin pushes.** On plugin start, after every store operation it makes, and every 60 s.
 
+**Settled while building P3a** (2026-10-01):
+
+- **A newly defined id gets its `agents` row at the push.** The roster, the dashboard's mirror,
+  role-addressed sends and the agent-level start all key on that row, so a defined agent with no row
+  would be invisible to all of them. The row takes the descriptive fields and, since nothing has run
+  yet, its initial effective fields (runtime from the harness, session mode, cwd, model, effort) from
+  the definition. For an existing row, a push writes the descriptive columns and
+  `definition_state` only (C5). C7's first-start witness therefore reads "no agent row before the
+  push, and no session".
+- **The fence fails closed.** An environment with no recorded claimer refuses a push. The spawn claim
+  lets anyone through in that state; a push can withdraw every agent a machine owns.
+- **An invalid entry for an id this machine has no definition of** is reported in the response
+  (`invalid`) and stored nowhere: there is no last good definition to keep.
+- **The canonical form escapes a lone surrogate** as `\udxxx`, lower case, as JavaScript does. Python
+  would otherwise fail to encode it, or digest it differently.
+- **The service checks that each valid entry's `definition` digests to its `definitionDigest`**, so a
+  push cannot carry a body that differs from the digest the snapshot was ordered by.
+- **A push refuses, per entry, what registration refuses**: an operator name (`dashboard`,
+  `operator`) and an id the operator removed (tombstoned). The rest of the snapshot applies, as with
+  an id another machine owns.
+- **A defined agent cannot be renamed on the service.** Its id is its host's file name, so a rename
+  here would split it from its definition, and the next push would define the old id again. The 409
+  names the host-side way: `aify-env agents set` the new id, then `aify-env agents remove` the old.
+- **No event of its own.** The dashboard learns of a push from the change feed, which reports the
+  tables a commit wrote; the agents slice names `agent_definitions`.
+- **The agent list and detail carry `definition`** (state, owner machine, store, incarnation, revision,
+  host state, availability), and every serialized agent carries `definitionState` (D13).
+
 **Witnesses (P1 for the store half, P3 for the service half).** Reversed delivery (S2 then S1: S1
 refused, B still defined); stale retry after a removal (refused, id stays withdrawn); A, then B from a
 recreated store, then a delayed A (A refused as retired, B current); publisher replacement (old

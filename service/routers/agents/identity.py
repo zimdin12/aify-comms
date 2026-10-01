@@ -16,6 +16,7 @@ import logging
 import time
 
 from fastapi import HTTPException, Request
+from service.api_core.definition_records import definition_of, definition_rows
 
 from service.api_core.live_process_probes import _agents_with_live_terminal_sessions
 from service.api_core.routing import domain_router
@@ -107,11 +108,13 @@ async def list_agents(request: Request):
         # Roster: cheap half only — see include_runs.
         outbound_map = await _get_outbound_activity_map(db, agent_ids, include_runs=False)
         live_terminal_agents = await _agents_with_live_terminal_sessions(db, agent_ids)
+        definitions = await definition_rows(db, agent_ids)
         result = {}
         for row in agents:
             aid = row["id"]
             entry = _live_state_get(aid) or {}
             payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(aid, 0), dispatch_map.get(aid), live_reason=entry.get("reason"), outbound=outbound_map.get(aid))
+            payload["definition"] = definition_of(row, definitions.get(aid))
             # Plan 5 Section C: read-path live-worker gate — see
             # _enforce_live_worker_gate for full rationale. (In-memory correction
             # only; the writeback was removed 2026-06-18 to cut read-path writes.)
@@ -155,6 +158,7 @@ async def get_agent(agent_id: str, request: Request):
         outbound_map = await _get_outbound_activity_map(db, [agent_id])
         entry = _live_state_get(agent_id) or {}
         payload = _agent_record_to_dict(row, entry.get("status") or row["status"], unread_map.get(agent_id, 0), dispatch_map.get(agent_id), live_reason=entry.get("reason"), outbound=outbound_map.get(agent_id))
+        payload["definition"] = definition_of(row, (await definition_rows(db, [agent_id])).get(agent_id))
         # Plan 5 Section C: read-path live-worker gate (in-memory correction only; the
         # writeback was removed 2026-06-18 to cut read-path writes — see the gate bodies).
         payload = await _enforce_live_worker_gate(payload, db, settings, agent_id)

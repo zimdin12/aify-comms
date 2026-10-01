@@ -425,6 +425,9 @@ def _agent_record_to_dict(row, status: str, unread: int, dispatch_state: Optiona
         "outbound": outbound or {},
         "favorited": bool(int((row["favorited"] if "favorited" in row.keys() else 0) or 0)),
         "herdrSpace": herdr_space_of(row),
+        # Whether aify-env defines this agent: "defined", "withdrawn", or "" (never). The owner and
+        # revision are on the list and detail routes (api_core/definition_records.py).
+        "definitionState": str((row["definition_state"] if "definition_state" in row.keys() else "") or ""),
         # Dashboard rendering hint: resident sessions live in an
         # operator-launched terminal outside aify's PTY tracking — the
         # dashboard's "Start Console" button can't open or attach to

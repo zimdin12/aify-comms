@@ -486,6 +486,47 @@ CREATE TABLE IF NOT EXISTS agent_hook_order (
 -- claude is generating. A short TTL lease OR'd into derived `working` — additive,
 -- never clears turn_busy, self-expires when the spinner stops. Closes the
 -- "online while thinking" under-report the per-completed-message transcript can't see.
+-- 0.8, aify-env owns the agents (P0 C3, C5, C6). What each host's aify-env defines, pushed as a whole
+-- snapshot (api_core/definition_push.py). One owner machine per id; `body` is the definition's `agent`
+-- object, the desired state; `host_state` is 'invalid' while the host's file is broken, and then `body`
+-- is the last good one, kept.
+CREATE TABLE IF NOT EXISTS agent_definitions (
+    agent_id TEXT PRIMARY KEY,
+    machine_id TEXT NOT NULL,
+    store_id TEXT NOT NULL,
+    incarnation INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    definition_digest TEXT NOT NULL,
+    body TEXT NOT NULL,
+    available INTEGER NOT NULL,
+    unavailable_reason TEXT DEFAULT '',
+    host_state TEXT NOT NULL DEFAULT 'valid',
+    host_problems TEXT DEFAULT '[]',
+    updated_at TEXT NOT NULL
+);
+
+-- Per machine: the store whose snapshots are current, and how far it has got.
+CREATE TABLE IF NOT EXISTS definition_stores (
+    machine_id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    snapshot_digest TEXT NOT NULL,
+    environment_id TEXT DEFAULT '',
+    updated_at TEXT NOT NULL
+);
+
+-- Stores a machine has moved on from, for good. A retired store that keeps pushing is two stores
+-- claiming one machine, and that is reported, never only logged.
+CREATE TABLE IF NOT EXISTS definition_stores_retired (
+    machine_id TEXT NOT NULL,
+    store_id TEXT NOT NULL,
+    retired_by TEXT NOT NULL,
+    retired_at TEXT NOT NULL,
+    last_refused_at TEXT DEFAULT '',
+    refused_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (machine_id, store_id)
+);
+
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,
     working_at TEXT NOT NULL,

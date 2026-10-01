@@ -1,0 +1,12 @@
+service/tests/test_a_cold_start_keeps_the_agents_role.py against aify-comms 41a4d12e (today's code, before any P3 change):
+
+E       AssertionError: Lists differ: [{'role': 'coder', 'name': 'the-reviewer'}] != [{'role': 'reviewer', 'name': 'The Reviewer'}]
+E       
+E       First differing element 0:
+E       {'role': 'coder', 'name': 'the-reviewer'}
+E       {'role': 'reviewer', 'name': 'The Reviewer'}
+E       
+E       - [{'name': 'the-reviewer', 'role': 'coder'}]
+E       + [{'name': 'The Reviewer', 'role': 'reviewer'}] : a cold start must not reset the agent to a coder named after its id
+service\tests\test_a_cold_start_keeps_the_agents_role.py:94: AssertionError
+1 failed, 1 warning in 0.84s

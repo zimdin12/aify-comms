@@ -88,6 +88,9 @@ AGENT_MIGRATIONS = {
     # existing row, which the reader treats as "fall back to last_seen" so a deploy brings no
     # sudden flood of briefings about history.
     "last_present_at": "ALTER TABLE agents ADD COLUMN last_present_at TEXT DEFAULT ''",
+    # 0.8 (P0 C3/C6): '' never defined in aify-env, 'defined' while a host's definition stands,
+    # 'withdrawn' once its owner's snapshot no longer has it. Written only by api_core/definition_push.py.
+    "definition_state": "ALTER TABLE agents ADD COLUMN definition_state TEXT DEFAULT ''",
 }
 
 DISPATCH_RUN_MIGRATIONS = {
