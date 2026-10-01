@@ -530,6 +530,8 @@ CREATE TABLE IF NOT EXISTS definition_stores_retired (
 CREATE TABLE IF NOT EXISTS agent_console_signal (
     agent_id TEXT PRIMARY KEY,
     working_at TEXT NOT NULL,
+    -- subagents_at and background_at are added by CONSOLE_SIGNAL_MIGRATIONS in db.py, on every
+    -- database, new or old: the migration is their one path, so it cannot be forgotten.
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
 );
 

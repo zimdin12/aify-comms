@@ -1,0 +1,198 @@
+[
+ {
+  "name": "engine: background work is ignored",
+  "file": "service/status_engine.py",
+  "old": "        return \"shell\" if i.background_work else \"online\"",
+  "new": "        return \"online\"",
+  "test": "PY"
+ },
+ {
+  "name": "lease: never expires",
+  "file": "service/api_core/background_work.py",
+  "old": "    if not seen or now_epoch - seen > BACKGROUND_WORK_LEASE_SECONDS:",
+  "new": "    if not seen:",
+  "test": "PY"
+ },
+ {
+  "name": "lease: no deadline for the cache",
+  "file": "service/api_core/background_work.py",
+  "old": "    return True, _iso_add_seconds(stamped, BACKGROUND_WORK_LEASE_SECONDS + 1)",
+  "new": "    return True, \"\"",
+  "test": "PY"
+ },
+ {
+  "name": "record: zero does not clear",
+  "file": "service/api_core/background_work.py",
+  "old": "    stamp = now if count > 0 else \"\"",
+  "new": "    stamp = now",
+  "test": "PY"
+ },
+ {
+  "name": "authoritative producer ignores the lease",
+  "file": "service/api_core/status_inputs.py",
+  "old": "background_work=(await background_work_for(db, aid))[0])",
+  "new": "background_work=False)",
+  "test": "PY"
+ },
+ {
+  "name": "byproduct producer ignores the lease",
+  "file": "service/api_core/status_inputs.py",
+  "old": "            background_work=_si_background,",
+  "new": "            background_work=False,",
+  "test": "PY"
+ },
+ {
+  "name": "byproduct cache never recomputes at the lease's end",
+  "file": "service/api_core/status_inputs.py",
+  "old": "            refresh_after = min([v for v in (refresh_after, _si_background_until) if v])",
+  "new": "            pass",
+  "test": "PY"
+ },
+ {
+  "name": "prefetch drops the column",
+  "file": "service/api_core/status_signal_prefetch.py",
+  "old": "_CONSOLE_SIGNAL_SQL = (\"SELECT agent_id, working_at, subagents_at, background_at \"",
+  "new": "_CONSOLE_SIGNAL_SQL = (\"SELECT agent_id, working_at, subagents_at, '' AS background_at \"",
+  "test": "PY"
+ },
+ {
+  "name": "route: a boolean is a count",
+  "file": "service/routers/agents/liveness.py",
+  "old": "    if isinstance(count, bool) or not isinstance(count, int) or count < 0:",
+  "new": "    if not isinstance(count, int) or count < 0:",
+  "test": "PY"
+ },
+ {
+  "name": "route: a negative count is accepted",
+  "file": "service/routers/agents/liveness.py",
+  "old": "    if isinstance(count, bool) or not isinstance(count, int) or count < 0:",
+  "new": "    if isinstance(count, bool) or not isinstance(count, int):",
+  "test": "PY"
+ },
+ {
+  "name": "route: an unknown agent is stamped",
+  "file": "service/routers/agents/liveness.py",
+  "old": "        agent_row = await (await db.execute(\"SELECT id FROM agents WHERE id = ?\", (agent_id,))).fetchone()\n        if not agent_row:\n            raise HTTPException(404, f'Agent \"{agent_id}\" not found')\n        await record_background_work(",
+  "new": "        await record_background_work(",
+  "test": "PY"
+ },
+ {
+  "name": "migration: an existing database never gains the column",
+  "file": "service/db.py",
+  "old": "    \"background_at\": \"ALTER TABLE agent_console_signal ADD COLUMN background_at TEXT DEFAULT ''\",\n",
+  "new": "",
+  "test": "PY"
+ },
+ {
+  "name": "bridge: a background shell is not a start",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "    if (typeof result.backgroundTaskId === \"string\" && result.backgroundTaskId) return { started: result.backgroundTaskId };\n",
+  "new": "",
+  "test": "JS"
+ },
+ {
+  "name": "bridge: a background agent is not a start",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "    if (result.status === \"async_launched\" && typeof result.agentId === \"string\" && result.agentId) return { started: result.agentId };\n",
+  "new": "",
+  "test": "JS"
+ },
+ {
+  "name": "bridge: any status ends a task",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "    if (match && TERMINAL.has(match[2])) return { ended: match[1] };",
+  "new": "    if (match) return { ended: match[1] };",
+  "test": "JS"
+ },
+ {
+  "name": "bridge: the dequeue also ends a task",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "record.operation === \"enqueue\" && typeof record.content",
+  "new": "typeof record.content",
+  "test": "JS"
+ },
+ {
+  "name": "bridge: quoted text is read as a record",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "  if (record.type === \"queue-operation\" && record.operation === \"enqueue\" && typeof record.content === \"string\") {\n    const match = NOTIFICATION.exec(record.content);",
+  "new": "  {\n    const match = NOTIFICATION.exec(JSON.stringify(record).replace(/^.*?(<task-notification>)/, \"$1\").replace(/\\\\n/g, \"\\n\"));",
+  "test": "JS"
+ },
+ {
+  "name": "follower: starts at the beginning, counting a resumed session's old tasks",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "        this.#offset = size;\n        this.#partial = \"\";\n        return { status: READ.RESET, lines: [] };",
+  "new": "        this.#offset = 0;\n        this.#partial = \"\";\n        return { status: READ.RESET, lines: [] };",
+  "test": "JS"
+ },
+ {
+  "name": "follower: a half-written line is dropped",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "      this.#partial = lines.pop();",
+  "new": "      lines.pop(); this.#partial = \"\";",
+  "test": "JS"
+ },
+ {
+  "name": "reporter: posts zero on every idle tick",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "      if (count > 0 || reported > 0) {",
+  "new": "      if (true) {",
+  "test": "JS"
+ },
+ {
+  "name": "reporter: never says zero",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "      if (count > 0 || reported > 0) {",
+  "new": "      if (count > 0) {",
+  "test": "JS"
+ },
+ {
+  "name": "arming: the reporter is never stopped",
+  "file": "mcp/stdio/claude-turn-detector-state.mjs",
+  "old": "    stopTurnEnd();\n    stopBackgroundWork();\n",
+  "new": "    stopTurnEnd();\n",
+  "test": "JS"
+ },
+ {
+  "name": "arming: posts without the local-mode guard",
+  "file": "mcp/stdio/claude-turn-detector-state.mjs",
+  "old": "    post: async (count) => {\n      if (!__effectiveAgentId || !IS_REMOTE) return;\n",
+  "new": "    post: async (count) => {\n",
+  "test": "JS"
+ },
+ {
+  "name": "R1: a reset keeps the old generation's count",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "  if (status === READ.RESET) return new Set();\n",
+  "new": "",
+  "test": "JS"
+ },
+ {
+  "name": "R2: an unreadable transcript renews the last count",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "      if (observed.status === READ.UNAVAILABLE) return;\n",
+  "new": "",
+  "test": "JS"
+ },
+ {
+  "name": "R2: an unreadable transcript reads as observed nothing",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "    try { fh = await this.#open(path); } catch { return { status: READ.UNAVAILABLE, lines: [] }; }",
+  "new": "    try { fh = await this.#open(path); } catch { return { status: READ.LINES, lines: [] }; }",
+  "test": "JS"
+ },
+ {
+  "name": "R1: a reset reads as nothing new",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "        return { status: READ.RESET, lines: [] };",
+  "new": "        return { status: READ.LINES, lines: [] };",
+  "test": "JS"
+ },
+ {
+  "name": "reporter: a tick starts a second read while one is in flight",
+  "file": "mcp/stdio/claude-background-work.mjs",
+  "old": "    inflight ??= once().finally(() => { inflight = null; });\n    return inflight;",
+  "new": "    return once();",
+  "test": "JS"
+ }
+]

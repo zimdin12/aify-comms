@@ -1,0 +1,82 @@
+killed (exit 1)                  engine: background work is ignored
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::TheEngine::test_background_work_is_shell_only_for_a_live_resident_at_its_prompt
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_lease_the_bridge_stopped_refreshing_expires
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_the_served_status_follows_the_report
+killed (exit 1)                  lease: never expires
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::TheLease::test_a_lease_is_fresh_for_its_window_and_says_when_it_ends
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_lease_the_bridge_stopped_refreshing_expires
+killed (exit 1)                  lease: no deadline for the cache
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::TheLease::test_a_lease_is_fresh_for_its_window_and_says_when_it_ends
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_lease_the_bridge_stopped_refreshing_expires
+killed (exit 1)                  record: zero does not clear
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_the_served_status_follows_the_report
+killed (exit 1)                  authoritative producer ignores the lease
+killed (exit 1)                  byproduct producer ignores the lease
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_lease_the_bridge_stopped_refreshing_expires
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_the_served_status_follows_the_report
+killed (exit 1)                  byproduct cache never recomputes at the lease's end
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_lease_the_bridge_stopped_refreshing_expires
+killed (exit 1)                  prefetch drops the column
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_EVERY_COLUMN_survives_the_prefetch
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_a_STALE_last_event_at_still_clamps_through_the_prefetch
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_prefetched_and_live_readers_DERIVE_THE_SAME_CACHE
+killed (exit 1)                  route: a boolean is a count
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_report_must_be_a_count
+killed (exit 1)                  route: a negative count is accepted
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_report_must_be_a_count
+killed (exit 1)                  route: an unknown agent is stamped
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_report_must_be_a_count
+killed (exit 1)                  migration: an existing database never gains the column
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_a_lease_the_bridge_stopped_refreshing_expires
+                                  FAILED service/tests/test_a_resident_with_background_work_reads_shell.py::AResidentWithBackgroundWork::test_the_served_status_follows_the_report
+                                  FAILED service/tests/test_status_inputs_producers_agree.py::StatusInputsProducersAgreeTests::test_the_matrix_exercises_every_field_in_both_directions
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_EVERY_COLUMN_survives_the_prefetch
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_a_STALE_last_event_at_still_clamps_through_the_prefetch
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_an_agent_with_no_signal_rows_reads_the_same_either_way
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_prefetched_and_live_readers_DERIVE_THE_SAME_CACHE
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_the_batched_tables_are_read_ONCE_for_the_whole_fleet
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::StatusRefreshIsNotNPlusOneTests::test_the_probe_can_see_round_trips_at_all
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::TheAnalyticsBoardGetsThePrefetchToo::test_the_batched_tables_are_read_once_for_the_whole_board
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::TheAnalyticsBoardGetsThePrefetchToo::test_the_board_IS_populated_when_an_agent_is_live
+                                  FAILED service/tests/test_the_status_refresh_is_not_n_plus_one.py::TheAnalyticsBoardGetsThePrefetchToo::test_the_pulse_still_ANSWERS
+killed (exit 1)                  bridge: a background shell is not a start
+                                  not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+killed (exit 1)                  bridge: a background agent is not a start
+                                  not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+killed (exit 1)                  bridge: any status ends a task
+                                  not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
+killed (exit 1)                  bridge: the dequeue also ends a task
+                                  not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
+killed (exit 1)                  bridge: quoted text is read as a record
+                                  not ok 1 - what one record says: starts, ends, and the records that look alike but say nothing
+killed (exit 1)                  follower: starts at the beginning, counting a resumed session's old tasks
+                                  not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
+killed (exit 1)                  follower: a half-written line is dropped
+                                  not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
+killed (exit 1)                  reporter: posts zero on every idle tick
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+killed (exit 1)                  reporter: never says zero
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+                                  not ok 6 - the reporter posts the count while work runs, zero once when it ends, and nothing while idle
+killed (exit 1)                  arming: the reporter is never stopped
+                                  not ok 9 - stopping an ARMED detector stops everything arming started, the background reporter included
+killed (exit 1)                  arming: posts without the local-mode guard
+                                  not ok 23 - the nine callback guards ask IS_REMOTE — the question they meant
+killed (exit 1)                  R1: a reset keeps the old generation's count
+                                  not ok 4 - the live set after a look: lines applied, a reset retires the generation, unavailable changes nothing
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  R2: an unreadable transcript renews the last count
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  R2: an unreadable transcript reads as observed nothing
+                                  not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  R1: a reset reads as nothing new
+                                  not ok 3 - the follower reads only what is appended, whole lines, from where it first looked
+                                  not ok 5 - THE SEQUENCES FROM THE REVIEW, through the real follower and reporter
+killed (exit 1)                  reporter: a tick starts a second read while one is in flight
+                                  not ok 7 - ONE READ AT A TIME: a tick during a slow read starts no second one, and hands back the first
+28/28 killed

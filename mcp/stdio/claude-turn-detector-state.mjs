@@ -25,6 +25,7 @@
 
 import { IS_REMOTE, httpCall } from "./aify-service-endpoint.mjs";
 import { BRIDGE_INSTANCE_ID } from "./bridge-instance.mjs";
+import { startBackgroundWorkReporter } from "./claude-background-work.mjs";
 import { startClaudeTurnEndDetector } from "./claude-turn-end-detector.js";
 import { AIFY_AGENT_ID } from "./launch-identity.mjs";
 import { __runtimeAdapter } from "./runtime-adapter.mjs";
@@ -73,7 +74,7 @@ export function armClaudeTurnEndDetector(agentId) {
   }
   __effectiveAgentId = id;
   __claudeTurnDetectorArmed = true;
-  __stopClaudeTurnEndDetector = startClaudeTurnEndDetector({
+  const stopTurnEnd = startClaudeTurnEndDetector({
     // PURE-EVENT (2026-06-19): 30s→5s. With the server-side turn-end GRACE removed, this
     // structural detector IS the flap fix for a managed claude's premature/duplicate Stop
     // hooks: a premature Stop clears turn_busy, and this detector re-asserts /turn-start
@@ -112,6 +113,21 @@ export function armClaudeTurnEndDetector(agentId) {
       });
     },
   });
+  // BACKGROUND WORK, from the same transcript and armed with the same identity: shells and agents
+  // still running behind an idle prompt, which the service shows as `shell` (operator, 2026-10-01).
+  const stopBackgroundWork = startBackgroundWorkReporter({
+    transcriptPath: () => (typeof __runtimeAdapter.transcriptPath === "function"
+      ? __runtimeAdapter.transcriptPath({ agentId: __effectiveAgentId }) || ""
+      : ""),
+    post: async (count) => {
+      if (!__effectiveAgentId || !IS_REMOTE) return;
+      await httpCall("POST", `/agents/${encodeURIComponent(__effectiveAgentId)}/background-work`, { count });
+    },
+  });
+  __stopClaudeTurnEndDetector = () => {
+    stopTurnEnd();
+    stopBackgroundWork();
+  };
   return true;
 }
 

@@ -65,7 +65,8 @@ _MAX_PARAMS_PER_QUERY = 400
 #: derives this requirement rather than trusting the next person to remember it.
 _STATUS_STATE_SQL = ("SELECT agent_id, in_turn, awaiting_input, last_event_at, turn_started_at "
                      "FROM agent_status_state WHERE agent_id IN ({})")
-_CONSOLE_SIGNAL_SQL = "SELECT agent_id, working_at, subagents_at FROM agent_console_signal WHERE agent_id IN ({})"
+_CONSOLE_SIGNAL_SQL = ("SELECT agent_id, working_at, subagents_at, background_at "
+                       "FROM agent_console_signal WHERE agent_id IN ({})")
 #: THE THIRD, added 2026-08-29. `agent_turn_state` meets the same criterion as the two above -- one
 #: row per agent, keyed on agent_id, no filtering, grouping or ordering -- and `_status_turn_signals`
 #: read it once per agent inside the refresh loop. Measured with the same counter as the rest of this
@@ -128,7 +129,7 @@ class LiveStatusSignals:
 
     async def console_signal(self, db, agent_id: str):
         return await (await db.execute(
-            "SELECT working_at, subagents_at FROM agent_console_signal WHERE agent_id = ?",
+            "SELECT working_at, subagents_at, background_at FROM agent_console_signal WHERE agent_id = ?",
             (agent_id,),
         )).fetchone()
 

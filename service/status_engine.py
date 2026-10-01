@@ -94,6 +94,9 @@ class StatusInputs:
     # ...and whether it is FRESH, i.e. heard within HOST_ACTIVITY_FRESH_SECONDS. Kept as its own
     # input so the engine stays clock-free and a stale observation is visibly a different input.
     host_activity_fresh: bool = False
+    # resident: a fresh background-work lease (`api_core/background_work.py`): its bridge reports
+    # shells or agents still running from its session. Freshness is decided outside, as above.
+    background_work: bool = False
 
 
 #: A fresh host observation, as the live status it decides. `idle` is `online`: the vocabulary has no
@@ -178,8 +181,11 @@ def derive(i: StatusInputs) -> str:
         return "offline"
     # resident: alive with a live session + fresh bridge → online; otherwise gone → offline
     # (the heartbeat going silent is the proof it's gone; there is no separate 'stale' decay).
+    # At its prompt with background work still running, it is `shell`, as a managed worker whose
+    # screen shows the same is (operator, 2026-10-01). Below the turn rule above, so a resident in a
+    # turn reads `working` whatever runs behind it.
     if i.alive and i.has_live_session and not i.bridge_stale:
-        return "online"
+        return "shell" if i.background_work else "online"
     # A resident with no usable wake path is not merely offline — it cannot be woken at all.
     if i.config_defect:
         return "misconfigured"

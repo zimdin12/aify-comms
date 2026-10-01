@@ -58,6 +58,33 @@ test("the module exposes three operations and no state", () => {
   }
 });
 
+test("stopping an ARMED detector stops everything arming started, the background reporter included", () => {
+  // Every interval the child creates and clears is recorded, so "stopped" is observed rather than
+  // assumed: an interval left running after stop is work that outlives its owner.
+  const script =
+    "const made = new Set(); const cleared = new Set();"
+    + " const realSet = globalThis.setInterval; const realClear = globalThis.clearInterval;"
+    + " globalThis.setInterval = (fn, ms, ...rest) => { const t = realSet(fn, ms, ...rest); made.add(t); return t; };"
+    + " globalThis.clearInterval = (t) => { cleared.add(t); return realClear(t); };"
+    + " const m = await import(" + JSON.stringify(LEAF) + ");"
+    + " const armed = m.armClaudeTurnEndDetector('agent-a');"
+    + " const started = made.size;"
+    + " m.stopClaudeTurnEndDetector();"
+    + " const left = [...made].filter((t) => !cleared.has(t)).length;"
+    + " process.stdout.write(JSON.stringify({ armed, started, left }));"
+    + " process.exit(0);";
+  const result = JSON.parse(execFileSync(
+    process.execPath, ["--input-type=module", "-e", script],
+    {
+      env: { ...sealedChildEnv(), AIFY_RUNTIME: "claude-code", AIFY_AGENT_ID: "", AIFY_SERVER_URL: "" },
+      encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"],
+    },
+  ));
+  assert.equal(result.armed, true, "control: it armed");
+  assert.ok(result.started >= 1, "control: arming started at least the background reporter's interval");
+  assert.equal(result.left, 0, "every interval arming started is cleared by stop");
+});
+
 test("stopping an unarmed detector is safe", () => {
   // `cleanupOnExit` calls it unconditionally on every exit path, including a bridge that never armed. The
   // no-op default is what makes that safe, and it must survive becoming a wrapped operation.
@@ -138,6 +165,9 @@ test("the owner reaches only owned leaves", () => {
   assert.deepEqual(imports, [
     "./aify-service-endpoint.mjs",
     "./bridge-instance.mjs",
+    // A leaf (it imports only node:fs): the background-work reporter, armed with the same identity
+    // from the same transcript (2026-10-01).
+    "./claude-background-work.mjs",
     "./claude-turn-end-detector.js",
     "./launch-identity.mjs",
     "./runtime-adapter.mjs",

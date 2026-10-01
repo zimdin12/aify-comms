@@ -148,6 +148,10 @@ class StatusRefreshIsNotNPlusOneTests(FastApiTestCase):
         working = self.client.post(
             "/api/v1/agents/{}/console-working".format(agent_id), json={"subagents": True})
         self.assertEqual(working.status_code, 200, working.text)
+        # `background_at` too, for the same reason: a prefetch that dropped it reads as no lease.
+        background = self.client.post(
+            "/api/v1/agents/{}/background-work".format(agent_id), json={"count": 1})
+        self.assertEqual(background.status_code, 200, background.text)
         blocked = self.client.post(
             "/api/v1/agents/{}/status-event".format(agent_id), json={"kind": "blocked"})
         self.assertEqual(blocked.status_code, 200, blocked.text)
