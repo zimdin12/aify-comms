@@ -1,0 +1,100 @@
+[
+ {
+  "name": "C1 the effort change leaves the spawn specs as they were",
+  "file": "service/routers/agents/attributes.py",
+  "old": "        await _respecify_effort(db, agent_id, req.effort)\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C1 a spec keeps its old thinking beside the new effort",
+  "file": "service/routers/agents/attributes.py",
+  "old": "\"runtimeConfig\": with_effort(metadata.get(\"runtimeConfig\"), effort)}",
+  "new": "\"runtimeConfig\": {**(metadata.get(\"runtimeConfig\") or {}), \"effort\": effort}}",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C2 the effort route reads before it holds the write lock",
+  "file": "service/routers/agents/attributes.py",
+  "old": "        await db.execute(\"BEGIN IMMEDIATE\")\n        row = await (await db.execute(\"SELECT id, session_mode, runtime_config",
+  "new": "        row = await (await db.execute(\"SELECT id, session_mode, runtime_config",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "G1 a host's own AIFY_MANAGED_EFFORT reaches a launch whose effort was cleared",
+  "file": "service/api_core/launch_env.py",
+  "old": "    \"AIFY_MANAGED_EFFORT\",\n    # The Claude Code session",
+  "new": "    # The Claude Code session",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "G1 a host's own AIFY_MANAGED_MODEL reaches a launch",
+  "file": "service/api_core/launch_env.py",
+  "old": "    \"AIFY_MANAGED_MODEL\",\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C3 the shared reader drops the runtimeConfig.model fallback",
+  "file": "service/api_core/model_effort.py",
+  "old": "    return _text(model) or _text(_config(runtime_config).get(\"model\"))",
+  "new": "    return _text(model)",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C3 runsWith reads effort its own way again (truthiness before trim)",
+  "file": "service/api_core/definition_records.py",
+  "old": "record_model(agent_row[\"model\"], config), record_effort(config), \"agent\"",
+  "new": "record_model(agent_row[\"model\"], config), str(config.get(\"effort\") or config.get(\"thinking\") or \"\").strip(), \"agent\"",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C3 runsWith ignores runtimeConfig.model",
+  "file": "service/api_core/definition_records.py",
+  "old": "record_model(agent_row[\"model\"], config), record_effort(config), \"agent\"",
+  "new": "str(agent_row[\"model\"] or \"\"), record_effort(config), \"agent\"",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C4 runsWith decodes the stored config strictly",
+  "file": "service/api_core/definition_records.py",
+  "old": "        config = _json_loads_or(agent_row[\"runtime_config\"], {})",
+  "new": "        config = __import__(\"json\").loads(agent_row[\"runtime_config\"] or \"{}\")",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C3 with_effort leaves thinking behind",
+  "file": "service/api_core/model_effort.py",
+  "old": "if key != \"thinking\"}",
+  "new": "if True}",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C3 defaults: a blank effort beside thinking counts as not given",
+  "file": "service/api_core/harness_defaults.py",
+  "old": "    if default_effort and not record_effort(config):",
+  "new": "    if default_effort and not str(config.get(\"effort\") or \"\").strip():",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "C3 defaults: a model given in runtimeConfig is outranked by the default",
+  "file": "service/api_core/harness_defaults.py",
+  "old": "(\"\" if record_model(model, config) else default_model)",
+  "new": "default_model",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "G2 apply-defaults leaves a model of the record's own",
+  "file": "service/routers/settings.py",
+  "old": "    config.pop(\"model\", None)\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ },
+ {
+  "name": "G2 apply-defaults leaves the old thinking",
+  "file": "service/routers/settings.py",
+  "old": "    config = with_effort(runtime_config, effort)\n",
+  "new": "    config = {**(runtime_config if isinstance(runtime_config, dict) else {}), \"effort\": effort}\n",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_effort_change_reaches_the_start_it_is_for.py service/tests/test_harness_defaults.py service/tests/test_runs_with.py service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ }
+]

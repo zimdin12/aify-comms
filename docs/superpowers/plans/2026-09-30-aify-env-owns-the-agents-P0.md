@@ -837,10 +837,20 @@ and daemon shutdown still sending the offline beat.
     with a session-scoped `config.set reasoning`, once per session. hermes has no launch-time effort lever
     on the gateway path (hermes 0.21.5, `evidence/2026-10-01-p6/hermes-model-probe.mjs`). A resumed hermes
     session keeps the model it was stored with, and a running gateway host keeps the seed it started with.
+    The loop sets it on the session delivery is bound to (the agent's session marker, else the only live
+    session; with several live and none bound it sets nothing), one pass at a time, and nothing after it
+    stops. A plain `hermes chat` runs the classic CLI past the gateway, so it gets both as its own `-m` and
+    `--reasoning` (review of P6r, L1 and H2-H4).
+  - codex refuses (78) a model or effort holding a control character: it takes both as TOML strings
+    (review of P6r, L2).
   - Precedence is the same everywhere: the operator's own argument or runtime variable > a managed
     launch's `AIFY_MANAGED_MODEL` / `AIFY_MANAGED_EFFORT` > the definition > the runtime's own default.
 - **A launcher that cannot run the reader** refuses with 78, as an invalid file does: not being able to
   look is not finding nothing. `--aify-ignore-definition` and a managed launch start without it.
+- **One launcher per harness on every platform.** On native Windows each `.cmd` runs its bash launcher
+  through Git Bash; hermes had a handwritten PowerShell launcher instead, which had none of this
+  (review of P6r, H1), and it is gone. A native program started through the `.cmd` keeps its console
+  (`evidence/2026-10-01-p6r2/cmd-to-bash-keeps-a-console.mjs`, in a pseudo-console).
 - **The definition is read for the resolved id.** An id a resume handle names is read after recovery and
   gets the same defaults and the same refusal as one given by a flag. `--check` resolves through the same
   function after the same argument loop, so it reports what the launch would use; it does not look up a
@@ -918,15 +928,21 @@ for hermes), resolved by three hand copies (`spawn_requests.py`, `agents/environ
 - **Agent info** (`GET /agents`, `GET /agents/{id}`) carries `runsWith: {model, effort}`, each
   `{value, from}`: what the agent's NEXT start uses and who decides it. `from` is `definition` for a
   defined agent, `agent` for an undefined managed agent (its record, which its managed start reads), and
-  `runtime` when nothing applies a value, with `value` "". An undefined resident is always `runtime`: its
+  `runtime` when nothing applies a value, with `value` "". A record's values are read the way its launch
+  reads them (`service/api_core/model_effort.py`, one reader for the launch, `runsWith` and the
+  defaults), and a damaged stored value reads as none. An undefined resident is always `runtime`: its
   launcher reads only a definition. What a runtime is actually running is NOT shown, because nothing
   observes it: no bridge reports a running model (`auto-registration.mjs` echoes the service's own value
   back), so a "reported model" field would be a label with no observation behind it.
 - **Changing effort** is `PATCH /agents/{id}/effort {effort}`, one lowercase word or "" for the runtime's
   own. A defined agent's change is a definition change request its host applies (C4/C5), nothing written
-  here; an undefined managed agent's is written to its record (and a stale `thinking` removed, since the
-  launch reads effort then thinking); an undefined resident's is refused (409) with the way to define it
-  (`aify-env agents import`). Every answer says `appliesAt: "next start"`.
+  here; an undefined managed agent's is written to its record and to its spawn specs, under the write
+  lock, with a stale `thinking` removed: a restart starts from its stored spec, and a start going running
+  copies the spec's `runtimeConfig` over the record. A cleared effort is cleared in the launch as well:
+  `AIFY_MANAGED_MODEL` and `AIFY_MANAGED_EFFORT` are in the launch's `unsetEnv`, so the host's own
+  environment cannot supply one. An undefined resident's is refused (409) with the way to define it
+  (`aify-env agents import`). Every accepted change says `appliesAt: "next start"`. Applying the defaults
+  to existing agents clears the same stale values (review of P6r, C1-C4).
 - **Split with the dashboard work:** the service routes and agent-info fields are this tag's; the
   dashboard controls are dashboard-manager's, agreed before either is built.
 

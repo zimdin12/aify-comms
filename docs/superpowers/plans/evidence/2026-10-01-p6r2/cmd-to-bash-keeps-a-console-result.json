@@ -1,0 +1,30 @@
+{
+  "node": "v22.20.0",
+  "bash": "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+  "results": [
+    {
+      "case": "direct",
+      "exitCode": 0,
+      "tty": {
+        "stdin": true,
+        "stdout": true
+      }
+    },
+    {
+      "case": "shim",
+      "exitCode": 0,
+      "tty": {
+        "stdin": true,
+        "stdout": true
+      }
+    },
+    {
+      "case": "piped",
+      "exitCode": 0,
+      "tty": {
+        "stdin": false,
+        "stdout": true
+      }
+    }
+  ]
+}

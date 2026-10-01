@@ -1,0 +1,44 @@
+[
+ {
+  "name": "H2 a pass starts while another is pending",
+  "file": "hermes-session-effort.mjs",
+  "old": "    if (stopped || passing) return;",
+  "new": "    if (stopped) return;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H2 a pass never ends, so a new session is never set",
+  "file": "hermes-session-effort.mjs",
+  "old": "      passing = false;\n",
+  "new": "",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 an answer that arrives after stop still sets the session",
+  "file": "hermes-session-effort.mjs",
+  "old": "      if (stopped || !sessionId || set.has(sessionId)) return;",
+  "new": "      if (!sessionId || set.has(sessionId)) return;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H3 the bound session is ignored when one is live",
+  "file": "hermes-session-effort.mjs",
+  "old": "  return pickSessionById(activeList, marked) || (ids.length === 1 ? ids[0] : null);",
+  "new": "  return ids.length === 1 ? ids[0] : null;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H3 an ambiguous list falls back to the newest",
+  "file": "hermes-session-effort.mjs",
+  "old": "  return pickSessionById(activeList, marked) || (ids.length === 1 ? ids[0] : null);",
+  "new": "  return pickSessionById(activeList, marked) || ids[ids.length - 1] || null;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 the delivery loop does not stop the effort loop",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "    stopEffort();\n",
+  "new": "",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ }
+]

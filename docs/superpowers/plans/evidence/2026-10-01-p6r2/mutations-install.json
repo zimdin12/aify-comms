@@ -1,0 +1,16 @@
+[
+ {
+  "name": "H1 an earlier install's PowerShell launcher is left in place",
+  "file": "install.sh",
+  "old": "  rm -f \"$wrapper_dir/hermes-aify.ps1\"\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_install_hermes_session_rediscover.py -k \"one_bash_launcher or powershell_launcher_is_removed\""
+ },
+ {
+  "name": "H1 hermes gets no .cmd, so nothing runs the one launcher from cmd or PowerShell",
+  "file": "install.sh",
+  "old": "  install_windows_cmd_shim \"hermes-aify\" \"$wrapper_dir\"\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_install_hermes_session_rediscover.py -k \"one_bash_launcher or powershell_launcher_is_removed\""
+ }
+]

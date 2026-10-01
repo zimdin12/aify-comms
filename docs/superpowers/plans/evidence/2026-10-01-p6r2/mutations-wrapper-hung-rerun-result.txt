@@ -1,0 +1,9 @@
+killed (exit 1)                  L1 a plain chat gets nothing
+                                  not ok 7 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 8 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+                                  not ok 11 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  L1 a plain chat gets the model and not the effort
+                                  not ok 7 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 8 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+2/2 killed
+exit=0

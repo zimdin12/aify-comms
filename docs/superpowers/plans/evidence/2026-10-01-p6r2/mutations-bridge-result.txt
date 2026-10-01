@@ -1,0 +1,9 @@
+killed (exit 1)                  H2 a pass starts while another is pending
+killed (exit 1)                  H2 a pass never ends, so a new session is never set
+killed (exit 1)                  H4 an answer that arrives after stop still sets the session
+killed (exit 1)                  H3 the bound session is ignored when one is live
+killed (exit 1)                  H3 an ambiguous list falls back to the newest
+killed (exit 1)                  H4 the delivery loop does not stop the effort loop
+                                  not ok 26 - runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client
+6/6 killed
+exit=0

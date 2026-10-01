@@ -1,0 +1,40 @@
+killed (exit 1)                  C1 the effort change leaves the spawn specs as they were
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_cleared_effort_is_the_runtimes_own_even_against_the_hosts_environment
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_restart_launches_with_the_changed_effort
+killed (exit 1)                  C1 a spec keeps its old thinking beside the new effort
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_cleared_effort_is_the_runtimes_own_even_against_the_hosts_environment
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_restart_launches_with_the_changed_effort
+killed (exit 1)                  C2 the effort route reads before it holds the write lock
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c2_a_usage_source_edit_made_while_the_effort_route_reads_is_kept
+killed (exit 1)                  G1 a host's own AIFY_MANAGED_EFFORT reaches a launch whose effort was cleared
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_cleared_effort_is_the_runtimes_own_even_against_the_hosts_environment
+killed (exit 1)                  G1 a host's own AIFY_MANAGED_MODEL reaches a launch
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_cleared_effort_is_the_runtimes_own_even_against_the_hosts_environment
+killed (exit 1)                  C3 the shared reader drops the runtimeConfig.model fallback
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c3_runs_with_says_what_the_launch_route_launches_for_every_accepted_input
+                                  FAILED service/tests/test_harness_defaults.py::test_given_means_what_the_launch_reads - AssertionError: assert ('gpt-d', {'e...od...
+killed (exit 1)                  C3 runsWith reads effort its own way again (truthiness before trim)
+                                  SUBFAILED[model-in-config] service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c3_runs_with_says_what_the_launch_route_launches_for_every_accepted_input
+                                  SUBFAILED[numeric-effort] service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c3_runs_with_says_what_the_launch_route_launches_for_every_accepted_input
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c3_runs_with_says_what_the_launch_route_launches_for_every_accepted_input
+killed (exit 1)                  C3 runsWith ignores runtimeConfig.model
+                                  SUBFAILED[model-in-config] service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c3_runs_with_says_what_the_launch_route_launches_for_every_accepted_input
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c3_runs_with_says_what_the_launch_route_launches_for_every_accepted_input
+killed (exit 1)                  C4 runsWith decodes the stored config strictly
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c4_a_damaged_stored_config_leaves_the_list_and_the_agent_readable
+killed (exit 1)                  C3 with_effort leaves thinking behind
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_cleared_effort_is_the_runtimes_own_even_against_the_hosts_environment
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_c1_a_restart_launches_with_the_changed_effort
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_g2_an_empty_default_applied_to_hermes_clears_the_old_thinking
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_an_undefined_managed_agent_starts_with_the_new_effort
+killed (exit 1)                  C3 defaults: a blank effort beside thinking counts as not given
+                                  FAILED service/tests/test_harness_defaults.py::test_an_empty_value_is_filled_and_a_given_one_kept - AssertionError: thinking is a...
+                                  FAILED service/tests/test_harness_defaults.py::test_given_means_what_the_launch_reads - AssertionError: the launch reads low: it ...
+killed (exit 1)                  C3 defaults: a model given in runtimeConfig is outranked by the default
+                                  FAILED service/tests/test_harness_defaults.py::test_given_means_what_the_launch_reads - AssertionError: assert ('gpt-d', {'e...od...
+killed (exit 1)                  G2 apply-defaults leaves a model of the record's own
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_g2_an_empty_default_applied_to_hermes_clears_the_old_thinking
+killed (exit 1)                  G2 apply-defaults leaves the old thinking
+                                  FAILED service/tests/test_an_effort_change_reaches_the_start_it_is_for.py::AnEffortChangeReachesItsStart::test_g2_an_empty_default_applied_to_hermes_clears_the_old_thinking
+14/14 killed
+exit=0

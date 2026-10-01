@@ -1,0 +1,16 @@
+[
+ {
+  "name": "L1 a plain chat gets nothing",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ \"${HERMES_ARGS[0]:-}\" = \"chat\" ]; then",
+  "new": "if false; then",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "L1 a plain chat gets the model and not the effort",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_CHAT_DEFAULTS+=(--reasoning \"$HERMES_AIFY_EFFORT\")",
+  "new": ":",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ }
+]

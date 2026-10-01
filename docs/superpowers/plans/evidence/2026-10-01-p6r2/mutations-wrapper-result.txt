@@ -1,0 +1,13 @@
+killed (exit 1)                  L2 a control character is not looked for
+                                  not ok 6 - A CONTROL CHARACTER in a model or effort refuses the launch before anything starts (review of P6r, L2)
+killed (exit 1)                  L2 a control character is reported and launched anyway
+                                  not ok 6 - A CONTROL CHARACTER in a model or effort refuses the launch before anything starts (review of P6r, L2)
+HUNG (no verdict in 300 s)       L1 a plain chat gets nothing
+HUNG (no verdict in 300 s)       L1 a plain chat gets the model and not the effort
+killed (exit 1)                  L1 the agent's arguments go after the operator's
+                                  not ok 8 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+                                  not ok 11 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  L1 every passthrough command gets them, not only chat
+                                  not ok 8 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+4/6 killed
+exit=1

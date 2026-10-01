@@ -443,6 +443,20 @@ the four aify-wrapper templates and written by nothing in aify-comms, aify-env o
 (searched 2026-10-01, the templates found as the positive control), so only an operator's own shell sets it. The verb is not the place to fix it, since it predates the verb and applies to every
 MCP server Claude starts.
 
+## What the review of 0.8's model and effort left as follow-ups (2026-10-01)
+
+comms-senior-dev's review of P6r (3ada3809 / aify-wrapper 9455583) blocked on ten findings, repaired on
+next; it disclosed these beside them, not as blockers:
+
+- **Who may change an undefined managed agent's effort.** A defined agent's change needs the operator
+  (403 without the key, C4); an undefined managed agent's is written with no operator proof, as its herdr
+  space and usage source already are. Awaiting Steven's ruling on whether those edits become operator-only.
+- **`runsWith` read during a definition push can mix the two.** `GET /agents/{id}` reads the agent row,
+  then the definition rows; a push landing between them answers the new owner beside the old
+  `definitionState` and values. The next read is consistent. The two-read shape predates `runsWith`.
+- **A refused effort change carries no `appliesAt`.** Only an accepted change says when it applies; C12
+  now says so.
+
 ## Open backlog, re-checked 2026-09-25
 
 Each item below was read against the code on 2026-09-25; none has been seen misbehave live.

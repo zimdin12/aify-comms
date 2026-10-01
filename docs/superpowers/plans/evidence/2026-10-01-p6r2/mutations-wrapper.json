@@ -1,0 +1,44 @@
+[
+ {
+  "name": "L2 a control character is not looked for",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "    *[[:cntrl:]]*)\n",
+  "new": "    *NEVER-MATCHES*)\n",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "L2 a control character is reported and launched anyway",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "      exit 78 ;;\n  esac\n}",
+  "new": "      ;;\n  esac\n}",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "L1 a plain chat gets nothing",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ \"${HERMES_ARGS[0]:-}\" = \"chat\" ]; then",
+  "new": "if false; then",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "L1 a plain chat gets the model and not the effort",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_CHAT_DEFAULTS+=(--reasoning \"$HERMES_AIFY_EFFORT\")",
+  "new": ":",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "L1 the agent's arguments go after the operator's",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  HERMES_ARGS=(chat \"${HERMES_CHAT_DEFAULTS[@]}\" \"${HERMES_ARGS[@]:1}\")",
+  "new": "  HERMES_ARGS=(\"${HERMES_ARGS[@]}\" \"${HERMES_CHAT_DEFAULTS[@]}\")",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ },
+ {
+  "name": "L1 every passthrough command gets them, not only chat",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ \"${HERMES_ARGS[0]:-}\" = \"chat\" ]; then",
+  "new": "if [ ${#HERMES_ARGS[@]} -gt 0 ]; then",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js"
+ }
+]
