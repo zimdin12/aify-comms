@@ -248,7 +248,7 @@ async def _coldstart_spawn_request_for_dispatch(
     # same reason. Sourced from the agents row (the durable pinned handle), with a
     # fallback to the prior session row's handle when the agent row has none.
     agent_row = await (await db.execute(
-        "SELECT session_handle FROM agents WHERE id = ?", (agent_id,)
+        "SELECT session_handle, role, name FROM agents WHERE id = ?", (agent_id,)
     )).fetchone()
     coldstart_session_handle = str(
         (agent_row["session_handle"] if agent_row else "")
@@ -319,8 +319,11 @@ async def _coldstart_spawn_request_for_dispatch(
             requested_by or "dispatch-coldstart",
             environment_id,
             agent_id,
-            "coder",
-            agent_id,
+            # WHO IT IS, from its own row. The running transition copies the request's role and name
+            # into `agents`, so a hardcoded `coder` here turned a reviewer woken by a message into a
+            # coder named after its id.
+            str((agent_row["role"] if agent_row else "") or "coder"),
+            str((agent_row["name"] if agent_row else "") or agent_id),
             normalized_runtime,
             workspace,
             workspace_root,
