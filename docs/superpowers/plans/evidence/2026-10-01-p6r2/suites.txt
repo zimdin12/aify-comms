@@ -1,0 +1,36 @@
+# The P6r repair's suite runs (2026-10-01/02). AIFY_ENV_REPO=aify-env-next 0f0a2fa, AIFY_WRAPPER_REPO=aify-wrapper-next.
+# No single run of all five is green on the final tree; each failure is listed with what became of it.
+
+## Run 1, before the three gate fixes
+TIME_WAIT before: 323
+python exit=1 :: 2 failed, 5035 passed, 27 skipped, 10944 subtests passed in 396.47s (0:06:36)
+bridge exit=1 :: ok 7 - it does not throw on what a failed lookup returns [run-all] 1 suite(s) FAILED:
+dashboard exit=0 :: # pass 1889 # fail 0
+wrapper exit=0 :: # tests 635 # pass 569 # fail 0 # skipped 66
+env exit=0 :: # tests 2337 # pass 2333 # fail 0 # skipped 4
+credential mtime: 2026-09-29 18:37:10.548244700 +0300
+DONE
+Real failures, fixed after it: _text declared in two leaves (test_no_forked_declarations), trailing whitespace in
+evidence/2026-10-01-p6/suites-p6r.txt, liveSessionIds named by no test (every-export-is-named-by-a-test).
+
+## Run 2, after them
+TIME_WAIT before: 296
+python exit=1 :: 9 failed, 5029 passed, 27 skipped, 10943 subtests passed in 906.78s (0:15:06)
+bridge exit=1 :: ok 7 - a fleet of running consoles with no pair on screen is SKIPPED, not failed [run-all] 5 suite(s) FAILED:
+dashboard exit=0 :: # pass 1889 # fail 0
+wrapper exit=0 :: # tests 635 # pass 569 # fail 0 # skipped 66
+env exit=0 :: # tests 2337 # pass 2333 # fail 0 # skipped 4
+credential mtime: 2026-09-29 18:37:10.548244700 +0300
+DONE
+Every failure was a timeout or a timing threshold: 8 test_install_state (one a subtest) at their 30 s subprocess limit, the
+ws broadcast at 26.8 ms against 25 ms, and 5 bridge launcher files at their 30 s spawn limit (one at 94 s).
+Python took 15 min against 6.5 in run 1. The same files rerun alone on the same tree: 41 passed 1 skipped
+(python), and 1, 8, 10, 14, 18 passing, 0 failing (bridge).
+
+## Run 3, on the committed tree, stopped by the session for low memory before wrapper and env
+TIME_WAIT before: 264
+python exit=1 :: 1 failed, 5036 passed, 27 skipped, 10944 subtests passed in 381.67s (0:06:21)
+bridge exit=1 :: ok 7 - a fleet of running consoles with no pair on screen is SKIPPED, not failed [run-all] 32 suite(s) FAILED:
+dashboard exit=0 :: # pass 1889 # fail 0
+Python's one failure was real (a battery file with no final newline), fixed in 5239aedf; the gate then passed.
+The 32 bridge files exited 3221225794 (0xC0000142, STATUS_DLL_INIT_FAILED): their processes did not start.
