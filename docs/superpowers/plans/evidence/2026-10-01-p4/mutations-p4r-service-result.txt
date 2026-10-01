@@ -1,0 +1,15 @@
+killed (exit 1)                  N2 the reconcile pass does not run the sweep
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_reconcile_pass_runs_the_sweep - Asse...
+killed (exit 1)                  N2 the sweep finds no owed removal
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_an_owed_removal_is_finished_by_the_sweep_with_no_report_from_its_host
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_one_owed_removal_that_fails_leaves_the_others_finished
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_reconcile_pass_runs_the_sweep - Asse...
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_sweep_keeps_the_custody_fence - Asse...
+killed (exit 1)                  N2 one failing removal stops the sweep
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_one_owed_removal_that_fails_leaves_the_others_finished
+killed (exit 1)                  N2 a failed removal's transaction is not rolled back
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_one_owed_removal_that_fails_leaves_the_others_finished
+killed (exit 1)                  N2 the sweep runs the removal without its fences
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_one_owed_removal_that_fails_leaves_the_others_finished
+                                  FAILED service/tests/test_definition_change_requests.py::AChangeIsQueuedForItsHost::test_the_sweep_keeps_the_custody_fence - Asse...
+5/5 killed

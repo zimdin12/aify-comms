@@ -1,0 +1,37 @@
+[
+ {
+  "name": "N2 the reconcile pass does not run the sweep",
+  "file": "service/reconcilers/sweep.py",
+  "old": "finished_owed_removals = await _commit_step(await finish_owed_removals(db, limit=50))",
+  "new": "finished_owed_removals = 0",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py -q -p no:warnings"
+ },
+ {
+  "name": "N2 the sweep finds no owed removal",
+  "file": "service/reconcilers/owed_removals.py",
+  "old": "WHERE status = 'done' AND consequence = 'pending' ",
+  "new": "WHERE status = 'done' AND consequence = 'removed' ",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py -q -p no:warnings"
+ },
+ {
+  "name": "N2 one failing removal stops the sweep",
+  "file": "service/reconcilers/owed_removals.py",
+  "old": "            await db.rollback()\n            log.exception(",
+  "new": "            raise\n            log.exception(",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py -q -p no:warnings"
+ },
+ {
+  "name": "N2 a failed removal's transaction is not rolled back",
+  "file": "service/reconcilers/owed_removals.py",
+  "old": "            await db.rollback()\n",
+  "new": "",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py -q -p no:warnings"
+ },
+ {
+  "name": "N2 the sweep runs the removal without its fences",
+  "file": "service/reconcilers/owed_removals.py",
+  "old": "            await finish_removal(db, request)\n",
+  "new": "            from service.api_core.agent_remove import remove_agent as _r\n            await _r(db, request[\"agentId\"], actor=\"x\", reason=\"x\")\n            await db.execute(\"UPDATE definition_requests SET consequence = 'removed' WHERE id = ?\", (request[\"id\"],))\n            await db.commit()\n",
+  "test": "python -m pytest service/tests/test_definition_change_requests.py -q -p no:warnings"
+ }
+]

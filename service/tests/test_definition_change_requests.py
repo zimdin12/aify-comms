@@ -421,3 +421,102 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
                          ("removed", "nothing removed: the definition is now win32:host-a store s1 lifetime 2, "
                                      "not the one this removal was for"), "the host's outcome is kept as it said it")
         self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1, "the new lifetime's agent stays")
+
+    # ---- an owed removal is finished without its host (review of P4, N2) -------------------------------
+
+    def interrupted_removal(self, agent_id="coder"):
+        """A `done` removal whose service consequence failed after the host's receipt was committed."""
+        import service.api_core.definition_requests as result_route
+
+        request_id = self.ask(agent_id, {"remove": True}).json()["request"]["id"]
+        self.claim()
+        real = result_route.remove_agent
+
+        async def interrupted(*args, **kwargs):
+            raise RuntimeError("the service went away before the removal")
+
+        result_route.remove_agent = interrupted
+        try:
+            failed = self.report(request_id, status="done", resultIncarnation=1, resultRevision=1)
+        finally:
+            result_route.remove_agent = real
+        self.assertEqual(failed.status_code, 500, "control: the removal failed after the done was recorded")
+        return request_id
+
+    def sweep(self):
+        from service.db import get_db
+        from service.reconcilers.owed_removals import finish_owed_removals
+
+        async def go():
+            db = await get_db()
+            try:
+                return await finish_owed_removals(db)
+            finally:
+                await db.close()
+        return asyncio.run(go())
+
+    def consequence(self, request_id):
+        return self.rows("SELECT status, consequence FROM definition_requests WHERE id = ?", (request_id,))[0]
+
+    def test_an_owed_removal_is_finished_by_the_sweep_with_no_report_from_its_host(self):
+        """The host never reports it again: it claims only pending and claimed requests. Its timed push
+        withdraws the definition, and the sweep still removes the agent and tombstones it."""
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.interrupted_removal()
+        self.assertEqual(self.claim(), [], "the host is not handed it again, so it will never report it again")
+        self.push("s1", 2, [])
+        self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1, "control: still owed")
+        self.assertEqual(self.sweep(), 1)
+        self.assertEqual(self.consequence(request_id), {"status": "done", "consequence": "removed"})
+        self.assertEqual(self.rows("SELECT id FROM agents WHERE id = 'coder'"), [])
+        self.assertEqual(len(self.rows("SELECT agent_id FROM agent_tombstones WHERE agent_id = 'coder'")), 1)
+        self.assertEqual(self.sweep(), 0, "settled once, and never run again")
+
+    def test_the_sweep_keeps_the_custody_fence(self):
+        """An owed removal whose definition has since moved to another store removes nothing, and says why."""
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.interrupted_removal()
+        self.push("s2", 1, [valid("coder")])
+        self.sweep()
+        settled = self.consequence(request_id)["consequence"]
+        self.assertTrue(settled.startswith("nothing removed: "), settled)
+        self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1)
+
+    def test_one_owed_removal_that_fails_leaves_the_others_finished(self):
+        import service.api_core.definition_requests as result_route
+
+        self.push("s1", 1, [valid("coder"), valid("tester")])
+        first = self.interrupted_removal("coder")
+        second = self.interrupted_removal("tester")
+        real = result_route.remove_agent
+
+        async def coder_fails(db, agent_id, **kwargs):
+            # FAILS AS THE REAL ONE CAN: inside its own transaction, after a write. Left open, that
+            # transaction would refuse the next removal's BEGIN and keep the partial write.
+            if agent_id == "coder":
+                await db.execute("BEGIN IMMEDIATE")
+                await db.execute("UPDATE agents SET name = 'half-removed' WHERE id = 'coder'")
+                raise RuntimeError("still failing")
+            return await real(db, agent_id, **kwargs)
+
+        result_route.remove_agent = coder_fails
+        try:
+            with self.assertLogs("service.reconcilers.owed_removals", level="ERROR"):
+                self.assertEqual(self.sweep(), 2)
+        finally:
+            result_route.remove_agent = real
+        self.assertEqual(self.consequence(first)["consequence"], "pending", "the failing one stays owed")
+        self.assertNotEqual(self.rows("SELECT name FROM agents WHERE id = 'coder'")[0]["name"], "half-removed",
+                            "its partial write was rolled back")
+        self.assertEqual(self.consequence(second)["consequence"], "removed")
+        self.assertEqual(self.sweep(), 1)
+        self.assertEqual(self.consequence(first)["consequence"], "removed", "and the next sweep finishes it")
+
+    def test_the_reconcile_pass_runs_the_sweep(self):
+        from service.reconcilers.sweep import _run_dispatch_reconcile_once
+
+        self.push("s1", 1, [valid("coder")])
+        request_id = self.interrupted_removal()
+        result = asyncio.run(_run_dispatch_reconcile_once())
+        self.assertEqual(result.get("finished_owed_removals"), 1, result)
+        self.assertEqual(self.consequence(request_id)["consequence"], "removed")

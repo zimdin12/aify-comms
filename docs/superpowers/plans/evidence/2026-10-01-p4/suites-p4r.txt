@@ -1,0 +1,14 @@
+Full suites after the P4 revision (N1-N3), run in sequence on 2026-10-01, on top of P5.
+AIFY_ENV_REPO = C:/Users/Administrator/projects/aify-env-next for the aify-comms suites.
+
+python  (python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile)
+        5015 passed, 27 skipped, 10879 subtests passed in 171.94s; skips environmental as before
+        TIME_WAIT before the run: 312
+bridge  (node tests/run-all.mjs)        all 366 suite(s) passed -- 2 test(s) skipped in 2 files
+dashboard (node --test *.test.mjs)      tests 1889, pass 1889, fail 0
+aify-wrapper (npm test)                 tests 575, pass 509, fail 0, skipped 66
+aify-env-next (npm test)                tests 2336, pass 2332, fail 0, skipped 4
+        (the first run read 1 failed: the-plugin-carries-this-hosts-definitions.test.js resolved
+        claude-aify from this machine's PATH; sealed, see README; this is the run after it)
+
+~/.aify/credentials/aify-comms-6b1e649c84bd.key mtime after the runs: 2026-09-29 18:37:10.548 (unchanged)

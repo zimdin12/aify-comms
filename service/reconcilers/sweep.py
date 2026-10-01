@@ -111,6 +111,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         stale_seconds_from_settings,
     )
     from service.api_core.settings import _load_settings
+    from service.reconcilers.owed_removals import finish_owed_removals
     from service.api_core.status_refresh import _refresh_expired_agent_live_states
     from service.api_core.managed_env import load_session_environment_by_agent
     from service.api_core.dispatch_sweeps import _run_contract_reminders_once
@@ -312,6 +313,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         # Self-heal wedged 'stopping' PTYs + ended-but-not-closed sessions (2026-06-18 audit).
         stuck_rows = await _commit_step(await _reconcile_stuck_terminal_and_session_rows(db))
         ended_terminal_controls_failed = await _commit_step(await _reconcile_ended_terminal_controls(db, limit=500))
+        # A host's `done` removal whose consequence here never ran: finished from the stored state (P0 C4).
+        finished_owed_removals = await _commit_step(await finish_owed_removals(db, limit=50))
         # Server-side status self-heal. The live-status cache is otherwise
         # refreshed only on request (GET /agents, send, GET /agents/{id}), and
         # the only periodic driver was a CLIENT-SIDE dashboard setInterval that
@@ -391,6 +394,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "stuck_stopping_terminals_closed": stuck_rows.get("stuck_stopping_terminals_closed", 0),
             "ended_sessions_backfilled": stuck_rows.get("ended_sessions_backfilled", 0),
             "ended_terminal_controls_failed": ended_terminal_controls_failed,
+            "finished_owed_removals": finished_owed_removals,
             "dead_sessions_stopped": dead_sessions_stopped,
             "dead_bridge_turn_busy_cleared": len(cleared_dead_turn_busy),
             "undeliverable_queued_runs_failed": len(reaped_queued),

@@ -61,6 +61,8 @@ aify-comms:
 - **"the sync runs while held"** (`runs: phase.controls` for `phase.claims`) was removed as
   equivalent. Each pass checks `phase.claims` again after its setup and returns before touching the
   service, so the mutant only keeps an idle loop alive while held, and a resume finds it running.
+  **This was wrong** (see "Revision after review", N3): the held loop still begins its tracked setup,
+  and a final detach waits for it.
   The behaviour that matters, that a resume restarts the loop, is killed by its own mutant
   ("a resume does not restart the sync").
 
@@ -74,7 +76,7 @@ The first full run after the battery read 1 failed and 2 new skips in the Python
   bodies by hand, so `test_the_env_plugin_addresses_routes_this_service_serves.py` had no declared
   names to check the plugin's keys against and failed ("carries a body and matched no route with a
   model"). `service/definition_models.py` now declares them, every field `Any`, so api_core's named
-  refusals still decide and 422 never pre-empts them. Removing `snapshotDigest` from the push model
+  refusals still decide and, for a JSON object, never pre-empts them (see the revision's note on other bodies). Removing `snapshotDigest` from the push model
   failed the gate by name. The e2e test drives all three through a real service process, so the
   models accept what aify-env sends. One change in behaviour, observed through a TestClient on the
   push route: a malformed, non-object or empty body now gets FastAPI's 422 before api_core runs,
@@ -86,3 +88,66 @@ The first full run after the battery read 1 failed and 2 new skips in the Python
   with the re-export removed it skips by name (2 skipped).
 
 `suites-p4.txt` is the run after both.
+
+## Revision after review (REVISE of 89a8b37 / cb265f16)
+
+The review's report is `C:/Users/Administrator/AppData/Local/hermes/cache/scratch/89a8b37-cb265f16-P4-review/REVIEW.md`
+(sha256 `b94966ba…a908376`). Three blockers, each fixed and witnessed:
+
+**N1. The start boundary held nothing.** `startTerminal` asked once, through a `list()` that released
+the store, before the process existed; and `Runner.start` awaits its checkpoint loader before it makes
+the child. A set, removal, or removal and re-definition landing in either gap started the old
+revision's worker. Now `DefinitionStore.admitStart(launch, produce)` reads the file under the store's
+lock and HOLDS IT until `produce` (the plugin's `processes.start`) returns, so a write commits before
+the reading (and the start is refused) or after the child exists. The early check is gone; the one
+admission wraps the only call that makes a process. A launch built from no definition is produced
+without the store. Witnesses (`a-start-runs-only-the-definition-it-was-built-from.test.js`): each of
+set, remove and recreate, written through a second store during a paused `processes.start` and during a
+real Runner paused in its checkpoint loader; the file at the moment the child is made is the launch's
+revision, and the write lands after. The pre-fix shape (check, release, produce) fails all six. A
+launch from no definition starts while another start holds the store.
+
+Two consequences, stated: the store is held for as long as `produce` takes, so a checkpoint loader that
+hangs would hold it too (today that hang already blocks the start); and the refusal now comes after the
+workspace, launcher and live-worker checks, so an ADOPTION (re-pointing a running worker at a new
+terminal, which makes no process) is no longer refused for a stale stamp.
+
+**N2. An owed removal waited for a report that never came.** The result route commits the host's
+receipt, then removes the agent; a failure between them left the request `done` with its consequence
+`pending`, and the host claims only pending and claimed requests, so it never reported it again.
+`service/reconcilers/owed_removals.py` now finishes every owed `done` removal from the stored state, in
+the reconcile pass, through `finish_removal` and so through its `settled_refusal` and custody fences.
+Witnesses (`test_definition_change_requests.py`): the reviewer's sequence (receipt committed, removal
+failed, the host's timed push withdrawing the definition) ends with the agent removed and tombstoned,
+once; an owed removal whose definition moved to another store removes nothing and says why; one that
+keeps failing leaves the others finished and is finished by a later pass; and the reconcile pass runs
+the step.
+
+**N3. The dropped mutant was not equivalent.** `runs: phase.controls` keeps the held sync loop turning;
+each pass begins its tracked setup (the advertisement read) before its inner `phase.claims` check, and a
+final detach waits for that setup. The mutant is restored, and
+`plugins-follow-the-registry.test.js` gains the witness: timers fired by hand, the sync's interval fired
+while held with the advertisement parked; no setup begins, and the final detach completes once the last
+worker ends. The restored mutant fails exactly that witness. The earlier claim, above, that it was
+equivalent was wrong: the inner re-read protects service calls, not setup progress.
+
+**A wiring test that read this machine's PATH.** `the-plugin-carries-this-hosts-definitions.test.js`
+resolved `claude-aify` from the real PATH and reached its definition refusal only because the old
+check ran before launcher resolution. With the refusal at the boundary, it met the operator's own
+launchers in `~/.local/bin` and failed on their missing marker. It now carries a temporary launcher
+with the marker. It had been red during the first revised battery run, so four kills that rested on it
+alone were hollow, and `mutations-p4r-result.txt` is the whole battery run again after the fix.
+
+**The request models' wording.** "422 never pre-empts them" was too broad. For a JSON object, api_core
+still decides every field by name. A malformed, non-object or zero-byte body is refused by FastAPI first
+(400 to 422; a zero-byte claim or result from a named 409 to 422).
+
+### Revised battery
+
+`mutations-p4r.json`: the 63 of `mutations-p4.json`, six re-anchored to the code as it now reads (the
+N1 rename, and P5's `#failed` and second daemon `definitions:` line), the restored N3 mutant, and five
+N1 mutants: 69 of 69 killed. `mutations-p4r-service.json`: five N2 mutants against aify-comms. The
+first run killed four: removing the sweep's rollback survived, because the failing stand-in raised
+before opening a transaction. It now fails as `remove_agent` can, inside `BEGIN IMMEDIATE` after a
+write, and the witness checks that write was rolled back; the mutant then failed it, and the rerun
+killed five of five. Results in `mutations-p4r-result.txt` and `mutations-p4r-service-result.txt`.

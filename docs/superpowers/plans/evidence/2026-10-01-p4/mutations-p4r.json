@@ -1,0 +1,485 @@
+[
+ {
+  "name": "C4 patch: a truthy remove is a removal",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "&& Object.keys(patch).length === 1 && patch.remove === true;",
+  "new": "&& Object.keys(patch).length === 1 && !!patch.remove;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 patch: a removal may carry fields",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "&& Object.keys(patch).length === 1 && patch.remove === true;",
+  "new": "&& patch.remove === true;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 patch: null env is not {}",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (field === \"env\") return {};",
+  "new": "  if (field === \"env\") return \"\";",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 patch: null herdrSpace is false",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (field === \"herdrSpace\") return true;",
+  "new": "  if (field === \"herdrSpace\") return false;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 patch: the id moves",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "    if (field === \"id\") continue;\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 patch: null is written as null",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "next[field] = value === null ? neutral(field) : value;",
+  "new": "next[field] = value;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 trash: an id is its first dotted part",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "parts.slice(0, -4).join(\".\") === agentId",
+  "new": "parts[0] === agentId",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 trash: any request's file counts",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "if (request === requestId && parts",
+  "new": "if (parts",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 step 1: another store's request applies",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (request.storeId !== storeId) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 step 2: an applied request is applied again",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (current?.appliedRequest === request.id) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 step 3: any request's trash file means done",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (isRemoval(request.patch) && trashed) return",
+  "new": "  if (trashed) return",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 step 4: an invalid file is patched",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (current.problems.length) {\n    // Even a removal",
+  "new": "  if (false) {\n    // Even a removal",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 step 4: another lifetime at the same revision applies",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (current.incarnation !== request.expectedIncarnation || current.revision",
+  "new": "  if (current.revision",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 step 4: another revision applies",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": " || current.revision !== request.expectedRevision) {",
+  "new": ") {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: an undefined launch is refused",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (!bound) return \"\";",
+  "new": "  if (!bound) return \"no definition\";",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: another store's start runs",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (bound.storeId !== listing.storeId) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: a withdrawn definition's start runs",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (!current || current.incarnation === undefined) return `${id} was withdrawn on this host`;\n",
+  "new": "  if (!current) return \"\";\n",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: an invalid definition's start runs",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (current.problems.length) return `${id}'s definition",
+  "new": "  if (false) return `${id}'s definition",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: an earlier lifetime's start runs",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (current.incarnation !== bound.incarnation) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: a changed revision's start runs",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (current.revision !== bound.revision) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 boundary: another runtime's launch runs",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "  if (runtime !== launch.runtime) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 vocabulary: hermes runs as another runtime",
+  "file": "lib/agent-definition-requests.mjs",
+  "old": "hermes: \"hermes\" })",
+  "new": "hermes: \"hermes-agent\" })",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js && cd /d C:\\Docker\\aify-comms-next && python -m pytest service/tests/test_the_host_and_service_share_the_definition_vocabulary.py service/tests/e2e/test_an_offline_request_reaches_the_hosts_file.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C4 store: the file does not say which request wrote it",
+  "file": "lib/agent-definitions.mjs",
+  "old": "          ...(file.body.appliedRequest ? { appliedRequest: file.body.appliedRequest } : {}) };",
+  "new": "          };",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 store: a refusal throws",
+  "file": "lib/agent-definitions.mjs",
+  "old": "        if (!(error instanceof DefinitionRefused)) throw error;\n        const detail",
+  "new": "        throw error;\n        const detail",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 store: a set does not name its request",
+  "file": "lib/agent-definitions.mjs",
+  "old": "mergePatch(current.agent, request.patch), { requestId: request.id, installed });",
+  "new": "mergePatch(current.agent, request.patch), { installed });",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 store: a removal does not name its request",
+  "file": "lib/agent-definitions.mjs",
+  "old": "? this.#removeIn(state, request.agentId, { requestId: request.id })",
+  "new": "? this.#removeIn(state, request.agentId, {})",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 store: the trash is not read",
+  "file": "lib/agent-definitions.mjs",
+  "old": "      const trashed = trashedPair(this.#readdirSync(this.#path(\".trash\")), request.agentId, request.id);",
+  "new": "      const trashed = null;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 store: a fresh snapshot advances nothing",
+  "file": "lib/agent-definitions.mjs",
+  "old": "if (complete && (fresh || digest !== ledger.snapshotDigest)) {",
+  "new": "if (complete && digest !== ledger.snapshotDigest) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 sync: a request is not reported",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "      await this.#api.reportDefinitionRequest(environmentId, request.id, this.#machineId, result);\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 sync: a refusal counts as applied",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "      if (result.status === \"done\") applied += 1;",
+  "new": "      applied += 1;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: the interval is exceeded, not reached",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "this.#now() - this.#lastPushAt >= PUSH_INTERVAL_MS;",
+  "new": "this.#now() - this.#lastPushAt > PUSH_INTERVAL_MS;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: the first pass waits for the interval",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    const due = this.#lastPushAt === null || ",
+  "new": "    const due = ",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: an applied request waits for the interval",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    if (applied > 0 || due) await this.push(environmentId);",
+  "new": "    if (due) await this.push(environmentId);",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: an incomplete snapshot is published",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    if (!snapshot.complete) {",
+  "new": "    if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: a freed id is retried for ever",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    if (freed.length && !fresh) return",
+  "new": "    if (freed.length) return",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: the retry is not fresh",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "return this.push(environmentId, { fresh: true });",
+  "new": "return this.push(environmentId, { fresh: false });",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: a failed push resets the interval",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "    let answer;\n    try {\n      answer = await this.#api.pushDefinitions(",
+  "new": "    let answer;\n    this.#lastPushAt = this.#now();\n    try {\n      answer = await this.#api.pushDefinitions(",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: a failed claim is not recorded",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "      this.state.lastRequestError = this.#failed(error);",
+  "new": "      this.#failed(error);",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: the push does not name its machine",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "        machineId: this.#machineId, storeId: snapshot.storeId,",
+  "new": "        machineId: \"\", storeId: snapshot.storeId,",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 sync: the service's reason is reworded",
+  "file": "lib/plugins/aify-comms/definition-sync.mjs",
+  "old": "a fresh revision defines it\";",
+  "new": "a fresh revision takes it\";",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js && cd /d C:\\Docker\\aify-comms-next && python -m pytest service/tests/test_the_host_and_service_share_the_definition_vocabulary.py service/tests/e2e/test_an_offline_request_reaches_the_hosts_file.py -q -p no:cacheprovider"
+ },
+ {
+  "name": "C3 api: the push does not name its claimer",
+  "file": "lib/plugins/aify-comms/api.mjs",
+  "old": "      bridgeId: this.#identity.bridgeId, machineId, storeId, revision, snapshotDigest, entries,",
+  "new": "      machineId, storeId, revision, snapshotDigest, entries,",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 api: the push goes to another path",
+  "file": "lib/plugins/aify-comms/api.mjs",
+  "old": "/agent-definitions`, {",
+  "new": "/definitions`, {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 api: the claim does not name its machine",
+  "file": "lib/plugins/aify-comms/api.mjs",
+  "old": "/definition-requests/claim`, {\n      bridgeId: this.#identity.bridgeId, machineId,",
+  "new": "/definition-requests/claim`, {\n      bridgeId: this.#identity.bridgeId,",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C4 api: a report does not name its claimer",
+  "file": "lib/plugins/aify-comms/api.mjs",
+  "old": "    return this.#send(\"POST\", path, { ...result, bridgeId: this.#identity.bridgeId, machineId });",
+  "new": "    return this.#send(\"POST\", path, { ...result, machineId });",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 api: a defined start asks for something else",
+  "file": "lib/plugins/aify-comms/api.mjs",
+  "old": "      action: \"start\",\n      from_agent: HOST_TIER_CONTROL_ACTOR,\n    });\n  }\n\n  /**\n   * Publish",
+  "new": "      action: \"resume\",\n      from_agent: HOST_TIER_CONTROL_ACTOR,\n    });\n  }\n\n  /**\n   * Publish",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 control: the boundary is not asked",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "const admitted = admitStart ? await admitStart(launch, produce) : { produced: await produce() };",
+  "new": "const admitted = { produced: await produce() };",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 control: the pass does not hand on the check",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "        handles, baseEnv, sender, admitStart,\n      });\n    if (result.outcome",
+  "new": "        handles, baseEnv, sender,\n      });\n    if (result.outcome",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 control: a control does not hand on the check",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "buildSpec, resolveCandidates, handles, baseEnv, sender, admitStart,\n      });\n    }",
+  "new": "buildSpec, resolveCandidates, handles, baseEnv, sender,\n      });\n    }",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 plugin: starts are not checked",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "admitStart: definitions ? (launch, produce) => definitions.admitStart(launch, produce) : null,",
+  "new": "admitStart: null,",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 plugin: the sync is never built",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      definitionSync = definitions\n        ? new DefinitionSync(",
+  "new": "      definitionSync = null\n        ? new DefinitionSync(",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 plugin: the sync is not started",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      syncForever().catch((error) => host?.log?.(`aify-comms definition sync stopped: ${error?.message || error}`));\n    },",
+  "new": "    },",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 plugin: a resume does not restart the sync",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "      syncForever().catch((error) => host?.log?.(`aify-comms definition sync stopped: ${error?.message || error}`));\n      return true;",
+  "new": "      return true;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 plugin: the starter is not given the store",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "starter = new AgentStarter({ api, machineId, definitions });",
+  "new": "starter = new AgentStarter({ api, machineId });",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 starter: a defined agent restarts a session",
+  "file": "lib/plugins/aify-comms/agent-starter.mjs",
+  "old": "    if (definition) return this.#startDefined(id, no);\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 starter: alreadyRunning is a start",
+  "file": "lib/plugins/aify-comms/agent-starter.mjs",
+  "old": "    if (answer?.alreadyRunning) return no(`cannot start ${id}: it already has a live worker`);\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 starter: the list ignores the store",
+  "file": "lib/plugins/aify-comms/agent-starter.mjs",
+  "old": "      agents: startableAgents(roster, { machineId: this.#machineId, definitions }),",
+  "new": "      agents: startableAgents(roster, { machineId: this.#machineId }),",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 startable: a definition is not consulted",
+  "file": "lib/startable-agents.mjs",
+  "old": "  if (definition) return statusVerdict(agent, definedRefusal(definition));\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 startable: an invalid definition is offered",
+  "file": "lib/startable-agents.mjs",
+  "old": "  if (definition.problems?.length) return",
+  "new": "  if (false) return",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 startable: a resident definition is offered",
+  "file": "lib/startable-agents.mjs",
+  "old": "  if (definition.agent?.mode !== \"managed\") return",
+  "new": "  if (false) return",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 startable: a defined agent elsewhere is not counted",
+  "file": "lib/startable-agents.mjs",
+  "old": "    if (!definitions.has(id) && lower(agent.machineId ?? agent.machine_id) !== mine) continue;",
+  "new": "    if (lower(agent.machineId ?? agent.machine_id) !== mine) continue;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C7 startable: an unpublished definition is not said",
+  "file": "lib/startable-agents.mjs",
+  "old": "    if (!Object.hasOwn(table, id)) count(\"defined here, not yet published to the service\");",
+  "new": "    void id;",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 daemon: the plugin is not given the store",
+  "file": "bin/aify-env.mjs",
+  "old": "      definitions: definitionStore,\n      installedHarnesses:",
+  "new": "      installedHarnesses:",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "C3 daemon: the plugin is not told what is installed",
+  "file": "bin/aify-env.mjs",
+  "old": "      installedHarnesses: async () => new Set(installedHarnesses(aifyLauncherFilesOnPath()).map((h) => h.client)),\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "N3 the sync runs while held (restored)",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "        label: \"definition sync\",\n        runs: () => !stopped && phase.claims,",
+  "new": "        label: \"definition sync\",\n        runs: () => !stopped && phase.controls,",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "N1 the store is let go before the process is made",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "const admitted = admitStart ? await admitStart(launch, produce) : { produced: await produce() };",
+  "new": "const admitted = admitStart ? await admitStart(launch, async () => null).then(async (a) => (a.refused ? a : { produced: await produce() })) : { produced: await produce() };",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "N1 a refusal under the hold is produced anyway",
+  "file": "lib/agent-definitions.mjs",
+  "old": "return refused ? { refused } : { produced: await produce() };",
+  "new": "return { produced: await produce() };",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "N1 a launch from no definition waits on the store",
+  "file": "lib/agent-definitions.mjs",
+  "old": "    if (!launch?.definition) return { produced: await produce() };\n",
+  "new": "",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "N1 a refused start is not reported",
+  "file": "lib/plugins/aify-comms/terminal-controls.mjs",
+  "old": "  if (admitted.refused) {",
+  "new": "  if (false) {",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ },
+ {
+  "name": "N1 the hold is released before the produce settles",
+  "file": "lib/agent-definitions.mjs",
+  "old": "return refused ? { refused } : { produced: await produce() };",
+  "new": "return refused ? { refused } : { produced: produce() };",
+  "test": "node --test --test-timeout=120000 tests/agent-definition-requests.test.js tests/a-defined-agent-is-started-from-its-definition.test.js tests/a-start-runs-only-the-definition-it-was-built-from.test.js tests/the-host-publishes-its-definitions-and-applies-requests.test.js tests/the-plugin-carries-this-hosts-definitions.test.js tests/production-picker-bootstrap.test.js tests/aify-comms-plugin.test.js tests/aify-comms-api.test.js tests/plugins-follow-the-registry.test.js tests/agent-definition-store.test.js tests/agent-definition-crash.test.js"
+ }
+]

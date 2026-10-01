@@ -716,10 +716,15 @@ managed (offered for a managed start from then on).
 
 **Settled while building P4** (2026-10-01, aify-env):
 
-- **The boundary is one injected question.** `startTerminal` asks `checkStart(launch)` right after
-  the launch is fetched, before the workspace check and before any process exists. The plugin answers
-  it with `startRefusal(launch, store.list())`, which is pure (`lib/agent-definition-requests.mjs`). A
-  launch with `definition: null` is not checked. The refusals name the reason: another store, withdrawn
+- **The boundary holds the definition until the process exists** (revised after review, N1).
+  `startTerminal` hands the one call that makes the process to `admitStart(launch, produce)`, which the
+  plugin answers with `DefinitionStore.admitStart`: it reads the file under the store's lock, refuses
+  with the pure `startRefusal` (`lib/agent-definition-requests.mjs`), and otherwise runs `produce`
+  (`processes.start`, including the Runner's checkpoint load) before letting go. A write therefore
+  commits before the reading or after the child exists. The first version asked once and released the
+  store before the process was made, and a set or removal in that gap started the old revision. A
+  launch with `definition: null` is produced without the store. An adoption makes no process and is
+  not checked. The refusals name the reason: another store, withdrawn
   on this host, invalid here, an earlier lifetime, a changed revision ("start it again"), or a harness
   whose runtime is not the launch's.
 - **Applying a request is one lock hold** (`DefinitionStore.applyRequest`). The decision
@@ -853,6 +858,11 @@ asks each registered service offering the `agents` capability for this machine's
   when a service predates definitions (`accepted: false`, set by a 404), when the last push or request
   failed, or when nothing has been published. `undefined-agents` names the agents the services know on
   this host that have no definition here, and PASSES, because they run as they did before.
+
+**Settled with the P4 revision, for C4:** the service finishes every `done` removal whose consequence
+is still owed in its reconcile pass (`service/reconcilers/owed_removals.py`), through the same fences as
+the report route. The host claims only pending and claimed requests, so an owed removal never comes
+back to it; the first version waited for a repeated report that no host would send.
 
 **Settled with P5, for C11:** the sync logs each failure once per channel (requests, push) until it
 changes or clears, so an old service's 404s are two log lines, not two every 10 s.
