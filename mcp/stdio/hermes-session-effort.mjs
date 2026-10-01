@@ -12,11 +12,18 @@
 // So the delivery loop, which already reads the gateway's live session, sets the agent's effort on each
 // live session it has not set before. ONCE PER SESSION: a level the operator then picks inside it
 // (`/reasoning`) is theirs and is not put back. A refusal is retried on the next pass and said once.
+//
+// THE SESSION IS THE ONE DELIVERY IS BOUND TO: the agent's session marker when that session is live,
+// else the only live session. More than one live and none bound is ambiguous, so the pass sets nothing
+// and the next one asks again (review of P6r, H3: newest-first set the effort on a session delivery
+// was not using). ONE PASS AT A TIME, and nothing is sent once stopped: a pass is a gateway round trip
+// with a 60 s timeout against a 20 s interval, so overlapping passes set one session twice (H2), and a
+// list answered after stop still set it (H4).
 // The effort is the one hermes-aify resolved for this launch (AIFY_HERMES_SESSION_EFFORT): a managed
 // launch's, else the agent's definition's.
 
-import { buildSessionActiveListFrame, pickMostRecentSession } from "./hermes-gateway-protocol.js";
-import { readGatewayUrlMarker } from "./hermes-endpoint.js";
+import { buildSessionActiveListFrame, liveSessionIds, pickSessionById } from "./hermes-gateway-protocol.js";
+import { readGatewayUrlMarker, readSessionIdMarker } from "./hermes-endpoint.js";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import { TMP_DIR } from "./hermes-env.mjs";
 
@@ -28,6 +35,12 @@ function buildSessionEffortFrame({ id, sessionId, effort }) {
     method: "config.set",
     params: { key: "reasoning", value: String(effort), session_id: String(sessionId) },
   };
+}
+
+/** The live session delivery is bound to, or null when that cannot be told. */
+function boundSession(activeList, marked) {
+  const ids = liveSessionIds(activeList);
+  return pickSessionById(activeList, marked) || (ids.length === 1 ? ids[0] : null);
 }
 
 /**
@@ -42,6 +55,7 @@ export function startSessionEffort(opts = {}) {
     tempDir = TMP_DIR,
     openWs = openGatewayWsClient,
     readGatewayUrl = readGatewayUrlMarker,
+    readMarker = readSessionIdMarker,
     nextId = (() => { let n = 1; return () => n++; })(),
     log = (msg) => console.error(msg),
   } = opts;
@@ -51,16 +65,19 @@ export function startSessionEffort(opts = {}) {
   const set = new Set();
   const said = new Set();
   let stopped = false;
+  let passing = false;
 
   const tick = async () => {
-    if (stopped) return;
+    if (stopped || passing) return;
     const wsUrl = readGatewayUrl(id, { tempDir })?.gatewayUrl;
     if (!wsUrl) return;
+    passing = true;
     let cli = null;
     try {
       cli = await openWs(wsUrl);
-      const sessionId = pickMostRecentSession(await cli.request(buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" })));
-      if (!sessionId || set.has(sessionId)) return;
+      const activeList = await cli.request(buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" }));
+      const sessionId = boundSession(activeList, readMarker(id, { tempDir }));
+      if (stopped || !sessionId || set.has(sessionId)) return;
       // A refusal rejects with the gateway's error object; the catch below says it.
       await cli.request(buildSessionEffortFrame({ id: nextId(), sessionId, effort: level }));
       set.add(sessionId);
@@ -72,6 +89,7 @@ export function startSessionEffort(opts = {}) {
         log(`[hermes-managed-host] reasoning effort ${level} not yet set for agent '${id}': ${why}`);
       }
     } finally {
+      passing = false;
       try { cli?.close?.(); } catch { /* ignore */ }
     }
   };

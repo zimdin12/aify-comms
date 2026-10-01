@@ -198,7 +198,8 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // unref()'d — it dies with this `run` process on teardown/procExit (no explicit stop needed).
   startResumeMarkerSync({ agentId: id, tempDir: markerDir });
   // REASONING EFFORT: hermes has no launch-time lever for it on this path, so it is set per live session.
-  startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
+  // Stopped with the loop (the finally below), so a loop that has ended sets nothing.
+  const stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
 
   // Teardown state shared between the SIGTERM handler and the terminal/release
   // self-exit so teardown runs at most once. `makeTeardown` kills the gateway
@@ -717,6 +718,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     return { released: false, processed: totalProcessed };
   } finally {
     stopLiveness();
+    stopEffort();
     stopRepulse();
     stopGatewayTurnDetector();
     stopGatewayProbe();

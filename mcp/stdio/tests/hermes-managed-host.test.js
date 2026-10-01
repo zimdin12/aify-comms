@@ -789,14 +789,17 @@ test("runDeliveryLoop: starts setting the agent's reasoning effort on its live s
   const { spawn } = makeFakeSpawn();
   const { httpCall } = makeAifyHttp();
   const started = [];
+  let stopped = 0;
   const openWs = async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); };
   await runDeliveryLoop("sc-hermes", {
     httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), openWs, installTeardown: () => {}, sleepImpl: async () => {},
     serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
-    sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => {}; },
+    sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => { stopped += 1; }; },
   });
   assert.equal(started.length, 1);
   assert.deepEqual([started[0].agentId, started[0].effort, started[0].tempDir, started[0].openWs], ["sc-hermes", "xhigh", MARKER_DIR, openWs]);
+  // Stopped when the loop ends, so an ended loop sets nothing (review of P6r, H4: the stop was discarded).
+  assert.equal(stopped, 1);
 });
 
 // ---------------------------------------------------------------------------

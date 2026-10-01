@@ -129,6 +129,11 @@ function rowRealId(r) {
   return String(r?.id || r?.session_id || r?.sessionId || "").trim();
 }
 
+// Every live session's ephemeral id, in the gateway's order.
+export function liveSessionIds(activeListResponse) {
+  return activeListRows(activeListResponse).map(rowRealId).filter(Boolean);
+}
+
 // The session's DURABLE resume key off a row (`session_key` / `sessionKey`).
 // "session not found" on resume root cause (2026-06-04): hermes has TWO ids per
 // session — the durable `session_key` (timestamp form, persisted in hermes

@@ -9,13 +9,17 @@ import { startSessionEffort } from "../hermes-session-effort.mjs";
 const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 const live = (...ids) => ({ sessions: ids.map((id, i) => ({ id, started_at: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString() })) });
 
-/** A gateway whose live sessions and config.set answers the test controls; every request is recorded. */
-function gateway({ sessions = live("s1"), refuse = () => null } = {}) {
-  const state = { sessions, sent: [], logs: [] };
+/** A gateway whose live sessions, session marker and config.set answers the test controls; every request
+ *  is recorded. `hold` keeps every active_list answer pending until it resolves. */
+function gateway({ sessions = live("s1"), marker = "", refuse = () => null } = {}) {
+  const state = { sessions, marker, sent: [], logs: [], hold: null };
   const openWs = async () => ({
     request: async (frame) => {
       state.sent.push(frame);
-      if (frame.method === "session.active_list") return state.sessions;
+      if (frame.method === "session.active_list") {
+        if (state.hold) await state.hold;
+        return state.sessions;
+      }
       const refusal = refuse(frame);
       if (refusal) throw refusal;
       return { key: "reasoning", value: frame.params.value };
@@ -23,7 +27,8 @@ function gateway({ sessions = live("s1"), refuse = () => null } = {}) {
     close() {},
   });
   const start = (opts = {}) => startSessionEffort({ agentId: "hermes-lead", effort: "high", intervalMs: 20, tempDir: "/tmp", openWs,
-    readGatewayUrl: () => ({ gatewayUrl: "ws://127.0.0.1:1/api/ws?token=secret" }), log: (m) => state.logs.push(m), ...opts });
+    readGatewayUrl: () => ({ gatewayUrl: "ws://127.0.0.1:1/api/ws?token=secret" }), readMarker: () => state.marker,
+    log: (m) => state.logs.push(m), ...opts });
   const sets = () => state.sent.filter((f) => f.method === "config.set").map((f) => f.params);
   return { state, start, sets };
 }
@@ -38,15 +43,62 @@ function gateway({ sessions = live("s1"), refuse = () => null } = {}) {
   assert.ok(g.state.sent.filter((f) => f.method === "session.active_list").length >= 3, "positive control: it kept looking");
 }
 
-// (2) A NEW LIVE SESSION (the TUI relaunched, or a fresh context) gets it too.
+// (2) A NEW BOUND SESSION (the TUI relaunched, or a fresh context) gets it too.
 {
-  const g = gateway();
+  const g = gateway({ marker: "s1" });
   const stop = g.start();
   await wait(60);
   g.state.sessions = live("s1", "s2");
+  g.state.marker = "s2";
   await wait(80);
   stop();
   assert.deepEqual(g.sets().map((p) => p.session_id), ["s1", "s2"]);
+}
+
+// (6) THE SESSION DELIVERY IS BOUND TO, not the newest (review of P6r, H3). Two live and none bound is
+// ambiguous: nothing is set until the marker says which.
+{
+  const bound = gateway({ sessions: live("older", "newer"), marker: "older" });
+  const stop = bound.start();
+  await wait(60);
+  stop();
+  assert.deepEqual(bound.sets().map((p) => p.session_id), ["older"]);
+  const unbound = gateway({ sessions: live("older", "newer") });
+  const stop2 = unbound.start();
+  await wait(60);
+  assert.deepEqual(unbound.sets(), [], "ambiguous: nothing set");
+  unbound.state.marker = "newer";
+  await wait(60);
+  stop2();
+  assert.deepEqual(unbound.sets().map((p) => p.session_id), ["newer"], "control: once bound, it is set");
+}
+
+// (7) ONE PASS AT A TIME (H2): passes that fire while an answer is pending do not set the session again.
+{
+  const g = gateway();
+  let release;
+  g.state.hold = new Promise((r) => { release = r; });
+  const stop = g.start();
+  await wait(100);
+  release();
+  await wait(30);
+  stop();
+  assert.ok(g.state.sent.filter((f) => f.method === "session.active_list").length >= 1);
+  assert.deepEqual(g.sets().map((p) => p.session_id), ["s1"], "five intervals passed while the first answer was held");
+}
+
+// (8) STOPPED MEANS NOTHING MORE IS SENT (H4), even for an answer that arrives after the stop.
+{
+  const g = gateway();
+  let release;
+  g.state.hold = new Promise((r) => { release = r; });
+  const stop = g.start();
+  await wait(30);
+  stop();
+  release();
+  await wait(60);
+  assert.equal(g.state.sent.filter((f) => f.method === "session.active_list").length, 1, "positive control: a list was pending");
+  assert.deepEqual(g.sets(), []);
 }
 
 // (3) A REFUSAL is retried on the next pass, said once, and a token never reaches the log.

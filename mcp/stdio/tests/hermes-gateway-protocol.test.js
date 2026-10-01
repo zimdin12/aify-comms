@@ -10,6 +10,7 @@ import {
   buildSessionActiveListFrame,
   pickSessionForKey,
   pickSessionById,
+  liveSessionIds,
   pickMostRecentSession,
   pickSessionRowById,
   pickMostRecentSessionRow,
@@ -85,6 +86,13 @@ test("buildSessionActiveListFrame is a JSON-RPC 2.0 session.active_list", () => 
 test("buildSessionActiveListFrame defaults current_session_id to empty string", () => {
   const frame = buildSessionActiveListFrame({ id: 12 });
   assert.deepEqual(frame.params, { current_session_id: "" });
+});
+
+test("liveSessionIds: every live session's ephemeral id, in the gateway's order; rows with none are not sessions", () => {
+  // hermes-session-effort.mjs counts these to tell one live session from an ambiguous several.
+  const list = { result: { sessions: [{ id: "a" }, { session_id: "b" }, { title: "no id" }, { sessionId: " c " }] } };
+  assert.deepEqual(liveSessionIds(list), ["a", "b", "c"]);
+  assert.deepEqual(liveSessionIds(null), []);
 });
 
 test("pickSessionForKey: matches the row by stable session_key, returns live runtime id", () => {
