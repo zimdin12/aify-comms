@@ -438,7 +438,9 @@ document itself never carries a key: aify-wrapper's `sessionMcpEntriesFor` binds
 the entry's endpoint and reads no environment (lib/registry.mjs at 1498037, asserted in
 tests/session-mcp.test.js and in comms-senior-dev's review of 1498037). Measured by dashboard-manager. NOT
 traced: whether any path exports a service key into a launcher's environment today; aify-comms' own entry
-carries no `keyEnv`. The verb is not the place to fix it, since it predates the verb and applies to every
+carries no `keyEnv`. One path checked: `HARNESS_EXTRA_ENV`, which every launcher exports verbatim, is read by
+the four aify-wrapper templates and written by nothing in aify-comms, aify-env or aify-wrapper source
+(searched 2026-10-01, the templates found as the positive control), so only an operator's own shell sets it. The verb is not the place to fix it, since it predates the verb and applies to every
 MCP server Claude starts.
 
 ## Open backlog, re-checked 2026-09-25
