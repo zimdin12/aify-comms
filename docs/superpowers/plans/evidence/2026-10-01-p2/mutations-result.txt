@@ -147,4 +147,6 @@ killed (exit 1)                  split: an older service's answer reads as a ref
 killed (exit 1)                  split: the holder's id is reported as ours
                                   not ok 31 - claimerFromAnswer: accepted, refused once with one log line, accepted again, and an older service
                                   not ok 48 - a beat the service DISCARDED is reported, not counted as success
-48/48 killed
+killed (exit 1)                  split: index.mjs stops exporting DETACHING
+                                  not ok 6 - tests\\plugins-follow-the-registry.test.js
+49/49 killed

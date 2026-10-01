@@ -1,16 +1,16 @@
 # P2 evidence: plugins follow the registry (P0 C8)
 
-What was run against aify-env `next/env-owned-agents` at **d2ce11f**: P2 as approved at 495524c, plus the
-split of the aify-comms plugin (below). The tree tested is the tree committed: nothing changed between
+What was run against aify-env `next/env-owned-agents` at **ca4cdea**: P2 as approved at 495524c, plus the
+split of the aify-comms plugin (below) and its review repair (the `DETACHING` re-export). The tree tested is the tree committed: nothing changed between
 the runs below and the commit. Earlier rounds' files (c1a4596, 495524c) are in git history.
 
 | file | what it is |
 |---|---|
-| `mutations.json` | 48 mutations: each rule of C8, the R1 repair, and the split's parts, broken on purpose |
+| `mutations.json` | 49 mutations: each rule of C8, the R1 repair, and the split, broken on purpose |
 | `mutate.py` | P1's driver, plus the P2 test set and a timeout that kills the whole process tree, reporting `HUNG` |
-| `mutations-result.txt` | the run: 48/48 killed, each with the tests that killed it |
+| `mutations-result.txt` | the run, each mutant with the tests that killed it |
 | `aify-env-full-suite-verdicts.txt` | `npm test` in aify-env: every verdict line and the totals (2272 tests, 2268 pass, 4 skipped, 0 fail) |
-| `other-suites.txt` | the aify-comms and aify-wrapper suites with `AIFY_ENV_REPO` pointed at the branch |
+| `other-suites.txt` | the aify-comms and aify-wrapper suites with `AIFY_ENV_REPO` pointed at the branch, run at d2ce11f; the repair since touches only aify-env, whose suite was rerun at ca4cdea |
 
 The driver's hang path was proven before this run on a probe whose test hangs through a node child:
 `HUNG` in 6 s, a failing test killed and a passing one survived, the target restored, and no process
@@ -63,9 +63,18 @@ with only `fetch` replaced and synthetic keys:
 `index.mjs` keeps the wiring and is now 424 lines. Its behaviour is unchanged: the 42 earlier mutations
 were retargeted to where each rule now lives, and all still die on the same witnesses.
 
-Six new mutations break the parts themselves. Each is killed by `aify-comms-plugin-parts.test.js` and
-also by an existing plugin-level test, so the parts tests overlap the plugin's. They add a direct
-statement of each part's contract: the phase transitions, and that `quiesce` waits for a tracked pass.
+Seven new mutations break the parts and the split itself:
+
+- Five are killed by `aify-comms-plugin-parts.test.js` and also by an existing plugin-level test.
+- "A refusal is logged on every beat" is killed by the direct claimer test alone. My first version of
+  this README said all six overlapped, which my own result file contradicted (review of d2ce11f, S2).
+  The direct test is the only one that holds the once-per-transition log rule.
+- "index.mjs stops exporting DETACHING" is killed by `plugins-follow-the-registry.test.js`. That test
+  again imports `DETACHING` from `index.mjs`, the import an existing caller had before the split. The
+  split had dropped the export, and changing the test's import hid it (review of d2ce11f, S1).
+
+The direct tests also state each part's contract: the phase transitions, and that `quiesce` waits
+for a tracked pass.
 
 ## What the tests found
 

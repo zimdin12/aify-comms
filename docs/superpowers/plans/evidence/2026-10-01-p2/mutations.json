@@ -334,5 +334,12 @@
   "old": "holderBridgeId: reported.bridgeId || \"\", ourBridgeId: String(ourBridgeId || \"\")",
   "new": "holderBridgeId: reported.bridgeId || \"\", ourBridgeId: reported.bridgeId || \"\"",
   "test": "P2"
+ },
+ {
+  "name": "split: index.mjs stops exporting DETACHING",
+  "file": "lib/plugins/aify-comms/index.mjs",
+  "old": "export { DETACHING };\n",
+  "new": "",
+  "test": "P2"
  }
 ]
