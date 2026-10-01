@@ -226,3 +226,15 @@ recorded kill in the four batteries is now checked to be exit 1.
 The first full run after N6 left two P3d mutants NOT APPLIED: N6's edit wrote the same lines into the
 undefined branch, so their anchors matched twice. They are anchored on the bound restart now. Every
 anchor in the four batteries is checked to match exactly once.
+
+## The review of 2662ceaa (REVISE: N7, the gate's claim)
+
+The first gate compared the paths of files whose text matched a pattern. It therefore passed three
+writers the reviewer planted: a second function inside the allowed file, a quoted table name, and
+adjacent string literals. The gate now reads string literals from each file's syntax tree, matches the
+table bare or quoted, and binds every insert to its enclosing function. The only allowed pair is
+(`api_core/definition_start.py`, `insert_spawn_request`), exactly once. The three specimens, plus an
+f-string and bracket quoting, are negative controls inside the test. Planting a sibling writer in the
+allowed file, then a new module with a quoted, concatenated insert, turned the product check red each
+time, and it passed again once each was removed. SQL assembled at run time is outside the grammar; the
+test's header and P0 say so. The witness file's header no longer says "one of two inserts".

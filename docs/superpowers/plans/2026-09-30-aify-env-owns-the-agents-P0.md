@@ -687,9 +687,14 @@ of the agent itself is the separate, existing destructive path, reached through 
   request through `insert_spawn_request`, whose WHERE asks the same question again. A push or
   withdrawal between the read and the write therefore inserts nothing ("its definition changed while
   this start was being made; start it again"). Some callers hold the write lock and some do not, and the
-  guard does not depend on which. `test_every_start_goes_through_the_guarded_insert.py` holds every
-  product file to that one insert. An earlier version of this note said "two inserts", while the undefined
-  old-spec restart and the direct spawn still wrote their own (review of 8de83233, N6).
+  guard does not depend on which. An earlier version of this note said "two inserts", while the
+  undefined old-spec restart and the direct spawn still wrote their own (review of 8de83233, N6).
+  `test_every_start_goes_through_the_guarded_insert.py` holds this to a stated grammar. It parses every
+  product file under `service/` and reads each string literal from the syntax tree, so adjacent literals
+  are joined and an f-string's literal parts count. A literal inserting into `spawn_requests`, bare or
+  quoted, is bound to its enclosing function, and the only one allowed is in `insert_spawn_request`.
+  SQL assembled at run time (`+`, `join`, a formatted table name) is outside that grammar (review of
+  2662ceaa, N7).
 - **Built from the definition only.** Runtime (from the harness), workspace, model, effort (as
   `runtimeConfig.effort`), instructions (`standing_instructions`), env, role and name. Nothing is carried
   from an earlier spec, and an empty model or effort is left empty for the harness to choose rather than

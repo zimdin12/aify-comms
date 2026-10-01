@@ -1,9 +1,10 @@
 """A defined agent starts from its definition, at one revision, or not at all (P0 C6, C7; the service half).
 
-Every start the service makes goes through one of two inserts: the cold start (the agent-level start, a
-message, a channel post, the queued-run backstop, a spec-less restart) and the restart of a session
-with a spec. Each witness drives a real route and then reads the spawn request and its spec, since the
-host is told what to start by those rows, not by the HTTP answer. The host's check at the process-start
+Every start the service makes writes its spawn request through `insert_spawn_request` (held by
+test_every_start_goes_through_the_guarded_insert.py): the cold start (the agent-level start, a message,
+a channel post, the queued-run backstop, a spec-less restart), the restart or recreate of a session
+with a spec, defined or not, and the direct spawn. Each witness drives a real route and then reads the
+spawn request and its spec, since the host is told what to start by those rows, not by the HTTP answer. The host's check at the process-start
 boundary is aify-env's (P4); what it checks against is the launch's `definition`, witnessed here.
 """
 from __future__ import annotations

@@ -81,3 +81,11 @@ N6 (review of 8de83233) + the exit-2 mutant fixed, on the staged tree, one after
   aify-wrapper-next: 575 tests, 509 pass, 66 skipped
   aify-env-next: 2272 tests, 2268 pass, 4 skipped
   Credential file still 2026-09-29 18:37:10.
+
+N7 (review of 2662ceaa: the gate's claim), test and docs only, so the batteries were not rerun:
+  python: 5007 passed, 27 skipped, 10829 subtests passed
+  mcp/stdio run-all: 366 files, exit 0
+  dashboard: 1889 tests, 1889 pass
+  aify-wrapper-next: 575 tests, 509 pass, 66 skipped
+  aify-env-next: 2272 tests, 2268 pass, 4 skipped
+  Credential file still 2026-09-29 18:37:10.
