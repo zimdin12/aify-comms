@@ -90,9 +90,20 @@ Python statement:
 
 A runtime exit ends the open turn. **The turn is durable.** aify-env writes each open turn to
 `~/.aify/env/<instance>.turns.json`, keyed by lifetime, with `startedAt` and the last event. A restarted instance
-reloads the turns of the lifetimes it re-adopts as `yes`, and closes the rest. So a new generation publishes the same
-open turn with the same `startedAt`, rather than dropping it or restarting its ceiling. A resident adopted for the
-first time, with no stored turn, is `unknown` until its next hook (C4).
+treats each stored turn by what C4 now says of its lifetime:
+
+| lifetime after the restart | the stored turn |
+|---|---|
+| `yes` | restored as it was: open, same `startedAt`, same last event; `busy` follows the chosen law |
+| `no` (proved gone, reused or a sibling) | closed: the process that owned it has ended |
+| `unknown` (probe unanswered, or equality) | **retained, not renewed**: published open with its original `startedAt`, `busy` under the **strict** law only (true until 1800 s from that start, never renewed, whatever P-1 says), state `unknown` with cause `identity-unknown`; no lifecycle action may target the lifetime (C9 refuses `identity-unknown`); it is closed only when the lifetime becomes `no`, or a turn-end for it is applied |
+
+So a new generation publishes the same open turn with the same `startedAt`, and never drops accepted busy evidence,
+restarts a ceiling, or extends one just because an identity could not be read. A resident adopted for the first
+time, with no stored turn, is `unknown` until its next hook (C4).
+
+**Controls (P2):** a restart with an unknown probe (the turn is retained, strict, and expires at 1800 s from its
+original start), a restart after a proved exit (closed), and a restart with `yes` (restored, same anchor).
 
 **Busy** is `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)`,
 ported unchanged, under two rules that are published side by side (`turn.busyIf`):
@@ -206,7 +217,7 @@ A; equal and backward clocks; a duplicate; a conflict; a partial collection; a q
 ## C6. aify-comms in the end state
 
 ```text
-commsView(record | none, messaging, deliveryTurn, now) -> {status, statusNote, deliverable, holdsDelivery}
+commsView(record | none, messaging, deliveryTurn, now) -> {status, statusNote, deliverable, holdsDelivery, runOccupied}
 ```
 
 One pure function, called by the poll, the push and every reader. Its inputs:
@@ -253,6 +264,21 @@ touchedAt, startedAt}`. Its merge rules mirror today's single row:
 - the delivery turn is open, judged by `turn_is_still_live` on its own anchor, renewable while its delivery bridge
   heartbeats (today's verified renewal);
 - a stale record's open turn, held under the **strict** law to `strictExpiry` (below), never renewed.
+
+**Run occupancy is a separate output**, as it is a separate check today. `runOccupied` is true while a dispatch run
+for the agent is claimed or running: today's `hasActiveRun` (`dispatchState.activeRun`), the same rows and the same
+discard of an unusable run. It is **not** inferred from, or folded into, `holdsDelivery`, because a delivery turn can
+close while its run stays running. The gates read the two exactly as they read their counterparts today:
+
+- send-time queue (B9): queue when `runOccupied`, or queued runs exist, or `holdsDelivery`;
+- claim (B17): today's active-run checks (driver state, run owner's bridge heartbeat, console owner) are unchanged
+  messaging facts, beside `holdsDelivery` where `_turn_busy_holds_delivery` stood; the steer bypass (B19) is
+  unchanged;
+- reminders (B21): `hasActiveRun` is `runOccupied`, as today.
+
+Row 5 of the word and `runOccupied` read the same run, so a running run both shows `working` and is counted as
+occupancy, while `holdsDelivery` may be false. That is today's combination too, and C8 compares the gates with the run
+running and not running, the delivery turn closed in both, and steer and non-steer targets.
 
 The run-correlated readers keep today's expressions on these facts:
 
@@ -342,7 +368,7 @@ aify-comms writes, the plugin claims, aify-env executes and reports.
 | `expectedLifetime` | for stop and restart, a different current lifetime is refused `lifetime-moved` |
 | `requestedBy` | the operator gate, as for every definition change |
 
-- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first. An agent whose record is a conflict (C4) has every request refused `conflict`.
+- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first. An agent whose record is a conflict (C4) has every request refused `conflict`; a lifetime whose identity is unknown (C3, C4) refuses `identity-unknown` for stop and restart.
 - Durable results: `done` (with the new lifetime), `refused` (reason) or `failed` (reason), each with its time.
 - Start and restart run under the store lock (`admitStart`), so a definition change and a start cannot interleave.
 - A request no plugin claims is reported by the doctor and never retried by the service.
