@@ -1,0 +1,58 @@
+[
+ {
+  "name": "H3 the marker is ignored: always the newest",
+  "file": "hermes-session-effort.mjs",
+  "old": "  return pickSessionById(activeList, marked) || pickMostRecentSession(activeList);",
+  "new": "  return pickMostRecentSession(activeList);",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H3 a rule of its own: a marker that names no live id sets nothing",
+  "file": "hermes-session-effort.mjs",
+  "old": "  return pickSessionById(activeList, marked) || pickMostRecentSession(activeList);",
+  "new": "  return pickSessionById(activeList, marked) || null;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 teardown does not stop the effort on entry",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "  const teardown = () => {\n    stopEffort();\n",
+  "new": "  const teardown = () => {\n",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 giving up does not stop the effort on entry",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "    stopEffort();\n    await reportGatewayDeadOnce(reason);",
+  "new": "    await reportGatewayDeadOnce(reason);",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 the effort starts before the loop's try, outside its finally",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "  let stopEffort = () => {};",
+  "new": "  let stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 the loop's finally does not stop it",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "    stopLiveness();\n    stopEffort();\n    stopRepulse();",
+  "new": "    stopLiveness();\n    stopRepulse();",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H2 a pass starts while another is pending",
+  "file": "hermes-session-effort.mjs",
+  "old": "    if (stopped || passing) return;",
+  "new": "    if (stopped) return;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 an answer that arrives after stop still sets the session",
+  "file": "hermes-session-effort.mjs",
+  "old": "      if (stopped || !sessionId || set.has(sessionId)) return;",
+  "new": "      if (!sessionId || set.has(sessionId)) return;",
+  "test": "node tests/hermes-session-effort.test.js && node --test tests/hermes-managed-host.test.js"
+ }
+]

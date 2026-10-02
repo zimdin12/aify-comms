@@ -1,0 +1,15 @@
+killed (exit 1)                  H3 the marker is ignored: always the newest
+killed (exit 1)                  H3 a rule of its own: a marker that names no live id sets nothing
+killed (exit 1)                  H4 teardown does not stop the effort on entry
+                                  not ok 27 - runDeliveryLoop: teardown stops the reasoning effort FIRST, before it awaits anything (review of P6r2, H4)
+killed (exit 1)                  H4 giving up does not stop the effort on entry
+                                  not ok 28 - runDeliveryLoop: giving up stops the reasoning effort before it reports the agent lost (review of P6r2, H4)
+killed (exit 1)                  H4 the effort starts before the loop's try, outside its finally
+                                  not ok 26 - runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client
+                                  not ok 29 - runDeliveryLoop: a gateway bring-up that runs out of attempts leaves no reasoning effort running (review of P6r2, H4)
+killed (exit 1)                  H4 the loop's finally does not stop it
+                                  not ok 26 - runDeliveryLoop: starts setting the agent's reasoning effort on its live sessions, with the loop's own gateway client
+killed (exit 1)                  H2 a pass starts while another is pending
+killed (exit 1)                  H4 an answer that arrives after stop still sets the session
+8/8 killed
+exit=0

@@ -1,0 +1,86 @@
+[
+ {
+  "name": "L2 a control character in the selected value is not looked for",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  case \"$CODEX_AIFY_MODEL$CODEX_AIFY_EFFORT\" in *[[:cntrl:]]*) _codex_control=true ;; esac\n",
+  "new": "",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L2 a control character is reported and launched anyway",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "      exit 78 ;;\n  esac\n}",
+  "new": "      ;;\n  esac\n}",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L2 the reader names no field",
+  "file": "lib/agent-definition-defaults.mjs",
+  "old": ".filter((field) => CONTROL.test(result[field]))",
+  "new": ".filter(() => false)",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L2 codex ignores what the reader names",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "    case \" $AIFY_DEF_CONTROL \" in *\" $_codex_field \"*) _codex_control=true ;; esac\n",
+  "new": "    :\n",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L2 codex refuses the definition's value even when an override replaced it",
+  "file": "wrappers/codex-aify.sh.in",
+  "old": "  if [ \"$CODEX_HAS_MODEL\" = false ] && [ -z \"${AIFY_MANAGED_MODEL:-}\" ]; then _codex_def_picked=\"model\"; fi",
+  "new": "  _codex_def_picked=\"model\"",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 a plain chat gets nothing",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ \"${HERMES_ARGS[$HERMES_COMMAND_AT]:-}\" = \"chat\" ]; then",
+  "new": "if false; then",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 a plain chat gets the model and not the effort",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_CHAT_DEFAULTS+=(--reasoning \"$HERMES_AIFY_EFFORT\")",
+  "new": ":",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 every passthrough command gets them, not only chat",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "if [ \"${HERMES_ARGS[$HERMES_COMMAND_AT]:-}\" = \"chat\" ]; then",
+  "new": "if [ ${#HERMES_ARGS[@]} -gt 0 ]; then",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 the subcommand is taken to be the first argument",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "HERMES_COMMAND_AT=\"$(hermes_command_index)\"",
+  "new": "HERMES_COMMAND_AT=0",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 a top-level flag's value is taken for the subcommand",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "      -c|--continue|-p|--profile) i=$((i + 2)) ;;",
+  "new": "      -c|--continue|-p|--profile) i=$((i + 1)) ;;",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 the agent's flags go before the subcommand",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "  HERMES_ARGS=(\"${HERMES_ARGS[@]:0:$((HERMES_COMMAND_AT + 1))}\" \"${HERMES_CHAT_DEFAULTS[@]}\" \\\n    \"${HERMES_ARGS[@]:$((HERMES_COMMAND_AT + 1))}\")",
+  "new": "  HERMES_ARGS=(\"${HERMES_ARGS[@]:0:$HERMES_COMMAND_AT}\" \"${HERMES_CHAT_DEFAULTS[@]}\" \\\n    \"${HERMES_ARGS[@]:$HERMES_COMMAND_AT}\")",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ },
+ {
+  "name": "L1 an attached -mVALUE is not the operator's model",
+  "file": "wrappers/hermes-aify.sh.in",
+  "old": "    -m|-m?*|--model|--model=*) HERMES_HAS_MODEL=true ;;",
+  "new": "    -m|--model|--model=*) HERMES_HAS_MODEL=true ;;",
+  "test": "node --test tests/codex-takes-model-and-effort-on-its-app-server.test.js tests/hermes-takes-model-and-effort.test.js tests/agent-definition-defaults.test.js"
+ }
+]

@@ -837,12 +837,18 @@ and daemon shutdown still sending the offline beat.
     with a session-scoped `config.set reasoning`, once per session. hermes has no launch-time effort lever
     on the gateway path (hermes 0.21.5, `evidence/2026-10-01-p6/hermes-model-probe.mjs`). A resumed hermes
     session keeps the model it was stored with, and a running gateway host keeps the seed it started with.
-    The loop sets it on the session delivery is bound to (the agent's session marker, else the only live
-    session; with several live and none bound it sets nothing), one pass at a time, and nothing after it
-    stops. A plain `hermes chat` runs the classic CLI past the gateway, so it gets both as its own `-m` and
-    `--reasoning` (review of P6r, L1 and H2-H4).
+    The loop sets it on the session delivery targets, by delivery's own rule (`waitForActiveSession`):
+    the session the agent's marker names by its live id, else the newest live one. The marker usually
+    holds a durable key, which names no live id, so both go to the newest (review of P6r2, H3; this
+    replaces "the marker's session, else the only one, else none", which set it nowhere there). One pass
+    at a time; the loop starts it inside the part its finally covers, and teardown stops it before it
+    awaits anything, so nothing new is sent after either (P6r2, H4). A plain `hermes chat` runs the
+    classic CLI past the gateway, so it gets both as its own `-m` and `--reasoning`, placed after the
+    subcommand wherever hermes' own `command_argv` finds it (P6r, L1; P6r2, L1).
   - codex refuses (78) a model or effort holding a control character: it takes both as TOML strings
-    (review of P6r, L2).
+    (review of P6r, L2). The definition reader names such a field (`AIFY_DEF_CONTROL`), because the
+    shell drops a NUL and Git Bash a CR from the value it hands over; codex refuses one it selects, so an
+    operator's or a managed launch's own value still wins over it (P6r2, L2).
   - Precedence is the same everywhere: the operator's own argument or runtime variable > a managed
     launch's `AIFY_MANAGED_MODEL` / `AIFY_MANAGED_EFFORT` > the definition > the runtime's own default.
 - **A launcher that cannot run the reader** refuses with 78, as an invalid file does: not being able to
@@ -850,7 +856,8 @@ and daemon shutdown still sending the offline beat.
 - **One launcher per harness on every platform.** On native Windows each `.cmd` runs its bash launcher
   through Git Bash; hermes had a handwritten PowerShell launcher instead, which had none of this
   (review of P6r, H1), and it is gone. A native program started through the `.cmd` keeps its console
-  (`evidence/2026-10-01-p6r2/cmd-to-bash-keeps-a-console.mjs`, in a pseudo-console).
+  (`evidence/2026-10-01-p6r2/cmd-to-bash-keeps-a-console.mjs`, in a pseudo-console). Every `.cmd` ends
+  with its launcher's exit status, so a refusal is 78 there too (P6r2).
 - **The definition is read for the resolved id.** An id a resume handle names is read after recovery and
   gets the same defaults and the same refusal as one given by a flag. `--check` resolves through the same
   function after the same argument loop, so it reports what the launch would use; it does not look up a

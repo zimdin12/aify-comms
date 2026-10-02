@@ -1,0 +1,16 @@
+[
+ {
+  "name": "H1 the .cmd ends with endlocal's status, not the launcher's",
+  "file": "install.sh",
+  "old": "    printf '%s\\r\\n' 'endlocal & exit /b %AIFY_EXIT%'\n",
+  "new": "    printf '%s\\r\\n' 'endlocal'\n",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_install_hermes_session_rediscover.py -k \"exit_status or one_bash_launcher or powershell_launcher_is_removed\""
+ },
+ {
+  "name": "H1 an earlier install's PowerShell launcher is left in place",
+  "file": "install.sh",
+  "old": "  rm -f \"$wrapper_dir/hermes-aify.ps1\"\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_install_hermes_session_rediscover.py -k \"exit_status or one_bash_launcher or powershell_launcher_is_removed\""
+ }
+]

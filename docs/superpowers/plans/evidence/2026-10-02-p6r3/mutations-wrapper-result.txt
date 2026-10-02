@@ -1,0 +1,37 @@
+killed (exit 1)                  L2 a control character in the selected value is not looked for
+                                  not ok 10 - A CONTROL CHARACTER in a model or effort refuses the launch before anything starts (review of P6r, L2)
+killed (exit 1)                  L2 a control character is reported and launched anyway
+                                  not ok 10 - A CONTROL CHARACTER in a model or effort refuses the launch before anything starts (review of P6r, L2)
+                                  not ok 11 - A NUL OR CR in the definition's selected value refuses too, though the shell never sees it (review of P6r2, L2)
+killed (exit 1)                  L2 the reader names no field
+                                  not ok 3 - shellAssignments: quoted for bash, a quote inside a value included
+                                  not ok 11 - A NUL OR CR in the definition's selected value refuses too, though the shell never sees it (review of P6r2, L2)
+killed (exit 1)                  L2 codex ignores what the reader names
+                                  not ok 11 - A NUL OR CR in the definition's selected value refuses too, though the shell never sees it (review of P6r2, L2)
+killed (exit 1)                  L2 codex refuses the definition's value even when an override replaced it
+                                  not ok 11 - A NUL OR CR in the definition's selected value refuses too, though the shell never sees it (review of P6r2, L2)
+killed (exit 1)                  L1 a plain chat gets nothing
+                                  not ok 12 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 13 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+                                  not ok 17 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  L1 a plain chat gets the model and not the effort
+                                  not ok 12 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 13 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+killed (exit 1)                  L1 every passthrough command gets them, not only chat
+                                  not ok 13 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+killed (exit 1)                  L1 the subcommand is taken to be the first argument
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+killed (exit 1)                  L1 a top-level flag's value is taken for the subcommand
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+killed (exit 1)                  L1 the agent's flags go before the subcommand
+                                  not ok 12 - THE DEFINITION'S model seeds hermes, and its effort goes to the loop
+                                  not ok 13 - A PLAIN CHAT keeps its own arguments after the agent's, and a non-chat command gets none
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+                                  not ok 17 - THE OPERATOR'S OWN model or effort is theirs: -m, HERMES_INFERENCE_MODEL, --reasoning
+killed (exit 1)                  L1 an attached -mVALUE is not the operator's model
+                                  not ok 14 - THE CHAT IS FOUND PAST HERMES' OWN TOP-LEVEL FLAGS, as its command_argv finds it (review of P6r2, L1)
+12/12 killed
+exit=0

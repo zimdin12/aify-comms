@@ -1,0 +1,6 @@
+killed (exit 1)                  H1 the .cmd ends with endlocal's status, not the launcher's
+                                  FAILED service/tests/test_install_hermes_session_rediscover.py::test_the_cmd_returns_the_launchers_exit_status - AssertionError: ...
+killed (exit 1)                  H1 an earlier install's PowerShell launcher is left in place
+                                  FAILED service/tests/test_install_hermes_session_rediscover.py::test_an_earlier_installs_powershell_launcher_is_removed - Asserti...
+2/2 killed
+exit=0
