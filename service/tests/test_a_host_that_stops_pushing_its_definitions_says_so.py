@@ -133,6 +133,33 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
             self.assertEqual(forget(A["env"]).status_code, 200, "nothing governs any more, so it may go")
         self.assertEqual(forget(B["env"]).status_code, 200, "CONTROL: an environment no store pushes from is forgotten as before")
 
+    def test_A_PUSH_THAT_COMMITS_WHILE_A_FORGET_WAITS_IS_SEEN(self):
+        """comms-senior-dev's review of 1f50175b: the governing check read before the forget took the write
+        lock, so a push committing between the check and the DELETE was forgotten with its environment."""
+        import sqlite3
+        import threading
+        holder = sqlite3.connect(str(self._db_path), isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        outcome = {}
+        worker = threading.Thread(target=lambda: outcome.update(response=self.client.post(
+            f"/api/v1/environments/{A['env']}/control", json={"action": "forget"})))
+        worker.start()
+        worker.join(0.6)
+        self.assertTrue(worker.is_alive(), "control: the forget is waiting on the write lock")
+        # What a push writes, committed while the forget waits.
+        holder.execute("INSERT INTO definition_stores (machine_id, store_id, revision, snapshot_digest, environment_id, "
+                       "updated_at, pushed_at) VALUES (?, 'store-a', 1, 'd', ?, ?, ?)", (A["machine"], A["env"], T0, T0))
+        holder.execute("INSERT INTO agent_definitions (agent_id, machine_id, store_id, incarnation, revision, "
+                       "definition_digest, body, available, updated_at) VALUES ('worker', ?, 'store-a', 1, 1, 'd', '{}', 1, ?)",
+                       (A["machine"], T0))
+        holder.execute("COMMIT")
+        holder.close()
+        worker.join(10)
+        response = outcome["response"]
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn(f"(1 from {A['machine']})", response.json()["detail"])
+        self.assertIsNotNone(self.definitions(A["env"]), "the environment, and its definitions' freshness, stay listed")
+
     def test_an_environment_no_store_pushes_from_carries_none(self):
         with frozen_service_clock(T0):
             self.push(1, [valid("worker")])

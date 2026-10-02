@@ -671,9 +671,14 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
         raise HTTPException(400, "Environment control action must be stop or forget")
     db = await get_db()
     try:
+        if action == "forget":
+            # The write lock first, as a definition push takes it, so no push commits between the governing
+            # check below and the forget (0.8 whole-range review, R2 atomicity).
+            await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))
         env = await cursor.fetchone()
         if not env:
+            await db.rollback()
             raise HTTPException(404, "Environment not found")
         now = _now()
         if action == "forget":
@@ -686,6 +691,7 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
                 "GROUP BY s.machine_id", (environment_id,))).fetchall()
             if governing:
                 held = ", ".join(f"{row['n']} from {row['machine_id']}" for row in governing)
+                await db.rollback()
                 raise HTTPException(409, f"environment {environment_id} still governs agent definitions ({held}): "
                                          "forgetting it would hide whether they are still refreshed. Remove them in "
                                          "aify-env on that machine, or release each one (POST "
