@@ -1,0 +1,23 @@
+ok   its home's bin is removed: exit 0
+ok   the home itself, with a trailing slash: exit 0
+ok   a sibling sharing the prefix survives: exit 0
+ok   a forward-slash home matches a backslash entry: exit 0
+ok   case differs: exit 0
+ok   nothing of ours: nothing removed: exit 0
+cleanup exit=0
+--- negative control (--no-cleanup):
+FAIL its home's bin is removed: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
+FAIL the home itself, with a trailing slash: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\
+FAIL a sibling sharing the prefix survives: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
+FAIL a forward-slash home matches a backslash entry: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
+FAIL case differs: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
+ok   nothing of ours: nothing removed: exit 0
+no-cleanup exit=1
+--- 10be3da6's predicate (must fail the sibling and slash cases):
+ok   its home's bin is removed: exit 0
+ok   the home itself, with a trailing slash: exit 0
+FAIL a sibling sharing the prefix survives: exit 0, lost C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12-sibling\bin
+FAIL a forward-slash home matches a backslash entry: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
+ok   case differs: exit 0
+ok   nothing of ours: nothing removed: exit 0
+10be3da6 exit=1
