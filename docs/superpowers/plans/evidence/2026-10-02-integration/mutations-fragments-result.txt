@@ -1,8 +1,13 @@
 killed (exit 1)                  the codex fragment is not printed
                                   not ok 3 - THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field
+                                  not ok 4 - A CODEX INSTALL bakes the codex words into its launcher: install.sh tells the script which client it installs
 killed (exit 1)                  a refusal of the codex verb does not stop the install
                                   not ok 3 - THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field
 killed (exit 1)                  install.sh splits the fields on spaces, as before
                                   not ok 1 - AN OPTED-IN SERVICE is baked into the launcher as the session fragment the pinned package computes
-3/3 killed
-exit=0
+                                  not ok 4 - A CODEX INSTALL bakes the codex words into its launcher: install.sh tells the script which client it installs
+killed (exit 1)                  the codex words are computed for every client
+                                  not ok 3 - THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field
+killed (exit 1)                  install.sh does not say which client it installs
+                                  not ok 4 - A CODEX INSTALL bakes the codex words into its launcher: install.sh tells the script which client it installs
+5/5 killed

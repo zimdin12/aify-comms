@@ -23,14 +23,14 @@ const COMMS = { "aify-comms": { endpoint: NOWHERE, endpointEnv: ["AIFY_SERVER_UR
 const DASHBOARD = { endpoint: "http://127.0.0.2:9700", credentialRef: "aify-dashboard.key", sessionInject: { mcp: true },
   mcp: [{ name: "aify-dashboard", command: "node", args: ["--experimental-strip-types", "/d/bridge/main.ts", "serve"] }] };
 
-function render(registryText) {
+function render(registryText, client = "claude") {
   const dir = tmpDir("aify-fragments-");
   const registry = path.join(dir, "services.json");
   fs.writeFileSync(registry, registryText);
   const out = path.join(dir, "out");
-  const result = spawnSync("bash", [INSTALL_SH, "--client", "claude", NOWHERE, "--emit-wrappers", out],
+  const result = spawnSync("bash", [INSTALL_SH, "--client", client, NOWHERE, "--emit-wrappers", out],
     { encoding: "utf8", env: { ...RENDER_ENV, AIFY_SERVICE_REGISTRY: registry }, timeout: 180_000 });
-  const launcher = path.join(out, "claude-aify");
+  const launcher = path.join(out, `${client}-aify`);
   return { result, text: fs.existsSync(launcher) ? fs.readFileSync(launcher, "utf8") : null };
 }
 
@@ -58,13 +58,13 @@ test("CONTROL: a registry with nothing opted in bakes an empty fragment", () => 
 });
 
 test("THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field", () => {
-  // scripts/registry-fragment.sh prints "<strict>|<session>|<codex>"; install.sh reads the three by position. No
-  // template carries @@SESSION_MCP_CODEX_B64@@ yet, so the field is read here, from the script itself.
-  const fields = (registryText) => {
+  // scripts/registry-fragment.sh prints "<strict>|<session>|<codex>"; install.sh reads the three by position.
+  // The fields are read here from the script itself; the codex launcher's copy is the next test's.
+  const fields = (registryText, client = "codex") => {
     const dir = tmpDir("aify-fragments-");
     const registry = path.join(dir, "services.json");
     fs.writeFileSync(registry, registryText);
-    const run = spawnSync("bash", [path.join(path.dirname(INSTALL_SH), "scripts", "registry-fragment.sh"), registry],
+    const run = spawnSync("bash", [path.join(path.dirname(INSTALL_SH), "scripts", "registry-fragment.sh"), registry, client],
       { encoding: "utf8", env: RENDER_ENV, timeout: 120_000 });
     return { run, fields: run.stdout.split("|") };
   };
@@ -86,6 +86,22 @@ test("THE CODEX FRAGMENT is the third field, as the pinned package computes it, 
     "aify-dashboard": DASHBOARD } }));
   assert.equal(agentKey.run.status, 78, `the codex verb's own refusal stops the install too: ${agentKey.run.stdout}`);
   assert.match(agentKey.run.stderr, /cannot be given to codex/);
+  // ...for a codex install only: a registry codex cannot use is no reason to refuse a claude launcher (06324e8).
+  const forClaude = fields(JSON.stringify({ version: 1, services: { "aify-comms": { ...COMMS["aify-comms"], keyEnv: ["AIFY_AGENT_ID"] },
+    "aify-dashboard": DASHBOARD } }), "claude");
+  assert.equal(forClaude.run.status, 0, forClaude.run.stderr);
+  assert.equal(forClaude.fields.length, 3);
+  assert.equal(forClaude.fields[2], "", "no codex words for a claude install");
+  assert.ok(forClaude.fields[1], "the claude fragment is still computed");
+});
+
+test("A CODEX INSTALL bakes the codex words into its launcher: install.sh tells the script which client it installs", () => {
+  const { result, text } = render(JSON.stringify({ version: 1, services: { ...COMMS, "aify-dashboard": DASHBOARD } }), "codex");
+  assert.equal(result.status, 0, result.stderr);
+  const sites = [...text.matchAll(/printf '%s' "([^"]*)" \| base64 -d >"\$_session_words"/g)];
+  assert.equal(sites.length, 1, "the extractor must find exactly the one decode site");
+  const words = Buffer.from(sites[0][1], "base64").toString("utf8").split(String.fromCharCode(0));
+  assert.ok(words.some((w) => w.includes("aify-dashboard")), `the opted-in service is not in the codex launcher: ${words}`);
 });
 
 test("A REGISTRY THE PACKAGE REFUSES stops the install, and no launcher is written", () => {

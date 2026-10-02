@@ -506,7 +506,7 @@ render_wrapper_template() {
   text="${text//@@SERVICE_NAME@@/aify-comms}"
   # The registry's three MCP fragments, from the pinned package's own verbs, once per run. A registry they
   # refuse stops the install (set -e, with the verb's 78): rendered empty it would read as nothing opted in.
-  [ -n "${_AIFY_FRAGMENTS:-}" ] || _AIFY_FRAGMENTS="$(bash "$SCRIPT_DIR/scripts/registry-fragment.sh" "$AIFY_SERVICE_REGISTRY")"
+  [ -n "${_AIFY_FRAGMENTS:-}" ] || _AIFY_FRAGMENTS="$(bash "$SCRIPT_DIR/scripts/registry-fragment.sh" "$AIFY_SERVICE_REGISTRY" "$CLIENT")"
   IFS='|' read -r _aify_strict _aify_session _aify_codex <<<"$_AIFY_FRAGMENTS"
   text="${text//@@STRICT_EXTRA_MCP_B64@@/$_aify_strict}"
   text="${text//@@SESSION_MCP_B64@@/$_aify_session}"

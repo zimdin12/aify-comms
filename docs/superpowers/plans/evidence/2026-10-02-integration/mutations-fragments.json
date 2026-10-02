@@ -19,5 +19,19 @@
   "old": "  IFS='|' read -r _aify_strict _aify_session _aify_codex <<<\"$_AIFY_FRAGMENTS\"",
   "new": "  IFS=' ' read -r _aify_strict _aify_session _aify_codex <<<\"$_AIFY_FRAGMENTS\"",
   "test": "node --test mcp/stdio/tests/install-bakes-the-registry-fragments.test.js"
+ },
+ {
+  "name": "the codex words are computed for every client",
+  "file": "scripts/registry-fragment.sh",
+  "old": "if [ \"$client\" = \"codex\" ]; then",
+  "new": "if true; then",
+  "test": "node --test mcp/stdio/tests/install-bakes-the-registry-fragments.test.js"
+ },
+ {
+  "name": "install.sh does not say which client it installs",
+  "file": "install.sh",
+  "old": "\"$AIFY_SERVICE_REGISTRY\" \"$CLIENT\")\"",
+  "new": "\"$AIFY_SERVICE_REGISTRY\")\"",
+  "test": "node --test mcp/stdio/tests/install-bakes-the-registry-fragments.test.js"
  }
 ]
