@@ -55,134 +55,103 @@ startable/importable agents, start and herdr-space, on 127.0.0.1 with browser-or
 
 | | owns after this tag | reads |
 |---|---|---|
-| **aify-env** | each agent's **state** (turn and process, one derivation); **lifecycle** of defined agents (start, stop, restart from the definition); forwarding state to herdr | launcher hook events, its own process registry, its screen observer, resident records |
-| **aify-env service plugins** | carrying state to their service; applying lifecycle requests | the state model, their service |
-| **aify-comms** | messages, channels, dispatch runs and reply contracts, files, the chat dashboard; the **status record** = aify-env's state plus messaging facts; the wake decision | state pushed by each host's aify-env |
-| **aify-wrapper** | the harness side of one run; hooks report to aify-env only | its definition, aify-env's endpoint |
-| **aify-dashboard** | unchanged | state pushed to it directly; no aify-comms connection for status |
+| **aify-env** | the host's **observations** of each agent, as typed facts (process lifetime, hook-reported turn, screen); lifecycle of defined agents; forwarding state to herdr | launcher hook events, its own process registry, its screen observer, resident lifetime records |
+| **aify-env service plugins** | carrying the facts to their service; applying lifecycle requests | the facts, their service |
+| **aify-comms** | messages, channels, dispatch runs and reply contracts, files, the chat dashboard; its **status and delivery laws, unchanged**, now fed by host facts where the host is the observer; the wake decision | facts pushed by each host's aify-env, and its own delivery-side facts |
+| **aify-wrapper** | the harness side of one run; hooks report to aify-env | its definition, its instance's aify-env descriptor |
+| **aify-dashboard** | its own display of the pushed facts | the push, directly |
+
+**The revision of 2026-10-02 (comms-senior-dev's review of 7ca834ae, R1-R5) changed one thing above all:** aify-env
+publishes typed facts, not one display word, and aify-comms keeps both of its laws (status `derive()` and the
+delivery gate `_turn_busy_holds_delivery`) exactly, with their inputs relocated. The contracts are in
+[the P0 document](2026-10-02-aify-env-owns-agent-state-P0.md), C1-C9; the decisions below say what each is for.
 
 ## Decisions
 
-**D1. One derivation, in aify-env.** `docs/AIFY_ENV_BOUNDARY.md` says aify-env "must not derive status
-of its own — deriving it in two places is how two answers start disagreeing". The reason stands; the
-conclusion changes: the derivation moves, and aify-comms' copy is deleted (D7), so there is still one.
-Recorded in DECISIONS.md as superseding that line.
+**D1. The host observes, once.** `docs/AIFY_ENV_BOUNDARY.md` says aify-env "must not derive status of its own —
+deriving it in two places is how two answers start disagreeing". The reason stands. aify-env becomes the one
+**observer** of what only the host can see (hooks, screen, process lifetime); aify-comms remains the one place its
+status and delivery decisions are made, from those observations plus its own facts. Recorded in DECISIONS.md as
+superseding that line's scope, not its reason.
 
-**D2. aify-env's state model is a pure function.** Inputs: hook events (turn-start, turn-end, blocked,
-unblocked, exited) with `firedAtUs`; process facts from its registry (alive, exit code, reason); its
-screen observation (moved from the comms plugin into the core, because it is harness-generic and covers
-what hooks miss: claude's Esc interrupt and hermes' non-retryable API error fire no hook); resident
-records (D4). Output per agent: `{state, since, cause}` with `state` one of `working`, `blocked`, `idle`,
-`shell`, `starting`, `stopped`, `exited`, `unknown`. Hooks outrank the screen; a newer event outranks an
-older one by `firedAtUs` (the rule `accept_hook_event` holds today, moved). The vocabulary is aify-env's;
-aify-comms maps it to its own words in one table (`working`→working, `blocked`→blocked,
-`idle`→online, `shell`→shell, `starting`→starting, `stopped`/`exited`→offline or stopped by mode,
-`unknown`→see D6).
+**D2. Typed facts, not a display word (C1).** Per agent per instance: lifetime, process state and verification,
+the turn record with its anchor and renewal, the screen, background work, and `runsWith` for defined agents. What
+aify-env does not own (operator disable, config defects, environment reachability, the delivery sidecar, spawn
+rows, dispatch runs) is not published.
 
-**D3. Hooks report to aify-env's local API.** `POST /agents/:id/state-event` on aify-env, body
-`{kind, firedAtUs, harness, pid?, sessionHandle?}`. Endpoint: aify-env injects `AIFY_ENV_URL` into every
-process it starts; for a resident, aify-env writes `~/.aify/env.json` `{url, instance, pid}` at boot
-(its only writer) and the hook reads it when it fires. A hook is already a separate node process, so
-this costs nothing at launch, which keeps the launcher inside hermes' 0.75 s MCP-discovery window. Auth:
-the posture of aify-env's other routes (loopback, browser refusal). A local process could forge an event,
-the same exposure as today's shared-key hook posts. Per-agent credentials are not added: this is a
-local-only install whose key the operator chose to keep simple.
+**D3. Hooks report to their own instance (C4).** Each aify-env instance writes `~/.aify/env/<instance>.json`; the
+launcher exports `AIFY_ENV_INSTANCE` and `AIFY_LIFETIME` to the runtime, so each hook addresses the instance that
+adopted its resident and carries the lifetime it belongs to. Auth stays loopback with browser refusal.
 
-**D4. A resident is a record, not an event.** The launcher writes `~/.aify/residents/<agent>.json`
-`{agentId, harness, pid, startedAt, instance, herdrPane?}` at start and removes it at exit; the aify-env
-instance the record names (the one the launcher ran under, else the default) adopts it on boot and on
-change, and judges the pid itself. One machine runs several instances, and only one may report an agent:
-a receiver that sees one agentId from two instances shows a conflict rather than picking. So an aify-env restart loses no resident, and a
-resident whose launcher died without cleanup is found by its pid, not by a missing heartbeat
-(state-based cleanup). Turn state for an adopted resident starts `unknown` until its next hook event.
+**D4. A resident is a lifetime record verified against the OS (C4).** One file per lifetime
+(`<agent>.<lifetime>.json`), the launcher's own OS pid, verified by creation time against the record's write time
+and by the launcher in the command line; unknown never means dead. The adopting instance is the one the record
+names; two live lifetimes, or one agent from two instances, is a conflict, never a pick.
 
-**D5. The broadcast is pushed and state-based.** A service opts in with its own registry field,
-`"agentState": {"path": "...", "credentialRef": "..."}`, never through `advertise` (aify-dashboard sets
-`advertise: false` and wants state). The push carries **its own credential**, presented under its own
-header: a service's ordinary key is the one every agent bridge holds, so with it any agent could post
-another agent's state. A service that names no `credentialRef` gets its ordinary key (aify-comms in 0.9:
-its hook routes accept that key today, so this is no regression, and it can adopt one later).
+**D5. Publication is ordered by the publisher, not by rows (C5).** A durable generation
+(`max(persisted + 1, now_ms)`, fsynced), an incarnation id, and one publication counter per incarnation order every
+push; snapshots are complete or not sent; removals name the lifetime; the receiver applies only newer, answers 204
+or 200 `{applied: false, reason}`; header `x-aify-agent-state-key`. Agreed with the aify-dashboard owner.
 
-Body: `{kind: "snapshot" | "changes", machineId, instance, epoch, agents: [{agentId, state, since, cause,
-seq, harness, mode, runsWith?, pid?, sessionHandle?}]}`.
-- `kind` lets a receiver tell an agent absent from a snapshot (gone) from one absent from a change set
-  (unchanged).
-- `machineId` exactly as `machineIdFor` writes it; `instance` is the aify-env instance, since one machine
-  runs several.
-- `epoch` is that instance's boot instant in epoch milliseconds, so it compares: a receiver drops a push
-  whose epoch is older than the newest seen for that `(machineId, instance)`, and within an epoch drops
-  `seq` at or below the newest for that agent. A delayed push from before a restart cannot revert a
-  fresh snapshot. (A wall clock stepped backwards across a restart would; recorded, not handled.)
-- `since` in epoch milliseconds.
-- `runsWith` only for a defined agent: model and effort as its next start would use them,
-  `{model: {value, from}, effort: {value, from}}`. Omitted for an undefined agent, so nothing is guessed.
+**D6 withdrawn.** It proposed releasing delivery when publication went stale. Under C6 aify-comms keeps today's
+law, so a lost publication is today's "no new hook" and needs no new rule or operator decision.
 
-A snapshot goes every 60 s and on attach. A non-2xx answer is dropped, never retried, so a retry never
-lands after a newer push; the next snapshot repairs it. Pushed, not pulled: aify-comms runs in a container
-and aify-env binds loopback, and aify-env already pushes heartbeats and definitions outward. Shape agreed
-with the aify-dashboard owner on 2026-10-02 (their route answers 204 when applied, body limit 1 MiB).
+**D7. Relocate, compare, then switch; delete almost nothing in 0.9 (C6-C8).** Turn events from hooks and the screen
+reach aify-comms through the push and apply through today's ordering and law. The delivery-side reporters
+(`dispatch-loop.mjs`, `claude-channel.js`, `hermes-run-reporting.mjs`) stay aify-comms producers until the hermes
+gateway tag. The bridge turn detectors stay until the comparison shows a replacement for each. The switch (launchers
+stop posting to aify-comms) needs the C8 comparison over status, busy, queue, claim and worker readiness, with
+denominators, unobserved classes and deterministic tests for each.
 
-**D6. Unknown is said, and delivery treats it as today's absence.** A service that has had no snapshot
-for three periods (its own clock, as `host_activity` judges freshness) shows the agent `unknown`. Delivery
-treats `unknown` as not busy, which is what an agent with no turn record gets today. That is my default;
-the alternative (hold delivery while unknown) is one predicate. **For the operator: confirm.**
+**D8. aify-env owns the lifecycle of defined agents (C9).** Requests carry an idempotency key, the expected
+definition revision and lifetime, one open request per agent, and durable results. An **undefined** agent keeps
+today's spawn path in 0.9. **For the operator: confirm keeping both paths for one tag.**
 
-**D7. aify-comms keeps messaging facts and deletes its turn and process proofs, after a shadow.** P4
-ingests the broadcast into `host_agent_state` and records, per agent, every disagreement with today's
-`derive()` (count, last examples), shown on a doctor row. P6 switches the status record and the delivery
-gate (`_turn_busy_holds_delivery` reads busy = `working` or `blocked`) to the broadcast, and deletes: the
-turn-start, turn-end and status-event state writes, `turnBusy` on heartbeats, `agent_turn_state` and
-`agent_status_state` as inputs, the console-working lease, host_activity, background-work, and the three
-bridge detectors. The messaging overlay stays: a running dispatch, a reply owed, unread counts.
+**D9. Delete the environment "stop" control.** It has no claimer; aify-env's own stop is the host action.
+"Forget" stays (service-local). **For the operator: confirm.**
 
-**D8. aify-env owns the lifecycle of defined agents.** `aify-env agents start|stop|restart <id>` (CLI
-and HTTP), from the definition. aify-comms' start, stop, restart and cold-start of a **defined** agent
-become lifecycle requests, carried like definition requests (comms writes, the plugin claims, aify-env
-executes and reports). An **undefined** agent keeps today's spawn path in 0.9; retiring it needs every
-managed agent defined first. **For the operator: confirm keeping both paths for one tag.**
+**D10. One observation, forwarded to herdr by aify-env.** aify-env reports the pane state for managed workers and
+for residents whose record names a pane. The launchers' herdr hook retires with the switch.
 
-**D9. Delete the environment "stop" control.** It has no claimer; aify-env's own stop is the host
-action. "Forget" stays (service-local). **For the operator: confirm.**
+**D11. Each doctor checks its own tier.** To `aify-env doctor`: env-processes, managed-orphans, env-code-currency,
+claude-login, context-window. Staying in `aify-comms doctor`: service, api-exposure, external-keys, client-api-key,
+bridge-*, agent-identity, skills-installed, session-handles, spawn-queue, definitions-fresh, usage-openai, and a new
+`agent-state` row (the C5 publishers: fresh, stale, behind, conflict). gateway-orphans moves with the hermes host.
 
-**D10. One state, forwarded to herdr by aify-env.** aify-env already opens managed panes; a resident
-names its pane in its record. aify-env reports state to the pane with the seq herdr wants. The launchers'
-direct herdr hook retires in the same phase as the comms hooks.
-
-**D11. Each doctor checks its own tier.** To `aify-env doctor`: env-processes, managed-orphans,
-env-code-currency, claude-login, context-window (it reads the screen aify-env already holds). Staying in
-`aify-comms doctor`: service, api-exposure, external-keys, client-api-key, bridge-*, agent-identity,
-skills-installed, session-handles, spawn-queue, definitions-fresh, usage-openai, and a new
-`agent-state-fresh` row. gateway-orphans moves with the hermes host (next tag).
+**D12. An agent's status is not anyone's to set (found by the C2 census).** `PATCH /agents/{id}` writes any string,
+`stopped` included, with no gate, so any key holder can stop any agent (KNOWN_ISSUES). The route keeps
+self-report and loses the stop: it accepts only the `comms_status` words and never a status in
+`_MANUAL_STATUSES` or `NON_LIVE_AGENT_STATUSES`. Stopping stays the operator-gated stop route. Its own commit and
+review, independent of the rest; it changes no reader.
 
 ## Phases, each reviewed before the next
 
 | phase | repo | what | proves |
 |---|---|---|---|
-| P0 | plan | contracts: state model (D2), hook route and env.json (D3), resident record (D4), push shape and registry field (D5), lifecycle request (D8); event shape to the aify-dashboard owner | reviewed before any code |
-| P1 | wrapper + comms | ride-along: merge aify-wrapper 764d961 (hermes session MCP servers via `hermes config`), wire comms `install.sh` to `lib/hermes-config-cli.mjs` (`--check` before render, write after) | its own tests; independent of the rest |
-| P2 | aify-env | pure state model, hook route, env.json, resident adoption, screen observer into the core, herdr forwarding, the push to opted-in services | every D2 precedence case; adoption across a restart; a lost push repaired by the next snapshot |
-| P3 | wrapper | hooks report to aify-env, and keep reporting to comms during the shadow; resident record write and removal | hook to model readback across both repos |
-| P4 | comms | ingest route, `host_agent_state`, disagreement ledger and doctor row; `agentState` in its own registry entry | stale epoch and old seq refused; staleness to unknown |
-| P5 | operator | install and restart; the shadow runs on the real fleet | every disagreement class explained before P6 |
-| P6 | comms + wrapper | switch status and delivery to the broadcast; delete D7's list; drop the comms and herdr hooks | the delivery tests written first against today's gate, red on the deleted inputs, green after |
-| P7 | aify-env + comms | lifecycle verbs and requests (D8); delete the environment stop control (D9) | a defined agent's start, stop, restart and cold-start never build a spawn spec in comms |
+| P0 | plan | C1-C9 frozen, the C2 ledger included | reviewed before any P2 code |
+| P1 | wrapper + comms | ride-along: aify-wrapper 764d961 merged (686d182); comms install.sh gives hermes the session servers (9fe8037d) | in review separately |
+| P2 | aify-env | the observer: hook route, per-instance descriptors, lifetime records and verification, the C3 ordering and law ported, the core screen observer, the C5 publisher, herdr forwarding | C3 table test run against the Python statement; C4 controls (reused pid, sibling, wrong instance, delayed prior-lifetime hook, tied events, access denied, old exit beside a new record, adoption with no next hook); C5 controls (old snapshot after a new change, removal and recreation, boots A then B then delayed A, equal and backward clocks, duplicate, partial collection, quiet snapshot) |
+| P3 | wrapper | hooks carry lifetime and instance and post to aify-env as well as aify-comms; lifetime records written and removed | hook to aify-env readback across both repos |
+| P4 | comms | ingest (C5 receiver rules), `host_agent_state`, the C8 comparison recorded per decision, the `agent-state` doctor row, `agentState` in its registry entry | receiver table test; comparison computed on the same rows for each decision |
+| P5 | operator | install and restart; the comparison runs on the real fleet | separately authorized |
+| P6 | comms + wrapper | the switch, when C8 admits it: launchers stop posting turn events to aify-comms | the send-time queue and claim witnesses (queueIfBusy, steer and non-steer, priority and control, a renewed long turn, an expired or invalid turn, a stale publication) green before and after |
+| P7 | aify-env + comms | lifecycle requests (C9); the environment stop control deleted (D9) | idempotent retry, revision and lifetime races, one open request, durable results |
 | P8 | all | doctor moves (D11), docs, 0.9.0 bumps, whole-diff review | every suite in all three repos |
 
 ## Not in this tag
 
-The hermes gateway host (start, teardown, kill-prior, ports, resume markers, the delivery loop's process
-side): the next tag, because `hermes-delivery-loop.mjs` is one closure that owns both the gateway process
-and delivery, and separating it is a redesign. Usage readers. The duplicated console mirror. Per-agent
-credentials.
+- The hermes gateway host (start, teardown, kill-prior, ports, resume markers, the delivery loop's process side),
+  and with it the delivery-side reporters and the resident hermes gateway turn detector: the next tag.
+  `hermes-delivery-loop.mjs` is one closure that owns both the gateway process and delivery.
+- Ending an open turn on a sustained idle screen (C3): a delivery policy change for the operator to decide.
+- aify-comms emitting `unknown` (C6): `is_live_agent_status('unknown')` answers live today.
+- Usage readers. The duplicated console mirror. Per-agent credentials.
 
 ## What would prove this wrong
 
-- A shadow disagreement that neither side's known gaps explain: P6 does not start.
-- A status reader needing a fact the push does not carry: before P6, derive the reader set from source
-  (every reader of `status`, `statusRaw`, `dispatchState`, `agent_turn_state`, `agent_status_state`) and
-  check each against D5's fields.
-- A delivery regression (a message steered into a busy turn, or held at idle): the P6 tests go red
-  against today's gate on the inputs being deleted before anything is deleted.
-- Hook latency: a hook post to loopback must not be slower than today's post to the service; measured in
-  P3 on this host, both ways, same run.
-- A resident lost across an aify-env restart: P2's adoption test restarts the model with records on disk.
+- A reader in the C2 ledger whose required distinction the relocated inputs cannot supply: found before P2, by the
+  ledger, not after the switch.
+- A C8 disagreement that is neither a bug nor an approved policy change: the switch does not happen.
+- A delivery decision that changes across the switch: the P6 witnesses run on today's code first.
+- A resident lost or misattributed across an aify-env restart: the P2 controls in C4.
+- A publication applied out of order: the P2 controls in C5, and the receiver's table test in P4.

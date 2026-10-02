@@ -125,6 +125,28 @@ to matter.
   dashboard's provider runner already passes its child a minimal environment. Matters when aify-env is started
   from a shell holding a key an agent should not have.
 
+## Any key holder can set an agent's status, `stopped` included (found 2026-10-02)
+
+`PATCH /agents/{id}` (`update_agent`, routers/agents/attributes.py) lowercases the request's `status` and writes it to
+`agents.status` with no allowlist and no operator gate, then broadcasts it. A stored `stopped` is the manual stop:
+`_MANUAL_STATUSES` makes derivation defer to it, the claim funnel answers `{stopped}`, and the sidecar goes dormant.
+So any holder of the shared key can stop any agent, and any other string shows as a grey `unknown` chip until the
+next poll. The `comms_status` tool uses this route for an agent reporting on itself. Read at 3811a66f; not
+exercised. The 0.9 plan (D12) gives the fix.
+
+Found beside it by the 0.9 reader census (`docs/superpowers/plans/evidence/2026-10-02-c2/reader-ledger.md`), each
+read but not exercised:
+
+- The dispatch run PATCH writes `agentStatus` when it is in `VALID_STATUSES`, `stopped` included. No bridge sends
+  it.
+- The pushed status (`_broadcast_engine_status`) and the polled one disagree for a resident with no wake handle
+  (`misconfigured` against `offline`), and the push skips the roster's live-worker and environment gates.
+- The orphaned-run reaper's fail-fast set omits `misconfigured` and still lists the retired `stale`. The agent drawer
+  offers Stop for `misconfigured` and `starting`.
+- The claim funnel checks only a raw `stopped`, while the status engine also treats `launch_mode='none'` as
+  disabled.
+- The pulse board overwrites the roster's gated status with an ungated one until the next poll.
+
 ## The installer's hermes entry is written by a line splice (found 2026-10-02)
 
 `scripts/hermes-mcp-config.mjs` adds aify-comms to a hermes `config.yaml` by finding `^mcp_servers:` and
