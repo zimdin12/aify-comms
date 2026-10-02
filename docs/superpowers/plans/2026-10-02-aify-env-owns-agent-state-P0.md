@@ -438,6 +438,8 @@ The core hands every plugin one `ports` object and the plugin's own registry ent
  *                                restart); state (current(), subscribe(fn) -> unsubscribe)
  *  @property {(entry: object) => Promise<string>} credential   the key for this plugin's own entry, resolved per call
  *  @property {{watchRoots: () => Promise<{roots: string[], problems: string[]}>, cwdRoots: () => Promise<string[]>}} grants
+ *  @property {() => {config: object, problem: string}} config   this plugin's own `plugins.<name>` section of
+ *                                ~/.aify/config.json, read per call; the plugin judges its own keys, failing closed
  *  @property {(line: string) => void} log
  */
 /** @typedef {object} ServicePlugin
