@@ -113,6 +113,26 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
         self.assertEqual(first["definition_staleness_moved"], 1)
         self.assertEqual(feed.moved, ["definition_stores"])
 
+    def test_AN_ENVIRONMENT_WHOSE_DEFINITIONS_GOVERN_IS_NOT_FORGOTTEN(self):
+        """0.8 whole-range review, R2: a forgotten environment left the list and with it the stale warning,
+        while its definitions kept governing; the doctor then read 'no host pushes agent definitions'."""
+        forget = lambda env: self.client.post(f"/api/v1/environments/{env}/control", json={"action": "forget"})
+        with frozen_service_clock(T0):
+            self.push(1, [valid("worker")])
+        with frozen_service_clock(LATER):
+            refused = forget(A["env"])
+            self.assertEqual(refused.status_code, 409, refused.text)
+            self.assertIn(A["machine"], refused.json()["detail"])
+            self.assertIn("): forgetting it would hide whether they are still refreshed. Remove them in aify-env on that "
+                          "machine, or release each one (POST /agent-definitions/<id>/release with its machineId), then "
+                          "forget it.", refused.json()["detail"])
+            self.assertTrue(self.definitions(A["env"])["notice"], "the environment, and its warning, are still listed")
+            released = self.client.post("/api/v1/agent-definitions/worker/release",
+                                        json={"requestedBy": "dashboard", "machineId": A["machine"]})
+            self.assertEqual(released.status_code, 200, released.text)
+            self.assertEqual(forget(A["env"]).status_code, 200, "nothing governs any more, so it may go")
+        self.assertEqual(forget(B["env"]).status_code, 200, "CONTROL: an environment no store pushes from is forgotten as before")
+
     def test_an_environment_no_store_pushes_from_carries_none(self):
         with frozen_service_clock(T0):
             self.push(1, [valid("worker")])

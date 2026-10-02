@@ -145,7 +145,8 @@ export class ChangeDrivenRefresh {
       // already written: a bundle paints each slice early and is acknowledged here only after its slow
       // tail (comms-senior-dev's review of 83f928f8 executed it, an older fresh environments row left on
       // screen over a newer stale one). Whether the partial painted before or after the bundle's write
-      // cannot be told from here, so the slice is fetched again: one extra fetch, never older data.
+      // cannot be told from here, so the slice is fetched again. A conservative, EVENTUAL repair: until
+      // that fetch lands the older row can still be on screen, and its success depends on the fetch.
       const paintedDuring = this.paintedOlderSince(slice, paintsBefore, generation);
       if (this.shown(slice, generation) && !paintedDuring) this.loadedAt.set(slice, startedAt);
       else overwritten.push(slice);

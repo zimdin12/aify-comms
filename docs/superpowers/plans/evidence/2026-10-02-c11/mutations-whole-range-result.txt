@@ -1,0 +1,7 @@
+killed (exit 1)                  forget ignores governing definitions (R2)
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_AN_ENVIRONMENT_WHOSE_DEFINITIONS_GOVERN_IS_NOT_FORGOTTEN
+killed (exit 1)                  the settings save is not gated (R1)
+                                  FAILED service/tests/test_the_settings_are_the_operators.py::TheSettingsAreTheOperators::test_an_unproven_caller_saves_nothing_and_rewrites_no_agent
+killed (exit 1)                  applying defaults is not gated (R1)
+                                  FAILED service/tests/test_the_settings_are_the_operators.py::TheSettingsAreTheOperators::test_an_unproven_caller_saves_nothing_and_rewrites_no_agent
+3/3 killed

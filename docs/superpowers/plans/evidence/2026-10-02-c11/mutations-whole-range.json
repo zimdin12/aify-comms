@@ -1,0 +1,23 @@
+[
+ {
+  "name": "forget ignores governing definitions (R2)",
+  "file": "service/routers/environments.py",
+  "old": "            if governing:\n",
+  "new": "            if False:\n",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ },
+ {
+  "name": "the settings save is not gated (R1)",
+  "file": "service/routers/settings.py",
+  "old": "    recorded_operator_actor(None, request, action=\"changing the service's settings as the operator\")\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_the_settings_are_the_operators.py"
+ },
+ {
+  "name": "applying defaults is not gated (R1)",
+  "file": "service/routers/settings.py",
+  "old": "    recorded_operator_actor(None, request, action=\"applying managed defaults to existing agents as the operator\")\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_the_settings_are_the_operators.py"
+ }
+]

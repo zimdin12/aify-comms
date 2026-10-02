@@ -677,6 +677,19 @@ async def control_environment(environment_id: str, req: EnvironmentControlReques
             raise HTTPException(404, "Environment not found")
         now = _now()
         if action == "forget":
+            # NOT WHILE ITS DEFINITIONS GOVERN (P0 C11). A forgotten environment leaves the list, and with it
+            # the only place that says whether its host still refreshes the definitions it pushed, while
+            # those definitions keep governing (0.8 whole-range review, R2). Release them first.
+            governing = await (await db.execute(
+                "SELECT s.machine_id, COUNT(d.agent_id) AS n FROM definition_stores s "
+                "JOIN agent_definitions d ON d.machine_id = s.machine_id WHERE s.environment_id = ? "
+                "GROUP BY s.machine_id", (environment_id,))).fetchall()
+            if governing:
+                held = ", ".join(f"{row['n']} from {row['machine_id']}" for row in governing)
+                raise HTTPException(409, f"environment {environment_id} still governs agent definitions ({held}): "
+                                         "forgetting it would hide whether they are still refreshed. Remove them in "
+                                         "aify-env on that machine, or release each one (POST "
+                                         "/agent-definitions/<id>/release with its machineId), then forget it.")
             await db.execute("DELETE FROM environment_controls WHERE environment_id = ?", (environment_id,))
             await db.execute(
                 """
