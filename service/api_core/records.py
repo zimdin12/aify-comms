@@ -14,7 +14,7 @@ in one sentence is one you can test in isolation.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
 from service.api_core.terminal_tail_buffer import current_seq, current_tail
 from service.api_core.capabilities import _row_capabilities
@@ -44,7 +44,7 @@ from service.api_core.serialization import _dedupe_preserve, _row_require_reply
 
 
 
-def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, Any]:
+def _environment_record_to_dict(row, *, offline_seconds: int = 90, definitions: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     status = _environment_effective_status(row, offline_seconds=offline_seconds)
     runtimes = _json_loads_or(row["runtimes"], [])
     metadata = _json_loads_or(row["metadata"], {})
@@ -108,6 +108,9 @@ def _environment_record_to_dict(row, *, offline_seconds: int = 90) -> dict[str, 
         "metadata": metadata,
         "registeredAt": row["registered_at"] or "",
         "lastSeen": row["last_seen"] or "",
+        # WHETHER THIS HOST STILL PUSHES ITS AGENT DEFINITIONS (P0 C11), from `definition_freshness`; null
+        # when no store pushes from it, or from a route that does not read the stores (only the list does).
+        "definitions": definitions,
     }
 
 

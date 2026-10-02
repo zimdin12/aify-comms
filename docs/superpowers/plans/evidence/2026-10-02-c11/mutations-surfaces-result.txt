@@ -1,0 +1,15 @@
+killed (exit 1)                  the badge never draws
+                                  not ok 20 - a host that stopped pushing its definitions says so on its card, in the service's words (P0 C11)
+killed (exit 1)                  the card does not call the badge
+                                  not ok 20 - a host that stopped pushing its definitions says so on its card, in the service's words (P0 C11)
+killed (exit 1)                  the memo signature omits the notice
+                                  not ok 58 - every environment field renderRuntime reads moves the signature
+killed (exit 1)                  the doctor ignores a stale host
+                                  not ok 1 - A HOST THAT STOPPED PUSHING fails the row, in the service's words
+killed (exit 1)                  the doctor reads an unread service as no host
+                                  not ok 3 - AN UNREAD SERVICE is unknown, never a pass
+killed (exit 1)                  the doctor reads an older service as no host
+                                  not ok 4 - A SERVICE OLDER THAN THE FIELD is skipped, not read as no host pushing
+killed (exit 1)                  the call site drops the null
+                                  not ok 5 - THE CALL SITE passes the listing with its null intact
+7/7 killed

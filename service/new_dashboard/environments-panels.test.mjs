@@ -16,6 +16,7 @@ import {
   renderRuntime,
   renderSpawnRequests,
   rootsPlaceholder,
+  staleDefinitionsBadge,
 } from "./environments-panels.mjs";
 
 test("the empty-roots hint shows THIS environment's shape, and claims no install location", () => {
@@ -327,6 +328,32 @@ test("an offline environment with no lastSeen makes no claim about its age", () 
   });
   assert.doesNotMatch(html, /last seen/, "a row with no timestamp still claimed an age");
   assert.match(html, /WSL box/, "the card did not render at all");
+});
+
+test("a host that stopped pushing its definitions says so on its card, in the service's words (P0 C11)", () => {
+  const notice = "definitions from win32:box not refreshed since 2026-10-02T10:00:00Z";
+  const card = (definitions) => {
+    state.environments = [{ id: "e1", label: "Windows box", status: "online", definitions }];
+    return withDom({ "environment-list": el() }, null, (els) => {
+      renderRuntime();
+      return els["environment-list"].innerHTML;
+    });
+  };
+  assert.ok(stripTags(card({ machineId: "win32:box", notRefreshedSince: "2026-10-02T10:00:00Z", notice })).includes(notice),
+    "the card did not carry the notice");
+  for (const quiet of [{ machineId: "win32:box", notRefreshedSince: null, notice: "" }, null, undefined]) {
+    const html = card(quiet);
+    assert.doesNotMatch(html, /not refreshed/, `a pushing host, or none, claimed staleness: ${JSON.stringify(quiet)}`);
+    assert.match(html, /Windows box/, "the card did not render at all");
+  }
+  assert.doesNotMatch(card({ notice: "<img src=x onerror=alert(1)>" }), /<img/, "the notice is escaped");
+});
+
+test("staleDefinitionsBadge draws only the service's notice", () => {
+  assert.match(staleDefinitionsBadge({ definitions: { notice: "definitions from m not refreshed since t" } }), /mb-warn/);
+  for (const env of [{}, { definitions: null }, { definitions: { notice: "  " } }, null]) {
+    assert.equal(staleDefinitionsBadge(env), "", JSON.stringify(env));
+  }
 });
 
 // ---------------------------------------------------------------------------------------------------

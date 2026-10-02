@@ -123,6 +123,11 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         raise HTTPException(409, f"conflict: store {store_id} revision {revision} was already applied with "
                                  f"another digest; nothing applied")
     if order is PushOrder.REPLAY:
+        # THE HOST IS STILL HERE, though nothing changed: the one write a replay makes. aify-env re-sends an
+        # unchanged snapshot every minute, so without this stamp an idle host and a gone one look the same
+        # (P0 C11, arm 3). No definition, revision or outcome moves.
+        await db.execute("UPDATE definition_stores SET pushed_at = ? WHERE machine_id = ? AND store_id = ?",
+                         (now, machine_id, store_id))
         return await _replayed(db, machine_id, current["outcome"])
 
     if order is PushOrder.NEW_STORE:
@@ -131,11 +136,11 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
             "VALUES (?, ?, ?, ?)", (machine_id, current["store_id"], store_id, now),
         )
     await db.execute(
-        "INSERT INTO definition_stores (machine_id, store_id, revision, snapshot_digest, environment_id, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(machine_id) DO UPDATE SET store_id = excluded.store_id, "
+        "INSERT INTO definition_stores (machine_id, store_id, revision, snapshot_digest, environment_id, updated_at, pushed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(machine_id) DO UPDATE SET store_id = excluded.store_id, "
         "revision = excluded.revision, snapshot_digest = excluded.snapshot_digest, "
-        "environment_id = excluded.environment_id, updated_at = excluded.updated_at",
-        (machine_id, store_id, revision, body["snapshotDigest"], str(environment.get("id") or ""), now),
+        "environment_id = excluded.environment_id, updated_at = excluded.updated_at, pushed_at = excluded.pushed_at",
+        (machine_id, store_id, revision, body["snapshotDigest"], str(environment.get("id") or ""), now, now),
     )
     result = await _apply_entries(db, machine_id, store_id, entries, now)
     unresolved = {"refused": [r["id"] for r in result["refused"]], "invalid": result["invalid"], "kept": result["kept"]}

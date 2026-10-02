@@ -412,6 +412,9 @@ DEFINITION_STORE_MIGRATIONS = {
     # returns this, so a refusal is not lost when the host sends the same revision again. NULL means
     # NOT RECORDED (a revision applied before this column), never "nothing unresolved".
     "outcome": "ALTER TABLE definition_stores ADD COLUMN outcome TEXT",
+    # When the machine last pushed, replays included (P0 C11). NULL on a row from before the column: the
+    # reader falls back to `updated_at`, which is never later than the last push, so it can only warn early.
+    "pushed_at": "ALTER TABLE definition_stores ADD COLUMN pushed_at TEXT",
 }
 
 

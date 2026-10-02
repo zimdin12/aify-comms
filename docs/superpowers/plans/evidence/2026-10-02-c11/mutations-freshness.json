@@ -1,0 +1,37 @@
+[
+ {
+  "name": "a replay does not stamp the push",
+  "file": "service/api_core/definition_push.py",
+  "old": "        await db.execute(\"UPDATE definition_stores SET pushed_at = ? WHERE machine_id = ? AND store_id = ?\",\n                         (now, machine_id, store_id))\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ },
+ {
+  "name": "freshness reads the last change, not the last push",
+  "file": "service/api_core/definition_freshness.py",
+  "old": "(store[\"pushed_at\"] if \"pushed_at\" in store.keys() else None) or store[\"updated_at\"]",
+  "new": "store[\"updated_at\"]",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ },
+ {
+  "name": "the boundary is inclusive",
+  "file": "service/api_core/definition_freshness.py",
+  "old": "now_epoch - pushed_epoch > STALE_AFTER_SECONDS",
+  "new": "now_epoch - pushed_epoch >= STALE_AFTER_SECONDS",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ },
+ {
+  "name": "an unreadable time reads fresh",
+  "file": "service/api_core/definition_freshness.py",
+  "old": "stale = pushed_epoch is None or now_epoch is None or now_epoch",
+  "new": "stale = pushed_epoch is not None and now_epoch is not None and now_epoch",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ },
+ {
+  "name": "the environment list does not carry it",
+  "file": "service/routers/environments.py",
+  "old": "definitions=definition_freshness(stores[row[\"id\"]], now) if row[\"id\"] in stores else None)",
+  "new": "definitions=None)",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ }
+]

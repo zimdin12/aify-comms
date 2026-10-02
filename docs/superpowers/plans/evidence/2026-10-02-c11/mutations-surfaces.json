@@ -1,0 +1,51 @@
+[
+ {
+  "name": "the badge never draws",
+  "file": "service/new_dashboard/environments-panels.mjs",
+  "old": "  if (!notice) return '';\n  const title = 'These agent definitions",
+  "new": "  return '';\n  const title = 'These agent definitions",
+  "test": "cd service/new_dashboard && node --test environments-panels.test.mjs render-memo.test.mjs"
+ },
+ {
+  "name": "the card does not call the badge",
+  "file": "service/new_dashboard/environments-panels.mjs",
+  "old": "${unknownProcessBadge(env)}${staleDefinitionsBadge(env)}</p>",
+  "new": "${unknownProcessBadge(env)}</p>",
+  "test": "cd service/new_dashboard && node --test environments-panels.test.mjs render-memo.test.mjs"
+ },
+ {
+  "name": "the memo signature omits the notice",
+  "file": "service/new_dashboard/render-memo.mjs",
+  "old": "  e.definitions?.notice,\n",
+  "new": "",
+  "test": "cd service/new_dashboard && node --test environments-panels.test.mjs render-memo.test.mjs"
+ },
+ {
+  "name": "the doctor ignores a stale host",
+  "file": "mcp/stdio/definitions-fresh-check.mjs",
+  "old": "  if (stale.length) {",
+  "new": "  if (false) {",
+  "test": "cd mcp/stdio && node --test tests/definitions-fresh-check.test.js"
+ },
+ {
+  "name": "the doctor reads an unread service as no host",
+  "file": "mcp/stdio/definitions-fresh-check.mjs",
+  "old": "  if (environments === null || environments === undefined) {",
+  "new": "  if (false) {",
+  "test": "cd mcp/stdio && node --test tests/definitions-fresh-check.test.js"
+ },
+ {
+  "name": "the doctor reads an older service as no host",
+  "file": "mcp/stdio/definitions-fresh-check.mjs",
+  "old": "  if (rows.length && rows.every((env) => !(\"definitions\" in env))) {",
+  "new": "  if (false) {",
+  "test": "cd mcp/stdio && node --test tests/definitions-fresh-check.test.js"
+ },
+ {
+  "name": "the call site drops the null",
+  "file": "mcp/stdio/doctor.js",
+  "old": "definitionsFreshVerdict({ environments: rows })",
+  "new": "definitionsFreshVerdict({ environments: rows || [] })",
+  "test": "cd mcp/stdio && node --test tests/definitions-fresh-check.test.js"
+ }
+]

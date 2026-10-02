@@ -28,7 +28,7 @@ export const SLICE_TABLES = Object.freeze({
   ]),
   environments: Object.freeze([
     'environments', 'environment_controls', 'bridge_instances', 'agents', 'agent_sessions',
-    'terminal_sessions', 'spawn_requests', 'spawn_specs', 'settings',
+    'terminal_sessions', 'spawn_requests', 'spawn_specs', 'settings', 'definition_stores',
   ]),
   spawnRequests: Object.freeze(['spawn_requests', 'spawn_specs', 'environments']),
   stats: Object.freeze([

@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { checkOpenAiUsageAccess } from "./usage-collector.js";
 import { spawnQueueVerdict } from "./spawn-queue-check.mjs";
 import { tierVersionVerdict } from "./tier-version-check.mjs";
+import { definitionsFreshVerdict } from "./definitions-fresh-check.mjs";
 import { checkEnvCodeCurrency } from "./env-code-currency-check.mjs";
 import { clientApiKeyVerdict, credentialPolicyFrom } from "./client-api-key-check.mjs";
 import { checkClaudeLogin } from "./claude-auth-check.mjs";
@@ -708,6 +709,10 @@ await checkSpawnDelegation();
   const rows = envListing ? (envListing.environments || []) : null;
   const verdict = tierVersionVerdict({ environments: rows, isLive: envCanClaimASpawn });
   add("tier-version", verdict.ok, verdict.code, verdict.detail, verdict.fix);
+  // ARE THE HOSTS THAT DEFINE AGENTS HERE STILL PUSHING THEM (P0 C11). Same listing, the service's sentence.
+  const fresh = definitionsFreshVerdict({ environments: rows });
+  if (fresh.skipped) skip("definitions-fresh", fresh.detail);
+  else add("definitions-fresh", fresh.ok, fresh.code, fresh.detail, fresh.fix);
 }
 // CAN THE CLIENTS ON THIS HOST ACTUALLY AUTHENTICATE. A service that refuses unauthenticated calls
 // plus a client whose MCP entry carries no key means every call from that runtime's agents returns

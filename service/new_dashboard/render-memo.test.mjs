@@ -359,6 +359,7 @@ test("every environment field renderRuntime reads moves the signature", () => {
     'metadata.manualRoots': { metadata: { ...envWith({}).metadata, manualRoots: ['/z'] } },
     runtimes: { runtimes: [{ runtime: 'codex', available: false }] },
     cwdRoots: { cwdRoots: ['/a', '/b'] },
+    'definitions.notice': { definitions: { notice: 'definitions from win32:box not refreshed since 2026-10-02T10:00:00Z' } },
   };
   for (const [field, over] of Object.entries(cases)) {
     assert.notEqual(envSigOf(envWith(over)), base, `${field} is rendered but does not move the signature`);

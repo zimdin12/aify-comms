@@ -93,6 +93,8 @@ export const _envSig = () => state.environments.map((e) => [
   // Runtime pills and workspace roots are rendered per environment and change when a host is
   // re-described — which, since aify-env began advertising, happens without the status moving.
   JSON.stringify(e.runtimes ?? null), JSON.stringify(e.cwdRoots ?? null),
+  // `staleDefinitionsBadge`: the service's sentence, so it repaints when a host stops or resumes pushing.
+  e.definitions?.notice,
 ]);
 export const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.agentId, r.error, r.updatedAt]);
 export const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);

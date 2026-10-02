@@ -95,6 +95,19 @@ function offlineAge(env) {
  * build, or a `/version` that has not answered yet, is no evidence at all -- and a badge that
  * appeared on every load until the first poll is one nobody would read twice.
  */
+/**
+ * A badge when this host has stopped pushing its agent definitions (P0 C11). Its definitions keep
+ * governing as last pushed, so the operator must see that nothing is refreshing them. The sentence is
+ * the service's (`definitions.notice`), printed as given; empty while the host pushes.
+ */
+export function staleDefinitionsBadge(env) {
+  const notice = String((env && env.definitions && env.definitions.notice) || '').trim();
+  if (!notice) return '';
+  const title = 'These agent definitions still govern as last pushed. aify-env on that machine pushes '
+    + 'every minute while it runs: check it is running and current (aify-env doctor there).';
+  return `<span class="mb mb-warn" title="${esc(title)}">${esc(notice)}</span>`;
+}
+
 export function staleBridgeBadge(env, serviceBuild = serviceBuildShort()) {
   const bridgeBuild = String((env && env.metadata && env.metadata.bridgeBuild) || '').trim();
   const service = String(serviceBuild || '').trim();
@@ -190,7 +203,7 @@ export function renderRuntime() {
   byId('environment-list').innerHTML = state.environments.map((env) => `
     <article class="runtime-card" data-kind="environment" data-id="${esc(env.id)}">
       <div class="item-title"><strong>${esc(env.label || env.id)}</strong>${renderStatusChip(env.status, statusWhyContext('environment', env, env.status))}</div>
-      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${staleCodeBadge(env)}${unknownProcessBadge(env)}</p>
+      <p class="preview">${esc(env.kind || env.os || '')} · ${esc(env.machineId || '')}${offlineAge(env)}${staleBridgeBadge(env)}${staleCodeBadge(env)}${unknownProcessBadge(env)}${staleDefinitionsBadge(env)}</p>
       ${terminalReasonNote(env)}
       <div class="env-runtime-list">
         ${environmentRuntimes(env).map((runtime) => `<span class="env-runtime-pill${runtime.available === false ? ' unavailable' : ''}">${esc(runtime.runtime)}${runtime.available === false ? ' (unavailable)' : ''}</span>`).join('') || '<span class="env-runtime-pill unavailable">no runtimes</span>'}

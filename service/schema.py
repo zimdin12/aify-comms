@@ -512,7 +512,9 @@ CREATE TABLE IF NOT EXISTS definition_stores (
     revision INTEGER NOT NULL,
     snapshot_digest TEXT NOT NULL,
     environment_id TEXT DEFAULT '',
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    -- every accepted push, replays included; updated_at moves only when the snapshot changes (C11)
+    pushed_at TEXT
 );
 
 -- Stores a machine has moved on from, for good. A retired store that keeps pushing is two stores

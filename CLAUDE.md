@@ -135,6 +135,7 @@ Neither reads ok.
 | `skills-installed` | a skill edited in the checkout that `install.sh` has not copied out yet |
 | `spawn-delegation` | the aify-env serving this host is not answering, so spawns fail with no cause attached |
 | `tier-version` | the aify-env serving this host is older than `MINIMUM_AIFY_ENV_VERSION` (`tier-version-check.mjs`) |
+| `definitions-fresh` | a host whose agent definitions still govern here has not pushed them for 10 minutes; prints the service's `definitions.notice` (`definitions-fresh-check.mjs`) |
 | `spawn-queue` | a spawn request a host claimed and never started, aged against the service's `SPAWN_ORPHAN_GRACE_SECONDS`; reports, never acts |
 | `managed-orphans` | managed delivery loops (`hermes-managed-host.js run <agent>`) running for an agent no live host owns; reports, never kills |
 | `gateway-orphans` | hermes gateway hosts in aify-comms' port range with no worker behind them or no session in their own `session.active_list` (resident ones too), including unclaimed ports and elevated processes whose command line cannot be read |

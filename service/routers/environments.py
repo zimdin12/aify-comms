@@ -33,6 +33,7 @@ from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
 from service.api_core.records import _environment_record_to_dict
+from service.api_core.definition_freshness import definition_freshness
 from service.api_core.serialization import _json_loads_or, _parsed_timestamp, _timestamp_sort_key
 from service.api_core.runtime import _normalize_runtime
 from service.api_core.settings import _load_settings
@@ -276,8 +277,14 @@ async def list_environments(request: Request):
     try:
         settings = await _load_settings(db)
         cursor = await db.execute("SELECT * FROM environments WHERE status != 'forgotten'")
+        # WHETHER EACH HOST STILL PUSHES ITS DEFINITIONS (P0 C11): null for an environment no store pushes from.
+        stores = {row["environment_id"]: row for row in await (await db.execute(
+            "SELECT machine_id, store_id, revision, environment_id, updated_at, pushed_at FROM definition_stores")).fetchall()}
+        now = _now()
         environments = [
-            _environment_record_to_dict(row, offline_seconds=settings.get("environment_offline_seconds", 90))
+            _environment_record_to_dict(
+                row, offline_seconds=settings.get("environment_offline_seconds", 90),
+                definitions=definition_freshness(stores[row["id"]], now) if row["id"] in stores else None)
             for row in await cursor.fetchall()
         ]
         status_rank = {"online": 0, "degraded": 1, "unknown": 2, "offline": 3, "disabled": 4}

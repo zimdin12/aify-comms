@@ -1,0 +1,11 @@
+killed (exit 1)                  a replay does not stamp the push
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_an_idle_host_stays_fresh_and_a_silent_one_goes_stale
+killed (exit 1)                  freshness reads the last change, not the last push
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_an_idle_host_stays_fresh_and_a_silent_one_goes_stale
+killed (exit 1)                  the boundary is inclusive
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::TheRule::test_the_boundary_is_ten_minutes - Assert...
+killed (exit 1)                  an unreadable time reads fresh
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::TheRule::test_an_unreadable_time_is_stale_not_fresh
+killed (exit 1)                  the environment list does not carry it
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_an_idle_host_stays_fresh_and_a_silent_one_goes_stale
+5/5 killed
