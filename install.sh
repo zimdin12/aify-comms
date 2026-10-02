@@ -789,6 +789,7 @@ NODE
 }
 
 install_hermes_wrapper() {
+  bash "$SCRIPT_DIR/scripts/hermes-session-servers.sh" --check "$AIFY_SERVICE_REGISTRY" || exit $?
   local wrapper_dir="${EMIT_WRAPPERS_DIR:-$HOME/.local/bin}"
   local wrapper_path="$wrapper_dir/hermes-aify"
   local hermes_plugin_path="$SCRIPT_DIR/integrations/hermes-aify-plugin"
@@ -2150,14 +2151,13 @@ elif [ "$CLIENT" = "hermes" ]; then
   # is what gives the in-session hermes agent the comms_* tools for self-reply.
   install_hermes_plugin
   install_hermes_wrapper
+  bash "$SCRIPT_DIR/scripts/hermes-session-servers.sh" "$AIFY_SERVICE_REGISTRY" \
+    || { echo "install.sh: hermes-aify is installed, but the hermes config step above did not finish." >&2; exit 78; }
   # Turn-start (pre_llm_call), turn-end (on_session_end) and approval
   # (pre_approval_request / post_approval_response) shell hooks; see install_hermes_turn_hooks.
   install_hermes_turn_hooks
   echo "  New hermes hooks run only once approved: see 'hermes hooks list'; approve at hermes' prompt or --accept-hooks."
-  # Post-install LOUD probe (Plan 1.4 Step 4): there is no silent success path.
-  # We cannot ensure a real per-agent daemon at install time without an agent
-  # id, but we MUST tell the operator the daemon is brought up lazily at launch
-  # and how it fails loudly if it can't — replacing the old patch's silent path.
+  # No per-agent daemon exists at install time (no agent id), so say it starts at launch and fails loudly.
   echo "Hermes delivery (managed AND resident): hermes-aify brings up a per-agent"
   echo "  hidden tui_gateway host (node mcp/stdio/hermes-managed-host.js ensure-host"
   echo "  <agentId>) + a background delivery loop that prompt.submits into the visible"
