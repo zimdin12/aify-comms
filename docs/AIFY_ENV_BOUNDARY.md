@@ -14,13 +14,15 @@ This is the answer to that blocker.
 
 | | Owns | Knows about |
 |---|---|---|
-| **aify-wrapper** | The four launchers. Installs one per harness present. | Harnesses. Not services. |
-| **aify-env** | Processes and PTYs on this host. One per host. Answers `aify-env doctor`. | Neither, in its HOST tier. Its service PLUGINS know their own service — see the carve-out below. |
-| **aify-comms** | Messaging, dispatch, channels, agent semantics. | Agents. On a host it is only a verifier command that starts nothing. |
+| **aify-wrapper** | The four launchers. Installs one per harness present. Reads its agent's definition as defaults (0.8). | Harnesses. Not services. |
+| **aify-env** | Processes and PTYs on this host, and since 0.8 the agent definitions (`~/.aify/agent-definitions/`, one writer). One per host. Answers `aify-env doctor`. | Neither, in its HOST tier. Its service PLUGINS know their own service, push the definitions to it and apply its change requests — see the carve-out below. |
+| **aify-comms** | Messaging, dispatch, channels, agent semantics, and a copy of each host's definitions. | Agents. On a host it is only a verifier command that starts nothing. |
 | **aify-dashboard** | Agent-pushed HTML, liveness pages, tasks, docs, projects. | Reads the others. |
 
 Both aify-wrapper and aify-env read **the same config**, `~/.aify/services.json`, and connect to the
-same registered services. One file, two readers, no second source of truth.
+same registered services. One file, two readers, no second source of truth. The agent definitions
+follow the same rule: aify-env writes them, the launchers read them, and a service's copy is pushed,
+never edited in place.
 
 ### The plugin carve-out, and the line it does NOT move — 2026-09-08
 

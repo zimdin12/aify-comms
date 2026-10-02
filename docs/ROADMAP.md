@@ -36,7 +36,7 @@ translation nor a PowerShell helper can ship, are in KNOWN_ISSUES.md.
 
 ## 0.8: aify-env owns the agents
 
-Planned and under way on the `next/env-owned-agents` branches:
+Built on the `next/env-owned-agents` branches, in review before the operator's merge:
 `docs/superpowers/plans/2026-09-30-aify-env-owns-the-agents.md` and its P0 contracts. The operator's
 shape, 2026-09-30:
 
@@ -47,17 +47,31 @@ shape, 2026-09-30:
   aify-env has a plugin per service that switches on when the service is detected.
 - **aify-wrapper can also talk to a service directly**, so an agent still starts when aify-env is down.
 
-Leaning, to be decided in the plan:
+What was built:
 
-- Agent definitions are files in `~/.aify` (one per agent), not a database: desired state that
-  changes when the operator changes it, readable without a daemon, diffable in git. One writer per
-  file, atomic writes, a version field, as `~/.aify/services.json` already does.
+- Agent definitions are files, one per agent in `~/.aify/agent-definitions/`, written only by
+  aify-env's store (`aify-env agents`): one writer, atomic and crash-recoverable writes, a version.
 - Live and historical state (sessions, messages, runs, status) stays in the services.
-- The per-agent herdr-space setting moves into the definition file.
+- Model, effort and the herdr-space setting are definition fields; the launchers read their agent's
+  definition as defaults.
+- Each host pushes its own definitions to each service, per environment, so a second machine is a
+  second set rather than a second copy of one. An edit made in a service to a defined agent becomes a
+  change request the host applies.
+- Nothing migrates by itself: `aify-env agents import` prints a plan, and `--write` carries it out.
 
-Open questions the plan must answer: whether agents run on more than one machine (the other PC,
-WSL), and if so how per-host definitions become one fleet view without two copies drifting; and the
-migration path from aify-comms' `agents` and `spawn_specs` tables.
+## After 0.8: aify-comms becomes a pure comms service
+
+The operator, 2026-10-02. Each repo's doctor checks only its own responsibilities. In order:
+
+1. **Turn state comes from aify-env.** The launchers' hooks report turn state to aify-env, which sends
+   each agent's state change to every service that opts in with its own registry field. aify-dashboard
+   then needs no aify-comms connection for status, and aify-comms keeps only the messaging facts on top
+   (a message waiting, a reply owed). aify-env starts, stops and restarts agents from their definitions;
+   aify-comms decides that a message should wake an agent, and asks.
+2. **The hermes gateway host moves to aify-env**: starting it, killing a prior one, reaping orphans,
+   resume markers. Putting a message into a runtime session stays aify-comms' delivery.
+3. With them: the host checks in aify-comms' doctor (processes, orphans, context window, claude login),
+   console streaming read from aify-env, and the usage and quota readers.
 
 ## After that: harness-swappable session transcripts (experimental)
 

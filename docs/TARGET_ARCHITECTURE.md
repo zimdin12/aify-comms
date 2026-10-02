@@ -10,8 +10,8 @@ is the thing that is wrong. Where the system has not reached the target yet, the
 | where | what it is | owns |
 |---|---|---|
 | **the container** | aify-comms | its own database, its own config, its own doctor. Reached over HTTP. |
-| **the host** (windows / linux / mac) | `aify-env` and the `*-aify` launchers | processes, terminals, and launching runtimes |
-| **`~/.aify`** | the shared config directory | read and written by aify-env and the launchers, on the host |
+| **the host** (windows / linux / mac) | `aify-env` and the `*-aify` launchers | processes, terminals, launching runtimes, and which agents exist and how each launches (0.8) |
+| **`~/.aify`** | the shared config directory | read and written by aify-env and the launchers, on the host: the service registry, and one definition file per agent that only aify-env writes |
 
 The container is a service. The host is where agents actually run. `~/.aify` is how the host-side
 pieces agree with each other without a fourth component to coordinate them.
@@ -76,9 +76,13 @@ exists to end, so a retired aify-comms environment bridge still running somewher
 claimer role from aify-env. `aify-comms doctor`'s `spawn-delegation` says whether the aify-env serving
 this host is answering.
 
+An agent's definition is the host's; a service holds a copy aify-env pushes, and an edit made in a
+service to a defined agent is a request the host applies. Live and historical state (sessions,
+messages, runs, status) stays in the services.
+
 ## What is left
 
-Three gaps between the system and the target.
+Four gaps between the system and the target.
 
 1. **The client path still installs aify-comms code.** aify-comms' own `install.sh --client <runtime>`
    is today the client installer: it writes the service's entry into `~/.aify/services.json` and copies
@@ -108,6 +112,13 @@ Three gaps between the system and the target.
    but the only sender was the environment bridge that v0.6.3 deleted, and aify-env does not send
    them. Until it does, the service cannot answer questions about a host's launchers;
    `aify-wrapper-check` on that host can.
+
+4. **aify-comms still runs host work.** The operator, 2026-10-02: aify-comms becomes a pure comms
+   service, and each repo's doctor checks only its own responsibilities. Still in aify-comms: the hermes
+   gateway host (starting it, killing a prior one, reaping orphans, resume markers), deriving turn status
+   from hook POSTs, and host checks in its doctor (processes, orphans, context window, claude login).
+   They move to aify-env, which will report turn state to services that opt in. Putting a message into a
+   runtime session stays aify-comms' delivery. docs/ROADMAP.md, "Next", has the order.
 
 When the first two are closed, PATH holds `aify-env`, the launchers and aify-wrapper's commands, and nothing
 from aify-comms.

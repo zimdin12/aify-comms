@@ -6,6 +6,26 @@ fix. Superseded entries and dated fix batches are in
 [docs/history/DECISIONS-archive.md](docs/history/DECISIONS-archive.md), kept as evidence, not
 instruction.
 
+## aify-env owns the agents; this service holds a copy (2026-09-30, 0.8)
+
+**Decision.** Which agents exist on a host and how each launches is that host's: one definition file
+per agent in `~/.aify/agent-definitions/`, written only by aify-env. aify-env's plugin pushes them here
+per environment, and the service keeps them as a projection. A defined agent's role, name, model,
+effort, workspace and herdr space are its definition's: an edit made here becomes a change request the
+host claims and applies, and the answer says so instead of writing the row. An agent with no
+definition behaves as before, and nothing is migrated until the operator runs `aify-env agents import
+--write`. The plan and its contracts: `docs/superpowers/plans/2026-09-30-aify-env-owns-the-agents{,-P0}.md`.
+
+**Why.** Before 0.8 nobody owned it. The `agents` row, `spawn_specs`, the newest session row and
+`spawn_requests` each held part of an agent and overwrote each other: starting a stopped agent from the
+dashboard, or messaging it, reset its role to `coder`, and a boot cleared its instructions.
+
+**Changing an agent's model and data is the operator's (Steven, 2026-10-02).** With an `OPERATOR_KEY`
+set, `PATCH /agents/{id}/effort` and `PATCH /agents/{id}/usage-source` refuse a caller that does not
+present it (403), for every agent, before anything is read. `PATCH .../herdr-space` stays open for an
+undefined agent, by the same ruling: it is a display preference, set from the herdr menu through
+aify-env's plugin, which holds no operator key.
+
 ## One launcher per harness on Windows too: hermes' PowerShell launcher is gone (2026-10-01, 0.8)
 
 **Decision.** `hermes-aify.cmd` runs the bash `hermes-aify` through Git Bash, as `claude-aify.cmd` and

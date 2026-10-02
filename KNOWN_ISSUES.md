@@ -5,6 +5,19 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+## The installer's hermes entry is written by a line splice (found 2026-10-02)
+
+`scripts/hermes-mcp-config.mjs` adds aify-comms to a hermes `config.yaml` by finding `^mcp_servers:` and
+`^  aify-comms:` with regular expressions and splicing text lines. Its own header records a 2026-09-28
+write that landed under `plugins:` and left the file unparseable. A config hermes wrote in flow style has
+no `^mcp_servers:` line at all. hermes' own writer does the same job without a parser of ours:
+`hermes config set mcp_servers.<name> '<JSON>'`, `config get` and `config unset`, measured
+non-interactive with the operator's comments and other servers kept (aify-dashboard
+docs/evidence/hermes-session-mcp-2026-10-02/config-set-writer.txt). aify-wrapper's hermes session
+entries are being built on it; moving this installer's own entry is open. Any install-time hermes call
+must first refuse when an update is pending (`installs/*/source-completion-pending`): such a call runs
+hermes' update tail first, and an update an elevated install left unfinishable fails there.
+
 ## Left open by the external review of 0.7.1 (2026-09-26)
 
 0.7.2 fixed the review's two security findings and items 3 and 6, and changed items 4 and 5 as far as
