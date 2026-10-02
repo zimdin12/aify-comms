@@ -83,6 +83,7 @@ Python statement:
 |---|---|
 | no `firedAtUs` | applies, outside the ordering |
 | a lifetime other than the agent's current adopted one | refused and logged |
+| names no lifetime (a launcher from before 0.9), or the agent has none adopted yet | not refused by the lifetime check, as a hook naming no machine is not refused today; the timestamp rules below still apply |
 | the first event of a lifetime | applies |
 | fired later than the last applied event of that lifetime | applies |
 | the same microsecond, and a `turn-end` | applies (end wins a tie) |
@@ -119,8 +120,9 @@ ported unchanged, under two rules that are published side by side (`turn.busyIf`
 | # | condition | state | cause |
 |---|---|---|---|
 | 1 | `lifecycle.stoppedByOperator` | `stopped` | operator-stop |
+| 1a | a conflict: two verified lifetimes, or one agent from two instances (C4) | `unknown` | conflict |
 | 2 | definition invalid, harness not installed, or runtime unknown, and no running process | `misconfigured` | config |
-| 3 | process `unknown` (the probe cannot answer) | `unknown` | probe |
+| 3 | process `unknown`, or running with its identity `unknown` (C4) | `unknown` | identity-unknown |
 | 4 | process running and verified; fresh screen `working` or `blocked` | that word | screen |
 | 5 | process running and verified; turn busy | `blocked` if awaiting input, else `working` | turn-open |
 | 6 | process running and verified; fresh screen `shell`, or background shells | `shell` | at-prompt |
@@ -233,7 +235,8 @@ One pure function, called by the poll, the push and every reader. Its inputs:
 | # | case | status | note |
 |---|---|---|---|
 | 1 | an undefined agent the operator stopped (aify-comms' flag, D8) | `stopped` | "stopped by <actor>" |
-| 2 | no record | `offline` | "environment not reporting" |
+| 2 | no record, and an undefined managed agent aify-comms can still cold-start by its own spawn path (D8) | `available` | "not defined in aify-env" |
+| 2b | no record | `offline` | "environment not reporting" |
 | 3 | a stale record | `offline` | "environment not reporting since <time>" |
 | 4 | a conflict record | `unknown` | names both lifetimes |
 | 5 | a run aify-comms delivered is running, and the record's state is `idle`, `shell`, `starting` or `available` | `working` | "running <run>" |
