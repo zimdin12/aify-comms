@@ -182,6 +182,22 @@ def test_an_earlier_installs_powershell_launcher_is_removed(tmp_path):
     assert keep.exists(), "only the launcher's own file is removed"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="install.sh writes the .cmd shims only under Git Bash on Windows")
+def test_the_cmd_returns_the_launchers_exit_status(tmp_path):
+    """A refusal is 78 through the .cmd, as it is from bash (review of P6r2: `endlocal` ended it with 0).
+
+    The real shim, run by cmd.exe, in front of a stand-in launcher whose only act is its exit status."""
+    result = subprocess.run([bash(), INSTALL_SH.as_posix(), "--client", "hermes", NOWHERE_URL,
+                             "--emit-wrappers", tmp_path.as_posix()], capture_output=True, text=True, timeout=600)
+    assert result.returncode == 0, result.stdout + result.stderr
+    launcher_path = tmp_path / "hermes-aify"
+    for status in (78, 0, 3):
+        launcher_path.write_text(f"#!/bin/bash\nexit {status}\n", encoding="utf-8", newline="\n")
+        ran = subprocess.run(["cmd.exe", "/d", "/c", str(tmp_path / "hermes-aify.cmd")],
+                             capture_output=True, text=True, timeout=120)
+        assert ran.returncode == status, f"exit {status} came back as {ran.returncode}: {ran.stdout}{ran.stderr}"
+
+
 def test_hermes_visible_bind_falls_back_to_single_active_session():
     """If the saved handle is stale but this wrapper gateway has exactly one
     visible session, bind to that session instead of failing or forking hidden.

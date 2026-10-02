@@ -1098,7 +1098,10 @@ install_windows_cmd_shim() {
     printf '%s\r\n' "for %%I in (\"$bash_path\") do set \"AIFY_BASH_DIR=%%~dpI\""
     printf '%s\r\n' 'set "PATH=%AIFY_BASH_DIR%;%AIFY_BASH_DIR%..\usr\bin;%AIFY_BASH_DIR%..\..\bin;%PATH%"'
     printf '%s\r\n' "\"$bash_path\" \"%~dp0$wrapper_name\" %*"
-    printf '%s\r\n' 'endlocal'
+    # The launcher's exit status, through `endlocal`, which would otherwise end the shim with 0: a launcher
+    # that refused (78) read as a clean exit to whatever ran the command (review of P6r2).
+    printf '%s\r\n' 'set "AIFY_EXIT=%ERRORLEVEL%"'
+    printf '%s\r\n' 'endlocal & exit /b %AIFY_EXIT%'
   } > "$shim_path"
 
   [ -n "$EMIT_WRAPPERS_DIR" ] || bash "$SCRIPT_DIR/scripts/add-to-user-path.sh" "$wrapper_dir"
