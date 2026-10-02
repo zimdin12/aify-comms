@@ -93,7 +93,9 @@ copy is deleted.
 
 **D2. aify-comms decides delivery from aify-env's busy (C6).** Hold delivery while aify-env says the turn is busy, or
 while aify-comms' own delivered run is in flight. Both halves exist today, merged into one table. The badge is
-aify-env's word; aify-comms' delivery facts become notes and a `deliverable` flag, never a different word.
+aify-env's word, with two exceptions, both aify-comms' own facts (C6): a run it is delivering shows as `working` (today's
+promotion), and an undefined agent the operator stopped shows as `stopped`. Every other delivery fact is a note and the
+`deliverable` flag, never a different word.
 
 **D3. Hooks report to their own aify-env instance (C4).** Each instance writes `~/.aify/env/<instance>.json`. The
 launcher exports `AIFY_ENV_INSTANCE` and `AIFY_LIFETIME`, so a hook addresses the instance that adopted its agent
