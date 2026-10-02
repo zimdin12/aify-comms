@@ -112,6 +112,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
     )
     from service.api_core.settings import _load_settings
     from service.reconcilers.owed_removals import finish_owed_removals
+    from service.reconcilers.definition_staleness import report_definition_staleness
+    from service.clock import now as _clock_now
     from service.api_core.status_refresh import _refresh_expired_agent_live_states
     from service.api_core.managed_env import load_session_environment_by_agent
     from service.api_core.dispatch_sweeps import _run_contract_reminders_once
@@ -346,6 +348,8 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
         await _refresh_expired_agent_live_states(db, environments_by_machine=environments_by_machine,
                                                session_environment_by_agent=session_environment_by_agent)
         await db.commit()
+        # A host's definitions going stale is the clock's doing, so no write announces it (P0 C11).
+        definition_staleness_moved = await report_definition_staleness(db, _clock_now())
         # WAL checkpoint hygiene (2026-06-18). WAL mode + connection-per-request +
         # CONTINUOUS dashboard polling (~40 short reads/s across both dashboards) means
         # the passive auto-checkpoint (1000 pages) can almost never advance past the
@@ -418,6 +422,7 @@ async def _run_dispatch_reconcile_once() -> dict[str, int]:
             "released_terminal_tails": released_tails,
             "pruned_superseded_bridges": pruned_bridges,
             "pruned_orphaned_dispatch_runs": pruned_orphaned_runs,
+            "definition_staleness_moved": definition_staleness_moved,
             **{f"pruned_{key}": int(value or 0) for key, value in pruned.items()},
         }
     finally:

@@ -61,6 +61,8 @@ LIVENESS_WRITES: Mapping[str, Optional[frozenset]] = {
         "output", "output_at", "output_seq", "updated_at",
         "activity_state", "activity_rule", "activity_observed_at",
     }),
+    # A replayed definition push stamps only this, every minute per host: a heartbeat, not a change.
+    "definition_stores": frozenset({"pushed_at"}),
 }
 
 #: Claim long-polls to wake when a table they claim from COMMITS a change, keyed by table.
@@ -223,6 +225,14 @@ class ChangeFeed:
         if self._manager is None:
             return
         self._changed.add("agents")
+        self._schedule()
+
+    def derived_moved(self, table: str) -> None:
+        """Something derived from `table` changed with no write: the clock moved it. Reported as a change
+        to that table, so the slices reading it refetch (reconcilers/definition_staleness.py)."""
+        if self._manager is None:
+            return
+        self._changed.add(table)
         self._schedule()
 
     # ── output ───────────────────────────────────────────────────────────────────────────────────

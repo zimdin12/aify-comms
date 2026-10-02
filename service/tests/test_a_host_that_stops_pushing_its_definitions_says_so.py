@@ -57,10 +57,59 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
             self.assertEqual(self.definitions(A["env"])["notRefreshedSince"], None, "a replay is a push")
             self.assertEqual(self.definitions(A["env"])["pushedAt"], LATER)
 
+    def test_THE_SWEEP_tells_a_connected_dashboard_when_a_host_goes_stale(self):
+        """Nothing is written when a host stops pushing, so a dashboard holding its socket heard nothing and
+        kept a fresh card for an hour (comms-senior-dev's review of cbcc26d0). The 60 s sweep reports the
+        moment the stale set moves, as a change to `definition_stores`, which the environments slice reads."""
+        import asyncio
+        from unittest import mock
+
+        import service.main as service_main
+        from service.reconcilers import definition_staleness
+
+        class Feed:
+            def __init__(self):
+                self.moved = []
+
+            def derived_moved(self, table):
+                self.moved.append(table)
+
+        feed = Feed()
+        with mock.patch.object(definition_staleness, "TRACKER", definition_staleness.DefinitionStaleness()), \
+                mock.patch.object(definition_staleness, "CHANGE_FEED", feed):
+            with frozen_service_clock(T0):
+                self.push(1, [valid("worker")])
+                first = asyncio.run(service_main._run_dispatch_reconcile_once())
+            with frozen_service_clock(LATER):
+                crossed = asyncio.run(service_main._run_dispatch_reconcile_once())
+                again = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual([first["definition_staleness_moved"], crossed["definition_staleness_moved"],
+                          again["definition_staleness_moved"]], [0, 1, 0], "reported once, when it moved")
+        self.assertEqual(feed.moved, ["definition_stores"])
+
     def test_an_environment_no_store_pushes_from_carries_none(self):
         with frozen_service_clock(T0):
             self.push(1, [valid("worker")])
         self.assertIsNone(self.definitions(B["env"]))
+
+
+class TheTracker(unittest.TestCase):
+    def test_it_reports_a_move_and_nothing_else(self):
+        from service.reconcilers.definition_staleness import DefinitionStaleness
+        tracker = DefinitionStaleness()
+        self.assertFalse(tracker.moved(frozenset({"m"})), "a first pass has nothing to differ from")
+        self.assertFalse(tracker.moved(frozenset({"m"})), "the same set is not a move")
+        self.assertTrue(tracker.moved(frozenset()), "fresh again is a move")
+        self.assertTrue(tracker.moved(frozenset({"n"})), "another machine is a move")
+
+
+class TheFeed(unittest.TestCase):
+    def test_a_replay_stamp_is_liveness_and_a_snapshot_change_is_not(self):
+        from service.change_feed import written_table
+        replay = written_table("UPDATE definition_stores SET pushed_at = ? WHERE machine_id = ? AND store_id = ?")
+        self.assertTrue(replay.liveness, "a minute's replay must coalesce like a heartbeat")
+        change = written_table("UPDATE definition_stores SET outcome = ? WHERE machine_id = ?")
+        self.assertFalse(change.liveness)
 
 
 class TheRule(unittest.TestCase):

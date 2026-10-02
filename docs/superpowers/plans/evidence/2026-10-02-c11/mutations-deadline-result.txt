@@ -1,0 +1,12 @@
+killed (exit 1)                  the sweep never checks staleness
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_THE_SWEEP_tells_a_connected_dashboard_when_a_host_goes_stale
+killed (exit 1)                  a move is not reported to the feed
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_THE_SWEEP_tells_a_connected_dashboard_when_a_host_goes_stale
+killed (exit 1)                  the tracker reports every pass
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_THE_SWEEP_tells_a_connected_dashboard_when_a_host_goes_stale
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::TheTracker::test_it_reports_a_move_and_nothing_else
+killed (exit 1)                  a replay stamp counts as a change
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::TheFeed::test_a_replay_stamp_is_liveness_and_a_snapshot_change_is_not
+killed (exit 1)                  the environments slice does not read definition_stores
+                                  FAILED service/tests/test_the_dashboard_slices_name_every_table_they_read.py::TheDashboardSlicesNameEveryTableTheyRead::test_no_endpoint_reads_a_table_its_slice_does_not_name
+5/5 killed
