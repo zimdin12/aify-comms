@@ -16,8 +16,10 @@ watched red on the reviewed code and mutants that re-open it.
 
 ## The choice in H3
 
-The review offered two ways: make every producer and consumer obey "the marked session, else the only one, else
-none", or narrow the authority. Production's law is recency. Delivery takes the marked session by its live id,
+The bridge lane's report (`bridge-install-review/REPORT.md` in the P6r2 review) named two ways: make every producer
+and consumer obey "the marked session, else the only one, else none", or obtain a narrower authority amendment.
+The parent verdict asked for the first, so this is a newly submitted amendment, not an option the verdict gave
+(corrected after the review of P6r3). Production's law is recency. Delivery takes the marked session by its live id,
 else the newest. The resume sync rewrites the marker to the newest session's durable key every pass. So a marker
 is usually a durable key that names no live id, and delivery goes to the newest. Making delivery refuse that would
 change live delivery on evidence of no harm. The effort now follows delivery instead, and the C9 text is amended.

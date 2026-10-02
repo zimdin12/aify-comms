@@ -536,7 +536,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     return { released: false, processed: totalProcessed, residentLost: true };
   };
   try {
-    stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
+    // Not once a teardown has begun: one requested during the gateway bring-up found nothing to stop, and
+    // the effort acquired after it set a session anyway (review of P6r3, H4). `done` is set on entry.
+    if (!teardownState.done) stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
         if (!serverUrl) {

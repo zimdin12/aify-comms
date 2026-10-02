@@ -849,6 +849,30 @@ test("runDeliveryLoop: giving up stops the reasoning effort before it reports th
   assert.equal(events[0], "effort stopped", events.join(", "));
 });
 
+test("runDeliveryLoop: a teardown requested during the gateway bring-up means no reasoning effort is started (review of P6r3, H4)", async () => {
+  // The shutdown handler is installed before the bring-up; a teardown entered while the bring-up awaits
+  // had nothing to stop yet, and the effort acquired once the bring-up returned set a session anyway.
+  const { spawn } = makeFakeSpawn();
+  const { httpCall } = makeAifyHttp();
+  let teardown = null;
+  let requested = false;
+  const fetchOk = makeFakeFetch();
+  const started = [];
+  await runDeliveryLoop("sc-hermes", {
+    httpCall, spawnImpl: spawn, serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
+    clearMarkers: async () => {}, sleepImpl: async () => {},
+    openWs: async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); },
+    installTeardown: (opts) => { teardown = opts.teardown; },
+    fetchImpl: async (...args) => {
+      if (!requested && teardown) { requested = true; void teardown(); }
+      return fetchOk(...args);
+    },
+    sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => {}; },
+  });
+  assert.ok(requested, "positive control: the teardown was requested during the bring-up");
+  assert.equal(started.length, 0);
+});
+
 test("runDeliveryLoop: a gateway bring-up that runs out of attempts leaves no reasoning effort running (review of P6r2, H4)", async () => {
   // That return comes before the loop's try, so its finally never ran. The effort now starts inside it.
   const { httpCall } = makeAifyHttp();

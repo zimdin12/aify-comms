@@ -1,0 +1,16 @@
+[
+ {
+  "name": "H4 an effort is acquired after a teardown has begun",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "    if (!teardownState.done) stopEffort = startEffort(",
+  "new": "    stopEffort = startEffort(",
+  "test": "node --test tests/hermes-managed-host.test.js"
+ },
+ {
+  "name": "H4 the effort is never acquired",
+  "file": "hermes-delivery-loop.mjs",
+  "old": "    if (!teardownState.done) stopEffort = startEffort(",
+  "new": "    if (false) stopEffort = startEffort(",
+  "test": "node --test tests/hermes-managed-host.test.js"
+ }
+]
