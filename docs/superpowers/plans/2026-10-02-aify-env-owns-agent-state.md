@@ -91,8 +91,8 @@ vocabulary is `working`, `blocked`, `idle`, `shell`, `starting`, `available`, `o
 status of its own" is superseded, and its reason is kept: the derivation is moved, never duplicated, and aify-comms'
 copy is deleted.
 
-**D2. aify-comms decides delivery from aify-env's busy (C6).** Hold delivery while aify-env says the turn is busy, or
-while aify-comms' own delivered run is in flight. Both halves exist today, merged into one table. The badge is
+**D2. aify-comms decides delivery from aify-env's busy (C6).** Hold delivery while aify-env says the turn is busy (`holdsDelivery`), or
+while a run aify-comms delivered is claimed or running (`runOccupied`): two separate checks, as today. The badge is
 aify-env's word, with two exceptions, both aify-comms' own facts (C6): a run it is delivering shows as `working` (today's
 promotion), and an undefined agent the operator stopped shows as `stopped`. Every other delivery fact is a note and the
 `deliverable` flag, never a different word.
