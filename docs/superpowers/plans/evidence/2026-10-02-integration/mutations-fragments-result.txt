@@ -1,0 +1,8 @@
+killed (exit 1)                  the codex fragment is not printed
+                                  not ok 3 - THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field
+killed (exit 1)                  a refusal of the codex verb does not stop the install
+                                  not ok 3 - THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field
+killed (exit 1)                  install.sh splits the fields on spaces, as before
+                                  not ok 1 - AN OPTED-IN SERVICE is baked into the launcher as the session fragment the pinned package computes
+3/3 killed
+exit=0

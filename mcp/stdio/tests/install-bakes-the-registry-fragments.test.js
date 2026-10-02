@@ -57,6 +57,37 @@ test("CONTROL: a registry with nothing opted in bakes an empty fragment", () => 
   assert.equal(sessionFragment(text), "");
 });
 
+test("THE CODEX FRAGMENT is the third field, as the pinned package computes it, and an empty field stays a field", () => {
+  // scripts/registry-fragment.sh prints "<strict>|<session>|<codex>"; install.sh reads the three by position. No
+  // template carries @@SESSION_MCP_CODEX_B64@@ yet, so the field is read here, from the script itself.
+  const fields = (registryText) => {
+    const dir = tmpDir("aify-fragments-");
+    const registry = path.join(dir, "services.json");
+    fs.writeFileSync(registry, registryText);
+    const run = spawnSync("bash", [path.join(path.dirname(INSTALL_SH), "scripts", "registry-fragment.sh"), registry],
+      { encoding: "utf8", env: RENDER_ENV, timeout: 120_000 });
+    return { run, fields: run.stdout.split("|") };
+  };
+  const opted = fields(JSON.stringify({ version: 1, services: { ...COMMS, "aify-dashboard": DASHBOARD } }));
+  assert.equal(opted.run.status, 0, opted.run.stderr);
+  assert.equal(opted.fields.length, 3, opted.run.stdout);
+  const words = Buffer.from(opted.fields[2], "base64").toString("utf8").split(String.fromCharCode(0));
+  assert.ok(words.some((w) => w.includes("aify-dashboard")), `the opted-in service is not in codex's words: ${words}`);
+  assert.equal(opted.fields[0], "", "nothing set strictMcp, so the strict field is empty and still in its place");
+  assert.ok(opted.fields[1], "the claude session fragment is still the second field");
+  const none = fields(JSON.stringify({ version: 1, services: COMMS }));
+  assert.equal(none.run.stdout, "||", "CONTROL: nothing opted in, three empty fields");
+  const keyed = fields(JSON.stringify({ version: 1, services: { "aify-comms": { ...COMMS["aify-comms"], keyEnv: ["SYNTHETIC_KEY"] },
+    "aify-dashboard": { ...DASHBOARD, endpointEnv: ["SYNTHETIC_KEY"] } } }));
+  assert.equal(keyed.run.status, 78, "a registry handing a neighbour's key to an opted-in service stops the install");
+  // A refusal only the codex verb makes: the registry parses, and both claude fragments compute, but a service
+  // keeping its key in AIFY_AGENT_ID would have it forwarded to every codex MCP server.
+  const agentKey = fields(JSON.stringify({ version: 1, services: { "aify-comms": { ...COMMS["aify-comms"], keyEnv: ["AIFY_AGENT_ID"] },
+    "aify-dashboard": DASHBOARD } }));
+  assert.equal(agentKey.run.status, 78, `the codex verb's own refusal stops the install too: ${agentKey.run.stdout}`);
+  assert.match(agentKey.run.stderr, /cannot be given to codex/);
+});
+
 test("A REGISTRY THE PACKAGE REFUSES stops the install, and no launcher is written", () => {
   const { result, text } = render("{not json");
   assert.equal(result.status, 78, `${result.stdout}\n${result.stderr}`);

@@ -1,0 +1,23 @@
+[
+ {
+  "name": "the codex fragment is not printed",
+  "file": "scripts/registry-fragment.sh",
+  "old": "printf '%s|%s|%s' \"$strict\" \"$session\" \"$codex\"",
+  "new": "printf '%s|%s|' \"$strict\" \"$session\"",
+  "test": "node --test mcp/stdio/tests/install-bakes-the-registry-fragments.test.js"
+ },
+ {
+  "name": "a refusal of the codex verb does not stop the install",
+  "file": "scripts/registry-fragment.sh",
+  "old": "session-codex-b64 \"$(for_node \"$registry\")\")\" || exit $?",
+  "new": "session-codex-b64 \"$(for_node \"$registry\")\")\" || true",
+  "test": "node --test mcp/stdio/tests/install-bakes-the-registry-fragments.test.js"
+ },
+ {
+  "name": "install.sh splits the fields on spaces, as before",
+  "file": "install.sh",
+  "old": "  IFS='|' read -r _aify_strict _aify_session _aify_codex <<<\"$_AIFY_FRAGMENTS\"",
+  "new": "  IFS=' ' read -r _aify_strict _aify_session _aify_codex <<<\"$_AIFY_FRAGMENTS\"",
+  "test": "node --test mcp/stdio/tests/install-bakes-the-registry-fragments.test.js"
+ }
+]

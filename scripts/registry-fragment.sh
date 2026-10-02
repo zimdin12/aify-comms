@@ -3,10 +3,11 @@
 #
 #   bash scripts/registry-fragment.sh [registry-path]
 #
-# Prints "<strict> <session>": `strict-fragment-b64` (the servers a strict-mode claude session adds,
-# from services that set strictMcp) and `session-fragment-b64` (the `--mcp-config` document every
-# default-mode session gets, from services with "sessionInject": {"mcp": true}). Each is base64 and may
-# be empty; base64 holds no space, so the one space separates them. An absent registry is an empty one.
+# Prints "<strict>|<session>|<codex>": `strict-fragment-b64` (the servers a strict-mode claude session adds,
+# from services that set strictMcp), `session-fragment-b64` (the `--mcp-config` document every default-mode
+# claude session gets, from services with "sessionInject": {"mcp": true}) and `session-codex-b64` (codex's
+# `-c` words for the same services). Each is base64 and may be empty; base64 holds no `|`, so the bars
+# separate them and an empty field stays a field. An absent registry is an empty one.
 #
 # FAILS CLOSED, unlike registry-fingerprint.sh. A fingerprint it cannot compute is reported as
 # "unknown" and the launcher says so; a fragment it cannot compute would be rendered as "nothing opted
@@ -31,4 +32,5 @@ if ! command -v node >/dev/null 2>&1 || [ ! -f "$cli" ]; then
 fi
 strict="$(node "$(for_node "$cli")" strict-fragment-b64 "$(for_node "$registry")")" || exit $?
 session="$(node "$(for_node "$cli")" session-fragment-b64 "$(for_node "$registry")")" || exit $?
-printf '%s %s' "$strict" "$session"
+codex="$(node "$(for_node "$cli")" session-codex-b64 "$(for_node "$registry")")" || exit $?
+printf '%s|%s|%s' "$strict" "$session" "$codex"
