@@ -52,7 +52,19 @@ async function scrapeToken(indexUrl, fetchImpl) {
 }
 
 
-async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure } = {}) {
+/**
+ * PURE. The last line the gateway wrote to its stderr log, which is why it never served when it says so.
+ *
+ * 2026-10-02: an unfinished `hermes update` made every dashboard boot re-run the update and fail on a file
+ * an elevated install had locked. Six managed starts reported only "did not become ready within 60000ms:
+ * fetch failed"; the cause was one line in the per-port log nobody was pointed at.
+ */
+export function lastGatewayLogLine(text) {
+  return String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).pop() || "";
+}
+
+
+async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure, explain } = {}) {
   const deadline = Date.now() + deadlineMs;
   let lastErr = null;
   for (;;) {
@@ -76,9 +88,11 @@ async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, 
         if (sig) throw new Error(sig);
       }
       if (Date.now() > deadline) {
+        let said = "";
+        try { said = typeof explain === "function" ? explain() : ""; } catch { said = ""; }
         throw new Error(
           `hermes dashboard at ${indexUrl} did not become ready within ${deadlineMs}ms: ` +
-            (lastErr?.message || String(lastErr)),
+            (said ? `its stderr ends: ${said}` : (lastErr?.message || String(lastErr))),
         );
       }
       await sleep(intervalMs);
@@ -305,6 +319,7 @@ export async function ensureGatewayHost({
 
   const token = await waitForIndexToken(indexUrl, fetchImpl, {
     detectFailure: detectBootFailure,
+    explain: () => lastGatewayLogLine(gwStderrBuf || (gwErrPath ? fs.readFileSync(gwErrPath, "utf8") : "")),
     deadlineMs: readyTimeoutMs,
     intervalMs: readyIntervalMs,
   });
