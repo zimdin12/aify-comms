@@ -89,8 +89,10 @@ the same exposure as today's shared-key hook posts. Per-agent credentials are no
 local-only install whose key the operator chose to keep simple.
 
 **D4. A resident is a record, not an event.** The launcher writes `~/.aify/residents/<agent>.json`
-`{agentId, harness, pid, startedAt, herdrPane?}` at start and removes it at exit; aify-env adopts every
-record on boot and on change, and judges the pid itself. So an aify-env restart loses no resident, and a
+`{agentId, harness, pid, startedAt, instance, herdrPane?}` at start and removes it at exit; the aify-env
+instance the record names (the one the launcher ran under, else the default) adopts it on boot and on
+change, and judges the pid itself. One machine runs several instances, and only one may report an agent:
+a receiver that sees one agentId from two instances shows a conflict rather than picking. So an aify-env restart loses no resident, and a
 resident whose launcher died without cleanup is found by its pid, not by a missing heartbeat
 (state-based cleanup). Turn state for an adopted resident starts `unknown` until its next hook event.
 
