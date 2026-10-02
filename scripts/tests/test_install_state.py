@@ -9,6 +9,10 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[2]
 BASH = shutil.which("bash")
+#: One install-state.sh run costs 3.2 s alone on the Windows dev host (2026-10-02). Under the suite's
+#: `-n 8` it went past the old 30 s twice in four full runs, in two different tests of this file, while
+#: each passed alone. 30 s was a budget below its own cost under load, not a hang.
+INSTALL_STATE_BUDGET_S = 120
 
 
 class InstallStateTests(unittest.TestCase):
@@ -39,7 +43,7 @@ class InstallStateTests(unittest.TestCase):
         # /usr/bin is interpreted by Bash, never passed to native Python as a path.
         done = subprocess.run([BASH, "-c", 'fixture_bin="$1"; command -v cygpath >/dev/null && fixture_bin="$(cygpath -u "$fixture_bin")"; export PATH="$fixture_bin:/usr/bin:/bin"; shift; exec bash "$@"',
                                "fixture", self.bin.as_posix(), (self.repo / "scripts" / script).as_posix(), *args],
-                              env=self.env, text=True, capture_output=True, timeout=30)
+                              env=self.env, text=True, capture_output=True, timeout=INSTALL_STATE_BUDGET_S)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done
 
