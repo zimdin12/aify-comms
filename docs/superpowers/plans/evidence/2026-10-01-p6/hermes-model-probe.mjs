@@ -21,7 +21,11 @@
 //
 // SEALED: a temporary HERMES_HOME with no credentials, a port the OS chose, outside aify-comms' gateway
 // range, the whole process tree killed at the end. No aify-comms, aify-env or agent is involved, and
-// nothing is sent to a model. Run from the aify-comms checkout:
+// nothing is sent to a model. One write escapes the seal and is undone at the end: hermes registers
+// <HERMES_HOME>\bin on the persistent Windows User PATH when it publishes its launchers
+// (hermes_cli/_launchers.py `_register_windows_user_path`, no opt-out). The first runs left their homes
+// at the FRONT of the operator's PATH, where `hermes update` ran the probe's shim (2026-10-02).
+// Run from the aify-comms checkout:
 //   node docs/superpowers/plans/evidence/2026-10-01-p6/hermes-model-probe.mjs
 
 import { spawn, spawnSync } from "node:child_process";
@@ -52,9 +56,17 @@ const host = spawn("hermes", ["dashboard", "--port", String(port), "--host", "12
   { env, stdio: ["ignore", fs.openSync(log, "w"), fs.openSync(log, "a")], shell: process.platform === "win32", windowsHide: true });
 const report = { hermes: spawnSync("hermes", ["--version"], { encoding: "utf8", shell: true }).stdout.split("\n")[0], port, steps: [] };
 
+const DROP_HOME_FROM_USER_PATH =
+  "$h=$env:PROBE_HOME.TrimEnd('\\'); $s=$env:PROBE_PATH_SCOPE; $p=[Environment]::GetEnvironmentVariable('Path',$s); " +
+  "$all=@($p -split ';'); $k=@($all | Where-Object { -not $_.StartsWith($h, [StringComparison]::OrdinalIgnoreCase) }); " +
+  "if ($k.Count -ne $all.Count) { [Environment]::SetEnvironmentVariable('Path', ($k -join ';'), $s) }";
+
 function stop() {
-  if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(host.pid), "/T", "/F"], { stdio: "ignore" });
-  else host.kill("SIGKILL");
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(host.pid), "/T", "/F"], { stdio: "ignore" });
+    spawnSync("powershell", ["-NoProfile", "-Command", DROP_HOME_FROM_USER_PATH],
+      { env: { ...process.env, PROBE_HOME: home, PROBE_PATH_SCOPE: "User" }, stdio: "ignore" });
+  } else host.kill("SIGKILL");
 }
 
 try {
