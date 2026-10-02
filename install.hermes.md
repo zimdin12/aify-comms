@@ -25,6 +25,11 @@ bash install.sh --client hermes http://<service-host>:8800 --with-hook
 - It writes into Hermes' active config home, which on native Windows is often
   `%LOCALAPPDATA%\hermes` rather than `~/.hermes`. `hermes config path` and `hermes mcp list` show
   where. Re-running replaces the `aify-comms` block in `config.yaml` in place.
+- It gives Hermes the MCP servers any service in `~/.aify/services.json` opts into every session
+  (`"sessionInject": {"mcp": true}`), through `hermes config set`, marked as aify-wrapper's. Hermes has no
+  per-session way in, so they reach every Hermes session on the host. A registry Hermes could not be given
+  stops the install before `hermes-aify` is written; a same-named server you wrote yourself is refused, never
+  replaced; and the step refuses while a Hermes update is pending.
 - It decides at install time whether the wrapped `hermes` is a Linux or a native Windows binary and
   bakes the matching path style. Re-run it if you switch which Hermes `hermes-aify` wraps.
 
