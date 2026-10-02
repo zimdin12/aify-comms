@@ -217,7 +217,10 @@ export function runWrapper(wrapperPath, {
   withStub = true,
   prepareHome = null,
   minimalPath = false,
-  timeout = 30_000,
+  // A codex-aify launch to a stub takes 4.7 s alone on the Windows dev host (2026-10-02, 0.8 templates)
+  // and went past the old 30 s once in a full run of every suite, recording nothing; the file passed
+  // 10/10 alone. A budget below its own cost under load reads as a launcher that exported nothing.
+  timeout = 120_000,
 } = {}) {
   // A WORKSPACE PER RUN, never the wrapper's own directory. The stub runtime and the sealed HOME
   // are this call's state; putting them beside the wrapper made the rendered artifact mutable and
