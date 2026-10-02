@@ -1,0 +1,16 @@
+[
+ {
+  "name": "a bundle ignores an older paint during its tail",
+  "file": "service/new_dashboard/change-refresh.mjs",
+  "old": "if (this.shown(slice, generation) && !paintedDuring) this.loadedAt",
+  "new": "if (this.shown(slice, generation)) this.loadedAt",
+  "test": "cd service/new_dashboard && node --test change-refresh.test.mjs"
+ },
+ {
+  "name": "a paint in the same instant counts as during (the timestamp tie)",
+  "file": "service/new_dashboard/change-refresh.mjs",
+  "old": "painted.seq > paintsBefore",
+  "new": "painted.seq >= paintsBefore",
+  "test": "cd service/new_dashboard && node --test change-refresh.test.mjs"
+ }
+]

@@ -1,0 +1,5 @@
+killed (exit 1)                  a bundle ignores an older paint during its tail
+                                  not ok 16 - AN OLDER PARTIAL THAT PAINTS DURING A BUNDLE’S TAIL does not leave its older data on screen
+killed (exit 1)                  a paint in the same instant counts as during (the timestamp tie)
+                                  not ok 17 - CONTROL: when the newer fetch also finishes last, nothing is fetched a second time
+2/2 killed

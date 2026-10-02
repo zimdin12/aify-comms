@@ -202,7 +202,7 @@ test('a slice that failed during a FULL refresh is tried again while the socket 
 // which is what `runRefreshCycle` and `loadSlices` do. The test holds every fetch open and releases
 // them in the order under test, then lets the refresher do whatever it does next.
 
-function racingRig() {
+function racingRig({ tail = false } = {}) {
   let now = 1_000_000;
   let nextId = 1;
   const timers = new Map();
@@ -214,9 +214,12 @@ function racingRig() {
     fullRefresh: () => {
       const started = refresher.fullRefreshStarting();
       const version = service.version;
+      // WITH A TAIL, a bundle paints its slices and is acknowledged later, as app.js's refresh does: it
+      // writes every slice, then awaits the channels it loads last, then calls fullyRefreshed.
+      const ack = () => refresher.fullyRefreshed(started);
       held.push({ kind: 'full', release: () => {
         for (const slice of Object.keys(SLICE_TABLES)) screen[slice] = version;
-        refresher.fullyRefreshed(started);
+        if (tail) held.push({ kind: 'full-ack', release: ack }); else ack();
       } });
     },
     refreshSlices: (slices) => new Promise((resolve) => {
@@ -292,6 +295,26 @@ test('A PARTIAL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its 
   await r.release('partial');                // ...and the partial one paints version 1 over it
   await r.settle();
   assert.equal(r.screen.messages, 2, 'the slower partial refresh left older messages on screen, and nothing fetched them again');
+});
+
+test('AN OLDER PARTIAL THAT PAINTS DURING A BUNDLE’S TAIL does not leave its older data on screen', async () => {
+  // comms-senior-dev's review of 83f928f8, executed against the real refresher: the bundle painted the
+  // newer environments, waited on its channels tail, an older partial painted over it, and the late
+  // acknowledgement marked the bundle current. The slice was never fetched again.
+  const r = racingRig({ tail: true });
+  r.refresher.opened({ reconnected: false });
+  await r.release('full');
+  await r.release('full-ack');               // the open's own recovery, settled before the race
+  r.refresher.changed(change(1, ['messages']));
+  await r.advance(CHANGE_DEBOUNCE_MS);       // the partial reads version 1
+  r.service.version = 2;
+  r.refresher.fullRefresh();                 // the bundle reads version 2
+  await r.release('full');                   // ...and paints it
+  assert.equal(r.screen.messages, 2, 'CONTROL: the bundle painted the newer data');
+  await r.release('partial');                // the older partial paints version 1 during the tail
+  await r.release('full-ack');               // ...and the bundle is acknowledged after it
+  await r.settle();
+  assert.equal(r.screen.messages, 2, 'older data painted during the bundle’s tail stayed on screen');
 });
 
 test('CONTROL: when the newer fetch also finishes last, nothing is fetched a second time', async () => {

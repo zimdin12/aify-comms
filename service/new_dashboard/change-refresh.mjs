@@ -60,6 +60,10 @@ export class ChangeDrivenRefresh {
     this.generation = 0;
     /** slice -> the generation of the fetch whose data it is showing. */
     this.shownGeneration = new Map();
+    /** slice -> {generation, seq} of its latest paint, so a bundle can tell an older paint during its run. */
+    this.paintedAt = new Map();
+    /** Counts paints, in order. */
+    this.paints = 0;
   }
 
   /** Has this connection delivered a change yet? Until it has, a named event still refetches. */
@@ -117,7 +121,7 @@ export class ChangeDrivenRefresh {
   // ── what the caller reports ────────────────────────────────────────────────────────────────────
   /** A full bundle is starting now, from here or anywhere else. Hand what this returns to `fullyRefreshed`. */
   fullRefreshStarting() {
-    return { startedAt: this.now(), generation: ++this.generation };
+    return { startedAt: this.now(), generation: ++this.generation, paintsBefore: this.paints };
   }
 
   /**
@@ -133,11 +137,17 @@ export class ChangeDrivenRefresh {
    * A slice a partial refresh STARTED LATER had already painted is now showing this bundle's older
    * data, and the change that partial fetched is no longer pending anywhere. It is fetched again.
    */
-  fullyRefreshed({ startedAt, generation }, failed = []) {
+  fullyRefreshed({ startedAt, generation, paintsBefore = Infinity }, failed = []) {
     const overwritten = [];
     for (const slice of Object.keys(SLICE_TABLES)) {
       if (failed.includes(slice)) continue;
-      if (this.shown(slice, generation)) this.loadedAt.set(slice, startedAt);
+      // AN OLDER PARTIAL THAT PAINTED WHILE THIS BUNDLE RAN may have painted over what the bundle had
+      // already written: a bundle paints each slice early and is acknowledged here only after its slow
+      // tail (comms-senior-dev's review of 83f928f8 executed it, an older fresh environments row left on
+      // screen over a newer stale one). Whether the partial painted before or after the bundle's write
+      // cannot be told from here, so the slice is fetched again: one extra fetch, never older data.
+      const paintedDuring = this.paintedOlderSince(slice, paintsBefore, generation);
+      if (this.shown(slice, generation) && !paintedDuring) this.loadedAt.set(slice, startedAt);
       else overwritten.push(slice);
     }
     for (const [slice, at] of [...this.wantedAt]) {
@@ -188,7 +198,15 @@ export class ChangeDrivenRefresh {
   shown(slice, generation) {
     const overwroteNewer = (this.shownGeneration.get(slice) ?? 0) > generation;
     this.shownGeneration.set(slice, generation);
+    this.paintedAt.set(slice, { generation, seq: ++this.paints });
     return !overwroteNewer;
+  }
+
+  /** Did a fetch older than `generation` paint `slice` after the first `paintsBefore` paints? A count, not
+   *  a time: a paint in the same millisecond a bundle started came before it, not during it. */
+  paintedOlderSince(slice, paintsBefore, generation) {
+    const painted = this.paintedAt.get(slice);
+    return Boolean(painted) && painted.generation < generation && painted.seq > paintsBefore;
   }
 
   /** Fetch `slice` again soon, past its floor: what it shows is older than what was already fetched. */
