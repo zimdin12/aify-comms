@@ -95,14 +95,30 @@ resident whose launcher died without cleanup is found by its pid, not by a missi
 (state-based cleanup). Turn state for an adopted resident starts `unknown` until its next hook event.
 
 **D5. The broadcast is pushed and state-based.** A service opts in with its own registry field,
-`"agentState": {"path": "/api/v1/hosts/agent-state"}`, never through `advertise` (aify-dashboard sets
-`advertise: false` and wants state). Each push carries full records for the agents that changed:
-`{machineId, epoch, agents: [{agentId, state, since, cause, seq, harness, mode, pid?, sessionHandle?}]}`.
-`epoch` is aify-env's instance boot; `seq` is monotonic per agent within an epoch; a service keeps the
-newest `(epoch, seq)` and drops older. A full snapshot goes every 60 s and on attach, so a lost push is
-repaired by state, not by replay. Pushed, not pulled: aify-comms runs in a container and aify-env binds
-loopback, and aify-env already pushes heartbeats and definitions outward. The shape goes to the
-aify-dashboard owner before P2 code.
+`"agentState": {"path": "...", "credentialRef": "..."}`, never through `advertise` (aify-dashboard sets
+`advertise: false` and wants state). The push carries **its own credential**, presented under its own
+header: a service's ordinary key is the one every agent bridge holds, so with it any agent could post
+another agent's state. A service that names no `credentialRef` gets its ordinary key (aify-comms in 0.9:
+its hook routes accept that key today, so this is no regression, and it can adopt one later).
+
+Body: `{kind: "snapshot" | "changes", machineId, instance, epoch, agents: [{agentId, state, since, cause,
+seq, harness, mode, runsWith?, pid?, sessionHandle?}]}`.
+- `kind` lets a receiver tell an agent absent from a snapshot (gone) from one absent from a change set
+  (unchanged).
+- `machineId` exactly as `machineIdFor` writes it; `instance` is the aify-env instance, since one machine
+  runs several.
+- `epoch` is that instance's boot instant in epoch milliseconds, so it compares: a receiver drops a push
+  whose epoch is older than the newest seen for that `(machineId, instance)`, and within an epoch drops
+  `seq` at or below the newest for that agent. A delayed push from before a restart cannot revert a
+  fresh snapshot. (A wall clock stepped backwards across a restart would; recorded, not handled.)
+- `since` in epoch milliseconds.
+- `runsWith` only for a defined agent: model and effort as its next start would use them,
+  `{model: {value, from}, effort: {value, from}}`. Omitted for an undefined agent, so nothing is guessed.
+
+A snapshot goes every 60 s and on attach. A non-2xx answer is dropped, never retried, so a retry never
+lands after a newer push; the next snapshot repairs it. Pushed, not pulled: aify-comms runs in a container
+and aify-env binds loopback, and aify-env already pushes heartbeats and definitions outward. Shape agreed
+with the aify-dashboard owner on 2026-10-02 (their route answers 204 when applied, body limit 1 MiB).
 
 **D6. Unknown is said, and delivery treats it as today's absence.** A service that has had no snapshot
 for three periods (its own clock, as `host_activity` judges freshness) shows the agent `unknown`. Delivery
