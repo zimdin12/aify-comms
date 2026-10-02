@@ -198,8 +198,11 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // unref()'d — it dies with this `run` process on teardown/procExit (no explicit stop needed).
   startResumeMarkerSync({ agentId: id, tempDir: markerDir });
   // REASONING EFFORT: hermes has no launch-time lever for it on this path, so it is set per live session.
-  // Stopped with the loop (the finally below), so a loop that has ended sets nothing.
-  const stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
+  // STARTED INSIDE THE LOOP'S try, so every way out of the loop stops it, and STOPPED FIRST by teardown
+  // and by giving up, before either awaits anything: a pass already under way then sends nothing new
+  // (review of P6r2, H4). It was started up here, before the gateway bring-up, whose exhausted retry
+  // returned without the finally; nothing needs it before the gateway exists.
+  let stopEffort = () => {};
 
   // Teardown state shared between the SIGTERM handler and the terminal/release
   // self-exit so teardown runs at most once. `makeTeardown` kills the gateway
@@ -249,12 +252,14 @@ export async function runDeliveryLoop(agentId, deps = {}) {
           await postClaimerLease("release");
           clearReady(id, markerDir);
         };
-  const teardown = () =>
-    makeTeardown({
+  const teardown = () => {
+    stopEffort();
+    return makeTeardown({
       gatewayChild,
       clearMarkers: effClearMarkers,
       state: teardownState,
     })();
+  };
   installTeardown({ getChild: () => gatewayChild, teardown });
 
   const spawn = spawnImpl || (await import("node:child_process")).spawn;
@@ -520,6 +525,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
   // the visible TUI (2026-06-02) and is left for kill-prior and `aify-comms doctor`. The lease and the
   // ready marker are released either way.
   const giveUp = async (reason, { killOwnedGateway }) => {
+    stopEffort();
     await reportGatewayDeadOnce(reason);
     stopLiveness();
     stopRepulse();
@@ -530,6 +536,7 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     return { released: false, processed: totalProcessed, residentLost: true };
   };
   try {
+    stopEffort = startEffort({ agentId: id, effort: sessionEffort, tempDir: markerDir, openWs });
     for (let iter = 0; maxIterations === undefined || iter < maxIterations; iter++) {
       try {
         if (!serverUrl) {

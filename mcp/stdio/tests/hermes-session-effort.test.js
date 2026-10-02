@@ -4,6 +4,7 @@
 // gateway does with that call was asked of a sealed host (docs/superpowers/plans/evidence/2026-10-01-p6/
 // hermes-model-probe.mjs); this pins what the loop sends, and when.
 import assert from "node:assert/strict";
+import { waitForActiveSession } from "../hermes-active-session.mjs";
 import { startSessionEffort } from "../hermes-session-effort.mjs";
 
 const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms));
@@ -55,22 +56,28 @@ function gateway({ sessions = live("s1"), marker = "", refuse = () => null } = {
   assert.deepEqual(g.sets().map((p) => p.session_id), ["s1", "s2"]);
 }
 
-// (6) THE SESSION DELIVERY IS BOUND TO, not the newest (review of P6r, H3). Two live and none bound is
-// ambiguous: nothing is set until the marker says which.
+// (6) THE SESSION DELIVERY TARGETS, decided by delivery's own waitForActiveSession on the same list and
+// marker (review of P6r2, H3). The marker usually holds a DURABLE key, which names no live id: delivery
+// then goes to the newest, and a rule of the effort's own set it nowhere.
 {
-  const bound = gateway({ sessions: live("older", "newer"), marker: "older" });
-  const stop = bound.start();
-  await wait(60);
-  stop();
-  assert.deepEqual(bound.sets().map((p) => p.session_id), ["older"]);
-  const unbound = gateway({ sessions: live("older", "newer") });
-  const stop2 = unbound.start();
-  await wait(60);
-  assert.deepEqual(unbound.sets(), [], "ambiguous: nothing set");
-  unbound.state.marker = "newer";
-  await wait(60);
-  stop2();
-  assert.deepEqual(unbound.sets().map((p) => p.session_id), ["newer"], "control: once bound, it is set");
+  const rows = { result: { sessions: [
+    { id: "s1", session_key: "durable-s1", started_at: "2026-10-01T00:00:00Z" },
+    { id: "s2", session_key: "durable-s2", started_at: "2026-10-01T00:05:00Z" },
+  ] } };
+  const deliveryPicks = (marker) => waitForActiveSession({
+    wsClient: { request: async () => rows }, agentId: "hermes-lead", readMarker: () => marker, writeMarker: () => {},
+    nextId: () => 1, since: 0, graceMs: 0, deadlineMs: 0, sleepImpl: async () => {}, log: () => {} });
+  for (const [label, marker] of [["an ephemeral marker on the older session", "s1"], ["a durable marker on the older session", "durable-s1"],
+    ["a durable marker on the newer session", "durable-s2"], ["no marker", ""], ["a marker naming no live session", "gone"]]) {
+    const g = gateway({ sessions: rows, marker });
+    const stop = g.start();
+    await wait(60);
+    stop();
+    assert.deepEqual(g.sets().map((p) => p.session_id), [await deliveryPicks(marker)], label);
+  }
+  // The two discriminating cases, stated outright so agreement is not two empty answers.
+  assert.equal(await deliveryPicks("s1"), "s1");
+  assert.equal(await deliveryPicks("durable-s1"), "s2");
 }
 
 // (7) ONE PASS AT A TIME (H2): passes that fire while an answer is pending do not set the session again.

@@ -13,16 +13,21 @@
 // live session it has not set before. ONCE PER SESSION: a level the operator then picks inside it
 // (`/reasoning`) is theirs and is not put back. A refusal is retried on the next pass and said once.
 //
-// THE SESSION IS THE ONE DELIVERY IS BOUND TO: the agent's session marker when that session is live,
-// else the only live session. More than one live and none bound is ambiguous, so the pass sets nothing
-// and the next one asks again (review of P6r, H3: newest-first set the effort on a session delivery
-// was not using). ONE PASS AT A TIME, and nothing is sent once stopped: a pass is a gateway round trip
-// with a 60 s timeout against a 20 s interval, so overlapping passes set one session twice (H2), and a
-// list answered after stop still set it (H4).
+// THE SESSION IS THE ONE DELIVERY TARGETS, by delivery's own rule (`waitForActiveSession` in
+// hermes-active-session.mjs): the session the agent's marker names by its live id, else the newest live
+// session. The marker usually holds a session's DURABLE key (delivery and the resume sync write that),
+// which names no live id, so delivery goes to the newest, and so does the effort. A rule of its own
+// ("the marked session, else the only one, else none") set the effort nowhere while delivery used the
+// newest (review of P6r2, H3), as newest-first had disagreed with an ephemeral marker before it (P6r,
+// H3). Delivery's relaunch grace, which waits briefly before taking a newest session that predates the
+// delivery, is not copied: the effort may reach that session too, once, and the new one on its own pass.
+// ONE PASS AT A TIME, and nothing new is sent once stopped: a pass is a gateway round trip with a 60 s
+// timeout against a 20 s interval, so overlapping passes set one session twice (H2), and a list answered
+// after stop still set it (H4).
 // The effort is the one hermes-aify resolved for this launch (AIFY_HERMES_SESSION_EFFORT): a managed
 // launch's, else the agent's definition's.
 
-import { buildSessionActiveListFrame, liveSessionIds, pickSessionById } from "./hermes-gateway-protocol.js";
+import { buildSessionActiveListFrame, pickMostRecentSession, pickSessionById } from "./hermes-gateway-protocol.js";
 import { readGatewayUrlMarker, readSessionIdMarker } from "./hermes-endpoint.js";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import { TMP_DIR } from "./hermes-env.mjs";
@@ -37,10 +42,9 @@ function buildSessionEffortFrame({ id, sessionId, effort }) {
   };
 }
 
-/** The live session delivery is bound to, or null when that cannot be told. */
-function boundSession(activeList, marked) {
-  const ids = liveSessionIds(activeList);
-  return pickSessionById(activeList, marked) || (ids.length === 1 ? ids[0] : null);
+/** The live session delivery targets: the marked one by its live id, else the newest; null when none is live. */
+function deliveryTarget(activeList, marked) {
+  return pickSessionById(activeList, marked) || pickMostRecentSession(activeList);
 }
 
 /**
@@ -76,7 +80,7 @@ export function startSessionEffort(opts = {}) {
     try {
       cli = await openWs(wsUrl);
       const activeList = await cli.request(buildSessionActiveListFrame({ id: nextId(), currentSessionId: "" }));
-      const sessionId = boundSession(activeList, readMarker(id, { tempDir }));
+      const sessionId = deliveryTarget(activeList, readMarker(id, { tempDir }));
       if (stopped || !sessionId || set.has(sessionId)) return;
       // A refusal rejects with the gateway's error object; the catch below says it.
       await cli.request(buildSessionEffortFrame({ id: nextId(), sessionId, effort: level }));

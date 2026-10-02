@@ -802,6 +802,69 @@ test("runDeliveryLoop: starts setting the agent's reasoning effort on its live s
   assert.equal(stopped, 1);
 });
 
+test("runDeliveryLoop: teardown stops the reasoning effort FIRST, before it awaits anything (review of P6r2, H4)", async () => {
+  // The SIGTERM path: installTeardown's teardown runs while the loop is still polling, and its own
+  // cleanup awaits. The effort was stopped only when the loop later reached its finally, so a pass
+  // could still set a session in between.
+  const { spawn } = makeFakeSpawn();
+  const { httpCall } = makeAifyHttp();
+  let teardown = null;
+  let stopped = 0;
+  let stoppedAtEntry = null;
+  const openWs = async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); };
+  await runDeliveryLoop("sc-hermes", {
+    httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), openWs, serverUrl: "http://127.0.0.1:8800",
+    maxIterations: 2, markerDir: MARKER_DIR, clearMarkers: async () => {},
+    installTeardown: (opts) => { teardown = opts.teardown; },
+    sleepImpl: async () => {
+      if (stoppedAtEntry !== null || !teardown) return;
+      const pending = teardown();
+      stoppedAtEntry = stopped; // read before the teardown's first await resolves
+      await pending;
+    },
+    sessionEffort: "xhigh", startEffort: () => () => { stopped += 1; },
+  });
+  assert.ok(teardown, "positive control: the loop handed its teardown over");
+  assert.equal(stoppedAtEntry, 1, "the effort was not stopped on teardown entry");
+});
+
+test("runDeliveryLoop: giving up stops the reasoning effort before it reports the agent lost (review of P6r2, H4)", async () => {
+  // A gateway that keeps turning the loop away ends it through giveUp, whose reporting awaits; the
+  // effort is stopped at its entry, not when the loop's finally runs afterwards.
+  const { spawn } = makeFakeSpawn();
+  const { httpCall: recordCall } = makeAifyHttp();
+  const events = [];
+  const httpCall = async (method, endpoint, body) => {
+    if (endpoint.endsWith("/resident-lost")) events.push("reported lost");
+    return recordCall(method, endpoint, body);
+  };
+  await runDeliveryLoop("sc-hermes", {
+    httpCall, spawnImpl: spawn, fetchImpl: makeFakeFetch(), installTeardown: () => {}, sleepImpl: async () => {},
+    openWs: async () => { throw new Error("Unexpected server response: 403"); },
+    serverUrl: "http://127.0.0.1:8800", maxIterations: 3, noTuiTeardownCycles: 1, markerDir: MARKER_DIR,
+    clearMarkers: async () => {},
+    sessionEffort: "xhigh", startEffort: () => () => { events.push("effort stopped"); },
+  });
+  assert.ok(events.includes("reported lost"), `positive control: the loop gave up (${events})`);
+  assert.equal(events[0], "effort stopped", events.join(", "));
+});
+
+test("runDeliveryLoop: a gateway bring-up that runs out of attempts leaves no reasoning effort running (review of P6r2, H4)", async () => {
+  // That return comes before the loop's try, so its finally never ran. The effort now starts inside it.
+  const { httpCall } = makeAifyHttp();
+  const started = [];
+  let stopped = 0;
+  const result = await runDeliveryLoop("sc-hermes", {
+    httpCall, spawnImpl: () => { throw new Error("spawn failed"); },
+    fetchImpl: async () => { throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }); },
+    openWs: async () => { throw new Error("unreachable"); }, installTeardown: () => {}, sleepImpl: async () => {},
+    serverUrl: "http://127.0.0.1:8800", maxIterations: 1, markerDir: MARKER_DIR,
+    sessionEffort: "xhigh", startEffort: (opts) => { started.push(opts); return () => { stopped += 1; }; },
+  });
+  assert.deepEqual(result, { released: false, processed: 0 }, "positive control: this is the exhausted bring-up");
+  assert.equal(started.length - stopped, 0, `${started.length} started, ${stopped} stopped`);
+});
+
 // ---------------------------------------------------------------------------
 // waitForActiveSession — native-session-id resolution (2026-06-03 Task 3).
 // PRIMARY: match the agent's bound REAL session id (from the marker) against an
