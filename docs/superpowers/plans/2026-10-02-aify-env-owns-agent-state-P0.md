@@ -14,7 +14,7 @@ One record per agent per publishing instance: the observations and the **one** d
   "state": "working", "stateCause": "turn-open",
   "busy": true,
   "process": {"state": "running", "verified": "yes", "pid": 41236, "createdAt": 1790950000101},
-  "turn": {"open": true, "startedAt": 1790951000456, "lastEventAt": 1790951300789, "awaitingInput": false,
+  "turn": {"open": true, "startedAt": 1790951000456, "lastEventAt": 1790951300789, "ageMs": 300912, "awaitingInput": false,
            "busyIf": {"strict": true, "verifiedRenewal": true}},
   "screen": {"state": "working", "observedAt": 1790951301000},
   "background": {"shells": 0},
@@ -52,8 +52,11 @@ the gates read today, after the switch.
 
 - **Status servers and pushes** (A1-A17, C1-C2): replaced by `commsView` (C6), one function both the poll and the
   push call. Today's two producers disagree (KNOWN_ISSUES); after the switch there is one.
-- **Busy readers** (B9 queueIfBusy, B17 claim, B18, B19 steer bypass, B21 reminders, B26, B27, B43, B44): read
-  `holdsDelivery` (C6).
+- **Busy readers** (B9 queueIfBusy, B17 claim, B18, B19 steer bypass, B27, B43, B44): read `holdsDelivery` (C6).
+- **Run-correlated readers** (B21 reminders, B26 stranded-reply guard): read the delivery turn (C6), which keeps
+  today's run identity and its 120 s freshness. A turn's run id is an aify-comms delivery fact today: the hook
+  turn-start writes `''` and does not overwrite a run id a delivery set (`turn_boundaries`). Only the delivery
+  reporters, the session start route and the orphaned-run reconciler write one.
 - **Readiness and eligibility** (B4 preflight, B10-B16 cold-start and twin, B24-B25 claimer, B28-B32 worker
   hygiene): read `process` and `deliverable`.
 - **Counts, compaction and session displays** (B33-B40), the dashboard (D1-D20) and the bridge (E1-E9): read the
@@ -85,7 +88,13 @@ Python statement:
 | the same microsecond, and a `turn-end` | applies (end wins a tie) |
 | otherwise | refused and logged |
 
-A runtime exit ends the open turn. **Busy** is `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)`,
+A runtime exit ends the open turn. **The turn is durable.** aify-env writes each open turn to
+`~/.aify/env/<instance>.turns.json`, keyed by lifetime, with `startedAt` and the last event. A restarted instance
+reloads the turns of the lifetimes it re-adopts as `yes`, and closes the rest. So a new generation publishes the same
+open turn with the same `startedAt`, rather than dropping it or restarting its ceiling. A resident adopted for the
+first time, with no stored turn, is `unknown` until its next hook (C4).
+
+**Busy** is `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)`,
 ported unchanged, under two rules that are published side by side (`turn.busyIf`):
 
 - `strict`, today's rule for a hook-owned turn: `renewable` is false, so the turn holds for 1800 s from its start.
@@ -132,16 +141,21 @@ The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 | answer | verified |
 |---|---|
-| created at or before `writtenAt` (millisecond floor, **no tolerance**), and the command line contains `launcher` | `yes`, and that exact creation time is pinned |
+| created **strictly before** `writtenAt`, compared at the finer of the two precisions (Windows creation time is 100 ns; `writtenAt` carries microseconds, `$EPOCHREALTIME`), with `launcher` in the command line | `yes`, and that exact creation time is pinned |
 | later sightings: the same pinned creation time | `yes` |
+| created at a time **equal** to `writtenAt` at the comparable precision | `unknown`: indistinguishable from a pid born just after the write, so it is never adopted, never removed and never acted on |
 | gone, created after `writtenAt` or with a different pinned time (a reused pid), or no launcher in the command line (a sibling) | `no`: the lifetime is over, and aify-env removes the record |
 | the probe cannot answer (access denied, timeout, no probe) | `unknown`: reported, never acted on, never removed |
 
-No tolerance, because a reused pid is created after the original wrote its record, and the record's own process
-existed when it wrote. A tolerance would admit a pid reused within it (comms-senior-dev, review of eda03a3d).
+No tolerance, and no equality. A reused pid is created after the original wrote its record, and the original existed
+before writing. Pinning a first sighting proves nothing on its own, so a creation time that cannot be ordered against
+the write is `unknown`, not `yes` (comms-senior-dev, reviews of eda03a3d and 6e79bcac, N3). The original is never
+removed on an `unknown`, so a live one is never lost.
 
-**More than one live lifetime** for one agent: the newest `writtenAt` with `yes` is current, and any other `yes` is a
-conflict, published and never resolved by picking. One agentId from two instances is a conflict too.
+**More than one verified lifetime** for one agent, or one agentId from two instances: that agent's record is
+`state: "unknown"` with cause `conflict`, naming both. Consumers act conservatively until one ends: aify-comms holds
+delivery if **either** is busy (C6), every lifecycle request for the agent is refused `conflict` (C9), and nothing is
+removed. Neither is picked as current.
 
 **Routing.** Each instance writes `~/.aify/env/<instance>.json` `{url, instance, pid, startedAt}`. A hook reads its
 own instance's descriptor (`AIFY_ENV_INSTANCE`) and carries `AIFY_LIFETIME`. A managed worker gets `AIFY_ENV_URL`.
@@ -192,37 +206,79 @@ A; equal and backward clocks; a duplicate; a conflict; a partial collection; a q
 ## C6. aify-comms in the end state
 
 ```text
-commsView(record | none, messaging) -> {status, statusNote, deliverable, holdsDelivery}
+commsView(record | none, messaging, deliveryTurn, now) -> {status, statusNote, deliverable, holdsDelivery}
 ```
 
 One pure function, called by the poll, the push and every reader. Its inputs:
 
-- `record`: the newest applied C1 record for the agent, or none, or one marked stale by C5.
-- `messaging`: the agent's run in flight, a reply owed, unread messages, delivery components (sidecar, wrapper
+- `record`: the newest applied C1 record for the agent (fresh or stale per C5), or none. A conflict (C4) supplies
+  both records.
+- `messaging`: the agent's dispatch runs, a reply owed, unread messages, delivery components (sidecar, wrapper
   child, wake path), and, for an **undefined** agent in this tag, the operator stop flag.
+- `deliveryTurn`: aify-comms' own record of a turn it delivered (below).
 
-| case | status | note | holdsDelivery |
+**The word.** First match wins.
+
+| # | case | status | note |
 |---|---|---|---|
-| no record | `offline` | "environment not reporting" | the run in flight only |
-| a stale record | `offline` | "environment not reporting since <time>" | the run in flight, OR the last record's open turn under the **strict** law: 1800 s from `turnSeenAt` |
-| a record | the record's `state` (`idle` shown as `online`) | the cause, plus messaging notes | `record.busy` OR run in flight |
-| a run in flight, and the state is `idle`, `shell`, `starting` or `available` | `working` | "running <run>" | true |
-| no delivery path | unchanged word | "no delivery path: <reason>" | as above; `deliverable: false` |
+| 1 | an undefined agent the operator stopped (aify-comms' flag, D8) | `stopped` | "stopped by <actor>" |
+| 2 | no record | `offline` | "environment not reporting" |
+| 3 | a stale record | `offline` | "environment not reporting since <time>" |
+| 4 | a conflict record | `unknown` | names both lifetimes |
+| 5 | a run aify-comms delivered is running, and the record's state is `idle`, `shell`, `starting` or `available` | `working` | "running <run>" |
+| 6 | a record | its `state` (`idle` shown as `online`) | its cause |
 
-The running-run row is today's promotion, and it stays a messaging fact.
+Then the messaging notes are appended, and a missing delivery path sets `deliverable: false` with "no delivery path:
+<reason>". The word is never changed after row 6.
 
-**A stale publication keeps the open turn, strictly.** `turnSeenAt` is aify-comms' own clock when it first applied a
-record showing that turn open: a new `turn.startedAt`. Today's turn-start route stamps the service's own time too.
-A publisher that goes quiet mid-turn therefore holds delivery exactly as a hook-owned turn with no further hooks does
-today, up to 1800 s from its start, and never longer, because nothing fresh renews it. Releasing at staleness would
-be the early release comms-senior-dev measured in the review of 7ca834ae (R2), and so would be a policy change.
+**Row 5 is the one place a messaging fact changes the word.** It is today's running-run promotion
+(`_status_with_dispatch`), on the same set of words: today `available`, `starting`, `online` and `shell`, never a
+manual, non-live or blocked status. It stays because a run aify-comms is delivering is work it knows is happening.
+The plan's D2 says so. C8 compares it as its own decision, because today's promotion is applied on some paths and
+not others (the census, KNOWN_ISSUES).
+
+**The delivery turn**, aify-comms' own, replacing the run half of `agent_turn_state`: `{agentId, open, runId,
+touchedAt, startedAt}`. Its merge rules mirror today's single row:
+
+| event | effect |
+|---|---|
+| a delivery reporter's busy for run R | open, `runId` R, `touchedAt` now, `startedAt` now if it was closed |
+| a delivery reporter's clear for run R | closes it only if `runId` is R (today's owner rule) |
+| an applied record whose turn advanced (`lastEventAt` moved) while open | `touchedAt` = the application time, as a hook refreshed the shared row |
+| an applied record whose turn ended (a turn-end applied in aify-env) | closes it, as a hook turn-end clears the shared row |
+
+**Busy.** `holdsDelivery` is true when any of these holds:
+
+- the fresh record's `busy`; under a conflict, either record's `busy`;
+- the delivery turn is open, judged by `turn_is_still_live` on its own anchor, renewable while its delivery bridge
+  heartbeats (today's verified renewal);
+- a stale record's open turn, held under the **strict** law to `strictExpiry` (below), never renewed.
+
+The run-correlated readers keep today's expressions on these facts:
+
+- **Reminders (B21):** `turn_fresh` is an open delivery turn touched within 120 s, or a record's open turn whose last
+  advance was applied within 120 s. `turn_run_id` is the open delivery turn's `runId`, else `''`. "Busy for other
+  work" is `turn_fresh and turn_run_id != this run`, unchanged.
+- **Stranded-reply guard (B26):** skip while the delivery turn is open with `runId` equal to the run, unchanged.
+
+**The stale anchor (N2).** Every record carries `turn.ageMs`, the turn's age on the publisher's clock when it
+published. Each application gives an estimate of the start on aify-comms' clock: `appliedAt - ageMs`. That is never
+earlier than the true start, because a publication cannot be applied before it was sent. aify-comms keeps the
+**earliest** estimate per turn (`startedAt` identifies the turn), and `strictExpiry` is that estimate plus 1800 s.
+
+The bound, named: a stale turn holds until 1800 s after its start, **plus the smallest delivery delay of any
+publication of that turn aify-comms applied**. Today's anchor is aify-comms' receipt of the turn-start hook, so
+today's bound is 1800 s plus that hook's delivery delay. Both are 1800 s plus one delivery delay. In C8 the
+difference is measured, not assumed: both anchors are recorded per turn, and a turn that holds longer under the new
+one is a classified difference. A ceiling never restarts, because a new generation publishes the same `startedAt`
+(C3, durable turns), and an estimate can only move earlier.
 
 ## C7. Deleted after the switch
 
 From aify-comms:
 
 - the turn and process inputs of `derive()`, and `status_inputs.py`'s gathering;
-- `agent_turn_state`, `agent_status_state`, `agent_hook_order`;
+- `agent_turn_state` (its run half becomes the delivery turn, C6), `agent_status_state`, `agent_hook_order`;
 - the turn-start, turn-end and status-event routes. They stay for one tag, accepting and ignoring, for old
   launchers;
 - `turnBusy` on heartbeats. The delivery reporters keep their run PATCHes;
@@ -247,6 +303,10 @@ rows**, at every change of either input and on every sweep:
 | claim | the `/dispatch/claim` gate, steer and non-steer | the same on `holdsDelivery` |
 | worker readiness | `_worker_liveness_for` | `process` and `deliverable` |
 | live counts | `is_live_agent_status` | the same on the view's word |
+| reminder skip (B21) | `turn_fresh and turn_run_id != run`, or an active run | the C6 expression on the delivery turn and the record |
+| stranded-reply guard (B26) | busy row with this run id | the delivery turn open on this run |
+| running-run promotion | `_status_with_dispatch` on each path that applies it | C6 row 5, on every path |
+| stale-turn ceiling | 1800 s from the service's receipt of turn-start | `strictExpiry` (C6): both anchors recorded per turn |
 
 **Recorded per decision:**
 - evaluations (the denominator) and agreements;
@@ -282,7 +342,7 @@ aify-comms writes, the plugin claims, aify-env executes and reports.
 | `expectedLifetime` | for stop and restart, a different current lifetime is refused `lifetime-moved` |
 | `requestedBy` | the operator gate, as for every definition change |
 
-- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first.
+- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first. An agent whose record is a conflict (C4) has every request refused `conflict`.
 - Durable results: `done` (with the new lifetime), `refused` (reason) or `failed` (reason), each with its time.
 - Start and restart run under the store lock (`admitStart`), so a definition change and a start cannot interleave.
 - A request no plugin claims is reported by the doctor and never retried by the service.
