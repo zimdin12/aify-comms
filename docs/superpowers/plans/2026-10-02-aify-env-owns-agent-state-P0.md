@@ -176,8 +176,9 @@ The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 - `writtenAtUs` is microseconds since the epoch (`$EPOCHREALTIME`); a value below 10^15 is milliseconds and the
   record is refused, since it would read every pid as reused.
-- `launcher` is `$0` exactly as invoked. It is matched as one whole argument of the pid's command line, folding
-  slashes, case and Git Bash's `/c/` against `C:/`, because Windows reports a Git Bash launcher in its `/c/` form.
+- `launcher` is `$0` exactly as invoked. It is matched as one whole argument of the pid's command line, split by
+  Windows' own rules (so `"C:/x/claude-aify"-old` is one argument, `claude-aify-old`), folding slashes, case and Git
+  Bash's `/c/` against `C:/`, because Windows reports a Git Bash launcher in its `/c/` form.
 
 - `pid` is the **launcher's own OS pid** (on Git Bash `/proc/$$/winpid`, never `$$`). The launcher lives for the
   session and runs the exit path.

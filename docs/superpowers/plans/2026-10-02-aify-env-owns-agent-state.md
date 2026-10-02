@@ -102,8 +102,9 @@ launcher exports `AIFY_ENV_INSTANCE` and `AIFY_LIFETIME`, so a hook addresses th
 and names the lifetime it belongs to.
 
 **D4. A resident is a lifetime record verified against the OS (C4).** One file per lifetime. The launcher's own OS
-pid is accepted only if its creation time is at or before the record's write time, and that exact creation time is
-then pinned. Unknown never means dead.
+pid is accepted only if its creation time is strictly before the record's write time, in microseconds, and its
+command line carries the launcher as one whole argument; that exact creation time is then pinned. A creation time
+equal to the write is unknown, as is an unmatched launcher. Unknown never means dead.
 
 **D5. Publication is ordered by the publisher (C5).** A durable generation, an incarnation id, and one publication
 counter across all pushes; complete snapshots or none; removals by lifetime; header `x-aify-agent-state-key`.
