@@ -37,6 +37,7 @@ from service.clock import now as _now
 import sqlite3
 from service.routers.agents.shared import logger
 from service.api_core.request_body import json_object_body
+from service.api_core.operator_authz import recorded_operator_actor
 
 router = domain_router()
 
@@ -44,7 +45,12 @@ router = domain_router()
 @router.patch("/agents/{agent_id}/usage-source")
 async def patch_usage_source(agent_id: str, request: Request):
     """Operator override of an agent's quota-pool binding. Empty value clears the
-    override, reverting to the runtime-derived source."""
+    override, reverting to the runtime-derived source.
+
+    THE OPERATOR'S: with an OPERATOR_KEY set, the caller must present it (403 otherwise), before anything
+    is read. Steven, 2026-10-02: changing an agent's data is operator-protected, and he ruled this route
+    under it. No code in aify-comms, aify-env or aify-dashboard calls it; it is raw HTTP only."""
+    recorded_operator_actor(None, request, action="changing an agent's usage source as the operator")
     source = str((await json_object_body(request)).get("usageSource") or "").strip()
     db = await get_db()
     try:

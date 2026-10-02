@@ -1,0 +1,16 @@
+[
+ {
+  "name": "usage-source is not gated on the operator",
+  "file": "service/routers/agents/config.py",
+  "old": "    recorded_operator_actor(None, request, action=\"changing an agent's usage source as the operator\")\n",
+  "new": "",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_usage_api.py"
+ },
+ {
+  "name": "usage-source is gated only after the body is read",
+  "file": "service/routers/agents/config.py",
+  "old": "    recorded_operator_actor(None, request, action=\"changing an agent's usage source as the operator\")\n    source = str((await json_object_body(request)).get(\"usageSource\") or \"\").strip()\n",
+  "new": "    source = str((await json_object_body(request)).get(\"usageSource\") or \"\").strip()\n    recorded_operator_actor(None, request, action=\"changing an agent's usage source as the operator\")\n",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_usage_api.py"
+ }
+]

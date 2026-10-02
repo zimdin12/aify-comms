@@ -42,6 +42,26 @@ class UsageApiTests(FastApiTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(self.client.get("/api/v1/agents/u-ov").json()["agent"]["usageSource"], "local-ollama")
 
+    def test_with_an_operator_key_only_the_operator_changes_an_agents_usage_source(self):
+        """Steven, 2026-10-02: changing an agent's data is operator-protected, usage-source included. The
+        gate comes before the body is read; with no key set the API key stays the boundary."""
+        self.client.post("/api/v1/agents", json={"agentId": "u-op", "role": "coder", "runtime": "hermes"})
+        source = lambda: self.client.get("/api/v1/agents/u-op").json()["agent"]["usageSource"]
+        self.client.app.state.config.operator_key = "s3cret"
+        self.addCleanup(setattr, self.client.app.state.config, "operator_key", "")
+        before = source()
+        for headers in ({}, {"X-Aify-Operator-Key": "wrong"}):
+            refused = self.client.patch("/api/v1/agents/u-op/usage-source", json={"usageSource": "local-ollama"},
+                                        headers=headers)
+            self.assertEqual(refused.status_code, 403, f"{headers}: {refused.text}")
+        self.assertEqual(source(), before, "an unproven caller changes nothing")
+        unread = self.client.patch("/api/v1/agents/u-op/usage-source", content=b"{not json")
+        self.assertEqual(unread.status_code, 403, "refused before the body is read")
+        proven = self.client.patch("/api/v1/agents/u-op/usage-source", json={"usageSource": "local-ollama"},
+                                   headers={"X-Aify-Operator-Key": "s3cret"})
+        self.assertEqual(proven.status_code, 200, proven.text)
+        self.assertEqual(source(), "local-ollama")
+
     def test_consumption_roundtrip(self):
         r = self.client.post("/api/v1/usage/consumption", json={"rows": [
             {"agent_id": "a", "source_id": "anthropic-claude-max", "model": "claude-opus-4-8", "input_tokens": 100, "output_tokens": 10, "cache_tokens": 5},

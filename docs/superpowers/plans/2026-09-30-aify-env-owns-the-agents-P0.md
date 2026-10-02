@@ -944,7 +944,11 @@ for hermes), resolved by three hand copies (`spawn_requests.py`, `agents/environ
 - **Changing effort** is `PATCH /agents/{id}/effort {effort}`, one lowercase word or "" for the runtime's
   own, and the operator's for every agent (Steven, 2026-10-02: changing an agent's model and data is
   operator-protected): with an `OPERATOR_KEY` set, a caller that does not present it gets 403 and nothing
-  is read or written. A defined agent's change is a definition change request its host applies (C4/C5), nothing written
+  is read or written. `PATCH /agents/{id}/usage-source` is gated the same way. `PATCH .../herdr-space` is
+  exempt for an undefined agent, by the same day's ruling: it is a display preference, not the agent's
+  model or data, and its caller is the herdr menu, which reaches it through aify-env's plugin with no
+  operator key (aify-env `lib/plugins/aify-comms/api.mjs` `PATCH .../herdr-space`). A defined agent's
+  herdr-space change is a change request and already names the operator. A defined agent's change is a definition change request its host applies (C4/C5), nothing written
   here; an undefined managed agent's is written to its record and to its spawn specs, under the write
   lock, with a stale `thinking` removed: a restart starts from its stored spec, and a start going running
   copies the spec's `runtimeConfig` over the record. A cleared effort is cleared in the launch as well:

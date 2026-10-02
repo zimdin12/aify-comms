@@ -140,6 +140,11 @@ async def update_agent_herdr_space(agent_id: str, req: AgentHerdrSpaceUpdate, re
     One value per agent, stored here because the host tier, aify-comms' dashboard and aify-dashboard
     all already read this service's agents; the launch route hands it to the host that starts the
     worker. `last_seen` is not stamped: an operator's setting is not the agent being here.
+
+    NOT OPERATOR-GATED for an undefined agent, unlike effort and usage-source. Steven, 2026-10-02: it is a
+    display preference, not the agent's model or data. Its caller is the herdr menu, through aify-env's
+    aify-comms plugin, which presents no operator key; gating it would break that toggle wherever an
+    OPERATOR_KEY is set. A defined agent's change is a request that names the operator, below.
     """
     validate_name(agent_id, "agent ID")
     db = await get_db()

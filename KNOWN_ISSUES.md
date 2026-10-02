@@ -450,8 +450,9 @@ next; it disclosed these beside them, not as blockers:
 
 - **Who may change an agent's effort: ruled 2026-10-02.** Steven: changing an agent's model and data is
   operator-protected. `PATCH /agents/{id}/effort` now needs the operator for every agent (403 with an
-  `OPERATOR_KEY` set and not presented). Still open under the same ruling: the herdr-space and
-  usage-source routes, which an undefined agent's caller changes with no operator proof.
+  `OPERATOR_KEY` set and not presented), and so does `PATCH .../usage-source`. herdr-space stays open
+  for an undefined agent by Steven's ruling: a display preference, set from the herdr menu through
+  aify-env's plugin, which holds no operator key.
 - **`runsWith` read during a definition push can mix the two.** `GET /agents/{id}` reads the agent row,
   then the definition rows; a push landing between them answers the new owner beside the old
   `definitionState` and values. The next read is consistent. The two-read shape predates `runsWith`.

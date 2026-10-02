@@ -1,0 +1,5 @@
+killed (exit 1)                  usage-source is not gated on the operator
+                                  FAILED service/tests/test_usage_api.py::UsageApiTests::test_with_an_operator_key_only_the_operator_changes_an_agents_usage_source
+killed (exit 1)                  usage-source is gated only after the body is read
+                                  FAILED service/tests/test_usage_api.py::UsageApiTests::test_with_an_operator_key_only_the_operator_changes_an_agents_usage_source
+2/2 killed
