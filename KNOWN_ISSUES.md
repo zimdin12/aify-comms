@@ -452,9 +452,15 @@ the entry's endpoint and reads no environment (lib/registry.mjs at 1498037, asse
 tests/session-mcp.test.js and in comms-senior-dev's review of 1498037). Measured by dashboard-manager. NOT
 traced: whether any path exports a service key into a launcher's environment today; aify-comms' own entry
 carries no `keyEnv`. One path checked: `HARNESS_EXTRA_ENV`, which every launcher exports verbatim, is read by
-the four aify-wrapper templates and written by nothing in aify-comms, aify-env or aify-wrapper source
-(searched 2026-10-01, the templates found as the positive control), so only an operator's own shell sets it. The verb is not the place to fix it, since it predates the verb and applies to every
-MCP server Claude starts.
+the four aify-wrapper templates and spelled by nothing else in aify-comms, aify-env or aify-wrapper source
+(searched 2026-10-01 for the literal name, the templates found as the positive control). That search could
+not see a generic path, and two carry it (comms-senior-dev's gap audit of 0.8, 2026-10-02): an agent
+definition's `env` admits any name outside the `AIFY_` prefix, and a spawn's `envVars` any name aify does not
+own. Either is copied to the spawn's `env_vars`, kept by `managed_launch_env` under the aify-owned names,
+merged by aify-env's `launchEnv`, and exported by the launcher. So the operator's shell is not the only
+writer: whoever may set a definition's env or a spawn's variables can set it. Not measured: whether any
+definition or spawn sets it today. The verb is not the place to fix it, since it predates the verb and
+applies to every MCP server Claude starts.
 
 ## What the review of 0.8's model and effort left as follow-ups (2026-10-01)
 
