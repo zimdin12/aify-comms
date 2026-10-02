@@ -81,3 +81,23 @@ class AnAgentsEffortChanges(FastApiTestCase):
         for bad in ("high; rm -rf /", "a b", "x" * 17, "hi\ngh", "high-2"):
             self.assertEqual(self.client.patch("/api/v1/agents/worker/effort", json={"effort": bad}).status_code, 422, bad)
         self.assertEqual(self.client.patch("/api/v1/agents/nobody/effort", json={"effort": "high"}).status_code, 404)
+
+    def test_with_an_operator_key_only_the_operator_changes_any_agents_effort(self):
+        """Steven, 2026-10-02: changing an agent's model and data is operator-protected (review G3). Every arm
+        is gated before anything is read or written; with no key set the API key stays the boundary."""
+        self.register("worker", sessionMode="managed", runtimeConfig={"effort": "low"})
+        self.register("operator-run", sessionMode="resident", runtimeConfig={"effort": "low"})
+        self.assertEqual(self.client.patch("/api/v1/agents/worker/effort", json={"effort": "medium"}).status_code, 200,
+                         "control: with no key set, the change is open")
+        self.client.app.state.config.operator_key = "s3cret"
+        self.addCleanup(setattr, self.client.app.state.config, "operator_key", "")
+        for target in ("worker", "operator-run"):
+            before = self.row(target)
+            for headers in ({}, {"X-Aify-Operator-Key": "wrong"}):
+                refused = self.client.patch(f"/api/v1/agents/{target}/effort", json={"effort": "high"}, headers=headers)
+                self.assertEqual(refused.status_code, 403, f"{target} {headers}: {refused.text}")
+            self.assertEqual(self.row(target), before, f"{target}: an unproven caller changes nothing")
+        proven = self.client.patch("/api/v1/agents/worker/effort", json={"effort": "high"},
+                                   headers={"X-Aify-Operator-Key": "s3cret"})
+        self.assertEqual(proven.status_code, 200, proven.text)
+        self.assertEqual(json.loads(self.row("worker")["runtime_config"])["effort"], "high")

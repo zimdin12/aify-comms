@@ -1,0 +1,9 @@
+[
+ {
+  "name": "G3 an effort change is not gated on the operator before it is read or written",
+  "file": "service/routers/agents/attributes.py",
+  "old": "    actor = recorded_operator_actor(None, request, action=\"changing an agent's effort as the operator\")\n",
+  "new": "    actor = \"dashboard\"\n",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_an_agents_effort_changes_from_its_next_start.py"
+ }
+]

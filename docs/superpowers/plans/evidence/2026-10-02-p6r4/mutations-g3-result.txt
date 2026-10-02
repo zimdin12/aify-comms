@@ -1,0 +1,4 @@
+killed (exit 1)                  G3 an effort change is not gated on the operator before it is read or written
+                                  FAILED service/tests/test_an_agents_effort_changes_from_its_next_start.py::AnAgentsEffortChanges::test_with_an_operator_key_only_the_operator_changes_any_agents_effort
+1/1 killed
+exit=0

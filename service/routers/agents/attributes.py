@@ -190,8 +190,13 @@ async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Re
     definition's, so the change is a request its host applies (C5). An undefined MANAGED agent's is its
     record's and its spawn specs', which its managed starts read. An undefined RESIDENT's launcher reads
     neither, so the change is refused with the way to define it rather than accepted and ignored.
+
+    THE OPERATOR'S, for every agent: with an OPERATOR_KEY set, the caller must present it (403 otherwise),
+    before anything is read or written. Only a defined agent's change was gated until 0.8's review (G3);
+    Steven's ruling, 2026-10-02: changing an agent's model and data is operator-protected.
     """
     validate_name(agent_id, "agent ID")
+    actor = recorded_operator_actor(None, request, action="changing an agent's effort as the operator")
     db = await get_db()
     try:
         # THE WRITE LOCK BEFORE THE READ, as `usage-source` takes it: this rewrites the whole runtime
@@ -213,7 +218,6 @@ async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Re
             if not defined:
                 raise HTTPException(409, f'"{agent_id}" is a resident agent that no host defines: its launcher reads '
                                          f"only a definition. Define it (aify-env agents import), then change its effort.")
-            actor = recorded_operator_actor(None, request, action="changing a defined agent as the operator")
             queued = await queued_for_its_host(db, agent_id, {"effort": req.effort}, actor, _now())
             return {**queued, "appliesAt": "next start"}
         await _respecify_effort(db, agent_id, req.effort)

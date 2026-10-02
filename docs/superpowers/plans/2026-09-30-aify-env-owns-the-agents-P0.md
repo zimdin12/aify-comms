@@ -942,7 +942,9 @@ for hermes), resolved by three hand copies (`spawn_requests.py`, `agents/environ
   observes it: no bridge reports a running model (`auto-registration.mjs` echoes the service's own value
   back), so a "reported model" field would be a label with no observation behind it.
 - **Changing effort** is `PATCH /agents/{id}/effort {effort}`, one lowercase word or "" for the runtime's
-  own. A defined agent's change is a definition change request its host applies (C4/C5), nothing written
+  own, and the operator's for every agent (Steven, 2026-10-02: changing an agent's model and data is
+  operator-protected): with an `OPERATOR_KEY` set, a caller that does not present it gets 403 and nothing
+  is read or written. A defined agent's change is a definition change request its host applies (C4/C5), nothing written
   here; an undefined managed agent's is written to its record and to its spawn specs, under the write
   lock, with a stale `thinking` removed: a restart starts from its stored spec, and a start going running
   copies the spec's `runtimeConfig` over the record. A cleared effort is cleared in the launch as well:

@@ -448,9 +448,10 @@ MCP server Claude starts.
 comms-senior-dev's review of P6r (3ada3809 / aify-wrapper 9455583) blocked on ten findings, repaired on
 next; it disclosed these beside them, not as blockers:
 
-- **Who may change an undefined managed agent's effort.** A defined agent's change needs the operator
-  (403 without the key, C4); an undefined managed agent's is written with no operator proof, as its herdr
-  space and usage source already are. Awaiting Steven's ruling on whether those edits become operator-only.
+- **Who may change an agent's effort: ruled 2026-10-02.** Steven: changing an agent's model and data is
+  operator-protected. `PATCH /agents/{id}/effort` now needs the operator for every agent (403 with an
+  `OPERATOR_KEY` set and not presented). Still open under the same ruling: the herdr-space and
+  usage-source routes, which an undefined agent's caller changes with no operator proof.
 - **`runsWith` read during a definition push can mix the two.** `GET /agents/{id}` reads the agent row,
   then the definition rows; a push landing between them answers the new owner beside the old
   `definitionState` and values. The next read is consistent. The two-read shape predates `runsWith`.
