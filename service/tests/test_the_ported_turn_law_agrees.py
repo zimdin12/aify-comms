@@ -2,7 +2,7 @@
 
 One table, `tests/fixtures/agent-state-law.json` in the aify-env checkout, is run here through
 `turn_is_still_live` and `accept_hook_event` (against its real table, in an in-memory database), and in aify-env
-through `lib/agent-state.mjs`. A port that drifts from this service fails one side or the other on the same row.
+through its agent-state module. A port that drifts from this service fails one side or the other on the same row.
 The hook ordering's "registered machine" is aify-env's "current lifetime"; the table calls both the owner.
 """
 from __future__ import annotations

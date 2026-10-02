@@ -169,7 +169,8 @@ Over `service/` and `mcp/stdio/`, test files excluded:
 - `_agent_wake_mode\(|_agent_liveness\(|_has_live_worker_for\(|_resident_bridge_is_fresh\(|_has_live_terminal_session\(|_agent_has_live_terminal\(|_has_live_channel_sidecar\(|_has_live_claimer_lease\(|_claimer_lease_released_within\(|_has_live_managed_wrapper_child\(|_agents_with_live_terminal_sessions\(|_managed_spawn_is_starting\(|_managed_console_is_booting\(|_agent_config_defect\(|twin_refusal\(`
 - `_turn_busy_holds_delivery|_has_claimable_steerable_run|_turn_busy_state\(|_status_turn_signals|_in_turn_survives`
 - `_MANUAL_STATUSES|VALID_STATUSES|AGENT_STATUSES|AGENT_STATUS_MEANINGS`
-- status-word literals `["'](working|shell|online|available|blocked|offline|stopped|misconfigured|starting)["']`
+- status-word literals: a single or double quote, then one of working, shell, online, available, blocked, offline,
+  stopped, misconfigured or starting, then a quote
 - `_preflight_live_send_recipients\(|_refuse_send_to_unstartable_recipients\(`
 - dashboard: `resolveStatus\(|inputEnabled|LIVE_AGENT_STATUSES|ACTIVE_AGENT_STATUSES|NON_LIVE|statusNote|dispatchState|wakeMode|hasActiveRun|queuedRuns|statusRaw` and the status-word literals
 - bridge: `\.stopped\b|\.release\b|blockedBy|agentStatus|turnBusy|statusNote|wakeMode|dispatchState|recipientStatus`
