@@ -18,6 +18,7 @@ from fastapi import HTTPException, Request
 
 from service.api_core.definition_guard import DEFINED_SQL
 from service.api_core.request_body import json_object_body
+from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.routing import domain_router
 from service.api_core.serialization import _json_loads_or
 from service.api_core.harness_defaults import defaulted_runtimes, defaults_for
@@ -108,6 +109,11 @@ async def get_settings_schema(request: Request):
 
 @router.put("/settings")
 async def update_settings(request: Request):
+    """THE OPERATOR'S: with an OPERATOR_KEY set, refused (403) without it, before the body is read. A saved
+    default is what every new managed worker starts with, and Steven ruled on 2026-10-02 that changing an
+    agent's model and data is operator-protected; the per-agent routes were gated and this bulk one was
+    not (whole-range review of 0.8). The dashboard is its one caller and sends the key."""
+    recorded_operator_actor(None, request, action="changing the service's settings as the operator")
     body = await json_object_body(request)
     try:
         clean = validate_update(body)
@@ -130,7 +136,9 @@ async def update_settings(request: Request):
 @router.post("/settings/apply-managed-defaults")
 async def apply_managed_defaults(request: Request):
     """Give every existing undefined managed agent the current model and effort defaults, and say how
-    many defined ones it skipped. The operator asks."""
+    many defined ones it skipped. The operator asks, and with an OPERATOR_KEY set must prove it (403):
+    this rewrites the model and effort of every undefined managed agent at once."""
+    recorded_operator_actor(None, request, action="applying managed defaults to existing agents as the operator")
     db = await get_db()
     try:
         skipped = await _apply_managed_runtime_defaults(db, await _load_settings(db))
