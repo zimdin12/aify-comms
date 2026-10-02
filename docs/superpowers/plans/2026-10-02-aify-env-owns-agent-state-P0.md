@@ -1,199 +1,160 @@
-# aify-env owns agent state: P0 contracts
+# aify-env owns the agents' state: P0 contracts
 
-The contracts the plan ([2026-10-02-aify-env-owns-agent-state.md](2026-10-02-aify-env-owns-agent-state.md)) needs
-frozen before any P2 code. Grounds: comms 3811a66f, env df319ad, wrapper 5f3d3018 (the v0.8.0 tags). Written
-against comms-senior-dev's review of plan 7ca834ae (R1-R5).
-
-**The shape changed in this revision, and the reason is R2.** The first plan had aify-env publish one display word
-and had aify-comms gate delivery on it. Today's delivery law is not a function of the display word: a hook-owned
-turn holds delivery to 1800 s from its start, a verifiably renewed turn holds while it is renewed, and a fresh
-`working` screen with no open turn shows `working` and does not hold (senior-dev's sealed witness of the actual
-`_turn_busy_holds_delivery` and `derive()`, 2026-10-02). So aify-env publishes **typed facts**, and aify-comms keeps
-both laws exactly, with their inputs relocated. Nothing in C1-C9 changes a delivery or status outcome on purpose;
-each place that would is named as a policy change and left out of this tag.
+The contracts [the plan](2026-10-02-aify-env-owns-agent-state.md) needs frozen before any P2 code, for the end state
+the operator approved (aify-env owns agent state, lifecycle and processes; aify-comms owns messaging and the
+delivery decision). Grounds: the v0.8.0 tags, comms 3811a66f, env df319ad, wrapper 5f3d3018.
 
 ## C1. What aify-env publishes per agent
 
-One record per agent per publishing instance. Every field is an observation the host makes itself; nothing here
-is derived from aify-comms.
+One record per agent per publishing instance: the observations and the **one** derived word.
 
 ```json
 {
-  "agentId": "comms-tech-lead",
-  "lifetime": "7f3c9e2a-...",
-  "mode": "resident",
-  "harness": "claude",
-  "process": {"state": "running", "verified": "yes", "pid": 41236, "startedAt": 1790950000123},
-  "turn": {"open": true, "startedAt": 1790951000456, "renewedAt": 1790951300789, "renewable": true,
-           "awaitingInput": false, "lastEvent": {"kind": "turn-start", "firedAtUs": 1790951300789123}},
+  "agentId": "comms-tech-lead", "lifetime": "7f3c9e2a-...", "mode": "resident", "harness": "claude",
+  "state": "working", "stateCause": "turn-open",
+  "busy": true,
+  "process": {"state": "running", "verified": "yes", "pid": 41236, "createdAt": 1790950000101},
+  "turn": {"open": true, "startedAt": 1790951000456, "lastEventAt": 1790951300789, "awaitingInput": false,
+           "busyIf": {"strict": true, "verifiedRenewal": true}},
   "screen": {"state": "working", "observedAt": 1790951301000},
-  "background": {"shells": 0, "observedAt": 1790951301000},
+  "background": {"shells": 0},
+  "lifecycle": {"stoppedByOperator": false, "definition": "valid", "startable": true},
   "runsWith": {"model": {"value": "...", "from": "definition"}, "effort": {"value": "...", "from": "definition"}}
 }
 ```
 
-| field | values | meaning |
+- `state`: C3's word. `busy`: C3's turn law under the rule the operator chose (P-1); until then it is the strict
+  rule, today's.
+- `turn.busyIf` carries both answers, so the comparison (C8) can show what P-1 would change.
+- `stateCause`: the C3 rule that decided the word, for the explanation a reader shows.
+- All times are the host's clock at observation. A receiver judges freshness on its own clock from when it applied
+  the publication (C5).
+
+## C2. The reader ledger, in the end state
+
+The census (`evidence/2026-10-02-c2/reader-ledger.md`, 96 readers at 3811a66f, a candidate inventory, not certified
+exhaustive) is mapped here input by input, then reader by reader. **Input side**: who owns each fact `derive()` and
+the gates read today, after the switch.
+
+| today's input | owner after | where it comes from |
 |---|---|---|
-| `lifetime` | uuid | one process lifetime of this agent on this instance (C4); a restart is a new lifetime |
-| `process.state` | `starting`, `running`, `exited`, `unknown` | `unknown` when the identity probe cannot answer (C4): never read as dead |
-| `process.verified` | `yes`, `no`, `unknown` | whether the pid is still the recorded process (C4) |
-| `turn.open` | bool | the C3 turn record, after C3's ordering |
-| `turn.startedAt` / `renewedAt` | epoch ms | the anchor and the last renewal, the two inputs `turn_is_still_live` takes |
-| `turn.renewable` | bool | true while the turn's own process is `running` and `verified: yes` (C3) |
-| `screen.state` | `working`, `blocked`, `idle`, `shell`, absent | the core screen observer, managed workers and adopted residents whose screen aify-env holds |
-| `background.shells` | int | what the screen or hook reports as still running behind an idle prompt |
-| `runsWith` | object or absent | defined agents only: what the next start would use. Configuration, never readiness |
+| `in_turn`, `awaiting_input`, `turn_busy` (hooks, detectors) | aify-env | C3's turn, from hooks and the screen |
+| `turn_busy` from the delivery reporters (`dispatch-loop`, `claude-channel`, `hermes-run-reporting`) | aify-comms | its own run in flight: `dispatch_runs` running, owned by a live delivery bridge |
+| `worker_present` (managed), `alive` / `has_live_session` / `bridge_stale` (resident) | aify-env | `process` (running and verified) |
+| the delivery half of worker presence (channel sidecar, wrapper child), wake mode, capabilities | aify-comms | its own delivery components: the `deliverable` flag and a note |
+| `console_booting`, `spawn_starting` | aify-env | `starting` |
+| `disabled` | aify-env for a defined agent (`lifecycle.stoppedByOperator`); aify-comms for an undefined one, for one tag (D8) | |
+| `config_defect` | split: harness missing, definition invalid or runtime unknown is aify-env's `misconfigured`; no wake path is aify-comms' `deliverable: false` and a note | |
+| `env_reachable` | aify-comms | its receiver's freshness for that publisher (C5) |
+| `host_activity`, `background_work` | aify-env | `screen`, `background` |
 
-All times are the host's clock at observation. A receiver judges freshness on its own clock from when it applied
-the publication (C5), never from these.
+**Reader side.** Each group reads the view C6 defines:
 
-**Not published, because aify-env does not own them:** `disabled` (operator stop), `config_defect`, environment
-reachability, the delivery sidecar's presence, spawn rows, dispatch runs, unread and reply-owed. These stay
-aify-comms inputs (C2).
+- **Status servers and pushes** (A1-A17, C1-C2): replaced by `commsView` (C6), one function both the poll and the
+  push call. Today's two producers disagree (KNOWN_ISSUES); after the switch there is one.
+- **Busy readers** (B9 queueIfBusy, B17 claim, B18, B19 steer bypass, B21 reminders, B26, B27, B43, B44): read
+  `holdsDelivery` (C6).
+- **Readiness and eligibility** (B4 preflight, B10-B16 cold-start and twin, B24-B25 claimer, B28-B32 worker
+  hygiene): read `process` and `deliverable`.
+- **Counts, compaction and session displays** (B33-B40), the dashboard (D1-D20) and the bridge (E1-E9): read the
+  view's word.
+- **Manual-stop readers** (B17 `{stopped}`, B30, B33, B34, B41, E5): read the view's `stopped`, which comes from
+  aify-env for a defined agent.
 
-## C2. The consumer ledger
+**`unknown` is new**, and `is_live_agent_status('unknown')` answers live today. In P7 `unknown` joins
+`NON_LIVE_AGENT_STATUSES` for counting (fail closed). The send preflight queues to it (stored, delivered when the
+state is known), never refuses it. The dashboard shows a grey chip with the cause. Each of these is listed in C8 as
+a deliberate change.
 
-Built from a source census at 3811a66f (2026-10-02): 17 producers and servers (A), 46 decision readers (B), 4 raw
-write paths (C), 20 dashboard readers (D) and 9 bridge readers (E). The full table, with each reader's facts,
-distinction and decision, is `evidence/2026-10-02-c2/reader-ledger.md`. This section is what it concludes.
+**The discriminator.** P4 adds the ledger as data and a test that re-derives the reader set from source with the
+census patterns. A reader not in the ledger, or a ledger row whose reader is gone, fails it. P8 runs it again: no
+reader of a deleted input may remain.
 
-**Bidirectional, input side: what each input's source is after 0.9.** An input either keeps its source, or is
-relocated to a host publication **and written by the same function into the same row**, so no reader can tell.
+## C3. aify-env's derivation and turn law
 
-| input (table or function) | today's producer | after 0.9 | written by |
-|---|---|---|---|
-| `agent_turn_state` / `agent_status_state` from **hooks** (turn-start, turn-end, blocked, unblocked) | hooks to the comms routes | hooks to aify-env, published, applied by the ingest | the hook routes' own handler body (`turn_boundaries` turn-start and turn-end, `post_status_event`), factored into one function that the routes and the ingest both call: `accept_hook_event`, the `agent_turn_state` write with the owner marker `user-prompt-submit`, and `_apply_status_event`. So `_turn_lease_is_renewable` stays strict and `_clear_turn_busy_for_dead_bridges` still skips it |
-| the same tables from **bridge detectors** and **delivery reporters** | the bridge | unchanged | unchanged |
-| `host_activity` (`terminal_sessions.activity_state`, `activity_reported_at`) | the comms plugin's `activity` frame | aify-env's core screen observer, published | `record_host_activity`, for the agent's live terminal; 75 s freshness on the receiver's clock as today |
-| `background_work`, console-working lease, terminal prompt hint | the bridge and the terminal stream | unchanged | unchanged |
-| worker presence (`_worker_liveness_for`: terminal, sidecar, wrapper child), resident bridge freshness, wake mode, capabilities, `config_defect`, `env_reachable`, spawn and console booting, `disabled` | aify-comms' own rows | unchanged in 0.9; `process` is compared against worker presence in C8 | unchanged |
-
-**Bidirectional, reader side.** Every reader in the ledger reads one of the rows above or a derived word computed
-from them, so each keeps its required distinction by construction:
-
-- the status producers and servers (A1-A17) and the push paths (C1-C2) read only the inputs above;
-- the delivery decisions that read the turn (B9 queueIfBusy, B17 claim, B18 busy, B19 steer bypass, B21 reminders,
-  B26 stranded reply runs, B27 dead-bridge clear, B43-B44 turn routes) read `agent_turn_state` through the same
-  law;
-- the readiness and eligibility decisions (B4 preflight, B10-B16 cold-start and twin, B24-B25 claimer, B28-B32
-  worker hygiene, B33-B40 session and analytics) read only unchanged inputs;
-- the dashboard (D1-D20) and the bridge (E1-E9) read served words and fields whose producers are unchanged.
-
-The one reader whose input changes is `host_activity_for`. Its observation now comes from the core observer
-instead of the comms plugin's copy of the same rules. Its rules are herdr's in both places, and they are checked
-by porting the plugin's rule table entry for entry.
-
-**The discriminator.** P4 adds the ledger as data (`reader-ledger.json`: reader, facts, distinction, row) and a
-test that re-derives the reader set from source with the census's patterns. A reader the derivation finds that the
-ledger lacks fails the test, and so does a ledger row whose reader is gone. That is coverage of the set, not of
-meaning; the meaning is the table above, and it is reviewed.
-
-**Found by the census, and not changed by 0.9.** These are current behaviour, recorded in KNOWN_ISSUES. Each could
-appear in C8 as an old-side disagreement, so each is named here:
-
-- `PATCH /agents/{id}` (`update_agent`) writes any lowercased string to `agents.status` with no allowlist and no
-  operator gate. A stored `stopped` is the manual stop that derivation may not argue with, so any key holder can
-  stop any agent (read 2026-10-02). The `comms_status` tool uses this route for self-report.
-- The dispatch run PATCH writes `agentStatus` when it is in `VALID_STATUSES`, which includes `stopped`. No bridge
-  sends it; nothing prevents one from doing so.
-- The pushed status (`_broadcast_engine_status`, gather path A3) and the polled one (A4) disagree for a resident
-  with no wake handle (`misconfigured` against `offline`). The push also skips the roster gates and the
-  running-run promotion.
-- The orphaned-run reaper's fail-fast set omits `misconfigured` and still lists the retired `stale`. The agent
-  drawer offers Stop for `misconfigured` and `starting`.
-- The claim funnel checks only raw `stopped`, while the engine also treats `launch_mode='none'` as disabled.
-- The pulse board overwrites the roster's gated status with an ungated one until the next poll.
-
-## C3. The turn law, ported, not reinterpreted
-
-**Ordering** is today's `accept_hook_event`, entry for entry, with the host check expressed by lifetime:
+**The turn.** Events are hooks (turn-start, turn-end, blocked, unblocked), carrying `firedAtUs`, the lifetime and
+the instance. Ordering is today's `accept_hook_event`, ported entry for entry and checked by a table run against the
+Python statement:
 
 | incoming event | rule |
 |---|---|
-| carries no `firedAtUs` | applies (outside the ordering), as today |
-| names a lifetime that is not the agent's current adopted lifetime | refused and logged (replaces "not the registered host": a delayed hook from a previous process cannot apply) |
-| first event of a lifetime | applies |
-| fired later than the last applied event of the same lifetime | applies |
-| fired in the same microsecond and is a `turn-end` | applies (end wins a tie: a wrong idle is corrected by the next turn-start, a wrong working is not) |
+| no `firedAtUs` | applies, outside the ordering |
+| a lifetime other than the agent's current adopted one | refused and logged |
+| the first event of a lifetime | applies |
+| fired later than the last applied event of that lifetime | applies |
+| the same microsecond, and a `turn-end` | applies (end wins a tie) |
 | otherwise | refused and logged |
 
-The port is checked case for case against the Python statement, as a table test run on both sides.
+A runtime exit ends the open turn. **Busy** is `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)`,
+ported unchanged, under two rules that are published side by side (`turn.busyIf`):
 
-**Liveness** is `turn_is_still_live(started, touched, renewable, now, strict=1800 s)`, unchanged, ported to aify-env
-for its own published `turn.open`. What changes is who vouches for a renewal: today `renewable` means "the turn's
-bridge row exists, is this agent's, and is heartbeating"; in aify-env it means "the turn's own process is
-`running` and `verified: yes`" (C4). A hook-owned turn of a resident aify-env has adopted is therefore renewable
-while its process lives, where today a hook-owned turn is strict-anchored. **That is a policy change** (a resident
-claude's long turn would hold delivery past 30 minutes), so in 0.9 aify-comms does not consume it: aify-comms
-computes its own `renewable` exactly as today (C6), and the host's `turn.renewable` is published for the
-comparison (C8) and for aify-dashboard only.
+- `strict`, today's rule for a hook-owned turn: `renewable` is false, so the turn holds for 1800 s from its start.
+- `verifiedRenewal`, P-1: `renewable` is true when the last event came from the agent's current lifetime, and that
+  lifetime's process is `running` and `verified: yes`.
 
-**Screen precedence** is today's `derive()` rule, stated as cases:
+`busy` follows `strict` until the operator chooses.
 
-| screen (fresh) | turn open | result |
-|---|---|---|
-| `working` or `blocked` | either | the screen's word is displayed; delivery is unchanged (it reads only the turn) |
-| `idle` or `shell` | yes | the turn stands; the screen does not end it |
-| `idle` or `shell` | no | displayed (`online` / `shell`) |
-| absent or stale (older than 75 s on the receiver's clock) | either | decides nothing |
+**The word.** First match wins. The screen is fresh while it is within 75 s on aify-env's clock.
 
-**Not in this tag, named so it is not done by accident:** ending an open turn because the screen has read `idle`
-for a sustained time. It would fix the lost-turn-end cases (claude's Esc interrupt, hermes' non-retryable API
-error), and it is a delivery policy change that needs the operator's decision.
+| # | condition | state | cause |
+|---|---|---|---|
+| 1 | `lifecycle.stoppedByOperator` | `stopped` | operator-stop |
+| 2 | definition invalid, harness not installed, or runtime unknown, and no running process | `misconfigured` | config |
+| 3 | process `unknown` (the probe cannot answer) | `unknown` | probe |
+| 4 | process running and verified; fresh screen `working` or `blocked` | that word | screen |
+| 5 | process running and verified; turn busy | `blocked` if awaiting input, else `working` | turn-open |
+| 6 | process running and verified; fresh screen `shell`, or background shells | `shell` | at-prompt |
+| 7 | process running and verified | `idle` | at-prompt |
+| 8 | process `starting`, within the startup window | `starting` | starting |
+| 9 | managed, defined and startable, no process | `available` | startable |
+| 10 | otherwise | `offline` | absent |
+
+These are today's precedences: a positive screen sighting outranks the bookkeeping, and an idle or shell screen never
+ends an open turn (row 5 is above row 6). Past its window, a `starting` that never produced a process falls to
+row 9 or 10, so it cannot hang there. **Out of this tag**, and named so it is not done by accident: ending an open
+turn because the screen has read idle for a sustained time.
 
 ## C4. A resident is a lifetime record, verified against the OS
 
-**Records.** The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
+The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 ```json
 {"agentId": "comms-tech-lead", "lifetime": "7f3c9e2a-...", "instance": "default", "harness": "claude",
  "pid": 41236, "launcher": "C:/Users/.../claude-aify", "writtenAt": 1790950000500, "herdrPane": "w1:p3"}
 ```
 
-- `pid` is the **launcher's own OS pid** (on Git Bash, `/proc/$$/winpid`, never `$$`, which is an MSYS pid). The
-  launcher lives for the whole session and runs the exit path, so its lifetime is the agent's.
-- One file per lifetime, so cleanup needs no compare-and-unlink: an exiting launcher removes only the file named by
-  its own lifetime and can never remove a replacement's.
-- `instance` names the aify-env instance the launcher ran under (`AIFY_ENV_INSTANCE`, else `default`); only that
-  instance adopts the record.
+- `pid` is the **launcher's own OS pid** (on Git Bash `/proc/$$/winpid`, never `$$`). The launcher lives for the
+  session and runs the exit path.
+- One file per lifetime, so an exiting launcher removes only its own and can never remove a replacement's.
+- `instance` is the aify-env instance the launcher ran under; only that instance adopts it.
 
-**Verification** is env's `defaultVerify` rule, adapted:
+**Adoption** asks the OS for the pid's creation time and command line:
 
-| probe answer | verified |
+| answer | verified |
 |---|---|
-| the OS creation time of `pid` is at or before `writtenAt` (plus `START_TIME_TOLERANCE_MS`), and its command line contains `launcher` | `yes` |
-| the process is gone, or it was created after `writtenAt` (a reused pid), or its command line lacks the launcher (a sibling) | `no`: the lifetime is over; the record is removed by aify-env |
-| the probe cannot answer (access denied, timeout, no probe on the platform) | `unknown`: reported, never acted on, never removed |
+| created at or before `writtenAt` (millisecond floor, **no tolerance**), and the command line contains `launcher` | `yes`, and that exact creation time is pinned |
+| later sightings: the same pinned creation time | `yes` |
+| gone, created after `writtenAt` or with a different pinned time (a reused pid), or no launcher in the command line (a sibling) | `no`: the lifetime is over, and aify-env removes the record |
+| the probe cannot answer (access denied, timeout, no probe) | `unknown`: reported, never acted on, never removed |
 
-A reused pid necessarily started after the record was written, because the record's own process was alive to write
-it; that is the discriminating fact, as in `orphan-reap.mjs`.
+No tolerance, because a reused pid is created after the original wrote its record, and the record's own process
+existed when it wrote. A tolerance would admit a pid reused within it (comms-senior-dev, review of eda03a3d).
 
-**Several records for one agent** (a crash left one, or two launchers ran): the newest `writtenAt` whose
-verification is `yes` is the agent's current lifetime; any other `yes` is a **conflict**, published as such and
-never resolved by picking. A receiver that sees one agentId from two instances shows a conflict too.
+**More than one live lifetime** for one agent: the newest `writtenAt` with `yes` is current, and any other `yes` is a
+conflict, published and never resolved by picking. One agentId from two instances is a conflict too.
 
-**Hook routing.** The launcher exports `AIFY_LIFETIME` and `AIFY_ENV_INSTANCE` into the runtime's environment, so
-every hook it fires carries both. aify-env writes one descriptor **per instance**, `~/.aify/env/<instance>.json`
-`{url, instance, pid, startedAt}`, and a hook reads the descriptor of its own instance. A managed worker gets
-`AIFY_ENV_URL` directly. A hook whose lifetime is not the instance's current lifetime for that agent is refused
-(C3).
+**Routing.** Each instance writes `~/.aify/env/<instance>.json` `{url, instance, pid, startedAt}`. A hook reads its
+own instance's descriptor (`AIFY_ENV_INSTANCE`) and carries `AIFY_LIFETIME`. A managed worker gets `AIFY_ENV_URL`.
+An adopted resident's turn is `unknown` until its next hook; its process is known at once.
 
-**Adoption with no next hook.** An adopted resident's turn is `unknown` until its next hook; `process` is known at
-once.
+**Controls (P2):** reused pid, sibling launcher, wrong instance, delayed prior-lifetime hook, tied events, access
+denied, an old exit beside a new record, adoption with no next hook, and two live lifetimes.
 
 ## C5. Publication order
 
-**Publisher incarnation.** At boot each instance computes `generation = max(persisted + 1, now_ms)`, writes it to
-`~/.aify/env/<instance>.generation` and fsyncs before its first publication, and draws a random `incarnationId`.
-The persisted term makes it strictly increasing across restarts whatever the wall clock does, including two boots
-in one millisecond; the wall-clock term recovers a lost file on a host whose clock is sane. A lost file **and** a
-clock stepped behind the last generation is unrecoverable by design: the receiver reports the publisher as behind
-(below) rather than accepting it.
-
-**Publication sequence.** Every push from an incarnation carries `publication`, one counter for **all** pushes to
-all destinations, and goes out one at a time per destination. Per-agent order is not used for membership.
-
-**Body.**
+At boot, `generation = max(persisted + 1, now_ms)`, written and fsynced to `~/.aify/env/<instance>.generation`
+before the first push; a random `incarnationId`; one `publication` counter for every push the incarnation makes,
+with one push in flight per destination.
 
 ```json
 {"kind": "snapshot", "complete": true, "machineId": "win32:stevenz-l", "instance": "default",
@@ -201,96 +162,161 @@ all destinations, and goes out one at a time per destination. Per-agent order is
  "removed": [{"agentId": "old-agent", "lifetime": "..."}]}
 ```
 
-- `kind: "snapshot"` requires `complete: true` and lists every agent the instance currently publishes; absence
-  from it means gone. An enumeration that failed or was partial is never sent as a snapshot: it is sent as
-  `{"kind": "unavailable", "reason": "..."}` with the same identity fields, which renews nothing and removes nothing.
-- `kind: "changes"` lists changed agents, and `removed` lists ended ones by `(agentId, lifetime)`.
-- A recreated agent is a new lifetime, so a delayed removal of the old one cannot end it.
+- A snapshot lists every agent the instance publishes, and absence means gone. A failed or partial enumeration is
+  sent as `kind: "unavailable"` with a reason; it renews nothing and removes nothing.
+- `kind: "changes"` carries the changed agents and `removed` (by lifetime), so a delayed removal cannot end a
+  recreated agent.
 
-**Receiver rules**, for the key `(machineId, instance)`:
+**Receiver**, keyed by `(machineId, instance)`, validating the whole body and applying it **in one transaction of its
+own** (never through a writer that commits inside):
 
 | incoming vs last applied | answer | effect |
 |---|---|---|
-| no prior | 204 | apply |
-| higher `generation` | 204 | replace: everything the older incarnation published is dropped, then apply |
-| same `generation`, same `incarnationId`, higher `publication` | 204 | apply |
-| same `generation` and `publication`, same body digest | 200 `{"applied": false, "reason": "duplicate"}` | nothing; freshness not renewed again |
-| same `generation`, different `incarnationId`, or same `publication` with a different digest | 200 `{"applied": false, "reason": "conflict"}` | nothing; reported (doctor row, dashboard) |
-| lower `generation`, or same incarnation and lower `publication` | 200 `{"applied": false, "reason": "stale"}` | nothing |
+| none, or a higher `generation` | 204 | apply; a higher generation first drops everything the older one published |
+| same generation and incarnation, higher `publication` | 204 | apply |
+| same generation and publication, same digest | 200 `{applied: false, reason: "duplicate"}` | nothing; freshness not renewed again |
+| same generation with a different incarnation, or same publication with a different digest | 200 `{applied: false, reason: "conflict"}` | nothing; reported |
+| lower generation, or lower publication | 200 `{applied: false, reason: "stale"}` | nothing |
 
-So the R4 case closes: an old snapshot (publication 7) that omits B arrives after B's change (publication 8) and is
-stale, never applied. Application is one transaction: validate the whole body, then write.
+A snapshot every 60 s, so a quiet host stays fresh. No applied publication for 180 s makes that publisher's agents
+stale (C6). The credential is the service's own `agentState.credentialRef`, under `x-aify-agent-state-key`, sent only
+to that destination. A service that names none gets its ordinary key, which is its trust policy, not proof of host
+authorship. A non-2xx answer is dropped, never retried.
 
-**Freshness** is renewed only by an applied publication, on the receiver's clock. A quiet host still sends a
-snapshot every 60 s with a new `publication`, so quiet is fresh; a replayed old body can never renew. No applied
-publication for 180 s makes the instance's facts stale (C6 says what stale means to each reader).
+**The unrecoverable case:** a lost generation file **and** a clock behind the last generation. The receiver reports
+that publisher as behind, and never accepts it as current.
 
-**Transport.** POST to the service's `agentState.path` with its own credential under header
-`x-aify-agent-state-key`. The credential is bound to that destination and sent nowhere else. A service that names
-no `credentialRef` gets its ordinary key: that is the service's trust policy, not proof that the host wrote the push.
-A non-2xx answer is dropped, never retried; the next snapshot repairs.
+**Controls (P2, P4):** an old snapshot after a newer change; removal and recreation; boots A, then B, then a delayed
+A; equal and backward clocks; a duplicate; a conflict; a partial collection; a quiet snapshot.
 
-## C6. What aify-comms does with it in 0.9
+## C6. aify-comms in the end state
 
-aify-comms ingests into `host_agent_state` and maps the facts onto the **existing** inputs, through the **existing**
-paths:
+```text
+commsView(record | none, messaging) -> {status, statusNote, deliverable, holdsDelivery}
+```
 
-- Turn events the host received from hooks are applied through today's ordering into `agent_turn_state` and
-  `agent_status_state`, as the hook routes apply them now. `renewable` is computed by aify-comms exactly as today:
-  a hook-owned turn stays strict-anchored at 1800 s from its start. When publication is stale, nothing new arrives,
-  which is today's "no new hook" and needs no new rule.
-- The screen observation replaces the comms plugin's `activity` frame as the source of `host_activity`, with the
-  same 75 s freshness on the receiver's clock.
-- `process` feeds the comparison (C8) in 0.9 and replaces no worker-presence input yet. Worker presence keeps its
-  delivery half (the channel sidecar is aify-comms' own delivery component and stays its fact).
-- The delivery-side turn reporters stay aify-comms producers, unchanged: `dispatch-loop.mjs` and
-  `claude-channel.js` `reportTurnBusy`, and `hermes-run-reporting.mjs` `reportTurnBusy`/`clearTurn`. They report a
-  run aify-comms delivered, renew through a heartbeating bridge, and move with the hermes gateway tag.
-- The bridge turn detectors (claude transcript, codex rollout, resident hermes gateway) stay in 0.9. Each is
-  retired only when C8 shows a replacement covers its obligation.
-- `unknown` is never a status word aify-comms emits in 0.9, so `is_live_agent_status` and every vocabulary reader
-  are untouched. (Its current answer for `unknown` is live, a hazard for any later tag that emits it.)
+One pure function, called by the poll, the push and every reader. Its inputs:
 
-## C7. The switch, and what it deletes
+- `record`: the newest applied C1 record for the agent, or none, or one marked stale by C5.
+- `messaging`: the agent's run in flight, a reply owed, unread messages, delivery components (sidecar, wrapper
+  child, wake path), and, for an **undefined** agent in this tag, the operator stop flag.
 
-After the comparison (C8) passes, the launchers stop posting turn events to aify-comms and post only to aify-env;
-aify-comms' hook routes stay for one tag for old launchers, then go. Nothing else is deleted in 0.9.
+| case | status | note | holdsDelivery |
+|---|---|---|---|
+| no record | `offline` | "environment not reporting" | the run in flight only |
+| a stale record | `offline` | "environment not reporting since <time>" | the run in flight, OR the last record's open turn under the **strict** law: 1800 s from `turnSeenAt` |
+| a record | the record's `state` (`idle` shown as `online`) | the cause, plus messaging notes | `record.busy` OR run in flight |
+| a run in flight, and the state is `idle`, `shell`, `starting` or `available` | `working` | "running <run>" | true |
+| no delivery path | unchanged word | "no delivery path: <reason>" | as above; `deliverable: false` |
+
+The running-run row is today's promotion, and it stays a messaging fact.
+
+**A stale publication keeps the open turn, strictly.** `turnSeenAt` is aify-comms' own clock when it first applied a
+record showing that turn open: a new `turn.startedAt`. Today's turn-start route stamps the service's own time too.
+A publisher that goes quiet mid-turn therefore holds delivery exactly as a hook-owned turn with no further hooks does
+today, up to 1800 s from its start, and never longer, because nothing fresh renews it. Releasing at staleness would
+be the early release comms-senior-dev measured in the review of 7ca834ae (R2), and so would be a policy change.
+
+## C7. Deleted after the switch
+
+From aify-comms:
+
+- the turn and process inputs of `derive()`, and `status_inputs.py`'s gathering;
+- `agent_turn_state`, `agent_status_state`, `agent_hook_order`;
+- the turn-start, turn-end and status-event routes. They stay for one tag, accepting and ignoring, for old
+  launchers;
+- `turnBusy` on heartbeats. The delivery reporters keep their run PATCHes;
+- the console-working lease;
+- the terminal `activity` frame's status use;
+- the background-work route;
+- the claude transcript and codex rollout detectors.
+
+The resident hermes gateway turn detector goes too, unless C8 shows a hermes class that only it covers; then it stays
+with the gateway host until the next tag. From aify-wrapper: the comms hook commands and the herdr state hook.
 
 ## C8. The comparison that admits the switch
 
-For every decision below, aify-comms computes the current answer and the answer with host-sourced inputs **in the
-same evaluation, on the same rows**, at each change of either input and on every sweep:
+For each decision, aify-comms computes today's answer and the C6 answer **in the same evaluation, on the same
+rows**, at every change of either input and on every sweep:
 
-| decision | function |
-|---|---|
-| status projection | `derive()` via both gather paths |
-| busy | `_turn_busy_holds_delivery` |
-| send-time queue | `dispatch_launch` queueIfBusy decision |
-| claim | the `/dispatch/claim` gate, steer and non-steer |
-| worker readiness | `_worker_liveness_for` |
+| decision | today | end state |
+|---|---|---|
+| status word | `derive()` via both gather paths, plus the roster gates and promotion | `commsView().status` |
+| busy | `_turn_busy_holds_delivery` | `commsView().holdsDelivery`, under `strict` and under P-1 |
+| send-time queue | `dispatch_launch` queueIfBusy | the same decision on `holdsDelivery` |
+| claim | the `/dispatch/claim` gate, steer and non-steer | the same on `holdsDelivery` |
+| worker readiness | `_worker_liveness_for` | `process` and `deliverable` |
+| live counts | `is_live_agent_status` | the same on the view's word |
 
-Recorded per decision: the denominator (evaluations), agreements, disagreements with the raw inputs on both sides,
-the versions of all three repos, and the classes never observed. Each disagreement is classified **bug**,
-**approved policy change** or **unresolved**; an explanation is not a classification. The switch needs zero
-unresolved and zero bug, every approved change confirmed by the operator, and a deterministic test for each class
-the fleet did not show: reordered events, a delayed prior-lifetime hook, publication loss, stale and duplicate
-publications, a reused pid, an unknown probe, a renewed long turn, an expired turn, an invalid timestamp. The
-fleet run is the operator's install and restart, separately authorized.
+**Recorded per decision:**
+- evaluations (the denominator) and agreements;
+- every disagreement, with both sides' raw inputs and the versions of all three repos;
+- the classes that were never observed.
+
+**Classification.** Each disagreement is a **bug** (fixed in aify-env or C6, then measured again), an **approved
+policy change** (confirmed by the operator, quoting the class and its count) or **unresolved**. An explanation is
+not a classification.
+
+**The switch needs:**
+- zero unresolved and zero open bugs;
+- every policy change approved, P-1 included;
+- a deterministic test for each class the fleet did not show: reordered and tied events; a delayed prior-lifetime
+  hook; publication loss; stale, duplicate and conflicting publications; a reused pid; an unknown probe; a renewed
+  long turn; an expired turn; an invalid timestamp; a stopped agent; an undefined agent.
+
+**Known in advance to differ, so already named as policy changes for the operator:**
+- `unknown` (C2);
+- a resident with no wake handle shows its state with a "no delivery path" note instead of `misconfigured`;
+- P-1;
+- the pushed and polled status agreeing where today they do not.
 
 ## C9. Lifecycle requests (D8)
 
-Carried like definition requests: aify-comms writes, the plugin claims, aify-env executes and reports.
+aify-comms writes, the plugin claims, aify-env executes and reports.
 
 | field | rule |
 |---|---|
 | `requestId` | idempotency key: the same id again returns the first result and does nothing |
 | `agentId`, `action` | `start`, `stop`, `restart` |
-| `expectedRevision` | the definition revision the request was made against; a different current revision is refused `revision-moved` |
-| `expectedLifetime` | for `stop` and `restart`: the lifetime being acted on; a different current lifetime is refused `lifetime-moved` |
-| `requestedBy` | the operator gate applies, as for every definition change |
+| `expectedRevision` | a different current definition revision is refused `revision-moved` |
+| `expectedLifetime` | for stop and restart, a different current lifetime is refused `lifetime-moved` |
+| `requestedBy` | the operator gate, as for every definition change |
 
-One open request per agent (a unique partial index); a second is refused `request-open` naming the first. Results
-are durable rows: `done` (with the new lifetime for start and restart), `refused` (reason), `failed` (reason), each
-with its time. aify-env takes the definition store lock (`admitStart`) for start and restart, so a definition
-change and a start cannot interleave. A request whose plugin never claims it is reported by the doctor, never
-retried by the service.
+- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first.
+- Durable results: `done` (with the new lifetime), `refused` (reason) or `failed` (reason), each with its time.
+- Start and restart run under the store lock (`admitStart`), so a definition change and a start cannot interleave.
+- A request no plugin claims is reported by the doctor and never retried by the service.
+- Cold-start on a message is aify-comms deciding the wake and asking through this queue.
+
+## C10. The plugin interface
+
+The core hands every plugin one `ports` object and the plugin's own registry entry. JSDoc typedefs in
+`lib/plugins/ports.mjs`:
+
+```js
+/** @typedef {object} HostPorts
+ *  @property {{machineId: string, instance: string, dedicated: boolean, version: string}} host
+ *  @property {object} processes  start / stop / list / output of the PTY processes this plugin owns
+ *  @property {object} agents     definitions (list, snapshot, applyRequest, admitStart); lifecycle (start, stop,
+ *                                restart); state (current(), subscribe(fn) -> unsubscribe)
+ *  @property {(entry: object) => Promise<string>} credential   the key for this plugin's own entry, resolved per call
+ *  @property {{watchRoots: () => Promise<{roots: string[], problems: string[]}>, cwdRoots: () => Promise<string[]>}} grants
+ *  @property {(line: string) => void} log
+ */
+/** @typedef {object} ServicePlugin
+ *  @property {string} name
+ *  @property {() => Promise<void>} start      idempotent
+ *  @property {() => Promise<void>} stop       idempotent; leaves no timer
+ *  @property {() => {problems: string[]}} state   optional keys a doctor reads: claimer, definitions
+ *  @property {object} [capabilities]          e.g. agents (the startable list the picker asks)
+ */
+/** A factory: (ports: HostPorts, entry: object) => ServicePlugin */
+```
+
+- **One conformance test** builds every `FACTORIES` product with stub ports, and asserts the shape, idempotent
+  start and stop, no timer left after stop, and `state().problems` an array. The boundary gate already keeps
+  service names out of the core.
+- **Migration.** Today's loose `shared` bag becomes these ports in P2, with the comms plugin moved onto them, and
+  `bin/aify-env.mjs` loses its inline assembly. It is at 997 lines, so the ports file is where that code goes.
+- **The generic state feed** (C5) is the core's own publisher, not a plugin. A service opts in with
+  `agentState` in its registry entry.
