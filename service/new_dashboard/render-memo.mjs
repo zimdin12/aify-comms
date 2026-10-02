@@ -95,6 +95,8 @@ export const _envSig = () => state.environments.map((e) => [
   JSON.stringify(e.runtimes ?? null), JSON.stringify(e.cwdRoots ?? null),
   // `staleDefinitionsBadge`: the service's sentence, so it repaints when a host stops or resumes pushing.
   e.definitions?.notice,
+  // `staleCodeBadge` reads these three; without them a host going stale or current never repainted the card.
+  e.codeCurrency?.state, e.codeCurrency?.running, e.codeCurrency?.onDisk,
 ]);
 export const _spawnReqSig = () => state.spawnRequests.map((r) => [r.id, r.status, r.agentId, r.error, r.updatedAt]);
 export const _msgSig = () => state.messages.map((m) => [m.id, m.from, m.subject, m.read]);
