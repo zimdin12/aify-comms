@@ -73,8 +73,13 @@ export class ChangeDrivenRefresh {
     this.instance = null;
     this.seq = null;
     this.stopPolling();
-    // A reconnect may have missed any number of changes. A first open follows the boot refresh.
-    if (reconnected) this.recover();
+    // EVERY OPEN RECOVERS, a first one too. A reconnect may have missed any number of changes, and so
+    // may a first open: the boot refresh read before this socket subscribed, and a change committed in
+    // between was sent to no one. comms-senior-dev's review of c8692f10 reproduced it with a host whose
+    // definitions went stale in that gap, a transition no later write repeats. One full refresh per
+    // page load is the price. `reconnected` is kept for the caller's log.
+    void reconnected;
+    this.recover();
   }
 
   closed() {

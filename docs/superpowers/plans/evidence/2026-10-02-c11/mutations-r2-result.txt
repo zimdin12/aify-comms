@@ -1,0 +1,13 @@
+killed (exit 1)                  a first pass reports nothing (the R2 hole A)
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::AHostThatStopsPushingSaysSo::test_A_FIRST_SWEEP_THAT_FINDS_A_HOST_STALE_REPORTS_IT
+                                  FAILED service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py::TheTracker::test_it_reports_a_move_and_nothing_else
+killed (exit 1)                  a first open does not recover (the R2 hole B)
+                                  not ok 1 - a change fetches only the slices that read its tables, once for a burst
+                                  not ok 4 - a skipped seq, or a restarted service, refetches everything once
+                                  not ok 5 - A FIRST OPEN RECOVERS: a change between the boot read and the subscription is not lost
+                                  not ok 6 - the first change on a connection sets the baseline without a full refetch
+                                  not ok 7 - the timed poll runs only while the socket is down
+                                  not ok 14 - A FULL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its older data on screen
+                                  not ok 15 - A PARTIAL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its older data on screen
+                                  not ok 16 - CONTROL: when the newer fetch also finishes last, nothing is fetched a second time
+2/2 killed

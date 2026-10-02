@@ -1,0 +1,16 @@
+[
+ {
+  "name": "a first pass reports nothing (the R2 hole A)",
+  "file": "service/reconcilers/definition_staleness.py",
+  "old": "        previous, self._stale = self._stale or frozenset(), frozenset(stale)\n        return previous != self._stale",
+  "new": "        previous, self._stale = self._stale, frozenset(stale)\n        return previous is not None and previous != self._stale",
+  "test": "python -m pytest -q -p no:warnings service/tests/test_a_host_that_stops_pushing_its_definitions_says_so.py"
+ },
+ {
+  "name": "a first open does not recover (the R2 hole B)",
+  "file": "service/new_dashboard/change-refresh.mjs",
+  "old": "    void reconnected;\n    this.recover();",
+  "new": "    if (reconnected) this.recover();",
+  "test": "cd service/new_dashboard && node --test change-refresh.test.mjs"
+ }
+]

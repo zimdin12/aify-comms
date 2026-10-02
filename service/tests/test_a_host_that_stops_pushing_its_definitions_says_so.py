@@ -87,6 +87,32 @@ class AHostThatStopsPushingSaysSo(FastApiTestCase):
                           again["definition_staleness_moved"]], [0, 1, 0], "reported once, when it moved")
         self.assertEqual(feed.moved, ["definition_stores"])
 
+    def test_A_FIRST_SWEEP_THAT_FINDS_A_HOST_STALE_REPORTS_IT(self):
+        """comms-senior-dev's review of c8692f10: read fresh at +599, then the first successful sweep at +601
+        (after a start, or after failed sweeps) had no baseline and said nothing, at +601 and an hour later."""
+        import asyncio
+        from unittest import mock
+
+        import service.main as service_main
+        from service.reconcilers import definition_staleness
+
+        class Feed:
+            def __init__(self):
+                self.moved = []
+
+            def derived_moved(self, table):
+                self.moved.append(table)
+
+        feed = Feed()
+        with mock.patch.object(definition_staleness, "TRACKER", definition_staleness.DefinitionStaleness()), \
+                mock.patch.object(definition_staleness, "CHANGE_FEED", feed):
+            with frozen_service_clock(T0):
+                self.push(1, [valid("worker")])
+            with frozen_service_clock(LATER):
+                first = asyncio.run(service_main._run_dispatch_reconcile_once())
+        self.assertEqual(first["definition_staleness_moved"], 1)
+        self.assertEqual(feed.moved, ["definition_stores"])
+
     def test_an_environment_no_store_pushes_from_carries_none(self):
         with frozen_service_clock(T0):
             self.push(1, [valid("worker")])
@@ -97,10 +123,11 @@ class TheTracker(unittest.TestCase):
     def test_it_reports_a_move_and_nothing_else(self):
         from service.reconcilers.definition_staleness import DefinitionStaleness
         tracker = DefinitionStaleness()
-        self.assertFalse(tracker.moved(frozenset({"m"})), "a first pass has nothing to differ from")
+        self.assertTrue(tracker.moved(frozenset({"m"})), "a host already stale at the first pass is reported")
         self.assertFalse(tracker.moved(frozenset({"m"})), "the same set is not a move")
         self.assertTrue(tracker.moved(frozenset()), "fresh again is a move")
         self.assertTrue(tracker.moved(frozenset({"n"})), "another machine is a move")
+        self.assertFalse(DefinitionStaleness().moved(frozenset()), "CONTROL: nothing stale at a first pass is no move")
 
 
 class TheFeed(unittest.TestCase):

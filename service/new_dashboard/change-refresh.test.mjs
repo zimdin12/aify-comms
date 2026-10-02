@@ -52,7 +52,7 @@ test('a change fetches only the slices that read its tables, once for a burst', 
   await advance(1);
   assert.deepEqual(log.slices, [slicesReading(['shared_artifacts'])]);
   assert.deepEqual(log.slices[0], ['stats', 'files'].filter((s) => SLICE_TABLES[s].includes('shared_artifacts')));
-  assert.equal(log.full, 0, 'a change the client can name must not refetch everything');
+  assert.equal(log.full, 1, 'only the recovery of the open itself: a change the client can name must not refetch everything');
 });
 
 test('liveness refreshes only the slices that show an age, and at most once a minute', async () => {
@@ -86,15 +86,24 @@ test('a skipped seq, or a restarted service, refetches everything once', async (
   refresher.opened({ reconnected: false });
   refresher.changed(change(1, ['messages']));
   refresher.changed(change(3, ['messages']));
-  assert.equal(log.full, 1, 'a missed event was not recovered');
+  assert.equal(log.full, 2, 'a missed event was not recovered (1 is the recovery of the open itself)');
   await advance(CHANGE_DEBOUNCE_MS);
   assert.deepEqual(log.slices, [], 'the partial fetch pending at the gap survived the full refetch');
   refresher.changed(change(4, ['messages']));
-  assert.equal(log.full, 1, 'the count did not start over after the recovery');
+  assert.equal(log.full, 2, 'the count did not start over after the recovery');
   await advance(CHANGE_DEBOUNCE_MS);
   assert.deepEqual(log.slices, [slicesReading(['messages'])], 'the next change after a recovery was not fetched');
   refresher.changed(change(1, ['messages'], [], 'svc-2'));
-  assert.equal(log.full, 2, 'a restarted service was read as a continuing count');
+  assert.equal(log.full, 3, 'a restarted service was read as a continuing count');
+});
+
+test('A FIRST OPEN RECOVERS: a change between the boot read and the subscription is not lost', () => {
+  // comms-senior-dev's review of c8692f10: the boot refresh reads before the socket subscribes, and a
+  // change committed in between (a host's definitions going stale, which no later write repeats) was
+  // sent to no one. The first open, like a reconnect, refetches everything once.
+  const { refresher, log } = rig();
+  refresher.opened({ reconnected: false });
+  assert.equal(log.full, 1);
 });
 
 test('the first change on a connection sets the baseline without a full refetch', () => {
@@ -102,7 +111,7 @@ test('the first change on a connection sets the baseline without a full refetch'
   refresher.opened({ reconnected: false });
   assert.equal(refresher.covering, false, 'a named event would be ignored before any change arrived');
   refresher.changed(change(41, ['messages']));
-  assert.equal(log.full, 0);
+  assert.equal(log.full, 1, 'the recovery of the open itself, and no second one for the first change');
   assert.equal(refresher.covering, true);
 });
 
@@ -112,17 +121,18 @@ test('the timed poll runs only while the socket is down', async () => {
   await advance(15_000);
   assert.equal(log.full, 1, 'a disconnected dashboard stopped polling');
   refresher.opened({ reconnected: false });
+  assert.equal(log.full, 2, 'the open recovers once');
   await advance(120_000);
-  assert.equal(log.full, 1, 'the poll kept running with the socket up');
+  assert.equal(log.full, 2, 'the poll kept running with the socket up');
   refresher.armPoll();
   await advance(120_000);
-  assert.equal(log.full, 1, 're-arming from a settings change restarted the poll while connected');
+  assert.equal(log.full, 2, 're-arming from a settings change restarted the poll while connected');
   log.pollSeconds = 30;
   refresher.closed();
   await advance(29_999);
-  assert.equal(log.full, 1, 'the poll ignored the operator interval');
+  assert.equal(log.full, 2, 'the poll ignored the operator interval');
   await advance(1);
-  assert.equal(log.full, 2);
+  assert.equal(log.full, 3);
 });
 
 test('stats is held to its own floor', async () => {
@@ -254,6 +264,7 @@ function racingRig() {
 test('A FULL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its older data on screen', async () => {
   const r = racingRig();
   r.refresher.opened({ reconnected: false });
+  await r.release('full');                   // the open's own recovery, settled before the race
   r.refresher.changed(change(1, []));
   r.refresher.fullRefresh();                 // reads version 1
   r.service.version = 2;
@@ -269,6 +280,7 @@ test('A FULL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its old
 test('A PARTIAL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its older data on screen', async () => {
   const r = racingRig();
   r.refresher.opened({ reconnected: false });
+  await r.release('full');                   // the open's own recovery, settled before the race
   r.refresher.changed(change(1, ['messages']));
   await r.advance(CHANGE_DEBOUNCE_MS);       // the partial reads version 1
   r.service.version = 2;
@@ -285,6 +297,7 @@ test('A PARTIAL REFRESH THAT STARTED FIRST AND FINISHED LAST does not leave its 
 test('CONTROL: when the newer fetch also finishes last, nothing is fetched a second time', async () => {
   const r = racingRig();
   r.refresher.opened({ reconnected: false });
+  await r.release('full');                   // the open's own recovery, settled before the race
   r.refresher.changed(change(1, []));
   r.refresher.fullRefresh();
   r.service.version = 2;
