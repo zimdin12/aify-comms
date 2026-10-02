@@ -75,22 +75,48 @@ reader of a deleted input may remain.
 
 ## C3. aify-env's derivation and turn law
 
-**The turn.** Events are hooks (turn-start, turn-end, blocked, unblocked), carrying `firedAtUs`, the lifetime and
-the instance. Ordering is today's `accept_hook_event`, ported entry for entry and checked by a table run against the
-Python statement:
+**The turn.** Events are the runtime hooks (turn-start, turn-end, blocked, unblocked), carrying `firedAtUs`, the
+lifetime and the instance. The bridge-side detectors and the turn-busy heartbeat post only to aify-comms, for its
+delivery turn, until C7 deletes them: they carry no lifetime and are not aify-env events. Two questions are asked of each, in this order and kept apart
+(aify-env `lib/turn-events.mjs`). Today's `accept_hook_event` answers both at once at machine grain, and its
+owner-change branch is what let an event naming no lifetime, at 100, replace a bound turn's last event at 200
+as "the first of a new owner" and close the turn (review of 591d172f, R1).
 
-| incoming event | rule |
+**Admission: whose turn may it touch?** Decided by the lifetime the event names and C4's verdicts, never by its
+time. Every refusal is counted and logged, and changes no turn.
+
+| incoming event | admission |
 |---|---|
-| no `firedAtUs` | applies, outside the ordering |
-| a lifetime other than the agent's current adopted one | refused and logged |
-| names no lifetime (a launcher from before 0.9), or the agent has none adopted yet | not refused by the lifetime check, as a hook naming no machine is not refused today; the timestamp rules below still apply |
-| the first event of a lifetime | applies |
-| fired later than the last applied event of that lifetime | applies |
-| the same microsecond, and a `turn-end` | applies (end wins a tie) |
-| otherwise | refused and logged |
+| a kind not in the vocabulary | refused `unknown-kind` |
+| no usable `firedAtUs` | refused `no-timestamp`: every 0.9 hook and detector stamps it, and an end that cannot be ordered could close a newer turn |
+| names no lifetime (a launcher from before 0.9) | refused `unbound`. C4 adopts a resident only from its lifetime record, so such an agent has no turn here. aify-comms' engine keeps deciding for it until the switch, and P7 requires every resident relaunched under a 0.9 launcher first |
+| the agent's lifetimes are a conflict (C4) | refused `conflict`, whatever it names |
+| names the agent's current lifetime (verified `yes`) | admitted to that lifetime's turn |
+| names a lifetime whose verdict is `unknown` | a `turn-end` is admitted to that lifetime's retained turn; any other kind is refused `identity-unknown`, since it would renew or re-anchor |
+| anything else: verified `no`, no record, no adoption, another lifetime current | refused `not-current` |
 
-A runtime exit ends the open turn. **The turn is durable.** aify-env writes each open turn to
-`~/.aify/env/<instance>.turns.json`, keyed by lifetime, with `startedAt` and the last event. A restarted instance
+**Ordering: in what order, within that one lifetime?** Today's timestamp rules, against that lifetime's own
+last applied event. No event of another lifetime reaches it, so there is no owner-change branch to port.
+
+| admitted event | rule |
+|---|---|
+| the first event of the lifetime | applies |
+| fired later than the lifetime's last applied event | applies |
+| the same microsecond, and a `turn-end` | applies (end wins a tie) |
+| the lifetime's stored record has no usable last event (a damaged turns file) | refused `unordered-record` |
+| otherwise | refused `out-of-order` |
+
+The effects are today's `apply_event`: a start opens a turn and keeps the anchor of one already open, an end
+closes it, blocked and unblocked set awaiting-input. The run id stays in aify-comms with its delivery.
+
+The shared table (aify-env `tests/fixtures/agent-state-law.json`) keeps today's answer for every ordering row,
+which aify-comms checks against the Python, and aify-env's answer beside it. A row where the two differ names why.
+Four do: no timestamp, no lifetime (twice, the second the R1 specimen), and no adoption. They are C8's
+class `unbound or unstamped`, named there in advance as a policy change for the operator to confirm.
+
+A runtime exit ends the open turn. **The turn is durable.** aify-env writes each lifetime's turn record to
+`~/.aify/env/<instance>.turns.json`, keyed by lifetime, with `startedAt` and the last event. The record outlives
+a closed turn, because its last event orders the next one, and goes when its lifetime is `no`. A restarted instance
 treats each stored turn by what C4 now says of its lifetime:
 
 | lifetime after the restart | the stored turn |
@@ -106,8 +132,10 @@ time, with no stored turn, is `unknown` until its next hook (C4).
 **Controls (P2):** a restart with an unknown probe (the turn is retained, strict, and expires at 1800 s from its
 original start), a restart after a proved exit (closed), and a restart with `yes` (restored, same anchor).
 
-**Busy** is `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)`,
-ported unchanged, under two rules that are published side by side (`turn.busyIf`):
+**Busy** is an **open** turn for which `turn_is_still_live(startedAt, lastEventAt, renewable, now, 1800 s)` holds,
+ported unchanged, under two rules that are published side by side (`turn.busyIf`). Open first: a closed turn keeps
+its last event to order the next one, and the law, given that event and no start, would hold it for the whole window.
+The turn record is in microseconds and the law in milliseconds; aify-env converts in one place (`turnIsBusy`).
 
 - `strict`, today's rule for a hook-owned turn: `renewable` is false, so the turn holds for 1800 s from its start.
 - `verifiedRenewal`, P-1: `renewable` is true when the last event came from the agent's current lifetime, and that
@@ -119,9 +147,10 @@ ported unchanged, under two rules that are published side by side (`turn.busyIf`
 
 | # | condition | state | cause |
 |---|---|---|---|
+| 0 | a fact outside its vocabulary, or missing | `unknown` | unrecognised |
 | 1 | `lifecycle.stoppedByOperator` | `stopped` | operator-stop |
 | 1a | a conflict: two verified lifetimes, or one agent from two instances (C4) | `unknown` | conflict |
-| 2 | definition invalid, harness not installed, or runtime unknown, and no running process | `misconfigured` | config |
+| 2 | definition invalid, harness not installed, or runtime unknown, and no process that is or may be running (process `unknown`, or running with identity `yes` or `unknown`, may be) | `misconfigured` | config |
 | 3 | process `unknown`, or running with its identity `unknown` (C4) | `unknown` | identity-unknown |
 | 4 | process running and verified; fresh screen `working` or `blocked` | that word | screen |
 | 5 | process running and verified; turn busy | `blocked` if awaiting input, else `working` | turn-open |
@@ -142,8 +171,13 @@ The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 ```json
 {"agentId": "comms-tech-lead", "lifetime": "7f3c9e2a-...", "instance": "default", "harness": "claude",
- "pid": 41236, "launcher": "C:/Users/.../claude-aify", "writtenAt": 1790950000500, "herdrPane": "w1:p3"}
+ "pid": 41236, "launcher": "/c/Users/.../claude-aify", "writtenAtUs": 1790950000500123, "herdrPane": "w1:p3"}
 ```
+
+- `writtenAtUs` is microseconds since the epoch (`$EPOCHREALTIME`); a value below 10^15 is milliseconds and the
+  record is refused, since it would read every pid as reused.
+- `launcher` is `$0` exactly as invoked. It is matched as one whole argument of the pid's command line, folding
+  slashes, case and Git Bash's `/c/` against `C:/`, because Windows reports a Git Bash launcher in its `/c/` form.
 
 - `pid` is the **launcher's own OS pid** (on Git Bash `/proc/$$/winpid`, never `$$`). The launcher lives for the
   session and runs the exit path.
@@ -154,11 +188,12 @@ The launcher writes `~/.aify/residents/<agentId>.<lifetime>.json` at start:
 
 | answer | verified |
 |---|---|
-| created **strictly before** `writtenAt`, compared at the finer of the two precisions (Windows creation time is 100 ns; `writtenAt` carries microseconds, `$EPOCHREALTIME`), with `launcher` in the command line | `yes`, and that exact creation time is pinned |
+| created **strictly before** `writtenAtUs`, compared at the finer of the two precisions (Windows creation time is 100 ns; `writtenAtUs` carries microseconds, `$EPOCHREALTIME`), with `launcher` as an argument of the command line | `yes`, and that exact creation time is pinned |
 | later sightings: the same pinned creation time | `yes` |
-| created at a time **equal** to `writtenAt` at the comparable precision | `unknown`: indistinguishable from a pid born just after the write, so it is never adopted, never removed and never acted on |
-| gone, created after `writtenAt` or with a different pinned time (a reused pid), or no launcher in the command line (a sibling) | `no`: the lifetime is over, and aify-env removes the record |
-| the probe cannot answer (access denied, timeout, no probe) | `unknown`: reported, never acted on, never removed |
+| created at a time **equal** to `writtenAtUs` at the comparable precision | `unknown`: indistinguishable from a pid born just after the write, so it is never adopted, never removed and never acted on |
+| created before the write, but `launcher` is not an argument of its command line | `unknown`: more likely a spelling the match does not fold than another process, and a false `no` would remove a live launcher's record |
+| gone, or created after `writtenAtUs` or with a different pinned time (a reused pid) | `no`: the lifetime is over, and aify-env removes the record |
+| the probe cannot answer (access denied, timeout, no probe, no creation time) | `unknown`: reported, never acted on, never removed |
 
 No tolerance, and no equality. A reused pid is created after the original wrote its record, and the original existed
 before writing. Pinning a first sighting proves nothing on its own, so a creation time that cannot be ordered against
@@ -171,11 +206,20 @@ delivery if **either** is busy (C6), every lifecycle request for the agent is re
 removed. Neither is picked as current.
 
 **Routing.** Each instance writes `~/.aify/env/<instance>.json` `{url, instance, pid, startedAt}`. A hook reads its
-own instance's descriptor (`AIFY_ENV_INSTANCE`) and carries `AIFY_LIFETIME`. A managed worker gets `AIFY_ENV_URL`.
-An adopted resident's turn is `unknown` until its next hook; its process is known at once.
+own instance's descriptor (`AIFY_ENV_INSTANCE`) and carries `AIFY_LIFETIME`. An adopted resident's turn is `unknown`
+until its next hook; its process is known at once.
 
-**Controls (P2):** reused pid, sibling launcher, wrong instance, delayed prior-lifetime hook, tied events, access
-denied, an old exit beside a new record, adoption with no next hook, and two live lifetimes.
+**A managed worker's lifetime** is minted by aify-env when it spawns the worker, and passed with `AIFY_ENV_URL`,
+`AIFY_ENV_INSTANCE` and `AIFY_LIFETIME`, so its hooks are admitted like a resident's. aify-env holds that process, so
+the lifetime is `yes` from the spawn with no record to adopt, and it ends when the process exits or the instance
+that spawned it ends. Without this, C3 would refuse every managed worker's events as `unbound`.
+
+**Records are read across instances**, because one agent verified under two instances is a conflict. Only a lifetime
+of the reading instance can be its current one, and only that instance retains an `unknown` one.
+
+**Controls (P2):** reused pid, an unmatched launcher, wrong instance, delayed prior-lifetime hook, tied events, access
+denied, an old exit beside a new record, adoption with no next hook, two live lifetimes, and a managed worker's
+first hook.
 
 ## C5. Publication order
 
@@ -355,6 +399,9 @@ not a classification.
 
 **Known in advance to differ, so already named as policy changes for the operator:**
 - `unknown` (C2);
+- `unbound or unstamped` (C3): an event today's service applies and aify-env refuses because it names no lifetime,
+  carries no timestamp, or names a lifetime aify-env has not adopted. The shared table's four divergence rows are
+  this class; on the fleet it is every resident still on a launcher from before 0.9;
 - a resident with no wake handle shows its state with a "no delivery path" note instead of `misconfigured`;
 - P-1;
 - the pushed and polled status agreeing where today they do not.
@@ -371,7 +418,7 @@ aify-comms writes, the plugin claims, aify-env executes and reports.
 | `expectedLifetime` | for stop and restart, a different current lifetime is refused `lifetime-moved` |
 | `requestedBy` | the operator gate, as for every definition change |
 
-- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first. An agent whose record is a conflict (C4) has every request refused `conflict`; a lifetime whose identity is unknown (C3, C4) refuses `identity-unknown` for stop and restart.
+- One open request per agent (a unique partial index); a second is refused `request-open`, naming the first. An agent whose record is a conflict (C4) has every request refused `conflict`; an agent whose current lifetime is unknown (C3, C4) has every request refused `identity-unknown`, start included, since it may be running.
 - Durable results: `done` (with the new lifetime), `refused` (reason) or `failed` (reason), each with its time.
 - Start and restart run under the store lock (`admitStart`), so a definition change and a start cannot interleave.
 - A request no plugin claims is reported by the doctor and never retried by the service.

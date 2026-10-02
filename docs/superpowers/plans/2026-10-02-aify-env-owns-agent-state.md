@@ -152,13 +152,13 @@ core's own protocol, so a service opts in without a plugin.
 |---|---|---|---|
 | P0 | plan | C1-C10 frozen, with the C2 ledger | reviewed before any code |
 | P1 | wrapper + comms | hermes session servers | approved (wrapper 686d182, comms 9fe8037d) |
-| P2 | aify-env | the plugin interface and its conformance test (C10); the state model and the turn law (C1, C3); hooks, per-instance descriptors, lifetime records (C4); the publisher (C5); herdr forwarding | C3 case tables; the C4 and C5 controls (listed there); conformance of the comms plugin and the dashboard plugin |
-| P3 | wrapper | hooks carry lifetime and instance, and post to aify-env as well as aify-comms; lifetime records | hook to aify-env readback |
+| P2 | aify-env | the plugin interface and its conformance test (C10); the state model and the turn law (C1, C3); hooks, per-instance descriptors, lifetime records and a lifetime for every managed spawn (C4); the publisher (C5); herdr forwarding; aify-env's README and PROTOCOL, and comms' AIFY_ENV_BOUNDARY, saying that aify-env now derives agent state | C3 case tables; the C4 and C5 controls (listed there); conformance of the comms plugin and the dashboard plugin |
+| P3 | wrapper + comms | wrapper: launchers write the lifetime record and export `AIFY_LIFETIME` and `AIFY_ENV_INSTANCE`. comms: the hooks `install.sh` writes carry both and post to aify-env as well as aify-comms, and the codex and hermes bridge allowlists forward both | hook to aify-env readback, for each harness, resident and managed |
 | P4 | comms | ingest (C5 receiver, its own transaction); the C8 comparison for every decision; the `agent-state` doctor row | the receiver table; old and new computed on the same evaluation |
 | P5 | operator | install and restart; the comparison runs on the real fleet | separately authorized |
 | P6 | all | every difference classified; each policy change, P-1 included, confirmed by the operator; the bugs fixed in aify-env | zero unresolved |
-| P7 | comms + wrapper | the switch: readers take aify-env's word, busy and readiness (C6); launchers post only to aify-env | the send-time queue and claim witnesses, green before and after |
-| P8 | comms | the deletions (C7) | the C2 discriminator: no reader of a deleted input remains |
+| P7 | comms + wrapper | the switch: readers take aify-env's word, busy and readiness (C6); launchers post only to aify-env; the skill and doc text the switch makes false, each cut paid inside its own file (every affected skill file is at its size ceiling) | the send-time queue and claim witnesses, green before and after; no resident left on a launcher from before 0.9, whose events aify-env refuses `unbound` (C3) |
+| P8 | comms | the deletions (C7); the skill and doc text that names what was deleted | the C2 discriminator: no reader of a deleted input remains |
 | P9 | aify-env + comms | lifecycle requests (C9); D9; D12 | C9's races and idempotence |
 | P10 | all | doctor moves (D11), docs, 0.9.0, the whole-diff review | every suite in all three repos |
 

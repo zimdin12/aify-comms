@@ -2,8 +2,10 @@
 
 One table, `tests/fixtures/agent-state-law.json` in the aify-env checkout, is run here through
 `turn_is_still_live` and `accept_hook_event` (against its real table, in an in-memory database), and in aify-env
-through its agent-state module. A port that drifts from this service fails one side or the other on the same row.
-The hook ordering's "registered machine" is aify-env's "current lifetime"; the table calls both the owner.
+through its agent-state and turn-events modules. A port that drifts from this service fails one side or the other on
+the same row. The table calls a registered machine here and a lifetime there the owner. Each hookOrder row's `accept`
+is this service's answer, checked here. aify-env first admits an event to one lifetime and then orders it within that
+lifetime, so its own answer (`aifyEnv`) differs on the rows that name why (P0 C3).
 """
 from __future__ import annotations
 
