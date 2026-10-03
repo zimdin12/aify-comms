@@ -83,11 +83,13 @@ async def admit(db, agent_id: str, patch: Any, operator: Optional[OperatorProof]
     problems = patch_problems(patch)
     if problems:
         raise HTTPException(422, "; ".join(problems))
+    await _refuse_undeliverable(db, agent_id, held, now)
     waiting = await (await db.execute(
         f"SELECT id FROM definition_requests WHERE agent_id = ? AND status IN {_OPEN_SQL}", (agent_id,))).fetchone()
     if waiting:
         raise HTTPException(409, f'"{agent_id}" already has a change waiting for its host ({waiting["id"]}); '
-                                 f'ask again once that one is done')
+                                 f'ask again once that one is done. If that host is gone for good, release the '
+                                 f'definition from it (POST /agent-definitions/{agent_id}/release)')
     request_id = f"defreq_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     await db.execute(
         "INSERT INTO definition_requests (id, agent_id, machine_id, store_id, expected_incarnation, expected_revision, "
@@ -168,6 +170,23 @@ async def requests_for(db, agent_id: str, now: str) -> list[dict]:
     rows = await (await db.execute(
         "SELECT * FROM definition_requests WHERE agent_id = ? ORDER BY created_at DESC, id DESC", (agent_id,))).fetchall()
     return [request_record(row) for row in rows]
+
+
+async def _refuse_undeliverable(db, agent_id: str, held, now: str) -> None:
+    """Settle this agent's waiting requests that no claim can deliver any more, by the rule a claim uses.
+
+    A claim is the only other place that settles them, and it reads only its own machine's requests: one
+    left waiting by a host that never came back, whose definition was then released and made elsewhere,
+    blocked every later change to the agent (external review of 0.8.1)."""
+    rows = await (await db.execute(
+        f"SELECT * FROM definition_requests WHERE agent_id = ? AND status IN {_OPEN_SQL}", (agent_id,))).fetchall()
+    for row in rows:
+        store = await (await db.execute(
+            "SELECT store_id FROM definition_stores WHERE machine_id = ?", (row["machine_id"],))).fetchone()
+        reason = _undeliverable(row, held, store["store_id"] if store else "")
+        if reason:
+            await db.execute("UPDATE definition_requests SET status = 'refused', outcome = ?, finished_at = ? "
+                             "WHERE id = ?", (reason, now, row["id"]))
 
 
 def _undeliverable(row, held, current_store: str) -> str:

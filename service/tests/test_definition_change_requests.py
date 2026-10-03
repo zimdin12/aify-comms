@@ -72,7 +72,7 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
         second = self.ask("coder", {"model": "opus"})
         self.assertEqual(second.status_code, 409, "two edits from one pair: the second waits for the first")
         self.assertEqual(second.json()["detail"],
-                         f'"coder" already has a change waiting for its host ({request["id"]}); ask again once that one is done')
+                         f'"coder" already has a change waiting for its host ({request["id"]}); ask again once that one is done. If that host is gone for good, release the definition from it (POST /agent-definitions/coder/release)')
 
     def test_only_the_operator_asks_and_only_for_a_defined_agent_with_a_patch_it_can_carry(self):
         self.push("s1", 1, [valid("coder")])
