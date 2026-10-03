@@ -7,7 +7,7 @@ every agent the machine defines), or register as the host tier with a later star
 environment row first.
 
 THE RULE. aify-env sends `X-Aify-Host-Proof`, derived from a secret kept in that host's `~/.aify`
-(aify-env `lib/host-secret.mjs`). The first proof a machine presents is recorded here, as a digest; from
+(aify-env's `host-secret.mjs`). The first proof a machine presents is recorded here, as a digest; from
 then on that machine's heartbeat, definition push, and change-request claim and report need the same
 proof. A machine that has never presented one is let through as before, so a host still running an older
 aify-env keeps working until it upgrades. An operator resets a machine's proof (`POST
@@ -25,7 +25,7 @@ from typing import Iterable
 
 from service.api_core.serialization import _normalize_machine_id
 
-#: The header aify-env sends; its `lib/plugins/aify-comms/api.mjs` names the same one.
+#: The header aify-env sends; its comms plugin's `api.mjs` names the same one.
 HOST_PROOF_HEADER = "X-Aify-Host-Proof"
 
 

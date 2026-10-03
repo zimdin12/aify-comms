@@ -118,6 +118,7 @@ JsonApiRoute POST /api/v1/environments/{environment_id:path}/control name=contro
 JsonApiRoute POST /api/v1/environments/{environment_id:path}/definition-requests/claim name=claim_definition_changes status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/environments/{environment_id:path}/definition-requests/{request_id}/result name=report_definition_change status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/environments/{environment_id:path}/definition-store/reset name=reset_definition_store status=- response_model=- tags=api deps=0 in_schema=True
+JsonApiRoute POST /api/v1/host-proofs/{machine_id}/reset name=reset_host_proof status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/messages/cleanup/orphan-unread name=cleanup_orphan_unread_messages status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/messages/conversation/clear name=clear_direct_conversation status=- response_model=- tags=api deps=0 in_schema=True
 JsonApiRoute POST /api/v1/messages/send name=send_message status=- response_model=- tags=api deps=0 in_schema=True

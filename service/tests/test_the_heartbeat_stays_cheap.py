@@ -14,6 +14,11 @@ The cutover added none: `_canonical_runtimes` and the `HOST_OWNED_METADATA` loop
 lists that are already in memory. That is the claim this file exists to keep true, because the natural
 way to add a field is to add a query for it.
 
+RAISED TO 5, 2026-10-03 (0.8.2): one primary-key SELECT on `host_proofs`, which is what lets a beat for a
+machine that has proven its host be refused from anyone else holding the API key (external review of 0.8.1,
+HIGH 2; `api_core/host_proof.py`). Folding it into the row's SELECT would tie the check to the row's machine,
+and a beat can name another.
+
 THE NUMBER IS A CEILING, NOT A TARGET. It may go down. It goes up only as a decision somebody writes
 down, the way the size ratchets work -- an extra SELECT here is 2 per minute per environment forever.
 """
@@ -27,7 +32,7 @@ import aiosqlite
 from service.tests._base import FastApiTestCase
 
 #: Steady-state ceiling. Raising it is a decision; say in the commit what the extra round-trip buys.
-HEARTBEAT_DB_CALLS = 4
+HEARTBEAT_DB_CALLS = 5
 
 BEAT = {
     "kind": "windows", "hostname": "cheap-host", "os": "windows", "machineId": "win32:cheap-host",
