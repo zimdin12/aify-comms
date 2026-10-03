@@ -50,7 +50,9 @@ services:
     networks:
       - service-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${SERVICE_PORT:-8800}/health"]
+      # THE CONTAINER PORT, not SERVICE_PORT: that is the HOST side of the mapping above. A stack
+      # published elsewhere (staging, 8820) probed a port nothing listens on and read unhealthy.
+      test: ["CMD", "curl", "-f", "http://localhost:8800/health"]
       interval: 30s
       timeout: 10s
       start_period: 15s
