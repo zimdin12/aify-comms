@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 
 from service.api_core.definition_push import apply_definition_push
-from service.api_core.host_proof import host_proof_refusal, presented_proof
+from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.serialization import _normalize_machine_id
 from service.api_core.operator_authz import require_operator
 from service.api_core.request_body import json_object_body
@@ -28,11 +28,11 @@ async def push_agent_definitions(environment_id: str, push: DefinitionPush, requ
         await db.execute("BEGIN IMMEDIATE")
         env_row = await (await db.execute("SELECT * FROM environments WHERE id = ?", (environment_id,))).fetchone()
         # ONLY THE MACHINE'S OWN HOST (external review of 0.8.1, HIGH 2): the bridge id below is no secret.
-        refusal = await host_proof_refusal(db, [env_row["machine_id"] if env_row else "", body.get("machineId")],
-                                           presented_proof(request), _now())
-        if refusal:
+        proof = await judge_host_proof(db, [env_row["machine_id"] if env_row else "", body.get("machineId")],
+                                       presented_proof(request))
+        if proof.refusal:
             await db.rollback()
-            raise HTTPException(403, f"definition push refused: {refusal}")
+            raise HTTPException(403, f"definition push refused: {proof.refusal}")
         try:
             result = await apply_definition_push(db, dict(env_row) if env_row else None, body, _now())
         except HTTPException:

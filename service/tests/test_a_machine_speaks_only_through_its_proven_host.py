@@ -104,6 +104,52 @@ class AMachineSpeaksOnlyThroughItsProvenHost(FastApiTestCase):
         self.assertEqual(self.beat(PROOF).status_code, 403, "the old proof no longer speaks for it")
 
 
+class AProofIsJudgedAndEnrolledUnderTheWriteLock(FastApiTestCase):
+    """Review of 08f3e7e5: H2-R1 (a beat that read "no proof yet" wrote after the real host enrolled) and H2-R2
+    (a refused definition push enrolled the machine, and the real host was then refused)."""
+    DB_NAME = "aify-test-host-proof-lock.db"
+    beat, push, rows = (AMachineSpeaksOnlyThroughItsProvenHost.beat, AMachineSpeaksOnlyThroughItsProvenHost.push,
+                        AMachineSpeaksOnlyThroughItsProvenHost.rows)
+
+    def test_no_other_writer_can_land_between_a_beats_proof_read_and_its_write(self):
+        import service.routers.environments as environments
+        real = environments.judge_host_proof
+        seen = []
+
+        async def read_then_try_to_write(db, machine_ids, presented):
+            answer = await real(db, machine_ids, presented)
+            other = sqlite3.connect(str(self._db_path), timeout=0)
+            try:
+                other.execute("BEGIN IMMEDIATE")
+                other.rollback()
+                seen.append("another writer got in")
+            except sqlite3.OperationalError as error:
+                seen.append(str(error))
+            finally:
+                other.close()
+            return answer
+
+        environments.judge_host_proof = read_then_try_to_write
+        try:
+            self.assertEqual(self.beat(PROOF).status_code, 200)
+        finally:
+            environments.judge_host_proof = real
+        self.assertEqual(seen, ["database is locked"], "the beat holds the write lock from its proof read to its commit")
+
+    def test_a_refused_push_enrolls_nothing_and_the_real_host_still_beats(self):
+        refused = self.push(FORGED)
+        self.assertEqual(refused.status_code, 409, refused.text)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM host_proofs"), [(0,)])
+        self.assertEqual(self.beat(PROOF).status_code, 200, "the real host's first beat enrolls it")
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM host_proofs"), [(1,)])
+
+    def test_CONTROL_only_a_beat_that_succeeds_enrolls(self):
+        self.assertEqual(self.beat(PROOF).status_code, 200)
+        self.assertEqual(self.beat(FORGED).status_code, 403)
+        [(digest,)] = self.rows("SELECT proof_digest FROM host_proofs")
+        self.assertEqual(self.beat(PROOF).status_code, 200, "the first proof stands")
+
+
 class AMachineThatNeverPresentedAProof(FastApiTestCase):
     """An older aify-env sends no proof; until its machine presents one, nothing changes for it."""
     DB_NAME = "aify-test-host-proof-legacy.db"

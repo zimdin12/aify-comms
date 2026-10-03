@@ -14,10 +14,12 @@ The cutover added none: `_canonical_runtimes` and the `HOST_OWNED_METADATA` loop
 lists that are already in memory. That is the claim this file exists to keep true, because the natural
 way to add a field is to add a query for it.
 
-RAISED TO 5, 2026-10-03 (0.8.2): one primary-key SELECT on `host_proofs`, which is what lets a beat for a
-machine that has proven its host be refused from anyone else holding the API key (external review of 0.8.1,
-HIGH 2; `api_core/host_proof.py`). Folding it into the row's SELECT would tie the check to the row's machine,
-and a beat can name another.
+RAISED TO 6, 2026-10-03 (0.8.2), both for the host proof (external review of 0.8.1, HIGH 2;
+`api_core/host_proof.py`): one primary-key SELECT on `host_proofs`, which refuses a beat for a proven machine
+from anyone else holding the API key, and the `BEGIN IMMEDIATE` that holds the write lock from that read to the
+write, without which a beat that read "no proof yet" could write after the real host enrolled (review of
+08f3e7e5, H2-R1). A proven machine's steady beat enrolls nothing, so adds no INSERT. Folding the SELECT into the
+row's would tie the check to the row's machine, and a beat can name another.
 
 THE NUMBER IS A CEILING, NOT A TARGET. It may go down. It goes up only as a decision somebody writes
 down, the way the size ratchets work -- an extra SELECT here is 2 per minute per environment forever.
@@ -32,7 +34,7 @@ import aiosqlite
 from service.tests._base import FastApiTestCase
 
 #: Steady-state ceiling. Raising it is a decision; say in the commit what the extra round-trip buys.
-HEARTBEAT_DB_CALLS = 5
+HEARTBEAT_DB_CALLS = 6
 
 BEAT = {
     "kind": "windows", "hostname": "cheap-host", "os": "windows", "machineId": "win32:cheap-host",

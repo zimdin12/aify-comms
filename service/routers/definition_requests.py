@@ -9,7 +9,7 @@ from fastapi import HTTPException, Request
 from service.api_core.definition_requests import (
     admit, claim, finish_removal, report, request_by_id, requests_for,
 )
-from service.api_core.host_proof import host_proof_refusal, presented_proof
+from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.operator_authz import require_operator
 from service.api_core.request_body import json_object_body
 from service.api_core.routing import domain_router
@@ -27,11 +27,11 @@ async def _environment(db, environment_id: str):
 
 async def _proven_host(db, environment: dict | None, machine_id: str, request: Request) -> None:
     """Refuse (403) a claim or report not from the machine's own host (external review of 0.8.1, HIGH 2)."""
-    refusal = await host_proof_refusal(db, [(environment or {}).get("machine_id", ""), machine_id],
-                                       presented_proof(request), _now())
-    if refusal:
+    proof = await judge_host_proof(db, [(environment or {}).get("machine_id", ""), machine_id],
+                                   presented_proof(request))
+    if proof.refusal:
         await db.rollback()
-        raise HTTPException(403, refusal)
+        raise HTTPException(403, proof.refusal)
 
 
 @router.post("/agent-definitions/{agent_id}/requests")
