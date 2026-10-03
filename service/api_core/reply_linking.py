@@ -84,11 +84,13 @@ async def _link_reply_message_to_dispatch_run(
     run_cursor = await db.execute(
         """
         SELECT * FROM dispatch_runs
-        WHERE target_agent = ? AND message_id = ?
+        WHERE target_agent = ? AND (
+            message_id = ? OR id IN (SELECT run_id FROM dispatch_run_items WHERE message_id = ?)
+        )
         ORDER BY requested_at DESC
         LIMIT 1
         """,
-        (from_agent, resolved_in_reply_to),
+        (from_agent, resolved_in_reply_to, resolved_in_reply_to),
     )
     replied_run = await run_cursor.fetchone()
     if not replied_run:

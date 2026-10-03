@@ -537,6 +537,14 @@ CREATE TABLE IF NOT EXISTS host_proofs (
     recorded_at TEXT NOT NULL
 );
 
+-- A message merged into a queued run that another message opened. The run keeps the first item's
+-- message_id, so without this row a reply threaded to a later item matches no run and the run stays
+-- open (live 2026-10-03: a review merged into a reminder's run; the reply to the review closed nothing).
+CREATE TABLE IF NOT EXISTS dispatch_run_items (
+    message_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL
+);
+
 -- An operator's change to a defined agent, applied by the host that owns it (P0 C4): a compare-and-set
 -- on the lifetime and revision the service held when it was asked. pending -> claimed -> done |
 -- refused | expired. The host is the authority on whether it applied.

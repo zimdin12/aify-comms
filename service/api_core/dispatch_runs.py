@@ -325,6 +325,11 @@ async def _create_dispatch_runs(
                 ),
             )
             if merge_cursor.rowcount and merge_cursor.rowcount > 0:
+                if source_message_id:
+                    await db.execute(
+                        "INSERT OR IGNORE INTO dispatch_run_items (message_id, run_id) VALUES (?, ?)",
+                        (source_message_id, mergeable_run["id"]),
+                    )
                 await _append_dispatch_event(
                     db,
                     mergeable_run["id"],

@@ -376,6 +376,9 @@ async def _prune_orphaned_dispatch_runs(
         removed += n
         if n < chunk:
             break
+    if removed:
+        await db.execute("DELETE FROM dispatch_run_items WHERE run_id NOT IN (SELECT id FROM dispatch_runs)")
+        await db.commit()
     return removed
 
 
