@@ -25,6 +25,11 @@ kept as evidence. Last reviewed 2026-09-27.
 - **A spawn claim is fenced by the bridge id alone**, which `GET /environments` hands any key holder. A forged
   claim takes a spawn request away from the real host. The host proof (0.8.2) guards the heartbeat and the
   definition routes, not this one.
+- **Every worker inherits aify-env's own environment.** `launchEnv` keeps the daemon's `process.env`, minus a
+  launch's `unsetEnv`, so any key the daemon was started with reaches every agent it starts. Found by
+  dashboard-manager while designing project secrets (aify-dashboard `docs/DESIGN-SECRETS-INJECTION.md`); the
+  dashboard's provider runner already passes its child a minimal environment. Matters when aify-env is started
+  from a shell holding a key an agent should not have.
 - **Two of the review's carry-overs** from the round before, the Start dialog double start and
   `/agents/{id}/control` reading only the stored status, are not traced: the findings that describe them were
   not on this host.
