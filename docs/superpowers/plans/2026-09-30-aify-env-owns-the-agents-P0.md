@@ -146,12 +146,14 @@ this section is the store's own contract.
 - `ids`: for each live definition, its incarnation, revision and the sha-256 of its file as the store
   last wrote or adopted it.
 
-**Lock.** `.lock`, created with `wx`, holding `{pid, atMs, nonce}`, held for one operation
-(milliseconds). **The store never takes a lock over.** A lock that exists makes the caller wait up to 5 s
+**Lock.** `.lock`, created with `wx`, holding `{pid, atMs, nonce, host}`, held for one operation
+(milliseconds; `admitStart` holds it while a worker's process is made). **The store takes a lock over only from a
+holder on this host that is not running** (amended for 0.8.2: an aify-env killed during a start left a lock that
+refused every call until an operator unlocked it; the lock now names its host). Any other lock makes the caller wait up to 5 s
 and then fail with the lock's path and holder. If the holder is not running, the error says so and
 names the remedy: `aify-env agents unlock`, an operator command that removes the lock only when its
-holder pid is not running and after telling the operator what it is about to remove. Exclusivity is
-never inferred by the store itself. Every durable step below re-reads `.lock` first and aborts the
+holder pid is not running and after telling the operator what it is about to remove. The one inference the
+store makes fails safe: a reused pid reads as running, and the lock is waited for. Every durable step below re-reads `.lock` first and aborts the
 operation if its own nonce is no longer there; the intent record (below) makes that abort recoverable.
 
 **One operation, four steps**, under the lock:
@@ -293,8 +295,9 @@ its file deleted before recovery, and the same id interrupted before step 2 (bot
 incarnation spent and never reused); a removal whose file was moved back from the trash (arm 3: a new
 incarnation); a request's set interrupted then restored (its `requestId` read back from `.recovered/`,
 its replay refused at C4 step 4); two writers racing (the second waits, then sees
-the first's revision); a lock whose holder is alive is never taken; a lock whose holder is gone is
-reported with the unlock remedy and still not taken; `unlock` removes only a dead holder's lock; a
+the first's revision); a lock whose holder is alive is never taken; a lock whose holder on this host is gone is
+taken over and its operation settled; another host's or a torn lock is reported with the unlock remedy and not
+taken; `unlock` removes only a dead holder's lock; a
 hand edit adopted; an invalid hand edit reported and left as written; remove then recreate the same id
 gives a new incarnation; repeated local removals leave distinct trash files.
 
