@@ -162,7 +162,7 @@ A host is whatever installs the wrapper — aify-comms today, another service to
 | `HARNESS_IDENTITY` | Opaque id for this agent/session, exported to the runtime | yes |
 | `HARNESS_ROLE` | Opaque role string | no |
 | `HARNESS_CWD` | Working directory the runtime starts in | no |
-| `HARNESS_EXTRA_ENV` | `KEY=VALUE` pairs exported verbatim before launch | no |
+| `HARNESS_EXTRA_ENV` | `KEY=VALUE` pairs exported before launch, except `AIFY_` and `HARNESS_` names in any case, which are skipped with a line on stderr (aify-wrapper 0.8.1) | no |
 
 **`HARNESS_MCP_COMMAND` is the pivot.** It is what makes the wrapper reusable: today the wrapper knows
 it must point at `~/.aify-comms/mcp/stdio/server.js`. Under the contract it points at whatever the host
