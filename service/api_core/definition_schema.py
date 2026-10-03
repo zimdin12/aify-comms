@@ -134,26 +134,27 @@ def _name_problems(text: str) -> list[str]:
             + (["agent.name: control"] if _CONTROL.search(text) else []))
 
 
-def _agent_id_problems(value: Any, agent_id: str) -> list[str]:
+def _agent_id_problems(value: Any, agent_id: str, *_) -> list[str]:
     problems = id_problems(value, "agent.id")
     return problems or (["agent.id: mismatch"] if value != agent_id else [])
 
 
 _AGENT_RULES = {
     "id": _agent_id_problems,
-    "name": lambda v, _: _text_problems(v, "agent.name", _name_problems),
-    "role": lambda v, _: id_problems(v, "agent.role"),
-    "harness": lambda v, _: [] if v in HARNESSES else ["agent.harness: unsupported"],
-    "mode": lambda v, _: [] if v in MODES else ["agent.mode: unsupported"],
-    "workspace": lambda v, _: _text_problems(
+    "name": lambda v, *_: _text_problems(v, "agent.name", _name_problems),
+    "role": lambda v, *_: id_problems(v, "agent.role"),
+    "harness": lambda v, *_: [] if v in HARNESSES else ["agent.harness: unsupported"],
+    "mode": lambda v, *_: [] if v in MODES else ["agent.mode: unsupported"],
+    "workspace": lambda v, *_: _text_problems(
         v, "agent.workspace", lambda t: [] if _ABSOLUTE_PATH.match(t) else ["agent.workspace: not-absolute"]),
-    "model": lambda v, _: _text_problems(v, "agent.model", lambda t: []),
-    "effort": lambda v, _: _text_problems(v, "agent.effort", lambda t: []),
-    "instructions": lambda v, _: _text_problems(
+    "model": lambda v, *_: _text_problems(v, "agent.model", lambda t: []),
+    "effort": lambda v, *_: _text_problems(v, "agent.effort", lambda t: []),
+    "instructions": lambda v, *_: _text_problems(
         v, "agent.instructions",
         lambda t: ["agent.instructions: too-large"] if _utf8_bytes(t) > _MAX_INSTRUCTIONS_BYTES else []),
-    "env": lambda v, _: _env_problems(v),
-    "herdrSpace": lambda v, _: [] if isinstance(v, bool) else ["agent.herdrSpace: type"],
+    "env": lambda v, *_: _env_problems(v),
+    "herdrSpace": lambda v, *_: [] if isinstance(v, bool) else ["agent.herdrSpace: type"],
+    "secrets": lambda v, _, agent: _secrets_problems(v, agent.get("env")),
 }
 
 
@@ -175,10 +176,8 @@ def agent_problems(agent: Any, agent_id: str) -> list[str]:
         return sorted(problems + ["agent: type"])
     problems += [_unknown_field("agent", key) for key in agent if key not in AGENT_FIELDS]
     for field in AGENT_FIELDS:
-        if field == "secrets":
-            problems += _secrets_problems(agent[field], agent.get("env")) if field in agent else []
-        elif field in agent:
-            problems += _AGENT_RULES[field](agent[field], agent_id)
+        if field in agent:
+            problems += _AGENT_RULES[field](agent[field], agent_id, agent)
         elif field not in _OPTIONAL_AGENT_FIELDS:
             problems.append(f"agent.{field}: missing")
     return sorted(problems)

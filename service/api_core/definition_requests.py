@@ -30,8 +30,11 @@ REQUEST_TTL_SECONDS = 600
 #: The statuses a request is still waiting in. One per agent at a time.
 _OPEN_SQL = "('pending', 'claimed')"
 _FINISHED = ("done", "refused", "expired")
-#: The agent fields a patch may set: every C1 field but the id, which names the file.
-EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field != "id")
+#: The agent fields a patch may set: every C1 field but the id, which names the file, and `secrets`. With absent the
+#: only "none" for secrets, no patch could clear them once set, so they are not changed by request until the editor
+#: that defines clearing exists. The host refuses such a patch too.
+_NOT_EDITABLE = ("id", "secrets")
+EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field not in _NOT_EDITABLE)
 
 
 def is_removal(patch: Any) -> bool:
