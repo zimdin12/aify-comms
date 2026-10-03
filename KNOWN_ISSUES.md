@@ -5,6 +5,30 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+## Left open by the external review of 0.8.1 (2026-10-03)
+
+0.8.2 fixes its HIGHs and MEDIUMs. These stay open, each with what it needs to matter.
+
+- **A folder grant read through a hard-linked object or pack file** (aify-env's dashboard plugin). Needs write
+  access to a granted repository's git dir, the ability to hard-link a file of an outside repository on the same
+  volume into its `objects/`, and that repository's commit ids from elsewhere, since refs no longer leak them.
+  The range report then shows the outside commits' subjects and file names. Left open because a local clone
+  makes such links legitimately, and a test holds that one is read.
+- **The same-look race** in that plugin. Needs write access to a granted git dir and a swap of a checked path (a
+  junction, a ref, the alternates file) between the plugin's check and git's read within one look: milliseconds,
+  up to one git process. A win gets one head or one range read through it; the next look refuses the folder.
+- **File and directory symlinks** in a granted folder are judged exactly as junctions are (`lstat` and
+  `realpath`), so no escape is expected. ASSUMED, not measured: the account that tested this cannot make one.
+- **aify-env resolves a launcher's interpreter from a relative PATH entry** (for example `.`), which then
+  resolves against the agent's workspace. Needs such an entry on aify-env's PATH. A bare name is already
+  refused (`start-spec.mjs`, 422); the dashboard plugin's git skips relative entries.
+- **A spawn claim is fenced by the bridge id alone**, which `GET /environments` hands any key holder. A forged
+  claim takes a spawn request away from the real host. The host proof (0.8.2) guards the heartbeat and the
+  definition routes, not this one.
+- **Two of the review's carry-overs** from the round before, the Start dialog double start and
+  `/agents/{id}/control` reading only the stored status, are not traced: the findings that describe them were
+  not on this host.
+
 ## The installer's hermes entry is written by a line splice (found 2026-10-02)
 
 `scripts/hermes-mcp-config.mjs` adds aify-comms to a hermes `config.yaml` by finding `^mcp_servers:` and
