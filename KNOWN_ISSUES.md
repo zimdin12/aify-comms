@@ -14,16 +14,17 @@ kept as evidence. Last reviewed 2026-09-27.
   rewrites it is read under the old hash, so any object or pack file with a second name refuses the folder, with
   one doctor row saying to re-clone with `--no-hardlinks` or from a `file://` URL. A clone from a URL, a
   `git worktree add` and a repository after `git gc` are read.
-- **Dashboard plugin: a write inside a granted repository's git directory, timed between a look's checks and
-  git's read, is not caught on that look.** Each look resolves the folder's real working tree and git directories
-  once, judges them against the grant, and reads only them (git runs with `GIT_DIR` set to the judged git
-  directory). A junction re-pointed on the listed folder or above it, or a worktree `.git` file rewritten,
-  therefore changes nothing that look reads. What it needs: write access to the granted repository's git
-  directory, and a write timed into the milliseconds between the checks and git's read. That write could create a
-  link, rewrite `alternates` or a linked worktree's `commondir`, or rename a directory and put a link in its
-  place. Node opens by path and cannot pin what a path names across that moment. What it yields: one outside HEAD
-  reported, or one commit range read, on that look. The next look refuses the folder and says why. Recorded, not
-  fixed, by the operator-side decision for 0.8.2 (a handle-based native reader is the way to close it).
+- **Dashboard plugin: a change, timed between a look's checks and git's read, to what a judged path names is not
+  caught on that look.** Each look resolves the folder, its working tree, its git directories and every store it
+  borrows from to real paths, and judges them against the grant. Git then follows them only as spelled when
+  judged: `GIT_DIR` names the judged git directory, and a `commondir` or `alternates` line that does not name its
+  judged real place, as spelled, refuses the folder. What it needs: write access to the granted repository, and a
+  change timed into the milliseconds between the checks and git's read. That change is either a real directory on
+  one of those paths renamed away with a link put in its place, or a write inside the judged git directories (a
+  link created, or `commondir` or `alternates` rewritten). Node opens by path and cannot pin a path across that
+  moment; a handle-based reader would close it. What it yields: one outside HEAD reported, or one commit range
+  read, on that look. The next look refuses the folder and says why. Recorded, not fixed, by the operator-side
+  decision for 0.8.2.
 - **File and directory symlinks** in a granted folder are judged exactly as junctions are (`lstat` and
   `realpath`), so no escape is expected. ASSUMED, not measured: the account that tested this cannot make one.
 - **aify-env resolves a launcher's interpreter from a relative PATH entry** (for example `.`), which then
