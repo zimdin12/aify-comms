@@ -364,17 +364,14 @@ class AHostPushesItsDefinitions(FastApiTestCase):
         self.assertEqual(self.rows("SELECT model FROM agents WHERE id = 'coder'"), [{"model": "opus"}],
                          "positive control: the record still holds the first push's model, so the answer is the definition's")
 
-    def test_an_operator_name_or_a_removed_id_is_refused_for_that_id_only(self):
-        """A push creates agent rows, so it refuses what registration refuses, entry by entry."""
-        self.client.post("/api/v1/agents", json={"agentId": "retired-one", "role": "coder"}).raise_for_status()
-        removed = self.client.request("DELETE", "/api/v1/agents/retired-one", json={"requestedBy": "dashboard"})
-        self.assertEqual(removed.status_code, 200, removed.text)
-        result = self.ok(self.push("s1", 1, [valid("dashboard"), valid("retired-one"), valid("coder")]))
+    def test_an_operator_name_is_refused_for_that_id_only(self):
+        """A push creates agent rows, so it refuses what registration refuses, entry by entry. A removed
+        id is judged by its incarnation: test_a_removed_agent_is_defined_again.py."""
+        result = self.ok(self.push("s1", 1, [valid("dashboard"), valid("coder")]))
         self.assertEqual(result["refused"], [
-            {"id": "dashboard", "reason": "reserved for the operator and cannot be an agent id"},
-            {"id": "retired-one", "reason": "was intentionally removed before; clear that ID before reusing it"}])
+            {"id": "dashboard", "reason": "reserved for the operator and cannot be an agent id"}])
         self.assertEqual((result["applied"], self.owners()), (["coder"], {"coder": A["machine"]}))
-        self.assertEqual(self.rows("SELECT id FROM agents WHERE id IN ('dashboard', 'retired-one')"), [])
+        self.assertEqual(self.rows("SELECT id FROM agents WHERE id = 'dashboard'"), [])
 
     def test_a_defined_agent_is_renamed_on_its_host_not_here(self):
         self.ok(self.push("s1", 1, [valid("coder")]))

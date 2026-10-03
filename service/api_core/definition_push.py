@@ -42,18 +42,37 @@ def push_body_problems(body: dict) -> list[str]:
     return found
 
 
-async def _id_refusal(db, agent_id: str, owner: str, machine_id: str) -> str:
+async def _removed_incarnation(db, agent_id: str, store_id: str) -> int:
+    """The newest incarnation of this id a done removal request took from this store, or 0.
+
+    `done` means the host removed exactly `expected_incarnation` (C4 checks it before applying), and
+    request rows are never pruned, so this is durable evidence of what the operator removed."""
+    row = await (await db.execute(
+        "SELECT MAX(expected_incarnation) AS taken FROM definition_requests WHERE agent_id = ? AND store_id = ? "
+        "AND status = 'done' AND json_type(patch, '$.remove') = 'true'", (agent_id, store_id),
+    )).fetchone()
+    return row["taken"] or 0
+
+
+async def _id_refusal(db, entry: dict, owner: str, machine_id: str, store_id: str) -> str:
     """Why this machine may not define this id, worded as registration words it, or "".
 
-    A push creates agent rows, so it refuses what registration refuses: an operator name (no agent
-    may hold one, whatever the key setting) and an id the operator removed on purpose.
+    A push creates agent rows, so it refuses an operator name (no agent may hold one, whatever the key
+    setting). A removed id (tombstoned) is DEFINED AGAIN by a newer definition: the host's operator wrote
+    it after the removal, which registration's `restoreDeleted` from a fresh launch also allows. What is
+    refused is a definition no newer than one a removal took, the stale copy the tombstone guards against
+    (found live 2026-10-04: a re-defined id was refused for good, and nothing on the host said so).
     """
+    agent_id = entry["id"]
     if owner and owner != machine_id:
         return f"defined on {owner}"
     if is_operator_actor(agent_id):
         return "reserved for the operator and cannot be an agent id"
     if await _agent_tombstone(db, agent_id):
-        return "was intentionally removed before; clear that ID before reusing it"
+        taken = await _removed_incarnation(db, agent_id, store_id)
+        if taken and entry.get("incarnation", 0) <= taken:
+            return (f"incarnation {entry.get('incarnation')} is no newer than incarnation {taken}, which the "
+                    f"operator removed; define it again (`aify-env agents set`) to restore it")
     return ""
 
 
@@ -128,7 +147,7 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
         # (P0 C11, arm 3). No definition, revision or outcome moves.
         await db.execute("UPDATE definition_stores SET pushed_at = ? WHERE machine_id = ? AND store_id = ?",
                          (now, machine_id, store_id))
-        return await _replayed(db, machine_id, current["outcome"])
+        return await _replayed(db, machine_id, store_id, current["outcome"], entries)
 
     if order is PushOrder.NEW_STORE:
         await db.execute(
@@ -152,7 +171,7 @@ async def apply_definition_push(db, environment: dict, body: dict, now: str) -> 
 FREE_SINCE = "free since this revision was applied; a fresh revision defines it"
 
 
-async def _replayed(db, machine_id: str, recorded) -> dict:
+async def _replayed(db, machine_id: str, store_id: str, recorded, entries: list[dict]) -> dict:
     """THE SAME REVISION GETS THE SAME ANSWER, re-judged and never re-applied. What the revision left
     unresolved is reported again, so a refusal is not lost when a host repeats its push. A refused id
     is judged as it stands now, read-only: one that has become free says so, and the host defines it
@@ -165,7 +184,9 @@ async def _replayed(db, machine_id: str, recorded) -> dict:
         "SELECT agent_id, machine_id FROM agent_definitions")).fetchall()}
     # A stored refusal cannot have become this machine's own: only a fresh revision or a new store
     # defines an id here, and either one replaces the stored outcome.
-    refused = [{"id": agent_id, "reason": await _id_refusal(db, agent_id, owners.get(agent_id), machine_id) or FREE_SINCE}
+    sent = {entry["id"]: entry for entry in entries}
+    refused = [{"id": agent_id, "reason": await _id_refusal(
+                    db, sent.get(agent_id, {"id": agent_id}), owners.get(agent_id), machine_id, store_id) or FREE_SINCE}
                for agent_id in unresolved.get("refused", [])]
     return {"outcome": "replay", "applied": [], "withdrawn": [], "refused": refused,
             "invalid": unresolved.get("invalid", []), "kept": unresolved.get("kept", []),
@@ -179,7 +200,7 @@ async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict]
     result = {"outcome": "applied", "applied": [], "kept": [], "withdrawn": [], "refused": [], "invalid": []}
     for entry in entries:
         owner = owners.get(entry["id"])
-        refusal = await _id_refusal(db, entry["id"], owner, machine_id)
+        refusal = await _id_refusal(db, entry, owner, machine_id, store_id)
         if refusal:
             result["refused"].append({"id": entry["id"], "reason": refusal})
             continue
@@ -207,6 +228,8 @@ async def _apply_entries(db, machine_id: str, store_id: str, entries: list[dict]
              "" if entry["available"] else entry["unavailableReason"], now),
         )
         await _ensure_agent_row(db, entry, machine_id, now)
+        # DEFINED AGAIN: the removal's tombstone goes with it, or the worker's registration is refused.
+        await db.execute("DELETE FROM agent_tombstones WHERE agent_id = ? COLLATE NOCASE", (entry["id"],))
         result["applied"].append(entry["id"])
     # WITHDRAWAL IS NOT REMOVAL (C6): the definition goes, the agent, its sessions, messages and runs
     # stay, and a running worker keeps running.

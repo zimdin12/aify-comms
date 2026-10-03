@@ -442,9 +442,13 @@ historical sessions. This is a limitation of this tag, not an answer to the mult
 - **A release names the machine it releases from** (R1). Its owner is read inside the release's write
   transaction. If custody moved, the release refuses (409, naming the current owner) and changes
   nothing.
-- **A push refuses, per entry, what registration refuses**: an operator name (`dashboard`,
-  `operator`) and an id the operator removed (tombstoned). The rest of the snapshot applies, as with
-  an id another machine owns.
+- **A push refuses, per entry**, an operator name (`dashboard`, `operator`). The rest of the snapshot
+  applies, as with an id another machine owns. A removed (tombstoned) id is **defined again** by a
+  definition newer than any a done removal request took from that store, and the tombstone goes with
+  it, as registration's `restoreDeleted` from a fresh launch allows. A copy no newer than the removed
+  incarnation stays refused, naming it (0.8.5; until then every removed id was refused for good, and
+  the host showed nothing: found live 2026-10-04). The host keeps each refusal on its sync state, and
+  the doctor's `definitions` row fails naming it.
 - **A defined agent cannot be renamed on the service.** Its id is its host's file name, so a rename
   here would split it from its definition, and the next push would define the old id again. The 409
   names the host-side way, which is a replacement and not a rename: define the new id with the fields
