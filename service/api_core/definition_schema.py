@@ -21,12 +21,20 @@ _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 _MAX_ENV_VARS = 32
 _MAX_ENV_VALUE_BYTES = 4096
 _RESERVED_ENV_PREFIX = "AIFY_"
+# The dashboard's secret-name rule exactly, and the prefixes aify-env reserves. A child gets its env in any case on
+# Windows, so the reserved and duplicate checks ignore case.
+_SECRET_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+_RESERVED_SECRET_PREFIXES = ("AIFY_", "HARNESS_")
+_SECRETS_FIELDS = ("project", "names")
 HARNESSES = ("claude", "codex", "hermes")
 MODES = ("managed", "resident")
 _MAX_NAME_CODE_POINTS = 128
 _MAX_INSTRUCTIONS_BYTES = 65536
 AGENT_FIELDS = ("id", "name", "role", "harness", "mode", "workspace", "model", "effort", "instructions", "env",
-                "herdrSpace")
+                "herdrSpace", "secrets")
+# The only agent fields that may be absent. Absent `secrets` means none, and is the only way to say so: a present
+# field must name a project and at least one secret.
+_OPTIONAL_AGENT_FIELDS = frozenset(["secrets"])
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 _ABSOLUTE_PATH = re.compile(r"(/|[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)")
 _NAMEABLE_KEY = re.compile(r"[A-Za-z0-9_.-]{1,64}")
@@ -80,6 +88,47 @@ def _env_problems(env: Any) -> list[str]:
     return problems
 
 
+def _secret_name_problems(names: Any, env: Any) -> list[str]:
+    # Only valid env names are compared: they are ASCII, so no case mapping can differ from aify-env's.
+    if not isinstance(names, list):
+        return ["agent.secrets.names: type"]
+    if not names:
+        return ["agent.secrets.names: empty"]
+    problems = ["agent.secrets.names: too-many"] if len(names) > _MAX_ENV_VARS else []
+    env_names = {n.upper() for n in env if _ENV_NAME.fullmatch(n)} if isinstance(env, dict) else set()
+    seen: set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or not _SECRET_NAME.fullmatch(name):
+            problems.append("agent.secrets.names: bad-name")
+            continue
+        field = f"agent.secrets.names.{name}"
+        upper = name.upper()
+        if upper.startswith(_RESERVED_SECRET_PREFIXES):
+            problems.append(f"{field}: reserved")
+            continue
+        if upper in seen:
+            problems.append(f"{field}: duplicate")
+            continue
+        seen.add(upper)
+        if upper in env_names:
+            problems.append(f"{field}: collides-with-env")
+    return problems
+
+
+def _secrets_problems(secrets: Any, env: Any) -> list[str]:
+    if not isinstance(secrets, dict):
+        return ["agent.secrets: type"]
+    problems = [_unknown_field("agent.secrets", key) for key in secrets if key not in _SECRETS_FIELDS]
+    if "project" not in secrets:
+        problems.append("agent.secrets.project: missing")
+    else:
+        problems += _text_problems(secrets["project"], "agent.secrets.project", lambda t: (
+            ["agent.secrets.project: empty"] if t == "" else [] if _ID.fullmatch(t) else ["agent.secrets.project: pattern"]))
+    problems += (_secret_name_problems(secrets["names"], env) if "names" in secrets
+                 else ["agent.secrets.names: missing"])
+    return problems
+
+
 def _name_problems(text: str) -> list[str]:
     return ((["agent.name: length"] if not 1 <= len(text) <= _MAX_NAME_CODE_POINTS else [])
             + (["agent.name: control"] if _CONTROL.search(text) else []))
@@ -108,8 +157,8 @@ _AGENT_RULES = {
 }
 
 
-def _unknown_agent_field(key: str) -> str:
-    return f"agent.{key}: unknown-field" if _NAMEABLE_KEY.fullmatch(key) else "agent: unknown-field"
+def _unknown_field(parent: str, key: str) -> str:
+    return f"{parent}.{key}: unknown-field" if _NAMEABLE_KEY.fullmatch(key) else f"{parent}: unknown-field"
 
 
 #: Passed for an `agent` the body does not hold at all, which C1 names apart from one of the wrong type.
@@ -124,7 +173,12 @@ def agent_problems(agent: Any, agent_id: str) -> list[str]:
         return sorted(problems + ["agent: missing"])
     if not isinstance(agent, dict):
         return sorted(problems + ["agent: type"])
-    problems += [_unknown_agent_field(key) for key in agent if key not in AGENT_FIELDS]
+    problems += [_unknown_field("agent", key) for key in agent if key not in AGENT_FIELDS]
     for field in AGENT_FIELDS:
-        problems += _AGENT_RULES[field](agent[field], agent_id) if field in agent else [f"agent.{field}: missing"]
+        if field == "secrets":
+            problems += _secrets_problems(agent[field], agent.get("env")) if field in agent else []
+        elif field in agent:
+            problems += _AGENT_RULES[field](agent[field], agent_id)
+        elif field not in _OPTIONAL_AGENT_FIELDS:
+            problems.append(f"agent.{field}: missing")
     return sorted(problems)
