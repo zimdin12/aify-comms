@@ -47,6 +47,8 @@ would have left the other two open.
 from __future__ import annotations
 
 import hmac
+from dataclasses import dataclass
+from typing import Optional
 
 from fastapi import HTTPException
 
@@ -153,12 +155,38 @@ def refuse_an_unproven_operator_claim(actor: str, request, *, action: str) -> No
     authorize_operator(actor, request, operator_key_from(request), action=action)
 
 
-def require_operator(body: dict, request, action: str) -> None:
+@dataclass(frozen=True)
+class OperatorProof:
+    """A request this module found to be the operator's, naming the actor it records.
+
+    Made only by `operator_proof`, so a function that takes one cannot be reached by a route that skipped
+    the check. Queueing a change to a defined agent takes one (`definition_requests.admit`): the session-mode
+    and environment routes recorded any name a caller gave and queued that change for an ordinary agent,
+    while the change-request route beside them refused it (external review of 0.8.1, HIGH 1).
+    """
+    actor: str
+
+
+def operator_proof(actor: str, request, *, action: str) -> Optional[OperatorProof]:
+    """The proof that `actor` is the operator, or None for an ordinary agent. 403 for an operator claim the
+    request cannot prove while a key is set."""
+    if not authorize_operator(actor, request, operator_key_from(request), action=action):
+        return None
+    return OperatorProof(str(actor).strip())
+
+
+def prove_operator(actor: str, request, *, action: str) -> OperatorProof:
+    """`operator_proof`, refusing (403) an ordinary agent as well."""
+    proof = operator_proof(actor, request, action=action)
+    if proof is None:
+        raise HTTPException(403, f"only the operator may {action}")
+    return proof
+
+
+def require_operator(body: dict, request, action: str) -> OperatorProof:
     """Refuse (403) a request whose `requestedBy` is not the operator, on the routes only the operator
     may call: an agent asking is refused, as is an unproven operator claim when a key is set."""
-    actor = str(body.get("requestedBy") or "").strip()
-    if not authorize_operator(actor, request, operator_key_from(request), action=action):
-        raise HTTPException(403, f"only the operator may {action}")
+    return prove_operator(str(body.get("requestedBy") or "").strip(), request, action=action)
 
 
 def refuse_a_reserved_agent_id(agent_id: str) -> None:

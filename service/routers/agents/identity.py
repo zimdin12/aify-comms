@@ -50,7 +50,7 @@ from service.api_core.registration_gates import (
 from service.api_core.agent_remove import remove_agent
 from service.api_core.definition_guard import defined_on
 from service.api_core.definition_requests import queued_for_its_host
-from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.operator_authz import DASHBOARD_ACTOR, prove_operator
 from service.clock import now as _now
 
 router = domain_router()
@@ -181,8 +181,8 @@ async def unregister_agent(agent_id: str, request: Request):
 
         deleted, why = await remove_agent(db, agent_id, actor="api", reason="delete_agent", refusal=defined_elsewhere)
         if why:
-            actor = recorded_operator_actor(None, request, action="removing a defined agent as the operator")
-            return await queued_for_its_host(db, agent_id, {"remove": True}, actor, _now())
+            operator = prove_operator(DASHBOARD_ACTOR, request, action="removing a defined agent as the operator")
+            return await queued_for_its_host(db, agent_id, {"remove": True}, operator, _now())
         ws = await _get_ws(request)
         if ws: await ws.broadcast("agent_removed", {"agentId": agent_id})
         return {"ok": deleted > 0, "agentId": agent_id}

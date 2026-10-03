@@ -27,7 +27,7 @@ from service.api_core.definition_guard import DEFINED_SQL
 from service.api_core.serialization import _json_loads_or
 from service.api_core.definition_requests import queued_for_its_host
 from service.api_core.model_effort import with_effort
-from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.operator_authz import DASHBOARD_ACTOR, prove_operator
 from service.api_core.routing import domain_router
 from service.api_core.validation import validate_name
 from service.api_core.ws import _get_ws
@@ -160,8 +160,8 @@ async def update_agent_herdr_space(agent_id: str, req: AgentHerdrSpaceUpdate, re
                                   (1 if show else 0, agent_id))
         if not cursor.rowcount:
             await db.rollback()
-            actor = recorded_operator_actor(None, request, action="changing a defined agent as the operator")
-            return await queued_for_its_host(db, agent_id, {"herdrSpace": show}, actor, _now())
+            operator = prove_operator(DASHBOARD_ACTOR, request, action="changing a defined agent as the operator")
+            return await queued_for_its_host(db, agent_id, {"herdrSpace": show}, operator, _now())
         await db.commit()
         ws = await _get_ws(request)
         if ws:
@@ -201,7 +201,7 @@ async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Re
     Steven's ruling, 2026-10-02: changing an agent's model and data is operator-protected.
     """
     validate_name(agent_id, "agent ID")
-    actor = recorded_operator_actor(None, request, action="changing an agent's effort as the operator")
+    operator = prove_operator(DASHBOARD_ACTOR, request, action="changing an agent's effort as the operator")
     db = await get_db()
     try:
         # THE WRITE LOCK BEFORE THE READ, as `usage-source` takes it: this rewrites the whole runtime
@@ -223,7 +223,7 @@ async def update_agent_effort(agent_id: str, req: AgentEffortUpdate, request: Re
             if not defined:
                 raise HTTPException(409, f'"{agent_id}" is a resident agent that no host defines: its launcher reads '
                                          f"only a definition. Define it (aify-env agents import), then change its effort.")
-            queued = await queued_for_its_host(db, agent_id, {"effort": req.effort}, actor, _now())
+            queued = await queued_for_its_host(db, agent_id, {"effort": req.effort}, operator, _now())
             return {**queued, "appliesAt": "next start"}
         await _respecify_effort(db, agent_id, req.effort)
         await db.commit()

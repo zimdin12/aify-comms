@@ -22,6 +22,7 @@ from service.api_core.definition_guard import defined_on
 from service.api_core.definition_push import RUNTIME_HARNESS
 from service.api_core.definition_schema import AGENT_FIELDS
 from service.api_core.definition_snapshot import fence_refusal, is_counter
+from service.api_core.operator_authz import OperatorProof
 from service.api_core.serialization import _iso_add_seconds
 
 #: C4: a request no host claims in this time expires.
@@ -65,9 +66,14 @@ async def expire_unclaimed(db, now: str) -> None:
         "finished_at = ? WHERE status = 'pending' AND expires_at <= ?", (now, now))
 
 
-async def admit(db, agent_id: str, patch: Any, requested_by: str, now: str) -> dict:
+async def admit(db, agent_id: str, patch: Any, operator: Optional[OperatorProof], now: str) -> dict:
     """Queue one change for a defined agent, against the lifetime and revision held now. An agent no
-    host defines is refused before its patch is judged: there is nothing for a patch to apply to."""
+    host defines is refused before its patch is judged: there is nothing for a patch to apply to.
+
+    THE OPERATOR'S ONLY, whichever route asked: without a proof it is refused (403), so a route that
+    records a caller's name without proving it cannot queue (external review of 0.8.1, HIGH 1)."""
+    if not isinstance(operator, OperatorProof):
+        raise HTTPException(403, f'only the operator may change "{agent_id}", which a host defines')
     await expire_unclaimed(db, now)
     held = await (await db.execute(
         "SELECT machine_id, store_id, incarnation, revision FROM agent_definitions WHERE agent_id = ?",
@@ -87,7 +93,7 @@ async def admit(db, agent_id: str, patch: Any, requested_by: str, now: str) -> d
         "INSERT INTO definition_requests (id, agent_id, machine_id, store_id, expected_incarnation, expected_revision, "
         "patch, requested_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (request_id, agent_id, held["machine_id"], held["store_id"], held["incarnation"], held["revision"],
-         json.dumps(patch), requested_by, now, _iso_add_seconds(now, REQUEST_TTL_SECONDS)))
+         json.dumps(patch), operator.actor, now, _iso_add_seconds(now, REQUEST_TTL_SECONDS)))
     return await request_by_id(db, request_id)
 
 
@@ -113,7 +119,7 @@ def assignment_patch(agent_id: str, owner: str, env_machine: str, *, workspace: 
     return patch
 
 
-async def queue_if_defined(db, agent_id: str, patch: Any, requested_by: str, now: str) -> Optional[dict]:
+async def queue_if_defined(db, agent_id: str, patch: Any, operator: Optional[OperatorProof], now: str) -> Optional[dict]:
     """THE C5 ROWS: an operator's edit of a DEFINED agent becomes a request its host applies, queued
     here; None for an agent no host defines, whose edit applies directly as it always has. The check
     and the queueing are one write transaction. The caller must hold no open transaction."""
@@ -121,12 +127,12 @@ async def queue_if_defined(db, agent_id: str, patch: Any, requested_by: str, now
     if not await defined_on(db, agent_id):
         await db.rollback()
         return None
-    queued = await admit(db, agent_id, patch, requested_by, now)
+    queued = await admit(db, agent_id, patch, operator, now)
     await db.commit()
     return queued
 
 
-async def assignment_for_its_host(db, agent_id: str, env_machine: str, requested_by: str, now: str,
+async def assignment_for_its_host(db, agent_id: str, env_machine: str, operator: Optional[OperatorProof], now: str,
                                   **fields) -> Optional[dict]:
     """THE C5 ROW for an environment assignment: what the route answers for a DEFINED agent, or None for
     one no host defines. The patch depends on the owner (the environment must be on its machine), so the
@@ -139,14 +145,14 @@ async def assignment_for_its_host(db, agent_id: str, env_machine: str, requested
         await db.rollback()
         return None
     patch = assignment_patch(agent_id, owner, env_machine, **fields)
-    queued = await admit(db, agent_id, patch, requested_by, now) if patch else None
+    queued = await admit(db, agent_id, patch, operator, now) if patch else None
     await db.commit()
     return {"ok": True, "agentId": agent_id, "request": queued}
 
 
-async def queued_for_its_host(db, agent_id: str, patch: Any, requested_by: str, now: str) -> dict:
+async def queued_for_its_host(db, agent_id: str, patch: Any, operator: Optional[OperatorProof], now: str) -> dict:
     """What a route that edits agents answers for a DEFINED one: its edit, queued for the host."""
-    queued = await queue_if_defined(db, agent_id, patch, requested_by, now)
+    queued = await queue_if_defined(db, agent_id, patch, operator, now)
     if queued is None:
         raise HTTPException(409, f'"{agent_id}" stopped being defined while this was asked; ask again')
     return {"ok": True, "agentId": agent_id, "request": queued}

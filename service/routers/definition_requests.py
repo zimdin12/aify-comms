@@ -28,11 +28,11 @@ async def _environment(db, environment_id: str):
 async def request_definition_change(agent_id: str, request: Request):
     """Operator: ask the owning host to change (`patch`) or remove (`{"remove": true}`) a definition."""
     body = await json_object_body(request)
-    require_operator(body, request, "change an agent definition")
+    operator = require_operator(body, request, "change an agent definition")
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
-        queued = await admit(db, agent_id, body.get("patch"), str(body.get("requestedBy") or "").strip(), _now())
+        queued = await admit(db, agent_id, body.get("patch"), operator, _now())
         await db.commit()
     finally:
         await db.close()

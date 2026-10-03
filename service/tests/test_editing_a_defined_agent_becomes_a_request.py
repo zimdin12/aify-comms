@@ -63,12 +63,13 @@ class EditingADefinedAgentBecomesARequest(FastApiTestCase):
         nothing to queue for, and says so."""
         import asyncio
         from service.api_core.definition_requests import queued_for_its_host
+        from service.api_core.operator_authz import OperatorProof
         from service.db import get_db
 
         async def ask():
             db = await get_db()
             try:
-                return await queued_for_its_host(db, "plain", {"role": "x"}, "dashboard", "2026-10-01T00:00:00Z")
+                return await queued_for_its_host(db, "plain", {"role": "x"}, OperatorProof("dashboard"), "2026-10-01T00:00:00Z")
             finally:
                 await db.close()
 

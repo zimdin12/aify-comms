@@ -28,7 +28,7 @@ import uuid
 from fastapi import HTTPException, Request
 
 from service.api_core.capabilities import _default_capabilities_for
-from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.operator_authz import operator_proof, recorded_operator_actor
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _runtime_capability_for_environment
@@ -79,7 +79,9 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         # rewritten. An agent defined after this check is assigned as before; that writes only effective
         # columns and sessions, and its definition governs its next start (C7).
         assigned = await assignment_for_its_host(
-            db, agent_id, str(env_row["machine_id"] or ""), requested_by, _now(), workspace=req.workspace,
+            db, agent_id, str(env_row["machine_id"] or ""),
+            operator_proof(requested_by, request, action="assigning an agent's environment as the operator"),
+            _now(), workspace=req.workspace,
             runtime=_normalize_runtime(req.runtime) if req.runtime else "", model=req.model,
             runtime_config=req.runtimeConfig)
         if assigned is not None:

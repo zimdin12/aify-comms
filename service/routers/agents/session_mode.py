@@ -19,7 +19,7 @@ from service.api_core.session_mode_gates import (
 from service.api_core.session_mode_writes import _apply_session_mode_switch_to_agent
 from service.api_core.session_mode_audit import _record_session_mode_switch_audit
 from service.api_core.session_mode_env_binding import _infer_environment_binding_for_managed_switch
-from service.api_core.operator_authz import recorded_operator_actor
+from service.api_core.operator_authz import prove_operator, recorded_operator_actor
 from service.api_core.definition_guard import defined_on
 from service.api_core.definition_requests import queued_for_its_host
 from service.api_core.routing import domain_router
@@ -105,7 +105,8 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         # columns, which registration writes for a defined agent too, and its definition's desired
         # mode is untouched and governs its next start (C7).
         if await defined_on(db, agent_id):
-            return await queued_for_its_host(db, agent_id, {"mode": new_mode}, requested_by, _now())
+            operator = prove_operator(requested_by, request, action="change the session mode of an agent a host defines")
+            return await queued_for_its_host(db, agent_id, {"mode": new_mode}, operator, _now())
 
         current_mode = _normalize_session_mode(row["session_mode"] or "resident")
         runtime = _normalize_runtime(row["runtime"] or "generic")
