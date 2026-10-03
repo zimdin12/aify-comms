@@ -84,7 +84,11 @@ class AChangeIsQueuedForItsHost(FastApiTestCase):
                                ({"id": "other"}, "patch: 'id' is not an agent field a request may change"),
                                ({"remove": False}, "patch: 'remove' is not an agent field a request may change"),
                                ({"remove": True, "role": "x"}, "patch: 'remove' is not an agent field a request may change"),
-                               ({"remove": 1}, "patch: 'remove' is not an agent field a request may change")):
+                               ({"remove": 1}, "patch: 'remove' is not an agent field a request may change"),
+                               # Not editable yet: with absent the only "none", no patch could clear it once set.
+                               ({"secrets": {"project": "p1", "names": ["KEY"]}},
+                                "patch: 'secrets' is not an agent field a request may change"),
+                               ({"secrets": None}, "patch: 'secrets' is not an agent field a request may change")):
             with self.subTest(patch=patch):
                 refused = self.ask("coder", patch)
                 self.assertEqual(refused.status_code, 422, refused.text)

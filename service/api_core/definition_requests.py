@@ -29,8 +29,11 @@ from service.api_core.serialization import _iso_add_seconds
 #: C4: a request no host claims in this time expires.
 REQUEST_TTL_SECONDS = 600
 _FINISHED = ("done", "refused", "expired")
-#: The agent fields a patch may set: every C1 field but the id, which names the file.
-EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field != "id")
+#: The agent fields a patch may set: every C1 field but the id, which names the file, and `secrets`. With absent the
+#: only "none" for secrets, no patch could clear them once set, so they are not changed by request until the editor
+#: that defines clearing exists. The host refuses such a patch too.
+_NOT_EDITABLE = ("id", "secrets")
+EDITABLE_FIELDS = tuple(field for field in AGENT_FIELDS if field not in _NOT_EDITABLE)
 
 
 #: D8: a creation expects lifetime 0 revision 0, the pair of an agent no store has defined yet (lifetimes and
