@@ -52,9 +52,6 @@ export function backgroundTaskEvent(line) {
   return null;
 }
 
-/** How many ends of tasks not seen starting are remembered: the oldest go first. */
-const ENDED_UNSEEN_LIMIT = 256;
-
 /** No background work seen yet. */
 export const NO_TASKS = Object.freeze({ live: new Set(), endedUnseen: new Set() });
 
@@ -62,7 +59,12 @@ export const NO_TASKS = Object.freeze({ live: new Set(), endedUnseen: new Set() 
  * The tasks after `lines`. PURE: new sets, the input untouched.
  *   `live`: started and not ended. A second start of one it holds changes nothing.
  *   `endedUnseen`: ended before any start was seen. Its start, if it comes, counts nothing; an end for a
- *   task started before this bridge looked waits here for a start that never comes, up to the limit.
+ *   task started before this bridge looked waits here for a start that never comes.
+ *
+ * ponytail: `endedUnseen` is not capped. A cap evicted an end whose start could still come, and that start
+ * then read as running for ever (review of 0e23ded8, M-BG1). It grows by one short id per end with no start
+ * in view: the tasks running when this bridge first looked, and any start never recorded. A reset (a
+ * /clear, a new file) empties it. Bound it by age if a session ever shows otherwise.
  */
 export function tasksAfter(tasks, lines) {
   const live = new Set(tasks.live);
@@ -73,7 +75,6 @@ export function tasksAfter(tasks, lines) {
       if (!endedUnseen.delete(event.started)) live.add(event.started);
     } else if (event?.ended && !live.delete(event.ended)) {
       endedUnseen.add(event.ended);
-      if (endedUnseen.size > ENDED_UNSEEN_LIMIT) endedUnseen.delete(endedUnseen.values().next().value);
     }
   }
   return { live, endedUnseen };

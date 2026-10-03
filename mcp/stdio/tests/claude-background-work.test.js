@@ -71,12 +71,12 @@ test("the tasks: starts minus ends and stops, an end before its start remembered
     "across two looks too");
 });
 
-test("the remembered ends are bounded, oldest first", () => {
+test("no remembered end is forgotten, so a start after many unseen ends still counts nothing", () => {
+  // Review of 0e23ded8, M-BG1: a cap of 256 evicted the oldest end, and its later start then ran for ever.
   const ends = Array.from({ length: 300 }, (_, i) => ended(`old-${i}`));
-  const after = tasksAfter(NO_TASKS, ends);
-  assert.equal(after.endedUnseen.size, 256);
-  assert.equal(after.endedUnseen.has("old-0"), false);
-  assert.equal(after.endedUnseen.has("old-299"), true);
+  const after = tasksAfter(NO_TASKS, [...ends, shellStart("old-0")]);
+  assert.deepEqual([...after.live], [], "the oldest end still matches its late start");
+  assert.equal(after.endedUnseen.size, 299);
 });
 
 test("the follower reads only what is appended, whole lines, from where it first looked", async () => {
