@@ -506,6 +506,12 @@ refused at the claim.
 dashboard shows "applied in aify-env, waiting for sync" until a snapshot carrying that pair or later
 lands, then the new value.
 
+*Amended (review of 0.8.2):* a CLAIMED request whose definition moved or was withdrawn is `superseded`, not
+refused: `claimed -> superseded -> done | refused`. It no longer holds the agent's one waiting place and is not
+handed out again, but its host may already have applied it, so that host's report is still recorded, and a
+removal it reports runs behind the fence below and removes nothing against the custody that moved. A request
+not yet claimed is still refused.
+
 **The service's own consequences are fenced too.** A removal request's `done` runs the existing
 destructive agent removal ONLY when, in that transaction, the service still holds the definition at
 the request's expected `(store_id, incarnation)` or already saw it withdrawn by that store at exactly

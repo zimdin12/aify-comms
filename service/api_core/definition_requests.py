@@ -185,18 +185,33 @@ async def _refuse_undeliverable(db, agent_id: str, held, now: str) -> None:
             "SELECT store_id FROM definition_stores WHERE machine_id = ?", (row["machine_id"],))).fetchone()
         reason = _undeliverable(row, held, store["store_id"] if store else "")
         if reason:
-            await db.execute("UPDATE definition_requests SET status = 'refused', outcome = ?, finished_at = ? "
-                             "WHERE id = ?", (reason, now, row["id"]))
+            await _settle_undeliverable(db, row, reason, now)
+
+
+async def _settle_undeliverable(db, row, reason: str, now: str) -> None:
+    """Take a request no host may apply any more out of the waiting place.
+
+    ONE NOT YET CLAIMED is refused: no host has seen it. ONE ALREADY CLAIMED is `superseded`, never refused: its
+    host may have applied it already, and refusing it turned that host's late `done` away with 409, losing a
+    true result (review of 0.8.2). Superseded, it no longer blocks the agent's next change and is not handed out
+    again, but its host's report is still recorded, and a removal it reports is fenced against the custody that
+    moved (`removal_refusal`), so it removes nothing there."""
+    status = "superseded" if row["status"] == "claimed" else "refused"
+    finished = "" if status == "superseded" else now
+    await db.execute("UPDATE definition_requests SET status = ?, outcome = ?, finished_at = ? WHERE id = ?",
+                     (status, reason, finished, row["id"]))
 
 
 def _undeliverable(row, held, current_store: str) -> str:
-    """Why a host may no longer apply this request, or "" (C4: refused at the claim)."""
+    """Why a host may no longer apply this request, or "" (C4: refused at the claim). Said as it happened:
+    a request already claimed lost its definition AFTER its host claimed it."""
+    when = "after" if row["status"] == "claimed" else "before"
     if row["store_id"] != current_store:
         return "made for a store this machine has since replaced"
     if held is None:
-        return "the definition was withdrawn before its host claimed this"
+        return f"the definition was withdrawn {when} its host claimed this"
     if held["machine_id"] != row["machine_id"] or held["store_id"] != row["store_id"]:
-        return f"the definition moved to {held['machine_id']} before its host claimed this"
+        return f"the definition moved to {held['machine_id']} {when} its host claimed this"
     return ""
 
 
@@ -222,8 +237,7 @@ async def claim(db, environment: Optional[dict], bridge_id: str, machine_id: str
             "SELECT machine_id, store_id FROM agent_definitions WHERE agent_id = ?", (row["agent_id"],))).fetchone()
         reason = _undeliverable(row, held, current_store)
         if reason:
-            await db.execute("UPDATE definition_requests SET status = 'refused', outcome = ?, finished_at = ? "
-                             "WHERE id = ?", (reason, now, row["id"]))
+            await _settle_undeliverable(db, row, reason, now)
             continue
         await db.execute("UPDATE definition_requests SET status = 'claimed', "
                          "claimed_at = CASE WHEN claimed_at = '' THEN ? ELSE claimed_at END WHERE id = ?",
@@ -265,9 +279,10 @@ async def report(db, environment: Optional[dict], request_id: str, body: dict, n
         if (row["status"], row["result_incarnation"], row["result_revision"]) == (body["status"], *result):
             return request_record(row)
         raise HTTPException(409, f"definition request {request_id} is already {row['status']}")
-    if row["status"] != "claimed":
+    if row["status"] not in ("claimed", "superseded"):
         # A HOST REPORTS ONLY WHAT IT CLAIMED: the claim is where a request it can no longer apply is
-        # refused, so a report that skipped it would apply what the claim would have refused.
+        # refused, so a report that skipped it would apply what the claim would have refused. A superseded
+        # request was claimed: its host's result is recorded, and its consequence is fenced.
         raise HTTPException(409, f"definition request {request_id} was never claimed; claim it first")
     owed = "pending" if body["status"] == "done" and is_removal(json.loads(row["patch"])) else ""
     await db.execute(

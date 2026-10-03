@@ -25,6 +25,7 @@ class AWaitingRequestDoesNotOutliveItsDefinition(FastApiTestCase):
     ask = requests_test.AChangeIsQueuedForItsHost.ask
     claim = requests_test.AChangeIsQueuedForItsHost.claim
     rows = requests_test.AChangeIsQueuedForItsHost.rows
+    report = requests_test.AChangeIsQueuedForItsHost.report
 
     def setUp(self):
         super().setUp()
@@ -49,8 +50,8 @@ class AWaitingRequestDoesNotOutliveItsDefinition(FastApiTestCase):
         self.assertEqual(again.status_code, 200, again.text)
         self.assertEqual(again.json()["request"]["machineId"], B["machine"])
         [stale] = self.rows("SELECT status, outcome FROM definition_requests WHERE id = ?", (first["id"],))
-        self.assertEqual(stale, {"status": "refused", "outcome": f"the definition moved to {B['machine']} before its host claimed this"},
-                         "the stale request is settled, and says why")
+        self.assertEqual(stale, {"status": "superseded", "outcome": f"the definition moved to {B['machine']} after its host claimed this"},
+                         "the stale request is out of the waiting place, and says why; claimed, it is not refused (review of 0.8.2)")
 
     def test_CONTROL_a_request_whose_definition_is_still_held_still_blocks_the_next(self):
         self.push("s1", 1, [valid("coder")])
@@ -58,3 +59,26 @@ class AWaitingRequestDoesNotOutliveItsDefinition(FastApiTestCase):
         self.claim(A)
         second = self.ask("coder", {"role": "lead"})
         self.assertEqual(second.status_code, 409, second.text)
+
+    def test_a_claimed_request_its_host_applied_keeps_that_result_after_custody_moved(self):
+        """Review of 0.8.2: host A claims a removal and applies it; the definition is released and made on B; a
+        new change is admitted. Refusing A's claimed request then turned A's late `done` away with 409. It is
+        superseded instead: the next change is not blocked, A's result is recorded, and B's agent stays."""
+        self.push("s1", 1, [valid("coder")])
+        removal = self.ask("coder", {"remove": True}).json()["request"]
+        self.assertEqual([r["id"] for r in self.claim(A)], [removal["id"]], "host A claims it, and applies it")
+        self.assertEqual(self.release("coder", A).status_code, 200)
+        self.push("t1", 1, [valid("coder")], host=B)
+
+        again = self.ask("coder", {"role": "lead"})
+        self.assertEqual(again.status_code, 200, again.text)
+        [held] = self.rows("SELECT status FROM definition_requests WHERE id = ?", (removal["id"],))
+        self.assertEqual(held["status"], "superseded", "out of the waiting place, but not refused")
+
+        done = self.report(removal["id"], A, status="done", outcome="removed here", resultIncarnation=1, resultRevision=1)
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertEqual(done.json()["request"]["status"], "done", "A's true result is recorded")
+        self.assertTrue(done.json()["request"]["consequence"].startswith("nothing removed: the definition is now"),
+                        done.json()["request"]["consequence"])
+        self.assertEqual(len(self.rows("SELECT id FROM agents WHERE id = 'coder'")), 1, "B's agent stays")
+        self.assertEqual(self.rows("SELECT agent_id FROM agent_tombstones WHERE agent_id = 'coder'"), [])
