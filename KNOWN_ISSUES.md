@@ -9,14 +9,21 @@ kept as evidence. Last reviewed 2026-09-27.
 
 0.8.2 fixes its HIGHs and MEDIUMs. These stay open, each with what it needs to matter.
 
-- **A folder grant read through a hard-linked object or pack file** (aify-env's dashboard plugin). Needs write
-  access to a granted repository's git dir, the ability to hard-link a file of an outside repository on the same
-  volume into its `objects/`, and that repository's commit ids from elsewhere, since refs no longer leak them.
-  The range report then shows the outside commits' subjects and file names. Left open because a local clone
-  makes such links legitimately, and a test holds that one is read.
-- **The same-look race** in that plugin. Needs write access to a granted git dir and a swap of a checked path (a
-  junction, a ref, the alternates file) between the plugin's check and git's read within one look: milliseconds,
-  up to one git process. A win gets one head or one range read through it; the next look refuses the folder.
+- **A repository cloned from a local path is refused by aify-env's dashboard plugin** until it is re-cloned.
+  `git clone <local path>` hard-links its objects by default, and a hard-linked object whose outside owner
+  rewrites it is read under the old hash, so any object or pack file with a second name refuses the folder, with
+  one doctor row saying to re-clone with `--no-hardlinks` or from a `file://` URL. A clone from a URL, a
+  `git worktree add` and a repository after `git gc` are read.
+- **Dashboard plugin: a write inside a granted repository's git directory, timed between a look's checks and
+  git's read, is not caught on that look.** Each look resolves the folder's real working tree and git directories
+  once, judges them against the grant, and reads only them (git runs with `GIT_DIR` set to the judged git
+  directory). A junction re-pointed on the listed folder or above it, or a worktree `.git` file rewritten,
+  therefore changes nothing that look reads. What it needs: write access to the granted repository's git
+  directory, and a write timed into the milliseconds between the checks and git's read. That write could create a
+  link, rewrite `alternates` or a linked worktree's `commondir`, or rename a directory and put a link in its
+  place. Node opens by path and cannot pin what a path names across that moment. What it yields: one outside HEAD
+  reported, or one commit range read, on that look. The next look refuses the folder and says why. Recorded, not
+  fixed, by the operator-side decision for 0.8.2 (a handle-based native reader is the way to close it).
 - **File and directory symlinks** in a granted folder are judged exactly as junctions are (`lstat` and
   `realpath`), so no escape is expected. ASSUMED, not measured: the account that tested this cannot make one.
 - **aify-env resolves a launcher's interpreter from a relative PATH entry** (for example `.`), which then
