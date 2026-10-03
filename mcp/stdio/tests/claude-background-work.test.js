@@ -13,7 +13,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  READ, TranscriptFollower, backgroundTaskEvent, liveAfter, liveAfterRead, startBackgroundWorkReporter,
+  NO_TASKS, READ, TranscriptFollower, backgroundTaskEvent, startBackgroundWorkReporter, tasksAfter, tasksAfterRead,
 } from "../claude-background-work.mjs";
 
 const NL = String.fromCharCode(10);
@@ -28,6 +28,11 @@ const notification = (id, status) => ["<task-notification>", `<task-id>${id}</ta
   "<output-file>C:\\tmp\\out</output-file>", `<status>${status}</status>`, "<summary>done</summary>", "</task-notification>"].join(NL);
 const ended = (id, status = "completed", operation = "enqueue") =>
   JSON.stringify({ type: "queue-operation", operation, timestamp: "2026-10-01T00:00:00Z", content: notification(id, status) });
+// A stop, as this host's transcripts record it on 2026-10-03: a tool result, and no notification after it.
+const stopped = (id) => JSON.stringify({ type: "user", toolUseResult: {
+  message: `Successfully stopped task: ${id} (npm test)`, task_id: id, task_type: "local_bash", command: "npm test" } });
+const tasks = (live = [], endedUnseen = []) => ({ live: new Set(live), endedUnseen: new Set(endedUnseen) });
+const plain = ({ live, endedUnseen }) => ({ live: [...live].sort(), endedUnseen: [...endedUnseen].sort() });
 
 test("what one record says: starts, ends, and the records that look alike but say nothing", () => {
   assert.deepEqual(backgroundTaskEvent(shellStart("b1")), { started: "b1" });
@@ -36,6 +41,7 @@ test("what one record says: starts, ends, and the records that look alike but sa
   for (const status of ["completed", "failed", "killed"]) {
     assert.deepEqual(backgroundTaskEvent(ended("b1", status)), { ended: "b1" }, status);
   }
+  assert.deepEqual(backgroundTaskEvent(stopped("b1")), { ended: "b1" }, "a stop is an end: no notification follows one");
   const nothing = [
     ended("b1", "running"),                                   // not a final status
     ended("b1", "completed", "remove"),                       // the dequeue of the same notification
@@ -43,17 +49,34 @@ test("what one record says: starts, ends, and the records that look alike but sa
     JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: notification("b1", "completed") }] } }),
     JSON.stringify({ type: "user", message: { role: "user", content: `quoted: ${notification("b1", "completed")}` } }),
     JSON.stringify({ type: "user", toolUseResult: { stdout: "foreground", backgroundTaskId: "" } }),
+    JSON.stringify({ type: "user", toolUseResult: { task_id: "b1", message: "Successfully stopped task: b2 (x)" } }), // another id
+    JSON.stringify({ type: "user", toolUseResult: { task_id: "b1", message: "Task b1 is still running" } }),          // not a stop
     "{not json",
     "",
   ];
   for (const line of nothing) assert.equal(backgroundTaskEvent(line), null, line.slice(0, 80));
 });
 
-test("the live set: starts minus ends, an unknown end ignored, the input left alone", () => {
-  const before = new Set(["old"]);
-  const after = liveAfter(before, [shellStart("b1"), agentStart("a1"), ended("b1"), ended("never-started"), shellStart("a1")]);
-  assert.deepEqual([...after].sort(), ["a1", "old"]);
-  assert.deepEqual([...before], ["old"], "a new set; the caller's is untouched");
+test("the tasks: starts minus ends and stops, an end before its start remembered, the input left alone", () => {
+  const before = tasks(["old"]);
+  const after = tasksAfter(before, [shellStart("b1"), agentStart("a1"), ended("b1"), ended("never-started"), shellStart("a1")]);
+  assert.deepEqual(plain(after), { live: ["a1", "old"], endedUnseen: ["never-started"] });
+  assert.deepEqual(plain(before), { live: ["old"], endedUnseen: [] }, "new sets; the caller's are untouched");
+  // External review of 0.8.1: the two ways a task read as running for ever.
+  assert.deepEqual(plain(tasksAfter(NO_TASKS, [shellStart("s1"), stopped("s1")])), { live: [], endedUnseen: [] },
+    "a stopped task ends");
+  assert.deepEqual(plain(tasksAfter(NO_TASKS, [ended("e1"), shellStart("e1")])), { live: [], endedUnseen: [] },
+    "an end written before its start: the start counts nothing, and is forgotten once matched");
+  assert.deepEqual(plain(tasksAfter(tasksAfter(NO_TASKS, [ended("e2")]), [shellStart("e2")])), { live: [], endedUnseen: [] },
+    "across two looks too");
+});
+
+test("the remembered ends are bounded, oldest first", () => {
+  const ends = Array.from({ length: 300 }, (_, i) => ended(`old-${i}`));
+  const after = tasksAfter(NO_TASKS, ends);
+  assert.equal(after.endedUnseen.size, 256);
+  assert.equal(after.endedUnseen.has("old-0"), false);
+  assert.equal(after.endedUnseen.has("old-299"), true);
 });
 
 test("the follower reads only what is appended, whole lines, from where it first looked", async () => {
@@ -84,12 +107,13 @@ test("the follower reads only what is appended, whole lines, from where it first
   assert.deepEqual(await follower.read(""), unavailable);
 });
 
-test("the live set after a look: lines applied, a reset retires the generation, unavailable changes nothing", () => {
-  const live = new Set(["b1"]);
-  assert.deepEqual([...liveAfterRead(live, { status: READ.LINES, lines: [ended("b1")] })], []);
-  assert.deepEqual([...liveAfterRead(live, { status: READ.RESET, lines: [] })], [], "nothing counted from a source nobody reads now");
-  assert.deepEqual([...liveAfterRead(live, { status: READ.UNAVAILABLE, lines: [] })], ["b1"]);
-  assert.deepEqual([...live], ["b1"], "the input is untouched");
+test("the tasks after a look: lines applied, a reset retires the generation, unavailable changes nothing", () => {
+  const held = tasks(["b1"], ["e9"]);
+  assert.deepEqual(plain(tasksAfterRead(held, { status: READ.LINES, lines: [ended("b1")] })), { live: [], endedUnseen: ["e9"] });
+  assert.deepEqual(plain(tasksAfterRead(held, { status: READ.RESET, lines: [] })), { live: [], endedUnseen: [] },
+    "nothing counted from a source nobody reads now");
+  assert.deepEqual(plain(tasksAfterRead(held, { status: READ.UNAVAILABLE, lines: [] })), { live: ["b1"], endedUnseen: ["e9"] });
+  assert.deepEqual(plain(held), { live: ["b1"], endedUnseen: ["e9"] }, "the input is untouched");
 });
 
 /** What was reported, as transitions: a repeated count is the lease being renewed, pinned below. */

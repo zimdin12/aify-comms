@@ -11,8 +11,16 @@
 //           shell), or whose `toolUseResult` says `status: "async_launched"` with an `agentId` (a
 //           background agent, which counts the same, as hermes' background agents do);
 //   end:    a `queue-operation` record, operation `enqueue`, whose content is a task notification
-//           with that task id and a final status. Claude Code writes it when the task finishes.
+//           with that task id and a final status. Claude Code writes it when the task finishes;
+//   stop:   a `toolUseResult` with `task_id` and the message "Successfully stopped task: <id>". A
+//           stopped task gets NO notification: on 48 of this host's transcripts (2026-10-03), 57
+//           stopped tasks and not one later end, so each read as running until the bridge exited.
 // Only those record SHAPES count. The same tags quoted in conversation are `assistant` text.
+//
+// AN END CAN BE WRITTEN BEFORE ITS START: 76 of the 1,070 ends in those transcripts were (a task
+// finished before its tool result was recorded). An end for a task not seen yet is remembered, and its
+// start then counts nothing; ignored instead, the start that followed ran for ever (external review of
+// 0.8.1, which counted about 1%).
 //
 // ONLY WORK STARTED SINCE THIS BRIDGE STARTED. The follower begins at the file's size when it first
 // sees it, so a resumed session's old, unfinished tasks are never counted as running.
@@ -34,6 +42,8 @@ export function backgroundTaskEvent(line) {
   if (result && typeof result === "object") {
     if (typeof result.backgroundTaskId === "string" && result.backgroundTaskId) return { started: result.backgroundTaskId };
     if (result.status === "async_launched" && typeof result.agentId === "string" && result.agentId) return { started: result.agentId };
+    if (typeof result.task_id === "string" && result.task_id && typeof result.message === "string"
+        && result.message.startsWith(`Successfully stopped task: ${result.task_id}`)) return { ended: result.task_id };
   }
   if (record.type === "queue-operation" && record.operation === "enqueue" && typeof record.content === "string") {
     const match = NOTIFICATION.exec(record.content);
@@ -42,18 +52,31 @@ export function backgroundTaskEvent(line) {
   return null;
 }
 
+/** How many ends of tasks not seen starting are remembered: the oldest go first. */
+const ENDED_UNSEEN_LIMIT = 256;
+
+/** No background work seen yet. */
+export const NO_TASKS = Object.freeze({ live: new Set(), endedUnseen: new Set() });
+
 /**
- * The live set after `lines`. PURE: a new Set, the input untouched.
- * An end for a task this bridge never saw start is ignored, as is a second start of one it holds.
+ * The tasks after `lines`. PURE: new sets, the input untouched.
+ *   `live`: started and not ended. A second start of one it holds changes nothing.
+ *   `endedUnseen`: ended before any start was seen. Its start, if it comes, counts nothing; an end for a
+ *   task started before this bridge looked waits here for a start that never comes, up to the limit.
  */
-export function liveAfter(live, lines) {
-  const next = new Set(live);
+export function tasksAfter(tasks, lines) {
+  const live = new Set(tasks.live);
+  const endedUnseen = new Set(tasks.endedUnseen);
   for (const line of lines) {
     const event = backgroundTaskEvent(line);
-    if (event?.started) next.add(event.started);
-    else if (event?.ended) next.delete(event.ended);
+    if (event?.started) {
+      if (!endedUnseen.delete(event.started)) live.add(event.started);
+    } else if (event?.ended && !live.delete(event.ended)) {
+      endedUnseen.add(event.ended);
+      if (endedUnseen.size > ENDED_UNSEEN_LIMIT) endedUnseen.delete(endedUnseen.values().next().value);
+    }
   }
-  return next;
+  return { live, endedUnseen };
 }
 
 /**
@@ -108,18 +131,18 @@ export class TranscriptFollower {
 }
 
 /**
- * The live set after one look. PURE.
+ * The tasks after one look. PURE.
  *   LINES: the lines applied.
- *   RESET: the old generation retired, an empty set. Its ends would land where nobody reads, so a
- *          count carried over could never reach zero; under-reporting until the next start is the
- *          bounded error, a `shell` that never ends is not. A late end of a retired task is an end
- *          for an unknown task, which `liveAfter` already ignores.
+ *   RESET: the old generation retired, no tasks. Its ends would land where nobody reads, so a count
+ *          carried over could never reach zero; under-reporting until the next start is the bounded
+ *          error, a `shell` that never ends is not. A late end of a retired task is remembered as unseen,
+ *          and a start never follows it.
  *   UNAVAILABLE: unchanged, and the caller must not renew it as if it were observed.
  */
-export function liveAfterRead(live, { status, lines }) {
-  if (status === READ.RESET) return new Set();
-  if (status === READ.LINES) return liveAfter(live, lines);
-  return new Set(live);
+export function tasksAfterRead(tasks, { status, lines }) {
+  if (status === READ.RESET) return NO_TASKS;
+  if (status === READ.LINES) return tasksAfter(tasks, lines);
+  return tasks;
 }
 
 /**
@@ -136,14 +159,14 @@ export function startBackgroundWorkReporter({
   transcriptPath, post, intervalMs = 5_000, follower = new TranscriptFollower(),
   setIntervalImpl = setInterval, clearIntervalImpl = clearInterval,
 }) {
-  let live = new Set();
+  let tasks = NO_TASKS;
   let reported = 0;
   const once = async () => {
     try {
       const observed = await follower.read(transcriptPath());
-      live = liveAfterRead(live, observed);
+      tasks = tasksAfterRead(tasks, observed);
       if (observed.status === READ.UNAVAILABLE) return;
-      const count = live.size;
+      const count = tasks.live.size;
       if (count > 0 || reported > 0) {
         await post(count);
         reported = count;
