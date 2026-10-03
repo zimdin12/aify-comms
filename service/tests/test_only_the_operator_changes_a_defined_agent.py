@@ -107,5 +107,6 @@ class OnlyTheOperatorChangesADefinedAgent(FastApiTestCase):
             with self.subTest(operator=operator):
                 with self.assertRaises(Exception) as refused:
                     asyncio.run(ask(operator))
-                self.assertEqual(getattr(refused.exception, "status_code", None), 403)
+                self.assertEqual((getattr(refused.exception, "status_code", None), getattr(refused.exception, "detail", "")),
+                                 (403, 'only the operator may change "lead", which a host defines'))
                 self.assertEqual(self.queued(), [])

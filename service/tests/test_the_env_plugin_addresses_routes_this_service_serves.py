@@ -76,6 +76,7 @@ let running = '(none)';
 const api = new CommsApi({
   endpoint: 'http://probe.invalid:1',
   credential: async () => '%(credential)s',
+  hostProof: () => '%(proof)s',
   identity: mintBridgeIdentity({ version: '0.0.0-probe' }),
   fetchImpl: async (url, init) => {
     seen.push({ owner: running, url: String(url), method: String((init && init.method) || 'GET'),
@@ -152,7 +153,7 @@ def emitted_requests(repo: Path, credential: str = "") -> dict:
     """
     api = (repo / PLUGIN_DIR / "api.mjs").as_uri()
     script = Path(tempfile.mkdtemp()) / "drive-the-plugin.mjs"
-    script.write_text(HARNESS % {"probe": PROBE, "api": api, "credential": credential},
+    script.write_text(HARNESS % {"probe": PROBE, "api": api, "credential": credential, "proof": HOST_PROOF},
                       encoding="utf-8")
     result = subprocess.run(
         ["node", str(script)], cwd=repo, capture_output=True, text=True)
@@ -169,6 +170,10 @@ def emitted_requests(repo: Path, credential: str = "") -> dict:
             "the plugin's own client could not be driven, so this gate judged nothing: "
             f"{result.stdout[-400:]}{result.stderr[-400:]}")
     return json.loads(payload[-1])
+
+
+#: The proof the driven plugin is handed; every request must carry it (external review of 0.8.1, HIGH 2).
+HOST_PROOF = "a-host-proof-for-the-replay"
 
 
 #: A key the service is configured with for the replay below. Any non-empty value works -- what is
@@ -489,6 +494,18 @@ class TheEnvPluginAddressesRoutesThisServiceServes(unittest.TestCase):
             "the middleware let these through with NO key, so the run above cannot be read as "
             "evidence that the plugin's header is what got it in:" + chr(10) + "  "
             + (chr(10) + "  ").join(accepted_without_a_key)))
+
+    def test_every_request_carries_the_host_proof_under_the_header_this_service_reads(self) -> None:
+        """The service refuses a proven machine's host routes without its proof (`host_proof.py`), so a
+        plugin that sent it under another name, or on some requests only, would lock its own host out."""
+        from service.api_core.host_proof import HOST_PROOF_HEADER
+        self.assertTrue(self.driven["requests"], "the plugin emitted no requests, so this judged nothing")
+        missing = [
+            f"{r['owner']}: {r['method']} {_path_of(r['url'])}"
+            for r in self.driven["requests"]
+            if {name.lower(): value for name, value in (r.get("headers") or {}).items()}.get(HOST_PROOF_HEADER.lower()) != HOST_PROOF
+        ]
+        self.assertEqual(missing, [], "requests without this host's proof:" + chr(10) + "  " + (chr(10) + "  ").join(missing))
 
     def test_no_key_means_NO_key_header_at_all(self) -> None:
         """The plugin's own rule, asserted as ABSENCE — which is what it actually promises.

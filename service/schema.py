@@ -529,6 +529,14 @@ CREATE TABLE IF NOT EXISTS definition_stores_retired (
     PRIMARY KEY (machine_id, store_id)
 );
 
+-- Which host speaks for a machine (external review of 0.8.1, HIGH 2): the digest of the first proof its
+-- aify-env presented. Its host routes need the same proof after; an operator reset deletes the row.
+CREATE TABLE IF NOT EXISTS host_proofs (
+    machine_id TEXT PRIMARY KEY,
+    proof_digest TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+
 -- An operator's change to a defined agent, applied by the host that owns it (P0 C4): a compare-and-set
 -- on the lifetime and revision the service held when it was asked. pending -> claimed -> done |
 -- refused | expired. The host is the authority on whether it applied.

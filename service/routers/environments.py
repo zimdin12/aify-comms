@@ -29,6 +29,7 @@ from service import longpoll
 from service.api_core.claim_emptiness import environment_control_is_empty
 from service.environment_claim import _claim_environment_control_once
 from service.api_core.environment_registration import _record_environment_registration
+from service.api_core.host_proof import host_proof_refusal, presented_proof
 from service.api_core.operator_authz import recorded_operator_actor
 from service.api_core.superseded_bridge_stops import _queue_stop_for_superseded_bridge
 from service.api_core.routing import domain_router
@@ -353,6 +354,12 @@ async def environment_heartbeat(req: EnvironmentHeartbeat, request: Request):
     try:
         existing_cursor = await db.execute("SELECT * FROM environments WHERE id = ?", (env_id,))
         existing = await existing_cursor.fetchone()
+        # THE MACHINE'S HOST, PROVEN (HIGH 2): the row's machine and the one claimed, so a beat cannot move a
+        # proven row to another machine id. Before any write, so a refused beat changes nothing.
+        refusal = await host_proof_refusal(db, [existing["machine_id"] if existing else "", req.machineId],
+                                           presented_proof(request), now)
+        if refusal:
+            raise HTTPException(403, f"environment heartbeat refused: {refusal}")
         # Forget-tombstone guard (2026-06-03): a row in `forgotten` status is the
         # environment-level equivalent of an agent tombstone. A passive heartbeat
         # from a still-running aify-comms bridge that predates the forget MUST NOT
