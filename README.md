@@ -128,6 +128,10 @@ Rules that cost real hours:
    the last recorded output with the fatal line first, marked `NOT LIVE`.
 4. **After updating Hermes itself**, re-run `install.sh --client hermes`: a hermes update deletes the
    prebuilt web bundle its console needs.
+5. **Upgrading to 0.8 moves agent definitions to aify-env.** With aify-env 0.8 running,
+   `aify-env agents import` shows what it would define from this service's registry; `--write` defines
+   them, and `aify-env agents remove <id>` drops one you no longer run. Run this `install.sh` before
+   aify-wrapper's own installer: its 0.8 launchers need this bridge's definition reader.
 
 Some doctor rows watch the live fleet rather than an install and can turn red on a quiet day:
 `tier-version`, `env-code-currency`, `spawn-queue`, `session-handles`, `context-window`,

@@ -161,11 +161,11 @@ because it did not look. `node --check` only parses. The counts below are a snap
 authority, and a very different number means a wrong invocation before it means anything else.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 4895 passed, 24 skipped, 1 failed (version gate, red until HEAD is tagged)
-cd mcp/stdio && node tests/run-all.mjs                 # 365 suites
-cd service/new_dashboard && node --test *.test.mjs     # 1882 tests
-cd ~/projects/aify-wrapper && npm test                 # 575 tests, 66 skipped
-cd ~/projects/aify-env && npm test                     # 2170 tests, 4 skipped
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5072 passed, 27 skipped
+cd mcp/stdio && node tests/run-all.mjs                 # 371 suites
+cd service/new_dashboard && node --test *.test.mjs     # 1893 tests
+cd ~/projects/aify-wrapper && npm test                 # 673 tests, 66 skipped
+cd ~/projects/aify-env && npm test                     # 2440 tests, 4 skipped
 ```
 
 - **Python:** `-n 8 --dist loadfile` is the invocation (about 3 minutes; serial is over 20).
@@ -182,6 +182,10 @@ cd ~/projects/aify-env && npm test                     # 2170 tests, 4 skipped
   skipped files under "skipped, so NOT verified here" and never counts them as passed.
 - **aify-wrapper and aify-env:** use `npm test`, not a bare `node --test`. It runs under one temp root
   and carries the test timeout.
+- **The runners drop the starting terminal's Herdr and agent session** (`HERDR_*`, `AIFY_HERDR_*`,
+  `AIFY_AGENT_ID`, the lease). A single file run directly from an agent pane keeps them: it can reach
+  the live Herdr, speak as you, and fail where the suite passes (`agent-lease.test.js` does). Unset
+  them (`env -u ...`) when you run one file alone.
 - **Cross-repo tests** read the sibling checkouts (`AIFY_ENV_REPO` / `AIFY_WRAPPER_REPO`, else beside
   this checkout, else `~/projects`; `mcp/stdio/tests/_sibling-checkout.mjs`). They read source and
   never start a daemon. An aify-env edit can redden this repo's suites (for example

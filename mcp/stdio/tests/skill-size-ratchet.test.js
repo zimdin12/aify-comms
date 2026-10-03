@@ -81,7 +81,7 @@ const CEILINGS = {
   // scripts/install-state.sh answers it -- which is what keeps this file short enough to be
   // read rather than skimmed.
   // LOWERED: the bare-command warning was tightened while keeping the phrase its gate pins.
-  "aify-comms-install/SKILL.md": 4_832,
+  "aify-comms-install/SKILL.md": 4_831,
   // The debug skill was cut to what a reader acts on in 0.7.0 (history lives in git), so these
   // ceilings carry no per-file history. Growing one is a decision to argue in the commit.
   // 0.7.4 skills audit, three small raises (debug SKILL.md +71, codex.md +96, hermes-turns.md +9): the

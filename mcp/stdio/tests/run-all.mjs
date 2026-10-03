@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { withoutAgentSession } from "aify-wrapper/lib/inherited-session.mjs";
 import { disabledBy } from "./deprecated-runtimes.mjs";
 import { skippedFrom, slowest, summarise } from "./run-all-summary.mjs";
 import { orderLongestFirst, readTimings, writeTimings } from "./run-all-timings.mjs";
@@ -62,7 +63,12 @@ for (const entry of readdirSync(tmpdir(), { withFileTypes: true })) {
 }
 
 const tempRoot = mkdtempSync(join(tmpdir(), TEMP_ROOT_PREFIX));
-const childEnv = { ...process.env, TMPDIR: tempRoot, TEMP: tempRoot, TMP: tempRoot };
+// NOT THE AGENT SESSION OR THE HERDR THE SUITE WAS STARTED FROM, as aify-wrapper's runner already
+// drops them: tests here render and run real launchers, and inherited `HERDR_*` points those at the
+// operator's live Herdr while `AIFY_AGENT_ID` makes them speak as the agent that ran the suite.
+const inherited = withoutAgentSession(process.env);
+for (const name of Object.keys(inherited)) if (/^(AIFY_)?HERDR_/i.test(name)) delete inherited[name];
+const childEnv = { ...inherited, TMPDIR: tempRoot, TEMP: tempRoot, TMP: tempRoot };
 
 /** Remove the whole root. Called on every exit path, including the failing one. */
 function removeTempRoot() {

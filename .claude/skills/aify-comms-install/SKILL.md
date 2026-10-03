@@ -9,8 +9,7 @@ description: Use when installing or updating aify-comms, connecting a host or cl
 
 Read the install guide before changing anything: `docs/INSTALL_ONBOARDING.md` in an aify-comms
 checkout, or https://github.com/zimdin12/aify-comms/blob/main/docs/INSTALL_ONBOARDING.md where there
-is none. It covers the owner-to-owner install chain, credential handling, official herdr installers
-and verification. In a checkout:
+is none. In a checkout:
 
 ```bash
 bash scripts/install-state.sh --json
@@ -21,7 +20,6 @@ Inspect the OS/shell, host role, installed clients, endpoint and the selected ch
 The report is inventory, not a readiness verdict. `hookStates` distinguishes installed, absent and
 unknown; Hermes uses the installer's profile-root resolver, not an assumed `~/.hermes`.
 `apiKey=unknown` means resolution failed, not permission to generate a key. Keep secrets out of reports.
-`components.sh`'s missing command or empty version is only a discovery hint.
 
 For optional herdr, the state report searches PATH and official install locations without launching
 it. If found, review its origin before `bash scripts/herdr-state.sh --probe` checks only `--version`.
@@ -29,7 +27,7 @@ No PATH entry does not mean no app. Resolve unknown locations with the operator 
 
 Show a table of installed, missing, outdated and unknown components, with observed and intended
 versions, evidence and proposed action. Use the doctors for running identity; a healthy port or a
-present launcher does not prove it is current. A failed version lookup stays unknown.
+present launcher does not prove it is current.
 
 ## Ask only the gaps and the optional choice
 
@@ -61,9 +59,13 @@ For a local service, preserve existing configuration; run setup only for first i
 stamp and rebuild when selected. A running container may still need an update.
 For agent hosts, follow [aify-env's own guide](https://github.com/zimdin12/aify-env) and reviewed
 repo `install.sh`; it installs/updates the package and checks registered-service credentials.
-It is not a bare npm install followed by a daemon launch. aify-env's guide points to herdr's own
-installer after opt-in. No comms script installs another product. aify-wrapper is already a pinned
-dependency of the client installer; use its own guide for a standalone launcher-only install.
+aify-env's guide points to herdr's own installer after opt-in. aify-wrapper is a pinned dependency of
+the client installer: run this installer before aify-wrapper's own, whose 0.8 launchers refuse resident
+launches without this bridge's definition reader.
+
+From 0.8, aify-env defines the agents it starts, not the aify-comms registry. With the new
+aify-env running, `aify-env agents import` is a dry run of what it would define; read it, `--write`,
+then `aify-env agents remove <id>` for each agent no longer run.
 
 ## Verify and report pending restarts
 
