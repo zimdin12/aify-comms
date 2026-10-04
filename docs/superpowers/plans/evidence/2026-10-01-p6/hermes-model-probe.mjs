@@ -22,7 +22,8 @@
 // SEALED: a temporary HERMES_HOME with no credentials, a port the OS chose, outside aify-comms' gateway
 // range, the whole process tree killed at the end. No aify-comms, aify-env or agent is involved, and
 // nothing is sent to a model. One write escapes the seal and is undone at the end: hermes registers
-// <HERMES_HOME>\bin on the persistent Windows User PATH when it publishes its launchers
+// get_default_hermes_root()\bin, which is <HERMES_HOME>\bin for every home this accepts (a home hermes would rewrite
+// is refused), on the persistent Windows User PATH when it publishes its launchers
 // (hermes_cli/_launchers.py `_register_windows_user_path`, no opt-out). The first runs left their homes
 // at the FRONT of the operator's PATH, where `hermes update` ran the probe's shim (2026-10-02).
 // Run from the aify-comms checkout:
@@ -36,7 +37,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
-import { entriesHermesAdded, readUserPathRaw, withoutEntries, writeUserPathRawIfUnchanged } from "./user-path.mjs";
+import { firstEntryIsNew, hermesBinEntries, homeProblem, readUserPathRaw, withoutEntries, writeUserPathRawIfUnchanged }
+  from "./user-path.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const require = createRequire(path.join(ROOT, "mcp/stdio/package.json"));
@@ -51,6 +53,13 @@ const freePort = () => new Promise((resolve) => {
 const pathBefore = process.platform === "win32" ? readUserPathRaw() : null;
 const keep = process.env.PROBE_HERMES_HOME || "";
 const home = keep || fs.mkdtempSync(path.join(os.tmpdir(), "hermes-model-probe-"));
+// A home hermes would rewrite registers some other folder on the PATH, which the cleanup could not recognise as
+// hermes' (user-path.mjs `homeProblem`). Refused before hermes runs, so nothing is registered.
+const refused = process.platform === "win32" ? homeProblem(home) : "";
+if (refused) {
+  console.error(`PROBE_HERMES_HOME refused: ${refused}. Give a plain, resolved folder outside hermes' own.`);
+  process.exit(2);
+}
 fs.mkdirSync(home, { recursive: true });
 const port = await freePort();
 const env = { ...process.env, HERMES_HOME: home, HERMES_INFERENCE_MODEL: "probe/env-model", HERMES_DASHBOARD_TUI: "1" };
@@ -63,14 +72,17 @@ const report = { hermes: spawnSync("hermes", ["--version"], { encoding: "utf8", 
 function stop() {
   if (process.platform === "win32") {
     spawnSync("taskkill", ["/PID", String(host.pid), "/T", "/F"], { stdio: "ignore" });
-    // ONLY WHAT HERMES ADDED THIS RUN (user-path.mjs): an entry the operator had before stays, even under
-    // the home, and the value is written back raw with its own kind.
+    // ONLY HERMES' OWN <home>\bin, AND ONLY IF IT WAS NOT THERE BEFORE (user-path.mjs): every other entry, under
+    // the home or not, stays as stored, and the value is written back raw with its own kind. Not atomic.
     const now = pathBefore === null ? null : readUserPathRaw();
-    const drop = now === null ? [] : entriesHermesAdded(pathBefore, now, home);
+    const drop = now === null ? [] : hermesBinEntries(pathBefore, now, home);
     const written = drop.length ? writeUserPathRawIfUnchanged(now, withoutEntries(now, drop)) : "written";
-    if (pathBefore === null || now === null || written !== "written") {
+    // THE SAFETY NET: hermes puts its entry first, so a new first entry left behind is worth a look by hand.
+    const after = pathBefore === null ? null : readUserPathRaw();
+    if (pathBefore === null || now === null || written !== "written" || after === null || firstEntryIsNew(pathBefore, after)) {
       console.error(`hermes may have registered ${home}\\bin on your User PATH, and the probe could not take it back `
-        + `(${pathBefore === null || now === null ? "the User PATH could not be read" : `the write was ${written}`}): check it by hand.`);
+        + `(${pathBefore === null || now === null || after === null ? "the User PATH could not be read"
+          : written !== "written" ? `the write was ${written}` : `its first entry is new: ${after.split(";")[0]}`}): check it by hand.`);
     }
   } else host.kill("SIGKILL");
 }

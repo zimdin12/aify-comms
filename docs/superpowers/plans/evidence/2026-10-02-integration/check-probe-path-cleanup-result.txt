@@ -1,20 +1,43 @@
-node docs/superpowers/plans/evidence/2026-10-02-integration/check-probe-path-cleanup.mjs  (2026-10-04T02:02Z, Windows, throwaway HKCU key; the real User PATH not touched)
+node docs/superpowers/plans/evidence/2026-10-02-integration/check-probe-path-cleanup.mjs  (2026-10-04T18:44Z, Windows, throwaway HKCU key; the real User PATH not touched)
 ok   the operator's own .hermes\bin, there before, stays
-ok   a home at C:/ removes only what this run added
+ok   there before in another case and with a trailing \ (hermes' test sees it): stays
+ok   there before only with forward slashes: hermes' test misses it and adds its own, which goes
 ok   this run's home\bin is removed
+ok   another NEW entry under the home stays (the operator's, added during the run)
+ok   a new forward-slash spelling of home/bin is not what hermes writes: it stays
 ok   a new sibling sharing the prefix stays
-ok   a forward-slash home matches a backslash entry
+ok   a forward-slash home still names the backslash entry hermes writes
 ok   case differs
+ok   duplicates of hermes' entry go together; empty entries stay
 ok   nothing new: nothing removed
-ok   withoutEntries keeps every other entry as stored, in order
+ok   an empty home removes nothing
+ok   withoutEntries keeps every other entry as stored, in order, empty ones too
+ok   home "C:\\Users\\X\\AppData\\Local\\Temp\\hermes-model-probe-ab12" is accepted
+ok   home "C:/Users/X/AppData/Local/Temp/hermes-model-probe-ab12" is accepted
+ok   home "C:\\Users\\X\\AppData\\Local\\Temp\\hermes-model-probe-ab12\\" is accepted
+ok   home "%TEMP%\\x" is refused
+ok   home "~\\x" is refused
+ok   home "C:\\Users\\X\\AppData\\Local\\Temp\\hermes-model-probe-ab12\\profiles\\p" is refused
+ok   home "C:\\Users\\X\\AppData\\Local\\hermes" is refused
+ok   home "C:\\Users\\X\\AppData\\Local\\hermes\\sub" is refused
+ok   home "rel" is refused
+ok   home "C:" is refused
+ok   home "C:\\" is refused
+ok   home "C:/" is refused
+ok   home "C:\\Users\\X\\AppData\\Local\\Temp\\hermes-model-probe-ab12\\.\\x" is refused
+ok   home "C:\\a\\\\b" is refused
+ok   home "" is refused
+ok   a new first entry is flagged
+ok   control: the operator's own first entry is not
 ok   control: the throwaway key reads back raw, %VAR% unexpanded
-ok   a stale expectation writes nothing
+ok   a value changed since the decision writes nothing
 ok   the write lands
 ok   and keeps %VAR% unexpanded
 ok   and keeps the value's kind
 ok   the throwaway key is gone
 exit 0
 
-NEGATIVE CONTROL, the old rule (remove every entry under the home) put back by cp-backed edit, then restored:
-FAIL the operator's own .hermes\bin, there before, stays
-FAIL a home at C:/ removes only what this run added
+node docs/superpowers/plans/evidence/2026-10-02-integration/check-probe-path-cleanup-mutants.mjs (user-path.mjs restored after each):
+P1 presence test folds slashes: KILLED there before only with forward slashes: hermes' test misses it and add | a new forward-slash spelling of home/bin is not what hermes writes: it
+P2 no profile-home refusal: KILLED home "C:\\Users\\X\\AppData\\Local\\Temp\\hermes-model-probe-ab12\\pro
+P3 safety net off: KILLED a new first entry is flagged: 
