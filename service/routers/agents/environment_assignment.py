@@ -28,7 +28,7 @@ import uuid
 from fastapi import HTTPException, Request
 
 from service.api_core.capabilities import _default_capabilities_for
-from service.api_core.operator_authz import operator_proof, recorded_operator_actor
+from service.api_core.operator_authz import prove_operator, recorded_operator_actor
 from service.api_core.records import _environment_record_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.runtime import _normalize_runtime, _runtime_capability_for_environment
@@ -56,6 +56,10 @@ router = domain_router()
 async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignRequest, request: Request):
     # spawn_spec_assignment.py records an omitted name as `dashboard`.
     requested_by = recorded_operator_actor(req.requestedBy, request, action="assigning an agent's environment as the operator")
+    # THE OPERATOR'S, for every agent (external review of 0.8.4): this rewrites an undefined agent's model,
+    # effort, workspace and mode, and Steven's 2026-10-02 ruling makes those operator-protected, as PATCH
+    # /effort already is. Only the dashboard calls it.
+    operator = prove_operator(requested_by, request, action="assign an agent's environment")
     validate_name(agent_id, "agent ID")
     environment_id = str(req.environmentId or "").strip()
     if not environment_id:
@@ -80,7 +84,7 @@ async def assign_agent_environment(agent_id: str, req: AgentEnvironmentAssignReq
         # columns and sessions, and its definition governs its next start (C7).
         assigned = await assignment_for_its_host(
             db, agent_id, str(env_row["machine_id"] or ""),
-            operator_proof(requested_by, request, action="assigning an agent's environment as the operator"),
+            operator,
             _now(), workspace=req.workspace,
             runtime=_normalize_runtime(req.runtime) if req.runtime else "", model=req.model,
             runtime_config=req.runtimeConfig)

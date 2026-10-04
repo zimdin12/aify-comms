@@ -88,6 +88,9 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
     validate_name(agent_id, "agent ID")
     # Recorded as `dashboard` when unnamed, and only the dashboard calls this route.
     requested_by = recorded_operator_actor(req.requestedBy, request, action="switching an agent's session mode as the operator")
+    # THE OPERATOR'S, for every agent (external review of 0.8.4): a switch moves an undefined agent's
+    # workspace and effort, which Steven's 2026-10-02 ruling makes operator-protected.
+    operator = prove_operator(requested_by, request, action="change an agent's session mode")
     new_mode = _normalize_session_mode(req.mode)
     requested_raw = str(req.mode or "").strip().lower()
     if requested_raw not in _SESSION_MODES:
@@ -105,7 +108,6 @@ async def switch_agent_session_mode(agent_id: str, req: AgentSessionModeSwitchRe
         # columns, which registration writes for a defined agent too, and its definition's desired
         # mode is untouched and governs its next start (C7).
         if await defined_on(db, agent_id):
-            operator = prove_operator(requested_by, request, action="change the session mode of an agent a host defines")
             return await queued_for_its_host(db, agent_id, {"mode": new_mode}, operator, _now())
 
         current_mode = _normalize_session_mode(row["session_mode"] or "resident")
