@@ -20,8 +20,9 @@ to matter.
   `PI_COMMAND`) for an UNDEFINED agent; with a key set it needs the operator (DECISIONS.md, 2026-10-04).
 - **Registration rewrites an undefined agent's mode, effort and usage source without the operator key.** The
   dedicated routes refuse it (DECISIONS.md, 2026-10-02), but `POST /agents` is how a bridge reports its own
-  state, and re-register is a full refresh. Found by comms-senior-dev (review of 5e2e3205). A defined agent's
-  launch takes these from its definition instead (720b4221). 0.9 moves agent state to aify-env.
+  state, and re-register is a full refresh. Found by comms-senior-dev (review of 5e2e3205). A definition-bound
+  start takes its model and effort from its bound spec (720b4221); its usage source still comes from the
+  record. 0.9 moves agent state to aify-env.
 - **The `comms_*` tools cannot present the operator key.** The bridge sends no `X-Aify-Operator-Key`, so with a
   key set an agent given the key (a main manager) can use it only by calling the API itself, naming `dashboard`
   and sending the header. Bridge support for it is a 0.9 candidate.
