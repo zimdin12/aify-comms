@@ -19,7 +19,6 @@ import json
 
 from fastapi import HTTPException
 
-from service.api_core.agent_sessions import _agent_tombstone
 from service.api_core.definition_snapshot import (
     PushOrder, canonical, fence_refusal, is_counter, push_order, snapshot_problems,
 )
@@ -46,13 +45,16 @@ async def _removed_incarnation(db, agent_id: str, store_id: str) -> int:
     """The newest incarnation of this id a done removal request took from this store, or 0.
 
     `done` means the host removed exactly `expected_incarnation` (C4 checks it before applying), and
-    request rows are never pruned, so this is durable evidence of what the operator removed."""
+    request rows are never pruned, so this is durable evidence of what the operator removed. A done
+    request settled `nothing removed` took nothing, so it is not counted: with the tombstone no longer
+    gating this check, counting it refused the same lifetime defined again (db.py backfills the
+    consequence of rows older than the column)."""
     row = await (await db.execute(
         # NOCASE, as the tombstone it answers for is matched (agent_sessions._agent_tombstone): `Coder` cleared
         # `coder`'s tombstone with a binary match here (review of cf4f5710).
         "SELECT MAX(expected_incarnation) AS taken FROM definition_requests WHERE agent_id = ? COLLATE NOCASE "
-        "AND store_id = ? "
-        "AND status = 'done' AND json_type(patch, '$.remove') = 'true'", (agent_id, store_id),
+        "AND store_id = ? AND status = 'done' AND consequence IN ('pending', 'removed') "
+        "AND json_type(patch, '$.remove') = 'true'", (agent_id, store_id),
     )).fetchone()
     return row["taken"] or 0
 
