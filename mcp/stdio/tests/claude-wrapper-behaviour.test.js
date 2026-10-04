@@ -132,12 +132,15 @@ test("claude-aify installs the session-capture hooks on the launch it performs",
 });
 
 test("claude-aify applies a managed model override only when the caller has not chosen one", () => {
-  const injected = run({ env: { AIFY_MANAGED_MODEL: "opus" } });
+  // A managed launch carries the AIFY_AGENT_ID the service writes beside the model; without it the launcher keeps
+  // none of AIFY_MANAGED_* (aify-wrapper 237c0c5: they belong to the agent the launch names).
+  const managed = { AIFY_AGENT_ID: "probe-agent", AIFY_MANAGED_MODEL: "opus" };
+  const injected = run({ env: managed });
   const i = injected.argv.indexOf("--model");
   assert.ok(i >= 0, "the managed model must be injected");
   assert.equal(injected.argv[i + 1], "opus");
 
-  const explicit = run({ env: { AIFY_MANAGED_MODEL: "opus" }, args: ["--model", "haiku"] });
+  const explicit = run({ env: managed, args: ["--model", "haiku"] });
   assert.equal(
     explicit.argv.filter((a) => a === "--model").length,
     1,

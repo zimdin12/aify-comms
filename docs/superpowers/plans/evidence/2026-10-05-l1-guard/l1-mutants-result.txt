@@ -1,0 +1,26 @@
+python3 l1-mutants.py, in WSL Ubuntu (bash 5.2, node 22) on ~/wrapper-l1, a tar copy of the aify-wrapper tree that
+became 237c0c5 (2026-10-04 ~22:00Z). The six mutants touch the claude, codex and hermes templates; the pi guard's
+placement was checked by the independent re-review (its M12, killed by the PI test).
+
+M1 the marker is part of the guard again (claude): KILLED at the named test exit=1
+    not ok 5 - CLAUDE PRECEDENCE: the managed launch's values, then a flag, each beats the definition's model and effort
+    not ok 21 - CLAUDE: an empty, absent or other agent's identity, or no named agent, drops every managed value
+M2 hermes reads the inherited session above the guard: KILLED at the named test exit=1
+    not ok 27 - HERMES: a nested launch does not resume the session its parent's environment names
+M3 codex adds --disable apps above the guard: KILLED at the named test exit=1
+    not ok 28 - CODEX: a nested launch does not take its parent's --disable apps
+M4 a fixed list instead of the prefix (claude): KILLED at the named test exit=1
+    not ok 21 - CLAUDE: an empty, absent or other agent's identity, or no named agent, drops every managed value
+    not ok 22 - CLAUDE: a repeated --aify-agent is judged as the launcher parses it (the last one), and the kept set is the whole prefix
+M5 the guard acts only on marker 1 (claude): KILLED at the named test exit=1
+    not ok 21 - CLAUDE: an empty, absent or other agent's identity, or no named agent, drops every managed value
+M6 the inherited hermes handle beats --resume: KILLED at the named test exit=1
+    not ok 27 - HERMES: a nested launch does not resume the session its parent's environment names
+restored: ['# pass 29', '# fail 0']
+all mutants killed at their named test
+exit=0
+
+The same WSL copy, the seven changed or Linux-only test files: 66 pass, 3 fail. The three are
+codex-app-server-carries-the-agent-identity tests 50, 52 and 54, which exit 78 "no definition reader" because the tar
+copy has no node_modules link to the reader; they fail identically on b7e60a7's templates in the same copy, and skip
+on Windows. Windows, full aify-wrapper suite on 237c0c5's tree: 694 tests, 628 pass, 0 fail, 66 skipped.
