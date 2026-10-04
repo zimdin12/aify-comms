@@ -1,0 +1,11 @@
+node docs/superpowers/plans/evidence/2026-10-05-g1/g1-mutants.mjs ~/projects/aify-env-0.9  (2026-10-04T23:10:26Z, aify-env 694f7b3)
+KILLED   held gate removed: exit=1; not ok 1 - FIRST ADOPTION WITH NO STORED TURN reads unknown, not idle, until its next hook | not ok 2 - A FRESH SCREEN SIGHTING still decides while the turn is unknown (C3 row 4 outra | not ok 5 - AN UNREADABLE TURNS FILE RESTORES NOTHING: every adopted agent's turn is unknow
+KILLED   unreadable turns file marks every lifetime known: exit=1; not ok 5 - AN UNREADABLE TURNS FILE RESTORES NOTHING: every adopted agent's turn is unknow
+KILLED   a proved-dead record is kept: exit=1; not ok 3 - A RESTART RESTORES EACH STORED TURN BY ITS LIFETIME'S VERDICT NOW (C3: yes rest | not ok 6 - A REUSED PID (created after the record) ends the lifetime and removes its recor
+KILLED   an applied event is not saved: exit=1; not ok 8 - AN APPLIED EVENT IS DURABLE: a new host on the same home restores it; a refused
+KILLED   restore treats an unknown lifetime as gone: exit=1; not ok 3 - A RESTART RESTORES EACH STORED TURN BY ITS LIFETIME'S VERDICT NOW (C3: yes rest | not ok 4 - A RETAINED TURN IS STRICT: busy until 1800 s from its original start, never ren
+KILLED   a conflict reads running: exit=1; not ok 7 - TWO VERIFIED LIFETIMES ARE A CONFLICT: unknown, neither picked, and every event
+KILLED   a retained turn is renewed: exit=1; not ok 4 - A RETAINED TURN IS STRICT: busy until 1800 s from its original start, never ren
+restored: exit=0 # pass 9 # fail 0
+all 7 mutants killed at their named test
+exit=0
