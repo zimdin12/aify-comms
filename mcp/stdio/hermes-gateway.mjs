@@ -67,7 +67,7 @@ export function lastGatewayLogLine(text) {
 }
 
 /** PURE. `text` with every `token=` value replaced: the one rule each gateway text quoted out of here follows. */
-export function redactTokens(text) {
+function redactTokens(text) {
   return String(text || "").replace(/token=[^&\s]*/g, "token=<redacted>");
 }
 
