@@ -581,3 +581,12 @@ that module, not on its own.
 The fix is one attribute: `aria-label="Console input"` on that input, leaving the placeholder as the
 state hint it already is. `index-controls-are-named.test.mjs` explains why its own scan stops at
 `index.html` and cannot gate this.
+
+## Resolved 2026-10-05: a terminal control's result report needed no host proof
+
+Open from the independent review of the 0.8.5 claim fix: `PATCH /terminals/controls/{id}` recorded a control
+`completed` or `failed` from any API-key holder, so a forged report could mark an operator's stop handled while
+the worker ran. It was left open because the bridge's virtual terminals were thought to report through it with
+no proof; their handler had in fact had no production caller since 779099d7, and aify-env, the one reporter,
+sends its proof. Fixed in 25d9f325 (with bff298f1 and b5b5ed83): the route judges the proof of the machine the
+persisted control was queued for, under a write lock held from its first read to its commit.

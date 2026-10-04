@@ -23,12 +23,19 @@ to matter.
   state, and re-register is a full refresh. Found by comms-senior-dev (review of 5e2e3205). A definition-bound
   start takes its model and effort from its bound spec (720b4221); its usage source still comes from the
   record. 0.9 moves agent state to aify-env.
-- **A terminal control's result report needs no host proof.** `PATCH /terminals/controls/{id}` records a
-  control `completed` or `failed` from any API-key holder, so a forged report can mark an operator's stop
-  handled while the worker runs. The claim and the spawn routes judge the proof (f97f08da and its successor);
-  this one cannot simply join them, because the bridge's virtual terminals (Pi consoles,
-  `mcp/stdio/virtual-terminals.mjs`) report through it and hold no proof. Needs a rule that gates only the
-  controls aify-env's terminals own. Found by an independent review of the 0.8.5 claim fix.
+- **A refused terminal-control report waits for the write lock.** `PATCH /terminals/controls/{id}` now judges the
+  host proof of the machine the control was queued for (25d9f325), under `BEGIN IMMEDIATE` held from its first
+  read to its commit; a 404 or 403 can therefore wait up to the 5 s busy timeout per attempt under contention.
+  The same route holds the SQLite write lock while it awaits the terminal output queue's lock, and a flush takes
+  them the other way round: a flush meeting a report stalls until the busy timeout and fails with `database is
+  locked` (reproduced by an independent review on the code before and after 25d9f325). Bounded, not a hang.
+- **The bridge's virtual-terminal control handler has had no caller since 779099d7** (`handleVirtualTerminalControl`,
+  `mcp/stdio/virtual-terminals.mjs`, and four test files): dead code to remove. UNVERIFIED, not measured: a
+  control queued against a virtual terminal's row may sit pending, since nothing claims that bridge id now.
+- **A hermes agent whose TUI is gone can still read online** (2026-10-05, pc-manager): its gateway host and
+  delivery loop outlived the TUI, and the aify-comms bridge inside the gateway kept heartbeating as the agent.
+  `managed-orphans` names the loop; `gateway-orphans` passes the gateway, because it counts an orphaned loop as
+  a live owner. Liveness for hermes should need the session, not the gateway's bridge: 0.9 agent state.
 - **The `comms_*` tools cannot present the operator key.** The bridge sends no `X-Aify-Operator-Key`, so with a
   key set an agent given the key (a main manager) can use it only by calling the API itself, naming `dashboard`
   and sending the header. Bridge support for it is a 0.9 candidate.
