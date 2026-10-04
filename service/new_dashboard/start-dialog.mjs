@@ -71,6 +71,23 @@ export async function startDialogAct(row, { post, openConsole, openCreate, close
   say(`${row.id}: ${row.why}`);
 }
 
+/**
+ * `startDialogAct` for one open dialog, ignoring Enter and clicks while a start is in flight, as the
+ * drawer's Start disables its button. Two Enters inside one request's round trip posted two starts.
+ * A refused start releases it, so the operator can retry.
+ */
+export function startDialogActor(deps) {
+  let inFlight = null;
+  return (row) => {
+    if (!row) return undefined;
+    if (inFlight) return inFlight;
+    const done = startDialogAct(row, deps);
+    if (row.action !== 'start') return done;
+    inFlight = done.finally(() => { inFlight = null; });
+    return inFlight;
+  };
+}
+
 /** Ctrl+K, outside a terminal: inside one it is the shell's kill-line and belongs to the agent. */
 export function isStartHotkey(event) {
   return event?.ctrlKey === true && !event.shiftKey && !event.altKey && String(event.key).toLowerCase() === 'k'
@@ -116,7 +133,7 @@ export function openStartDialog() {
     document.removeEventListener('keydown', onKey, true);
     try { previouslyFocused?.focus?.(); } catch { /* the opener may be gone */ }
   };
-  const act = (row) => row && startDialogAct(row, {
+  const act = startDialogActor({
     post: (id) => api(`/agents/${encodeURIComponent(id)}/control`, { method: 'POST', body: JSON.stringify({ action: 'start', from_agent: 'dashboard' }) }),
     openConsole: (id) => { page.setPage('chat'); state.chat.view = 'console'; page.chatController.open(`dm:${id}`); },
     openCreate: (id) => {

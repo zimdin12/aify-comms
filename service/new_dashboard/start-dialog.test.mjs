@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isStartHotkey, startDialogAct, startDialogRows } from "./start-dialog.mjs";
+import { isStartHotkey, startDialogAct, startDialogActor, startDialogRows } from "./start-dialog.mjs";
 
 const AGENTS = [
   { id: "sc-manager", status: "stopped", sessionMode: "managed", role: "manager", runtime: "claude-code" },
@@ -87,6 +87,26 @@ test("a live agent opens its console, Create opens the spawn form, and a refused
   const none = doubles();
   await startDialogAct({ id: "pc-manager", action: "none", why: "resident: …" }, none);
   assert.deepEqual(none.calls, [["say", "pc-manager: resident: …"]]);
+});
+
+test("a second Enter while a start is in flight posts nothing; a refusal lets the operator retry", async () => {
+  const d = doubles();
+  let settle;
+  let posts = 0;
+  d.post = (id) => { posts += 1; d.calls.push(["post", id]); return new Promise((resolve, reject) => { settle = { resolve, reject }; }); };
+  const act = startDialogActor(d);
+  const row = { id: "sc-manager", action: "start" };
+  const first = act(row);
+  act(row);
+  act({ id: "sc-coder", action: "console" });
+  assert.equal(posts, 1, `two starts were posted inside one round trip: ${JSON.stringify(d.calls)}`);
+  assert.ok(!d.calls.some(([k]) => k === "console"), "an action ran while a start was in flight");
+  settle.reject(new Error("refused"));
+  await first;
+  const retry = act(row);
+  assert.equal(posts, 2, "CONTROL: a refused start must release the guard, or Start is dead until reopened");
+  settle.resolve({ ok: true });
+  await retry;
 });
 
 test("Ctrl+K opens it, except inside a terminal, where it is the shell's kill-line", () => {

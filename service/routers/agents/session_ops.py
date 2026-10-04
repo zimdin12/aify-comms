@@ -45,6 +45,7 @@ from service.db import get_db
 from service.api_core.tuning import LIVE_SESSION_STATUSES
 from service.api_core.start_intent import start_intent_for_requester
 from service.clock import now as _now
+from service.reconcilers.dead_session_status import managed_sessions_with_dead_terminals
 from service.reconcilers.status_cache import invalidate_agent_live_state as _invalidate_agent_live_state
 import sqlite3
 from service.api_core.liveness import _LIVE_SESSION_STATUSES
@@ -85,6 +86,13 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
         # up — resuming the agent's saved session handle when it has one, which for the hermes
         # coders means their existing conversation (lc-coder alone is 12,780 messages).
         if action == "start":
+            # RESERVE THE WRITER BEFORE THE READS THAT DECIDE THIS START, as the conditional restart
+            # does (`session_control.py`). Two starts once both read "nothing live, nothing pending"
+            # before either wrote, and each queued a `replace` spawn: two workers, the second told
+            # to kill the first. Held, the second start waits here, then reads the first one's
+            # committed spawn request and answers spawnPending. Every early return leaves the
+            # transaction open for the pool to roll back.
+            await db.execute("BEGIN IMMEDIATE")
             # A DEFINED agent's mode is its definition's, and its start is built from it whether or not
             # it has ever run (P0 C7); a withdrawn one is not started (C6).
             try:
@@ -118,18 +126,24 @@ async def control_agent(agent_id: str, req: AgentControlRequest, request: Reques
                 {s.lower() for s in LIVE_SESSION_STATUSES}
                 | {s.lower() for s in _LIVE_SESSION_STATUSES}
             )
+            #
+            # A STOPPED WORKER IS NOT A LIVE SESSION, whatever its row still says: a managed session
+            # whose terminals are all dead keeps `running` until the sweep settles it, and reading
+            # the row alone answered alreadyRunning for a worker that was gone. The sweep's own rule
+            # decides it, as in `_live_session_for`; it never calls `restarting` or `cli-takeover`
+            # dead, so a restart in flight still blocks a second start.
             _live_ph = ",".join("?" for _ in _start_live_statuses)
-            live = await (await db.execute(
+            live_rows = await (await db.execute(
                 f"""
                 SELECT id FROM agent_sessions
                 WHERE agent_id = ?
                   AND LOWER(COALESCE(status,'')) IN ({_live_ph})
                   AND COALESCE(ended_at,'') = ''
-                LIMIT 1
                 """,
                 (agent_id, *_start_live_statuses),
-            )).fetchone()
-            if live:
+            )).fetchall()
+            dead = {row["id"] for row in await managed_sessions_with_dead_terminals(db, agent_id)}
+            if any(row["id"] not in dead for row in live_rows):
                 # Already running — starting again would spawn a duplicate worker.
                 return {"ok": True, "agentId": agent_id, "action": "start", "alreadyRunning": True}
             settings = await _load_settings(db)
