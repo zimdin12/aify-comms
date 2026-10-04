@@ -123,6 +123,10 @@ class AP3aDatabaseGainsTheReplayOutcome(FastApiTestCase):
         finally:
             requests_module.remove_agent = real
         self.assertEqual(result("other").status_code, 200)
+        # Before the column goes: today's push reads it (the removal history counts only removals that took
+        # the definition), and a service always migrates before it serves. The push touches no request row.
+        self.assertEqual(self.push(A, "s1", 2, [valid("keeper")]).status_code, 200,
+                         "control: the same store defines keeper again at the same lifetime")
         # The table as 12766276 left it: no column, and its refusal written as a note on the outcome.
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("ALTER TABLE definition_requests DROP COLUMN consequence")
@@ -130,8 +134,6 @@ class AP3aDatabaseGainsTheReplayOutcome(FastApiTestCase):
                      "ended another way; nothing removed]' WHERE id = ?", (ids["keeper"],))
         conn.commit()
         conn.close()
-        self.assertEqual(self.push(A, "s1", 2, [valid("keeper")]).status_code, 200,
-                         "control: the same store defines keeper again at the same lifetime")
         init = getattr(db_module, "_real_init_db", None) or db_module.init_db
         for _ in range(2):
             asyncio.run(init(self._db_path))
