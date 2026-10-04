@@ -68,6 +68,21 @@ Read on turn end, not on a timer. A read failure is UNKNOWN with its cause.
   before promising); hermes picks up the configured default at its next start (M9); codex starts a new thread
   unless resumed.
 
+## Where the lifetime binding comes from (decision for review)
+
+An observation is tied to a lifetime by the native session handle (M4, M8). aify-env does not hold one today:
+definitions carry none, and `agents import`'s pull (`lib/plugins/aify-comms/agent-import-records.mjs`,
+`importRecord`) keeps only definition fields, so it drops the handle aify-comms reports (SOURCE).
+
+- **Proposed for the first testable slice:** a new read-only pull on the aify-comms plugin's agents capability
+  that returns, for this machine's agents, `{id, harness, sessionHandle}` from the roster aify-comms already
+  serves. `aify-env agents models` reads it, then the producers above. A handle aify-comms does not report is
+  UNKNOWN ("no session handle").
+- **Replaced later, not rebuilt:** when aify-env's own lifetime records (P2) carry the handle per lifetime, the
+  command reads those instead; the producers and the comparison do not change.
+- **Rejected:** scanning transcript or session directories by workspace. Several agents share a workspace
+  (sand_castle's folder holds 11 claude transcripts, 6 written in the last 24 h), so a directory cannot name its agent.
+
 ## Open measurements before building
 
 1. Claude: does `--resume` with `--model X` change the pinned model of a resumed session? (decides whether a
