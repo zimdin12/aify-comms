@@ -190,6 +190,28 @@ class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
         self.assertEqual(spawn_env_problems(at_limit), [])
         self.assertEqual(self._spawn(agent_id="at-limit", envVars=at_limit).status_code, 200)
 
+    def test_with_an_operator_key_set_only_the_operator_sets_a_spawns_variables(self):
+        """Steven, 2026-10-04: HERMES_COMMAND and PI_COMMAND pick the program a launcher runs, past aify-env's
+        launcher allowlist, so with OPERATOR_KEY set a spawn's own environment is the operator's."""
+        from service.api_core.operator_authz import OPERATOR_KEY_HEADER
+        self._client.app.state.config.operator_key = "op-secret"
+        self.addCleanup(lambda: setattr(self._client.app.state.config, "operator_key", ""))
+        before = self._spec_count()
+        refused = self._spawn(agent_id="by-agent", envVars={"HERMES_COMMAND": "/tmp/other"})
+        self.assertEqual(refused.status_code, 403, refused.text)
+        self.assertIn("only the operator may set a spawn's environment variables", refused.json()["detail"])
+        self.assertEqual(self._spec_count(), before, "a refused spawn wrote nothing")
+        self.assertEqual(self._spawn(agent_id="by-agent-plain").status_code, 200,
+                         "control: an agent's spawn with no variables is unchanged")
+        operator = self._client.post("/api/v1/spawn-requests", headers={OPERATOR_KEY_HEADER: "op-secret"}, json={
+            "agentId": "by-operator", "environmentId": self.ENV, "runtime": "claude-code", "role": "coder",
+            "workspace": "/work", "createdBy": "dashboard", "envVars": {"HERMES_COMMAND": "/tmp/other"}})
+        self.assertEqual(operator.status_code, 200, operator.text)
+
+    def test_CONTROL_with_no_operator_key_the_api_key_sets_a_spawns_variables(self):
+        self._client.app.state.config.operator_key = ""
+        self.assertEqual(self._spawn(agent_id="no-key", envVars={"HERMES_COMMAND": "/tmp/other"}).status_code, 200)
+
 
 class SpawnEnvOverlayTests(FastApiTestCase):
     DB_NAME = "aify-test-spawn-env-overlay.db"

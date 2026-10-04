@@ -45,7 +45,9 @@ from service import longpoll
 from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.claim_emptiness import spawn_request_is_empty
 from service.api_core.definition_start import StartRefused, insert_spawn_request, start_binding
-from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
+from service.api_core.operator_authz import (
+    operator_key_from, prove_operator, recorded_operator_actor, refuse_a_reserved_agent_id,
+)
 from service.api_core.running_spawn import _settle_running_spawn
 from service.api_core.routing import domain_router
 from service.api_core.runtime import (
@@ -250,6 +252,11 @@ async def create_spawn_request(req: SpawnRequestCreate, request: Request):
     # The creator is the brief's sender once the worker is up (running_spawn.py), and `dashboard`
     # makes the start REPLACE a live instance: an unproven operator claim goes no further.
     created_by = recorded_operator_actor(req.createdBy, request, action="spawning as the operator")
+    # A SPAWN'S OWN ENVIRONMENT IS THE OPERATOR'S once a key is set (Steven, 2026-10-04): HERMES_COMMAND and
+    # PI_COMMAND pick the program a launcher runs, past aify-env's launcher allowlist. With no key the API
+    # key is the boundary here, as on every operator route.
+    if req.envVars and operator_key_from(request):
+        prove_operator(created_by, request, action="set a spawn's environment variables")
 
     db = await get_db()
     try:
