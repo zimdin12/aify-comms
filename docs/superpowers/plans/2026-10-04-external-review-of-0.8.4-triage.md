@@ -5,7 +5,15 @@ before triage by four read-only investigators (aify-comms `cf4f5710`, aify-env `
 `9470225`). Probes ran on scratch copies only. Each fix below is its own commit, red on its predecessor and
 mutation-proven. comms-senior-dev reviews each one.
 
-## Fixed in 0.8.5
+## Fixed in 0.8.5 (built; each is HELD in comms-senior-dev's independent review until its verdict)
+
+Status, 2026-10-04:
+- F1-F5, F8 comms, F9 and B1 are committed on comms fix/0.8.5.
+- F3 env, B2 and B3 are committed on env fix/0.8.5.
+- The F3 wrapper half is wrapper 0.8.4 `7330502`, not yet submitted.
+- F6, F7 and the env half of F8 are still being built.
+- The evidence column is what the investigators read. It is not their raw run output, and the live counts in it
+  are attributed.
 
 | # | Finding | Evidence (as read) | Fix |
 |---|---|---|---|
@@ -43,8 +51,10 @@ Also from comms-senior-dev's review of 0.8.5 in the same round:
   a fix. Steven decides whether spawn env should be narrowed further.
 - **D2b, model through plain env: no escalation found.** `HERMES_INFERENCE_MODEL`/`HERMES_MODEL` make the hermes
   launcher treat the model as given (`:385`).
-  - A caller's spawn env never reaches a DEFINED agent: a direct spawn of a defined agent is refused, 409
-    (`spawn_requests.py:266-268`), and its starts are built from the definition.
+  - On the direct route, a caller's spawn env does not reach an agent that is CURRENTLY defined: a direct spawn
+    of a defined agent is refused, 409 (`spawn_requests.py:266-268`), and its starts are built from the
+    definition. Not closed by this trace: a launch from an earlier, unbound session (the host does no check when
+    `launch.definition` is null), and an agent that was defined or adopted later. No exploit was shown there.
   - A definition's own env is the host's file, or an operator-gated change request.
   - For an UNDEFINED agent the spawner already chooses the model (the spawn's `model` field).
 - **D3, "four small launcher items".** The earlier findings file is not on this host, so they are UNKNOWN until
