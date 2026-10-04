@@ -1104,7 +1104,7 @@ class ApiV2RegressionTests(FastApiTestCase):
 
         switched = self.client.patch(
             "/api/v1/agents/dual-mode-coder/session-mode",
-            json={"mode": "managed", "requestedBy": "dashboard-test"},
+            json={"mode": "managed", "requestedBy": "dashboard"},
         )
         self.assertEqual(switched.status_code, 200, switched.text)
         restored = self._fetchone("SELECT session_mode, launch_mode FROM agents WHERE id = ?", ("dual-mode-coder",))

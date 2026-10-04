@@ -115,8 +115,12 @@ class ClaimingTheOperatorOnAControlRouteRequiresTheKey(FastApiTestCase):
                 self.assertEqual(response.status_code, MISSING, f"{route}: {response.text[:200]}")
 
     def test_CONTROL_an_ordinary_agent_needs_no_operator_key(self):
+        # Not session mode: since the external review of 0.8.4 only the operator re-modes ANY agent
+        # (test_only_the_operator_moves_an_undefined_agent.py).
         self._set_key(SECRET)
         for route, send in self._routes().items():
+            if route == "session mode":
+                continue
             with self.subTest(route=route):
                 self.assertEqual(send("some-agent", {}).status_code, MISSING, route)
 
