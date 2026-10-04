@@ -229,7 +229,7 @@ class AControlReportProvesItsMachine(FastApiTestCase):
         before = self.state("ctl-orphan", "term-orphan")
         orphan = self.report(control_id="ctl-orphan")
         self.assertEqual(orphan.status_code, 404, orphan.text)
-        self.assertIn('Environment "gone-env"', orphan.json()["detail"])
+        self.assertEqual(orphan.json()["detail"], 'Environment "gone-env" of terminal control "ctl-orphan" not found')
         self.assertEqual(self.state("ctl-orphan", "term-orphan"), before)
 
     def test_CONTROL_unenrolled_and_empty_machine_ids_still_report(self):

@@ -1,4 +1,4 @@
-python docs/superpowers/plans/evidence/2026-10-05-result-report/report-mutants.py  (2026-10-04T21:22:30Z; route and test sha256: a9e86ec0688e / 8cb9568e2e47)
+python docs/superpowers/plans/evidence/2026-10-05-result-report/report-mutants.py  (2026-10-04T21:37:18Z; route and test sha256: 0eadebcb4be3 / 523e5ab69db1)
 judge deleted: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged', 'test_a_report_without_the_owners_proof_changes_nothing', 'test_an_enrollment_that_commits_first_refuses_the_proofless_report', 'test_no_enrollment_lands_between_the_reports_judge_and_its_commit', 'test_the_owner_is_the_controls_environment_not_the_terminals']
 BEGIN IMMEDIATE after the judge: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged', 'test_an_enrollment_that_commits_first_refuses_the_proofless_report', 'test_no_enrollment_lands_between_the_reports_judge_and_its_commit']
 owner read before the reservation: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged']
@@ -7,4 +7,4 @@ missing environment treated as empty machine: KILLED at the named test  failed=[
 reservation released after the judge: KILLED at the named test  failed=['test_no_enrollment_lands_between_the_reports_judge_and_its_commit']
 owner read through the terminal: KILLED at the named test  failed=['test_the_owner_is_the_controls_environment_not_the_terminals']
 judged after the writes: KILLED at the named test  failed=['test_a_report_without_the_owners_proof_changes_nothing']
-restored: 8 passed, 1 warning, 2 subtests passed in 2.07s
+restored: 8 passed, 1 warning, 2 subtests passed in 2.02s
