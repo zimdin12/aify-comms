@@ -10,7 +10,7 @@ the terminal's own status, resize the live screen buffer, and append output desc
 happened — three effects on the terminal, driven by the outcome of a request about it. That is why
 this module imports the screen and output helpers a controls file would not obviously need.
 
-Bodies and route decorators are byte-identical to what stood in `terminals.py`. The router is built
+Bodies and route decorators were byte-identical to what stood in `terminals.py` when they moved. The router is built
 through `domain_router()`, which rejects a hand-passed `route_class`, so a new surface cannot opt out
 of the bounded SQLite write-lock retry.
 """
@@ -24,6 +24,7 @@ from fastapi import HTTPException, Request
 from service import longpoll
 from service.api_core.claim_emptiness import terminal_controls_is_empty
 from service.api_core.events import _append_terminal_event
+from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.records import _terminal_session_to_dict
 from service.api_core.routing import domain_router
 from service.api_core.terminal_control_status import _apply_terminal_status_from_control
@@ -72,9 +73,23 @@ async def update_terminal_control(control_id: str, req: TerminalControlUpdate, r
         raise HTTPException(400, f'Unsupported terminal control status "{req.status}"')
     db = await get_db()
     try:
+        # THE MACHINE THE CONTROL WAS QUEUED FOR SAYS WHAT HAPPENED TO IT, beyond the API key (independent review of
+        # the 0.8.5 claim fix): a forged report could mark an operator's stop handled while the worker ran. The owner
+        # is the persisted control's environment, never a request field, and the write lock is taken before the
+        # first read and held through the commit, so an enrollment cannot land between the judge and the writes.
+        # A machine with no proof yet, or none recorded, is let through, as the claim route does: trust on first use.
+        await db.execute("BEGIN IMMEDIATE")
         control = await (await db.execute("SELECT * FROM terminal_controls WHERE id = ?", (control_id,))).fetchone()
         if not control:
             raise HTTPException(404, f'Terminal control "{control_id}" not found')
+        owner = await (await db.execute(
+            "SELECT machine_id FROM environments WHERE id = ?", (control["environment_id"],))).fetchone()
+        if not owner:
+            # Not the empty-machine branch below: a control whose environment row is gone has no owner to judge.
+            raise HTTPException(404, f'Environment "{control["environment_id"]}" of terminal control "{control_id}" not found')
+        proof = await judge_host_proof(db, [owner["machine_id"] or ""], presented_proof(request))
+        if proof.refusal:
+            raise HTTPException(403, proof.refusal)
         terminal = await (await db.execute("SELECT * FROM terminal_sessions WHERE id = ?", (control["terminal_id"],))).fetchone()
         if not terminal:
             raise HTTPException(404, f'Terminal "{control["terminal_id"]}" not found')

@@ -8,8 +8,8 @@ environment row first.
 
 THE RULE. aify-env sends `X-Aify-Host-Proof`, derived from a secret kept in that host's `~/.aify`
 (aify-env's `host-secret.mjs`). The proof of the first heartbeat that succeeds for a machine is recorded
-here, as a digest; from then on that machine's heartbeat, definition push, and change-request claim and
-report need the same proof. A machine that has never presented one is let through as before, so a host still running an older
+here, as a digest; from then on that machine's heartbeat, definition push, change-request claim and report, spawn
+and terminal claims, spawn updates and terminal-control reports need the same proof. A machine that has never presented one is let through as before, so a host still running an older
 aify-env keeps working until it upgrades. An operator resets a machine's proof (`POST
 /host-proofs/{machineId}/reset`) when the host's secret is lost or replaced.
 

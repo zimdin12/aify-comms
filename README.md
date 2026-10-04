@@ -192,7 +192,7 @@ the `comms_*` tools do not, so an agent holding it must call the API directly wi
 **A host proves which machine it speaks for, once it has enrolled.** aify-env keeps a secret in
 `~/.aify/host-secret` and sends each service a proof made from it. The proof from a machine's first successful
 heartbeat is recorded, and from then on that machine's heartbeats, agent-definition routes, spawn and terminal
-claims and spawn updates need it. If a host's secret is lost or replaced, its aify-env is refused with the way
+claims, spawn updates and terminal-control reports need it. If a host's secret is lost or replaced, its aify-env is refused with the way
 back: `POST /api/v1/host-proofs/<machineId>/reset` as the operator. What this does NOT give you: it is trust on
 first use, so a machine that has never presented a proof is open, and whoever presents the first one owns it.
 With no `OPERATOR_KEY` the reset route is open to any `API_KEY` holder too, so the proof does not protect against
