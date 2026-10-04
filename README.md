@@ -181,10 +181,12 @@ replaces a live instance, and stop, restart or steer work in the operator's name
 `.env` and no route accepts those names without it; the dashboard then sends it automatically. No agent
 can be registered, renamed or spawned under either name, key or not: they belong to the operator. The key
 proves the operator's NAME. It does not restrict most actions: an API-key holder can still stop or
-restart a worker under its own name, and the audit trail then says so. The exceptions are the operator's
-alone: changing any agent's effort, usage source, environment or session mode, and setting a spawn's own
-`envVars` (which can pick the program a launcher runs), each refused without the key once one is set; and
-changing or removing an agent a host defines, through any route, key or not. The dashboard sends the key;
+restart a worker under its own name, and the audit trail then says so. Once a key is set, these routes are
+the operator's alone and refuse a caller without it: `PATCH /agents/{id}/effort`, `/usage-source` and
+`/session-mode`, `POST /agents/{id}/environment`, and `POST /spawn-requests` with `envVars` (which can pick the
+program a launcher runs). Changing or removing an agent a host defines is the operator's through any route,
+key or not. Registration is not one of those routes: `POST /agents`, which every bridge calls to report its
+own state, still rewrites an UNDEFINED agent's mode, effort and usage source without the key (KNOWN_ISSUES). The dashboard sends the key;
 the `comms_*` tools do not, so an agent holding it must call the API directly with the header.
 
 **A host proves which machine it speaks for, once it has enrolled.** aify-env keeps a secret in
