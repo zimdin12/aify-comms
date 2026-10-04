@@ -373,7 +373,8 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.execute("UPDATE spawn_requests SET spawn_spec_id = 'no-such-spec' WHERE id = ?", (spawn["id"],))
         launch = self.client.get("/api/v1/terminals/term-1/launch")
         self.assertEqual(launch.status_code, 409, launch.text)
-        self.assertIn("spawn spec", launch.json()["detail"])
+        self.assertIn("'s start was built from a definition, and its spawn spec cannot be read; start the agent again",
+                      launch.json()["detail"])
         self.assertNotIn("rogue", launch.text)
 
     def test_a_definition_that_leaves_model_and_effort_to_the_harness_is_not_filled_from_the_record(self):
