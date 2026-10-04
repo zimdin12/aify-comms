@@ -103,6 +103,52 @@ class AClaimJudgesItsProofUnderTheWriteLock(FastApiTestCase):
         self.assertEqual(claimed.status_code, 403, claimed.text)
         self.assertEqual(self.rows("SELECT status FROM terminal_controls WHERE id = 'ctl-3'"), [("pending",)])
 
+    def test_no_enrollment_lands_between_the_claims_final_judge_and_its_write(self):
+        """Review of dc724538: the cases above release the competing enrollment at the FIRST judge, the unlocked
+        precheck, so the locked re-read refuses even with the lock removed. This one tries to enroll right AFTER the
+        final judge: under the claim's write lock that writer is blocked until the claim commits, so the claim lands
+        on the state it judged. Without the lock the enrollment commits first and the proofless claim follows it."""
+        conn = sqlite3.connect(str(self._db_path))
+        conn.execute("INSERT INTO terminal_controls (id, terminal_id, environment_id, bridge_id, action, status, requested_at) "
+                     "VALUES ('ctl-4', 'term-4', ?, ?, 'stop', 'pending', 'now')", (A["env"], A["bridge"]))
+        conn.commit()
+        conn.close()
+        real = terminal_controls_io.judge_host_proof
+        judged = []
+        enrolled = []
+
+        def enroll_now():
+            writer = sqlite3.connect(str(self._db_path), timeout=0.2, isolation_level=None)
+            try:
+                writer.execute("BEGIN IMMEDIATE")
+                writer.execute("INSERT INTO host_proofs (machine_id, proof_digest, recorded_at) VALUES (?, ?, 'now')",
+                               (A["machine"].lower(), _digest("the-real-hosts-proof")))
+                writer.execute("COMMIT")
+                enrolled.append("committed")
+            except sqlite3.OperationalError as error:
+                enrolled.append(f"blocked: {error}")
+            finally:
+                writer.close()
+
+        async def judging(*args, **kwargs):
+            verdict = await real(*args, **kwargs)
+            judged.append(verdict)
+            if len(judged) == 2:  # the final judge, the one the write must be held to
+                attempt = threading.Thread(target=enroll_now)
+                attempt.start()
+                attempt.join()
+            return verdict
+
+        terminal_controls_io.judge_host_proof = judging
+        try:
+            claimed = self.client.post("/api/v1/terminals/controls/claim", json={"environmentId": A["env"], "bridgeId": A["bridge"]})
+        finally:
+            terminal_controls_io.judge_host_proof = real
+        self.assertEqual(len(judged), 2, "control: the claim judged twice, the second time under its lock")
+        self.assertEqual([c["id"] for c in claimed.json()["controls"]], ["ctl-4"], "the claim lands on the state it judged")
+        self.assertTrue(enrolled and enrolled[0].startswith("blocked"), f"an enrollment committed inside the claim's window: {enrolled}")
+        self.assertEqual(self.rows("SELECT machine_id FROM host_proofs"), [], "nothing enrolled before the claim's commit")
+
     def test_a_spawn_update_raced_by_an_enrollment_writes_nothing(self):
         made = self.client.post("/api/v1/spawn-requests", json={
             "environmentId": A["env"], "agentId": "worker", "runtime": "claude-code", "workspace": "/work"})
