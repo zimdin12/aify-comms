@@ -7,7 +7,7 @@
 // What the gateway does take is `config.set {key: "reasoning", value, session_id}`: scoped to that
 // session and kept with it. A session id it does not know is refused, never written to the global config
 // (tui_gateway/methods_config_set.py), and a sealed host was asked both
-// (docs/superpowers/plans/evidence/2026-10-01-p6/hermes-model-probe.mjs).
+// (docs/superpowers/plans/evidence/2026-10-01-p6/hermes-model-probe-result.json).
 //
 // So the delivery loop, which already reads the gateway's live session, sets the agent's effort on each
 // live session it has not set before. ONCE PER SESSION: a level the operator then picks inside it

@@ -848,7 +848,7 @@ and daemon shutdown still sending the offline beat.
   - hermes: the model as `HERMES_INFERENCE_MODEL`, which seeds the session a hermes builds, the gateway
     host's included; the effort through aify-comms' delivery loop, which sets it on each live session
     with a session-scoped `config.set reasoning`, once per session. hermes has no launch-time effort lever
-    on the gateway path (hermes 0.21.5, `evidence/2026-10-01-p6/hermes-model-probe.mjs`). A resumed hermes
+    on the gateway path (hermes 0.21.5, `evidence/2026-10-01-p6/hermes-model-probe-result.json`). A resumed hermes
     session keeps the model it was stored with, and a running gateway host keeps the seed it started with.
     The loop sets it on the session delivery targets, by delivery's own rule (`waitForActiveSession`):
     the session the agent's marker names by its live id, else the newest live one. The marker usually

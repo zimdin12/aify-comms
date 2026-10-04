@@ -2,7 +2,7 @@
 // startSessionEffort sets a hermes agent's reasoning effort on each live session of its gateway, once per
 // session, through `config.set {key: "reasoning", value, session_id}` (P0 C9; review of P6, R1). What the
 // gateway does with that call was asked of a sealed host (docs/superpowers/plans/evidence/2026-10-01-p6/
-// hermes-model-probe.mjs); this pins what the loop sends, and when.
+// hermes-model-probe-result.json); this pins what the loop sends, and when.
 import assert from "node:assert/strict";
 import { waitForActiveSession } from "../hermes-active-session.mjs";
 import { startSessionEffort } from "../hermes-session-effort.mjs";

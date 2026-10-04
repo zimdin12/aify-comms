@@ -104,7 +104,8 @@ which therefore still writes nothing.
   the TUI otherwise stops at sign-in; no turn was sent. So codex-aify puts the pairs in
   `CODEX_APP_SERVER_CONFIG` on the app-server lines (agreed with dashboard-manager, whose MCP pairs go
   below), and none when the operator's own `-m`/`--model`/`-c` gives one.
-- hermes 0.21.5 (`hermes-model-probe.mjs`, `hermes-model-probe-result.json`): a sealed `hermes dashboard`
+- hermes 0.21.5 (`hermes-model-probe-result.json`; the probe that produced it is retired, last at c4cd8765,
+  because hermes writes the operator's Windows User PATH and no cleanup of that proved safe): a sealed `hermes dashboard`
   (the gateway host aify-comms runs) with its own HERMES_HOME. Started with
   `HERMES_INFERENCE_MODEL=probe/env-model`, `session.create {}` answered model probe/env-model.
   `session.create {model, reasoning_effort: low}` gave that session low. `config.set reasoning xhigh` on
