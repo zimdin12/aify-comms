@@ -101,7 +101,7 @@ holds that.
 | `mcp/stdio/` | The host-side MCP stdio bridge (`server.js`, `claude-channel.js`, the runtime adapters, `notify-check.js`) and the doctor. |
 | `mcp/stdio/*-predicates.js`, `mcp/stdio/*-check.mjs` | Pure, unit-tested logic pulled out of the bridge and the doctor, so it fails a test instead of production. A `*-check.mjs` holds a whole doctor check, call site included, because importing `doctor.js` runs the doctor. Which files make up the doctor is derived (`mcp/stdio/tests/doctor-sources.mjs`, `service/tests/doctor_sources.py`), never listed. |
 | `mcp/stdio/service-registry.mjs`, `register-service-cli.mjs` | Writes this service's entry into the shared registry `~/.aify/services.json`, which is how aify-env and the launchers learn the service exists. It owns only its own key and refuses an unreadable or wrong-version registry rather than rewriting it. |
-| `mcp/stdio/node_modules/aify-wrapper/wrappers/` | The launcher templates `install.sh` renders. To move the pin, raise the sha in `package.json` and `package-lock.json`, **delete `node_modules/aify-wrapper`**, run `npm install`, then grep the installed templates for the change: npm trusts a tree that matches the lock and will otherwise keep the old code while reporting success. |
+| `mcp/stdio/node_modules/aify-wrapper/wrappers/` | The launcher templates `install.sh` renders. To move the pin, **delete `node_modules/aify-wrapper`**, run `npm install "aify-wrapper@github:zimdin12/aify-wrapper#<sha>"`, then grep the installed templates for the change: npm trusts a tree that matches the lock and will otherwise keep the old code while reporting success. Editing the sha by hand and running a bare `npm install` installs the right code but leaves the lock entry's `version` and `integrity` from the old commit. |
 | `mcp/sse_server.py` | The SSE MCP transport, inside the container. |
 | `install.sh` | Client installer: `--client <runtime>` (claude, codex or hermes), `--with-hook`, `--with-api-key`. `--emit-wrappers <dir>` renders a launcher and exits before npm or any config change, and `--prebuild-dry-run` exercises the hermes web_dist branch without npm; both exist so tests can run the real installer on a machine with a live fleet. |
 | `scripts/installed-endpoint.sh`, `hook-installed.sh`, `api-key.sh` | Read back what the host already chose (endpoint, hook, key) so an update keeps it. `api-key.sh` reuses an existing key rather than rotating, because a new key 401s every installed bridge. |
@@ -161,11 +161,11 @@ because it did not look. `node --check` only parses. The counts below are a snap
 authority, and a very different number means a wrong invocation before it means anything else.
 
 ```bash
-python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5078 passed, 27 skipped
+python -m pytest service/tests scripts/tests -q -n 8 --dist loadfile # 5089 passed, 27 skipped
 cd mcp/stdio && node tests/run-all.mjs                 # 371 suites
-cd service/new_dashboard && node --test *.test.mjs     # 1893 tests
-cd ~/projects/aify-wrapper && npm test                 # 673 tests, 66 skipped
-cd ~/projects/aify-env && npm test                     # 2452 tests, 4 skipped
+cd service/new_dashboard && node --test *.test.mjs     # 1894 tests
+cd ~/projects/aify-wrapper && npm test                 # 685 tests, 66 skipped
+cd ~/projects/aify-env && npm test                     # 2466 tests, 4 skipped
 ```
 
 - **Python:** `-n 8 --dist loadfile` is the invocation (about 3 minutes; serial is over 20).
