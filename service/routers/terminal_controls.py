@@ -55,7 +55,7 @@ async def claim_terminal_controls(req: TerminalControlClaim, request: Request):
     # the legacy 800ms console-control poll so interactivity latency never regresses.
     return await longpoll.longpoll(
         getattr(req, "waitMs", 0),
-        lambda: _claim_terminal_controls_once(req),
+        lambda: _claim_terminal_controls_once(req, request),
         terminal_controls_is_empty,
         scope="terminal-control",
         fallback_s=1.0,

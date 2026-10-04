@@ -86,6 +86,29 @@ class AMachineSpeaksOnlyThroughItsProvenHost(FastApiTestCase):
         proven = self.client.post(f"/api/v1/environments/{A['env']}/definition-requests/claim", headers=PROOF, json=body)
         self.assertEqual(proven.status_code, 200, proven.text)
 
+    def test_the_spawn_and_terminal_claims_and_a_spawn_update_need_the_proof(self):
+        """Fenced by the bridge id alone, which `GET /environments` hands any key holder, a forged claim took a
+        spawn away from the real host (triage of the external review of 0.8.4)."""
+        claim = {"environmentId": A["env"], "bridgeId": A["bridge"]}
+        created = self.client.post("/api/v1/spawn-requests", json={
+            "environmentId": A["env"], "agentId": "worker-1", "role": "coder", "runtime": "claude-code", "workspace": "/work"})
+        self.assertEqual(created.status_code, 200, created.text)
+        for headers, why in (({}, "no proof"), (FORGED, "another proof")):
+            with self.subTest(why=why):
+                forged = self.client.post("/api/v1/spawn-requests/claim", headers=headers, json=claim)
+                self.assertEqual(forged.status_code, 403, forged.text)
+                controls = self.client.post("/api/v1/terminals/controls/claim", headers=headers, json=claim)
+                self.assertEqual(controls.status_code, 403, controls.text)
+        self.assertEqual(self.rows("SELECT status FROM spawn_requests"), [("queued",)], "a refused claim took nothing")
+        proven = self.client.post("/api/v1/spawn-requests/claim", headers=PROOF, json=claim)
+        self.assertEqual(proven.status_code, 200, proven.text)
+        spawn_id = proven.json()["spawnRequest"]["id"]
+        self.assertEqual(self.client.post("/api/v1/terminals/controls/claim", headers=PROOF, json=claim).status_code, 200)
+        update = {"status": "starting", "bridgeId": A["bridge"]}
+        self.assertEqual(self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", json=update).status_code, 403)
+        self.assertEqual(self.client.patch(f"/api/v1/spawn-requests/{spawn_id}", headers=PROOF, json=update).status_code, 200,
+                         "control: the real host updates its spawn")
+
     def test_the_proof_is_stored_as_a_digest(self):
         [(digest,)] = self.rows("SELECT proof_digest FROM host_proofs")
         self.assertNotIn(PROOF[HOST_PROOF_HEADER], digest)

@@ -42,6 +42,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Query, Request
 
 from service import longpoll
+from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.claim_emptiness import spawn_request_is_empty
 from service.api_core.definition_start import StartRefused, insert_spawn_request, start_binding
 from service.api_core.operator_authz import recorded_operator_actor, refuse_a_reserved_agent_id
@@ -445,8 +446,16 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
                 409,
                 f'Spawn request "{spawn_request_id}" is already {current_status}; late bridge update "{status_value}" was ignored.',
             )
-        if req.bridgeId and row["claimed_by_bridge_id"] and row["claimed_by_bridge_id"] != req.bridgeId:
+        # A CLAIMED REQUEST IS ITS CLAIMER'S, named or not: omitting `bridgeId` skipped this check entirely
+        # (triage of the external review of 0.8.4). Only aify-env updates a spawn request, and it names itself.
+        if row["claimed_by_bridge_id"] and row["claimed_by_bridge_id"] != (req.bridgeId or ""):
             raise HTTPException(409, f'Spawn request "{spawn_request_id}" is claimed by another bridge')
+        env_row = await (await db.execute(
+            "SELECT machine_id FROM environments WHERE id = ?", (row["environment_id"],))).fetchone()
+        if env_row:
+            proof = await judge_host_proof(db, [env_row["machine_id"] or ""], presented_proof(request))
+            if proof.refusal:
+                raise HTTPException(403, proof.refusal)
 
         now = _now()
         session_id = row["session_id"] or ""

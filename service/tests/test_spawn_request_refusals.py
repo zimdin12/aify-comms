@@ -295,16 +295,19 @@ class SpawnRequestRefusalTests(FastApiTestCase):
             self._patch(request_id, status="running", bridgeId="bridge-one").status_code, 200,
         )
 
-    def test_an_update_that_names_no_bridge_is_not_treated_as_a_stranger(self):
-        """`if req.bridgeId and row[...] != req.bridgeId` — an omitted bridge id skips the check
-        entirely. Pinned because the alternative reading (treat absent as a mismatch) would refuse
-        every dashboard-issued update on a claimed request."""
+    def test_an_update_that_names_no_bridge_is_a_stranger_to_a_claimed_request(self):
+        """An omitted bridge id skipped the claimer check entirely, so any key holder could move a
+        claimed spawn (triage of the external review of 0.8.4). This test once pinned the opposite for
+        "dashboard-issued updates"; no client issues one (only aify-env PATCHes a spawn request, and it
+        names its bridge), so absent now counts as a mismatch."""
         request_id = self._created_id()
         self._write(
             "UPDATE spawn_requests SET claimed_by_bridge_id = ? WHERE id = ?",
             ("bridge-one", request_id),
         )
-        self.assertEqual(self._patch(request_id, status="cancelled").status_code, 200)
+        self.assertEqual(self._patch(request_id, status="cancelled").status_code, 409)
+        self.assertEqual(self._patch(request_id, status="cancelled", bridgeId="bridge-one").status_code, 200,
+                         "control: the claiming bridge still updates it")
 
     # ── the guard against resurrecting a stopped worker ──────────────────────────────────────
 

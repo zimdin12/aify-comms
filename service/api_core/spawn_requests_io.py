@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Request
 
+from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.serialization import _json_loads_or
 from service.api_core.ws import _get_ws
 from service.clock import now as _now
@@ -112,6 +113,12 @@ async def _claim_spawn_request_once(req: SpawnRequestClaim, request: Request):
         if not env_row:
             await db.rollback()
             raise HTTPException(404, f'Environment "{req.environmentId}" not found')
+        # THE MACHINE'S OWN HOST, beyond the bridge id `GET /environments` hands any key holder: a forged
+        # claim took a spawn away from the real host (triage of the external review of 0.8.4).
+        proof = await judge_host_proof(db, [env_row["machine_id"] or ""], presented_proof(request))
+        if proof.refusal:
+            await db.rollback()
+            raise HTTPException(403, proof.refusal)
         env_bridge_id = str(env_row["bridge_id"] or "").strip()
         if env_bridge_id and env_bridge_id != str(req.bridgeId or "").strip():
             await db.commit()

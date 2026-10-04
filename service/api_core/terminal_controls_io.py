@@ -14,9 +14,12 @@ The three travel together because they are coupled: `_claim_terminal_controls_on
 """
 from __future__ import annotations
 
+from fastapi import HTTPException
+
 import json
 from typing import Any, Optional
 
+from service.api_core.host_proof import judge_host_proof, presented_proof
 from service.api_core.runtime import _normalize_session_mode
 from service.api_core.events import _append_terminal_event
 from service.api_core.records import _terminal_session_to_dict
@@ -69,9 +72,17 @@ def _terminal_control_to_dict(
         "sessionMode": str(session_mode or ""),
     }
 
-async def _claim_terminal_controls_once(req: TerminalControlClaim):
+async def _claim_terminal_controls_once(req: TerminalControlClaim, request=None):
     db = await get_db(busy_timeout_ms=SQLITE_CLAIM_BUSY_TIMEOUT_MS)
     try:
+        # THE MACHINE'S OWN HOST, beyond the bridge id `GET /environments` hands any key holder (triage of
+        # the external review of 0.8.4). An unknown environment claims nothing, as before.
+        env_row = await (await db.execute(
+            "SELECT machine_id FROM environments WHERE id = ?", (req.environmentId,))).fetchone()
+        if env_row:
+            proof = await judge_host_proof(db, [env_row["machine_id"] or ""], presented_proof(request))
+            if proof.refusal:
+                raise HTTPException(403, proof.refusal)
         now = _now()
         cursor = await db.execute(
             """
