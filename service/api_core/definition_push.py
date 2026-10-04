@@ -48,7 +48,10 @@ async def _removed_incarnation(db, agent_id: str, store_id: str) -> int:
     `done` means the host removed exactly `expected_incarnation` (C4 checks it before applying), and
     request rows are never pruned, so this is durable evidence of what the operator removed."""
     row = await (await db.execute(
-        "SELECT MAX(expected_incarnation) AS taken FROM definition_requests WHERE agent_id = ? AND store_id = ? "
+        # NOCASE, as the tombstone it answers for is matched (agent_sessions._agent_tombstone): `Coder` cleared
+        # `coder`'s tombstone with a binary match here (review of cf4f5710).
+        "SELECT MAX(expected_incarnation) AS taken FROM definition_requests WHERE agent_id = ? COLLATE NOCASE "
+        "AND store_id = ? "
         "AND status = 'done' AND json_type(patch, '$.remove') = 'true'", (agent_id, store_id),
     )).fetchone()
     return row["taken"] or 0

@@ -90,6 +90,16 @@ class ARemovedAgentIsDefinedAgain(FastApiTestCase):
         self.assertEqual(self.push(4, [valid("coder", incarnation=4)], store="s2")["applied"], ["coder"],
                          "the removal was taken from s1; a new store's numbering starts again")
 
+    def test_a_copy_in_another_case_is_judged_as_the_same_id(self):
+        """The tombstone is matched without case, so the removal history must be too: `Coder` at the removed
+        incarnation cleared `coder`'s tombstone, and the next push restored the removed copy (review of cf4f5710)."""
+        self.removed_by_request(incarnation=4)
+        stale = self.push(3, [valid("Coder", incarnation=4)])
+        self.assertEqual([r["id"] for r in stale["refused"]], ["Coder"])
+        self.assertEqual(self.tombstones(), ["coder"], "the tombstone stays")
+        again = self.push(4, [valid("coder", incarnation=4)])
+        self.assertEqual(again["applied"], [], "the removed copy is not restored afterwards")
+
     def test_an_id_deleted_while_undefined_is_defined_by_its_host(self):
         """No removal request took a definition, so any definition the host writes is newer."""
         self.client.post("/api/v1/agents", json={"agentId": "retired-one", "role": "coder"}).raise_for_status()
