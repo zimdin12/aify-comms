@@ -33,6 +33,17 @@ Also from comms-senior-dev's review of 0.8.5 in the same round:
 - `attach`/`run`/`import` chose from an incomplete receipt look (env `3f1e1ec`);
 - the store-lock takeover (R1; env `84a02ae`, in independent review).
 
+### Launcher leftovers (D3), fixed in 0.8.5
+
+Each one fails on its predecessor and is mutation-proven.
+
+| # | Finding | Fix |
+|---|---|---|
+| L1 | A `*-aify` started inside a managed session inherits `AIFY_MANAGED_*` and runs the parent's model and effort | wrapper fix/0.8.5: the managed values apply only when the launch names the agent `AIFY_AGENT_ID` names; otherwise they are dropped and the definition is read |
+| L2 | `HERMES_INFERENCE_MODEL`/`HERMES_MODEL` in the environment beat the agent's configured model | wrapper `e342d50`: only an argv `-m`/`--model` counts as given; the configured model is exported to the gateway host |
+| L3 | The gateway's last stderr line reaches the error message unredacted | comms `2d1f84fd`: `redactTokens` on that line, as `gatewayRejectedMessage` already did |
+| L4 | The model probe's cleanup removed every User PATH entry under its home, and expanded `%VAR%` for good | comms `32184384`: removes only entries this run added, writes raw with the value's own kind, compare-and-set |
+
 ## Not fixed: limits stated, with who owns them
 
 - **D1, host proof is trust-on-first-use (Steven's design, 0.8.2).**
@@ -57,8 +68,8 @@ Also from comms-senior-dev's review of 0.8.5 in the same round:
     `launch.definition` is null), and an agent that was defined or adopted later. No exploit was shown there.
   - A definition's own env is the host's file, or an operator-gated change request.
   - For an UNDEFINED agent the spawner already chooses the model (the spawn's `model` field).
-- **D3, "four small launcher items".** The earlier findings file is not on this host, so they are UNKNOWN until
-  it is recovered.
+- **D3, "four small launcher items".** Steven supplied them (leftovers from the 0.8.1 review). None had been fixed;
+  all four are fixed in 0.8.5 and listed under "Launcher leftovers" below.
 - **Hard-link refusal (narrower rule).** Accepting a second-named object once its content is proven to match its
   name (60-100 lines) is deferred. The refusal stays and its message is corrected (F7).
 - **The env export gate does not walk `lib/plugins/**`.** 17 plugin exports are named by no test. This is a gate
