@@ -65,17 +65,20 @@ async def _id_refusal(db, entry: dict, owner: str, machine_id: str, store_id: st
     it after the removal, which registration's `restoreDeleted` from a fresh launch also allows. What is
     refused is a definition no newer than one a removal took, the stale copy the tombstone guards against
     (found live 2026-10-04: a re-defined id was refused for good, and nothing on the host said so).
+
+    THE REMOVAL HISTORY decides, with or without a tombstone: a newer definition clears the tombstone, and the
+    removed copy must stay refused after it (review of 78052e25). A store's incarnations only rise, so a
+    definition its host writes after the removal is always above it.
     """
     agent_id = entry["id"]
     if owner and owner != machine_id:
         return f"defined on {owner}"
     if is_operator_actor(agent_id):
         return "reserved for the operator and cannot be an agent id"
-    if await _agent_tombstone(db, agent_id):
-        taken = await _removed_incarnation(db, agent_id, store_id)
-        if taken and entry.get("incarnation", 0) <= taken:
-            return (f"incarnation {entry.get('incarnation')} is no newer than incarnation {taken}, which the "
-                    f"operator removed; define it again (`aify-env agents set`) to restore it")
+    taken = await _removed_incarnation(db, agent_id, store_id)
+    if taken and entry.get("incarnation", 0) <= taken:
+        return (f"incarnation {entry.get('incarnation')} is no newer than incarnation {taken}, which the "
+                f"operator removed; define it again (`aify-env agents set`) to restore it")
     return ""
 
 

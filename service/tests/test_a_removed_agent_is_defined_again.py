@@ -100,6 +100,21 @@ class ARemovedAgentIsDefinedAgain(FastApiTestCase):
         again = self.push(4, [valid("coder", incarnation=4)])
         self.assertEqual(again["applied"], [], "the removed copy is not restored afterwards")
 
+    def test_the_removed_copy_stays_refused_after_a_newer_one_cleared_the_tombstone(self):
+        """The removal history is the guard, not the tombstone: once incarnation 5 defined the id again and
+        cleared the tombstone, incarnation 4 was accepted (review of 78052e25, the B1 non-closure)."""
+        self.removed_by_request(incarnation=4)
+        self.assertEqual(self.push(3, [valid("coder", incarnation=5)])["applied"], ["coder"])
+        self.assertEqual(self.tombstones(), [], "control: the newer definition cleared the tombstone")
+        stale = self.push(4, [valid("Coder", incarnation=4)])
+        self.assertEqual([r["id"] for r in stale["refused"]], ["Coder"], stale)
+        self.assertEqual((self.rows("SELECT incarnation FROM agent_definitions"),
+                          self.rows("SELECT definition_state FROM agents WHERE id = 'coder'")),
+                         ([], [{"definition_state": "withdrawn"}]),
+                         "the host no longer holds 5, and the removed copy does not take its place")
+        self.assertEqual(self.push(5, [valid("coder", incarnation=6)])["applied"], ["coder"],
+                         "control: a newer one still applies")
+
     def test_an_id_deleted_while_undefined_is_defined_by_its_host(self):
         """No removal request took a definition, so any definition the host writes is newer."""
         self.client.post("/api/v1/agents", json={"agentId": "retired-one", "role": "coder"}).raise_for_status()
