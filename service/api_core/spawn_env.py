@@ -26,6 +26,12 @@ service or change the runtime it reports, while the launch's own identity looked
 prefix is the launch's: a prefix is the namespace rule itself, where a list of reserved names would be
 a third copy of what the bridge reads.
 
+AND THE `HARNESS_` NAMESPACE, which every launcher template reads as its own configuration. Allowed, a
+spawn set `HARNESS_EXTRA_ENV`, whose lines the launcher exports, and so forced `HERMES_SESSION_ID` into
+another agent's conversation; `HARNESS_ENDPOINT` pointed a hermes worker at another service and
+`HARNESS_ROLE` re-roled it (external review of 0.8.4). Same rule, same reason: the prefix is the
+launcher's namespace.
+
 PURE: no database, no environment read.
 """
 from __future__ import annotations
@@ -43,9 +49,9 @@ MAX_SPAWN_ENV_VARS = 32
 #: Per value, in UTF-8 bytes. Windows' whole environment block is capped at 32,767 characters.
 MAX_SPAWN_ENV_VALUE_BYTES = 4096
 
-#: Names the launch and the aify bridge own. Compared upper-cased: Windows reads `aify_server_url`
-#: and `AIFY_SERVER_URL` as one variable.
-RESERVED_SPAWN_ENV_PREFIX = "AIFY_"
+#: Names the launch, the aify bridge and the launchers own. Compared upper-cased: Windows reads
+#: `aify_server_url` and `AIFY_SERVER_URL` as one variable.
+RESERVED_SPAWN_ENV_PREFIXES = ("AIFY_", "HARNESS_")
 
 
 def spawn_env_problems(env_vars: Any) -> list[str]:
@@ -60,8 +66,9 @@ def spawn_env_problems(env_vars: Any) -> list[str]:
     for name, value in env_vars.items():
         if not isinstance(name, str) or not SPAWN_ENV_NAME.match(name):
             problems.append(f"envVars name {name!r} is not a valid variable name ([A-Za-z_][A-Za-z0-9_]*)")
-        elif name.upper().startswith(RESERVED_SPAWN_ENV_PREFIX):
-            problems.append(f"envVars {name}: {RESERVED_SPAWN_ENV_PREFIX}* names are set by the launch, not by a spawn")
+        elif name.upper().startswith(RESERVED_SPAWN_ENV_PREFIXES):
+            prefix = next(p for p in RESERVED_SPAWN_ENV_PREFIXES if name.upper().startswith(p))
+            problems.append(f"envVars {name}: {prefix}* names are set by the launch and its launcher, not by a spawn")
         elif not isinstance(value, str):
             # NOT COERCED. `True` would become "True" and `None` would become "None" -- a value the
             # caller never wrote, which the worker would then read as though they had.

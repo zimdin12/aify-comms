@@ -127,6 +127,20 @@ class ASpawnsEnvVarsReachItsWorkerTests(FastApiTestCase):
         # CONTROL: a name that merely CONTAINS the prefix is not in the namespace.
         self.assertEqual(self._spawn(agent_id="real-agent", envVars={"MY_AIFY_FLAG": "1"}).status_code, 200)
 
+    def test_a_spawn_cannot_set_a_launcher_variable_in_any_case(self):
+        """The `HARNESS_` namespace is the launchers'. HARNESS_EXTRA_ENV's lines are exported by the launcher,
+        so a spawn forced HERMES_SESSION_ID into another agent's conversation; HARNESS_ENDPOINT pointed a
+        hermes worker at another service and HARNESS_ROLE re-roled it (external review of 0.8.4)."""
+        before = self._spec_count()
+        for name in ("HARNESS_EXTRA_ENV", "HARNESS_ENDPOINT", "HARNESS_ROLE", "harness_extra_env", "Harness_Role"):
+            with self.subTest(name):
+                response = self._spawn(agent_id="real-agent", envVars={name: "x", "STILL_FINE": "yes"})
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertIn(name, response.text)
+        self.assertEqual(self._spec_count(), before, "a refused spawn still wrote a spec")
+        self.assertEqual(self._spawn(agent_id="real-agent", envVars={"MY_HARNESS_FLAG": "1"}).status_code, 200,
+                         "control: a name that only contains the prefix is not in the namespace")
+
     def test_a_spawn_cannot_shadow_a_launch_variable_by_changing_its_case(self):
         """Order alone only wins against the EXACT name. `claude_session_id` is a different key to Python
         and to Linux, so it survived beside `CLAUDE_SESSION_ID` -- and ahead of it, because the spawn's

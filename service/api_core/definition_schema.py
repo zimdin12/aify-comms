@@ -20,7 +20,8 @@ _RESERVED_DEVICE_NAMES = frozenset(["CON", "PRN", "AUX", "NUL", *(f"COM{i}" for 
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 _MAX_ENV_VARS = 32
 _MAX_ENV_VALUE_BYTES = 4096
-_RESERVED_ENV_PREFIX = "AIFY_"
+# The launch's and the launchers' namespaces (external review of 0.8.4: HARNESS_EXTRA_ENV forced a session id).
+_RESERVED_ENV_PREFIXES = ("AIFY_", "HARNESS_")
 HARNESSES = ("claude", "codex", "hermes")
 MODES = ("managed", "resident")
 _MAX_NAME_CODE_POINTS = 128
@@ -71,7 +72,7 @@ def _env_problems(env: Any) -> list[str]:
             problems.append("agent.env: bad-name")
             continue
         field = f"agent.env.{name}"
-        if name.upper().startswith(_RESERVED_ENV_PREFIX):
+        if name.upper().startswith(_RESERVED_ENV_PREFIXES):
             problems.append(f"{field}: reserved")
             continue
         problems += _text_problems(value, field, lambda text: (
