@@ -443,6 +443,9 @@ async def update_spawn_request(spawn_request_id: str, req: SpawnRequestUpdate, r
         raise HTTPException(400, f'Unsupported spawn request status "{req.status}"')
     db = await get_db()
     try:
+        # THE WRITE LOCK FROM THE PROOF'S READ TO THE WRITE (review of f97f08da): read without it, a heartbeat
+        # enrolling the machine in between let a proofless update land after the machine had a proof.
+        await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM spawn_requests WHERE id = ?", (spawn_request_id,))
         row = await cursor.fetchone()
         if not row:

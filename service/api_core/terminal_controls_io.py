@@ -98,6 +98,19 @@ async def _claim_terminal_controls_once(req: TerminalControlClaim, request=None)
         )
         controls = await cursor.fetchall()
         if controls:
+            # JUDGED AGAIN UNDER THE WRITE LOCK it claims with (review of f97f08da). The check above ran with no
+            # lock, so a heartbeat could enroll the machine between it and this write, and a proofless claim
+            # landed after the machine had a proof. Taken only when there is something to claim: every host
+            # polls this route, and an empty poll writes nothing.
+            await db.execute("BEGIN IMMEDIATE")
+            # The machine is read again too: a heartbeat fills an empty machine id and enrolls it in one
+            # transaction, so the id read before the lock may be stale.
+            locked_env = await (await db.execute(
+                "SELECT machine_id FROM environments WHERE id = ?", (req.environmentId,))).fetchone()
+            if locked_env:
+                proof = await judge_host_proof(db, [locked_env["machine_id"] or ""], presented_proof(request))
+                if proof.refusal:
+                    raise HTTPException(403, proof.refusal)
             ids = [row["id"] for row in controls]
             # ONE STATEMENT, AND IT RETURNS WHAT IT ACTUALLY CLAIMED. `executemany` + a re-SELECT
             # could not tell a row this call won from one a concurrent claimer had already taken --
@@ -153,7 +166,7 @@ async def _claim_terminal_controls_once(req: TerminalControlClaim, request=None)
         # SUCCESSFUL claim that delivered nothing, which no budget on the wait could repair.
         # Found by review on 5f286d66 with a deterministic reproduction -- pause the claimant after
         # its commit, let the removal finish, resume the refetch.
-        if controls:
+        if db.in_transaction:
             await db.commit()
         return {"ok": True, "controls": out}
     finally:

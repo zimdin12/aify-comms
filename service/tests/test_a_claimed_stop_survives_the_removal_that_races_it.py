@@ -252,8 +252,10 @@ class _CommitHookedDb:
     async def execute(self, sql, *args, **kwargs):
         # FIRES BETWEEN THE SELECT AND THE UPDATE, which is the schedule that witnesses the
         # `status = 'pending'` predicate. Stealing the row before the claim starts proves nothing --
-        # the predecessor passed that too.
-        if self._before_update and not self._interleaved and "UPDATE terminal_controls" in str(sql):
+        # the predecessor passed that too. The claim now takes the write lock just before its UPDATE (review
+        # of f97f08da), so the other claimer goes in before that lock: inside it, it could not write at all.
+        first_write = "UPDATE terminal_controls" in str(sql) or str(sql).strip().upper().startswith("BEGIN IMMEDIATE")
+        if self._before_update and not self._interleaved and first_write:
             self._interleaved = True
             await self._before_update()
         return await self._inner.execute(sql, *args, **kwargs)
