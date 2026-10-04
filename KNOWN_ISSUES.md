@@ -18,8 +18,9 @@ to matter.
   operator approves is a redesign, Steven's to call.
 - **With no `OPERATOR_KEY`, a spawn's env can pick the program a hermes or pi launcher runs** (`HERMES_COMMAND`,
   `PI_COMMAND`) for an UNDEFINED agent; with a key set it needs the operator (DECISIONS.md, 2026-10-04).
-- **No agent can present the operator key.** The bridge sends no `X-Aify-Operator-Key`, so with a key set every
-  operator action is the dashboard's; an agent given the key (a main manager) cannot use it. 0.9 candidate.
+- **The `comms_*` tools cannot present the operator key.** The bridge sends no `X-Aify-Operator-Key`, so with a
+  key set an agent given the key (a main manager) can use it only by calling the API itself, naming `dashboard`
+  and sending the header. Bridge support for it is a 0.9 candidate.
 - **A defined agent's session built before its definition launches from its own record**, not the definition
   (DECISIONS.md, 2026-10-04): it needs such a session plus a caller rewriting the record's model with the API key.
 - **A repository that shares object files with another is refused by aify-env's dashboard plugin**: a clone

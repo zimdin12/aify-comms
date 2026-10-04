@@ -30,7 +30,7 @@ aify-env's plugin, which holds no operator key.
 `PI_COMMAND` pick the program a launcher runs, past aify-env's launcher allowlist. With `OPERATOR_KEY` set,
 `POST /spawn-requests` with `envVars` needs the operator's proof (403 otherwise); a spawn without them is
 unchanged. With no key, the API key is the boundary, as on every operator route: this install is local, and
-its agents are meant to hold that control. Today only the dashboard can present the key; no bridge sends it.
+its agents are meant to hold that control. The dashboard sends the key; the bridge's `comms_*` tools do not.
 
 **A session built before its agent was defined still launches (Steven, 2026-10-04, for 0.8.5).** A launch is
 held to the definition only when its spawn request records one. Refusing a defined agent's unbound session

@@ -184,8 +184,8 @@ proves the operator's NAME. It does not restrict most actions: an API-key holder
 restart a worker under its own name, and the audit trail then says so. The exceptions are the operator's
 alone: changing any agent's effort, usage source, environment or session mode, and setting a spawn's own
 `envVars` (which can pick the program a launcher runs), each refused without the key once one is set; and
-changing or removing an agent a host defines, through any route, key or not. Only the dashboard can present
-the key today: no agent's bridge sends it.
+changing or removing an agent a host defines, through any route, key or not. The dashboard sends the key;
+the `comms_*` tools do not, so an agent holding it must call the API directly with the header.
 
 **A host proves which machine it speaks for, once it has enrolled.** aify-env keeps a secret in
 `~/.aify/host-secret` and sends each service a proof made from it. The proof from a machine's first successful
