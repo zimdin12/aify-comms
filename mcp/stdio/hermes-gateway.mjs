@@ -60,7 +60,15 @@ async function scrapeToken(indexUrl, fetchImpl) {
  * fetch failed"; the cause was one line in the per-port log nobody was pointed at.
  */
 export function lastGatewayLogLine(text) {
-  return String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).pop() || "";
+  // REDACTED like every other gateway text that leaves this module: the line is quoted into an error, the
+  // agent's status note and the logs, and a gateway can print its own token= (triage of the external review
+  // of 0.8.4, a leftover from the 0.8.1 review).
+  return redactTokens(String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).pop() || "");
+}
+
+/** PURE. `text` with every `token=` value replaced: the one rule each gateway text quoted out of here follows. */
+export function redactTokens(text) {
+  return String(text || "").replace(/token=[^&\s]*/g, "token=<redacted>");
 }
 
 
@@ -526,7 +534,7 @@ export function gatewayUnreachableAfterProbesMessage(gatewayUrl, consecutiveFail
 export function gatewayRejectedMessage(gatewayUrl, count, detail = "") {
   const url = redactGatewayUrl(gatewayUrl);
   // Within the 200-character status_note the server keeps, remedy first; the cause is cut, never the remedy.
-  const why = String(detail || "").replace(/token=[^&\s]*/g, "token=<redacted>").slice(0, 40);
+  const why = redactTokens(detail).slice(0, 40);
   return (
     `Undeliverable: relaunch this agent's hermes-aify. Gateway ${url} rejected its delivery loop ` +
     `${Number(count) || 0} times in a row${why ? ` (${why})` : ""}; left running.`

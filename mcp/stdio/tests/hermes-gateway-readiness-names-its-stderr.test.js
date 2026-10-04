@@ -56,3 +56,9 @@ test("the last line is the last NON-BLANK line", () => {
   assert.equal(lastGatewayLogLine("a\r\n  b  \r\n\r\n"), "b");
   assert.equal(lastGatewayLogLine(""), "");
 });
+
+test("A TOKEN THE GATEWAY PRINTED is redacted before the line is quoted (external review of 0.8.4)", async () => {
+  const message = await readinessFailure("serving ws://127.0.0.1:9399/api/ws?token=s3cr3t-abc&x=1 then died\n");
+  assert.ok(!message.includes("s3cr3t-abc"), message);
+  assert.ok(message.endsWith("its stderr ends: serving ws://127.0.0.1:9399/api/ws?token=<redacted>&x=1 then died"), message);
+});
