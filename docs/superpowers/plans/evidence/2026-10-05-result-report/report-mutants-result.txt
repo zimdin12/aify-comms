@@ -1,10 +1,15 @@
-python docs/superpowers/plans/evidence/2026-10-05-result-report/report-mutants.py  (2026-10-04T21:37:18Z; route and test sha256: 0eadebcb4be3 / 523e5ab69db1)
-judge deleted: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged', 'test_a_report_without_the_owners_proof_changes_nothing', 'test_an_enrollment_that_commits_first_refuses_the_proofless_report', 'test_no_enrollment_lands_between_the_reports_judge_and_its_commit', 'test_the_owner_is_the_controls_environment_not_the_terminals']
-BEGIN IMMEDIATE after the judge: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged', 'test_an_enrollment_that_commits_first_refuses_the_proofless_report', 'test_no_enrollment_lands_between_the_reports_judge_and_its_commit']
-owner read before the reservation: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged']
-the same, 0.7 s late: KILLED at the named test  failed=['test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged']
-missing environment treated as empty machine: KILLED at the named test  failed=['test_a_control_whose_environment_is_gone_is_refused_not_trusted']
-reservation released after the judge: KILLED at the named test  failed=['test_no_enrollment_lands_between_the_reports_judge_and_its_commit']
-owner read through the terminal: KILLED at the named test  failed=['test_the_owner_is_the_controls_environment_not_the_terminals']
-judged after the writes: KILLED at the named test  failed=['test_a_report_without_the_owners_proof_changes_nothing']
-restored: 8 passed, 1 warning, 2 subtests passed in 2.02s
+python docs/superpowers/plans/evidence/2026-10-05-result-report/report-mutants.py  (2026-10-04T21:44:07Z)
+route sha256 0eadebcb4be324eb  test sha256 fa62fee15321ae0a
+KILLED   judge deleted: test_a_report_without_the_owners_proof_changes_nothing exit=1 cause seen ('200 != 403')
+KILLED   BEGIN IMMEDIATE after the judge: test_no_enrollment_lands_between_the_reports_judge_and_its_commit exit=1 cause seen ('an enrollment was not stopped at its writer acquisition')
+KILLED   owner read before the reservation: test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged exit=1 cause seen ('200 != 403')
+KILLED   the same, 0.7 s late: test_a_machine_filled_and_enrolled_before_the_reservation_is_the_one_judged exit=1 cause seen ('200 != 403')
+KILLED   missing environment treated as empty machine: test_a_control_whose_environment_is_gone_is_refused_not_trusted exit=1 cause seen ('200 != 404')
+KILLED   reservation released after the judge: test_no_enrollment_lands_between_the_reports_judge_and_its_commit exit=1 cause seen ('an enrollment was not stopped at its writer acquisition')
+KILLED   reservation released after the first write: test_no_enrollment_lands_between_the_reports_judge_and_its_commit exit=1 cause seen ('an enrollment was not stopped at its writer acquisition')
+KILLED   reservation released before the event append: test_no_enrollment_lands_between_the_reports_judge_and_its_commit exit=1 cause seen ('an enrollment was not stopped at its writer acquisition')
+KILLED   owner read through the terminal: test_the_owner_is_the_controls_environment_not_the_terminals exit=1 cause seen ('200 != 403')
+KILLED   judged after the writes: test_a_report_without_the_owners_proof_changes_nothing exit=1 cause seen ('a refused report resized the live screen')
+restored: exit=0 8 passed, 1 warning, 2 subtests passed in 6.09s
+all 10 mutants killed for their named cause
+exit=0

@@ -109,6 +109,10 @@ class AControlReportProvesItsMachine(FastApiTestCase):
                 on_statement(sql)
                 return self._db.execute(sql, *args, **kwargs)
 
+            def commit(self):
+                on_statement("COMMIT")
+                return self._db.commit()
+
         async def get_db(*args, **kwargs):
             return Watched(await real_get_db(*args, **kwargs))
 
@@ -126,19 +130,17 @@ class AControlReportProvesItsMachine(FastApiTestCase):
         return restore
 
     def try_to_enroll(self):
-        """One enrollment attempt, from another connection that waits 0.2 s at most: what it met, step by step."""
+        """One enrollment attempt from another connection that waits 0.2 s at most, ROLLED BACK if it gets as far as
+        writing: what it met, and nothing left behind, so every later attempt meets the same database."""
         writer = sqlite3.connect(str(self._db_path), timeout=0.2, isolation_level=None)
-        step = "BEGIN IMMEDIATE"
         try:
-            writer.execute(step)
-            step = "INSERT"
+            writer.execute("BEGIN IMMEDIATE")
             writer.execute("INSERT INTO host_proofs (machine_id, proof_digest, recorded_at) VALUES (?, ?, 'now')",
                            (A["machine"].lower(), _digest(PROOF_A)))
-            step = "COMMIT"
-            writer.execute(step)
-            return ("committed", "")
+            writer.execute("ROLLBACK")
+            return ("could enroll", "")
         except sqlite3.OperationalError as error:
-            return (step, str(error))
+            return ("BEGIN IMMEDIATE", str(error))
         finally:
             writer.close()
 
@@ -253,29 +255,43 @@ class AControlReportProvesItsMachine(FastApiTestCase):
     # --- (d2) the report holds the reservation first, through its writes --------------------------------------
 
     def test_no_enrollment_lands_between_the_reports_judge_and_its_commit(self):
-        """The report judges an unenrolled machine and may report (trust on first use). An enrollment attempted when it
-        has judged, and again just before its first write, must meet SQLite's busy lock at its writer acquisition each
-        time, so the report commits on the state it judged. A route that judged before reserving, or released the
-        reservation before its writes, lets the enrollment commit inside that window."""
-        attempts = {}
+        """The report judges an unenrolled machine and may report (trust on first use). An enrollment is attempted when
+        it has judged, and again just before EVERY statement the route sends after that, up to and including its
+        commit: each attempt must meet SQLite's busy lock at its writer acquisition, so the whole report commits on the
+        state it judged. A route that judged before reserving, or released the reservation anywhere between the judge
+        and the commit (review of bff298f1: a commit after the first write survived two probes before it), lets the
+        enrollment commit inside that window."""
+        attempts = []
+        judged = []
 
         def on_statement(sql):
-            if sql.strip().upper().startswith("UPDATE TERMINAL_CONTROLS") and "first write" not in attempts:
-                attempts["first write"] = self.try_to_enroll()
+            if judged:
+                attempts.append((" ".join(sql.split()[:3]).upper(), self.try_to_enroll()))
 
         def on_judge(verdict):
-            attempts["judge"] = self.try_to_enroll()
+            judged.append(verdict)
+            attempts.append(("judge", self.try_to_enroll()))
 
         restore = self.watching_the_route(on_statement, on_judge)
         try:
             reported = self.report()
         finally:
             restore()
-        locked = ("BEGIN IMMEDIATE", "database is locked")
-        self.assertEqual(attempts, {"judge": locked, "first write": locked},
-                         "an enrollment was not stopped at its writer acquisition inside the report's window")
         self.assertEqual(reported.status_code, 200, reported.text)
-        self.assertEqual(self.rows("SELECT machine_id FROM host_proofs"), [], "nothing enrolled before the report's commit")
+        # The window runs from the judge to the route's LAST commit; the reads after it are outside, and the probes
+        # there are the positive control that an attempt can get through.
+        where = [at for at, _ in attempts]
+        self.assertIn("COMMIT", where, "control: the route's commit was never seen")
+        last_commit = len(where) - 1 - where[::-1].index("COMMIT")
+        window, after = attempts[:last_commit + 1], attempts[last_commit + 1:]
+        self.assertEqual(where[0], "judge")
+        for write in ("UPDATE TERMINAL_CONTROLS SET", "INSERT INTO TERMINAL_EVENTS"):
+            self.assertIn(write, [at for at, _ in window], f"control: no attempt was made before {write}")
+        self.assertIn(("could enroll", ""), [met for _, met in after], "control: no attempt got through once the report committed")
+        locked = ("BEGIN IMMEDIATE", "database is locked")
+        leaked = [(at, met) for at, met in window if met != locked]
+        self.assertEqual(leaked, [], "an enrollment was not stopped at its writer acquisition inside the report's window")
+        self.assertEqual(self.rows("SELECT machine_id FROM host_proofs"), [], "control: every probe rolled back")
 
     # --- (e) the owner binding is read under the reservation ----------------------------------------------------
 
