@@ -1,0 +1,7 @@
+python docs/superpowers/plans/evidence/2026-10-04-claim-lock/claim-lock-plant.py 3  (2026-10-04T21:08:39Z; bytes identical to f5105858)
+module sha256 06faecaa47fe793c  test sha256 6e84f4d5230ce946
+unplanted: ([], '5 passed, 1 warning in 2.15s')
+planted run 1: witness RED; failed=['test_a_terminal_claim_raced_by_an_enrollment_claims_nothing', 'test_a_terminal_claim_reads_the_machine_under_the_lock_too', 'test_no_enrollment_lands_between_the_claims_final_judge_and_its_write']; 3 failed, 2 passed, 1 warning in 1.87s
+planted run 2: witness RED; failed=['test_a_terminal_claim_raced_by_an_enrollment_claims_nothing', 'test_a_terminal_claim_reads_the_machine_under_the_lock_too', 'test_no_enrollment_lands_between_the_claims_final_judge_and_its_write']; 3 failed, 2 passed, 1 warning in 1.94s
+planted run 3: witness RED; failed=['test_a_terminal_claim_raced_by_an_enrollment_claims_nothing', 'test_a_terminal_claim_reads_the_machine_under_the_lock_too', 'test_no_enrollment_lands_between_the_claims_final_judge_and_its_write']; 3 failed, 2 passed, 1 warning in 1.88s
+restored: ([], '5 passed, 1 warning in 2.16s')
