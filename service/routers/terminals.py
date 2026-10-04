@@ -38,6 +38,7 @@ from service.api_core.terminal_snapshot_view import _attach_terminal_snapshot
 from service.api_core.routing import domain_router
 from service.api_core.console_prompts import forget_terminal as _forget_answered_prompts
 from service.api_core.launch_env import NEVER_INHERITED, launches_via_wrapper, managed_launch_env
+from service.api_core.model_effort import as_its_spec_declares
 from service.api_core.records import _terminal_session_to_dict, herdr_space_of
 from service.api_core.serialization import _json_loads_or
 from service.api_core.settings import _load_settings
@@ -247,7 +248,8 @@ async def get_terminal_launch(terminal_id: str):
         # session -> spawn spec. A session with no spec (a resident, or a row predating specs)
         # contributes none. Until 2026-09-14 this route never looked, so they were stored and dropped.
         spec_row = await (await db.execute(
-            "SELECT s.env_vars FROM agent_sessions a JOIN spawn_specs s ON s.id = a.spawn_spec_id WHERE a.id = ?",
+            "SELECT s.env_vars, s.model, s.metadata FROM agent_sessions a JOIN spawn_specs s ON s.id = a.spawn_spec_id "
+            "WHERE a.id = ?",
             (row["session_id"],),
         )).fetchone()
         # THE DEFINITION THIS START WAS BUILT FROM (P0 C7), reached the same way through the session's
@@ -256,6 +258,9 @@ async def get_terminal_launch(terminal_id: str):
             "SELECT r.definition_store_id, r.definition_incarnation, r.definition_revision FROM agent_sessions a "
             "JOIN spawn_requests r ON r.id = a.spawn_request_id WHERE a.id = ?", (row["session_id"],),
         )).fetchone()
+        if agent and spec_row and bound and bound["definition_store_id"]:
+            agent = as_its_spec_declares(agent, spec_row["model"],
+                                         _json_loads_or(spec_row["metadata"], {}).get("runtimeConfig"))
         settings = await _load_settings(db)
         runtime = str(terminal.get("runtime") or agent.get("runtime") or "")
         return {

@@ -43,3 +43,22 @@ def with_effort(runtime_config: Any, effort: Any) -> dict:
     config = {key: value for key, value in _config(runtime_config).items() if key != "thinking"}
     config["effort"] = as_text(effort)
     return config
+
+
+def as_its_spec_declares(agent: dict, spec_model: Any, spec_runtime_config: Any) -> dict:
+    """A launch's agent fields with the model and effort its spawn spec declares, for a launch bound to a
+    definition.
+
+    THE DEFINITION'S, NOT THE RECORD'S. A bound start builds its spec from the definition
+    (`definition_start.spec_columns`), and the host refuses a launch at any other revision. The record
+    is what registration last wrote, and any API-key holder can re-register it. A new terminal on an
+    existing session, which dispatch and console input both open, ran the record's model and effort
+    (external review of 0.8.4). Every other runtimeConfig key is the record's and is kept: those are
+    live state, not the definition's.
+    """
+    config = {key: value for key, value in _config(agent.get("runtimeConfig")).items()
+              if key not in ("model", "effort", "thinking")}
+    effort = record_effort(spec_runtime_config)
+    if effort:
+        config["effort"] = effort
+    return {**agent, "model": as_text(spec_model), "runtimeConfig": config}

@@ -308,6 +308,54 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         plain = self.client.get("/api/v1/terminals/term-plain/launch").json()["launch"]
         self.assertIsNone(plain["definition"], "an undefined agent's start carries none, and its host does no check")
 
+    def test_a_re_registered_model_does_not_reach_a_defined_agents_launch(self):
+        """External review of 0.8.4: re-registering rewrote the record's model and effort without the operator
+        key, and a new terminal on the running session launched with them, not the definition's."""
+        self.push("s1", 1, [valid("coder", model="m1", effort="high")])
+        self.assertEqual(self.start("coder").status_code, 200)
+        self.register_undefined("plain")
+        self.assertEqual(self.start("plain").status_code, 200)
+        for agent_id, session, terminal in (("coder", "sess-1", "term-bound"), ("plain", "sess-plain", "term-plain")):
+            spawn = self.spawns(agent_id)[-1]
+            self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "
+                         "spawn_request_id, session_handle, started_at, last_seen) VALUES (?, ?, ?, "
+                         "'claude-code', 'managed-warm', 'running', ?, ?, 'h1', 'now', 'now')",
+                         (session, agent_id, A["env"], spawn["spec_id"], spawn["id"]))
+            self.execute("INSERT INTO terminal_sessions (id, agent_id, session_id, environment_id, runtime, bridge_id, "
+                         "command, status, output, error, cols, rows, created_at, updated_at) "
+                         "VALUES (?, ?, ?, ?, 'claude-code', ?, 'claude-aify', 'attached', '', '', 80, 24, 'now', 'now')",
+                         (terminal, agent_id, session, A["env"], A["bridge"]))
+            self.client.post("/api/v1/agents", json={
+                "agentId": agent_id, "role": "coder", "runtime": "claude-code", "sessionMode": "managed",
+                "model": "rogue", "runtimeConfig": {"effort": "low"}}).raise_for_status()
+        self.assertEqual([r["model"] for r in self.rows("SELECT model FROM agents WHERE id IN ('coder', 'plain') ORDER BY id")],
+                         ["rogue", "rogue"], "control: the re-register did rewrite both records")
+        env = lambda terminal: self.client.get(f"/api/v1/terminals/{terminal}/launch").json()["launch"]["env"]
+        bound = env("term-bound")
+        self.assertEqual((bound["AIFY_MANAGED_MODEL"], bound["AIFY_MANAGED_EFFORT"]), ("m1", "high"),
+                         "a defined agent's launch runs its definition's model and effort")
+        plain = env("term-plain")
+        self.assertEqual((plain["AIFY_MANAGED_MODEL"], plain["AIFY_MANAGED_EFFORT"]), ("rogue", "low"),
+                         "control: an undefined agent's launch still runs its record")
+
+    def test_a_definition_that_leaves_model_and_effort_to_the_harness_is_not_filled_from_the_record(self):
+        """An empty model or effort leaves the harness to choose (spec_columns). The record's
+        runtimeConfig.model and legacy `thinking` are what the launch's readers fall back to, so they must not
+        fill the gap either."""
+        self.push("s1", 1, [valid("coder")])
+        self.assertEqual(self.start("coder").status_code, 200)
+        spawn = self.spawns("coder")[-1]
+        self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "
+                     "spawn_request_id, session_handle, started_at, last_seen) VALUES ('sess-1', 'coder', ?, "
+                     "'claude-code', 'managed-warm', 'running', ?, ?, 'h1', 'now', 'now')", (A["env"], spawn["spec_id"], spawn["id"]))
+        self.execute("INSERT INTO terminal_sessions (id, agent_id, session_id, environment_id, runtime, bridge_id, command, "
+                     "status, output, error, cols, rows, created_at, updated_at) VALUES ('term-1', 'coder', 'sess-1', ?, "
+                     "'claude-code', ?, 'claude-aify', 'attached', '', '', 80, 24, 'now', 'now')", (A["env"], A["bridge"]))
+        self.execute("UPDATE agents SET model = '', runtime_config = ? WHERE id = 'coder'",
+                     (json.dumps({"model": "rogue", "thinking": "low", "usageSource": "kept"}),))
+        env = self.client.get("/api/v1/terminals/term-1/launch").json()["launch"]["env"]
+        self.assertEqual((env.get("AIFY_MANAGED_MODEL", ""), env.get("AIFY_MANAGED_EFFORT", "")), ("", ""))
+
     def cold_start(self, agent_id, reasons, runtime="claude-code"):
         async def run():
             db = await get_db()
