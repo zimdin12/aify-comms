@@ -184,12 +184,15 @@ proves the operator's NAME. It does not restrict the actions: an API-key holder 
 restart a worker under its own name, and the audit trail then says so. The exception is an agent a host
 defines: only the operator changes or removes it, through any route, key or not.
 
-**A host proves which machine it speaks for.** aify-env keeps a secret in `~/.aify/host-secret` and sends
-each service a proof made from it. The proof from a machine's first successful heartbeat is recorded, and
-from then on that machine's heartbeats and agent-definition routes need it, so holding `API_KEY` is not
-enough to speak for another machine. If a host's secret is lost or replaced, its aify-env is refused with the
-way back: `POST /api/v1/host-proofs/<machineId>/reset` as the operator. Like every key on a host, any process
-that can read that file can make the proof.
+**A host proves which machine it speaks for, once it has enrolled.** aify-env keeps a secret in
+`~/.aify/host-secret` and sends each service a proof made from it. The proof from a machine's first successful
+heartbeat is recorded, and from then on that machine's heartbeats, agent-definition routes, spawn and terminal
+claims and spawn updates need it. If a host's secret is lost or replaced, its aify-env is refused with the way
+back: `POST /api/v1/host-proofs/<machineId>/reset` as the operator. What this does NOT give you: it is trust on
+first use, so a machine that has never presented a proof is open, and whoever presents the first one owns it.
+With no `OPERATOR_KEY` the reset route is open to any `API_KEY` holder too, so the proof does not protect against
+a hostile key holder; it keeps a stale or misconfigured host from speaking for a machine. Like every key on a
+host, any process that can read that file can make the proof.
 
 A key does not change the bind address or CORS: bind `127.0.0.1:8800:8800` in
 `docker-compose.yml` if the LAN should not reach it, and set `CORS_ORIGINS` in `.env` to the

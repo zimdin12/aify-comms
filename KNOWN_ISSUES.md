@@ -5,15 +5,25 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
-## Left open by the external review of 0.8.1 (2026-10-03)
+## Left open by the external reviews of 0.8.1 and 0.8.4 (2026-10-03, 2026-10-04)
 
-0.8.2 fixes its HIGHs and MEDIUMs. These stay open, each with what it needs to matter.
+0.8.2 addressed the 0.8.1 review's HIGHs and MEDIUMs; review then found six of those fixes wrong, corrected in
+0.8.4 and 0.8.5. The 0.8.4 review's triage, with what was fixed and why the rest was not, is
+`docs/superpowers/plans/2026-10-04-external-review-of-0.8.4-triage.md`. These stay open, each with what it needs
+to matter.
 
-- **A repository cloned from a local path is refused by aify-env's dashboard plugin** until it is re-cloned.
-  `git clone <local path>` hard-links its objects by default, and a hard-linked object whose outside owner
-  rewrites it is read under the old hash, so any object or pack file with a second name refuses the folder, with
-  one doctor row saying to re-clone with `--no-hardlinks` or from a `file://` URL. A clone from a URL, a
-  `git worktree add` and a repository after `git gc` are read.
+- **The host proof is trust on first use, and gives no protection against a hostile `API_KEY` holder** while
+  `OPERATOR_KEY` is unset: an unenrolled machine is open, the first proof owns it, and the reset route is then
+  open to any key holder. It keeps a stale or misconfigured host from speaking for a machine. An enrollment the
+  operator approves is a redesign, Steven's to call.
+- **A spawn's env can pick the program a hermes or pi launcher runs** (`HERMES_COMMAND`, `PI_COMMAND`), past
+  aify-env's launcher allowlist, for an UNDEFINED agent (a defined agent's spawn is refused, 409). Traced, not
+  run. The same key can already ask an agent with shell tools to run commands. Steven's call whether to narrow it.
+- **A repository that shares object files with another is refused by aify-env's dashboard plugin**: a clone
+  from a local path hard-links its objects, which refuses BOTH the clone and the original. The message names it;
+  accepting a second-named object whose content is proven to match its name is deferred. The refusal exists
+  because git does not re-hash a loose object it reads, so the owner of the other name could rewrite it under
+  the old id. A clone from a URL and a `git worktree add` are read.
 - **Dashboard plugin: a change, timed between a look's checks and git's read, to what a judged path names is not
   caught on that look.** Each look resolves the folder, its working tree, its git directories and every store it
   borrows from to real paths, and judges them against the grant. Git then follows them only as spelled when
@@ -30,17 +40,11 @@ kept as evidence. Last reviewed 2026-09-27.
 - **aify-env resolves a launcher's interpreter from a relative PATH entry** (for example `.`), which then
   resolves against the agent's workspace. Needs such an entry on aify-env's PATH. A bare name is already
   refused (`start-spec.mjs`, 422); the dashboard plugin's git skips relative entries.
-- **A spawn claim is fenced by the bridge id alone**, which `GET /environments` hands any key holder. A forged
-  claim takes a spawn request away from the real host. The host proof (0.8.2) guards the heartbeat and the
-  definition routes, not this one.
 - **Every worker inherits aify-env's own environment.** `launchEnv` keeps the daemon's `process.env`, minus a
   launch's `unsetEnv`, so any key the daemon was started with reaches every agent it starts. Found by
   dashboard-manager while designing project secrets (aify-dashboard `docs/DESIGN-SECRETS-INJECTION.md`); the
   dashboard's provider runner already passes its child a minimal environment. Matters when aify-env is started
   from a shell holding a key an agent should not have.
-- **Two of the review's carry-overs** from the round before, the Start dialog double start and
-  `/agents/{id}/control` reading only the stored status, are not traced: the findings that describe them were
-  not on this host.
 
 ## The installer's hermes entry is written by a line splice (found 2026-10-02)
 
