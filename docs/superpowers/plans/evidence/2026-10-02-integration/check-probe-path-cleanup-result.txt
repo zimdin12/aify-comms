@@ -1,23 +1,20 @@
-ok   its home's bin is removed: exit 0
-ok   the home itself, with a trailing slash: exit 0
-ok   a sibling sharing the prefix survives: exit 0
-ok   a forward-slash home matches a backslash entry: exit 0
-ok   case differs: exit 0
-ok   nothing of ours: nothing removed: exit 0
-cleanup exit=0
---- negative control (--no-cleanup):
-FAIL its home's bin is removed: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
-FAIL the home itself, with a trailing slash: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\
-FAIL a sibling sharing the prefix survives: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
-FAIL a forward-slash home matches a backslash entry: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
-FAIL case differs: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
-ok   nothing of ours: nothing removed: exit 0
-no-cleanup exit=1
---- 10be3da6's predicate (must fail the sibling and slash cases):
-ok   its home's bin is removed: exit 0
-ok   the home itself, with a trailing slash: exit 0
-FAIL a sibling sharing the prefix survives: exit 0, lost C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12-sibling\bin
-FAIL a forward-slash home matches a backslash entry: exit 0, still there C:\Users\X\AppData\Local\Temp\hermes-model-probe-ab12\bin
-ok   case differs: exit 0
-ok   nothing of ours: nothing removed: exit 0
-10be3da6 exit=1
+node docs/superpowers/plans/evidence/2026-10-02-integration/check-probe-path-cleanup.mjs  (2026-10-04T02:02Z, Windows, throwaway HKCU key; the real User PATH not touched)
+ok   the operator's own .hermes\bin, there before, stays
+ok   a home at C:/ removes only what this run added
+ok   this run's home\bin is removed
+ok   a new sibling sharing the prefix stays
+ok   a forward-slash home matches a backslash entry
+ok   case differs
+ok   nothing new: nothing removed
+ok   withoutEntries keeps every other entry as stored, in order
+ok   control: the throwaway key reads back raw, %VAR% unexpanded
+ok   a stale expectation writes nothing
+ok   the write lands
+ok   and keeps %VAR% unexpanded
+ok   and keeps the value's kind
+ok   the throwaway key is gone
+exit 0
+
+NEGATIVE CONTROL, the old rule (remove every entry under the home) put back by cp-backed edit, then restored:
+FAIL the operator's own .hermes\bin, there before, stays
+FAIL a home at C:/ removes only what this run added

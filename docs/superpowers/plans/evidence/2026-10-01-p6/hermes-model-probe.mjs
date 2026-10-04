@@ -36,6 +36,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+import { entriesHermesAdded, readUserPathRaw, withoutEntries, writeUserPathRawIfUnchanged } from "./user-path.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const require = createRequire(path.join(ROOT, "mcp/stdio/package.json"));
 const { WebSocket } = require("ws");
@@ -45,6 +47,8 @@ const freePort = () => new Promise((resolve) => {
   const server = net.createServer().listen(0, "127.0.0.1", () => { const { port } = server.address(); server.close(() => resolve(port)); });
 });
 
+// Read BEFORE hermes runs, so the cleanup can tell what this run added from what the operator had.
+const pathBefore = process.platform === "win32" ? readUserPathRaw() : null;
 const keep = process.env.PROBE_HERMES_HOME || "";
 const home = keep || fs.mkdtempSync(path.join(os.tmpdir(), "hermes-model-probe-"));
 fs.mkdirSync(home, { recursive: true });
@@ -56,23 +60,17 @@ const host = spawn("hermes", ["dashboard", "--port", String(port), "--host", "12
   { env, stdio: ["ignore", fs.openSync(log, "w"), fs.openSync(log, "a")], shell: process.platform === "win32", windowsHide: true });
 const report = { hermes: spawnSync("hermes", ["--version"], { encoding: "utf8", shell: true }).stdout.split("\n")[0], port, steps: [] };
 
-// The home itself or a path UNDER it, never a sibling that merely shares the prefix (`<home>-x\bin`), with
-// either slash and any trailing separator. Read back after the write: exit 3 when the home is still there.
-const DROP_HOME_FROM_USER_PATH =
-  "$n={ param($x) $x.Replace('/','\\').TrimEnd('\\') }; $h=& $n $env:PROBE_HOME; $s=$env:PROBE_PATH_SCOPE; " +
-  "$ours={ param($e) $e=& $n $e; ($e -ieq $h) -or $e.StartsWith($h + '\\', [StringComparison]::OrdinalIgnoreCase) }; " +
-  "$all=@([Environment]::GetEnvironmentVariable('Path',$s) -split ';'); $k=@($all | Where-Object { -not (& $ours $_) }); " +
-  "if ($k.Count -ne $all.Count) { [Environment]::SetEnvironmentVariable('Path', ($k -join ';'), $s) }; " +
-  "if (@([Environment]::GetEnvironmentVariable('Path',$s) -split ';' | Where-Object { & $ours $_ }).Count) { exit 3 }";
-
 function stop() {
   if (process.platform === "win32") {
     spawnSync("taskkill", ["/PID", String(host.pid), "/T", "/F"], { stdio: "ignore" });
-    const undone = spawnSync("powershell", ["-NoProfile", "-Command", DROP_HOME_FROM_USER_PATH],
-      { env: { ...process.env, PROBE_HOME: home, PROBE_PATH_SCOPE: "User" }, stdio: "ignore" });
-    if (undone.status !== 0) {
-      console.error(`hermes registered ${home}\\bin on your User PATH and it could not be removed `
-        + `(exit ${undone.status}${undone.error ? `, ${undone.error.message}` : ""}): remove it by hand.`);
+    // ONLY WHAT HERMES ADDED THIS RUN (user-path.mjs): an entry the operator had before stays, even under
+    // the home, and the value is written back raw with its own kind.
+    const now = pathBefore === null ? null : readUserPathRaw();
+    const drop = now === null ? [] : entriesHermesAdded(pathBefore, now, home);
+    const written = drop.length ? writeUserPathRawIfUnchanged(now, withoutEntries(now, drop)) : "written";
+    if (pathBefore === null || now === null || written !== "written") {
+      console.error(`hermes may have registered ${home}\\bin on your User PATH, and the probe could not take it back `
+        + `(${pathBefore === null || now === null ? "the User PATH could not be read" : `the write was ${written}`}): check it by hand.`);
     }
   } else host.kill("SIGKILL");
 }
