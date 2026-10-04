@@ -55,7 +55,10 @@ Each one fails on its predecessor and is mutation-proven.
   - On this host `OPERATOR_KEY` equals `API_KEY`, so the operator gate is the API key.
   - Protection against hostile key holders needs an enrollment the operator approves. That is a redesign, and it
     is Steven's call.
-- **D2a, program selection through plain env (to Steven).** `HERMES_COMMAND` (`hermes-aify.sh.in:278`) and
+- **D2a, DECIDED 2026-10-04: with `OPERATOR_KEY` set, a spawn with `envVars` needs the operator** (Steven chose
+  this over reserving the two names; DECISIONS.md). With no key the paragraph below still describes the install.
+  F1 step 3 (refuse a defined agent's unbound session) is skipped for 0.8.5 by the same ruling. Original note:
+  `HERMES_COMMAND` (`hermes-aify.sh.in:278`) and
   `PI_COMMAND` pick the program the launcher runs, and neither prefix is reserved. An API-key holder who spawns an
   UNDEFINED agent can therefore choose the binary, past aify-env's launcher allowlist (traced, not run). The same
   key can already ask any agent with shell tools to run commands, which is why this is a stated limit rather than

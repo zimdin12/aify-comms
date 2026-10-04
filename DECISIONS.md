@@ -26,6 +26,17 @@ present it (403), for every agent, before anything is read. `PATCH .../herdr-spa
 undefined agent, by the same ruling: it is a display preference, set from the herdr menu through
 aify-env's plugin, which holds no operator key.
 
+**A spawn's own environment is the operator's once a key is set (Steven, 2026-10-04).** `HERMES_COMMAND` and
+`PI_COMMAND` pick the program a launcher runs, past aify-env's launcher allowlist. With `OPERATOR_KEY` set,
+`POST /spawn-requests` with `envVars` needs the operator's proof (403 otherwise); a spawn without them is
+unchanged. With no key, the API key is the boundary, as on every operator route: this install is local, and
+its agents are meant to hold that control. Today only the dashboard can present the key; no bridge sends it.
+
+**A session built before its agent was defined still launches (Steven, 2026-10-04, for 0.8.5).** A launch is
+held to the definition only when its spawn request records one. Refusing a defined agent's unbound session
+would stop every pre-0.8 managed session from opening a terminal until it is started again; aify-env owning
+starts in 0.9 retires those sessions.
+
 ## One launcher per harness on Windows too: hermes' PowerShell launcher is gone (2026-10-01, 0.8)
 
 **Decision.** `hermes-aify.cmd` runs the bash `hermes-aify` through Git Bash, as `claude-aify.cmd` and

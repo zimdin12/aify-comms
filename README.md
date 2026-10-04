@@ -180,9 +180,12 @@ or `operator` anywhere: send messages agents read as the operator's own, start a
 replaces a live instance, and stop, restart or steer work in the operator's name. Set `OPERATOR_KEY` in
 `.env` and no route accepts those names without it; the dashboard then sends it automatically. No agent
 can be registered, renamed or spawned under either name, key or not: they belong to the operator. The key
-proves the operator's NAME. It does not restrict the actions: an API-key holder can still stop or
-restart a worker under its own name, and the audit trail then says so. The exception is an agent a host
-defines: only the operator changes or removes it, through any route, key or not.
+proves the operator's NAME. It does not restrict most actions: an API-key holder can still stop or
+restart a worker under its own name, and the audit trail then says so. The exceptions are the operator's
+alone: changing any agent's effort, usage source, environment or session mode, and setting a spawn's own
+`envVars` (which can pick the program a launcher runs), each refused without the key once one is set; and
+changing or removing an agent a host defines, through any route, key or not. Only the dashboard can present
+the key today: no agent's bridge sends it.
 
 **A host proves which machine it speaks for, once it has enrolled.** aify-env keeps a secret in
 `~/.aify/host-secret` and sends each service a proof made from it. The proof from a machine's first successful
