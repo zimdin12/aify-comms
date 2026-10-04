@@ -17,7 +17,7 @@ Labels: OBSERVED = read from the real file or row; SOURCE = read in code; ASSUME
 |---|---|---|
 | M1 | 23 of 24 definitions (`~/.aify/agent-definitions/*.json`, `agent.model`) are `""`; sc-critic is `"sonnet"`. aify-comms' agent rows match. | OBSERVED |
 | M2 | Harness defaults: `~/.claude/settings.json` `model: "opus"`, `effortLevel: "high"`; hermes `AppData/Local/hermes/config.yaml` `model.default: gpt-6.1-sol`, `reasoning_effort: high`. These are the CURRENT desired defaults, not what any running lifetime started with. | OBSERVED |
-| M3 | Claude: each assistant line of the session transcript (`~/.claude/projects/<cwd-slug>/<session-id>.jsonl`) carries `message.model`, the model that answered, with its `timestamp`. Effort is not recorded there. | OBSERVED |
+| M3 | Claude: each assistant line of the session transcript (`~/.claude/projects/<cwd-slug>/<session-id>.jsonl`) carries `message.model`, the model that answered, with its `timestamp`. CORRECTED 2026-10-05: it also carries top-level `effort` and `perTurnEffort` (Claude Code 2.1.282 to 2.1.289, every assistant line in 27 recent transcripts). Every value seen is `high`, the settings default, so whether it reports a non-default effort is UNVERIFIED. | OBSERVED |
 | M4 | Claude binds per lifetime: aify-comms' `sessionHandle` for each claude agent equals its transcript's file name. 13 agents mapped to 13 transcripts written in the last 24 h. | OBSERVED |
 | M5 | Claude pins its model when a session starts. Three agents run `claude-opus-5` while the alias `opus` now resolves to `claude-opus-5-5` for new sessions: sc-lead (answering at 04:15 today), mc-manager, llama-manager. sc-critic (`sonnet`) runs `claude-sonnet-5-5`. | OBSERVED (the pinning cause is ASSUMED from the pattern) |
 | M6 | Claude transcripts reach 1.6 GB (sand_castle 502989ba); one exceeded node's string limit when read whole. A producer reads the tail only. | OBSERVED |
@@ -87,5 +87,5 @@ definitions carry none, and `agents import`'s pull (`lib/plugins/aify-comms/agen
 
 1. Claude: does `--resume` with `--model X` change the pinned model of a resumed session? (decides whether a
    switch can keep the conversation).
-2. Claude: where effort is observable per lifetime, if anywhere (M3 has none).
+2. Claude: does the transcript's `effort` change when a lifetime runs at another effort? Present on every assistant line (M3), but only `high` has been seen; a lifetime started at another effort settles it.
 3. Codex: confirm the rollout file to `sessionHandle` binding on a real managed codex lifetime.
