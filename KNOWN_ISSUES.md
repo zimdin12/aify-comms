@@ -23,6 +23,12 @@ to matter.
   state, and re-register is a full refresh. Found by comms-senior-dev (review of 5e2e3205). A definition-bound
   start takes its model and effort from its bound spec (720b4221); its usage source still comes from the
   record. 0.9 moves agent state to aify-env.
+- **A terminal control's result report needs no host proof.** `PATCH /terminals/controls/{id}` records a
+  control `completed` or `failed` from any API-key holder, so a forged report can mark an operator's stop
+  handled while the worker runs. The claim and the spawn routes judge the proof (f97f08da and its successor);
+  this one cannot simply join them, because the bridge's virtual terminals (Pi consoles,
+  `mcp/stdio/virtual-terminals.mjs`) report through it and hold no proof. Needs a rule that gates only the
+  controls aify-env's terminals own. Found by an independent review of the 0.8.5 claim fix.
 - **The `comms_*` tools cannot present the operator key.** The bridge sends no `X-Aify-Operator-Key`, so with a
   key set an agent given the key (a main manager) can use it only by calling the API itself, naming `dashboard`
   and sending the header. Bridge support for it is a 0.9 candidate.
