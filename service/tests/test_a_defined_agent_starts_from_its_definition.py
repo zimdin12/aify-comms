@@ -338,6 +338,44 @@ class ADefinedAgentStartsFromItsDefinition(FastApiTestCase):
         self.assertEqual((plain["AIFY_MANAGED_MODEL"], plain["AIFY_MANAGED_EFFORT"]), ("rogue", "low"),
                          "control: an undefined agent's launch still runs its record")
 
+    def bound_session_with_a_rogue_record(self, spec_link):
+        """`coder` defined (m1/high) and started, its session linked to its request, its own spec link set to
+        `spec_link`, then its record rewritten to rogue/low by a re-register."""
+        self.push("s1", 1, [valid("coder", model="m1", effort="high")])
+        self.assertEqual(self.start("coder").status_code, 200)
+        spawn = self.spawns("coder")[-1]
+        self.execute("INSERT INTO agent_sessions (id, agent_id, environment_id, runtime, mode, status, spawn_spec_id, "
+                     "spawn_request_id, session_handle, started_at, last_seen) VALUES ('sess-1', 'coder', ?, "
+                     "'claude-code', 'managed-warm', 'running', ?, ?, 'h1', 'now', 'now')",
+                     (A["env"], spec_link(spawn), spawn["id"]))
+        self.execute("INSERT INTO terminal_sessions (id, agent_id, session_id, environment_id, runtime, bridge_id, command, "
+                     "status, output, error, cols, rows, created_at, updated_at) VALUES ('term-1', 'coder', 'sess-1', ?, "
+                     "'claude-code', ?, 'claude-aify', 'attached', '', '', 80, 24, 'now', 'now')", (A["env"], A["bridge"]))
+        self.client.post("/api/v1/agents", json={
+            "agentId": "coder", "role": "coder", "runtime": "claude-code", "sessionMode": "managed",
+            "model": "rogue", "runtimeConfig": {"effort": "low"}}).raise_for_status()
+        return spawn
+
+    def test_a_bound_launch_takes_its_spec_from_its_request_not_the_sessions_own_link(self):
+        """Review of 272df43f: with the session's nullable spec link empty, the launch fell back to the record,
+        which any key holder can rewrite. The request's spec link is NOT NULL and is where the binding is read."""
+        for label, link in (("no link", lambda spawn: None), ("empty link", lambda spawn: "")):
+            with self.subTest(label):
+                self.setUp()
+                self.bound_session_with_a_rogue_record(link)
+                launch = self.client.get("/api/v1/terminals/term-1/launch")
+                self.assertEqual(launch.status_code, 200, launch.text)
+                env = launch.json()["launch"]["env"]
+                self.assertEqual((env["AIFY_MANAGED_MODEL"], env["AIFY_MANAGED_EFFORT"]), ("m1", "high"))
+
+    def test_a_bound_launch_whose_spec_cannot_be_read_is_refused(self):
+        spawn = self.bound_session_with_a_rogue_record(lambda spawn: spawn["spec_id"])
+        self.execute("UPDATE spawn_requests SET spawn_spec_id = 'no-such-spec' WHERE id = ?", (spawn["id"],))
+        launch = self.client.get("/api/v1/terminals/term-1/launch")
+        self.assertEqual(launch.status_code, 409, launch.text)
+        self.assertIn("spawn spec", launch.json()["detail"])
+        self.assertNotIn("rogue", launch.text)
+
     def test_a_definition_that_leaves_model_and_effort_to_the_harness_is_not_filled_from_the_record(self):
         """An empty model or effort leaves the harness to choose (spec_columns). The record's
         runtimeConfig.model and legacy `thinking` are what the launch's readers fall back to, so they must not

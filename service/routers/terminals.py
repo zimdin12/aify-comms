@@ -253,14 +253,23 @@ async def get_terminal_launch(terminal_id: str):
             (row["session_id"],),
         )).fetchone()
         # THE DEFINITION THIS START WAS BUILT FROM (P0 C7), reached the same way through the session's
-        # spawn request, so the host refuses to start a worker from any other.
+        # spawn request, so the host refuses to start a worker from any other. A BOUND launch takes its spec
+        # from that request too: the request's spec link is NOT NULL, the session's is nullable, and a bound
+        # launch that found no spec there ran the agent record's model, which any key holder can rewrite
+        # (review of 272df43f). A bound spec that cannot be read is refused, never filled from the record.
         bound = await (await db.execute(
-            "SELECT r.definition_store_id, r.definition_incarnation, r.definition_revision FROM agent_sessions a "
-            "JOIN spawn_requests r ON r.id = a.spawn_request_id WHERE a.id = ?", (row["session_id"],),
+            "SELECT r.definition_store_id, r.definition_incarnation, r.definition_revision, s.id AS spec_id, "
+            "s.env_vars, s.model, s.metadata FROM agent_sessions a JOIN spawn_requests r ON r.id = a.spawn_request_id "
+            "LEFT JOIN spawn_specs s ON s.id = r.spawn_spec_id WHERE a.id = ?", (row["session_id"],),
         )).fetchone()
-        if agent and spec_row and bound and bound["definition_store_id"]:
-            agent = as_its_spec_declares(agent, spec_row["model"],
-                                         _json_loads_or(spec_row["metadata"], {}).get("runtimeConfig"))
+        if bound and bound["definition_store_id"]:
+            if bound["spec_id"] is None:
+                raise HTTPException(409, f"terminal {terminal_id}'s start was built from a definition, and its spawn "
+                                         "spec cannot be read; start the agent again")
+            spec_row = bound
+            if agent:
+                agent = as_its_spec_declares(agent, spec_row["model"],
+                                             _json_loads_or(spec_row["metadata"], {}).get("runtimeConfig"))
         settings = await _load_settings(db)
         runtime = str(terminal.get("runtime") or agent.get("runtime") or "")
         return {
