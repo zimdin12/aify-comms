@@ -3,6 +3,7 @@
 // Each test maps to a specific finding (C1, C2, I5, I6, I10).
 
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -149,7 +150,7 @@ async function test_I5_permission_safe_allow_kinds() {
 // ─── I6: hermes fs path-traversal containment ────────────────────────────────
 
 async function test_I6_fs_containment() {
-  const sandboxRoot = path.join(process.cwd(), `.tmp-sandbox-${Date.now()}`);
+  const sandboxRoot = path.join(os.tmpdir(), `aify-session-fixes-sandbox-${Date.now()}`);
   await fs.mkdir(sandboxRoot, { recursive: true });
   const inside = path.join(sandboxRoot, "ok.txt");
   await fs.writeFile(inside, "inside-ok");
@@ -225,9 +226,9 @@ async function test_I6_fs_containment() {
 async function test_I6_fs_symlink_traversal_blocked() {
   // Second-round-review lurking-concern S1: a symlink inside cwd pointing
   // outside the workspace must NOT bypass the containment check.
-  const sandboxRoot = path.join(process.cwd(), `.tmp-sandbox-symlink-${Date.now()}`);
+  const sandboxRoot = path.join(os.tmpdir(), `aify-session-fixes-sandbox-symlink-${Date.now()}`);
   await fs.mkdir(sandboxRoot, { recursive: true });
-  const outsideTarget = path.join(process.cwd(), `.tmp-outside-symlink-${Date.now()}.txt`);
+  const outsideTarget = path.join(os.tmpdir(), `aify-session-fixes-outside-symlink-${Date.now()}.txt`);
   await fs.writeFile(outsideTarget, "secret-data");
 
   const symlinkPath = path.join(sandboxRoot, "escape");
@@ -283,12 +284,12 @@ async function test_I6_fs_symlink_traversal_blocked() {
 
 async function test_I6_fs_unsafe_opt_out() {
   // AIFY_HERMES_FS_UNSAFE=1 must restore unrestricted access.
-  const outsideRoot = path.join(process.cwd(), `.tmp-outside-${Date.now()}`);
+  const outsideRoot = path.join(os.tmpdir(), `aify-session-fixes-outside-${Date.now()}`);
   await fs.mkdir(outsideRoot, { recursive: true });
   const target = path.join(outsideRoot, "outside.txt");
   await fs.writeFile(target, "unsafe-ok");
 
-  const sandboxRoot = path.join(process.cwd(), `.tmp-sandbox-unsafe-${Date.now()}`);
+  const sandboxRoot = path.join(os.tmpdir(), `aify-session-fixes-sandbox-unsafe-${Date.now()}`);
   await fs.mkdir(sandboxRoot, { recursive: true });
 
   process.env.AIFY_HERMES_FS_UNSAFE = "1";
