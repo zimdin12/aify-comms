@@ -5,6 +5,17 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+## A bridge process whose key lookup fails once stays keyless until relaunched (found 2026-10-05)
+
+`aify-service-endpoint.mjs` resolves the API key once, at module load (`const API_KEY = keyForUrl(SERVER_URL)`),
+and `registry-credential.mjs` answers any failure on the credential path -- registry read, path check, the
+custody `icacls` call (5 s timeout), decode -- with an empty key and no log line. Nothing resolves it again. Measured
+2026-10-05: the delivery loops of managed hermes apgtest-hm-3/4, started at 03:57-03:58Z under heavy load, never
+held the key (absent from their memory; environment identical to working loops) and answered every poll with
+`401 Invalid or missing API key`; six loops started after 0.8.5 was installed were fine. Which step failed is
+unattributed (an `icacls` timeout under load is the leading candidate, not proven). A relaunch recovers it. Fix
+owed: re-resolve on a 401 or an empty key, and say why the credential could not be read.
+
 ## A healthy spawn's row ends `failed` after 30 minutes (found 2026-10-05)
 
 `spawn_requests` has no success state (`SPAWN_REQUEST_STATUSES`: queued, claimed, starting, running, failed,
