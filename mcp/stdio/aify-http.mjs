@@ -15,14 +15,12 @@
 // host where `localhost` resolves to `::1` first, a service listening only on IPv4 is unreachable through a
 // name that looks correct in every log line.
 //
-// The factory takes `baseUrl` and `apiKey` as ARGUMENTS while also exporting the env-derived values its
-// callers pass. That looks redundant and is deliberate: the arguments are what make it testable without
-// environment, and the exported constants are what stop each caller re-deriving the same two values from
-// `process.env` and drifting.
+// An omitted apiKey resolves through the shared destination-bound owner on each request. An explicit
+// apiKey, including "", stays the caller's choice. Hermes must omit it rather than freeze a startup miss.
 //
 // DEPLOYMENT: host code. Inert until `install.sh` is re-run and the wrappers relaunch.
 
-import { API_KEY } from "./aify-service-endpoint.mjs";
+import { keyForUrl } from "./aify-service-endpoint.mjs";
 
 function coerceLoopbackToIPv4(url) {
   return String(url || "").replace(/^(https?:\/\/)localhost(?=[:\/]|$)/i, "$1127.0.0.1");
@@ -40,7 +38,7 @@ export const AIFY_SERVER_URL = coerceLoopbackToIPv4(
  * `server.js` and the channel sidecars import `API_KEY` from THERE. Two spellings of one fact.
  * The resolution now lives at the source and this is the alias its old readers keep.
  */
-export const AIFY_API_KEY = API_KEY;
+export { API_KEY as AIFY_API_KEY } from "./aify-service-endpoint.mjs";
 const HTTP_TIMEOUT_MS = Math.max(1000, Number(process.env.AIFY_HTTP_TIMEOUT_MS || 20000));
 
 
@@ -49,7 +47,8 @@ export function makeAifyHttpCall(baseUrl, apiKey) {
     if (!baseUrl) return null;
     const url = `${baseUrl}/api/v1${endpoint}`;
     const options = { method, headers: {} };
-    if (apiKey) options.headers["X-API-Key"] = apiKey;
+    const key = apiKey === undefined ? keyForUrl(baseUrl) : apiKey;
+    if (key) options.headers["X-API-Key"] = key;
     if (body) {
       options.headers["Content-Type"] = "application/json";
       options.body = JSON.stringify(body);
@@ -62,6 +61,10 @@ export function makeAifyHttpCall(baseUrl, apiKey) {
       // `aify-service-endpoint.mjs` after I had fixed only the doctor. A 3xx fails `res.ok`.
       const res = await fetch(url, { ...options, redirect: "manual", signal: controller.signal });
       if (!res.ok) {
+        if (res.status === 401 && apiKey === undefined) {
+          keyForUrl(baseUrl, { refresh: true });
+          console.error("[aify-comms] HTTP 401: credential re-resolved for the next call; request not replayed");
+        }
         const text = await res.text().catch(() => "");
         const error = new Error(`HTTP ${res.status}: ${text}`);
         error.status = res.status;

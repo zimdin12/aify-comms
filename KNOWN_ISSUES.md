@@ -36,6 +36,7 @@ held the key (absent from their memory; environment identical to working loops) 
 `401 Invalid or missing API key`; six loops started after 0.8.5 was installed were fine. Which step failed is
 unattributed (an `icacls` timeout under load is the leading candidate, not proven). A relaunch recovers it. Fix
 owed: re-resolve on a 401 or an empty key, and say why the credential could not be read.
+- Deferred: an interrupted HTTP 401 body read in shared `httpCall` can lose the status and retry an idempotent GET; source-traced only, not observed in a live agent.
 
 ## A healthy spawn's row ends `failed` after 30 minutes (found 2026-10-05)
 

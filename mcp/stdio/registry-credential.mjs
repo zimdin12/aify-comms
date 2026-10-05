@@ -173,14 +173,18 @@ function pathIsWhatWasAskedFor(target, realpath) {
 export function keyForEndpoint({
   env = {}, readFile, join, homeDir = "", endpoint = "",
   serviceName = SERVICE_NAME, realpath = realpathSync.native, custody = custodyProblemFor,
+  onRefusal = () => {},
 } = {}) {
-  const nothing = { key: "", source: "", endpoint: "" };
+  const nothing = (reason) => {
+    onRefusal(reason);
+    return { key: "", source: "", endpoint: "" };
+  };
   if (typeof readFile !== "function" || typeof join !== "function" || !homeDir || !serviceName) {
-    return nothing;
+    return nothing("resolver_not_configured");
   }
   // NO ENDPOINT, NO KEY. A caller that cannot say where it is sending cannot be given a secret to
   // send there.
-  if (!String(endpoint || "").trim()) return nothing;
+  if (!String(endpoint || "").trim()) return nothing("endpoint_missing");
 
   const registryPath = String(env[REGISTRY_ENV_NAME] || "").trim()
     || join(homeDir, ".aify", "services.json");
@@ -188,25 +192,25 @@ export function keyForEndpoint({
   try {
     entry = registryEntryFor(readFile(registryPath), serviceName);
   } catch {
-    return nothing;
+    return nothing("registry_unreadable");
   }
-  if (!entry.ref || credentialRefProblem(entry.ref)) return nothing;
+  if (!entry.ref || credentialRefProblem(entry.ref)) return nothing("credential_ref_missing_or_invalid");
   // THE BINDING. The registry says which endpoint this credential opens; if the caller is pointed
   // somewhere else, that is exactly the case where handing over the key is wrong.
-  if (!sameEndpoint(entry.endpoint, endpoint)) return nothing;
+  if (!sameEndpoint(entry.endpoint, endpoint)) return nothing("endpoint_mismatch");
 
   const file = join(homeDir, ".aify", CREDENTIAL_DIR_NAME, entry.ref);
-  if (!pathIsWhatWasAskedFor(file, realpath)) return nothing;
+  if (!pathIsWhatWasAskedFor(file, realpath)) return nothing("credential_path_refused");
   // CUSTODY BEFORE BYTES. A file granted to a group is one several people can read, and its contents
   // are not this service's secret however well-formed they are.
-  if (custody(file)) return nothing;
+  if (custody(file)) return nothing("credential_custody_refused");
   let value;
   try {
     value = decodeCredentialBytes(readFile(file));
   } catch {
-    return nothing;
+    return nothing("credential_unreadable");
   }
   return value
     ? { key: value, source: "aify-env's credential store", endpoint: entry.endpoint }
-    : nothing;
+    : nothing("credential_bytes_refused");
 }

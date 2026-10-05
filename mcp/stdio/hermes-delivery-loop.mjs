@@ -1,6 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import {
-  AIFY_API_KEY,
   AIFY_SERVER_URL,
   makeAifyHttpCall,
 } from "./aify-http.mjs";
@@ -108,7 +107,7 @@ const NO_TUI_GRACE_MS = Math.max(
 
 export async function runDeliveryLoop(agentId, deps = {}) {
   const {
-    httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
+    httpCall = makeAifyHttpCall(AIFY_SERVER_URL),
     spawnImpl,
     fetchImpl,
     openWs = openGatewayWsClient,

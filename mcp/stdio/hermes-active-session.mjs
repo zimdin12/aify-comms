@@ -38,7 +38,7 @@ import {
   writeSessionIdMarker,
 } from "./hermes-endpoint.js";
 import { HERMES_CMD, TMP_DIR, resolveHermesPython } from "./hermes-env.mjs";
-import { AIFY_API_KEY, AIFY_SERVER_URL, makeAifyHttpCall } from "./aify-http.mjs";
+import { AIFY_SERVER_URL, makeAifyHttpCall } from "./aify-http.mjs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { openGatewayWsClient } from "./hermes-gateway.mjs";
 import {
@@ -550,7 +550,7 @@ export function startResumeMarkerSync(opts = {}) {
     readGatewayUrl = readGatewayUrlMarker,
     readMarker = readSessionIdMarker,
     writeMarker = writeSessionIdMarker,
-    httpCall = makeAifyHttpCall(AIFY_SERVER_URL, AIFY_API_KEY),
+    httpCall = makeAifyHttpCall(AIFY_SERVER_URL),
     nextId = (() => { let n = 1; return () => n++; })(),
   } = opts;
   const id = String(agentId || "").trim();

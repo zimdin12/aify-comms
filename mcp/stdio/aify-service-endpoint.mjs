@@ -124,7 +124,7 @@ const SERVER_URL = coerceLoopbackToIPv4(
  * for this service is the opposite of that: scoped by declaration rather than by inheritance.
  *
  * Environment still wins, so an operator or a test can override without touching the store, and a
- * host with no registry behaves exactly as before. Resolved once, and only when env carried nothing.
+ * host with no registry behaves exactly as before. A miss is re-read, and a 401 invalidates the cache.
  */
 /**
  * The key for each destination, resolved the one way every bridge component must use.
@@ -137,12 +137,27 @@ const SERVER_URL = coerceLoopbackToIPv4(
  * `env` rather than reading the module-level value below.
  */
 export function destinationKeyResolver(serverUrl, {
-  env = process.env, readFile = (f) => readFileSync(f), joinPath = join, homeDir = homedir(), ...rest
+  env = process.env, readFile = (f) => readFileSync(f), joinPath = join, homeDir = homedir(),
+  onDiagnostic = (message) => console.error(message), ...rest
 } = {}) {
-  const envKey = apiKeyFrom(env);
-  const store = envKey ? { key: "", endpoint: "" }
-    : keyForEndpoint({ env, readFile, join: joinPath, homeDir, endpoint: serverUrl, ...rest });
-  return (url) => envKey || (sameEndpoint(store.endpoint, url) ? store.key : "");
+  let store = null;
+  let lastReason = "";
+  return (url, { refresh = false } = {}) => {
+    const envKey = apiKeyFrom(env);
+    if (envKey) return envKey;
+    if (refresh || !store?.key) {
+      store = keyForEndpoint({ env, readFile, join: joinPath, homeDir, endpoint: serverUrl, ...rest,
+        onRefusal: (reason) => {
+          if (serverUrl && reason !== lastReason) {
+            onDiagnostic(`[aify-comms] credential unavailable: ${reason}; will re-resolve`);
+          }
+          lastReason = reason;
+        },
+      });
+      if (store.key) lastReason = "";
+    }
+    return sameEndpoint(store.endpoint, url) ? store.key : "";
+  };
 }
 
 const KEY_FOR_URL = destinationKeyResolver(SERVER_URL);
@@ -160,13 +175,15 @@ const KEY_FOR_URL = destinationKeyResolver(SERVER_URL);
  * An environment key is different in kind: the operator exported it, which is a choice about their
  * own configuration, so it travels wherever they pointed this process.
  */
-function keyForUrl(url) {
-  return KEY_FOR_URL(url);
+export function keyForUrl(url, opts) {
+  const key = KEY_FOR_URL(url, opts);
+  if (sameEndpoint(SERVER_URL, url)) API_KEY = key;
+  return key;
 }
 
 //: What this process sends to its PRIMARY endpoint. Exported for the callers bound to `SERVER_URL`;
 //: anything iterating destinations must ask `keyForUrl` per destination instead.
-const API_KEY = keyForUrl(SERVER_URL);
+let API_KEY = KEY_FOR_URL(SERVER_URL);
 
 // Whether this bridge talks to a remote service over HTTP or drives the local filesystem store.
 //
@@ -292,6 +309,9 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
         // like any other non-2xx, which is the honest answer: a redirect is not an API response.
         const res = await fetch(url, { ...options, redirect: "manual" });
         if (!res.ok) {
+          if (res.status === 401) {
+            keyForUrl(baseUrl, { refresh: true });
+          }
           const text = await res.text();
           const err = new Error(`HTTP ${res.status}: ${text}`);
           err.status = res.status;
@@ -316,7 +336,7 @@ async function httpCall(method, endpoint, body = null, opts = {}) {
           error.serverUrl = error.serverUrl || baseUrl;
           lastError = error;
         }
-        if (!isTransientHttpError(error) || !retriable) throw lastError;
+        if (error?.status === 401 || !isTransientHttpError(error) || !retriable) throw lastError;
       } finally {
         clearTimeout(timeout);
       }
