@@ -144,10 +144,12 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
 
     SAFETY — this ONLY touches the stale DB record, never any process:
     - Targets status IN ('claimed','starting','running') with empty finished_at.
-    - NEVER fails a spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
-      environment bridge — a worker actively (even slowly) booting on the live
-      bridge is left alone regardless of how long it has been booting, because
-      its claiming bridge stays in the live set.
+    - A `starting` or `running` spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
+      environment bridge is left alone until it is older than the wall ceiling
+      (`wall_ceiling_minutes`, from `active_managed_run_wall_ceiling_minutes`, default 30),
+      so a worker slowly booting on a live bridge keeps its claim; past that it is
+      abandoned, not slow (see the bounded carve-out below). A `claimed` row gets no such
+      shelter.
     - Requires a DETERMINABLE claim/create age > SPAWN_ORPHAN_GRACE_SECONDS, so a
       just-claimed spawn whose env heartbeat may briefly lag gets grace; unknown
       age → left alone (conservative).
