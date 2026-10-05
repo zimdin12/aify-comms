@@ -33,14 +33,17 @@ const GATEWAY_PROBE_TIMEOUT_MS = Math.max(
   500,
   Number(process.env.AIFY_HERMES_GATEWAY_PROBE_TIMEOUT_MS || 5000),
 );
-const READY_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_GATEWAY_READY_MS || 60000));
+// An explicit operator limit wins. Otherwise readiness follows the owned child,
+// with a long hung-child ceiling, or a bounded fallback for unverifiable lifetimes.
+const READY_TIMEOUT_MS = process.env.AIFY_HERMES_GATEWAY_READY_MS
+  ? Math.max(5000, Number(process.env.AIFY_HERMES_GATEWAY_READY_MS)) : undefined;
 const RPC_TIMEOUT_MS = Math.max(5000, Number(process.env.AIFY_HERMES_RPC_TIMEOUT_MS || 60000));
 export const MAX_REENSURE_WITHOUT_RECOVERY = 3;
 const _teardownState = { done: false };
 
 
-async function scrapeToken(indexUrl, fetchImpl) {
-  const res = await fetchImpl(indexUrl, { method: "GET" });
+async function scrapeToken(indexUrl, fetchImpl, signal) {
+  const res = await fetchImpl(indexUrl, { method: "GET", ...(signal ? { signal } : {}) });
   if (!res || res.ok === false) {
     const status = res?.status ?? "?";
     throw new Error(`dashboard index ${indexUrl} returned ${status}`);
@@ -72,19 +75,21 @@ function redactTokens(text) {
 }
 
 
-async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure, explain } = {}) {
+async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, detectFailure, explain, signal } = {}) {
   const deadline = Date.now() + deadlineMs;
   let lastErr = null;
   for (;;) {
+    if (signal?.aborted) throw signal.reason;
     try {
-      return await scrapeToken(indexUrl, fetchImpl);
+      return await scrapeToken(indexUrl, fetchImpl, signal);
     } catch (err) {
+      if (signal?.aborted) throw signal.reason;
       lastErr = err;
       // FAIL FAST on a known-fatal boot signature (task #237 item e). The
       // "Installing TUI dependencies" npm step runs OUTSIDE `--skip-build` and, on
       // hermes upstream drift, dies `npm error Missing script: "build"` — the
       // dashboard then NEVER binds, so without this check the launch limps to the
-      // opaque ~60s readiness timeout. `detectFailure` (injected by ensureGatewayHost)
+      // opaque readiness timeout. `detectFailure` (injected by ensureGatewayHost)
       // returns the CLEAR, distinct message the instant the signature is seen.
       if (typeof detectFailure === "function") {
         let sig = null;
@@ -103,7 +108,7 @@ async function waitForIndexToken(indexUrl, fetchImpl, { deadlineMs, intervalMs, 
             (said ? `its stderr ends: ${said}` : (lastErr?.message || String(lastErr))),
         );
       }
-      await sleep(intervalMs);
+      await sleep(intervalMs, undefined, { signal });
     }
   }
 }
@@ -289,7 +294,7 @@ export async function ensureGatewayHost({
   // TUI-deps / npm-build boot-failure FAST-FAIL (task #237 item e). The gateway
   // child's stderr can carry the fatal `npm error Missing script: "build"` from the
   // "Installing TUI dependencies" step (runs OUTSIDE `--skip-build`); when it does,
-  // the dashboard never binds and — without this — the launch limps to the opaque ~60s
+  // the dashboard never binds and, without this, the launch reaches the bounded
   // readiness timeout. We watch stderr TWO ways so both stdio shapes are covered:
   //   (1) a readable child.stderr stream (the opt-in pipe path + injected test fakes),
   //   (2) the per-port stderr LOG FILE (the LIVE path routes stderr to a file fd, so
@@ -325,15 +330,55 @@ export async function ensureGatewayHost({
     return null;
   };
 
-  const token = await waitForIndexToken(indexUrl, fetchImpl, {
-    detectFailure: detectBootFailure,
-    explain: () => lastGatewayLogLine(gwStderrBuf || (gwErrPath ? fs.readFileSync(gwErrPath, "utf8") : "")),
-    deadlineMs: readyTimeoutMs,
-    intervalMs: readyIntervalMs,
+  const explain = () => {
+    try { return lastGatewayLogLine(gwStderrBuf || (gwErrPath ? fs.readFileSync(gwErrPath, "utf8") : "")); }
+    catch { return ""; }
+  };
+  const lifetimeKnown = Number.isInteger(child?.pid) && child.pid > 0
+    && typeof child?.on === "function"
+    && typeof child?.removeListener === "function"
+    && child.exitCode !== undefined && child.signalCode !== undefined;
+  const deadlineMs = readyTimeoutMs !== undefined ? readyTimeoutMs
+    : (lifetimeKnown ? 10 * 60 * 1000 : 60000);
+  const abort = new AbortController();
+  const stopped = new Promise((_, reject) => {
+    abort.signal.addEventListener("abort", () => reject(abort.signal.reason), { once: true });
   });
-  // Index served — now confirm the /api/ws socket actually opens (see verifyWsOpen).
-  await verifyWsOpen(token);
-  return { port, token, wsUrl: wsUrlFor(token), child, reused: false };
+  const stop = (message) => {
+    if (!abort.signal.aborted) abort.abort(new Error(message));
+  };
+  const onExit = (code, signal) => {
+    const tail = explain();
+    stop(`hermes dashboard at ${indexUrl} exited before readiness: exit code ${code ?? "unknown"}`
+      + (signal ? `, signal ${signal}` : "") + (tail ? `; its stderr ends: ${tail}` : ""));
+  };
+  const onError = (error) => stop(`hermes dashboard at ${indexUrl} could not start: ${error?.code || "spawn_error"}`);
+  child?.on?.("exit", onExit);
+  child?.on?.("error", onError);
+  if (lifetimeKnown && (child.exitCode !== null || child.signalCode !== null)) {
+    onExit(child.exitCode, child.signalCode);
+  }
+  const timer = setTimeout(() => {
+    const tail = explain();
+    stop(`hermes dashboard at ${indexUrl} did not become ready within ${deadlineMs}ms`
+      + (tail ? `: its stderr ends: ${tail}` : ""));
+  }, deadlineMs);
+  timer.unref?.();
+  try {
+    const token = await Promise.race([waitForIndexToken(indexUrl, fetchImpl, {
+      detectFailure: detectBootFailure, explain, deadlineMs,
+      intervalMs: readyIntervalMs, signal: abort.signal,
+    }), stopped]);
+    clearTimeout(timer);
+    // The same child must survive through WS proof, not merely index scraping.
+    await Promise.race([verifyWsOpen(token), stopped]);
+    if (abort.signal.aborted) throw abort.signal.reason;
+    return { port, token, wsUrl: wsUrlFor(token), child, reused: false };
+  } finally {
+    clearTimeout(timer);
+    child?.removeListener?.("exit", onExit);
+    child?.removeListener?.("error", onError);
+  }
 }
 
 
