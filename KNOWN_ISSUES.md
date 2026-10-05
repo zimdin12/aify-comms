@@ -5,6 +5,16 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+## A bare model on a hermes spawn can select a different provider (found 2026-10-05)
+
+A hermes spawn with a bare model can switch away from the configured provider. In Hermes
+`eb044063235fbf7a4e68dd2970ade05dbe637ff3`, an explicit `gpt-6.1-sol` seed selects `openai-api`
+through startup's static model catalog detection, despite a configured `openai-codex` provider.
+This selection is owned by Hermes; 0.8.7 makes no production fix for it. Use
+`openai-codex:<model>` to name the provider, or leave the model empty to use the config default.
+The offline startup-helper trace verified those selection paths, not an end-to-end managed spawn
+or provider API call.
+
 ## A hermes gateway port beside a wildcard listener reads as free (found 2026-10-05)
 
 `isPortFree` in `mcp/stdio/hermes-endpoint.js` binds 127.0.0.1 only. On Windows that bind succeeds while another
