@@ -136,12 +136,20 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
     permanently, because this query said `status = 'running'` and the live-bridge carve-out would
     have held the row for thirty minutes even once it did not.
 
+    THE THIRD SHAPE: `starting`, the claimer's report between claim and `running`, under the rules
+    `running` has. It was in no query here, so a row whose `running` report never landed stayed
+    `starting` for good with a live claimer: apgtest-cc-4 on the operator's host, 2026-10-05, from
+    03:51:56Z with no worker, session or error. The dead-terminal settlement covers `starting` only
+    when a terminal died, and that spawn had none.
+
     SAFETY — this ONLY touches the stale DB record, never any process:
-    - Targets status IN ('claimed','running') with empty finished_at.
-    - NEVER fails a spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
-      environment bridge — a worker actively (even slowly) booting on the live
-      bridge is left alone regardless of how long it has been booting, because
-      its claiming bridge stays in the live set.
+    - Targets status IN ('claimed','starting','running') with empty finished_at.
+    - A `starting` or `running` spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
+      environment bridge is left alone until it is older than the wall ceiling
+      (`wall_ceiling_minutes`, from `active_managed_run_wall_ceiling_minutes`, default 30),
+      so a worker slowly booting on a live bridge keeps its claim; past that it is
+      abandoned, not slow (see the bounded carve-out below). A `claimed` row gets no such
+      shelter.
     - Requires a DETERMINABLE claim/create age > SPAWN_ORPHAN_GRACE_SECONDS, so a
       just-claimed spawn whose env heartbeat may briefly lag gets grace; unknown
       age → left alone (conservative).
@@ -170,7 +178,7 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
         """
         SELECT id, status, claimed_by_bridge_id, claimed_at, created_at
         FROM spawn_requests
-        WHERE status IN ('claimed', 'running') AND COALESCE(finished_at, '') = ''
+        WHERE status IN ('claimed', 'starting', 'running') AND COALESCE(finished_at, '') = ''
         """
     )
     failed = 0
@@ -214,14 +222,15 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 continue
         if not age_epoch or (now_epoch - age_epoch) < SPAWN_ORPHAN_GRACE_SECONDS:
             continue  # too fresh, or age undeterminable → leave it (conservative)
-        await db.execute(
+        settled = await db.execute(
             """
             UPDATE spawn_requests
             SET status = 'failed',
                 error = COALESCE(NULLIF(error, ''), ?),
                 finished_at = COALESCE(finished_at, ?),
                 updated_at = ?
-            WHERE id = ? AND status = ?
+            WHERE id = ? AND status = ? AND COALESCE(claimed_by_bridge_id, '') = ?
+              AND COALESCE(finished_at, '') = ''
             """,
             (
                 # NAME THE RULE THAT FIRED. The old text said the claiming bridge was no longer live,
@@ -248,9 +257,15 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
                 now,
                 now,
                 row["id"],
-                stuck_status,
+                # THE ROW AS IT WAS JUDGED, compared again at the write: a late `running` report, a settlement
+                # or a new claimer landing between the read above and this write leaves it alone, since what
+                # was judged abandoned is no longer what is there (review of 0.8.6's reconciler delta).
+                str(row["status"] or ""),
+                bid,
             ),
         )
+        if not settled.rowcount:
+            continue
         failed += 1
     if failed:
         await db.commit()

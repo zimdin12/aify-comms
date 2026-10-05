@@ -210,6 +210,79 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
         self.assertNotIn("no longer live", error,
                          "the claiming bridge IS live; this text sends the reader to the wrong place")
 
+    # ── the third shape: `starting`, whose `running` report never landed ────────────────────────
+    #
+    # MEASURED on the operator's host 2026-10-05: spawn_1791172292730_3eacb1d5 (apgtest-cc-4) sat
+    # `starting` from 03:51:56Z with no worker, session or error, claimed by a bridge that kept claiming
+    # normally. The query here named only claimed and running, so nothing would ever settle it.
+
+    def test_A_STARTING_SPAWN_ABANDONED_ON_A_LIVE_BRIDGE_IS_FAILED(self) -> None:
+        """THE INCIDENT'S SHAPE: a live claimer, a `starting` row long past the wall ceiling."""
+        self._seed("stuck-starting", bridge=LIVE_BRIDGE, claimed_minutes_ago=CEILING_MINUTES * 2, status="starting")
+        self._reap()
+        row = self._row("stuck-starting")
+        self.assertEqual(row["status"], "failed", "a starting spawn whose running report never landed stays starting for ever")
+        self.assertIn("never settled", str(row["error"] or ""))
+
+    def test_a_starting_spawn_on_a_vanished_bridge_is_failed_after_the_grace(self) -> None:
+        self._seed("starting-orphan", bridge=DEAD_BRIDGE, claimed_minutes_ago=10, status="starting")
+        self._reap()
+        self.assertEqual(self._row("starting-orphan")["status"], "failed")
+
+    def test_a_starting_spawn_on_a_live_bridge_keeps_the_boot_shelter(self) -> None:
+        """CONTROL: `starting` takes `running`'s rules, not `claimed`'s. A worker coming up slowly on a
+        live bridge -- a folder-trust prompt, a long boot -- is left alone until the wall ceiling."""
+        self._seed("starting-boot", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="starting")
+        self._reap()
+        self.assertEqual(self._row("starting-boot")["status"], "starting", "a booting worker on a live bridge lost its shelter")
+
+    # ── a stale observation must not settle a newer state ───────────────────────────────────────
+    #
+    # The reaper reads the rows, judges them, then writes. Whatever lands between the read and the write
+    # -- a late `running` report, a new claimer -- is not what was judged abandoned, so the write must
+    # leave it alone. `_reap_racing` runs that competing write at the last moment before the UPDATE.
+
+    def _reap_racing(self, competing_sql: str, params: tuple) -> int:
+        async def go():
+            from service.db import get_db
+
+            db = await get_db()
+
+            class Racing:
+                fired = False
+
+                async def execute(self, sql, args=()):
+                    if not Racing.fired and sql.lstrip().startswith("UPDATE spawn_requests"):
+                        Racing.fired = True
+                        await db.execute(competing_sql, params)
+                    return await db.execute(sql, args)
+
+                def __getattr__(self, name):
+                    return getattr(db, name)
+
+            try:
+                reaped = await _fail_orphaned_running_spawn_requests(
+                    Racing(), offline_seconds=90, wall_ceiling_minutes=CEILING_MINUTES,
+                )
+                self.assertTrue(Racing.fired, "control: the competing write never ran, so no race was tested")
+                await db.commit()
+                return reaped
+            finally:
+                await db.close()
+
+        return asyncio.run(go())
+
+    def test_A_LATE_RUNNING_REPORT_beats_a_stale_judgement(self) -> None:
+        self._seed("late-report", bridge=DEAD_BRIDGE, claimed_minutes_ago=10, status="starting")
+        reaped = self._reap_racing("UPDATE spawn_requests SET status = 'running' WHERE id = ?", ("late-report",))
+        self.assertEqual(self._row("late-report")["status"], "running", "a spawn that reported running was failed on an older reading")
+        self.assertEqual(reaped, 0, "a write that settled nothing was counted")
+
+    def test_A_NEW_CLAIMER_beats_a_stale_judgement(self) -> None:
+        self._seed("reclaimed", bridge=DEAD_BRIDGE, claimed_minutes_ago=10, status="starting")
+        self._reap_racing("UPDATE spawn_requests SET claimed_by_bridge_id = ? WHERE id = ?", (LIVE_BRIDGE, "reclaimed"))
+        self.assertEqual(self._row("reclaimed")["status"], "starting", "a spawn now owned by a live claimer was failed on its old owner's death")
+
     def test_a_running_row_still_gets_its_own_rules(self) -> None:
         """CONTROL FOR THE SPLIT. Widening the query must not give `running` the claim rules: a
         genuinely booting worker on a live bridge is still sheltered until the wall ceiling."""

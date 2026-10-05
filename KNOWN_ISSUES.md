@@ -5,6 +5,28 @@ What is open now: known limitations, deferred work, and things to watch. Complem
 and superseded entries are in [docs/history/KNOWN_ISSUES-archive.md](docs/history/KNOWN_ISSUES-archive.md),
 kept as evidence. Last reviewed 2026-09-27.
 
+## A bridge process whose key lookup fails once stays keyless until relaunched (found 2026-10-05)
+
+`aify-service-endpoint.mjs` resolves the API key once, at module load (`const API_KEY = keyForUrl(SERVER_URL)`),
+and `registry-credential.mjs` answers any failure on the credential path -- registry read, path check, the
+custody `icacls` call (5 s timeout), decode -- with an empty key and no log line. Nothing resolves it again. Measured
+2026-10-05: the delivery loops of managed hermes apgtest-hm-3/4, started at 03:57-03:58Z under heavy load, never
+held the key (absent from their memory; environment identical to working loops) and answered every poll with
+`401 Invalid or missing API key`; six loops started after 0.8.5 was installed were fine. Which step failed is
+unattributed (an `icacls` timeout under load is the leading candidate, not proven). A relaunch recovers it. Fix
+owed: re-resolve on a 401 or an empty key, and say why the credential could not be read.
+
+## A healthy spawn's row ends `failed` after 30 minutes (found 2026-10-05)
+
+`spawn_requests` has no success state (`SPAWN_REQUEST_STATUSES`: queued, claimed, starting, running, failed,
+cancelled), and nothing sets `finished_at` on a worker that came up. So the orphan reconciler's wall ceiling
+(`active_managed_run_wall_ceiling_minutes`, 30) fails every `running` row of a live claimer, healthy or not:
+`Abandoned: claimed by a live bridge but never settled within 30 minutes`. Measured on the operator's service
+2026-10-05: the rows of apgtest-cc-1..3 and hm-3/4 read that while their terminals were `attached`, and those
+agents kept running. The status engine and its cache do not query `spawn_requests`; ten other service modules
+do, and what each makes of a `failed` row on a live agent is not traced. It needs a terminal success outcome for a
+spawn whose worker registered; 0.9 moves lifecycle to aify-env (C9's durable `done`).
+
 ## Left open by the external reviews of 0.8.1 and 0.8.4 (2026-10-03, 2026-10-04)
 
 0.8.2 addressed the 0.8.1 review's HIGHs and MEDIUMs; review then found six of those fixes wrong, corrected in
