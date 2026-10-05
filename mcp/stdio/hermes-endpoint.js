@@ -84,12 +84,32 @@ export function sanitizeAgentId(agentId) {
     .replace(/^-+|-+$/g, "");
 }
 
-// Is a local TCP port bindable (free) right now? Best-effort: tries to listen on
-// 127.0.0.1:<port> and reports whether the bind succeeded.
+// Is a local TCP port free right now? Free means this host can bind it AND nothing answers a connect to it.
 //
-// The OPTIONS form, so only a TCP port can be bound. `listen(port, host)` treats a non-numeric
-// string as a pipe path: on POSIX it binds a Unix socket of that name in the cwd and answers true.
-export function isPortFree(port, host = "127.0.0.1") {
+// THE CONNECT HALF IS WHAT WINDOWS NEEDS. There a bind to 127.0.0.1 succeeds while another process holds the
+// same port on 0.0.0.0, so the bind alone called Docker's published 8811 (Dashboard Next) free, the gateway was
+// placed on it, and its readiness probe got that dashboard's 401 (sc-tester-gpt, 2026-10-05). A connect reaches
+// a wildcard listener too, and starts no listener of our own, so it raises no firewall prompt.
+export async function isPortFree(port, host = "127.0.0.1", { answers = somethingAnswers } = {}) {
+  return (await canBind(port, host)) && !(await answers(port, host));
+}
+
+// Does anything accept a TCP connection on host:port? A timeout counts as an answer: a port we cannot prove
+// empty is not handed to a gateway.
+export function somethingAnswers(port, host = "127.0.0.1", timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port, host });
+    const done = (answered) => { socket.destroy(); resolve(answered); };
+    socket.setTimeout(timeoutMs, () => done(true));
+    socket.once("connect", () => done(true));
+    socket.once("error", (error) => done(error?.code !== "ECONNREFUSED"));
+  });
+}
+
+// Can this host listen on host:port? The OPTIONS form, so only a TCP port can be bound. `listen(port, host)`
+// treats a non-numeric string as a pipe path: on POSIX it binds a Unix socket of that name in the cwd and
+// answers true.
+function canBind(port, host) {
   return new Promise((resolve) => {
     const srv = net.createServer();
     srv.once("error", () => resolve(false));
