@@ -359,6 +359,40 @@ export async function deliverRun({
   }
 }
 
+const CLAIM_TRANSPORT_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "ETIMEDOUT"]);
+
+function claimErrorDiagnostic(error) {
+  const status = Number(error?.status);
+  if (Number.isInteger(status) && status >= 100 && status <= 599) {
+    return `HTTP ${status}${status === 401 || status === 403 ? " authentication refused" : " claim refused"}; retrying next poll`;
+  }
+  const code = error?.cause?.code || error?.code;
+  if (CLAIM_TRANSPORT_CODES.has(code)) return `${code}; retrying next poll`;
+  if (error?.name === "AbortError" || error?.name === "TimeoutError") {
+    return "request_aborted_or_timed_out; retrying next poll";
+  }
+  return "unknown_claim_error; no recognized status or transport code; retrying next poll";
+}
+
+function claimResponseDiagnostic(claim) {
+  if (claim?.blockedBy) {
+    const block = claim.blockedBy;
+    const reason = typeof block.reason === "string"
+      && /^[a-z][a-z0-9_]{0,63}$/.test(block.reason)
+      ? block.reason : "blocked_unknown";
+    return `${reason}; service blocked this claim; retrying next poll`;
+  }
+  if (claim?.run) return "unsupported_execution_mode; this loop cannot deliver the returned run";
+  // An empty response also covers unreported service gates. It does not prove an empty queue.
+  return "no_run_returned; service supplied no blocker reason";
+}
+
+function noteClaimDiagnostic(counter, diagnostic) {
+  if (counter.lastDiagnostic === diagnostic) return;
+  counter.lastDiagnostic = diagnostic;
+  console.error(`[hermes-managed-host] /dispatch/claim: ${diagnostic}`);
+}
+
 export async function runPollCycle({
   agentId,
   machineId = MACHINE_ID,
@@ -423,7 +457,7 @@ export async function runPollCycle({
         }
         // Transient (WS/connect/RPC/5xx, or pre-grace 404): swallow + retry on
         // the next cycle, preserving the loop's existing behaviour.
-        console.error("[hermes-managed-host] poll cycle claim error:", claimErr?.message || String(claimErr));
+        noteClaimDiagnostic(claimErrorCounter, claimErrorDiagnostic(claimErr));
         break;
       }
       // Phase H1 (status v2): the agent was explicitly DISABLED (server returns
@@ -452,7 +486,11 @@ export async function runPollCycle({
       }
       const run = claim?.run;
       const mode = String(run?.executionMode || "").trim().toLowerCase();
-      if (!run || !["channel", "resident"].includes(mode)) break;
+      if (!run || !["channel", "resident"].includes(mode)) {
+        noteClaimDiagnostic(claimErrorCounter, claimResponseDiagnostic(claim));
+        break;
+      }
+      claimErrorCounter.lastDiagnostic = "";
       await deliverRun({ run, agentId, httpCall, wsClient, inFlight, gatewayUrl, tempDir, emptyAttachCounter, attachWaitMs, attachPollMs, sleepImpl });
       processed++;
     }

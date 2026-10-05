@@ -173,6 +173,9 @@ export async function runDeliveryLoop(agentId, deps = {}) {
     console.error("[hermes-managed-host] run: no bound agentId; nothing to drive.");
     return { released: false, processed: 0 };
   }
+  console.error(serverUrl
+    ? "[hermes-managed-host] delivery loop started; waiting for gateway before /dispatch/claim."
+    : "[hermes-managed-host] cannot claim: service_url_missing; claims disabled because no service URL is configured.");
   const port = await resolveGatewayPort(id, { tempDir: TMP_DIR });
 
   // Task 1.1: register the channel-sidecar liveness heartbeat BEFORE the gateway
