@@ -17,6 +17,15 @@ lists only 8800-8802, while compose now publishes 8811 and 8820-8821 too. Rewrit
 on a port netstat shows free. Fix owed: test the wildcard addresses (0.0.0.0 and ::) as well, and drop the
 hand-written reserved list once the probe sees every listener.
 
+## A managed hermes agent respawned under a removed agent's id inherits its leftovers (found 2026-10-05)
+
+Removing a managed hermes agent stops its triad and deletes its record, but leaves the id's hermes session marker
+(`%TEMP%\aify-hermes-session-<id>`), loop-ready marker and the service's read history keyed by that id. Respawned
+under the same id 2026-10-05, sc-tester-gpt2's TUI resumed the removed incarnation's conversation, and its new
+delivery loop never completed a claim. The loop's log stayed empty, so whether the cause was these leftovers or the
+keyless loop below is unattributed. A fresh id is the workaround. Fix owed: removal clears the id's markers, and a
+loop that cannot claim says why in its log.
+
 ## A bridge process whose key lookup fails once stays keyless until relaunched (found 2026-10-05)
 
 `aify-service-endpoint.mjs` resolves the API key once, at module load (`const API_KEY = keyForUrl(SERVER_URL)`),
