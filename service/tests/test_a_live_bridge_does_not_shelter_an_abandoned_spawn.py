@@ -210,6 +210,32 @@ class ALiveBridgeDoesNotShelterAnAbandonedSpawnTests(FastApiTestCase):
         self.assertNotIn("no longer live", error,
                          "the claiming bridge IS live; this text sends the reader to the wrong place")
 
+    # ── the third shape: `starting`, whose `running` report never landed ────────────────────────
+    #
+    # MEASURED on the operator's host 2026-10-05: spawn_1791172292730_3eacb1d5 (apgtest-cc-4) sat
+    # `starting` from 03:51:56Z with no worker, session or error, claimed by a bridge that kept claiming
+    # normally. The query here named only claimed and running, so nothing would ever settle it.
+
+    def test_A_STARTING_SPAWN_ABANDONED_ON_A_LIVE_BRIDGE_IS_FAILED(self) -> None:
+        """THE INCIDENT'S SHAPE: a live claimer, a `starting` row long past the wall ceiling."""
+        self._seed("stuck-starting", bridge=LIVE_BRIDGE, claimed_minutes_ago=CEILING_MINUTES * 2, status="starting")
+        self._reap()
+        row = self._row("stuck-starting")
+        self.assertEqual(row["status"], "failed", "a starting spawn whose running report never landed stays starting for ever")
+        self.assertIn("never settled", str(row["error"] or ""))
+
+    def test_a_starting_spawn_on_a_vanished_bridge_is_failed_after_the_grace(self) -> None:
+        self._seed("starting-orphan", bridge=DEAD_BRIDGE, claimed_minutes_ago=10, status="starting")
+        self._reap()
+        self.assertEqual(self._row("starting-orphan")["status"], "failed")
+
+    def test_a_starting_spawn_on_a_live_bridge_keeps_the_boot_shelter(self) -> None:
+        """CONTROL: `starting` takes `running`'s rules, not `claimed`'s. A worker coming up slowly on a
+        live bridge -- a folder-trust prompt, a long boot -- is left alone until the wall ceiling."""
+        self._seed("starting-boot", bridge=LIVE_BRIDGE, claimed_minutes_ago=10, status="starting")
+        self._reap()
+        self.assertEqual(self._row("starting-boot")["status"], "starting", "a booting worker on a live bridge lost its shelter")
+
     def test_a_running_row_still_gets_its_own_rules(self) -> None:
         """CONTROL FOR THE SPLIT. Widening the query must not give `running` the claim rules: a
         genuinely booting worker on a live bridge is still sheltered until the wall ceiling."""

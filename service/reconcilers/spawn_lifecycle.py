@@ -136,8 +136,14 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
     permanently, because this query said `status = 'running'` and the live-bridge carve-out would
     have held the row for thirty minutes even once it did not.
 
+    THE THIRD SHAPE: `starting`, the claimer's report between claim and `running`, under the rules
+    `running` has. It was in no query here, so a row whose `running` report never landed stayed
+    `starting` for good with a live claimer: apgtest-cc-4 on the operator's host, 2026-10-05, from
+    03:51:56Z with no worker, session or error. The dead-terminal settlement covers `starting` only
+    when a terminal died, and that spawn had none.
+
     SAFETY — this ONLY touches the stale DB record, never any process:
-    - Targets status IN ('claimed','running') with empty finished_at.
+    - Targets status IN ('claimed','starting','running') with empty finished_at.
     - NEVER fails a spawn whose `claimed_by_bridge_id` is a CURRENTLY-online
       environment bridge — a worker actively (even slowly) booting on the live
       bridge is left alone regardless of how long it has been booting, because
@@ -170,7 +176,7 @@ async def _fail_orphaned_running_spawn_requests(db, *, offline_seconds: int, wal
         """
         SELECT id, status, claimed_by_bridge_id, claimed_at, created_at
         FROM spawn_requests
-        WHERE status IN ('claimed', 'running') AND COALESCE(finished_at, '') = ''
+        WHERE status IN ('claimed', 'starting', 'running') AND COALESCE(finished_at, '') = ''
         """
     )
     failed = 0
